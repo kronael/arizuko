@@ -44,14 +44,15 @@ type paneStore interface {
 type bot struct {
 	chanlib.NoVoiceSender
 
-	cfg   config
-	api   string
-	http  *http.Client
-	rc    *chanlib.RouterClient
-	files *chanlib.URLCache
-	users *ttlCache
-	chans *ttlCache
-	store paneStore
+	cfg     config
+	api     string
+	http    *http.Client
+	rc      *chanlib.RouterClient
+	files   *chanlib.URLCache
+	users   *ttlCache
+	chans   *ttlCache
+	store   paneStore
+	typing  *chanlib.TypingRefresher
 
 	botUserID atomic.Value
 	teamID    atomic.Value
@@ -101,8 +102,38 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		pendingPrompts: map[string][]panePrompt{},
 		pendingTitle:   map[string]string{},
 	}
+	b.typing = chanlib.NewTypingRefresher(3*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTypingChannel, nil)
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
+}
+
+// sendTypingChannel calls conversations.typing for a regular (non-pane) Slack
+// channel or DM. The indicator expires after ~5s on Slack's side, so
+// TypingRefresher fires every 3s. Returns false on auth/permission errors to
+// cancel the refresher.
+func (b *bot) sendTypingChannel(jid string) bool {
+	parts, err := parseJID(jid)
+	if err != nil {
+		return false
+	}
+	form := url.Values{}
+	form.Set("channel", parts.ID)
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := b.postForm(context.Background(), "/conversations.typing", form, &resp); err != nil {
+		slog.Debug("slack conversations.typing failed", "jid", jid, "err", err)
+		return true // transient error — keep trying
+	}
+	if !resp.OK {
+		if resp.Error == "not_authed" || resp.Error == "invalid_auth" || resp.Error == "missing_scope" {
+			slog.Warn("slack conversations.typing auth error", "jid", jid, "error", resp.Error)
+			return false // cancel refresher
+		}
+		slog.Debug("slack conversations.typing", "jid", jid, "error", resp.Error)
+	}
+	return true
 }
 
 func (b *bot) start(rc *chanlib.RouterClient) error {
@@ -120,6 +151,7 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 
 func (b *bot) stop() {
 	b.connected.Store(false)
+	b.typing.Stop()
 }
 
 func verifySignature(secret, sigHeader, tsHeader string, body []byte, now time.Time) error {
@@ -763,15 +795,16 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	return nil
 }
 
-// Typing surfaces a "thinking…" indicator in the Slack AI pane via
-// assistant.threads.setStatus. Regular DMs and channels have no bot-side
-// typing primitive on Slack — for those the call is a silent no-op.
-// Pane sessions are auto-detected from inbound `assistant_thread.action_token`
-// payloads (see handleMessage); only JIDs with a recorded pane session
-// trigger the API call.
+// Typing surfaces a "thinking…" indicator in Slack. Two paths:
+//   - Pane sessions (AI assistant): assistant.threads.setStatus, single shot.
+//   - Regular DMs/channels: conversations.typing via TypingRefresher (3s refresh).
+//
+// Pane sessions are auto-detected from inbound assistant_thread.action_token
+// payloads (see handleMessage).
 func (b *bot) Typing(jid string, on bool) {
 	pane, ok := b.lookupPane(jid)
 	if !ok {
+		b.typing.Set(jid, on)
 		return
 	}
 	parts, err := parseJID(jid)
