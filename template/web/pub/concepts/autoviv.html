@@ -65,6 +65,9 @@ is now registered. Do not register channels for non-operator
 senders &mdash; ask the operator instead.</code></pre>
     <p>Tune it: auto-register channels matching a pattern, ask the operator first, only register on explicit request. The agent is making the policy decision; the platform just runs the call.</p>
 
+    <h2>tier-2 web workspace</h2>
+    <p>When a tier-2 group is created, <code>/workspace/web/</code> is mounted from the host. Writes land in <code>/workspace/web/&lt;groupname&gt;/</code> on the host and are served at <code>&lt;world&gt;.$WEB_HOST/&lt;groupname&gt;/</code> &mdash; the parent world's vhost, not a new one. A tier-1 world like <code>atlas</code> and its autoviv&rsquo;d children share one hostname; each child gets its own path segment under it.</p>
+
     <h2>limits</h2>
     <ul>
       <li><strong>Operator grant required.</strong> <code>register_group</code> goes through <code>auth.AuthorizeStructural</code> (<a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a>): tier-1 callers may only create direct children of their own folder. <code>atlas</code> can register <code>atlas/eng-support</code>; it cannot register <code>main/foo</code>. Tier-0 (root) is needed for top-level folders.</li>
