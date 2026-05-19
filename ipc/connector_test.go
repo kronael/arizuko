@@ -136,21 +136,7 @@ func TestConnector_EndToEndThroughMCPSocket(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	store := map[[3]string]string{
-		{"folder", "atlas", "GITHUB_TOKEN"}: "ghp_folder_tok",
-	}
-	var auditRows []SecretUseRow
-	db := StoreFns{
-		LookupSecret: func(scope, scopeID, key string) (string, bool) {
-			v, ok := store[[3]string{scope, scopeID, key}]
-			return v, ok
-		},
-		LogSecretUse: func(r SecretUseRow) error {
-			auditRows = append(auditRows, r)
-			return nil
-		},
-		Connectors: tools,
-	}
+	db := StoreFns{Connectors: tools}
 
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
@@ -162,17 +148,9 @@ func TestConnector_EndToEndThroughMCPSocket(t *testing.T) {
 
 	// Call the connector tool via raw JSON-RPC over the socket; the
 	// shared callTool helper expects JSON in content[0].text, but our
-	// fake echoes plain text.
+	// fake echoes plain text. Secrets are empty (broker removed).
 	text := callConnectorRaw(t, sock, "fake_echo_env")
-	if strings.Contains(text, "ghp_folder_tok") {
-		t.Errorf("unscrubbed token in result: %q", text)
-	}
-	if !strings.Contains(text, "«redacted»") {
-		t.Errorf("expected scrub marker in %q", text)
-	}
-	if len(auditRows) != 1 || auditRows[0].Tool != "fake_echo_env" || auditRows[0].Scope != "folder" {
-		t.Errorf("audit row mismatch: %+v", auditRows)
-	}
+	_ = text // connector receives empty secrets; scrub behaviour tested in CallConnectorTool tests
 }
 
 func callConnectorRaw(t *testing.T, sock, name string) string {

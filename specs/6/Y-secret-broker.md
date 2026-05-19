@@ -1,7 +1,9 @@
 ---
-status: draft
+status: deferred
 depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
+
+> Deferred — secret injection removed from implementation pending a redesign around webd-side encryption and point-of-use decryption.
 
 # Tool-level secret brokering
 
@@ -170,8 +172,8 @@ for each key in tool.RequiresSecrets:
 ```
 
 `user` wins over `folder` when both define the same key. Folder lookup
-walks parents to `root` as `Store.FolderSecretsResolved` does today
-(`store/secrets.go:205-207`). Missing keys flow through as `""`.
+walks parents to `root` as `Store.FolderSecretsResolved` did
+(`store/secrets.go` — removed). Missing keys flow through as `""`.
 
 The container spawn path (`container/runner.go:235,640-660`,
 `resolveSpawnEnv`) **no longer merges user secrets into env**.
@@ -276,7 +278,7 @@ No proxy changes. No CA. No TLS termination. No
 - AES-GCM at rest — cipher code removed from `store/secrets.go`
   (v1 stores plaintext). Re-add behind `AUTH_SECRET` when threat
   model demands.
-- **OAuth dance + token refresh** — [`specs/9/14-surrogate-oauth.md`](14-surrogate-oauth.md).
+- **OAuth dance + token refresh** — [`specs/9/14-surrogate-oauth.md`](../9/14-surrogate-oauth.md).
   The broker treats `secrets.value` as opaque; whether it landed
   there via user paste (`/dash/me/secrets`) or via a completed OAuth
   flow is the writer's concern. v1 ships PAT-only: pastable
@@ -292,9 +294,9 @@ No proxy changes. No CA. No TLS termination. No
   GitHub token flow, the canonical v1 user.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.
-- [`specs/9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — egred
+- [`specs/9/10-crackbox-arizuko.md`](../9/10-crackbox-arizuko.md) — egred
   keeps CONNECT-splice + per-source allowlists; untouched by this spec.
-- [`specs/9/14-surrogate-oauth.md`](14-surrogate-oauth.md) — OAuth
+- [`specs/9/14-surrogate-oauth.md`](../9/14-surrogate-oauth.md) — OAuth
   dance + refresh wrapper; writer-side feed into the `secrets` table
   the broker reads. Independent ship: 9/11 ships PAT-only and is
   useful end-to-end without it.

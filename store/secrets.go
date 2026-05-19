@@ -63,8 +63,6 @@ type SecretScope string
 const (
 	ScopeFolder SecretScope = "folder"
 	ScopeUser   SecretScope = "user"
-
-	rootFolder = "root"
 )
 
 var ErrSecretNotFound = errors.New("secret not found")
@@ -208,75 +206,4 @@ func (s *Store) PurgeUnencryptedSecrets(ctx context.Context) error {
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE value NOT LIKE 'v1:%'`)
 	return err
-}
-
-// folderAncestors returns folder paths deepest first, ending with "root".
-func folderAncestors(folder string) []string {
-	folder = strings.Trim(folder, "/")
-	if folder == "" || folder == rootFolder {
-		return []string{rootFolder}
-	}
-	parts := strings.Split(folder, "/")
-	out := make([]string, 0, len(parts)+1)
-	for i := len(parts); i > 0; i-- {
-		out = append(out, strings.Join(parts[:i], "/"))
-	}
-	out = append(out, rootFolder)
-	return out
-}
-
-// FolderSecretsResolved walks folder up through parents with deepest-wins precedence.
-func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
-	paths := folderAncestors(folder)
-	if len(paths) == 0 {
-		return map[string]string{}, nil
-	}
-	args := make([]any, 0, len(paths)+1)
-	args = append(args, string(ScopeFolder))
-	for _, p := range paths {
-		args = append(args, p)
-	}
-	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",") + ")"
-	rows, err := s.db.Query(
-		`SELECT scope_id, key, value FROM secrets WHERE scope_kind = ? AND scope_id IN `+ph,
-		args...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	depthOf := make(map[string]int, len(paths))
-	for i, p := range paths {
-		depthOf[p] = len(paths) - 1 - i
-	}
-	type kv struct {
-		val   string
-		depth int
-	}
-	best := map[string]kv{}
-	for rows.Next() {
-		var scopeID, key, value string
-		if err := rows.Scan(&scopeID, &key, &value); err != nil {
-			return nil, err
-		}
-		plain, err := s.decode(value)
-		if errors.Is(err, ErrSecretNotFound) {
-			continue // stale plaintext row — skip
-		}
-		if err != nil {
-			return nil, fmt.Errorf("decrypt %s: %w", key, err)
-		}
-		d := depthOf[scopeID]
-		if cur, ok := best[key]; !ok || d > cur.depth {
-			best[key] = kv{val: plain, depth: d}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(best))
-	for k, v := range best {
-		out[k] = v.val
-	}
-	return out, nil
 }

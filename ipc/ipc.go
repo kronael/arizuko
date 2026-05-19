@@ -195,12 +195,6 @@ type StoreFns struct {
 	// gateway-side bump sites.
 	CurrentTriggerSender func(folder string) string
 
-	// LookupSecret resolves (scope, scopeID, key) to a value or ("", false).
-	// scope is "user" or "folder"; scopeID is auth_users.sub or folder path.
-	// Spec 9/11 broker.
-	LookupSecret func(scope, scopeID, key string) (string, bool)
-	// LogSecretUse appends one audit row per (tool call × resolved key).
-	LogSecretUse func(row SecretUseRow) error
 	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
 	// (oracle/codex/openai). Spec 5/34.
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
@@ -208,19 +202,6 @@ type StoreFns struct {
 	// catalog, registered through the broker chain at buildMCPServer.
 	// Empty/nil disables the connector path. Spec 9/11 M6.
 	Connectors []ConnectorTool
-}
-
-// SecretUseRow mirrors store.SecretUseRow for the ipc layer (ipc must not
-// import store). Spec 9/11.
-type SecretUseRow struct {
-	SpawnID   string
-	CallerSub string
-	Folder    string
-	Tool      string
-	Key       string
-	Scope     string // "user" | "folder" | "missing"
-	Status    string // "ok" | "err" | "timeout"
-	LatencyMS int64
 }
 
 // WebRoute mirrors store.WebRoute for the ipc layer.
@@ -678,59 +659,6 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	return t, nil
 }
 
-// resolveSecret implements the broker fallback chain per spec 9/11: user
-// scope wins over folder; folder walks ancestors deepest-first ending in
-// "root". Returns (value, scope) with scope ∈ {"user","folder","missing"}.
-func resolveSecret(db StoreFns, callerSub, folder, key string) (string, string) {
-	if db.LookupSecret == nil {
-		return "", "missing"
-	}
-	if callerSub != "" {
-		if v, ok := db.LookupSecret("user", callerSub, key); ok {
-			return v, "user"
-		}
-	}
-	f := strings.Trim(folder, "/")
-	if f == "" {
-		f = "root"
-	}
-	parts := strings.Split(f, "/")
-	for i := len(parts); i > 0; i-- {
-		if v, ok := db.LookupSecret("folder", strings.Join(parts[:i], "/"), key); ok {
-			return v, "folder"
-		}
-	}
-	if v, ok := db.LookupSecret("folder", "root", key); ok {
-		return v, "folder"
-	}
-	return "", "missing"
-}
-
-// injectSecretsAdapter resolves `requires` against db, emits one audit row
-// per key via db.LogSecretUse, and invokes `h` with the resolved map. Spec
-// 9/11 broker middleware. Caller is v1-empty (sub); folder reads from closure.
-func injectSecretsAdapter(
-	db StoreFns, folder, name string, requires []string,
-	h func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error),
-) server.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		secrets := make(map[string]string, len(requires))
-		for _, key := range requires {
-			start := time.Now()
-			value, scope := resolveSecret(db, "", folder, key)
-			if db.LogSecretUse != nil {
-				_ = db.LogSecretUse(SecretUseRow{
-					Folder: folder, Tool: name, Key: key,
-					Scope: scope, Status: "ok",
-					LatencyMS: time.Since(start).Milliseconds(),
-				})
-			}
-			secrets[key] = value
-		}
-		return h(ctx, req, secrets)
-	}
-}
-
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) *server.MCPServer {
 	id := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
@@ -751,26 +679,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr(name + ": not permitted")
 			}
 			return h(ctx, req)
-		})
-	}
-
-	// registerWithSecrets wraps a handler with the broker middleware (spec 9/11):
-	// grant check → resolve `requires` keys (user scope wins; folder walks to
-	// "root") → call handler with resolved map. One audit row per key via
-	// db.LogSecretUse. v1: CallerSub is empty (spec 6/5 ships Caller later);
-	// Folder reads from this closure.
-	registerWithSecrets := func(
-		name, desc string,
-		requires []string,
-		opts []mcp.ToolOption,
-		h func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error),
-	) {
-		inner := injectSecretsAdapter(db, folder, name, requires, h)
-		registerRaw(name, desc, opts, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !grantslib.CheckAction(rules, name, nil) {
-				return toolErr(name + ": not permitted")
-			}
-			return inner(ctx, req)
 		})
 	}
 
@@ -818,39 +726,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			})
 	}
 
-	// echo_secret is a dev-only tier-1 tool that exercises the broker chain
-	// end-to-end (spec 9/11 M1). The handler declares one required key
-	// (ECHO_SECRET) and reports whether the broker resolved it for the
-	// caller — never returns the value itself. Lets integration tests
-	// verify user→folder fallback without a third-party API surface.
-	// Real connectors land via M6/M7. Gated by ARIZUKO_DEV=1.
-	if os.Getenv("ARIZUKO_DEV") == "1" {
-		registerWithSecrets("echo_secret",
-			"Dev-only: report whether ECHO_SECRET resolved for the caller. "+
-				"Returns {found, len}; never returns the value. "+
-				"Used by 9/11 integration tests.",
-			[]string{"ECHO_SECRET"},
-			nil,
-			func(_ context.Context, _ mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error) {
-				v := secrets["ECHO_SECRET"]
-				out, _ := json.Marshal(map[string]any{"found": v != "", "len": len(v)})
-				return mcp.NewToolResultText(string(out)), nil
-			})
-	}
-
-	// MCP connectors (spec 9/11 M6). Each discovered tool registers through
-	// the broker chain with its connector's secrets list. The handler
-	// spawns the subprocess per call, proxies tools/call, scrubs the
-	// result, tears the subprocess down.
+	// MCP connectors. The handler spawns the subprocess per call, proxies
+	// tools/call, scrubs the result, tears the subprocess down.
 	for i := range db.Connectors {
 		tool := db.Connectors[i] // capture
 		opts := []mcp.ToolOption{}
 		if len(tool.InputSchema) > 0 {
 			opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
 		}
-		registerWithSecrets(tool.LocalName, tool.Description, tool.Connector.Secrets, opts,
-			func(ctx context.Context, req mcp.CallToolRequest, secrets map[string]string) (*mcp.CallToolResult, error) {
-				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
+		granted(tool.LocalName, tool.Description, opts,
+			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return CallConnectorTool(ctx, tool, req.GetArguments(), nil)
 			})
 	}
 

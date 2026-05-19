@@ -131,57 +131,6 @@ func TestDeleteSecret(t *testing.T) {
 	}
 }
 
-func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if err := s.SetSecret(ScopeFolder, "atlas", "KEY", "v1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeFolder, "atlas/eng", "KEY", "v2"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetSecret(ScopeFolder, "atlas", "ONLY_SHALLOW", "shallow"); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := s.FolderSecretsResolved("atlas/eng")
-	if err != nil {
-		t.Fatalf("FolderSecretsResolved: %v", err)
-	}
-	if got["KEY"] != "v2" {
-		t.Errorf("KEY = %q, want v2 (deepest wins)", got["KEY"])
-	}
-	if got["ONLY_SHALLOW"] != "shallow" {
-		t.Errorf("ONLY_SHALLOW = %q, want shallow", got["ONLY_SHALLOW"])
-	}
-}
-
-func TestFolderSecretsResolved_RootFallback(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	if err := s.SetSecret(ScopeFolder, "root", "KEY", "base"); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := s.FolderSecretsResolved("atlas/eng")
-	if err != nil {
-		t.Fatalf("FolderSecretsResolved: %v", err)
-	}
-	if got["KEY"] != "base" {
-		t.Errorf("KEY = %q, want base (root fallback)", got["KEY"])
-	}
-
-	// Also: root resolves to root.
-	got, err = s.FolderSecretsResolved("root")
-	if err != nil {
-		t.Fatalf("FolderSecretsResolved(root): %v", err)
-	}
-	if got["KEY"] != "base" {
-		t.Errorf("root resolution KEY = %q, want base", got["KEY"])
-	}
-}
 
 func TestSetGetSecret_Encrypted(t *testing.T) {
 	s, _ := OpenMem()
