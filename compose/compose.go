@@ -574,7 +574,7 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 		fmt.Fprintf(&b, "      - '%s:8080'\n", davPort)
 	}
 	b.WriteString("    command:\n")
-	b.WriteString("      - --port\n      - '8080'\n      - --allow-edit\n      - /data\n")
+	b.WriteString("      - --port\n      - '8080'\n      - --allow-upload\n      - --allow-delete\n      - /data\n")
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
