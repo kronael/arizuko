@@ -113,6 +113,53 @@ func TestDash_RouteCreate_DenyNonAdmin(t *testing.T) {
 	}
 }
 
+// TestDash_GroupSettingsInstructions: POST saves instructions to CLAUDE.md.
+func TestDash_GroupSettingsInstructions(t *testing.T) {
+	srv, inst, groupsDir := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folder := "instgrp"
+	if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	groupDir := filepath.Join(groupsDir, folder)
+	if err := os.MkdirAll(groupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "# System prompt\n\nThis agent handles support tickets."
+	form := url.Values{
+		"open":                    {"0"},
+		"observe_window_messages": {"0"},
+		"observe_window_chars":    {"0"},
+		"instructions":            {want},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/settings",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST status = %d", resp.StatusCode)
+	}
+
+	got, err := os.ReadFile(filepath.Join(groupDir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("CLAUDE.md not written: %v", err)
+	}
+	if string(got) != want {
+		t.Errorf("CLAUDE.md = %q, want %q", string(got), want)
+	}
+}
+
 // TestDash_GroupDelete: admin deletes a group via POST-alias.
 func TestDash_GroupDelete(t *testing.T) {
 	srv, inst, groupsDir := newRWDashServer(t)
@@ -147,5 +194,142 @@ func TestDash_GroupDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(groupDir); !os.IsNotExist(err) {
 		t.Errorf("group dir still present: %v", err)
+	}
+}
+
+// TestDash_GrantsView: admin GETs the grants page, sees the row.
+func TestDash_GrantsView(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folder := "world"
+	if err := inst.DB.QueryRow(`SELECT 1`).Err(); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a grant row for this folder.
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "bob@x", Action: "send", Scope: folder, Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/dash/groups/"+folder+"/grants", nil)
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET grants status = %d", resp.StatusCode)
+	}
+}
+
+// TestDash_GrantAdd: admin adds a grant, it appears in ListACLByScope.
+func TestDash_GrantAdd(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folder := "world"
+
+	form := url.Values{
+		"principal": {"carol@x"},
+		"action":    {"reply"},
+		"effect":    {"allow"},
+		"params":    {""},
+		"scope":     {folder},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("add grant status = %d", resp.StatusCode)
+	}
+
+	rows := s.ListACLByScope(folder)
+	found := false
+	for _, r := range rows {
+		if r.Principal == "carol@x" && r.Action == "reply" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("grant row not found after add; rows: %+v", rows)
+	}
+}
+
+// TestDash_GrantRevoke: admin adds then revokes a grant.
+func TestDash_GrantRevoke(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folder := "world"
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "dave@x", Action: "send", Scope: folder, Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"principal": {"dave@x"},
+		"action":    {"send"},
+		"effect":    {"allow"},
+		"params":    {""},
+		"predicate": {""},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/grants/revoke",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoke status = %d", resp.StatusCode)
+	}
+
+	rows := s.ListACLByScope(folder)
+	for _, r := range rows {
+		if r.Principal == "dave@x" && r.Action == "send" {
+			t.Errorf("grant still present after revoke")
+		}
+	}
+}
+
+// TestDash_GrantAdd_DenyNonAdmin: non-admin cannot add grants.
+func TestDash_GrantAdd_DenyNonAdmin(t *testing.T) {
+	srv, _, _ := newRWDashServer(t)
+	form := url.Values{"principal": {"x"}, "action": {"send"}}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/groups/world/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "stranger@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
 	}
 }

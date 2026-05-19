@@ -204,8 +204,8 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, pageBot)
 		return
 	}
-	var product string
-	err := d.dbRW.QueryRow(`SELECT product FROM groups WHERE folder = ?`, folder).Scan(&product)
+	var product, groupModel string
+	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,'') FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel)
 	if err != nil {
 		fmt.Fprintf(w, `<div class="banner-err">group not found: %s</div>`, esc(err.Error()))
 		fmt.Fprint(w, pageBot)
@@ -230,11 +230,40 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	skills := d.stockSkills()
 	disabled := d.skillsDisabled(folder)
 
+	type modelOption struct{ ID, Label string }
+	modelOptions := []modelOption{
+		{"", "instance default"},
+		{"claude-opus-4-7", "Claude Opus 4.7"},
+		{"claude-sonnet-4-6", "Claude Sonnet 4.6"},
+		{"claude-haiku-4-5-20251001", "Claude Haiku 4.5"},
+	}
 	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">
+<p><label>Model <select name="model">`, esc(folder))
+	for _, opt := range modelOptions {
+		sel := ""
+		if opt.ID == groupModel {
+			sel = " selected"
+		}
+		fmt.Fprintf(w, `<option value="%s"%s>%s</option>`, esc(opt.ID), sel, esc(opt.Label))
+	}
+	fmt.Fprintf(w, `</select></label></p>
 <p><label><input type="checkbox" name="open" value="1"%s> open (allow cross-folder ambient observation)</label></p>
 <p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"></label></p>
 <p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
-`, esc(folder), openChecked, owMsgs, owChars)
+`, openChecked, owMsgs, owChars)
+
+	// Instructions (CLAUDE.md at group root)
+	claudePath := filepath.Join(d.groupsDir, filepath.Clean(folder), "CLAUDE.md")
+	claudeContent := ""
+	if data, _, err := readCapped(claudePath); err == nil {
+		claudeContent = string(data)
+	}
+	const maxInstructions = 32 * 1024
+	fmt.Fprintf(w, `<h2>Instructions</h2>`+
+		`<p class="dim">This is the agent's CLAUDE.md — its operating instructions. `+
+		`Edit carefully; the agent reads this at the start of every container.</p>`+
+		`<textarea name="instructions" rows="12" style="width:100%%;max-width:720px;font-family:monospace" maxlength="%d">%s</textarea>`,
+		maxInstructions, esc(claudeContent))
 
 	if len(skills) > 0 {
 		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul style="list-style:none;padding:0">`)
@@ -250,6 +279,8 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
+
+	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, esc(folder))
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
@@ -275,6 +306,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	open := r.FormValue("open") == "1"
 	owMsgs, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_messages")))
 	owChars, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
+	model := r.FormValue("model")
 	s := store.New(d.dbRW)
 	if err := s.SetGroupOpen(folder, open); err != nil {
 		slog.Warn("group settings save: open", "folder", folder, "err", err)
@@ -283,6 +315,11 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.SetGroupObserveWindow(folder, owMsgs, owChars); err != nil {
 		slog.Warn("group settings save: observe", "folder", folder, "err", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
+		return
+	}
+	if err := s.SetGroupModel(folder, model); err != nil {
+		slog.Warn("group settings save: model", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
@@ -299,6 +336,29 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if err := d.setSkillDisabled(folder, name, disable); err != nil {
 			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
 		}
+	}
+
+	// Instructions (CLAUDE.md): write only when the field is present in the form.
+	if r.Form.Has("instructions") {
+		body := []byte(r.FormValue("instructions"))
+		if len(body) > 32*1024 {
+			http.Error(w, "instructions too large (max 32KB)", http.StatusRequestEntityTooLarge)
+			return
+		}
+		claudePath := filepath.Join(d.groupsDir, filepath.Clean(folder), "CLAUDE.md")
+		tmp := claudePath + ".tmp"
+		if err := os.WriteFile(tmp, body, 0o644); err != nil {
+			slog.Warn("group settings save: instructions tmp", "folder", folder, "err", err)
+			http.Error(w, "write failed", http.StatusInternalServerError)
+			return
+		}
+		if err := os.Rename(tmp, claudePath); err != nil {
+			os.Remove(tmp)
+			slog.Warn("group settings save: instructions rename", "folder", folder, "err", err)
+			http.Error(w, "write failed", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("group instructions saved", "folder", folder, "bytes", len(body))
 	}
 
 	slog.Info("group settings saved", "folder", folder)
