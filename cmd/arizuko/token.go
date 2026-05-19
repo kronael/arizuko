@@ -87,6 +87,7 @@ func tokenIssue(st *store.Store, args []string) {
 	if err := st.InsertRouteToken(raw, rt); err != nil {
 		die("Failed: insert token: %v", err)
 	}
+	auditCLI(st, "token issue", []string{kind, folder})
 	fmt.Printf("jid:   %s\ntoken: %s\n", jid, raw)
 }
 
@@ -126,6 +127,7 @@ func tokenRevoke(st *store.Store, args []string) {
 	if !revoked {
 		die("Failed: token not found or wrong owner for JID %q", jid)
 	}
+	auditCLI(st, "token revoke", []string{jid})
 	fmt.Println("revoked:", jid)
 }
 

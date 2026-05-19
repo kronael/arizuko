@@ -27,7 +27,7 @@ func TestLogExternalCost_EndToEnd(t *testing.T) {
 		},
 	}
 
-	stop, err := ServeMCP(sock, GatedFns{}, db, "team", []string{"*"}, 0)
+	stop, err := ServeMCP(sock, GatedFns{}, db, "team", []string{"*"}, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestLogExternalCost_RejectsEmptyProvider(t *testing.T) {
 			return nil
 		},
 	}
-	stop, err := ServeMCP(sock, GatedFns{}, db, "team", []string{"*"}, 0)
+	stop, err := ServeMCP(sock, GatedFns{}, db, "team", []string{"*"}, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

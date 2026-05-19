@@ -338,6 +338,16 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return out
 		},
+		Authorize: func(sub, folder, action string, params map[string]string) bool {
+			id := auth.Resolve(folder)
+			caller := auth.Caller{Principal: sub}
+			opts := auth.AuthorizeOpts{
+				Folder:      folder,
+				WorldFolder: id.World,
+				Tier:        id.Tier,
+			}
+			return auth.AuthorizeWith(g.store, caller, action, folder, params, opts)
+		},
 	}
 
 	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),

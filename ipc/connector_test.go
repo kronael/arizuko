@@ -140,7 +140,7 @@ func TestConnector_EndToEndThroughMCPSocket(t *testing.T) {
 
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", []string{"*"}, 0)
+	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", []string{"*"}, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

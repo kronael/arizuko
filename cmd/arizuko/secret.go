@@ -48,6 +48,7 @@ func cmdSecret(args []string) {
 		if err := runSecretSet(s, store.ScopeFolder, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "secret set", []string{fs.Arg(0), fs.Arg(1), "--value", *value})
 	case "list":
 		need(args, 3, "arizuko secret <instance> list <folder>")
 		if err := runSecretList(s, store.ScopeFolder, args[2], os.Stdout); err != nil {
@@ -58,6 +59,7 @@ func cmdSecret(args []string) {
 		if err := runSecretDelete(s, store.ScopeFolder, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "secret delete", []string{args[2], args[3]})
 	default:
 		die("unknown secret action: %s", action)
 	}
@@ -87,6 +89,7 @@ func cmdUserSecret(args []string) {
 		if err := runSecretSet(s, store.ScopeUser, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "user-secret set", []string{fs.Arg(0), fs.Arg(1), "--value", *value})
 	case "list":
 		need(args, 3, "arizuko user-secret <instance> list <user_sub>")
 		if err := runSecretList(s, store.ScopeUser, args[2], os.Stdout); err != nil {
@@ -97,6 +100,7 @@ func cmdUserSecret(args []string) {
 		if err := runSecretDelete(s, store.ScopeUser, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "user-secret delete", []string{args[2], args[3]})
 	default:
 		die("unknown user-secret action: %s", action)
 	}

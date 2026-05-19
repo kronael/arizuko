@@ -27,6 +27,7 @@ func cmdNetwork(args []string) {
 		if err := s.AddNetworkRule(folder, target, "cli"); err != nil {
 			die("Failed: add rule: %v", err)
 		}
+		auditCLI(s, "network allow", []string{folder, target})
 		fmt.Printf("rule added: folder=%q target=%q\n", folder, target)
 
 	case "deny":
@@ -35,6 +36,7 @@ func cmdNetwork(args []string) {
 		if err := s.RemoveNetworkRule(folder, target); err != nil {
 			die("Failed: rm rule: %v", err)
 		}
+		auditCLI(s, "network deny", []string{folder, target})
 		fmt.Printf("rule removed: folder=%q target=%q\n", folder, target)
 
 	case "list":
