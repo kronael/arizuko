@@ -15,7 +15,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 		os.Unsetenv(k)
 	}
 	os.Setenv("ARIZUKO_DEV", "true")
-	defer os.Unsetenv("ARIZUKO_DEV")
+	os.Setenv("HOST_APP_DIR", "/tmp/test-app")
+	defer func() {
+		os.Unsetenv("ARIZUKO_DEV")
+		os.Unsetenv("HOST_APP_DIR")
+	}()
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -42,12 +46,14 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	os.Setenv("CONTAINER_IMAGE", "custom:v1")
 	os.Setenv("MAX_CONCURRENT_CONTAINERS", "10")
 	os.Setenv("ARIZUKO_DEV", "true")
+	os.Setenv("HOST_APP_DIR", "/tmp/test-app")
 	defer func() {
 		os.Unsetenv("ASSISTANT_NAME")
 		os.Unsetenv("TELEGRAM_BOT_TOKEN")
 		os.Unsetenv("CONTAINER_IMAGE")
 		os.Unsetenv("MAX_CONCURRENT_CONTAINERS")
 		os.Unsetenv("ARIZUKO_DEV")
+		os.Unsetenv("HOST_APP_DIR")
 	}()
 
 	cfg, err := LoadConfig()
@@ -108,6 +114,7 @@ func TestLoadConfigEgress(t *testing.T) {
 		"CRACKBOX_ADMIN_API":    "http://crackbox:9998",
 		"CRACKBOX_ADMIN_SECRET": "topsecret",
 		"ARIZUKO_DEV":           "true",
+		"HOST_APP_DIR":          "/tmp/test-app",
 	}
 	for k, v := range envs {
 		os.Setenv(k, v)

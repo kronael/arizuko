@@ -113,7 +113,10 @@ func LoadConfig() (*Config, error) {
 
 	root := envOr("DATA_DIR", mustCwd())
 	hostRoot := envOr("HOST_DATA_DIR", root)
-	appDir := envOr("HOST_APP_DIR", execDir())
+	appDir := os.Getenv("HOST_APP_DIR")
+	if appDir == "" {
+		return nil, fmt.Errorf("HOST_APP_DIR is not set; refusing to start with derived path (would break skill seeding)")
+	}
 	name := envOr("ASSISTANT_NAME", "Andy")
 
 	c := &Config{
