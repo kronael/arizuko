@@ -60,7 +60,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	if providerLinks == "" {
 		providerLinks = `<p class="empty">All known providers already linked.</p>`
 	} else {
-		providerLinks = `<div style="max-width:420px">` + providerLinks + `</div>`
+		providerLinks = `<div class="form-narrow">` + providerLinks + `</div>`
 	}
 	fmt.Fprint(w, htmlSection("Add a provider", providerLinks))
 

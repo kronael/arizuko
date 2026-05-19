@@ -36,10 +36,6 @@ func htmlBanner(class, msg string) string {
 	return fmt.Sprintf(`<div class="banner-%s">%s</div>`, class, esc(msg))
 }
 
-func htmlMsg() string {
-	return `<div id="msg"></div>`
-}
-
 func htmlSection(title, body string) string {
 	return fmt.Sprintf(`<h2>%s</h2>%s`, esc(title), body)
 }

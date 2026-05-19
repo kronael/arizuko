@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -67,14 +66,12 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 	if len(principals) == 0 {
 		return nil
 	}
-	placeholders := strings.Repeat("?,", len(principals))
-	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, 0, len(principals))
 	for _, p := range principals {
 		args = append(args, p)
 	}
 	rows, err := s.db.Query(
-		`SELECT `+aclCols+` FROM acl WHERE principal IN (`+placeholders+`)`, args...)
+		`SELECT `+aclCols+` FROM acl WHERE principal IN (`+sqlPH(len(principals))+`)`, args...)
 	if err != nil {
 		return nil
 	}
@@ -101,15 +98,13 @@ func (s *Store) UserScopes(sub string) []string {
 	if len(principals) == 0 {
 		return nil
 	}
-	placeholders := strings.Repeat("?,", len(principals))
-	placeholders = placeholders[:len(placeholders)-1]
 	args := make([]any, 0, len(principals))
 	for _, p := range principals {
 		args = append(args, p)
 	}
 	rows, err := s.db.Query(
 		`SELECT DISTINCT scope FROM acl
-		 WHERE effect='allow' AND principal IN (`+placeholders+`)
+		 WHERE effect='allow' AND principal IN (`+sqlPH(len(principals))+`)
 		 ORDER BY scope`, args...)
 	if err != nil {
 		return nil

@@ -274,7 +274,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		`</ul>`, folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder))
 
 	if len(skills) > 0 {
-		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul style="list-style:none;padding:0">`)
+		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul class="plain-list">`)
 		for _, name := range skills {
 			checked := ""
 			if !disabled[name] {
@@ -293,7 +293,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
-<button type="submit" style="color:#b00">delete group</button>
+<button type="submit" class="btn-danger">delete group</button>
 </form>`, folderPath(folder), esc(folder))
 
 	pageClose(w, r)

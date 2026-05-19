@@ -316,6 +316,18 @@ nav a:hover { color: var(--accent); }
 /* --- Form rows --- */
 .form-row { margin: 0.5em 0; }
 .form-row label { display: flex; align-items: baseline; gap: 0.5em; }
+
+/* --- Utility --- */
+.form-narrow { max-width: 420px; }
+.form-inline { display: inline; }
+.plain-list { list-style: none; padding: 0; }
+.code-xl { font-size: 1.4em; }
+
+/* --- Tool browser --- */
+.tool-card { margin: 0.6em 0; border: 1px solid var(--border); border-radius: 4px; padding: 0.4em 0.8em; }
+.tool-card summary { cursor: pointer; font-family: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace; font-weight: 600; }
+.tool-card p { margin: 0.4em 0 0.2em; }
+.tool-card pre { margin: 0.4em 0; font-size: 0.85em; }
 `
 
 // ThemeScript initializes the theme from localStorage or system preference.

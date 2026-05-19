@@ -1,7 +1,6 @@
 package store
 
 import (
-	"strings"
 	"time"
 )
 
@@ -122,7 +121,6 @@ func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(folders)), ",")
 	args := make([]any, len(folders))
 	for i, f := range folders {
 		args[i] = f
@@ -133,7 +131,7 @@ func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 		        COALESCE(SUM(input_tok+output_tok),0),
 		        COALESCE(SUM(cents),0)
 		 FROM cost_log
-		 WHERE folder IN (`+ph+`) AND ts >= ?
+		 WHERE folder IN (`+sqlPH(len(folders))+`) AND ts >= ?
 		 GROUP BY folder`,
 		append(args, cutoff)...,
 	)
@@ -158,7 +156,7 @@ func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 	msgRows, err := s.db.Query(
 		`SELECT routed_to, COUNT(*), MAX(timestamp)
 		 FROM messages
-		 WHERE routed_to IN (`+ph+`)
+		 WHERE routed_to IN (`+sqlPH(len(folders))+`)
 		 GROUP BY routed_to`,
 		args...,
 	)

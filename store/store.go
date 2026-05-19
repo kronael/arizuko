@@ -81,3 +81,19 @@ func Migrate(db *sql.DB) error {
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
+
+// sqlPH returns n comma-separated `?` placeholders for use in SQL IN (...).
+// e.g. sqlPH(3) == "?,?,?"
+func sqlPH(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, 0, n*2-1)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, '?')
+	}
+	return string(b)
+}

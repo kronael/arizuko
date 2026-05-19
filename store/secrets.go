@@ -161,10 +161,9 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	for _, p := range paths {
 		args = append(args, p)
 	}
-	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",") + ")"
 	rows, err := s.db.Query(
 		`SELECT scope_id, key, value FROM secrets
-		 WHERE scope_kind = ? AND scope_id IN `+ph,
+		 WHERE scope_kind = ? AND scope_id IN (`+sqlPH(len(paths))+`)`,
 		args...,
 	)
 	if err != nil {

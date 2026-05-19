@@ -48,7 +48,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 				expires = inv.ExpiresAt.Format("2006-01-02")
 			}
 			revokeBtn := fmt.Sprintf(
-				`<form method="post" action="/dash/invites/%s/revoke" style="display:inline"`+
+				`<form method="post" action="/dash/invites/%s/revoke" class="form-inline"`+
 					` onsubmit="return confirm('revoke invite %s?')">`+
 					`<button type="submit">revoke</button></form>`,
 				esc(inv.Token), esc(inv.Token[:8]),

@@ -812,7 +812,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlBanner("err", "groups query error: "+err.Error()))
 	} else {
 		defer rows.Close()
-		fmt.Fprint(w, `<form method="get" style="max-width:420px">
+		fmt.Fprint(w, `<form method="get" class="form-narrow">
 <label class="dim" for="group">Group</label>
 <select id="group" name="group" onchange="this.form.submit()">
 <option value="">— select a group —</option>`)

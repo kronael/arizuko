@@ -60,7 +60,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		del := fmt.Sprintf(
-			`<form method="post" action="/dash/routes/%d/delete" style="display:inline"`+
+			`<form method="post" action="/dash/routes/%d/delete" class="form-inline"`+
 				` onsubmit="return confirm('delete route %d?')"><button type="submit">delete</button></form>`,
 			id, id)
 		tableRows = append(tableRows, []string{

@@ -46,10 +46,10 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 		if idx := strings.Index(desc, "\ngrants:"); idx != -1 {
 			desc = desc[:idx]
 		}
-		fmt.Fprintf(w, `<details style="margin:0.6em 0;border:1px solid var(--border);border-radius:4px;padding:0.4em 0.8em">`+
-			`<summary style="cursor:pointer;font-family:monospace;font-weight:600">%s</summary>`+
-			`<p style="margin:0.4em 0 0.2em">%s</p>`+
-			`<pre style="margin:0.4em 0;font-size:0.85em">%s</pre>`+
+		fmt.Fprintf(w, `<details class="tool-card">`+
+			`<summary>%s</summary>`+
+			`<p>%s</p>`+
+			`<pre>%s</pre>`+
 			`</details>`,
 			esc(t.Name), esc(desc), esc(string(schemaJSON)))
 	}
