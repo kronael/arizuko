@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
+
+var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // GET /dash/groups/new — folder + product form.
 func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +117,71 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)
 }
 
+// stockSkills returns the sorted list of skill names from ant/skills/ in appDir.
+// Returns nil when appDir is empty or the directory can't be read.
+func (d *dash) stockSkills() []string {
+	if d.appDir == "" {
+		return nil
+	}
+	dir := filepath.Join(d.appDir, "ant", "skills")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() && skillNameRe.MatchString(e.Name()) {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// skillsDisabled returns the set of skill names that have a .disabled marker
+// under a group's .claude/skills/ dir.
+func (d *dash) skillsDisabled(folder string) map[string]bool {
+	base := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills")
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]bool)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		marker := filepath.Join(base, e.Name(), ".disabled")
+		if _, err := os.Stat(marker); err == nil {
+			out[e.Name()] = true
+		}
+	}
+	return out
+}
+
+// setSkillDisabled creates or removes the .disabled marker for one skill.
+func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
+	if !skillNameRe.MatchString(skill) {
+		return fmt.Errorf("invalid skill name: %s", skill)
+	}
+	dir := filepath.Join(d.groupsDir, filepath.Clean(folder), ".claude", "skills", skill)
+	marker := filepath.Join(dir, ".disabled")
+	if disable {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	err := os.Remove(marker)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 // GET /dash/groups/{folder}/settings — show current state. POST persists.
 func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
@@ -159,12 +227,29 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if open {
 		openChecked = " checked"
 	}
+	skills := d.stockSkills()
+	disabled := d.skillsDisabled(folder)
+
 	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">
 <p><label><input type="checkbox" name="open" value="1"%s> open (allow cross-folder ambient observation)</label></p>
 <p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"></label></p>
 <p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
-<p><button type="submit">save</button></p>
-</form>`, esc(folder), openChecked, owMsgs, owChars)
+`, esc(folder), openChecked, owMsgs, owChars)
+
+	if len(skills) > 0 {
+		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul style="list-style:none;padding:0">`)
+		for _, name := range skills {
+			checked := ""
+			if !disabled[name] {
+				checked = " checked"
+			}
+			fmt.Fprintf(w, `<li><label><input type="checkbox" name="skill_enabled" value="%s"%s> %s</label></li>`,
+				esc(name), checked, esc(name))
+		}
+		fmt.Fprint(w, `</ul>`)
+	}
+
+	fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
@@ -201,6 +286,21 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
+
+	// Skills: checked values are enabled; unchecked skills (all stock minus checked) get .disabled.
+	enabledSet := make(map[string]bool)
+	for _, v := range r.Form["skill_enabled"] {
+		if skillNameRe.MatchString(v) {
+			enabledSet[v] = true
+		}
+	}
+	for _, name := range d.stockSkills() {
+		disable := !enabledSet[name]
+		if err := d.setSkillDisabled(folder, name, disable); err != nil {
+			slog.Warn("group settings save: skill", "folder", folder, "skill", name, "err", err)
+		}
+	}
+
 	slog.Info("group settings saved", "folder", folder)
 	http.Redirect(w, r, "/dash/groups/"+folder+"/settings", http.StatusSeeOther)
 }

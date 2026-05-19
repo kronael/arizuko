@@ -94,8 +94,10 @@ func main() {
 
 	slog.Info("dashd started", "db", dsn, "port", port)
 
+	appDir := os.Getenv("HOST_APP_DIR")
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir}
+	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir, appDir: appDir}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -119,6 +121,7 @@ type dash struct {
 	dbRW      *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
 	dbPath    string
 	groupsDir string
+	appDir    string // HOST_APP_DIR; used to enumerate stock skills
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
@@ -166,6 +169,11 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/tokens/{folder}/", d.handleTokensFolder)
 	mux.HandleFunc("POST /dash/tokens/{folder}/", d.handleTokensFolder)
 	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", d.handleTokensRevoke)
+
+	// Invite management — operator-gated.
+	mux.HandleFunc("GET /dash/invites/", d.handleInvites)
+	mux.HandleFunc("POST /dash/invites/", d.handleInviteCreate)
+	mux.HandleFunc("POST /dash/invites/{token}/revoke", d.handleInviteRevoke)
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +191,7 @@ var navLinks = []struct{ Href, Label string }{
 	{"/dash/activity/", "activity"},
 	{"/dash/groups/", "groups"},
 	{"/dash/routes/", "routes"},
+	{"/dash/invites/", "invites"},
 	{"/dash/memory/", "memory"},
 	{"/dash/profile/", "profile"},
 }
