@@ -1,8 +1,12 @@
 ---
-status: draft
+status: partial
 ---
 
 # specs/6/E — Encryption at rest
+
+**Shipped (secrets table):** AES-256-GCM on `secrets.value` via `Store.SetSecretKey` + `Store.EncryptAllSecrets`. Key = SHA-256(AUTH_SECRET). Plaintext rows readable during migration window.
+
+**Deferred:** messages.db column encryption (content, raw).
 
 ## What this solves
 

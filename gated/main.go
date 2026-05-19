@@ -51,6 +51,14 @@ func main() {
 	}
 	defer s.Close()
 
+	if cfg.AuthSecret != "" {
+		s.SetSecretKey([]byte(cfg.AuthSecret))
+		ctx := context.Background()
+		if encErr := s.EncryptAllSecrets(ctx); encErr != nil {
+			slog.Error("secrets encrypt-at-rest", "err", encErr)
+		}
+	}
+
 	gw := gateway.New(cfg, s)
 
 	// Reuse the live channel per adapter so api.handleOutbound preserves the

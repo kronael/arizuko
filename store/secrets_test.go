@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -181,23 +183,95 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	}
 }
 
-// v1 stores plaintext per spec 9/11. Verify the `value` column holds the
-// raw string written, not a ciphertext.
-func TestSecretPlaintextAtRest(t *testing.T) {
+func TestSetGetSecret_Encrypted(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKey([]byte("test-key"))
+
+	const plaintext = "sk-abc-123"
+	if err := s.SetSecret(ScopeFolder, "atlas", "API_KEY", plaintext); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	// On-disk value must be ciphertext, not plaintext.
+	var raw string
+	s.db.QueryRow(
+		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='API_KEY'`,
+	).Scan(&raw)
+	if !strings.HasPrefix(raw, "v1:") {
+		t.Errorf("raw value = %q, want v1: prefix", raw)
+	}
+	if raw == plaintext {
+		t.Error("raw value must not equal plaintext")
+	}
+	// GetSecret must decrypt transparently.
+	got, err := s.GetSecret(ScopeFolder, "atlas", "API_KEY")
+	if err != nil {
+		t.Fatalf("GetSecret: %v", err)
+	}
+	if got.Value != plaintext {
+		t.Errorf("Value = %q, want %q", got.Value, plaintext)
+	}
+}
+
+func TestGetSecret_PlaintextMigrationCompat(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	const plaintext = "ghp_topsecret_token"
-	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", plaintext); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	// Insert a plaintext row directly (simulates pre-encryption row).
+	const plaintext = "old-plain-value"
+	s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','OLD_KEY',?,?)`,
+		plaintext, "2024-01-01T00:00:00Z",
+	)
+
+	// With key set, plaintext rows are returned as-is (migration compat).
+	s.SetSecretKey([]byte("test-key"))
+	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD_KEY")
+	if err != nil {
+		t.Fatalf("GetSecret: %v", err)
 	}
-	var got string
-	if err := s.db.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='GITHUB_TOKEN'`,
-	).Scan(&got); err != nil {
-		t.Fatalf("scan value: %v", err)
+	if got.Value != plaintext {
+		t.Errorf("Value = %q, want %q", got.Value, plaintext)
 	}
-	if got != plaintext {
-		t.Errorf("value at rest = %q, want %q (plaintext)", got, plaintext)
+}
+
+func TestEncryptAllSecrets(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	// Seed two plaintext rows.
+	s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K1','v1','2024-01-01T00:00:00Z')`)
+	s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K2','v2','2024-01-01T00:00:00Z')`)
+
+	s.SetSecretKey([]byte("test-key"))
+	if err := s.EncryptAllSecrets(context.Background()); err != nil {
+		t.Fatalf("EncryptAllSecrets: %v", err)
+	}
+
+	// Verify on-disk values are now ciphertext.
+	rows, _ := s.db.Query(`SELECT key, value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas'`)
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		rows.Scan(&k, &v)
+		if !strings.HasPrefix(v, "v1:") {
+			t.Errorf("key %s: raw value %q, want v1: prefix", k, v)
+		}
+	}
+
+	// GetSecret still decrypts correctly.
+	got, err := s.GetSecret(ScopeFolder, "atlas", "K1")
+	if err != nil {
+		t.Fatalf("GetSecret K1: %v", err)
+	}
+	if got.Value != "v1" {
+		t.Errorf("K1 = %q, want v1", got.Value)
+	}
+
+	// Idempotent: calling again must not error.
+	if err := s.EncryptAllSecrets(context.Background()); err != nil {
+		t.Fatalf("EncryptAllSecrets idempotent: %v", err)
 	}
 }

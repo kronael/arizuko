@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"os"
@@ -16,7 +17,15 @@ var migrationFS embed.FS
 const serviceName = "store"
 
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	secretKey *[32]byte
+}
+
+// SetSecretKey derives a 32-byte AES key from raw via SHA-256 and enables
+// encryption for secrets table values. Call after Open; before any secret ops.
+func (s *Store) SetSecretKey(raw []byte) {
+	h := sha256.Sum256(raw)
+	s.secretKey = &h
 }
 
 func Open(dir string) (*Store, error) {

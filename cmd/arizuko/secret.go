@@ -8,8 +8,21 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
+
+func openStoreWithKey(dataDir string) (*store.Store, error) {
+	s, err := store.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := core.LoadConfigFrom(dataDir)
+	if err == nil && cfg.AuthSecret != "" {
+		s.SetSecretKey([]byte(cfg.AuthSecret))
+	}
+	return s, nil
+}
 
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
 // live behind `arizuko user-secret`. Spec 9/11.
@@ -18,7 +31,7 @@ func cmdSecret(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
+	s, err := openStoreWithKey(dataDir)
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
@@ -57,7 +70,7 @@ func cmdUserSecret(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
+	s, err := openStoreWithKey(dataDir)
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
