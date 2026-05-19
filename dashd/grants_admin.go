@@ -64,7 +64,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 				`<button type="submit" onclick="return confirm('Revoke this grant?')" `+
 				`class="btn-danger">revoke</button>`+
 				`</form>`,
-			esc(folder),
+			folderPath(folder),
 			esc(row.Principal), esc(row.Action), esc(row.Effect),
 			esc(row.Params), esc(row.Predicate),
 		)
@@ -91,7 +91,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	actionSelect.WriteString(`</select>`)
 
-	fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, esc(folder))
+	fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, folderPath(folder))
 	fmt.Fprint(w, htmlFormRow("principal", `<input type="text" name="principal" required size="40" placeholder="user@example or group:name">`))
 	fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
 	fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))

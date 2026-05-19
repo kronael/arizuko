@@ -246,7 +246,7 @@ func dashNavFor(urlPath string) string {
 
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-		`<title>` + title + ` — arizuko</title>` +
+		`<title>` + esc(title) + ` — arizuko</title>` +
 		`<script src="/dash/assets/htmx.min.js"></script>` +
 		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + `</head>`
 }
@@ -318,11 +318,10 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 // pageTopFor renders the page shell (or htmx partial) with path-aware nav.
 // Full load: DOCTYPE→nav→spinner→<div id="content">→crumbs→h1
-// htmx swap: <div id="content">→crumbs→h1
+// htmx swap: bare crumbs→h1 only — htmx injects this as innerHTML of the
+// existing #content div; emitting <div id="content"> would nest it.
 func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {
-	if isHtmx(r) {
-		fmt.Fprint(w, `<div id="content">`)
-	} else {
+	if !isHtmx(r) {
 		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
 			dashHead(title), dashNavFor(r.URL.Path))
 	}
@@ -345,13 +344,13 @@ func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...
 	fmt.Fprintf(w, `<h1>%s</h1>`, esc(title))
 }
 
-// pageClose closes the #content div (htmx) or the full shell (full load).
+// pageClose closes the full shell. htmx swaps emit bare content — no wrapper
+// to close.
 func pageClose(w http.ResponseWriter, r *http.Request) {
 	if isHtmx(r) {
-		fmt.Fprint(w, `</div>`)
-	} else {
-		fmt.Fprint(w, `</div></div></body></html>`)
+		return
 	}
+	fmt.Fprint(w, `</div></div></body></html>`)
 }
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -635,8 +634,7 @@ func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
 		folder, folder+"/%")
 	if err != nil {
 		slog.Warn("groups: routes query", "err", err, "folder", folder)
-		fmt.Fprintf(w, `<p class="banner-err">routes error: %s</p>`,
-			esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "routes error: "+err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -811,8 +809,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("memory: groups query", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">groups query error: %s</div>`,
-			esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "groups query error: "+err.Error()))
 	} else {
 		defer rows.Close()
 		fmt.Fprint(w, `<form method="get" style="max-width:420px">

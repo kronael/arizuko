@@ -19,23 +19,25 @@ import (
 //	POST /dash/tokens/{folder}/{jid}/revoke — revoke by JID
 
 func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
-		return
-	}
 	folder := r.PathValue("folder")
+	if r.Method == http.MethodPost {
+		if _, ok := d.requireAdmin(w, r, folder); !ok {
+			return
+		}
+	} else {
+		if _, ok := requireUser(w, r); !ok {
+			return
+		}
+	}
 	st := store.New(d.db)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tokens — "+folder)
-	fmt.Fprintf(w, `<h2 class="page-title">Route tokens · %s</h2>`, esc(folder))
 
 	if r.Method == http.MethodPost {
 		if d.dbRW == nil {
 			fmt.Fprint(w, htmlBanner("err", "read-only mode"))
 			pageClose(w, r)
-			return
-		}
-		if _, ok := d.requireAdmin(w, r, folder); !ok {
 			return
 		}
 		kind := r.FormValue("kind")
@@ -59,9 +61,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			if err := store.New(d.dbRW).InsertRouteToken(raw, rt); err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
-				fmt.Fprintf(w,
-					`<div class="banner-ok">Token issued. Copy it now — it will not be shown again.<br><code>%s</code></div>`,
-					esc(raw))
+				fmt.Fprint(w, htmlBanner("ok", "Token issued. Copy it now — it will not be shown again.<br><code>"+esc(raw)+"</code>"))
 			}
 		}
 	}
@@ -73,7 +73,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		revoke := fmt.Sprintf(
 			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
 				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
-			esc(folder), esc(encodeJID(t.JID)))
+			folderPath(folder), esc(encodeJID(t.JID)))
 		tableRows = append(tableRows, []string{
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
 			esc(kind),
@@ -84,7 +84,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", ""}, tableRows))
 
 	fmt.Fprint(w, htmlSection("Issue new token",
-		fmt.Sprintf(`<form method="post" action="/dash/tokens/%s/">`, esc(folder))+
+		fmt.Sprintf(`<form method="post" action="/dash/tokens/%s/">`, folderPath(folder))+
 			htmlFormRow("Kind", `<select name="kind">`+
 				`<option value="chat">chat link</option>`+
 				`<option value="hook">webhook</option>`+
@@ -113,7 +113,7 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/dash/tokens/"+folder+"/", http.StatusSeeOther)
+	http.Redirect(w, r, "/dash/tokens/"+folderPath(folder)+"/", http.StatusSeeOther)
 }
 
 // encodeJID replaces / with - for use in URL path segments.
