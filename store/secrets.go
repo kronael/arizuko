@@ -34,8 +34,7 @@ func encryptValue(key *[32]byte, plaintext string) (string, error) {
 }
 
 func decryptValue(key *[32]byte, encoded string) (string, error) {
-	b64 := strings.TrimPrefix(encoded, encPrefix)
-	data, err := base64.StdEncoding.DecodeString(b64)
+	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(encoded, encPrefix))
 	if err != nil {
 		return "", fmt.Errorf("decrypt base64: %w", err)
 	}
@@ -58,26 +57,13 @@ func decryptValue(key *[32]byte, encoded string) (string, error) {
 	return string(plain), nil
 }
 
-func (s *Store) maybeDecrypt(value string) (string, error) {
-	if s.secretKey != nil && strings.HasPrefix(value, encPrefix) {
-		return decryptValue(s.secretKey, value)
-	}
-	return value, nil
-}
-
-// SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/9/11-crackbox-secrets.md.
-//
-// v1: plaintext storage. Operator trusts disk + FS permissions.
-// Encryption at rest deferred.
+// SecretScope is the kind of scope a secret is bound to.
 type SecretScope string
 
 const (
 	ScopeFolder SecretScope = "folder"
 	ScopeUser   SecretScope = "user"
 
-	// Folder path "root" is the catch-all parent walked to last by
-	// FolderSecretsResolved. Concrete folders override it.
 	rootFolder = "root"
 )
 
@@ -104,19 +90,32 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	return nil
 }
 
+func (s *Store) decode(value string) (string, error) {
+	if s.secretKey == nil {
+		return value, nil
+	}
+	if !strings.HasPrefix(value, encPrefix) {
+		return "", ErrSecretNotFound
+	}
+	return decryptValue(s.secretKey, value)
+}
+
+func (s *Store) encode(value string) (string, error) {
+	if s.secretKey == nil {
+		return value, nil
+	}
+	return encryptValue(s.secretKey, value)
+}
+
 func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	stored := value
-	if s.secretKey != nil {
-		var err error
-		stored, err = encryptValue(s.secretKey, value)
-		if err != nil {
-			return fmt.Errorf("encrypt secret: %w", err)
-		}
+	stored, err := s.encode(value)
+	if err != nil {
+		return fmt.Errorf("encrypt secret: %w", err)
 	}
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
@@ -143,7 +142,10 @@ func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error
 	if err != nil {
 		return Secret{}, err
 	}
-	plain, err := s.maybeDecrypt(value)
+	plain, err := s.decode(value)
+	if errors.Is(err, ErrSecretNotFound) {
+		return Secret{}, ErrSecretNotFound
+	}
 	if err != nil {
 		return Secret{}, fmt.Errorf("decrypt: %w", err)
 	}
@@ -174,7 +176,10 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 		if err := rows.Scan(&key, &value, &createdAt); err != nil {
 			return nil, err
 		}
-		plain, err := s.maybeDecrypt(value)
+		plain, err := s.decode(value)
+		if errors.Is(err, ErrSecretNotFound) {
+			continue // plaintext row after key set — skip (purged on next startup)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("decrypt %s: %w", key, err)
 		}
@@ -195,8 +200,17 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return err
 }
 
-// folderAncestors returns folder paths for resolution, deepest first, ending with "root".
-// e.g. "atlas/eng/sre" → ["atlas/eng/sre", "atlas/eng", "atlas", "root"].
+// PurgeUnencryptedSecrets deletes all plaintext secret rows (those without the
+// "v1:" prefix). Called on startup when a key is set — operators re-enter secrets.
+func (s *Store) PurgeUnencryptedSecrets(ctx context.Context) error {
+	if s.secretKey == nil {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE value NOT LIKE 'v1:%'`)
+	return err
+}
+
+// folderAncestors returns folder paths deepest first, ending with "root".
 func folderAncestors(folder string) []string {
 	folder = strings.Trim(folder, "/")
 	if folder == "" || folder == rootFolder {
@@ -211,8 +225,7 @@ func folderAncestors(folder string) []string {
 	return out
 }
 
-// FolderSecretsResolved walks `folder` up through each parent to the "root"
-// catch-all and returns key=value with deepest-wins precedence.
+// FolderSecretsResolved walks folder up through parents with deepest-wins precedence.
 func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) {
 	paths := folderAncestors(folder)
 	if len(paths) == 0 {
@@ -225,15 +238,13 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	ph := "(" + strings.TrimSuffix(strings.Repeat("?,", len(paths)), ",") + ")"
 	rows, err := s.db.Query(
-		`SELECT scope_id, key, value FROM secrets
-		 WHERE scope_kind = ? AND scope_id IN `+ph,
+		`SELECT scope_id, key, value FROM secrets WHERE scope_kind = ? AND scope_id IN `+ph,
 		args...,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// paths is deep→shallow; depth = (len-1) - i. Deepest value wins per key.
 	depthOf := make(map[string]int, len(paths))
 	for i, p := range paths {
 		depthOf[p] = len(paths) - 1 - i
@@ -248,9 +259,16 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 		if err := rows.Scan(&scopeID, &key, &value); err != nil {
 			return nil, err
 		}
+		plain, err := s.decode(value)
+		if errors.Is(err, ErrSecretNotFound) {
+			continue // stale plaintext row — skip
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decrypt %s: %w", key, err)
+		}
 		d := depthOf[scopeID]
 		if cur, ok := best[key]; !ok || d > cur.depth {
-			best[key] = kv{val: value, depth: d}
+			best[key] = kv{val: plain, depth: d}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -258,60 +276,7 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	out := make(map[string]string, len(best))
 	for k, v := range best {
-		plain, err := s.maybeDecrypt(v.val)
-		if err != nil {
-			return nil, fmt.Errorf("decrypt %s: %w", k, err)
-		}
-		out[k] = plain
+		out[k] = v.val
 	}
 	return out, nil
-}
-
-// EncryptAllSecrets re-encrypts any plaintext rows (those without the "v1:" prefix).
-// Idempotent: rows already encrypted are skipped. Requires SetSecretKey to have been called.
-func (s *Store) EncryptAllSecrets(ctx context.Context) error {
-	if s.secretKey == nil {
-		return nil
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT scope_kind, scope_id, key, value FROM secrets WHERE value NOT LIKE 'v1:%'`)
-	if err != nil {
-		return err
-	}
-	type row struct{ scopeKind, scopeID, key, value string }
-	var toEncrypt []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.scopeKind, &r.scopeID, &r.key, &r.value); err != nil {
-			rows.Close()
-			return err
-		}
-		toEncrypt = append(toEncrypt, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(toEncrypt) == 0 {
-		return nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	for _, r := range toEncrypt {
-		enc, err := encryptValue(s.secretKey, r.value)
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("encrypt %s/%s/%s: %w", r.scopeKind, r.scopeID, r.key, err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE secrets SET value = ? WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
-			enc, r.scopeKind, r.scopeID, r.key,
-		); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
 }

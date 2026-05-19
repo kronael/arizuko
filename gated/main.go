@@ -53,9 +53,8 @@ func main() {
 
 	if cfg.AuthSecret != "" {
 		s.SetSecretKey([]byte(cfg.AuthSecret))
-		ctx := context.Background()
-		if encErr := s.EncryptAllSecrets(ctx); encErr != nil {
-			slog.Error("secrets encrypt-at-rest", "err", encErr)
+		if purgeErr := s.PurgeUnencryptedSecrets(context.Background()); purgeErr != nil {
+			slog.Error("secrets purge-plaintext", "err", purgeErr)
 		}
 	}
 

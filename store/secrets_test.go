@@ -213,65 +213,55 @@ func TestSetGetSecret_Encrypted(t *testing.T) {
 	}
 }
 
-func TestGetSecret_PlaintextMigrationCompat(t *testing.T) {
+func TestGetSecret_PlaintextInvalidatedWithKey(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	// Insert a plaintext row directly (simulates pre-encryption row).
-	const plaintext = "old-plain-value"
+	// Insert a plaintext row directly (simulates pre-key row).
 	s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','OLD_KEY',?,?)`,
-		plaintext, "2024-01-01T00:00:00Z",
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','OLD_KEY','old-plain','2024-01-01T00:00:00Z')`,
 	)
 
-	// With key set, plaintext rows are returned as-is (migration compat).
+	// With key set, plaintext row is not readable (returns ErrSecretNotFound).
 	s.SetSecretKey([]byte("test-key"))
-	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD_KEY")
-	if err != nil {
-		t.Fatalf("GetSecret: %v", err)
-	}
-	if got.Value != plaintext {
-		t.Errorf("Value = %q, want %q", got.Value, plaintext)
+	_, err := s.GetSecret(ScopeFolder, "atlas", "OLD_KEY")
+	if !errors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("expected ErrSecretNotFound for plaintext row, got %v", err)
 	}
 }
 
-func TestEncryptAllSecrets(t *testing.T) {
+func TestPurgeUnencryptedSecrets(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	// Seed two plaintext rows.
-	s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K1','v1','2024-01-01T00:00:00Z')`)
-	s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K2','v2','2024-01-01T00:00:00Z')`)
+	s.db.Exec(`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K1','plaintext','2024-01-01T00:00:00Z')`)
+	s.db.Exec(`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K2','plaintext','2024-01-01T00:00:00Z')`)
 
 	s.SetSecretKey([]byte("test-key"))
-	if err := s.EncryptAllSecrets(context.Background()); err != nil {
-		t.Fatalf("EncryptAllSecrets: %v", err)
+	// Add one encrypted row so we can verify it survives.
+	if err := s.SetSecret(ScopeFolder, "atlas", "K3", "real-value"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
 	}
 
-	// Verify on-disk values are now ciphertext.
-	rows, _ := s.db.Query(`SELECT key, value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas'`)
-	defer rows.Close()
-	for rows.Next() {
-		var k, v string
-		rows.Scan(&k, &v)
-		if !strings.HasPrefix(v, "v1:") {
-			t.Errorf("key %s: raw value %q, want v1: prefix", k, v)
-		}
+	if err := s.PurgeUnencryptedSecrets(context.Background()); err != nil {
+		t.Fatalf("PurgeUnencryptedSecrets: %v", err)
 	}
 
-	// GetSecret still decrypts correctly.
-	got, err := s.GetSecret(ScopeFolder, "atlas", "K1")
+	// K1 and K2 are gone.
+	if _, err := s.GetSecret(ScopeFolder, "atlas", "K1"); !errors.Is(err, ErrSecretNotFound) {
+		t.Error("K1 should be purged")
+	}
+	// K3 survives.
+	got, err := s.GetSecret(ScopeFolder, "atlas", "K3")
 	if err != nil {
-		t.Fatalf("GetSecret K1: %v", err)
+		t.Fatalf("K3: %v", err)
 	}
-	if got.Value != "v1" {
-		t.Errorf("K1 = %q, want v1", got.Value)
+	if got.Value != "real-value" {
+		t.Errorf("K3 = %q, want real-value", got.Value)
 	}
 
-	// Idempotent: calling again must not error.
-	if err := s.EncryptAllSecrets(context.Background()); err != nil {
-		t.Fatalf("EncryptAllSecrets idempotent: %v", err)
+	// Idempotent.
+	if err := s.PurgeUnencryptedSecrets(context.Background()); err != nil {
+		t.Fatalf("PurgeUnencryptedSecrets idempotent: %v", err)
 	}
 }
