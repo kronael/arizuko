@@ -23,6 +23,67 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.42.0] — 2026-05-19
+
+> arizuko v0.42.0 — dashboard overhaul + security hardening
+>
+> Five new dashd pages, three security fixes, and secrets now encrypted at rest. The operator dashboard is usable for day-to-day ops without touching .env or the DB.
+>
+> • Invites page — issue/revoke onboarding links from /dash/invites/.
+> • Per-group model selector — pick Opus 4.7, Sonnet 4.6, or Haiku 4.5 per group.
+> • Skill enable/disable — toggle agent skills per group without editing files.
+> • Grants viewer — add/revoke ACL rows per group from /dash/groups/{folder}/grants.
+> • Workspace links — settings page links to /dav/{folder}/ for file editing (CLAUDE.md, PERSONA.md, MEMORY.md).
+> • Secrets encrypted AES-256-GCM; SECRETS_KEY separate from AUTH_SECRET. Plaintext rows rejected on startup.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- dashd invite management: `GET/POST /dash/invites/` + revoke. Lists pending
+  invites, creates new ones (admin-gated), revokes by token.
+- dashd per-group model selector: dropdown in settings writes `groups.model`;
+  container runner passes `ARIZUKO_MODEL` env var; ant reads it for `query()`.
+  Migration `0060-group-model.sql`.
+- dashd skill enable/disable: checkbox list in settings creates/removes
+  `.disabled` marker at `<group>/.claude/skills/<name>/.disabled`.
+- dashd grants viewer: `GET/POST /dash/groups/{folder}/grants` shows ACL rows
+  for the folder, add form (dropdown of all 27 actions), per-row revoke.
+  `store.ListACLByScope` added.
+- dashd usage: groups list shows 7-day token cost and message count per group.
+- dashd workspace links: settings page "Agent files" section links to
+  `/dav/{folder}/CLAUDE.md`, `PERSONA.md`, `MEMORY.md`, and `workspace/`.
+  Memory page gets matching edit-in-workspace links.
+- `compose`: dufs starts with `--allow-edit` so the browser text editor is
+  active for all group files.
+
+### Fixed
+
+- `list_acl` MCP tool always returned "unknown tool" error — `policy.go` had
+  no `case "list_acl"`. Added: tier > 2 → unauthorized; tier 2 → own
+  subtree only.
+- `inject_message` tier gate was dead — `granted()` wrapper skipped
+  `AuthorizeStructural`. Fixed: structural check now runs before the grants
+  check.
+- `escalate_group` tier gate was dead — same pattern. Fixed.
+- Tier-2 web mount was the full world dir read-write; a tier-2 agent could
+  overwrite any sibling group's web content. Mount is now scoped to the
+  group's own subfolder.
+- Egress wildcard appended `"*"` for tier ≤ 2; tier-2 agents bypassed
+  crackbox allowlists. Guard now fires only for tier ≤ 1.
+- Purge failure on startup was logged and swallowed; instance continued with
+  retained plaintext secrets. Now `os.Exit(1)`.
+
+### Changed
+
+- Secrets encryption: `SECRETS_KEY` env var is now the AES-256-GCM key
+  (independent of `AUTH_SECRET`). Falls back to `AUTH_SECRET` when
+  `SECRETS_KEY` is unset (existing deployments unaffected).
+- `set_group_open` tier gate: tier > 1 (was > 2) — tier-2 agents can no
+  longer mark sibling groups open.
+
+---
+
 ## [v0.41.0] — 2026-05-18
 
 > arizuko — chat links and webhooks share one primitive

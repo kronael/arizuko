@@ -53,7 +53,7 @@ JWT shape, differs only in scope breadth):
 - Authorization: `Authorize(id Identity, tool string, target AuthzTarget) error`, `AuthzTarget`, `MatchGroups(allowed, folder)`
 - Session JWT (today's shape: `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`
 - OAuth: GitHub, Google, Discord, Telegram widget — shared `createOAuthSession`
-- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `SlinkSigMessage`, `VerifyUserSig`, `VerifySlinkSig`
+- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`
 - Password: `HashToken`, argon2 verify
 - Middleware: `RegisterRoutes(mux, store, cfg)` mounts `/auth/*`;
   `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
@@ -100,7 +100,7 @@ if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
 ## Files
 
 - `identity.go` — tier/world resolution, spawn rules
-- `policy.go` — `Authorize` per tool
+- `policy.go` — `Authorize` per tool; `list_acl` dispatched here (tier > 2 → unauthorized; tier 2 → own subtree only)
 - `acl.go` — `MatchGroups`, glob ACL
 - `jwt.go`, `middleware.go`, `web.go` — session handling + login routes
 - `oauth.go` — provider dance
