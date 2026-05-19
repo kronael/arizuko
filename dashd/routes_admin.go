@@ -32,7 +32,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
 	if d.dbRW == nil {
-		fmt.Fprint(w, `<div class="banner-err">routes store unavailable</div>`)
+		fmt.Fprint(w, htmlBanner("err", "routes store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -44,14 +44,13 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		 FROM routes ORDER BY seq, id LIMIT 1000`)
 	if err != nil {
 		slog.Warn("routes: query", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">routes query error: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "routes query error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
 	defer rows.Close()
 
-	fmt.Fprint(w, `<table><thead><tr><th>ID</th><th>Seq</th><th>Match</th><th>Target</th><th>Window (msgs/chars)</th><th></th></tr></thead><tbody>`)
-	var n int
+	var tableRows [][]string
 	for rows.Next() {
 		var id int64
 		var seq, owm, owc int
@@ -60,35 +59,34 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("routes: scan", "err", err)
 			continue
 		}
-		fmt.Fprintf(w, `<tr>
-<td><code>%d</code></td>
-<td>%d</td>
-<td><code>%s</code></td>
-<td><code>%s</code></td>
-<td>%d / %d</td>
-<td>
-<form method="post" action="/dash/routes/%d/delete" style="display:inline" onsubmit="return confirm('delete route %d?')">
-<button type="submit">delete</button>
-</form>
-</td>
-</tr>`, id, seq, esc(match), esc(target), owm, owc, id, id)
-		n++
+		del := fmt.Sprintf(
+			`<form method="post" action="/dash/routes/%d/delete" style="display:inline"`+
+				` onsubmit="return confirm('delete route %d?')"><button type="submit">delete</button></form>`,
+			id, id)
+		tableRows = append(tableRows, []string{
+			fmt.Sprintf(`<code>%d</code>`, id),
+			fmt.Sprintf(`%d`, seq),
+			fmt.Sprintf(`<code>%s</code>`, esc(match)),
+			fmt.Sprintf(`<code>%s</code>`, esc(target)),
+			fmt.Sprintf(`%d / %d`, owm, owc),
+			del,
+		})
 	}
-	if n == 0 {
-		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No routes. Add one below.</td></tr>`)
-	}
-	fmt.Fprint(w, `</tbody></table>`)
+	fmt.Fprint(w, htmlTable(
+		[]string{"ID", "Seq", "Match", "Target", "Window (msgs/chars)", ""},
+		tableRows,
+	))
 
-	fmt.Fprint(w, `<h2>Add route</h2>
-<form method="post" action="/dash/routes/">
-<p><label>Seq <input type="number" name="seq" value="0" required></label></p>
-<p><label>Match <input type="text" name="match" placeholder="room=12345@g.us" required size="60"></label></p>
-<p><label>Target <input type="text" name="target" placeholder="solo/inbox or solo/inbox#observe" required size="60"></label></p>
-<p><button type="submit">add</button></p>
-</form>
-<p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter. Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#&lt;topic&gt;</code> topic pin.</p>`)
+	fmt.Fprint(w, htmlSection("Add route",
+		`<form method="post" action="/dash/routes/">`+
+			htmlFormRow("Seq", `<input type="number" name="seq" value="0" required>`)+
+			htmlFormRow("Match", `<input type="text" name="match" placeholder="room=12345@g.us" required size="60">`)+
+			htmlFormRow("Target", `<input type="text" name="target" placeholder="solo/inbox or solo/inbox#observe" required size="60">`)+
+			`<p><button type="submit">add</button></p>`+
+			`</form>`+
+			`<p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter.`+
+			` Target <code>folder</code> trigger, <code>folder#observe</code> silent ingest, <code>folder#&lt;topic&gt;</code> topic pin.</p>`))
 
-	// Delete uses POST /dash/routes/{id}/delete — register the alias here.
 	pageClose(w, r)
 }
 

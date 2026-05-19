@@ -31,7 +31,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodPost {
 		if d.dbRW == nil {
-			fmt.Fprint(w, `<div class="banner-err">read-only mode</div>`)
+			fmt.Fprint(w, htmlBanner("err", "read-only mode"))
 			pageClose(w, r)
 			return
 		}
@@ -46,18 +46,18 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			jid = "web:" + folder
 		case "hook":
 			if label == "" {
-				fmt.Fprint(w, `<div class="banner-err">label required for webhook tokens</div>`)
+				fmt.Fprint(w, htmlBanner("err", "label required for webhook tokens"))
 			} else {
 				jid = "hook:" + folder + "/" + label
 			}
 		default:
-			fmt.Fprint(w, `<div class="banner-err">unknown kind</div>`)
+			fmt.Fprint(w, htmlBanner("err", "unknown kind"))
 		}
 		if jid != "" {
 			raw := store.GenRouteToken()
 			rt := store.RouteToken{JID: jid, OwnerFolder: folder, CreatedAt: time.Now()}
 			if err := store.New(d.dbRW).InsertRouteToken(raw, rt); err != nil {
-				fmt.Fprintf(w, `<div class="banner-err">insert error: %s</div>`, esc(err.Error()))
+				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
 				fmt.Fprintf(w,
 					`<div class="banner-ok">Token issued. Copy it now — it will not be shown again.<br><code>%s</code></div>`,
@@ -67,35 +67,31 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokens := st.ListRouteTokens(folder)
-	fmt.Fprint(w, `<table class="data-table"><thead><tr><th>JID</th><th>Kind</th><th>Created</th><th></th></tr></thead><tbody>`)
-	if len(tokens) == 0 {
-		fmt.Fprint(w, `<tr><td colspan="4" class="dim">No tokens</td></tr>`)
-	}
+	var tableRows [][]string
 	for _, t := range tokens {
 		kind := store.RouteTokenKind(t.JID)
-		fmt.Fprintf(w,
-			`<tr><td><code>%s</code></td><td>%s</td><td>%s</td><td>`+
-				`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
-				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form></td></tr>`,
-			esc(t.JID), esc(kind),
-			t.CreatedAt.UTC().Format("2006-01-02 15:04"),
+		revoke := fmt.Sprintf(
+			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
+				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
 			esc(folder), esc(encodeJID(t.JID)))
+		tableRows = append(tableRows, []string{
+			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
+			esc(kind),
+			t.CreatedAt.UTC().Format("2006-01-02 15:04"),
+			revoke,
+		})
 	}
-	fmt.Fprint(w, `</tbody></table>`)
+	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", ""}, tableRows))
 
-	// Issue form.
-	fmt.Fprintf(w, `
-<h3>Issue new token</h3>
-<form method="post" action="/dash/tokens/%s/">
-  <label>Kind
-    <select name="kind">
-      <option value="chat">chat link</option>
-      <option value="hook">webhook</option>
-    </select>
-  </label>
-  <label>Label (webhook only) <input name="label" type="text" placeholder="github"></label>
-  <button type="submit" class="btn btn-primary">Issue</button>
-</form>`, esc(folder))
+	fmt.Fprint(w, htmlSection("Issue new token",
+		fmt.Sprintf(`<form method="post" action="/dash/tokens/%s/">`, esc(folder))+
+			htmlFormRow("Kind", `<select name="kind">`+
+				`<option value="chat">chat link</option>`+
+				`<option value="hook">webhook</option>`+
+				`</select>`)+
+			htmlFormRow("Label (webhook only)", `<input name="label" type="text" placeholder="github">`)+
+			`<p><button type="submit" class="btn btn-primary">Issue</button></p>`+
+			`</form>`))
 
 	pageClose(w, r)
 }

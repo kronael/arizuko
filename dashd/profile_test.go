@@ -96,7 +96,7 @@ func TestProfile_NoAdditionalLinks(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
-	if !strings.Contains(body, "No additional providers linked") {
+	if !strings.Contains(body, "no entries") {
 		t.Fatalf("expected empty linked list, got: %s", body)
 	}
 	if !strings.Contains(body, "/auth/github?intent=link") {
