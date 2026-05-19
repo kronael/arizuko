@@ -1392,7 +1392,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("set_group_open",
-		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1 only.",
+		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-2 only.",
 		[]mcp.ToolOption{
 			mcp.WithBoolean("open", mcp.Required(),
 				mcp.Description("true to expose to siblings, false to seal off")),
@@ -1837,10 +1837,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 			return toolJSON(db.ListTasks(folder, id.Tier == 0))
 		})
 
-	if id.Tier <= 1 {
+	if id.Tier <= 2 {
 		// Unified ACL inspection. Reads acl rows scoped to folder; subsumes
 		// the legacy get_grants/set_grants surface. Writes go through
-		// dashd or `arizuko grant`. Tier 0-1 only.
+		// dashd or `arizuko grant`. Tier 0-2 only.
 		srv.AddTool(mcp.NewTool("list_acl",
 			mcp.WithDescription("List acl rows for a folder. Returns rows where scope matches the folder. Audit what's permitted before changing. Tier 0-1 only."),
 			mcp.WithString("folder", mcp.Required()),
@@ -1872,7 +1872,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-1 only.",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-2 only.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),
@@ -1925,8 +1925,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	// funnel through gated.IssueRouteToken — one writer, MCP/REST
 	// produce identical rows. Owner_folder is bound from the agent's
 	// session folder (mint-on-behalf-of bookkeeping); tier table:
-	//   tier 0 → any folder, tier 1 → self+descendants, tier 2 → self,
-	//   tier 3+ → no mint. Same authority shape as register_group.
+	//   tier 0 → any folder, tier 1-2 → self+descendants, tier 3+ → no mint.
 	authorizeMint := func(targetFolder string) error {
 		t := targetFolder
 		if t == "" {
@@ -1935,11 +1934,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		if id.Tier >= 3 {
 			return fmt.Errorf("unauthorized: tier %d cannot issue route tokens", id.Tier)
 		}
-		if id.Tier == 2 && t != folder {
-			return fmt.Errorf("unauthorized: tier 2 can only mint for own folder")
-		}
-		if id.Tier == 1 && t != folder && !strings.HasPrefix(t, folder+"/") {
-			return fmt.Errorf("unauthorized: tier 1 can only mint for self+descendants")
+		if id.Tier <= 2 && t != folder && !strings.HasPrefix(t, folder+"/") {
+			return fmt.Errorf("unauthorized: can only mint for self+descendants")
 		}
 		return nil
 	}
@@ -2325,16 +2321,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 
 	registerInspect(srv, db, id, folder)
 
-	if id.Tier <= 1 {
-		granted("get_web_host", "Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Tier 0-1; non-root can only query own folder.",
+	if id.Tier <= 2 {
+		granted("get_web_host", "Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Tier 0-2; non-root can only query own folder or descendants.",
 			[]mcp.ToolOption{mcp.WithString("folder")},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				targetFolder := req.GetString("folder", folder)
 				if targetFolder == "" {
 					targetFolder = folder
 				}
-				if id.Tier > 0 && targetFolder != folder {
-					return toolErr("get_web_host: can only query own folder")
+				if id.Tier > 0 && targetFolder != folder &&
+					!strings.HasPrefix(targetFolder, folder+"/") {
+					return toolErr("get_web_host: can only query own folder or descendants")
 				}
 				vhosts, err := readVhosts(gated.WebDir)
 				if err != nil {

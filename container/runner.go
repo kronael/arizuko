@@ -152,9 +152,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
+	// Tier 0/1/2 are operator-run bots; append "*" so they pass crackbox
 	// unconstrained while still benefiting from logging/secret injection.
-	if tierOf(in.Folder, root) <= 1 && in.Egress.AllowlistFn != nil {
+	if tierOf(in.Folder, root) <= 2 && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
 			list, err := base(id)

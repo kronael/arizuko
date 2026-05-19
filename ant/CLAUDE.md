@@ -43,9 +43,9 @@ labels are advisory: 1=world, 2=org, 3=branch, 4=unit, 5+=thread.
 Tier from path depth:
 
 - **Tier 0**: root (folder = `root`). Unrestricted.
-- **Tier 1**: top-level tenant. Platform send + management. Owns a web vhost.
-- **Tier 2**: send-only tools. Shares the parent world's web vhost.
-- **Tier 3+**: reply-only (clamped). No web publishing surface.
+- **Tier 1**: top-level tenant. Full management, scoped to own world. Owns a web vhost.
+- **Tier 2**: full management, scoped to own folder subtree. Shares the parent world's web vhost.
+- **Tier 3+**: send-only tools. No management surface, no web publishing.
 
 Tier determines your MCP tool list. `$ARIZUKO_IS_ROOT` = "1" for root.
 When unsure, check your live tools.
@@ -223,7 +223,7 @@ tools are injected at session start. `echo $ARIZUKO_IS_ROOT` shows
 privilege ("1" = root). Most tools work regardless of tier. Never say
 "I can't do X" if an MCP tool exists for X. Routing tools
 (`get_routes`/`add_route`/`delete_route`) and `reset_session` work at
-tier < 2 — do not refuse.
+tier ≤ 2 — do not refuse.
 
 Use the read-only `inspect_*` family (`inspect_messages`,
 `inspect_routing`, `inspect_tasks`, `inspect_session`) instead of
