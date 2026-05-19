@@ -235,7 +235,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                                                     |
 | `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed                            |
-| `groups`           | folder (PK), name, container_config, parent (`slink_token` column dropped in migration 0059)                                     |
+| `groups`           | folder (PK), name, container_config, parent, model (`slink_token` column dropped in migration 0059)                              |
 | `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md))    |
 | `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                                 |
 | `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)                                       |
@@ -395,8 +395,7 @@ row in `acl` (directly or via membership).
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
-`discd.toml`, `slakd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`,
-`emaid.toml`, `twitd.toml`, `linkd.toml`.
+`discd.toml`, `slakd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`, `linkd.toml`.
 
 TOML format:
 

@@ -19,17 +19,20 @@ timeout tolerate the handoff).
 Primary methods (by domain):
 
 - Messages: `PutMessage`, `NewMessages`, `MessagesSince`, `EnrichMessage`, `MarkMessagesErrored`, `DeleteErroredMessages`, `LatestSource`
-- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `GroupBySlinkToken`
+- Groups: `PutGroup`, `DeleteGroup`, `AllGroups`, `GroupByFolder`, `SetGroupModel`, `GroupUsageBulk`
 - Sessions: `GetSession`, `SetSession`, `RecordSession`, `EndSession`, `RecentSessions`
 - Sticky: `SetStickyGroup`, `GetStickyGroup`, `SetStickyTopic`, `GetStickyTopic`
 - Auth: `CreateAuthUser`, `AuthUserBySub`, `AuthUserByUsername`, `CanonicalSub`, `LinkSubToCanonical`, `LinkedSubs`, `CreateAuthSession`, `AuthSession`, `DeleteAuthSession`
-- ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ACLRowsFor`, `ACLWildcardRows`, `UserScopes`
+- ACL (spec 6/9): `AddACLRow`, `RemoveACLRow`, `ListACL`, `ListACLByScope`, `ACLRowsFor`, `ACLWildcardRows`, `UserScopes`
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
   `FolderSecretsResolved` (walk parents → root), `UserSecrets`
-  (per-user overlay). v1 stores plaintext (operator trusts disk +
-  FS perms; encryption at rest deferred per spec 9/11).
+  (per-user overlay), `PurgeUnencryptedSecrets` (called on startup
+  when key set; removes rows without `v1:` prefix).
+  AES-256-GCM encrypted at rest; key derived via SHA-256 from
+  `SECRETS_KEY` env var (falls back to `AUTH_SECRET`). Plaintext
+  rows are rejected on read and purged on startup.
 - Routes, system messages, onboarding, topics — see source
 
 `messages.is_observed` (migration 0054) marks rows stored under a

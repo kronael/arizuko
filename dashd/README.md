@@ -1,21 +1,21 @@
 # dashd
 
 Operator dashboard daemon: HTMX views over `messages.db`, per-user secret
-CRUD, and admin-gated CRUD over routes and groups.
+CRUD, and admin-gated CRUD over routes, groups, invites, and grants.
 
 ## Purpose
 
 Standalone HTMX portal for operators and signed-in users. Reads most of
 its data directly from the shared SQLite (`messages.db`) and the group
-filesystem; the v0.40.0 TIER 1 surface adds write paths for routes,
-groups, and per-user secrets, all gated by `auth.Authorize`.
+filesystem; TIER 1 write paths cover routes, groups, per-user secrets,
+invites, grants, model selector, and skill toggles — all gated by
+`auth.Authorize`.
 
 ## Tables owned
 
 None. Schema and migrations live in gated. dashd holds read+write
-connections to the shared DB and writes to `routes`, `groups`,
-`group_settings`, and `user_secrets` via the `store` package; it never
-migrates.
+connections to the shared DB and writes to `routes`, `groups`, `invites`,
+`acl`, and `secrets` via the `store` package; it never migrates.
 
 ## Surface
 
@@ -47,6 +47,17 @@ below match the actual `mux.HandleFunc` calls.
   `POST /dash/groups/{folder}/settings`,
   `DELETE /dash/groups/{folder}`, `POST /dash/groups/{folder}/delete`
   (form fallback). (`groups_admin.go`)
+- **Invites — admin** (2): `GET/POST /dash/invites/` — list pending
+  invites, create new (admin-gated), revoke by token. (`invites.go`)
+- **Grants viewer — admin** (2): `GET/POST /dash/groups/{folder}/grants`
+  — ACL rows for the folder, add form (all 27 actions), per-row revoke.
+  (`grants_admin.go`)
+- **Model selector**: dropdown in groups settings writes `groups.model`;
+  container runner passes `ARIZUKO_MODEL` env var.
+- **Skill toggle**: checkbox list in groups settings creates/removes
+  `.disabled` marker at `<group>/.claude/skills/<name>/.disabled`.
+- **Workspace links**: settings page "Agent files" section links to
+  `/dav/{folder}/CLAUDE.md`, `PERSONA.md`, `MEMORY.md`, `workspace/`.
 
 ## Auth
 
@@ -74,13 +85,14 @@ future work.
 ## Dependencies
 
 - `auth` — token/scope check (`Authorize`, `Caller`)
-- `store` — DB access for routes, groups, secrets, user_groups
+- `store` — DB access for routes, groups, secrets, acl, invites
 - `core` — config helpers used by groups/routes admin handlers
 - `container` — group folder bootstrap on create
 - `groupfolder` — folder path validation, parent resolution
 - `chanlib` — request log middleware
 - `diary` — extract `summary:` frontmatter for memory listings
 - `theme` — shared CSS + theme toggle script
+- `html_helpers.go` — shared page shell, nav, banner helpers (vendored htmx)
 
 ## Configuration
 
@@ -104,9 +116,12 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `me_secrets.go` — per-user secrets CRUD + shared `requireUser` /
   `requireSameOrigin` helpers.
 - `routes_admin.go` — routes table CRUD (admin-gated).
-- `groups_admin.go` — group create / settings / delete (admin-gated).
+- `groups_admin.go` — group create / settings (model, skills, workspace links) / delete (admin-gated).
+- `grants_admin.go` — ACL viewer + add/revoke per folder (admin-gated).
+- `invites.go` — invite list + create + revoke (admin-gated).
 - `profile.go` — `/dash/profile/` view of linked subs for the caller.
 - `authz.go` — `requireAdmin` wrapper around `auth.Authorize`.
+- `html_helpers.go` — shared page shell, nav, htmx boost, banner helpers.
 
 ## Future work
 

@@ -39,10 +39,9 @@ What's isolated per group:
   the group's identity (`SO_PEERCRED` + socket-path tier); every
   tool call resolves through `auth.Authorize` against that folder,
   not the caller's claim (`ipc/ipc.go`, `auth/middleware.go`).
-- **Secrets** — only folder-scoped secrets reach the container env;
-  per-user tokens stay on the host and resolve at tool-call time
-  through the broker (`container/runner.go` `resolveSpawnEnv`,
-  spec 9/11).
+- **Secrets** — AES-256-GCM encrypted at rest; only `ANTHROPIC_API_KEY`
+  and `CLAUDE_CODE_OAUTH_TOKEN` from host env reach the container.
+  Folder/user secret injection deferred to spec 6/Y.
 
 The threat the model defends against is a malicious agent in group A
 trying to reach group B's data, files, or network. Separate containers
@@ -79,7 +78,7 @@ cross-tenant threat go away.
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew  | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention` | `emaid/imap.go`, spec 8/17                                                                        |
 | Mention promotion   | Gateway-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote | `gateway/gateway.go`, spec 6/J                                                                    |
-| Secrets at rest     | AES-256-GCM encrypted (v1: prefix, key=SHA-256(AUTH_SECRET)); plaintext rows purged on startup                                   | `store/secrets.go`, migration `0034-secrets.sql`                                                  |
+| Secrets at rest     | AES-256-GCM encrypted (v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)); plaintext rows purged on startup                    | `store/secrets.go`, migration `0034-secrets.sql`                                                  |
 | Secret injection    | Folder/user secrets env injection planned (spec 6/Y); today only API keys from host env injected                                 | `container/runner.go` (`resolveSpawnEnv`)                                                         |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                     | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
@@ -116,7 +115,7 @@ SSE auth and authenticated web chat.
 Crypto lives in `auth/hmac.go` (`SignHMAC`, `VerifyUserSig`,
 `UserSigMessage`) and is shared by both signer and verifiers. Never
 inline a `VerifyUserSig` call in handler code — go through the
-middleware. The single exception is in `webd/chat.go` where signed
+middleware. The single exception is in `webd/slink.go` where signed
 identity is one of two acceptable identities (the other being
 anonymous-from-trusted-IP); even there, the call is a boolean
 "is this user known?" check, not an authentication gate.
@@ -139,7 +138,7 @@ anonymous-from-trusted-IP); even there, the call is a boolean
 │  └─────────────────────────────────────────────────────┘ │
 │                                                          │
 │  ┌─ external channels (untrusted) ─────────────────────┐ │
-│  │  telegram, discord, whatsapp, web chat, email        │ │
+│  │  telegram, discord, whatsapp, web slink, email      │ │
 │  └─────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -163,6 +162,9 @@ which runs on both the internal network and the project default bridge.
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
 - Unknown source IP or unmatched host → connection closed silently.
+- Egress wildcard (`"*"`) is appended only for tier ≤ 1 agents.
+  Tier-2 agents are not granted the wildcard; they are subject to the
+  per-folder allowlist like any other tier.
 
 Caveats:
 

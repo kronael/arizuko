@@ -39,18 +39,18 @@ The same daemons, configured differently, fill several adjacent niches.
 - **An email or webhook agent** — `emaid` ingests IMAP with DMARC + sender
   allowlist (spec 8/17); arbitrary HTTP callers POST to `/v1/messages` via
   the same channel protocol.
+- **Chat + webhook links** — `issue_chat_link` / `issue_webhook` MCP tools
+  mint `/chat/<token>/` (web widget) and `/hook/<token>` (fire-and-forget)
+  routes backed by the `route_tokens` table; legacy `/slink/*` 301s to
+  `/chat/<token>/` ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
 
 **Spec'd, not yet shipped:**
 
 - **A federated multi-tenant control API** — `/v1/*` surface across every
-  daemon ([specs/5/V-platform-api.md](specs/5/V-platform-api.md), `spec`).
+  daemon ([specs/6/R-platform-api.md](specs/6/R-platform-api.md), `spec`).
 - **A meta-agent platform** — end users POST an agent definition and get
   a tenant + chat token back
   ([specs/6/3-user-spawned-agents.md](specs/6/3-user-spawned-agents.md), `spec`).
-- **Route tokens** — shipped v0.41.0; `/chat/<token>/` (web chat widget)
-  and `/hook/<token>` (webhook ingest) backed by `route_tokens` table;
-  `/slink/*` 301-redirects to `/chat/<token>/`
-  ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
 - **Proactive interjection** — lurk-mode + validator chain
   ([specs/5/33-proactive-interjection.md](specs/5/33-proactive-interjection.md), `spec`).
 - **Cost caps** — per-folder/user daily spend cap; pre-spawn gate
@@ -94,26 +94,26 @@ package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
 
 ### Daemons
 
-| name   | kind        | role                                                                                                                           | README                               |
-| ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| gated  | core        | HTTP API + message loop + container runner; owns schema                                                                        | [gated/README.md](gated/README.md)   |
-| timed  | core        | cron/interval scheduler                                                                                                        | [timed/README.md](timed/README.md)   |
-| onbod  | core        | onboarding, OAuth, gated admission queue                                                                                       | [onbod/README.md](onbod/README.md)   |
-| dashd  | core        | HTMX operator dashboards + TIER 1 admin CRUD                                                                                   | [dashd/README.md](dashd/README.md)   |
-| webd   | core        | web channel: SSE hub, slink chat + MCP transport (route_tokens unification spec'd at [specs/5/W](specs/5/W-webhook-routes.md)) | [webd/README.md](webd/README.md)     |
-| proxyd | core        | auth-gated reverse proxy                                                                                                       | [proxyd/README.md](proxyd/README.md) |
-| davd   | core        | WebDAV workspace (per-group, dufs)                                                                                             | [davd/README.md](davd/README.md)     |
-| teled  | integration | Telegram adapter                                                                                                               | [teled/README.md](teled/README.md)   |
-| discd  | integration | Discord adapter                                                                                                                | [discd/README.md](discd/README.md)   |
-| slakd  | integration | Slack adapter (bot-token, Events API)                                                                                          | [slakd/README.md](slakd/README.md)   |
-| mastd  | integration | Mastodon adapter                                                                                                               | [mastd/README.md](mastd/README.md)   |
-| bskyd  | integration | Bluesky adapter                                                                                                                | [bskyd/README.md](bskyd/README.md)   |
-| reditd | integration | Reddit adapter                                                                                                                 | [reditd/README.md](reditd/README.md) |
-| emaid  | integration | Email (IMAP/SMTP) adapter                                                                                                      | [emaid/README.md](emaid/README.md)   |
-| whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                                                                                         | [whapd/README.md](whapd/README.md)   |
-| twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)                                                                              | [twitd/README.md](twitd/README.md)   |
-| linkd  | integration | LinkedIn adapter (partial native, v2 API)                                                                                      | [linkd/README.md](linkd/README.md)   |
-| ttsd   | integration | OpenAI-compatible TTS proxy (Kokoro by default)                                                                                | [ttsd/README.md](ttsd/README.md)     |
+| name   | kind        | role                                                                                                                 | README                               |
+| ------ | ----------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| gated  | core        | HTTP API + message loop + container runner; owns schema                                                              | [gated/README.md](gated/README.md)   |
+| timed  | core        | cron/interval scheduler                                                                                              | [timed/README.md](timed/README.md)   |
+| onbod  | core        | onboarding, OAuth, gated admission queue                                                                             | [onbod/README.md](onbod/README.md)   |
+| dashd  | core        | HTMX operator dashboards + TIER 1 admin CRUD (invites, model selector, skill toggle, grants viewer, workspace links) | [dashd/README.md](dashd/README.md)   |
+| webd   | core        | web channel: SSE hub, `/chat/<token>/` widget + `/hook/<token>` ingest, MCP transport                                | [webd/README.md](webd/README.md)     |
+| proxyd | core        | auth-gated reverse proxy                                                                                             | [proxyd/README.md](proxyd/README.md) |
+| davd   | core        | WebDAV workspace (per-group, dufs)                                                                                   | [davd/README.md](davd/README.md)     |
+| teled  | integration | Telegram adapter                                                                                                     | [teled/README.md](teled/README.md)   |
+| discd  | integration | Discord adapter                                                                                                      | [discd/README.md](discd/README.md)   |
+| slakd  | integration | Slack adapter (bot-token, Events API)                                                                                | [slakd/README.md](slakd/README.md)   |
+| mastd  | integration | Mastodon adapter                                                                                                     | [mastd/README.md](mastd/README.md)   |
+| bskyd  | integration | Bluesky adapter                                                                                                      | [bskyd/README.md](bskyd/README.md)   |
+| reditd | integration | Reddit adapter                                                                                                       | [reditd/README.md](reditd/README.md) |
+| emaid  | integration | Email (IMAP/SMTP) adapter                                                                                            | [emaid/README.md](emaid/README.md)   |
+| whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                                                                               | [whapd/README.md](whapd/README.md)   |
+| twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)                                                                    | [twitd/README.md](twitd/README.md)   |
+| linkd  | integration | LinkedIn adapter (partial native, v2 API)                                                                            | [linkd/README.md](linkd/README.md)   |
+| ttsd   | integration | OpenAI-compatible TTS proxy (Kokoro by default)                                                                      | [ttsd/README.md](ttsd/README.md)     |
 
 A minimal deployment runs core + one channel-adapter integration; a
 maxed-out deployment runs all of them. Optional capability hooks
