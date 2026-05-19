@@ -599,7 +599,7 @@ func memoryPathAllowed(rel string) bool {
 	if clean != rel {
 		return false
 	}
-	if clean == "MEMORY.md" || clean == ".claude/CLAUDE.md" {
+	if clean == "MEMORY.md" || clean == ".claude/CLAUDE.md" || clean == "PERSONA.md" {
 		return true
 	}
 	for _, sub := range []string{"diary/", "facts/", "users/", "episodes/"} {
@@ -794,6 +794,7 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
 	renderCappedFile(w, groupDir, "MEMORY.md", true)
 
+	renderCappedFile(w, groupDir, "PERSONA.md", false)
 	renderCappedFile(w, groupDir, "CLAUDE.md", false)
 
 	renderEntries(w, groupDir, "diary", "Diary", true)

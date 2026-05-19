@@ -469,6 +469,57 @@ func TestRenderCappedFileTruncation(t *testing.T) {
 	}
 }
 
+// --- PERSONA.md in memory section ---
+
+func TestRenderMemorySectionPersona(t *testing.T) {
+	groups := t.TempDir()
+	folder := "g1"
+	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(groups, folder, "PERSONA.md"), []byte("personadata"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{groupsDir: groups}
+	w := httptest.NewRecorder()
+	d.renderMemorySection(w, folder)
+	body := w.Body.String()
+	if !strings.Contains(body, "personadata") {
+		t.Errorf("PERSONA.md content missing: %s", body)
+	}
+	if !strings.Contains(body, "PERSONA.md") {
+		t.Errorf("PERSONA.md label missing: %s", body)
+	}
+}
+
+func TestMemoryWritePersona(t *testing.T) {
+	groups := t.TempDir()
+	folder := "g1"
+	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, groupsDir: groups}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	body := "---\nname: Atlas\n---\nYou are Atlas.\n"
+	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/PERSONA.md", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(groups, folder, "PERSONA.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != body {
+		t.Errorf("got %q, want %q", string(data), body)
+	}
+}
+
 // --- auth header pass-through: dashd trusts X-User-Sub from proxyd,
 // but does not gate on it. Ensure handlers process requests with it set. ---
 

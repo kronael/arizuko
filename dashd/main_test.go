@@ -551,6 +551,7 @@ func TestMemoryPathAllowed(t *testing.T) {
 	}{
 		{"MEMORY.md", true},
 		{".claude/CLAUDE.md", true},
+		{"PERSONA.md", true},
 		{"diary/2026-04-19.md", true},
 		{"facts/foo.md", true},
 		{"users/bob.md", true},
