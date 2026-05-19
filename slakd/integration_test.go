@@ -239,6 +239,7 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	t.Cleanup(b.typing.Stop)
 	b.store = st
 	rc := chanlib.NewRouterClient(rm.srv.URL, "chsec")
 	rc.SetToken("tok")
