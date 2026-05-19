@@ -373,48 +373,46 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bannerClass := "banner-ok"
 	bannerText := fmt.Sprintf("%d channels, %d groups, %d errored chats", chanCount, groupCount, erroredCount)
+	bannerClass := "ok"
 	if chanCount == 0 {
-		bannerClass = "banner-err"
+		bannerClass = "err"
 	} else if erroredCount > 0 {
-		bannerClass = "banner-warn"
+		bannerClass = "warn"
 	}
-	fmt.Fprintf(w, `<p class="dim">Service health</p>`)
-	fmt.Fprintf(w, `<div class="%s">%s</div>`, bannerClass, esc(bannerText))
+	fmt.Fprint(w, `<p class="dim">Service health</p>`)
+	fmt.Fprint(w, htmlBanner(bannerClass, bannerText))
 
-	fmt.Fprintf(w, `<table>`)
-	fmt.Fprintf(w, `<tr><th>Groups</th><td>%d</td></tr>`, groupCount)
-	fmt.Fprintf(w, `<tr><th>Active sessions</th><td>%d</td></tr></table>`, sessionCount)
+	metricRows := [][]string{
+		{`Groups`, fmt.Sprintf(`%d`, groupCount)},
+		{`Active sessions`, fmt.Sprintf(`%d`, sessionCount)},
+	}
+	fmt.Fprint(w, htmlTable([]string{"metric", "value"}, metricRows))
 
 	rows, err := d.db.Query(`SELECT name, url FROM channels ORDER BY name LIMIT 500`)
-	if err == nil {
-		defer rows.Close()
-		fmt.Fprint(w, `<h2>Channels</h2><table><thead><tr><th>Name</th><th>URL</th></tr></thead><tbody>`)
-		var n int
-		for rows.Next() {
-			var name, url string
-			if err := rows.Scan(&name, &url); err != nil {
-				slog.Warn("status: scan channels row", "err", err)
-				continue
-			}
-			fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td></tr>`,
-				esc(name), esc(url))
-			n++
-		}
-		if err := rows.Err(); err != nil {
-			slog.Warn("status: channels rows", "err", err)
-			fmt.Fprintf(w, `<tr><td colspan=2 class="empty">rows error: %s</td></tr>`,
-				esc(err.Error()))
-		} else if n == 0 {
-			fmt.Fprint(w, `<tr><td colspan=2 class="empty">No channels registered.</td></tr>`)
-		}
-		fmt.Fprint(w, `</tbody></table>`)
-	} else {
+	if err != nil {
 		slog.Warn("status: query channels", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">channels query error: %s</div>`,
-			esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "channels query error: "+err.Error()))
+		pageClose(w, r)
+		return
 	}
+	defer rows.Close()
+	var chanRows [][]string
+	for rows.Next() {
+		var name, chanURL string
+		if err := rows.Scan(&name, &chanURL); err != nil {
+			slog.Warn("status: scan channels row", "err", err)
+			continue
+		}
+		chanRows = append(chanRows, []string{esc(name), esc(chanURL)})
+	}
+	if err := rows.Err(); err != nil {
+		slog.Warn("status: channels rows", "err", err)
+		fmt.Fprint(w, htmlBanner("err", "channels rows error: "+err.Error()))
+		pageClose(w, r)
+		return
+	}
+	fmt.Fprint(w, htmlSection("Channels", htmlTable([]string{"name", "url"}, chanRows)))
 
 	pageClose(w, r)
 }
@@ -423,9 +421,9 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tasks")
 	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
-	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
-<thead><tr><th>ID</th><th>Group</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>
-<tbody>`)
+	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
+		`<thead><tr><th>ID</th><th>Group</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
+		`<tbody>`)
 	d.writeTaskRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
 	pageClose(w, r)
@@ -487,9 +485,9 @@ func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Activity")
 	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels. Auto-refreshes every 10s.</p>`)
-	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">
-<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>
-<tbody>`)
+	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
+		`<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>`+
+		`<tbody>`)
 	d.writeActivityRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
 	pageClose(w, r)
@@ -550,7 +548,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">error: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
@@ -567,7 +565,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("groups: rows", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">rows error: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "rows error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
@@ -613,13 +611,14 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 			parentDisp = "—"
 		}
 		fp := folderPath(folder)
-		fmt.Fprintf(w,
-			`<p class="dim">Folder <code>%s</code> &middot; Parent <code>%s</code> &middot; `+
-				`<a href="/dash/groups/%s/settings">settings</a> &middot; `+
-				`<a href="/dash/groups/%s/grants">grants</a> &middot; `+
-				`<a href="/dash/tokens/%s/">tokens</a></p>`,
-			esc(folder), esc(parentDisp), fp, fp, fp,
-		)
+		links := fmt.Sprintf(`<a href="/dash/groups/%s/settings">settings</a> &middot; `+
+			`<a href="/dash/groups/%s/grants">grants</a> &middot; `+
+			`<a href="/dash/tokens/%s/">tokens</a>`, fp, fp, fp)
+		fmt.Fprint(w, `<table>`+
+			htmlDetail("folder", `<code>`+esc(folder)+`</code>`)+
+			htmlDetail("parent", `<code>`+esc(parentDisp)+`</code>`)+
+			htmlDetail("links", links)+
+			`</table>`)
 		d.writeGroupRoutes(w, folder)
 		fmt.Fprint(w, `</div></details>`)
 	}
@@ -877,11 +876,21 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		`<a href="/dav/%s/" target="_blank">workspace/</a></p>`,
 		esc(folder), esc(folder), esc(folder), esc(folder))
 
-	fmt.Fprint(w, `<h2>MEMORY.md</h2>`)
-	renderCappedFile(w, groupDir, "MEMORY.md", true)
+	var memBuf strings.Builder
+	renderCappedFile(&memBuf, groupDir, "MEMORY.md", true)
+	fmt.Fprint(w, htmlSection("MEMORY.md", memBuf.String()))
 
-	renderCappedFile(w, groupDir, "PERSONA.md", false)
-	renderCappedFile(w, groupDir, "CLAUDE.md", false)
+	var personaBuf strings.Builder
+	renderCappedFile(&personaBuf, groupDir, "PERSONA.md", false)
+	if s := personaBuf.String(); s != "" {
+		fmt.Fprint(w, htmlSection("PERSONA.md", s))
+	}
+
+	var claudeBuf strings.Builder
+	renderCappedFile(&claudeBuf, groupDir, "CLAUDE.md", false)
+	if s := claudeBuf.String(); s != "" {
+		fmt.Fprint(w, htmlSection("CLAUDE.md", s))
+	}
 
 	renderEntries(w, groupDir, "diary", "Diary", true)
 	renderEntries(w, groupDir, "episodes", "Episodes", false)
@@ -889,7 +898,7 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	renderEntries(w, groupDir, "facts", "Facts", false)
 }
 
-func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing bool) {
+func renderCappedFile(w io.Writer, groupDir, leaf string, showMissing bool) {
 	path, err := safeJoin(groupDir, leaf)
 	if err != nil {
 		if errors.Is(err, errEscape) {
@@ -928,7 +937,7 @@ func renderCappedFile(w http.ResponseWriter, groupDir, leaf string, showMissing 
 	}
 }
 
-func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetails bool) {
+func renderEntries(w io.Writer, groupDir, sub, title string, openDetails bool) {
 	dirPath, err := safeJoin(groupDir, sub)
 	if err != nil {
 		if errors.Is(err, errEscape) {
@@ -962,8 +971,8 @@ func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetai
 	if openDetails {
 		openAttr = " open"
 	}
-	fmt.Fprintf(w, `<h2>%s</h2><details%s><summary>%s</summary><ul>`,
-		esc(title), openAttr, esc(summaryLabel))
+	var items strings.Builder
+	items.WriteString(fmt.Sprintf(`<details%s><summary>%s</summary><ul>`, openAttr, esc(summaryLabel)))
 	shown := 0
 	for i := total - 1; i >= 0 && shown < limit; i-- {
 		e := mdFiles[i]
@@ -975,13 +984,11 @@ func renderEntries(w http.ResponseWriter, groupDir, sub, title string, openDetai
 			continue
 		}
 		summary := mdSummary(leafPath)
-		fmt.Fprintf(w, `<li><b>%s</b> %s</li>`,
-			esc(e.Name()),
-			esc(summary),
-		)
+		fmt.Fprintf(&items, `<li><b>%s</b> %s</li>`, esc(e.Name()), esc(summary))
 		shown++
 	}
-	fmt.Fprint(w, `</ul></details>`)
+	items.WriteString(`</ul></details>`)
+	fmt.Fprint(w, htmlSection(title, items.String()))
 }
 
 func mdSummary(path string) string {
