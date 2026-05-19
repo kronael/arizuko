@@ -51,10 +51,15 @@ func main() {
 	}
 	defer s.Close()
 
-	if cfg.AuthSecret != "" {
-		s.SetSecretKey([]byte(cfg.AuthSecret))
+	encKey := cfg.SecretsKey
+	if encKey == "" {
+		encKey = cfg.AuthSecret
+	}
+	if encKey != "" {
+		s.SetSecretKey([]byte(encKey))
 		if purgeErr := s.PurgeUnencryptedSecrets(context.Background()); purgeErr != nil {
 			slog.Error("secrets purge-plaintext", "err", purgeErr)
+			os.Exit(1)
 		}
 	}
 

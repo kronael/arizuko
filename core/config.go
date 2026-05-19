@@ -22,6 +22,7 @@ type Config struct {
 	PollInterval        time.Duration
 	Timezone            string
 	AuthSecret          string
+	SecretsKey          string
 	WebHost             string
 	AuthBaseURL         string
 	GitHubClientID      string
@@ -129,6 +130,7 @@ func LoadConfig() (*Config, error) {
 		PollInterval:        2 * time.Second,
 		Timezone:            resolveTimezone(),
 		AuthSecret:          envOr("AUTH_SECRET", ""),
+		SecretsKey:          envOr("SECRETS_KEY", ""),
 		WebHost:             envOr("WEB_HOST", ""),
 		AuthBaseURL:         envOr("AUTH_BASE_URL", ""),
 		GitHubClientID:      envOr("GITHUB_CLIENT_ID", ""),
