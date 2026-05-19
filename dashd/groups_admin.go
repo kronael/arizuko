@@ -244,7 +244,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		{"claude-haiku-4-5-20251001", "Claude Haiku 4.5"},
 	}
 	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">
-<p><label>Model <select name="model">`, esc(folder))
+<p><label>Model <select name="model">`, folderPath(folder))
 	for _, opt := range modelOptions {
 		sel := ""
 		if opt.ID == groupModel {
@@ -253,9 +253,9 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<option value="%s"%s>%s</option>`, esc(opt.ID), sel, esc(opt.Label))
 	}
 	fmt.Fprintf(w, `</select></label></p>
-<p><label><input type="checkbox" name="open" value="1"%s> open (allow cross-folder ambient observation)</label></p>
-<p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"></label></p>
-<p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"></label></p>
+<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>
+<p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"> <span class="dim">max messages a sibling sees (0 = default 50)</span></label></p>
+<p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"> <span class="dim">max chars per observation (0 = default 2000)</span></label></p>
 <p><label>max_children <input type="number" name="max_children" value="%d" min="-1"> <span class="dim">0 = disabled, -1 = unlimited</span></label></p>
 `, openChecked, owMsgs, owChars, groupCfg.MaxChildren)
 
@@ -266,7 +266,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		`<li><a href="/dav/%s/PERSONA.md" target="_blank">PERSONA.md</a> — name, tone, role</li>`+
 		`<li><a href="/dav/%s/MEMORY.md" target="_blank">MEMORY.md</a> — persistent cross-session notes</li>`+
 		`<li><a href="/dav/%s/" target="_blank">workspace/</a> — browse all group files</li>`+
-		`</ul>`, esc(folder), esc(folder), esc(folder), esc(folder))
+		`</ul>`, folderPath(folder), folderPath(folder), folderPath(folder), folderPath(folder))
 
 	if len(skills) > 0 {
 		fmt.Fprint(w, `<h2>Skills</h2><p class="dim">Unchecked skills are disabled on next agent run.</p><ul style="list-style:none;padding:0">`)
@@ -283,12 +283,12 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
 
-	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, esc(folder))
+	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
 <button type="submit" style="color:#b00">delete group</button>
-</form>`, esc(folder), esc(folder))
+</form>`, folderPath(folder), esc(folder))
 
 	fmt.Fprint(w, pageBot)
 }

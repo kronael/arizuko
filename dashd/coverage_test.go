@@ -63,7 +63,7 @@ func TestStatusWithChannels(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"tel", "http://t/", "disc", "banner-warn", "/tmp/x.db"} {
+	for _, want := range []string{"tel", "http://t/", "disc", "banner-warn"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in body: %s", want, body)
 		}

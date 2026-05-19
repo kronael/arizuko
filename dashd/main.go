@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,6 +23,9 @@ import (
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed htmx.min.js
+var htmxJS []byte
 
 // Caps bound memory from adversarial writes by a compromised agent.
 const (
@@ -60,6 +65,13 @@ func safeJoin(base, leaf string) (string, error) {
 }
 
 var esc = template.HTMLEscapeString
+
+// folderPath URL-encodes a group folder for use in path segments.
+// Nested folders like "rhias/nemo" become "rhias%2Fnemo" so Go's
+// net/http mux {folder} wildcard matches them as a single segment.
+func folderPath(folder string) string {
+	return url.PathEscape(folder)
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
@@ -127,6 +139,7 @@ type dash struct {
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", d.handleHealth)
+	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
 	mux.HandleFunc("GET /dash/", d.handlePortal)
 	mux.HandleFunc("GET /dash/status/", d.handleStatus)
 	mux.HandleFunc("GET /dash/tasks/", d.handleTasks)
@@ -163,6 +176,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/new", d.handleGroupCreate)
 	mux.HandleFunc("GET /dash/groups/{folder}/settings", d.handleGroupSettings)
 	mux.HandleFunc("POST /dash/groups/{folder}/settings", d.handleGroupSettingsSave)
+	mux.HandleFunc("GET /dash/groups/{folder}/tools", d.handleGroupTools)
 	mux.HandleFunc("DELETE /dash/groups/{folder}", d.handleGroupDelete)
 	mux.HandleFunc("POST /dash/groups/{folder}/delete", d.handleGroupDelete)
 	mux.HandleFunc("GET /dash/groups/{folder}/grants", d.handleGroupGrants)
@@ -183,6 +197,12 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintln(w, `{"ok":true}`)
+}
+
+func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(htmxJS)
 }
 
 // navLinks: nav order + href + label. Path-prefix match decides which
@@ -226,7 +246,7 @@ func dashNavFor(urlPath string) string {
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
 		`<title>` + title + ` — arizuko</title>` +
-		`<script src="https://unpkg.com/htmx.org@1.9.12"></script>` +
+		`<script src="/dash/assets/htmx.min.js"></script>` +
 		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + `</head>`
 }
 
@@ -351,7 +371,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<p class="dim">Service health</p>`)
 	fmt.Fprintf(w, `<div class="%s">%s</div>`, bannerClass, esc(bannerText))
 
-	fmt.Fprintf(w, `<table><tr><th>DB</th><td><code>%s</code></td></tr>`, esc(d.dbPath))
+	fmt.Fprintf(w, `<table>`)
 	fmt.Fprintf(w, `<tr><th>Groups</th><td>%d</td></tr>`, groupCount)
 	fmt.Fprintf(w, `<tr><th>Active sessions</th><td>%d</td></tr></table>`, sessionCount)
 
@@ -512,7 +532,8 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Groups")
-	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules.</p>`)
+	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
+		`<p><a href="/dash/groups/new">+ New group</a></p>`)
 
 	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
@@ -579,9 +600,13 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		if parentDisp == "" {
 			parentDisp = "—"
 		}
-		fmt.Fprintf(w, `<p class="dim">Folder <code>%s</code> &middot; Parent <code>%s</code></p>`,
-			esc(folder),
-			esc(parentDisp),
+		fp := folderPath(folder)
+		fmt.Fprintf(w,
+			`<p class="dim">Folder <code>%s</code> &middot; Parent <code>%s</code> &middot; `+
+				`<a href="/dash/groups/%s/settings">settings</a> &middot; `+
+				`<a href="/dash/groups/%s/grants">grants</a> &middot; `+
+				`<a href="/dash/tokens/%s/">tokens</a></p>`,
+			esc(folder), esc(parentDisp), fp, fp, fp,
 		)
 		d.writeGroupRoutes(w, folder)
 		fmt.Fprint(w, `</div></details>`)
