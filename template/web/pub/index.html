@@ -23,9 +23,20 @@
         color: var(--fg);
         margin: 0.4em 0 1em;
       }
-      .diagram {
-        font-size: 0.85em;
-        line-height: 1.35;
+      .deploy-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9em;
+        margin: 0.8em 0;
+      }
+      .deploy-table th, .deploy-table td {
+        text-align: left;
+        padding: 0.4em 0.7em;
+        border-bottom: 1px solid var(--border, #333);
+      }
+      .deploy-table th {
+        color: var(--dim, #888);
+        font-weight: normal;
       }
     </style>
   </head>
@@ -33,11 +44,25 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Self-hosted router for Claude agents that live in your team&rsquo;s
-        chats. Slack, Telegram, WhatsApp, Discord, email &mdash; 11 channel
-        adapters, folder per team, container per folder. Memory and
-        secrets stay scoped per team; your box, your Anthropic key, one
-        <code>tar</code> backs up everything.
+        Self-hosted platform for running Claude agents at scale. Deploy one
+        agent per team, project, or product &mdash; each isolated, persistent,
+        and connected to wherever it needs to be: chat, email, web, webhooks,
+        or APIs. No managed control plane, no per-seat pricing. Runs on a $5
+        VPS; backs up with one <code>tar</code>; scales to 10,000 teams on the
+        same binary.
+      </p>
+
+      <h2>why not Claude.ai or the Assistants API?</h2>
+      <ul>
+        <li>No memory that persists across conversations or users.</li>
+        <li>No per-team isolation &mdash; everyone shares one context.</li>
+        <li>No custom channels: you get a chat window, not Slack, email, or webhooks.</li>
+        <li>No self-hosting &mdash; your prompts, context, and files go through their servers.</li>
+      </ul>
+      <p>
+        arizuko runs on your infrastructure. The agents accumulate context over
+        weeks, fork topics, publish to the web, and coordinate across teams.
+        That&rsquo;s the feature, not the complexity.
       </p>
 
       <h2>what you get</h2>
@@ -49,6 +74,12 @@
           produces noise, blended answers, and hallucinated cross-references.
           Each folder is a clean context boundary that accumulates only the
           conversations relevant to it.
+        </li>
+        <li>
+          <strong>One agent per team, task, department, or product.</strong>
+          A support bot, a content pipeline, a PM board, a Slack team agent &mdash;
+          each is a folder. Pre-seeded recipes at
+          <a href="products/">products/</a> land one in five minutes.
         </li>
         <li>
           <strong>Topics that fork.</strong> A side-topic copies its parent&rsquo;s
@@ -67,52 +98,59 @@
           to. See <a href="concepts/slack-pane.html">concepts/slack-pane</a>.
         </li>
         <li>
-          <strong>Operator dashboard CRUD.</strong> <code>dashd</code> serves
-          <code>/dash/</code> with a routes editor, group settings (open /
-          closed toggle, observe window), and group create / delete. No more
-          editing <code>.env</code> by hand to rewire a route.
-        </li>
-        <li>
-          <strong>Topic-suffix routing.</strong>
-          <code>target=corp/eng#alerts</code> pins routed messages to a named
-          topic at route time &mdash; one topic per source, no manual sorting.
-        </li>
-        <li>
           <strong>Email in, email out.</strong> <code>emaid</code> ingests
           DMARC-verified mail as a normal channel; unverified senders route
           to a <code>verb=untrusted</code> quarantine instead of reaching
           the agent. SMTP send works the same direction.
         </li>
         <li>
-          <strong>Named primitives, not abstractions.</strong> Folders are
-          folders. Routes match on <code>key=glob</code>. ACL is one row:
-          <code>(principal, action, scope, params)</code>. Channels speak
-          HTTP. Containers are per-group. They meet at
-          <code>messages.db</code> and nowhere else.
+          <strong>Operator dashboard CRUD.</strong> <code>dashd</code> serves
+          <code>/dash/</code> with a routes editor, group settings, and group
+          create / delete. No editing <code>.env</code> by hand to rewire a route.
         </li>
         <li>
-          <strong>Compose, don&rsquo;t patch.</strong> Adding a channel adapter
-          is a <code>template/services/&lt;daemon&gt;.toml</code> file with a
-          <code>[[proxyd_route]]</code> block. Adding a tenant is a folder + a
-          route + a grant row. New MCP tools land in
-          <a href="reference/mcp.html">reference/mcp</a>.
-        </li>
-        <li>
-          <strong>Your server, your disk, your backup.</strong> One
-          <code>tar</code> of <code>/srv/data/arizuko_&lt;name&gt;/</code> is
-          the entire instance: <code>messages.db</code> (WAL), group folders,
-          per-user memory, secrets, agent files. No managed control plane.
+          <strong>Everything meets at <code>messages.db</code>.</strong>
+          Folders are folders. Routes match on <code>key=glob</code>. ACL is
+          one row: <code>(principal, action, scope, params)</code>. Channels
+          speak HTTP. Containers are per-group. No hidden state elsewhere.
         </li>
       </ul>
 
-      <p class="dim" style="margin: 1em 0 0.4em">
-        Products like
-        <a href="products/slack-team/">slack-team</a>
-        and <a href="products/reality/">reality</a>
-        are pre-seeded recipes on this substrate &mdash;
-        <code>arizuko create &lt;name&gt; --product &lt;recipe&gt;</code>
-        lands one in five minutes. Or build your own; the primitives are
-        the same.
+      <h2>start small, grow into it</h2>
+      <p>
+        A minimal deploy is <code>gated</code> and one channel adapter. Add
+        components as you need them &mdash; each is a standalone binary with its
+        own TOML block. Nothing coordinates through a managed control plane;
+        every piece is replaceable.
+      </p>
+      <table class="deploy-table">
+        <tr><th>Setup</th><th>What runs</th><th>Best for</th></tr>
+        <tr>
+          <td>Minimal</td>
+          <td><code>gated</code> + one adapter</td>
+          <td>First deployment, one team</td>
+        </tr>
+        <tr>
+          <td>Standard</td>
+          <td>+ <code>dashd</code> + <code>timed</code></td>
+          <td>Ongoing ops, scheduled tasks</td>
+        </tr>
+        <tr>
+          <td>Multi-team</td>
+          <td>+ <code>onbod</code> + <code>crackbox</code></td>
+          <td>Isolated teams, egress control</td>
+        </tr>
+        <tr>
+          <td>Product recipe</td>
+          <td>Pre-seeded config</td>
+          <td><a href="products/slack-team/">slack-team</a>,
+            <a href="products/reality/">reality</a> &mdash; 5 minutes</td>
+        </tr>
+      </table>
+      <p>
+        One <code>tar</code> of <code>/srv/data/arizuko_&lt;name&gt;/</code>
+        is the entire instance: <code>messages.db</code> (WAL), group folders,
+        per-user memory, secrets, agent files.
       </p>
 
       <h2>show me</h2>
@@ -141,8 +179,8 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
       <h2>go deeper</h2>
       <ul>
         <li>
-          <a href="products/">products</a> &mdash; curated configurations
-          of the same daemons (Slack team agent, &hellip;).
+          <a href="products/">products</a> &mdash; curated configurations:
+          Slack team agent, support bot, content pipeline, PM board, and more.
         </li>
         <li>
           <a href="components/">components</a> &mdash; the daemons one
