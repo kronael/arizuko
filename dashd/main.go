@@ -564,6 +564,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("groups: rows", "err", err)
+
 		fmt.Fprint(w, htmlBanner("err", "rows error: "+err.Error()))
 		pageClose(w, r)
 		return

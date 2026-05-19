@@ -1,9 +1,100 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
+
+func TestGroupUsageBulk_Empty(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	out, err := s.GroupUsageBulk(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 {
+		t.Errorf("got %d, want 0", len(out))
+	}
+}
+
+func TestGroupUsageBulk_TokensAndMessages(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	// Seed cost_log rows for two folders.
+	for _, r := range []CostRow{
+		{Folder: "a", Model: "m", InputTok: 100, OutputTok: 50, Cents: 10},
+		{Folder: "a", Model: "m", InputTok: 200, OutputTok: 100, Cents: 20},
+		{Folder: "b", Model: "m", InputTok: 300, OutputTok: 150, Cents: 30},
+	} {
+		if err := s.LogCost(r); err != nil {
+			t.Fatalf("LogCost: %v", err)
+		}
+	}
+
+	// Seed messages with routed_to.
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	for i, folder := range []string{"a", "a", "b"} {
+		_, err := s.db.Exec(
+			`INSERT INTO messages
+			 (id, chat_jid, sender, content, timestamp, routed_to)
+			 VALUES (?, ?, '', '', ?, ?)`,
+			fmt.Sprintf("id%d", i), "jid", ts, folder)
+		if err != nil {
+			t.Fatalf("seed message %d: %v", i, err)
+		}
+	}
+
+	out, err := s.GroupUsageBulk([]string{"a", "b"})
+	if err != nil {
+		t.Fatalf("GroupUsageBulk: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len = %d, want 2", len(out))
+	}
+	byFolder := map[string]GroupUsageSummary{}
+	for _, u := range out {
+		byFolder[u.Folder] = u
+	}
+	if got := byFolder["a"].Tokens7d; got != 450 { // 100+50+200+100
+		t.Errorf("a tokens = %d, want 450", got)
+	}
+	if got := byFolder["a"].Cents7d; got != 30 {
+		t.Errorf("a cents = %d, want 30", got)
+	}
+	if got := byFolder["a"].MsgCount; got != 2 {
+		t.Errorf("a msgs = %d, want 2", got)
+	}
+	if got := byFolder["b"].Tokens7d; got != 450 { // 300+150
+		t.Errorf("b tokens = %d, want 450", got)
+	}
+	if byFolder["a"].LastActive == "" {
+		t.Errorf("a LastActive should be non-empty")
+	}
+}
+
+func TestGroupUsageBulk_OldCostExcluded(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	old := time.Now().UTC().Add(-8 * 24 * time.Hour)
+	if err := s.LogCost(CostRow{
+		TS: old, Folder: "x", Model: "m", InputTok: 9999, Cents: 999,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LogCost(CostRow{Folder: "x", Model: "m", InputTok: 10, Cents: 5}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.GroupUsageBulk([]string{"x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Tokens7d != 10 {
+		t.Errorf("tokens = %d, want 10 (old row excluded)", out[0].Tokens7d)
+	}
+}
 
 func TestLogCost_RoundTrip(t *testing.T) {
 	s, _ := OpenMem()
