@@ -2292,7 +2292,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 // GatedFns and StoreFns are zero-valued (handlers are never invoked).
 // Used by dashd and /v1/tools to render the tool browser without duplication.
 func ListTools(folder string, rules []string) []mcp.Tool {
-	srv := buildMCPServer(GatedFns{}, StoreFns{}, folder, rules)
+	srv := buildMCPServer(GatedFns{}, StoreFns{}, folder, rules, "")
 	m := srv.ListTools()
 	out := make([]mcp.Tool, 0, len(m))
 	for _, st := range m {
