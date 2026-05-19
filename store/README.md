@@ -27,9 +27,9 @@ Primary methods (by domain):
 - Membership: `AddMembership`, `RemoveMembership`, `Members`, `Ancestors` — roles + JID→sub claims (`acl_membership` table)
 - Tasks: `CreateTask`, `GetTask`, `ListTasks`, `UpdateTask`, `DeleteTask`, `TaskRunLogs`
 - Secrets: `SetSecret`, `GetSecret`, `ListSecrets`, `DeleteSecret`,
-  `FolderSecretsResolved` (walk parents → root), `UserSecrets`
-  (per-user overlay). v1 stores plaintext (operator trusts disk +
-  FS perms; encryption at rest deferred per spec 9/11).
+  `PurgeUnencryptedSecrets` (run once on startup after AES upgrade).
+  Values are AES-256-GCM encrypted at rest via `SetSecretKey`
+  (key = SHA-256 of AUTH_SECRET).
 - Routes, system messages, onboarding, topics — see source
 
 `messages.is_observed` (migration 0054) marks rows stored under a

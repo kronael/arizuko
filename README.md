@@ -43,14 +43,14 @@ The same daemons, configured differently, fill several adjacent niches.
 **Spec'd, not yet shipped:**
 
 - **A federated multi-tenant control API** — `/v1/*` surface across every
-  daemon ([specs/6/R-platform-api.md](specs/6/R-platform-api.md), `spec`).
+  daemon ([specs/5/V-platform-api.md](specs/5/V-platform-api.md), `spec`).
 - **A meta-agent platform** — end users POST an agent definition and get
   a tenant + chat token back
   ([specs/6/3-user-spawned-agents.md](specs/6/3-user-spawned-agents.md), `spec`).
-- **Route tokens** — unify slink + webhook ingest under one
-  `route_tokens` table (`/chat/<token>/`, `/hook/<token>`); supersedes
-  legacy `/slink/*` on impl
-  ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md), `spec`).
+- **Route tokens** — shipped v0.41.0; `/chat/<token>/` (web chat widget)
+  and `/hook/<token>` (webhook ingest) backed by `route_tokens` table;
+  `/slink/*` 301-redirects to `/chat/<token>/`
+  ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
 - **Proactive interjection** — lurk-mode + validator chain
   ([specs/5/33-proactive-interjection.md](specs/5/33-proactive-interjection.md), `spec`).
 - **Cost caps** — per-folder/user daily spend cap; pre-spawn gate

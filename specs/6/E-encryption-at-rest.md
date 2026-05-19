@@ -4,7 +4,7 @@ status: partial
 
 # specs/6/E — Encryption at rest
 
-**Shipped (secrets table):** AES-256-GCM on `secrets.value` via `Store.SetSecretKey` + `Store.EncryptAllSecrets`. Key = SHA-256(AUTH_SECRET). Plaintext rows readable during migration window.
+**Shipped (secrets table):** AES-256-GCM on `secrets.value` via `Store.SetSecretKey` + `Store.PurgeUnencryptedSecrets`. Key = SHA-256(AUTH_SECRET). Plaintext rows purged on startup — operators must re-enter secrets after first encrypted boot.
 
 **Deferred:** messages.db column encryption (content, raw).
 

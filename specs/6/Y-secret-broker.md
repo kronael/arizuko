@@ -1,9 +1,9 @@
 ---
-status: deferred
+status: partial
 depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
 
-> Deferred — secret injection removed from implementation pending a redesign around webd-side encryption and point-of-use decryption.
+> Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped.
 
 # Tool-level secret brokering
 

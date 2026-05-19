@@ -15,8 +15,9 @@ returns its answer as text. No new daemon, no new MCP endpoint.
   with self, second opinion on tricky algorithm, library Claude
   doesn't know well)
 - A `codex` binary on the agent container's PATH (add to `ant/Dockerfile`)
-- Secret: `OPENAI_API_KEY` (or `CODEX_API_KEY`) in folder secrets,
-  exported into the container env via existing secrets-injection path
+- Secret: `OPENAI_API_KEY` (or `CODEX_API_KEY`) in folder secrets.
+  Note: folder-secret env injection is deferred to spec 6/Y; for now,
+  set the key directly in the instance `.env` or pass as an env var.
 
 That's it. No `call_llm` MCP tool. No OpenRouter. No cost tracking.
 No model allowlist config. The skill is the surface; the CLI is the
