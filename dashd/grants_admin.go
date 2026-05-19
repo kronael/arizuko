@@ -42,7 +42,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if d.dbRW == nil {
-		fmt.Fprint(w, `<div class="banner-err">store unavailable</div>`)
+		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -52,60 +52,52 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `<p class="dim">ACL rows scoped to <code>%s</code>.</p>`, esc(folder))
 
-	if len(rows) == 0 {
-		fmt.Fprint(w, `<p class="dim">No grant rows for this folder.</p>`)
-	} else {
-		fmt.Fprint(w, `<table style="width:100%;border-collapse:collapse">
-<thead><tr>
-<th style="text-align:left;padding:4px 8px">principal</th>
-<th style="text-align:left;padding:4px 8px">action</th>
-<th style="text-align:left;padding:4px 8px">effect</th>
-<th style="text-align:left;padding:4px 8px">params</th>
-<th style="text-align:left;padding:4px 8px">predicate</th>
-<th style="text-align:left;padding:4px 8px">granted_by</th>
-<th></th>
-</tr></thead><tbody>`)
-		for _, row := range rows {
-			fmt.Fprintf(w,
-				`<tr><td style="padding:4px 8px;font-family:monospace">%s</td>`+
-					`<td style="padding:4px 8px">%s</td>`+
-					`<td style="padding:4px 8px">%s</td>`+
-					`<td style="padding:4px 8px;font-family:monospace">%s</td>`+
-					`<td style="padding:4px 8px;font-family:monospace">%s</td>`+
-					`<td style="padding:4px 8px">%s</td>`+
-					`<td><form method="post" action="/dash/groups/%s/grants/revoke">`+
-					`<input type="hidden" name="principal" value="%s">`+
-					`<input type="hidden" name="action" value="%s">`+
-					`<input type="hidden" name="effect" value="%s">`+
-					`<input type="hidden" name="params" value="%s">`+
-					`<input type="hidden" name="predicate" value="%s">`+
-					`<button type="submit" onclick="return confirm('Revoke this grant?')" `+
-					`style="color:#b00;background:none;border:none;cursor:pointer">revoke</button>`+
-					`</form></td></tr>`,
-				esc(row.Principal), esc(row.Action), esc(row.Effect),
-				esc(row.Params), esc(row.Predicate), esc(row.GrantedBy),
-				esc(folder),
-				esc(row.Principal), esc(row.Action), esc(row.Effect),
-				esc(row.Params), esc(row.Predicate),
-			)
+	tableRows := make([][]string, len(rows))
+	for i, row := range rows {
+		revokeBtn := fmt.Sprintf(
+			`<form method="post" action="/dash/groups/%s/grants/revoke">`+
+				`<input type="hidden" name="principal" value="%s">`+
+				`<input type="hidden" name="action" value="%s">`+
+				`<input type="hidden" name="effect" value="%s">`+
+				`<input type="hidden" name="params" value="%s">`+
+				`<input type="hidden" name="predicate" value="%s">`+
+				`<button type="submit" onclick="return confirm('Revoke this grant?')" `+
+				`class="btn-danger">revoke</button>`+
+				`</form>`,
+			esc(folder),
+			esc(row.Principal), esc(row.Action), esc(row.Effect),
+			esc(row.Params), esc(row.Predicate),
+		)
+		tableRows[i] = []string{
+			`<code>` + esc(row.Principal) + `</code>`,
+			esc(row.Action),
+			esc(row.Effect),
+			`<code>` + esc(row.Params) + `</code>`,
+			`<code>` + esc(row.Predicate) + `</code>`,
+			esc(row.GrantedBy),
+			revokeBtn,
 		}
-		fmt.Fprint(w, `</tbody></table>`)
 	}
+	fmt.Fprint(w, htmlTable(
+		[]string{"principal", "action", "effect", "params", "predicate", "granted_by", ""},
+		tableRows,
+	))
 
 	// Add grant form.
-	fmt.Fprintf(w, `<h2>Add grant</h2>
-<form method="post" action="/dash/groups/%s/grants">
-<p><label>principal <input type="text" name="principal" required size="40" placeholder="user@example or group:name"></label></p>
-<p><label>action <select name="action">`, esc(folder))
+	var actionSelect strings.Builder
+	actionSelect.WriteString(`<select name="action">`)
 	for _, a := range commonActions {
-		fmt.Fprintf(w, `<option value="%s">%s</option>`, esc(a), esc(a))
+		fmt.Fprintf(&actionSelect, `<option value="%s">%s</option>`, esc(a), esc(a))
 	}
-	fmt.Fprintf(w, `</select></label></p>
-<p><label>effect <select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select></label></p>
-<p><label>params <input type="text" name="params" size="40" placeholder='jid=telegram:* (leave blank for none)'></label></p>
-<p><label>scope <input type="text" name="scope" size="40" value="%s"></label></p>
-<p><button type="submit">add grant</button></p>
-</form>`, esc(folder))
+	actionSelect.WriteString(`</select>`)
+
+	fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, esc(folder))
+	fmt.Fprint(w, htmlFormRow("principal", `<input type="text" name="principal" required size="40" placeholder="user@example or group:name">`))
+	fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
+	fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))
+	fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (leave blank for none)">`))
+	fmt.Fprintf(w, htmlFormRow("scope", `<input type="text" name="scope" size="40" value="%s">`), esc(folder))
+	fmt.Fprint(w, `<p><button type="submit">add grant</button></p></form>`)
 
 	pageClose(w, r)
 }

@@ -24,7 +24,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links.</p>`)
 
 	if d.dbRW == nil {
-		fmt.Fprint(w, `<div class="banner-err">invites store unavailable</div>`)
+		fmt.Fprint(w, htmlBanner("err", "invites store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -33,54 +33,48 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	invites, err := s.ListInvites("")
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
-		fmt.Fprintf(w, `<div class="banner-err">invites query error: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "invites query error: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
 
-	fmt.Fprint(w, `<table><thead><tr><th>Token</th><th>Target</th><th>Issued by</th><th>Issued</th><th>Expires</th><th>Uses</th><th></th></tr></thead><tbody>`)
 	if len(invites) == 0 {
-		fmt.Fprint(w, `<tr><td colspan=7 class="empty">No invites. Create one below.</td></tr>`)
-	}
-	for _, inv := range invites {
-		expires := "—"
-		if inv.ExpiresAt != nil {
-			expires = inv.ExpiresAt.Format("2006-01-02")
+		fmt.Fprint(w, `<p class="empty">No invites. Create one below.</p>`)
+	} else {
+		tableRows := make([][]string, len(invites))
+		for i, inv := range invites {
+			expires := "—"
+			if inv.ExpiresAt != nil {
+				expires = inv.ExpiresAt.Format("2006-01-02")
+			}
+			revokeBtn := fmt.Sprintf(
+				`<form method="post" action="/dash/invites/%s/revoke" style="display:inline"`+
+					` onsubmit="return confirm('revoke invite %s?')">`+
+					`<button type="submit">revoke</button></form>`,
+				esc(inv.Token), esc(inv.Token[:8]),
+			)
+			tableRows[i] = []string{
+				`<code>` + esc(inv.Token) + `</code>`,
+				`<code>` + esc(inv.TargetGlob) + `</code>`,
+				esc(inv.IssuedBySub),
+				esc(inv.IssuedAt.Format("2006-01-02")),
+				esc(expires),
+				fmt.Sprintf("%d / %d", inv.UsedCount, inv.MaxUses),
+				revokeBtn,
+			}
 		}
-		fmt.Fprintf(w, `<tr>
-<td><code>%s</code></td>
-<td><code>%s</code></td>
-<td>%s</td>
-<td>%s</td>
-<td>%s</td>
-<td>%d / %d</td>
-<td>
-<form method="post" action="/dash/invites/%s/revoke" style="display:inline"
-      onsubmit="return confirm('revoke invite %s?')">
-<button type="submit">revoke</button>
-</form>
-</td>
-</tr>`,
-			esc(inv.Token),
-			esc(inv.TargetGlob),
-			esc(inv.IssuedBySub),
-			esc(inv.IssuedAt.Format("2006-01-02")),
-			esc(expires),
-			inv.UsedCount, inv.MaxUses,
-			esc(inv.Token),
-			esc(inv.Token[:8]),
-		)
+		fmt.Fprint(w, htmlTable(
+			[]string{"Token", "Target", "Issued by", "Issued", "Expires", "Uses", ""},
+			tableRows,
+		))
 	}
-	fmt.Fprint(w, `</tbody></table>`)
 
-	fmt.Fprintf(w, `<h2>Create invite</h2>
-<form method="post" action="/dash/invites/">
-<p><label>Target glob <input type="text" name="target_glob" placeholder="alice or alice/ for sub-world" required size="40"></label></p>
-<p><label>Max uses <input type="number" name="max_uses" value="1" min="1" required></label></p>
-<p><label>Expires (optional) <input type="date" name="expires_at"></label></p>
-<p><button type="submit">create</button></p>
-</form>
-<p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
+	fmt.Fprint(w, `<h2>Create invite</h2><form method="post" action="/dash/invites/">`)
+	fmt.Fprint(w, htmlFormRow("Target glob", `<input type="text" name="target_glob" placeholder="alice or alice/ for sub-world" required size="40">`))
+	fmt.Fprint(w, htmlFormRow("Max uses", `<input type="number" name="max_uses" value="1" min="1" required>`))
+	fmt.Fprint(w, htmlFormRow("Expires (optional)", `<input type="date" name="expires_at">`))
+	fmt.Fprint(w, `<p><button type="submit">create</button></p></form>`)
+	fmt.Fprint(w, `<p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
 
 	pageClose(w, r)
 }

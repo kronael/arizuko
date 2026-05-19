@@ -201,7 +201,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if d.dbRW == nil {
-		fmt.Fprint(w, `<div class="banner-err">store unavailable</div>`)
+		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -209,7 +209,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	var cfgJSON *string
 	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
 	if err != nil {
-		fmt.Fprintf(w, `<div class="banner-err">group not found: %s</div>`, esc(err.Error()))
+		fmt.Fprint(w, htmlBanner("err", "group not found: "+err.Error()))
 		pageClose(w, r)
 		return
 	}
@@ -243,21 +243,26 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		{"claude-sonnet-4-6", "Claude Sonnet 4.6"},
 		{"claude-haiku-4-5-20251001", "Claude Haiku 4.5"},
 	}
-	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">
-<p><label>Model <select name="model">`, folderPath(folder))
+	var modelSelect strings.Builder
+	modelSelect.WriteString(`<select name="model">`)
 	for _, opt := range modelOptions {
 		sel := ""
 		if opt.ID == groupModel {
 			sel = " selected"
 		}
-		fmt.Fprintf(w, `<option value="%s"%s>%s</option>`, esc(opt.ID), sel, esc(opt.Label))
+		fmt.Fprintf(&modelSelect, `<option value="%s"%s>%s</option>`, esc(opt.ID), sel, esc(opt.Label))
 	}
-	fmt.Fprintf(w, `</select></label></p>
-<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>
-<p><label>observe_window_messages <input type="number" name="observe_window_messages" value="%d" min="0"> <span class="dim">max messages a sibling sees (0 = default 50)</span></label></p>
-<p><label>observe_window_chars <input type="number" name="observe_window_chars" value="%d" min="0"> <span class="dim">max chars per observation (0 = default 2000)</span></label></p>
-<p><label>max_children <input type="number" name="max_children" value="%d" min="-1"> <span class="dim">0 = disabled, -1 = unlimited</span></label></p>
-`, openChecked, owMsgs, owChars, groupCfg.MaxChildren)
+	modelSelect.WriteString(`</select>`)
+
+	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
+	fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
+	fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
+	fmt.Fprint(w, htmlFormRow("observe_window_messages",
+		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%d" min="0"> <span class="dim">max messages a sibling sees (0 = default 50)</span>`, owMsgs)))
+	fmt.Fprint(w, htmlFormRow("observe_window_chars",
+		fmt.Sprintf(`<input type="number" name="observe_window_chars" value="%d" min="0"> <span class="dim">max chars per observation (0 = default 2000)</span>`, owChars)))
+	fmt.Fprint(w, htmlFormRow("max_children",
+		fmt.Sprintf(`<input type="number" name="max_children" value="%d" min="-1"> <span class="dim">0 = disabled, -1 = unlimited</span>`, groupCfg.MaxChildren)))
 
 	fmt.Fprintf(w, `<h2>Agent files</h2>`+
 		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
