@@ -22,12 +22,12 @@ func CopyDirNoSymlinks(src, dst string) error {
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		return copyFile(path, target)
+		return CopyFile(path, target)
 	})
 }
 
-// copyFile copies src to dst using io.Copy, creating dst with 0o644.
-func copyFile(src, dst string) error {
+// CopyFile copies src to dst using io.Copy, creating dst with 0o644.
+func CopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err

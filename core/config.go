@@ -22,7 +22,6 @@ type Config struct {
 	PollInterval        time.Duration
 	Timezone            string
 	AuthSecret          string
-	SecretsKey          string
 	WebHost             string
 	AuthBaseURL         string
 	GitHubClientID      string
@@ -73,7 +72,7 @@ type Config struct {
 	// TTS pipeline. TTSURL is the OpenAI-compatible /v1/audio/speech base
 	// URL (point at bundled ttsd or any external server). TTSVoice is the
 	// instance default; agents can override per-call via send_voice args
-	// or per-group via PERSONA.md `voice:` frontmatter.
+	// or per-group via SOUL.md `voice:` frontmatter.
 	TTSEnabled bool
 	TTSURL     string
 	TTSVoice   string
@@ -102,6 +101,10 @@ type Config struct {
 	// to now+TTL. Engaged (jid, topic) pairs fall through the routing
 	// miss branch to whichever folder most recently spoke there.
 	EngagementTTL time.Duration
+
+	// SecretsKey overrides AUTH_SECRET as the AES-256-GCM encryption key for
+	// the secrets table. Empty: falls back to AUTH_SECRET; both empty: no encryption.
+	SecretsKey string
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
@@ -114,10 +117,7 @@ func LoadConfig() (*Config, error) {
 
 	root := envOr("DATA_DIR", mustCwd())
 	hostRoot := envOr("HOST_DATA_DIR", root)
-	appDir := os.Getenv("HOST_APP_DIR")
-	if appDir == "" {
-		return nil, fmt.Errorf("HOST_APP_DIR is not set; refusing to start with derived path (would break skill seeding)")
-	}
+	appDir := envOr("HOST_APP_DIR", execDir())
 	name := envOr("ASSISTANT_NAME", "Andy")
 
 	c := &Config{
@@ -130,7 +130,6 @@ func LoadConfig() (*Config, error) {
 		PollInterval:        2 * time.Second,
 		Timezone:            resolveTimezone(),
 		AuthSecret:          envOr("AUTH_SECRET", ""),
-		SecretsKey:          envOr("SECRETS_KEY", ""),
 		WebHost:             envOr("WEB_HOST", ""),
 		AuthBaseURL:         envOr("AUTH_BASE_URL", ""),
 		GitHubClientID:      envOr("GITHUB_CLIENT_ID", ""),
@@ -185,6 +184,8 @@ func LoadConfig() (*Config, error) {
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 
 		EngagementTTL: envDur("ENGAGEMENT_TTL", 10*time.Minute),
+
+		SecretsKey: envOr("SECRETS_KEY", ""),
 	}
 
 	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated

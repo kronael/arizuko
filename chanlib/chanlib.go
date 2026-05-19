@@ -254,6 +254,14 @@ func EnvInt(k string, fallback int) int {
 	return n
 }
 
+func EnvBool(k string, fallback bool) bool {
+	s := os.Getenv(k)
+	if s == "" {
+		return fallback
+	}
+	return s == "true"
+}
+
 // EnvDur parses os.Getenv(k) as integer milliseconds (legacy encoding
 // for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.).
 func EnvDur(k string, fallback time.Duration) time.Duration {

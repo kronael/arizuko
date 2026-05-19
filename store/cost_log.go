@@ -101,40 +101,39 @@ func (s *Store) SetUserCap(userSub string, cents int) error {
 	return err
 }
 
+func startOfTodayUTC() time.Time {
+	now := time.Now().UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 // GroupUsageSummary holds aggregated usage stats for a single folder.
 type GroupUsageSummary struct {
-	Folder      string
-	Tokens7d    int    // input_tok + output_tok over last 7 days
-	Cents7d     int    // total cents over last 7 days
-	MsgCount    int    // all-time message count (routed_to = folder)
-	LastActive  string // RFC3339 timestamp of latest message, or ""
+	Folder     string
+	Tokens7d   int    // input_tok + output_tok over last 7 days
+	Cents7d    int    // total cents over last 7 days
+	MsgCount   int    // all-time message count (routed_to = folder)
+	LastActive string // RFC3339 timestamp of latest message, or ""
 }
 
 // GroupUsageBulk returns one GroupUsageSummary per folder in folders,
 // joining cost_log (7d window) and messages (all-time count + last active).
-// Folders with no data still appear with zero values.
 func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 	if len(folders) == 0 {
 		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
-
-	// Build placeholders.
-	ph := make([]string, len(folders))
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(folders)), ",")
 	args := make([]any, len(folders))
 	for i, f := range folders {
-		ph[i] = "?"
 		args[i] = f
 	}
-	placeholders := strings.Join(ph, ",")
 
-	// Cost side: sum per folder over 7d.
 	costRows, err := s.db.Query(
 		`SELECT folder,
-		        COALESCE(SUM(input_tok+output_tok),0) AS tokens,
-		        COALESCE(SUM(cents),0) AS cents
+		        COALESCE(SUM(input_tok+output_tok),0),
+		        COALESCE(SUM(cents),0)
 		 FROM cost_log
-		 WHERE folder IN (`+placeholders+`) AND ts >= ?
+		 WHERE folder IN (`+ph+`) AND ts >= ?
 		 GROUP BY folder`,
 		append(args, cutoff)...,
 	)
@@ -156,13 +155,10 @@ func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 		return nil, err
 	}
 
-	// Message side: count + last active per folder.
 	msgRows, err := s.db.Query(
-		`SELECT routed_to,
-		        COUNT(*) AS cnt,
-		        MAX(timestamp) AS last_ts
+		`SELECT routed_to, COUNT(*), MAX(timestamp)
 		 FROM messages
-		 WHERE routed_to IN (`+placeholders+`)
+		 WHERE routed_to IN (`+ph+`)
 		 GROUP BY routed_to`,
 		args...,
 	)
@@ -200,9 +196,4 @@ func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
 		}
 	}
 	return out, nil
-}
-
-func startOfTodayUTC() time.Time {
-	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }

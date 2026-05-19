@@ -1,9 +1,7 @@
 package store
 
 import (
-	"context"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -131,86 +129,75 @@ func TestDeleteSecret(t *testing.T) {
 	}
 }
 
-
-func TestSetGetSecret_Encrypted(t *testing.T) {
+func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	s.SetSecretKey([]byte("test-key"))
 
-	const plaintext = "sk-abc-123"
-	if err := s.SetSecret(ScopeFolder, "atlas", "API_KEY", plaintext); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	if err := s.SetSecret(ScopeFolder, "atlas", "KEY", "v1"); err != nil {
+		t.Fatal(err)
 	}
-	// On-disk value must be ciphertext, not plaintext.
-	var raw string
-	s.db.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='API_KEY'`,
-	).Scan(&raw)
-	if !strings.HasPrefix(raw, "v1:") {
-		t.Errorf("raw value = %q, want v1: prefix", raw)
+	if err := s.SetSecret(ScopeFolder, "atlas/eng", "KEY", "v2"); err != nil {
+		t.Fatal(err)
 	}
-	if raw == plaintext {
-		t.Error("raw value must not equal plaintext")
+	if err := s.SetSecret(ScopeFolder, "atlas", "ONLY_SHALLOW", "shallow"); err != nil {
+		t.Fatal(err)
 	}
-	// GetSecret must decrypt transparently.
-	got, err := s.GetSecret(ScopeFolder, "atlas", "API_KEY")
+
+	got, err := s.FolderSecretsResolved("atlas/eng")
 	if err != nil {
-		t.Fatalf("GetSecret: %v", err)
+		t.Fatalf("FolderSecretsResolved: %v", err)
 	}
-	if got.Value != plaintext {
-		t.Errorf("Value = %q, want %q", got.Value, plaintext)
+	if got["KEY"] != "v2" {
+		t.Errorf("KEY = %q, want v2 (deepest wins)", got["KEY"])
+	}
+	if got["ONLY_SHALLOW"] != "shallow" {
+		t.Errorf("ONLY_SHALLOW = %q, want shallow", got["ONLY_SHALLOW"])
 	}
 }
 
-func TestGetSecret_PlaintextInvalidatedWithKey(t *testing.T) {
+func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	// Insert a plaintext row directly (simulates pre-key row).
-	s.db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','OLD_KEY','old-plain','2024-01-01T00:00:00Z')`,
-	)
+	if err := s.SetSecret(ScopeFolder, "root", "KEY", "base"); err != nil {
+		t.Fatal(err)
+	}
 
-	// With key set, plaintext row is not readable (returns ErrSecretNotFound).
-	s.SetSecretKey([]byte("test-key"))
-	_, err := s.GetSecret(ScopeFolder, "atlas", "OLD_KEY")
-	if !errors.Is(err, ErrSecretNotFound) {
-		t.Fatalf("expected ErrSecretNotFound for plaintext row, got %v", err)
+	got, err := s.FolderSecretsResolved("atlas/eng")
+	if err != nil {
+		t.Fatalf("FolderSecretsResolved: %v", err)
+	}
+	if got["KEY"] != "base" {
+		t.Errorf("KEY = %q, want base (root fallback)", got["KEY"])
+	}
+
+	// Also: root resolves to root.
+	got, err = s.FolderSecretsResolved("root")
+	if err != nil {
+		t.Fatalf("FolderSecretsResolved(root): %v", err)
+	}
+	if got["KEY"] != "base" {
+		t.Errorf("root resolution KEY = %q, want base", got["KEY"])
 	}
 }
 
-func TestPurgeUnencryptedSecrets(t *testing.T) {
+// v1 stores plaintext per spec 9/11. Verify the `value` column holds the
+// raw string written, not a ciphertext.
+func TestSecretPlaintextAtRest(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	s.db.Exec(`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K1','plaintext','2024-01-01T00:00:00Z')`)
-	s.db.Exec(`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) VALUES ('folder','atlas','K2','plaintext','2024-01-01T00:00:00Z')`)
-
-	s.SetSecretKey([]byte("test-key"))
-	// Add one encrypted row so we can verify it survives.
-	if err := s.SetSecret(ScopeFolder, "atlas", "K3", "real-value"); err != nil {
+	const plaintext = "ghp_topsecret_token"
+	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", plaintext); err != nil {
 		t.Fatalf("SetSecret: %v", err)
 	}
-
-	if err := s.PurgeUnencryptedSecrets(context.Background()); err != nil {
-		t.Fatalf("PurgeUnencryptedSecrets: %v", err)
+	var got string
+	if err := s.db.QueryRow(
+		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='atlas' AND key='GITHUB_TOKEN'`,
+	).Scan(&got); err != nil {
+		t.Fatalf("scan value: %v", err)
 	}
-
-	// K1 and K2 are gone.
-	if _, err := s.GetSecret(ScopeFolder, "atlas", "K1"); !errors.Is(err, ErrSecretNotFound) {
-		t.Error("K1 should be purged")
-	}
-	// K3 survives.
-	got, err := s.GetSecret(ScopeFolder, "atlas", "K3")
-	if err != nil {
-		t.Fatalf("K3: %v", err)
-	}
-	if got.Value != "real-value" {
-		t.Errorf("K3 = %q, want real-value", got.Value)
-	}
-
-	// Idempotent.
-	if err := s.PurgeUnencryptedSecrets(context.Background()); err != nil {
-		t.Fatalf("PurgeUnencryptedSecrets idempotent: %v", err)
+	if got != plaintext {
+		t.Errorf("value at rest = %q, want %q (plaintext)", got, plaintext)
 	}
 }

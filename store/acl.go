@@ -125,17 +125,10 @@ func (s *Store) UserScopes(sub string) []string {
 	return out
 }
 
-// ListACL returns every acl row, optionally filtered by principal.
-// Empty principal returns all rows.
-func (s *Store) ListACL(principal string) []core.ACLRow {
-	q := `SELECT ` + aclCols + ` FROM acl`
-	args := []any{}
-	if principal != "" {
-		q += ` WHERE principal = ?`
-		args = append(args, principal)
-	}
-	q += ` ORDER BY principal, action, scope`
-	rows, err := s.db.Query(q, args...)
+// ListACLByScope returns all acl rows whose scope exactly matches scope.
+func (s *Store) ListACLByScope(scope string) []core.ACLRow {
+	rows, err := s.db.Query(
+		`SELECT `+aclCols+` FROM acl WHERE scope = ? ORDER BY principal, action`, scope)
 	if err != nil {
 		return nil
 	}
@@ -150,11 +143,17 @@ func (s *Store) ListACL(principal string) []core.ACLRow {
 	return out
 }
 
-// ListACLByScope returns rows whose scope exactly matches the given folder,
-// ordered by principal then action. Used by dashd grants viewer.
-func (s *Store) ListACLByScope(scope string) []core.ACLRow {
-	rows, err := s.db.Query(
-		`SELECT `+aclCols+` FROM acl WHERE scope = ? ORDER BY principal, action`, scope)
+// ListACL returns every acl row, optionally filtered by principal.
+// Empty principal returns all rows.
+func (s *Store) ListACL(principal string) []core.ACLRow {
+	q := `SELECT ` + aclCols + ` FROM acl`
+	args := []any{}
+	if principal != "" {
+		q += ` WHERE principal = ?`
+		args = append(args, principal)
+	}
+	q += ` ORDER BY principal, action, scope`
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil
 	}

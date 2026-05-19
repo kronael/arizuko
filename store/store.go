@@ -21,8 +21,8 @@ type Store struct {
 	secretKey *[32]byte
 }
 
-// SetSecretKey derives a 32-byte AES key from raw via SHA-256 and enables
-// encryption for secrets table values. Call after Open; before any secret ops.
+// SetSecretKey derives a 32-byte AES key from raw via SHA-256 and stores it
+// for encrypt/decrypt of secrets table values. Call after Open.
 func (s *Store) SetSecretKey(raw []byte) {
 	h := sha256.Sum256(raw)
 	s.secretKey = &h

@@ -26,18 +26,16 @@ func (s *Store) PutGroup(g core.Group) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO groups
-		 (folder, added_at, container_config, product, model, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		 (folder, added_at, container_config, product, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(folder) DO UPDATE SET
 		   container_config=excluded.container_config,
 		   product=excluded.product,
-		   model=excluded.model,
 		   updated_at=excluded.updated_at`,
 		g.Folder,
 		g.AddedAt.Format(time.RFC3339),
 		string(cfgJSON),
 		product,
-		nilIfEmpty(g.Model),
 		time.Now().Format(time.RFC3339),
 	)
 	return err
@@ -48,7 +46,7 @@ func (s *Store) DeleteGroup(folder string) error {
 	return err
 }
 
-const groupCols = `folder, added_at, container_config, product, model`
+const groupCols = `folder, added_at, container_config, product, COALESCE(model,'')`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -173,9 +171,8 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	var g core.Group
 	var addedAt string
 	var cfgJSON *string
-	var model sql.NullString
 
-	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product, &model); err != nil {
+	if err := r.Scan(&g.Folder, &addedAt, &cfgJSON, &g.Product, &g.Model); err != nil {
 		return g, false
 	}
 
@@ -183,7 +180,6 @@ func scanGroupFull(r rowScanner) (core.Group, bool) {
 	if cfgJSON != nil {
 		json.Unmarshal([]byte(*cfgJSON), &g.Config)
 	}
-	g.Model = model.String
 	return g, true
 }
 
@@ -265,30 +261,6 @@ func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 	return
 }
 
-// SetGroupModel persists the per-group model override. Empty string clears it.
-func (s *Store) SetGroupModel(folder, model string) error {
-	_, err := s.db.Exec(`UPDATE groups SET model = ? WHERE folder = ?`,
-		nilIfEmpty(model), folder)
-	return err
-}
-
-// SetGroupMaxChildren updates only MaxChildren inside container_config JSON.
-// -1 = unlimited, 0 = disabled, N = cap.
-func (s *Store) SetGroupMaxChildren(folder string, maxChildren int) error {
-	var raw sql.NullString
-	if err := s.db.QueryRow(`SELECT container_config FROM groups WHERE folder = ?`, folder).Scan(&raw); err != nil {
-		return err
-	}
-	var cfg core.GroupConfig
-	if raw.Valid && raw.String != "" {
-		json.Unmarshal([]byte(raw.String), &cfg)
-	}
-	cfg.MaxChildren = maxChildren
-	b, _ := json.Marshal(cfg)
-	_, err := s.db.Exec(`UPDATE groups SET container_config = ? WHERE folder = ?`, string(b), folder)
-	return err
-}
-
 // SetGroupObserveWindow writes per-group caps; pass -1 to clear (the
 // gateway then falls back to the env default for that field).
 func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
@@ -353,4 +325,36 @@ func (s *Store) GetStickyTopic(jid string) string {
 	var topic sql.NullString
 	s.db.QueryRow(`SELECT sticky_topic FROM chats WHERE jid = ?`, jid).Scan(&topic)
 	return topic.String
+}
+
+// SetGroupModel sets the per-group model override. Empty string clears it
+// (gateway then falls back to instance default).
+func (s *Store) SetGroupModel(folder, model string) error {
+	var v any
+	if model != "" {
+		v = model
+	}
+	_, err := s.db.Exec(`UPDATE groups SET model = ? WHERE folder = ?`, v, folder)
+	return err
+}
+
+// SetGroupMaxChildren updates max_children inside the container_config JSON blob.
+func (s *Store) SetGroupMaxChildren(folder string, n int) error {
+	var raw *string
+	if err := s.db.QueryRow(
+		`SELECT container_config FROM groups WHERE folder = ?`, folder,
+	).Scan(&raw); err != nil {
+		return err
+	}
+	var cfg core.GroupConfig
+	if raw != nil {
+		_ = json.Unmarshal([]byte(*raw), &cfg)
+	}
+	cfg.MaxChildren = n
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE groups SET container_config = ? WHERE folder = ?`, string(b), folder)
+	return err
 }

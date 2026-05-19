@@ -16,8 +16,7 @@ import (
 // POST /dash/invites/ creates a new invite.
 // POST /dash/invites/{token}/revoke deletes an invite.
 func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
-	sub, ok := requireUser(w, r)
-	if !ok {
+	if _, ok := requireUser(w, r); !ok {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -83,7 +82,6 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 </form>
 <p class="dim">Target <code>folder</code> grants direct access; <code>folder/</code> lets the user pick a username under that folder.</p>`)
 
-	_ = sub // issued_by_sub is the signed-in user; used in POST handler
 	fmt.Fprint(w, pageBot)
 }
 

@@ -53,7 +53,7 @@ JWT shape, differs only in scope breadth):
 - Authorization: `Authorize(id Identity, tool string, target AuthzTarget) error`, `AuthzTarget`, `MatchGroups(allowed, folder)`
 - Session JWT (today's shape: `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`
 - OAuth: GitHub, Google, Discord, Telegram widget — shared `createOAuthSession`
-- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`
+- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `SlinkSigMessage`, `VerifyUserSig`, `VerifySlinkSig`
 - Password: `HashToken`, argon2 verify
 - Middleware: `RegisterRoutes(mux, store, cfg)` mounts `/auth/*`;
   `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed

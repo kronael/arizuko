@@ -481,17 +481,8 @@ func TestAuthorizeInjectMessage(t *testing.T) {
 	if err := AuthorizeStructural(Resolve("w/a"), "inject_message", AuthzTarget{}); err != nil {
 		t.Fatal("tier 1 should inject")
 	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
-		t.Fatal("tier 2 should inject into own folder")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{TargetFolder: "w/a/b/c"}); err != nil {
-		t.Fatal("tier 2 should inject into own descendant")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{TargetFolder: "w/a/x"}); err == nil {
-		t.Fatal("tier 2 should not inject outside own subtree")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b/c"), "inject_message", AuthzTarget{}); err == nil {
-		t.Fatal("tier 3 should not inject")
+	if err := AuthorizeStructural(Resolve("w/a/b"), "inject_message", AuthzTarget{}); err == nil {
+		t.Fatal("tier 2 should not inject")
 	}
 }
 
@@ -508,17 +499,8 @@ func TestAuthorizeRegisterGroup(t *testing.T) {
 	if err := AuthorizeStructural(Resolve("w/a"), "register_group", AuthzTarget{TargetFolder: "w/b/child"}); err == nil {
 		t.Fatal("tier 1 should not register outside own subtree")
 	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{TargetFolder: "w/a/b/child"}); err != nil {
-		t.Fatalf("tier 2 should register direct children: %v", err)
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{TargetFolder: "w/a/b/c/deep"}); err == nil {
-		t.Fatal("tier 2 should not register grandchildren")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{TargetFolder: "w/a/x"}); err == nil {
-		t.Fatal("tier 2 should not register outside own subtree")
-	}
-	if err := AuthorizeStructural(Resolve("w/a/b/c"), "register_group", AuthzTarget{}); err == nil {
-		t.Fatal("tier 3 should not register groups")
+	if err := AuthorizeStructural(Resolve("w/a/b"), "register_group", AuthzTarget{}); err == nil {
+		t.Fatal("tier 2 should not register groups")
 	}
 }
 
@@ -549,21 +531,8 @@ func TestAuthorizeRouteTools(t *testing.T) {
 		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{}); err != nil {
 			t.Errorf("%s should work at tier 0: %v", tool, err)
 		}
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{}); err != nil {
-			t.Errorf("%s should work at tier 2: %v", tool, err)
-		}
-		// tier 2 scoped: can only target own subtree
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{RouteTarget: "w/a/b"}); err != nil {
-			t.Errorf("%s tier 2 should allow own folder target: %v", tool, err)
-		}
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{RouteTarget: "w/a/b/c"}); err != nil {
-			t.Errorf("%s tier 2 should allow descendant target: %v", tool, err)
-		}
-		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{RouteTarget: "w/a/x"}); err == nil {
-			t.Errorf("%s tier 2 should not allow target outside subtree", tool)
-		}
-		if err := AuthorizeStructural(Resolve("w/a/b/c"), tool, AuthzTarget{}); err == nil {
-			t.Errorf("%s should fail at tier 3", tool)
+		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{}); err == nil {
+			t.Errorf("%s should fail at tier 2", tool)
 		}
 	}
 }
