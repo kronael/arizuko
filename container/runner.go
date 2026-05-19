@@ -523,8 +523,9 @@ func buildMounts(
 	}
 
 	// specs/4/18-web-vhosts.md: tier 0 mounts the full web tree;
-	// tier 1 mounts its own world subdir; tier 2+ get nothing.
-	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 1 {
+	// tier 1+2 mount the world subdir (tier 2 writes into a subdirectory
+	// under the world vhost); tier 3+ get nothing.
+	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 2 {
 		webHost := cfg.WebDir
 		if !root {
 			webHost = filepath.Join(cfg.WebDir, world)
@@ -643,10 +644,11 @@ func seedSettings(
 	env["ARIZUKO_IS_ROOT"] = ""
 	// WEB_PREFIX must agree with the agent's mount + the URL that actually
 	// resolves to it. Tier 0 writes under /workspace/web/pub/ → served at
-	// /pub/<path>. Tier 1 writes under /workspace/web/ which is mounted from
-	// DATA_DIR/web/<world>/ → reachable only via the vhost subdomain
-	// <world>.$WEB_HOST. Tier 2+ has no web mount: leave WEB_PREFIX empty so
-	// the agent can detect "no publishing surface" and ask its parent world.
+	// /pub/<path>. Tier 1 writes under /workspace/web/ → served at
+	// <world>.$WEB_HOST/<path>. Tier 2 shares the world's web dir mount
+	// (same /workspace/web/) → writes to /workspace/web/<groupname>/ →
+	// served at <world>.$WEB_HOST/<groupname>/<path>; WEB_PREFIX=world.
+	// Tier 3+ get no mount and WEB_PREFIX="".
 	tier := tierOf(in.Folder, root)
 	switch {
 	case root:
@@ -654,8 +656,10 @@ func seedSettings(
 		env["WEB_PREFIX"] = "pub"
 	case tier == 1:
 		env["WEB_PREFIX"] = in.Folder // vhost subdomain prefix
+	case tier == 2:
+		env["WEB_PREFIX"] = worldOf(in.Folder, root) // same vhost as parent world
 	default:
-		env["WEB_PREFIX"] = "" // tier 2+: no mount, no surface
+		env["WEB_PREFIX"] = "" // tier 3+: no mount, no surface
 	}
 	env["ARIZUKO_DELEGATE_DEPTH"] = strconv.Itoa(in.Depth)
 	env["ARIZUKO_GROUP_FOLDER"] = in.Folder

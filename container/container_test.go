@@ -270,10 +270,10 @@ func TestSeedSettingsNonRoot(t *testing.T) {
 	if env["ARIZUKO_TIER"] != "2" {
 		t.Errorf("tier = %v, want 2", env["ARIZUKO_TIER"])
 	}
-	// Tier 2+ has no web mount — WEB_PREFIX must be empty so the agent
-	// can detect "no publishing surface" and ask its parent world.
-	if env["WEB_PREFIX"] != "" {
-		t.Errorf("WEB_PREFIX (tier 2) = %v, want empty", env["WEB_PREFIX"])
+	// Tier 2 shares the parent world's web vhost.
+	// WEB_PREFIX = world name so the agent knows the subdomain.
+	if env["WEB_PREFIX"] != "atlas" {
+		t.Errorf("WEB_PREFIX (tier 2) = %v, want atlas", env["WEB_PREFIX"])
 	}
 }
 

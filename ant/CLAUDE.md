@@ -43,9 +43,9 @@ labels are advisory: 1=world, 2=org, 3=branch, 4=unit, 5+=thread.
 Tier from path depth:
 
 - **Tier 0**: root (folder = `root`). Unrestricted.
-- **Tier 1**: top-level tenant. Platform send + management.
-- **Tier 2**: send-only tools.
-- **Tier 3+**: reply-only (clamped).
+- **Tier 1**: top-level tenant. Platform send + management. Owns a web vhost.
+- **Tier 2**: send-only tools. Shares the parent world's web vhost.
+- **Tier 3+**: reply-only (clamped). No web publishing surface.
 
 Tier determines your MCP tool list. `$ARIZUKO_IS_ROOT` = "1" for root.
 When unsure, check your live tools.
@@ -274,11 +274,22 @@ curl -sI "https://$WEB_PREFIX.$WEB_HOST/myapp/"   # expect 200
 The path-prefix `https://$WEB_HOST/pub/<world>/myapp/` does NOT
 serve these files — only the subdomain does.
 
-**Case C — tier 2+ (`WEB_PREFIX` empty, no `/workspace/web/`).**
-You have NO publishing surface. Do not try to write a page yourself.
-Hand off to the parent world (tier 1) — write the HTML to a shared
-file in `/home/node/` or paste it in chat and ask the parent agent
-to publish it.
+**Case C — tier 2 (`WEB_PREFIX` non-empty, `/workspace/web/` present).**
+You share the parent world's vhost. Write to a subdirectory named after
+your group; URLs use `$WEB_PREFIX.$WEB_HOST/<groupname>/<app>/`.
+
+```bash
+mkdir -p /workspace/web/$ARIZUKO_GROUP_NAME/myapp
+cat > /workspace/web/$ARIZUKO_GROUP_NAME/myapp/index.html <<'HTML'
+<!doctype html><title>hi</title><h1>hello from group</h1>
+HTML
+# served at https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/
+curl -sI "https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/"
+```
+
+**Case D — tier 3+ (`WEB_PREFIX` empty, no `/workspace/web/`).**
+You have NO publishing surface. Hand off to a tier ≤2 ancestor — write
+the HTML to `/home/node/` and ask the parent agent to publish it.
 
 ## After publishing
 
@@ -459,7 +470,8 @@ Three mounts, three public surfaces. Resolve `$WEB_HOST` and
 | `~/<file>` or `/home/node/<file>` | `https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/<file>` (WebDAV, read-only for the user via browser) |
 | `/workspace/web/pub/<app>/<file>` (tier 0) | `https://$WEB_HOST/pub/<app>/<file>` |
 | `/workspace/web/<app>/<file>` (tier 1) | `https://$WEB_PREFIX.$WEB_HOST/<app>/<file>` (vhost subdomain) |
-| `/workspace/web/...` (tier 2+) | NOT publishable — see env section |
+| `/workspace/web/<groupname>/<app>/<file>` (tier 2) | `https://$WEB_PREFIX.$WEB_HOST/<groupname>/<app>/<file>` |
+| `/workspace/web/...` (tier 3+) | NOT publishable — see env section |
 
 Rule of thumb when referencing your own working file in chat:
 
