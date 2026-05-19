@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // CostRow is one LLM call's accounting row written into cost_log.
 // Spec 5/34. Folder and UserSub are how the budget gate aggregates;
@@ -96,6 +99,107 @@ func (s *Store) SetUserCap(userSub string, cents int) error {
 		`UPDATE auth_users SET cost_cap_cents_per_day = ? WHERE sub = ?`,
 		cents, userSub)
 	return err
+}
+
+// GroupUsageSummary holds aggregated usage stats for a single folder.
+type GroupUsageSummary struct {
+	Folder      string
+	Tokens7d    int    // input_tok + output_tok over last 7 days
+	Cents7d     int    // total cents over last 7 days
+	MsgCount    int    // all-time message count (routed_to = folder)
+	LastActive  string // RFC3339 timestamp of latest message, or ""
+}
+
+// GroupUsageBulk returns one GroupUsageSummary per folder in folders,
+// joining cost_log (7d window) and messages (all-time count + last active).
+// Folders with no data still appear with zero values.
+func (s *Store) GroupUsageBulk(folders []string) ([]GroupUsageSummary, error) {
+	if len(folders) == 0 {
+		return nil, nil
+	}
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+
+	// Build placeholders.
+	ph := make([]string, len(folders))
+	args := make([]any, len(folders))
+	for i, f := range folders {
+		ph[i] = "?"
+		args[i] = f
+	}
+	placeholders := strings.Join(ph, ",")
+
+	// Cost side: sum per folder over 7d.
+	costRows, err := s.db.Query(
+		`SELECT folder,
+		        COALESCE(SUM(input_tok+output_tok),0) AS tokens,
+		        COALESCE(SUM(cents),0) AS cents
+		 FROM cost_log
+		 WHERE folder IN (`+placeholders+`) AND ts >= ?
+		 GROUP BY folder`,
+		append(args, cutoff)...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer costRows.Close()
+	type costKey struct{ tokens, cents int }
+	costMap := map[string]costKey{}
+	for costRows.Next() {
+		var folder string
+		var tok, cents int
+		if err := costRows.Scan(&folder, &tok, &cents); err != nil {
+			return nil, err
+		}
+		costMap[folder] = costKey{tok, cents}
+	}
+	if err := costRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Message side: count + last active per folder.
+	msgRows, err := s.db.Query(
+		`SELECT routed_to,
+		        COUNT(*) AS cnt,
+		        MAX(timestamp) AS last_ts
+		 FROM messages
+		 WHERE routed_to IN (`+placeholders+`)
+		 GROUP BY routed_to`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer msgRows.Close()
+	type msgKey struct {
+		cnt    int
+		lastTS string
+	}
+	msgMap := map[string]msgKey{}
+	for msgRows.Next() {
+		var folder, lastTS string
+		var cnt int
+		if err := msgRows.Scan(&folder, &cnt, &lastTS); err != nil {
+			return nil, err
+		}
+		msgMap[folder] = msgKey{cnt, lastTS}
+	}
+	if err := msgRows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]GroupUsageSummary, len(folders))
+	for i, f := range folders {
+		c := costMap[f]
+		m := msgMap[f]
+		out[i] = GroupUsageSummary{
+			Folder:     f,
+			Tokens7d:   c.tokens,
+			Cents7d:    c.cents,
+			MsgCount:   m.cnt,
+			LastActive: m.lastTS,
+		}
+	}
+	return out, nil
 }
 
 func startOfTodayUTC() time.Time {

@@ -5,6 +5,7 @@ package main
 // is minted here. These tests seed DB rows + files, then hit the mux.
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -101,6 +102,60 @@ func TestGroupList(t *testing.T) {
 			t.Errorf("group %q missing from /dash/groups/ body", f)
 		}
 	}
+}
+
+// TestGroupListUsage: seed a group + cost_log + messages, assert usage numbers
+// appear in /dash/groups/ output.
+func TestGroupListUsage(t *testing.T) {
+	srv, inst, _ := newDashServer(t)
+
+	folder := "eng"
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO groups (folder, added_at) VALUES (?, ?)`, folder, now); err != nil {
+		t.Fatal(err)
+	}
+	// Insert a cost_log row (today, 500 input + 200 output = 700 tokens, 15 cents).
+	if _, err := inst.DB.Exec(
+		`INSERT INTO cost_log (ts, folder, user_sub, model, input_tok, cache_read, cache_write, output_tok, cents)
+		 VALUES (?, ?, '', 'm', 500, 0, 0, 200, 15)`,
+		now, folder); err != nil {
+		t.Fatal(err)
+	}
+	// Insert 3 messages routed to this folder.
+	for i := 0; i < 3; i++ {
+		if _, err := inst.DB.Exec(
+			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, routed_to)
+			 VALUES (?, 'jid', '', '', ?, ?)`,
+			fmt.Sprintf("m%d", i), now, folder); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resp, err := http.Get(srv.URL + "/dash/groups/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body=%s", resp.StatusCode, body)
+	}
+	bs := string(body)
+	if !strings.Contains(bs, "3 msgs") {
+		t.Errorf("message count missing; body snippet: %q", bs[:min(500, len(bs))])
+	}
+	// Token display: 700 tokens → "0k tok / 7d" (integer div) — just check fragment.
+	if !strings.Contains(bs, "tok / 7d") {
+		t.Errorf("token data missing from groups page")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // TestTaskList: seed scheduled_tasks rows, GET /dash/tasks/, assert rows
