@@ -280,6 +280,15 @@ get their own containers on their own networks with their own DB
 views — the cross-tenant boundary is the container, not the turn.
 Threat model + isolated axes in `SECURITY.md` § Model.
 
+**Why one container per group matters for context.** Each container is
+one agent with one context window. Sales, SRE, and recruiting all run
+separate containers — they don't share a context. Mixing unrelated
+concerns in a single context causes the model to blend them: wrong
+answers, hallucinated references, noise from irrelevant history. The
+container boundary is the context boundary: each group gets a clean,
+persistent, focused context that accumulates only the conversations
+relevant to it.
+
 1. `container.EnsureRunning()` — verify docker
 2. `container.CleanupOrphans()` — stop stale `arizuko-*`
 3. `container.Run()`:

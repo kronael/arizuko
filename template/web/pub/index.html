@@ -43,6 +43,14 @@
       <h2>what you get</h2>
       <ul>
         <li>
+          <strong>One agent per team, not one agent for everything.</strong>
+          Sales, SRE, and recruiting each get their own container with their own
+          persistent context window. Mixing unrelated concerns in one context
+          produces noise, blended answers, and hallucinated cross-references.
+          Each folder is a clean context boundary that accumulates only the
+          conversations relevant to it.
+        </li>
+        <li>
           <strong>Topics that fork.</strong> A side-topic copies its parent&rsquo;s
           Claude session via plain <code>cp -r</code> on <code>.claude/</code>,
           so the agent walks in with context. See
