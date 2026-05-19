@@ -284,6 +284,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p><button type="submit">save</button></p></form>`)
 
 	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
+	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))
 
 	fmt.Fprintf(w, `<h2>Danger zone</h2>
 <form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">

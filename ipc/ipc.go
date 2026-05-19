@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2242,4 +2243,19 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 	}
 
 	return srv
+}
+
+// ListTools builds the MCP tool registry for folder with the given grant rules
+// and returns the tool schemas. Safe to call without a running container —
+// GatedFns and StoreFns are zero-valued (handlers are never invoked).
+// Used by dashd and /v1/tools to render the tool browser without duplication.
+func ListTools(folder string, rules []string) []mcp.Tool {
+	srv := buildMCPServer(GatedFns{}, StoreFns{}, folder, rules)
+	m := srv.ListTools()
+	out := make([]mcp.Tool, 0, len(m))
+	for _, st := range m {
+		out = append(out, st.Tool)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

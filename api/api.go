@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
@@ -72,9 +74,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/route_tokens", capBody(maxBodyDefault, s.handleCreateRouteToken))
 	mux.HandleFunc("GET /v1/route_tokens", s.handleListRouteTokens)
 	mux.HandleFunc("DELETE /v1/route_tokens/{jid}", s.handleDeleteRouteToken)
+	mux.HandleFunc("GET /v1/tools", auth(s.handleListTools))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /ready", s.handleHealth)
 	return mux
+}
+
+// GET /v1/tools?folder=X — returns the MCP tool schemas available to that
+// group as JSON. Auth-gated (CHANNEL_SECRET). Used by dashd and external
+// tooling to render a swagger-style tool browser without maintaining a
+// separate catalog.
+func (s *Server) handleListTools(w http.ResponseWriter, r *http.Request) {
+	folder := r.URL.Query().Get("folder")
+	if folder == "" {
+		http.Error(w, "folder required", http.StatusBadRequest)
+		return
+	}
+	id := auth.Resolve(folder)
+	rules := grants.DeriveRules(s.store, folder, id.Tier, auth.WorldOf(folder))
+	tools := ipc.ListTools(folder, rules)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tools)
 }
 
 func capBody(max int64, next http.HandlerFunc) http.HandlerFunc {
