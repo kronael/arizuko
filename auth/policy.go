@@ -92,13 +92,23 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		}
 		return nil
 	case "set_group_open":
-		if id.Tier > 2 {
+		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot edit group config", id.Tier)
 		}
 		if target.TargetFolder != "" &&
 			target.TargetFolder != id.Folder &&
 			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
 			return fmt.Errorf("unauthorized: target outside own subtree")
+		}
+		return nil
+	case "list_acl":
+		if id.Tier > 2 {
+			return fmt.Errorf("unauthorized: tier %d cannot list acl", id.Tier)
+		}
+		if id.Tier == 2 &&
+			target.TargetFolder != id.Folder &&
+			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
+			return fmt.Errorf("unauthorized: can only list acl in own subtree")
 		}
 		return nil
 	case "get_grants", "set_grants":

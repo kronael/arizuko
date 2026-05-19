@@ -1278,7 +1278,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		})
 
 	granted("set_group_open",
-		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-2 only.",
+		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1 only.",
 		[]mcp.ToolOption{
 			mcp.WithBoolean("open", mcp.Required(),
 				mcp.Description("true to expose to siblings, false to seal off")),
@@ -1318,6 +1318,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 				return toolErr("inject_message not configured")
 			}
 			jid := req.GetString("chatJid", "")
+			if jid == "" {
+				return toolErr("chatJid required")
+			}
+			if err := auth.AuthorizeStructural(id, "inject_message", auth.AuthzTarget{TargetFolder: jid}); err != nil {
+				return toolErr(err.Error())
+			}
 			sender := req.GetString("sender", "")
 			if sender == "" {
 				sender = "system"
@@ -1402,6 +1408,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string) 
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
 				return toolErr("escalate_group not configured")
+			}
+			if err := auth.AuthorizeStructural(id, "escalate_group", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+				return toolErr(err.Error())
 			}
 			prompt := req.GetString("prompt", "")
 			chatJid := req.GetString("chatJid", "")

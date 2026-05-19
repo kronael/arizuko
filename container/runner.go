@@ -152,9 +152,9 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			"arizuko-%s-%s-%d", cfg.Name, safe, time.Now().UnixMilli())
 	}
 
-	// Tier 0/1/2 are operator-run bots; append "*" so they pass crackbox
+	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
 	// unconstrained while still benefiting from logging/secret injection.
-	if tierOf(in.Folder, root) <= 2 && in.Egress.AllowlistFn != nil {
+	if tierOf(in.Folder, root) <= 1 && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
 			list, err := base(id)
@@ -523,14 +523,19 @@ func buildMounts(
 	}
 
 	// specs/4/18-web-vhosts.md: tier 0 mounts the full web tree;
-	// tier 1+2 mount the world subdir (tier 2 writes into a subdirectory
-	// under the world vhost); tier 3+ get nothing.
+	// tier 1 mounts the world subdir; tier 2 mounts only the group's own subdir;
+	// tier 3+ get nothing.
 	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 2 {
-		webHost := cfg.WebDir
-		if !root {
+		var webHost string
+		switch {
+		case root:
+			webHost = cfg.WebDir
+		case tierOf(in.Folder, root) == 1:
 			webHost = filepath.Join(cfg.WebDir, world)
-			os.MkdirAll(webHost, 0o755)
+		default: // tier 2
+			webHost = filepath.Join(cfg.WebDir, in.Folder)
 		}
+		os.MkdirAll(webHost, 0o755)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, webHost),
 			Container: "/workspace/web",
