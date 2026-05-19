@@ -93,6 +93,21 @@ func need(args []string, n int, usage string) {
 	}
 }
 
+// auditCLI logs a mutating CLI operation. Secrets are redacted in-place.
+func auditCLI(s *store.Store, cmd string, args []string) {
+	redacted := make([]string, len(args))
+	copy(redacted, args)
+	if (cmd == "secret set" || cmd == "user-secret set") && len(redacted) >= 2 {
+		for i, a := range redacted {
+			if a == "--value" && i+1 < len(redacted) {
+				redacted[i+1] = "[redacted]"
+				break
+			}
+		}
+	}
+	_ = s.LogCLIAudit(os.Getenv("USER"), cmd, strings.Join(redacted, " "))
+}
+
 func cmdRun(args []string) {
 	need(args, 1, "arizuko run <instance>")
 	outPath := generateCompose(mustInstanceDir(args[0]))
@@ -313,6 +328,7 @@ func cmdGroup(args []string) {
 		if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
+		auditCLI(s, "group add", []string{jid, folder})
 		// Discord guild channels (not DMs) default to mention-only:
 		// a higher-priority verb=mention trigger row + a catch-all
 		// observe row. Non-mention messages accumulate as context
@@ -345,6 +361,7 @@ func cmdGroup(args []string) {
 		if err := s.DeleteGroup(folder); err != nil {
 			die("Failed: remove group: %v", err)
 		}
+		auditCLI(s, "group rm", []string{folder})
 		fmt.Printf("removed group %s\n", folder)
 
 	case "grant":
@@ -352,12 +369,14 @@ func cmdGroup(args []string) {
 		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: grant: %v", err)
 		}
+		auditCLI(s, "group grant", args[2:4])
 
 	case "ungrant":
 		need(args, 4, "arizuko group <instance> ungrant <sub> <pattern>")
 		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: ungrant: %v", err)
 		}
+		auditCLI(s, "group ungrant", args[2:4])
 
 	case "grants":
 		sub := ""
@@ -545,6 +564,7 @@ func cmdInvite(args []string) {
 		if err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "invite create", []string{fs.Arg(0)})
 		fmt.Printf("token: %s\n", inv.Token)
 		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
 		fmt.Printf("max_uses: %d\n", inv.MaxUses)
@@ -583,6 +603,7 @@ func cmdInvite(args []string) {
 		if err := s.RevokeInvite(args[2]); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "invite revoke", []string{args[2]})
 		fmt.Printf("invite revoked: %s\n", args[2])
 
 	default:
@@ -617,11 +638,13 @@ func cmdIdentity(args []string) {
 		if err := runIdentityLink(s, fs.Arg(0), *idArg, *name, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "identity link", []string{fs.Arg(0)})
 	case "unlink":
 		need(args, 3, "arizuko identity <instance> unlink <sub>")
 		if err := runIdentityUnlink(s, args[2], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
+		auditCLI(s, "identity unlink", []string{args[2]})
 	default:
 		die("unknown identity action: %s", action)
 	}

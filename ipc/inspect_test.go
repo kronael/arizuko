@@ -45,17 +45,17 @@ func TestInspectToolsRegistered(t *testing.T) {
 	gated := GatedFns{GroupsDir: "/tmp/groups", WebDir: "/tmp/web"}
 
 	// tier-0 (root) — sees all
-	if srv := buildMCPServer(gated, db, "world", []string{"*"}); srv == nil {
+	if srv := buildMCPServer(gated, db, "world", []string{"*"}, ""); srv == nil {
 		t.Fatal("tier-0 server nil")
 	}
 	// tier-2 — scoped to own folder
-	if srv := buildMCPServer(gated, db, "world/a/b", []string{"*"}); srv == nil {
+	if srv := buildMCPServer(gated, db, "world/a/b", []string{"*"}, ""); srv == nil {
 		t.Fatal("tier-2 server nil")
 	}
 	// inspect_identity must be a no-op when StoreFns.GetIdentityForSub is nil.
 	dbNoIdent := db
 	dbNoIdent.GetIdentityForSub = nil
-	if srv := buildMCPServer(gated, dbNoIdent, "world", []string{"*"}); srv == nil {
+	if srv := buildMCPServer(gated, dbNoIdent, "world", []string{"*"}, ""); srv == nil {
 		t.Fatal("server nil with no identity hook")
 	}
 }

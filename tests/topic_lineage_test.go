@@ -73,7 +73,7 @@ func newMCPHarness(t *testing.T, folder string) *mcpHarness {
 	}
 
 	sock := filepath.Join(tmp, "mcp.sock")
-	stop, err := ipc.ServeMCP(sock, gated, db, folder, []string{"*"}, -1)
+	stop, err := ipc.ServeMCP(sock, gated, db, folder, []string{"*"}, -1, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

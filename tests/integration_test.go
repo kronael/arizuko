@@ -431,7 +431,7 @@ func TestMCPSocketRoundtrip(t *testing.T) {
 
 	sock := filepath.Join(dir, "mcp.sock")
 	// expectedUID <= 0 disables SO_PEERCRED check for the test.
-	stop, err := ipc.ServeMCP(sock, gated, db, "world", []string{"*"}, -1)
+	stop, err := ipc.ServeMCP(sock, gated, db, "world", []string{"*"}, -1, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}
