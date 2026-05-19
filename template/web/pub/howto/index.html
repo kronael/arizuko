@@ -93,8 +93,8 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
       <dd>Where messages flow in and out: Slack, Discord, Telegram, web, email, &hellip;. Each adapter is a separate daemon.</dd>
       <dt>skill</dt>
       <dd>A markdown file under <code>groups/&lt;folder&gt;/.claude/skills/</code> the agent loads on start. One file, one capability.</dd>
-      <dt>slink token</dt>
-      <dd>A URL-bound credential mapping to a group. <code>/slink/&lt;token&gt;</code> opens the guest chat widget. See <a href="../concepts/tokens.html">route tokens</a> for the planned <code>/chat/</code>+<code>/hook/</code> successor (not yet shipped).</dd>
+      <dt>route token</dt>
+      <dd>A URL-bound credential mapping to a group. <code>/chat/&lt;token&gt;/</code> opens the guest chat widget; <code>/hook/&lt;token&gt;</code> accepts fire-and-forget webhooks. Legacy <code>/slink/&lt;token&gt;</code> 301s to the new paths. See <a href="../concepts/tokens.html">route tokens</a>.</dd>
     </dl>
 
     <p>More guides:</p>

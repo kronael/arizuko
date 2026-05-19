@@ -22,6 +22,29 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.42.0 <span class="date">&mdash; 19 May 2026</span></h2>
+    <p>Five new dashd pages, three security fixes, and secrets now encrypted at rest. The operator dashboard is usable for day-to-day ops without touching .env or the DB.</p>
+    <ul>
+      <li><strong>Invites page</strong> &mdash; issue/revoke onboarding links from <code>/dash/invites/</code>.</li>
+      <li><strong>Per-group model selector</strong> &mdash; pick Opus 4.7, Sonnet 4.6, or Haiku 4.5 per group.</li>
+      <li><strong>Skill enable/disable</strong> &mdash; toggle agent skills per group without editing files.</li>
+      <li><strong>Grants viewer</strong> &mdash; add/revoke ACL rows per group from <code>/dash/groups/{folder}/grants</code>.</li>
+      <li><strong>Workspace links</strong> &mdash; settings page links to <code>/dav/{folder}/</code> for file editing (<code>CLAUDE.md</code>, <code>PERSONA.md</code>, <code>MEMORY.md</code>).</li>
+      <li><strong>Secrets encrypted AES-256-GCM</strong> &mdash; <code>SECRETS_KEY</code> separate from <code>AUTH_SECRET</code>. Plaintext rows rejected on startup.</li>
+      <li><strong>Security fixes</strong> &mdash; <code>list_acl</code> MCP tool now works; <code>inject_message</code> and <code>escalate_group</code> tier gates now enforced; tier-2 web mount scoped to own group dir; egress wildcard restricted to tier &le; 1.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0420--2026-05-19">CHANGELOG &sect; v0.42.0</a></p>
+
+    <h2>arizuko v0.41.0 <span class="date">&mdash; 18 May 2026</span></h2>
+    <p>Mint a public chat URL or a webhook URL with one MCP call; both flow into the same agent through the same store.</p>
+    <ul>
+      <li><strong>Route tokens</strong> (<code>issue_chat_link</code> / <code>issue_webhook</code> MCP tools) &mdash; agents mint URL-bound credentials on demand.</li>
+      <li><strong>New <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code></strong> &mdash; legacy <code>/slink/*</code> 301s to the new paths.</li>
+      <li><strong><code>arizuko token issue|list|revoke</code></strong> CLI plus REST <code>/v1/route_tokens</code> for operators and dashd.</li>
+      <li><strong><code>route_tokens</code> table</strong> replaces <code>groups.slink_token</code>; no backfill &mdash; reissue by hand.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0410--2026-05-18">CHANGELOG &sect; v0.41.0</a></p>
+
     <h2>arizuko v0.33.0 <span class="date">&mdash; 2 May 2026</span></h2>
     <p>Voice replies close the loop on the audio channel that Whisper opened months ago, and the router stops guessing JID kinds from sign bits &mdash; every adapter now emits typed addresses (<code>telegram:group/&hellip;</code>, <code>discord:&lt;guild&gt;/&lt;channel&gt;</code>) so routes, grants, and onboarding speak one language.</p>
     <ul>
