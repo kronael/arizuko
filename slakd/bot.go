@@ -127,17 +127,7 @@ func (b *bot) sendTypingChannel(jid string) bool {
 		return true // transient error — keep trying
 	}
 	if !resp.OK {
-		// Permanent errors — cancel the refresher so we don't loop silently.
-		// not_in_channel / channel_not_found: bot not invited to the channel.
-		// not_allowed_token_type: workspace doesn't allow bot tokens for this method.
-		switch resp.Error {
-		case "not_authed", "invalid_auth", "missing_scope",
-			"not_in_channel", "channel_not_found", "not_allowed_token_type":
-			slog.Warn("slack conversations.typing permanent error, stopping", "jid", jid, "error", resp.Error)
-			return false
-		default:
-			slog.Warn("slack conversations.typing error", "jid", jid, "error", resp.Error)
-		}
+		slog.Warn("slack conversations.typing error", "jid", jid, "error", resp.Error)
 	}
 	return true
 }
