@@ -1,5 +1,5 @@
 ---
-status: draft
+status: spec
 ---
 
 # specs/6/F — Audit stream (three-stream SIEM export)
@@ -8,10 +8,10 @@ status: draft
 
 Security teams at operator deployments need an append-only event trail for
 Splunk, Datadog, or their own SIEM. Today audit data is scattered across SQLite
-(`messages`, `session_log`, `turn_results`, `task_run_logs`, `secret_use_log`)
-and proxyd's structured log. There is no unified, append-only, file-based export
-path. This spec defines three distinct audit streams, each written to its own
-JSONL file, with optional HTTP POST batching for remote ingest.
+(`messages`, `session_log`, `turn_results`, `task_run_logs`, `secret_use_log`,
+`cli_audit`) and proxyd's structured log. There is no unified, append-only,
+file-based export path. This spec defines three distinct audit streams, each
+written to its own JSONL file, with optional HTTP POST batching for remote ingest.
 
 ## Three streams
 
@@ -80,6 +80,11 @@ These MCP tools and REST paths emit system events:
 | dashd `PUT /me/secrets/:key`                | user secret set                   |
 | dashd `DELETE /me/secrets/:key`             | user secret deleted               |
 | CLI `arizuko secret set/delete`             | secret set or deleted via CLI     |
+| CLI `arizuko group add/rm/grant/ungrant`    | group or grant mutated via CLI    |
+| CLI `arizuko invite create/revoke`          | invite token issued or revoked    |
+| CLI `arizuko network allow/deny`            | egress rule changed               |
+| CLI `arizuko token issue/revoke`            | chat/webhook token issued/revoked |
+| CLI `arizuko identity link/unlink`          | identity linked or unlinked       |
 
 ACL/grants writes (`UpsertACL`, `DeleteACL`) are currently gated behind dashd
 and `arizuko grant` — those paths must also emit system events at the store call
@@ -104,10 +109,19 @@ immediate, not batched: each event is POSTed individually when a webhook URL is
 configured. A no-op guard when `AUDIT_ENABLED=false` returns immediately with
 no allocation.
 
-CLI mutations (`arizuko secret set`) emit via the same `audit.EmitSystem` call
-at the store write site so no call site is missed. dashd REST mutations (secrets,
-routes, ACL) emit at the handler level with the authenticated user sub from
-the request context.
+CLI mutations emit via two paths:
+
+- **`audit.EmitSystem` at the store write site** — for mutations that go through
+  `store.*` directly (secrets, grants). No call site missed.
+- **`cli_audit` DB table** (migration 0061, shipped v0.42.0) — mutating CLI
+  commands (`group add/rm/grant`, `invite create/revoke`, `secret set/delete`,
+  `network allow/deny`, `token issue/revoke`, `identity link/unlink`) written
+  by `cmd/arizuko/main.go` with OS user + redacted args. The system-stream
+  poll exporter reads `cli_audit` exactly like other source tables (cursor on
+  `id`), mapping each row to a system event with `actor_sub="cli:<os_user>"`.
+
+dashd REST mutations (secrets, routes, ACL) emit at the handler level with the
+authenticated user sub from the request context.
 
 ---
 
@@ -191,10 +205,12 @@ flush webhook batch if len >= 200 or last flush > 5s
 persist cursors to $HOST_DATA_DIR/audit-cursor.json
 ```
 
-`audit-cursor.json` maps table name → last exported integer ID. Tables without
-an integer PK (`secret_use_log` uses `ts`) use an ISO timestamp + row-count
-sentinel. Loaded at startup; created fresh (all-zeros) if absent, so first run
-exports from the oldest row in each table.
+`audit-cursor.json` maps table name → last exported integer ID. The system
+stream polls `cli_audit` (integer `id` PK) in addition to MCP-side events.
+Tables without an integer PK (`secret_use_log` uses `ts`) use an ISO timestamp
+
+- row-count sentinel. Loaded at startup; created fresh (all-zeros) if absent, so first run
+  exports from the oldest row in each table.
 
 **Cursor loss causes duplicate events.** If `audit-cursor.json` is deleted or
 corrupted, the next start re-exports from row 0. This is by design (no data
