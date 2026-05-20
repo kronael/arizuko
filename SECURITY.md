@@ -202,6 +202,43 @@ Other daemons do not have a dedicated file yet; guarantees are in the
 table above. Add one next to the daemon when its threat model outgrows
 a row.
 
+## Audit trail and logging
+
+All daemons log structured JSON to stdout (Go `slog` JSON handler).
+Docker log driver is `none`; containers run attached under their
+systemd unit, so stdout flows directly into journald.
+
+Single command to read all service logs for an instance:
+
+```bash
+sudo journalctl -u arizuko_<instance> --since "1 hour ago" --no-pager
+```
+
+**Access audit**: `proxyd` is the single ingress point for all HTTP
+traffic. It logs every request as a structured JSON line:
+
+```json
+{
+  "time": "...",
+  "level": "INFO",
+  "msg": "request",
+  "method": "GET",
+  "path": "/dash/",
+  "status": 200,
+  "dur": "1.2ms",
+  "actor_sub": "u:alice",
+  "remote": "1.2.3.4"
+}
+```
+
+`actor_sub` is the authenticated identity (empty for public routes).
+Because all traffic passes through `proxyd` before reaching webd,
+dashd, vited, or davd, this log is the authoritative access record —
+no per-backend access logging is required.
+
+**Do not use `docker logs`** — the `none` log driver means Docker has
+no stored logs. `journalctl` is the only source.
+
 ## Incident log
 
 **2026-04-17 → 2026-04-19 — MCP token preamble outage.** Commit
