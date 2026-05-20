@@ -70,6 +70,15 @@ Topic (or ID if parent is the root); slakd passes that as `thread_ts` to
 | `send_file` | `files.getUploadURLExternal` + complete       |
 | `post`      | maps to `send` on a channel JID               |
 
+## Typing indicator
+
+`Typing(on=true)` adds a 👀 (`eyes`) reaction to the last inbound message for
+that JID. `Typing(on=false)` removes it. Single code path for pane and
+regular channels — no `conversations.typing` (RTM-only, discontinued 2024)
+and no `assistant.threads.setStatus`. `already_reacted` / `no_reaction`
+errors are ignored. Silent no-op if no prior inbound message is known for the
+JID.
+
 DMs (`message.im`) and non-mentioned channel messages emit `verb=""`
 (default `message`); mentions and threads ride in `Topic` or text, not
 the verb. Mirrors `discd/bot.go:147`.

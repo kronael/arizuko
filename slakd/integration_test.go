@@ -20,16 +20,17 @@ import (
 // chat.postMessage, chat.delete, chat.update, reactions.add,
 // files.getUploadURLExternal, files.completeUploadExternal.
 type slackMock struct {
-	srv       *httptest.Server
-	mu        sync.Mutex
-	posted    []map[string]string
-	reacted   []map[string]string
-	updated   []map[string]string
-	deleted   []map[string]string
-	completed []map[string]string
-	statuses  []map[string]string
-	titles    []map[string]string
-	prompts   []map[string]string
+	srv        *httptest.Server
+	mu         sync.Mutex
+	posted     []map[string]string
+	reacted    []map[string]string
+	unreacted  []map[string]string
+	updated    []map[string]string
+	deleted    []map[string]string
+	completed  []map[string]string
+	statuses   []map[string]string
+	titles     []map[string]string
+	prompts    []map[string]string
 
 	authUserID string
 	authTeamID string
@@ -119,6 +120,17 @@ func newSlackMock() *slackMock {
 		defer m.mu.Unlock()
 		r.ParseForm()
 		m.reacted = append(m.reacted, map[string]string{
+			"channel": r.FormValue("channel"),
+			"name":    r.FormValue("name"),
+			"ts":      r.FormValue("timestamp"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/reactions.remove", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.unreacted = append(m.unreacted, map[string]string{
 			"channel": r.FormValue("channel"),
 			"name":    r.FormValue("name"),
 			"ts":      r.FormValue("timestamp"),
@@ -239,7 +251,6 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	t.Cleanup(b.typing.Stop)
 	b.store = st
 	rc := chanlib.NewRouterClient(rm.srv.URL, "chsec")
 	rc.SetToken("tok")
@@ -749,14 +760,15 @@ func TestInbound_FileAttachment(t *testing.T) {
 	}
 }
 
-// Typing in agent-pane mode → POST /assistant.threads.setStatus with the
-// recorded thread_ts; Typing on a non-pane JID is a silent no-op.
-func TestTyping_PaneSetStatus(t *testing.T) {
+// Typing adds 👀 reaction to the trigger message (on=true) and removes it
+// (on=false). Same path for pane and regular channels. No-op when no prior
+// inbound message is known for the JID.
+func TestTyping_Reaction(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.Close()
 	b, _ := setupBot(t, mock)
 
-	// Inbound pane-mode message records the (jid, thread_ts) pair.
+	// Inbound message establishes lastMsgTS for the JID.
 	body := []byte(`{
 	  "type": "event_callback",
 	  "team_id": "T012",
@@ -765,23 +777,23 @@ func TestTyping_PaneSetStatus(t *testing.T) {
 	    "channel_type": "im",
 	    "channel": "D0XY",
 	    "user": "U99",
-	    "text": "hi pane",
-	    "ts": "1700000888.000100",
-	    "assistant_thread": {"action_token": "tok-abc"}
+	    "text": "hi",
+	    "ts": "1700000888.000100"
 	  }
 	}`)
 	b.handleEvent(body, httptest.NewRecorder())
 
-	paneJID := "slack:T012/dm/D0XY"
-	b.Typing(paneJID, true)
-	b.Typing("slack:T012/channel/CNOPE", true) // not a pane → no-op
+	jid := "slack:T012/dm/D0XY"
+	b.Typing(jid, true)
 
-	// Typing is fire-and-forget; poll until done.
-	waitFor := func(want int) {
-		deadline := time.Now().Add(10 * time.Second)
+	// No-op: unknown JID has no stored TS.
+	b.Typing("slack:T012/channel/CNOPE", true)
+
+	waitFor := func(field *[]map[string]string, want int) {
+		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			mock.mu.Lock()
-			n := len(mock.statuses)
+			n := len(*field)
 			mock.mu.Unlock()
 			if n >= want {
 				return
@@ -789,35 +801,42 @@ func TestTyping_PaneSetStatus(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	waitFor(1)
+	waitFor(&mock.reacted, 1)
 
 	mock.mu.Lock()
-	if len(mock.statuses) != 1 {
+	if len(mock.reacted) != 1 {
 		mock.mu.Unlock()
-		t.Fatalf("setStatus calls = %d (expected 1 from pane jid only)", len(mock.statuses))
+		t.Fatalf("reactions.add calls = %d (expected 1)", len(mock.reacted))
 	}
-	c := mock.statuses[0]
+	r := mock.reacted[0]
 	mock.mu.Unlock()
-	if c["channel_id"] != "D0XY" {
-		t.Errorf("channel_id = %q", c["channel_id"])
+	if r["channel"] != "D0XY" {
+		t.Errorf("channel = %q", r["channel"])
 	}
-	if c["thread_ts"] != "1700000888.000100" {
-		t.Errorf("thread_ts = %q", c["thread_ts"])
+	if r["name"] != "eyes" {
+		t.Errorf("name = %q (expected eyes)", r["name"])
 	}
-	if c["status"] == "" {
-		t.Errorf("status must be non-empty when on=true")
+	if r["ts"] != "1700000888.000100" {
+		t.Errorf("ts = %q", r["ts"])
 	}
 
-	// Typing off → status cleared.
-	b.Typing(paneJID, false)
-	waitFor(2)
+	b.Typing(jid, false)
+	waitFor(&mock.unreacted, 1)
+
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
-	if len(mock.statuses) != 2 {
-		t.Fatalf("setStatus calls after off = %d", len(mock.statuses))
+	if len(mock.unreacted) != 1 {
+		t.Fatalf("reactions.remove calls = %d (expected 1)", len(mock.unreacted))
 	}
-	if mock.statuses[1]["status"] != "" {
-		t.Errorf("off status = %q (expected empty)", mock.statuses[1]["status"])
+	u := mock.unreacted[0]
+	if u["name"] != "eyes" {
+		t.Errorf("remove name = %q (expected eyes)", u["name"])
+	}
+	if u["ts"] != "1700000888.000100" {
+		t.Errorf("remove ts = %q", u["ts"])
+	}
+	if len(mock.statuses) != 0 {
+		t.Errorf("setStatus should not be called, got %d calls", len(mock.statuses))
 	}
 }
 

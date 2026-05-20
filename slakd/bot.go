@@ -44,21 +44,21 @@ type paneStore interface {
 type bot struct {
 	chanlib.NoVoiceSender
 
-	cfg     config
-	api     string
-	http    *http.Client
-	rc      *chanlib.RouterClient
-	files   *chanlib.URLCache
-	users   *ttlCache
-	chans   *ttlCache
-	store   paneStore
-	typing  *chanlib.TypingRefresher
+	cfg   config
+	api   string
+	http  *http.Client
+	rc    *chanlib.RouterClient
+	files *chanlib.URLCache
+	users *ttlCache
+	chans *ttlCache
+	store paneStore
 
 	botUserID atomic.Value
 	teamID    atomic.Value
 
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
+	lastMsgTS     sync.Map // jid → Slack TS of last inbound message
 
 	// pendingPrompts holds prompts the agent staged via MCP for the
 	// next outbound on a pane (keyed by team/user/thread_ts). Consumed
@@ -102,39 +102,41 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		pendingPrompts: map[string][]panePrompt{},
 		pendingTitle:   map[string]string{},
 	}
-	b.typing = chanlib.NewTypingRefresher(3*time.Second, chanlib.DefaultTypingMaxTTL, b.sendTypingChannel, nil)
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
 }
 
-// sendTypingChannel calls conversations.typing for a regular (non-pane) Slack
-// channel or DM. The indicator expires after ~5s on Slack's side, so
-// TypingRefresher fires every 3s. Returns false on auth/permission errors to
-// cancel the refresher.
-func (b *bot) sendTypingChannel(jid string) bool {
+// setTypingReaction adds (on=true) or removes (on=false) the 👀 reaction on
+// the last known inbound message for jid. Used for non-pane channels where
+// conversations.typing is RTM-only and not available to bot tokens.
+func (b *bot) setTypingReaction(jid string, on bool) {
+	ts, ok := b.lastMsgTS.Load(jid)
+	if !ok {
+		return
+	}
 	parts, err := parseJID(jid)
 	if err != nil {
-		return false
+		return
 	}
 	form := url.Values{}
 	form.Set("channel", parts.ID)
+	form.Set("name", "eyes")
+	form.Set("timestamp", ts.(string))
 	var resp struct {
 		OK    bool   `json:"ok"`
 		Error string `json:"error"`
 	}
-	if err := b.postForm(context.Background(), "/conversations.typing", form, &resp); err != nil {
-		slog.Debug("slack conversations.typing failed", "jid", jid, "err", err)
-		return true // transient error — keep trying
+	endpoint := "/reactions.add"
+	if !on {
+		endpoint = "/reactions.remove"
 	}
-	if !resp.OK {
-		// unknown_method / missing_scope = permanent; bot tokens can't use this
-		// endpoint (user token required). Cancel refresher to stop log spam.
-		if resp.Error == "unknown_method" || resp.Error == "missing_scope" || resp.Error == "not_allowed_token_type" {
-			return false
-		}
-		slog.Warn("slack conversations.typing error", "jid", jid, "error", resp.Error)
+	if err := b.postForm(context.Background(), endpoint, form, &resp); err != nil {
+		slog.Debug("slack typing reaction failed", "jid", jid, "on", on, "err", err)
+		return
 	}
-	return true
+	if !resp.OK && resp.Error != "already_reacted" && resp.Error != "no_reaction" {
+		slog.Debug("slack typing reaction error", "jid", jid, "on", on, "error", resp.Error)
+	}
 }
 
 func (b *bot) start(rc *chanlib.RouterClient) error {
@@ -152,7 +154,6 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 
 func (b *bot) stop() {
 	b.connected.Store(false)
-	b.typing.Stop()
 }
 
 func verifySignature(secret, sigHeader, tsHeader string, body []byte, now time.Time) error {
@@ -323,6 +324,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		return
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
+	b.lastMsgTS.Store(jid, m.TS)
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", "slack:user/"+m.User, "message_id", m.TS, "content_len", len(content))
 }
 
@@ -799,52 +801,10 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo string) error {
 	return nil
 }
 
-// Typing surfaces a "thinking…" indicator in Slack. Two paths:
-//   - Pane sessions (AI assistant): assistant.threads.setStatus, single shot.
-//   - Regular DMs/channels: conversations.typing via TypingRefresher (3s refresh).
-//
-// Pane sessions are auto-detected from inbound assistant_thread.action_token
-// payloads (see handleMessage).
+// Typing adds (on=true) or removes (on=false) the 👀 reaction on the trigger
+// message for any channel type — pane or regular. One path, no setStatus.
 func (b *bot) Typing(jid string, on bool) {
-	pane, ok := b.lookupPane(jid)
-	if !ok {
-		b.typing.Set(jid, on)
-		return
-	}
-	parts, err := parseJID(jid)
-	if err != nil {
-		return
-	}
-	status := ""
-	if on {
-		if name := b.cfg.AssistantName; name != "" {
-			status = name + " is thinking…"
-		} else {
-			status = "thinking…"
-		}
-	}
-	go func() {
-		form := url.Values{}
-		form.Set("channel_id", parts.ID)
-		form.Set("thread_ts", pane.ThreadTS)
-		form.Set("status", status)
-		var resp struct {
-			OK    bool   `json:"ok"`
-			Error string `json:"error"`
-		}
-		if err := b.postForm(context.Background(), "/assistant.threads.setStatus", form, &resp); err != nil {
-			slog.Debug("slack setStatus failed", "jid", jid, "err", err)
-			return
-		}
-		if !resp.OK && resp.Error == "missing_scope" {
-			slog.Warn("slack setStatus missing_scope (chat:write or assistant:write required)", "jid", jid)
-			return
-		}
-		if resp.OK && b.store != nil {
-			now := time.Now().UTC().Format(time.RFC3339Nano)
-			_ = b.store.SetPaneStatusAt(pane.TeamID, pane.UserID, pane.ThreadTS, now)
-		}
-	}()
+	go b.setTypingReaction(jid, on)
 }
 
 // recordPane persists a pane session triggered by an inbound carrying
@@ -860,18 +820,6 @@ func (b *bot) recordPane(teamID, userID, threadTS, channelID string) {
 	}
 }
 
-// lookupPane reads the pane session by DM channel_id (extracted from
-// the jid). Returns (zero, false) when the channel isn't a pane.
-func (b *bot) lookupPane(jid string) (store.PaneSession, bool) {
-	if b.store == nil {
-		return store.PaneSession{}, false
-	}
-	parts, err := parseJID(jid)
-	if err != nil {
-		return store.PaneSession{}, false
-	}
-	return b.store.GetPaneByChannel(parts.ID)
-}
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})
