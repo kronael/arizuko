@@ -711,7 +711,7 @@ func TestProxydHandlerAuthLoginBypassesGate(t *testing.T) {
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
 
-	h := s.handler(&core.Config{AuthSecret: "testsecret"})
+	h := s.handler(&core.Config{AuthSecret: "testsecret"}, nil)
 	req := httptest.NewRequest("GET", "/auth/login", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -737,7 +737,7 @@ func TestProxydHandlerOAuthCallbackGatedWhenUnconfigured(t *testing.T) {
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
 
-	h := s.handler(&core.Config{AuthSecret: "testsecret"})
+	h := s.handler(&core.Config{AuthSecret: "testsecret"}, nil)
 	req := httptest.NewRequest("GET", "/auth/google/callback?code=x&state=y", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

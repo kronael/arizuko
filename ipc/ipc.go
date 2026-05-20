@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
@@ -81,6 +82,9 @@ type GatedFns struct {
 	// WebBaseURL is the externally-reachable base for built route URLs
 	// (https://krons.fiu.wtf). Empty when unset — callers omit `url`.
 	WebBaseURL string
+
+	// Audit receives system events for mutating MCP tool calls. Nil = no-op.
+	Audit *audit.Audit
 }
 
 // RouteTokenInfo mirrors store.RouteToken plus the raw token (returned
@@ -701,6 +705,29 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
+	// emitSys records a system audit event for mutating MCP tool calls.
+	// actorSub is the session caller; params must already be redacted.
+	emitSys := func(tool, targetFolder, actorSub string, params map[string]any, err error) {
+		if gated.Audit == nil {
+			return
+		}
+		outcome := audit.Outcome{Status: "ok"}
+		if err != nil {
+			outcome = audit.Outcome{Status: "error", Detail: err.Error()}
+		}
+		actor := actorSub
+		if actor == "" {
+			actor = "agent:" + folder
+		}
+		gated.Audit.EmitSystem(audit.SystemEvent{
+			ActorSub: actor,
+			Tool:     tool,
+			Folder:   targetFolder,
+			Params:   params,
+			Outcome:  outcome,
+		})
+	}
+
 	// log_external_cost — agent reports a non-Anthropic LLM call's cost
 	// (oracle/codex/openai) so the spec 5/34 budget gate covers it. The
 	// oracle skill calls this after parsing `codex exec --json` output.
@@ -1314,8 +1341,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				chars = prevC
 			}
 			if err := gated.SetGroupObserveWindow(folder, msgs, chars); err != nil {
+				emitSys("set_observe_window", folder, callerSub,
+					map[string]any{"messages": msgs, "chars": chars}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("set_observe_window", folder, callerSub,
+				map[string]any{"messages": msgs, "chars": chars}, nil)
 			slog.Info("set_observe_window", "folder", folder, "messages", msgs, "chars", chars)
 			return toolJSON(map[string]any{"ok": true, "messages": msgs, "chars": chars})
 		})
@@ -1343,8 +1374,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr(err.Error())
 			}
 			if err := gated.SetGroupOpen(folder, open); err != nil {
+				emitSys("set_group_open", folder, callerSub, map[string]any{"open": open}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("set_group_open", folder, callerSub, map[string]any{"open": open}, nil)
 			slog.Info("set_group_open", "folder", folder, "open", open)
 			return toolJSON(map[string]any{"ok": true, "open": open})
 		})
@@ -1402,6 +1435,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				}
 				child, err := gated.SpawnGroup(folder, jid)
 				if err != nil {
+					emitSys("register_group", "", callerSub,
+						map[string]any{"jid": jid, "fromPrototype": true}, err)
 					return toolErr(err.Error())
 				}
 				if gated.SetupGroup != nil {
@@ -1409,6 +1444,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 						slog.Warn("register_group: seed group dir", "folder", child.Folder, "err", err)
 					}
 				}
+				emitSys("register_group", child.Folder, callerSub,
+					map[string]any{"jid": jid, "fromPrototype": true}, nil)
 				slog.Info("group registered from prototype", "jid", jid, "folder", child.Folder, "sourceGroup", folder)
 				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": jid})
 			}
@@ -1431,6 +1468,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				AddedAt: time.Now(),
 			}
 			if err := gated.RegisterGroup(jid, gr); err != nil {
+				emitSys("register_group", gfld, callerSub,
+					map[string]any{"jid": jid, "fromPrototype": false}, err)
 				return toolErr(err.Error())
 			}
 			if gated.SetupGroup != nil {
@@ -1438,6 +1477,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					slog.Warn("register_group: seed group dir", "folder", gfld, "err", err)
 				}
 			}
+			emitSys("register_group", gfld, callerSub,
+				map[string]any{"jid": jid, "fromPrototype": false}, nil)
 			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
 			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})
 		})
@@ -1593,8 +1634,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				}
 			}
 			if err := db.SetRoutes(id.Folder, routes); err != nil {
+				emitSys("set_routes", id.Folder, callerSub,
+					map[string]any{"count": len(routes)}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("set_routes", id.Folder, callerSub,
+				map[string]any{"count": len(routes)}, nil)
 			slog.Info("routes set", "folder", id.Folder, "count", len(routes))
 			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
 		})
@@ -1619,8 +1664,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			rid, err := db.AddRoute(route)
 			if err != nil {
+				emitSys("add_route", id.Folder, callerSub,
+					map[string]any{"target": route.Target}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("add_route", id.Folder, callerSub,
+				map[string]any{"target": route.Target, "id": rid}, nil)
 			slog.Info("route added", "id", rid, "target", route.Target, "match", route.Match)
 			return toolJSON(map[string]any{"id": rid})
 		})
@@ -1646,8 +1695,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr(err.Error())
 			}
 			if err := db.DeleteRoute(rid); err != nil {
+				emitSys("delete_route", id.Folder, callerSub,
+					map[string]any{"id": rid}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("delete_route", id.Folder, callerSub,
+				map[string]any{"id": rid, "target": route.Target}, nil)
 			slog.Info("route deleted", "id", rid)
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
 		})
@@ -1723,8 +1776,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				ContextMode: contextMode,
 			}
 			if err := db.CreateTask(task); err != nil {
+				emitSys("schedule_task", targetFolder, callerSub,
+					map[string]any{"task_id": taskID, "target_jid": targetJid}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("schedule_task", targetFolder, callerSub,
+				map[string]any{"task_id": taskID, "target_jid": targetJid}, nil)
 			slog.Info("task created via mcp", "taskId", taskID, "sourceGroup", folder,
 				"targetFolder", targetFolder, "contextMode", contextMode)
 			return toolJSON(map[string]any{"taskId": taskID})
@@ -1841,8 +1898,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			inv, err := gated.CreateInvite(targetGlob, "agent:"+folder, maxUses, expiresAt)
 			if err != nil {
+				emitSys("invite_create", folder, callerSub,
+					map[string]any{"target_glob": targetGlob, "max_uses": maxUses}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("invite_create", folder, callerSub,
+				map[string]any{"target_glob": targetGlob, "max_uses": maxUses}, nil)
 			out := map[string]any{
 				"token":       inv.Token,
 				"target_glob": inv.TargetGlob,
@@ -1900,8 +1961,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))
 				info, err := gated.IssueRouteToken("chat", folder, target, "", suffix)
 				if err != nil {
+					emitSys("issue_chat_link", target, callerSub,
+						map[string]any{"target_folder": target}, err)
 					return toolErr(err.Error())
 				}
+				emitSys("issue_chat_link", target, callerSub,
+					map[string]any{"target_folder": target, "jid": info.JID}, nil)
 				slog.Info("issue_chat_link", "folder", folder, "target", target, "jid", info.JID)
 				return toolJSON(map[string]any{
 					"token": info.RawToken, "jid": info.JID, "url": info.URL,
@@ -1935,8 +2000,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))
 				info, err := gated.IssueRouteToken("hook", folder, target, src, suffix)
 				if err != nil {
+					emitSys("issue_webhook", target, callerSub,
+						map[string]any{"target_folder": target, "source_label": src}, err)
 					return toolErr(err.Error())
 				}
+				emitSys("issue_webhook", target, callerSub,
+					map[string]any{"target_folder": target, "source_label": src, "jid": info.JID}, nil)
 				slog.Info("issue_webhook", "folder", folder, "target", target, "source", src, "jid", info.JID)
 				return toolJSON(map[string]any{
 					"token": info.RawToken, "jid": info.JID, "url": info.URL,
@@ -1972,8 +2041,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				}
 				deleted, err := gated.RevokeRouteToken(jid, folder)
 				if err != nil {
+					emitSys("revoke_token", folder, callerSub,
+						map[string]any{"jid": jid}, err)
 					return toolErr(err.Error())
 				}
+				emitSys("revoke_token", folder, callerSub,
+					map[string]any{"jid": jid, "deleted": deleted}, nil)
 				slog.Info("revoke_token", "folder", folder, "jid", jid, "deleted", deleted)
 				return toolJSON(map[string]any{"deleted": deleted})
 			})
@@ -2215,8 +2288,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("redirect_to required when access=redirect")
 			}
 			if err := db.SetWebRoute(p, access, redirectTo, folder); err != nil {
+				emitSys("set_web_route", folder, callerSub,
+					map[string]any{"path": p, "access": access}, err)
 				return toolErr(err.Error())
 			}
+			emitSys("set_web_route", folder, callerSub,
+				map[string]any{"path": p, "access": access}, nil)
 			slog.Info("set_web_route", "folder", folder, "path", p, "access", access)
 			return toolOK()
 		})
@@ -2238,11 +2315,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			ok, err := db.DelWebRoute(p, scopedFolder)
 			if err != nil {
+				emitSys("del_web_route", folder, callerSub, map[string]any{"path": p}, err)
 				return toolErr(err.Error())
 			}
 			if !ok {
 				return toolErr("route not found or not owned by this folder")
 			}
+			emitSys("del_web_route", folder, callerSub, map[string]any{"path": p}, nil)
 			slog.Info("del_web_route", "folder", folder, "path", p)
 			return toolOK()
 		})

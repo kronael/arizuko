@@ -27,6 +27,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/grants"
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/queue"
@@ -108,6 +109,10 @@ func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
 // GatedFns exposes the wired-up GatedFns for callers (api.Server) that
 // need to invoke the same handlers the MCP face calls.
 func (g *Gateway) GatedFns() ipc.GatedFns { return g.gatedFns }
+
+// SetAudit injects the audit writer into GatedFns so MCP tool calls
+// emit system events. Call after New, before Run.
+func (g *Gateway) SetAudit(a *audit.Audit) { g.gatedFns.Audit = a }
 
 // resolveOrEngaged is the single renderer for "find the group that owns
 // this chat", shared by pollOnce and processGroupMessages. When the

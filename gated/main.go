@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/api"
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/gateway"
@@ -115,6 +116,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(),
 		syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
+
+	auditCfg := audit.LoadConfig(cfg.HostProjectRoot, cfg.Name)
+	aud := audit.New(auditCfg)
+	gw.SetAudit(aud)
+	aud.StartPoll(ctx, s.DB())
 
 	reg.StartHealthLoop(ctx)
 

@@ -82,6 +82,10 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// DB returns the underlying *sql.DB for callers that need raw query access
+// (e.g. audit poll goroutine). The caller must not close it.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // sqlPH returns n comma-separated `?` placeholders for use in SQL IN (...).
 // e.g. sqlPH(3) == "?,?,?"
 func sqlPH(n int) string {

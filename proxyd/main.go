@@ -22,6 +22,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
@@ -387,25 +388,39 @@ func (rl *rateLimiter) allow(key string) bool {
 	return true
 }
 
-func (s *server) handler(cfg *core.Config) http.Handler {
+func (s *server) handler(cfg *core.Config, aud *audit.Audit) http.Handler {
 	mux := http.NewServeMux()
 	auth.RegisterRoutes(mux, s.st, cfg)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
 	mux.HandleFunc("/", s.route)
-	return logging(mux)
+	return logging(mux, aud)
 }
 
-func logging(next http.Handler) http.Handler {
+func logging(next http.Handler, aud *audit.Audit) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &chanlib.StatusWriter{ResponseWriter: w, Code: 200}
 		next.ServeHTTP(sw, r)
 		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			peer = strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+		}
 		slog.Info("request",
 			"method", r.Method, "path", r.URL.Path,
 			"status", sw.Code, "dur", time.Since(start).String(),
 			"sub", r.Header.Get("X-User-Sub"),
 			"remote", peer, "host", r.Host)
+		if aud != nil && r.URL.Path != "/health" {
+			aud.EmitWeb(audit.WebEvent{
+				TS:        start.UTC().Format(time.RFC3339Nano),
+				Method:    r.Method,
+				Path:      r.URL.Path,
+				Status:    sw.Code,
+				LatencyMS: time.Since(start).Milliseconds(),
+				ActorSub:  r.Header.Get("X-User-Sub"),
+				IP:        peer,
+			})
+		}
 	})
 }
 
@@ -800,6 +815,8 @@ func main() {
 
 	s := newServer(cfg, st, vh)
 
+	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
+
 	go func() {
 		t := time.NewTicker(5 * time.Second)
 		defer t.Stop()
@@ -813,7 +830,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    cfg.port,
-		Handler: s.handler(coreCfg),
+		Handler: s.handler(coreCfg, aud),
 	}
 
 	stop := make(chan os.Signal, 1)
