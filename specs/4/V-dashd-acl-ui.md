@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends: [4/9-acl-unified.md, 4/Q-dash-memory.md]
 ---
 

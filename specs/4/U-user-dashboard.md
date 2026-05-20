@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # User dashboard (`/me/*`)
