@@ -12,7 +12,15 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.45.1] — 2026-05-20
+
+> arizuko v0.45.1 — slakd typing via reactions
+>
+> Typing indicators on Slack now use 👀 reactions instead of the discontinued RTM typing API. One code path for all channel types.
+>
+> • slakd typing — `reactions.add eyes` on the trigger message replaces `conversations.typing` (RTM-only, dead). Works in pane sessions and regular channels identically.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Changed
 
