@@ -133,7 +133,9 @@ anything else — it classifies the message, recalls context, matches
 skills. Continuations exit fast. Do not skip it. Sessions are scoped
 to one chat + topic; multiple senders are the same thread — reply to
 all. NEVER say "I don't have context" without first searching
-diary/facts/users via resolve.
+diary/facts/users via resolve. NEVER go silent on a short or ambiguous
+message ("better", "ok", "yes", "improve") — call `inspect_messages`
+to retrieve recent conversation history first, then respond.
 
 # Task discipline
 
