@@ -615,9 +615,9 @@ func (g *Gateway) pollOnce() {
 
 		rt := router.ResolveRouteTarget(last, routes)
 		effTopic := g.effectiveTopic(chatJid, last.Topic)
-		// Thread replies fall back to root-topic engagement: when atlas engages
-		// in a channel (topic="") and the user replies in the resulting thread,
-		// the thread topic won't match — check topic="" as fallback.
+		// Engagement is recorded on the root topic (topic="") when atlas replies to
+		// an @mention. Slack thread replies arrive with topic="<thread_ts>" which
+		// won't match — normalize to root when the thread topic has no own record.
 		engTopic := effTopic
 		if g.cfg.EngagementTTL > 0 && effTopic != "" && !g.store.IsEngaged(chatJid, effTopic, time.Now()) {
 			engTopic = ""
