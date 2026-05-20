@@ -122,53 +122,33 @@ func (b *bot) clearOrphanEyes(ctx context.Context) {
 			} `json:"reactions"`
 		} `json:"message"`
 	}
-	var cursor string
 	botID := b.BotUserID()
-	for {
-		form := url.Values{"full": {"true"}, "limit": {"200"}}
-		if cursor != "" {
-			form.Set("cursor", cursor)
+	var resp struct {
+		OK    bool           `json:"ok"`
+		Items []reactionItem `json:"items"`
+	}
+	if err := b.postForm(ctx, "/reactions.list", url.Values{"full": {"true"}, "limit": {"200"}}, &resp); err != nil || !resp.OK {
+		return
+	}
+	for _, item := range resp.Items {
+		if item.Type != "message" {
+			continue
 		}
-		var resp struct {
-			OK               bool           `json:"ok"`
-			Items            []reactionItem `json:"items"`
-			ResponseMetadata struct {
-				NextCursor string `json:"next_cursor"`
-			} `json:"response_metadata"`
-		}
-		if err := b.postForm(ctx, "/reactions.list", form, &resp); err != nil || !resp.OK {
-			return
-		}
-		for _, item := range resp.Items {
-			if item.Type != "message" {
+		for _, r := range item.Message.Reactions {
+			if r.Name != "eyes" {
 				continue
 			}
-			for _, r := range item.Message.Reactions {
-				if r.Name != "eyes" {
+			for _, u := range r.Users {
+				if u != botID {
 					continue
 				}
-				for _, u := range r.Users {
-					if u != botID {
-						continue
-					}
-					rm := url.Values{}
-					rm.Set("channel", item.Channel)
-					rm.Set("name", "eyes")
-					rm.Set("timestamp", item.Message.TS)
-					var rmResp struct {
-						OK    bool   `json:"ok"`
-						Error string `json:"error"`
-					}
-					if err := b.postForm(ctx, "/reactions.remove", rm, &rmResp); err != nil {
-						slog.Debug("clear orphan eyes failed", "ts", item.Message.TS, "err", err)
-					}
+				rm := url.Values{"channel": {item.Channel}, "name": {"eyes"}, "timestamp": {item.Message.TS}}
+				var rmResp struct{ OK bool }
+				if err := b.postForm(ctx, "/reactions.remove", rm, &rmResp); err != nil {
+					slog.Debug("clear orphan eyes failed", "ts", item.Message.TS, "err", err)
 				}
 			}
 		}
-		if resp.ResponseMetadata.NextCursor == "" {
-			break
-		}
-		cursor = resp.ResponseMetadata.NextCursor
 	}
 }
 
