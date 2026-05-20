@@ -60,12 +60,11 @@
         context &mdash; each team needs its own persona, memory, and channel.
       </p>
       <ul>
-        <li>Shared context means one team&rsquo;s history contaminates
-          another&rsquo;s answers.</li>
-        <li>No code path &mdash; configuration lives in a GUI, not in files
-          you can diff, review, and roll back.</li>
-        <li>Your prompts, context, and files go through someone
-          else&rsquo;s servers.</li>
+        <li>One team&rsquo;s history bleeds into another&rsquo;s answers.</li>
+        <li>Sessions start blank &mdash; no memory across conversations.</li>
+        <li>One surface: a chat window. No Slack, email, or Discord.</li>
+        <li>Config in a GUI &mdash; nothing to diff, review, or roll back.</li>
+        <li>Your prompts and files go through someone else&rsquo;s servers.</li>
       </ul>
       <p>
         arizuko runs on your infrastructure. Agent configs are files. Changes
@@ -93,8 +92,7 @@
           <strong>Agents as folders.</strong>
           <code>corp/sales</code>, <code>corp/eng/sre</code>,
           <code>corp/support</code> &mdash; each a directory with a prompt
-          file, a memory file, and a skill set. Add a folder, get an agent.
-          One directory, no extra steps.
+          file, a memory file, and a skill set. One directory, one agent.
         </li>
         <li>
           <strong>Personality, skills, and memory.</strong> Each folder has a
@@ -104,15 +102,15 @@
         </li>
         <li>
           <strong>Topics that fork.</strong> Spin a side-conversation off any
-          thread &mdash; the new topic copies the parent&rsquo;s Claude session
-          (<code>cp -r .claude/</code>), so the agent walks in with full
-          context. Parallel workstreams, no context loss.
+          thread &mdash; the new topic copies the parent&rsquo;s session
+          (<code>cp -r .claude/</code>), so the agent starts with full
+          context. Parallel threads, no context loss.
         </li>
         <li>
           <strong>Agents that commission agents.</strong> A root agent can
           create a child group on first contact, assign routes, and schedule
           tasks &mdash; using the same MCP tools a human operator would invoke.
-          Deploy a per-customer support agent automatically, with no automation
+          Deploy a per-customer support agent automatically &mdash; no automation
           logic to write.
         </li>
       </ul>
@@ -123,7 +121,7 @@
           <strong>Drops in, stays in.</strong> Mount the agent&rsquo;s
           workspace via WebDAV and drop your docs, notes, or structured files.
           Every session from that point has access. No import wizard, no format
-          negotiation.
+          conversion.
         </li>
         <li>
           <strong>Agents grow their own knowledge.</strong> When an agent
@@ -132,9 +130,9 @@
           step, no sync job.
         </li>
         <li>
-          <strong>Every system can feed it.</strong> A webhook endpoint comes
-          with every folder. Pipe in alerts, tickets, CRM events &mdash; they
-          arrive as messages and the agent decides what to retain.
+          <strong>Every system can feed it.</strong> Every folder has a webhook
+          endpoint. Pipe in alerts, tickets, or CRM events &mdash; they arrive
+          as messages and the agent decides what to keep.
         </li>
       </ul>
 
@@ -150,9 +148,9 @@
         </li>
         <li>
           <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
-          daily summaries, weekly reports, autonomous background work &mdash;
-          each running with the folder&rsquo;s full memory and personality.
-          Set up by the agent itself or from the dashboard.
+          daily summaries, weekly reports, background work &mdash; each running
+          with the folder&rsquo;s full memory and persona. The agent sets them
+          up, or you do from the dashboard.
         </li>
         <li>
           <strong>Webhooks as messages.</strong> POST to
@@ -161,7 +159,7 @@
           curation agent: no custom integration code, just a prompt and a cron.
         </li>
         <li>
-          <strong>Acts on knowledge, doesn&rsquo;t just answer questions.</strong>
+          <strong>Acts, doesn&rsquo;t just answer.</strong>
           A curation agent reads your Slack intake, decides what matters, and
           writes a daily brief. A support agent remembers every customer
           interaction and escalates without being asked. That&rsquo;s not a
@@ -175,9 +173,9 @@
           <strong>Channel-native adapters.</strong> Each adapter speaks the
           platform&rsquo;s own API: Telegram bot API, Discord gateway, WhatsApp
           web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
-          webhook relay &mdash; the adapter owns the connection and surfaces
+          webhook relay &mdash; the adapter owns the connection and delivers
           events (threads, reactions, voice messages) that webhooks
-          can&rsquo;t express. Slack gets a full AI sidebar via the Slack AI
+          can&rsquo;t. Slack gets a full AI sidebar via the Slack AI
           MCP protocol.
         </li>
         <li>
@@ -190,8 +188,8 @@
           <strong>Everything meets at <code>messages.db</code>.</strong>
           Routes match on <code>key=glob</code>. ACL is one row:
           <code>(principal, action, scope, params)</code>. Siblings see each
-          other&rsquo;s observed messages unless closed. Channels speak HTTP.
-          No hidden state elsewhere.
+          other&rsquo;s observed messages unless the group is closed. Channels
+          speak HTTP. No hidden state elsewhere.
         </li>
       </ul>
 
@@ -222,8 +220,8 @@
       <p>
         A minimal deploy is <code>gated</code> and one channel adapter. Add
         components as you need them &mdash; each is a standalone binary with its
-        own TOML block. Nothing coordinates through a managed control plane;
-        every piece is replaceable.
+        own TOML block. There&rsquo;s no managed control plane; every piece is
+        replaceable.
       </p>
       <table class="deploy-table">
         <tr><th>Setup</th><th>What runs</th><th>Best for</th></tr>
@@ -251,8 +249,8 @@
       </table>
       <p>
         One <code>tar</code> of <code>/srv/data/arizuko_&lt;name&gt;/</code>
-        is the entire instance: <code>messages.db</code> (WAL), group folders,
-        per-user memory, secrets, agent files.
+        backs up the entire instance: <code>messages.db</code> (WAL), group
+        folders, per-user memory, secrets, agent files.
       </p>
 
       <h2>show me</h2>
@@ -285,8 +283,8 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
           Slack team agent, support bot, content pipeline, PM board, and more.
         </li>
         <li>
-          <a href="components/">components</a> &mdash; the daemons one
-          page each: <code>gated</code>, <code>webd</code>,
+          <a href="components/">components</a> &mdash; one page per daemon:
+          <code>gated</code>, <code>webd</code>,
           <code>proxyd</code>, <code>dashd</code>, <code>onbod</code>,
           <code>timed</code>, plus the channel adapters.
         </li>
