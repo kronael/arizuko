@@ -8,7 +8,7 @@ COMPONENTS = crackbox
 # in the docker group (then `make images DOCKER=docker`). Default is
 # `sudo docker` so `make images` works consistently across dev hosts.
 DOCKER ?= sudo docker
-export DOCKER_BUILDKIT=1
+DOCKER_BUILD = DOCKER_BUILDKIT=1 $(DOCKER) build
 
 build:
 	go build -o arizuko ./cmd/arizuko/
@@ -85,17 +85,17 @@ clean:
 
 images:
 	$(DOCKER) image prune -f
-	$(DOCKER) build -t arizuko .
-	$(DOCKER) build -t arizuko-whatsapp -f whapd/Dockerfile .
-	$(DOCKER) build -t arizuko-twitter -f twitd/Dockerfile .
-	$(DOCKER) build -t crackbox -f crackbox/Dockerfile .
-	$(DOCKER) build -t arizuko-davd -f davd/Dockerfile .
-	$(DOCKER) build -t arizuko-ttsd -f ttsd/Dockerfile .
+	$(DOCKER_BUILD) -t arizuko .
+	$(DOCKER_BUILD) -t arizuko-whatsapp -f whapd/Dockerfile .
+	$(DOCKER_BUILD) -t arizuko-twitter -f twitd/Dockerfile .
+	$(DOCKER_BUILD) -t crackbox -f crackbox/Dockerfile .
+	$(DOCKER_BUILD) -t arizuko-davd -f davd/Dockerfile .
+	$(DOCKER_BUILD) -t arizuko-ttsd -f ttsd/Dockerfile .
 	make -C ant image DOCKER="$(DOCKER)"
 	make vite-image
 
 vite-image:
-	$(DOCKER) build -f ant/Dockerfile.vite -t arizuko-vite:latest .
+	$(DOCKER_BUILD) -f ant/Dockerfile.vite -t arizuko-vite:latest .
 
 agent:
 	make -C ant image DOCKER="$(DOCKER)"
