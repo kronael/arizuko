@@ -54,23 +54,15 @@
       </p>
 
       <h2>why not a shared assistant?</h2>
-      <p>
-        A shared assistant becomes a junk drawer. Everyone throws context into
-        the same box, and nobody trusts what comes back out.
-      </p>
       <ul>
-        <li>Sales asks for help and gets ops baggage.</li>
-        <li>Support inherits yesterday&rsquo;s unrelated thread.</li>
-        <li>The thing forgets, unless the vendor decides it should remember.</li>
-        <li>Your real system is Slack + email + webhooks &mdash; the assistant
-          lives in one chat tab.</li>
-        <li>When it misbehaves, there&rsquo;s no file to diff, no route to
-          inspect, and no clean rollback.</li>
+        <li><strong>Wrong replies land in the thread</strong> &mdash; one assistant reads sales, support, and ops history from the same memory.</li>
+        <li><strong>Old context changes new work</strong> &mdash; unrelated threads stay attached unless somebody clears them.</li>
+        <li><strong>Slack becomes the control plane</strong> &mdash; the real system lives in email, webhooks, and folders, but the assistant only sees one chat tab.</li>
+        <li><strong>Failures are hard to inspect</strong> &mdash; there&rsquo;s no file to diff, no route to inspect, and no clean rollback.</li>
       </ul>
       <p>
         arizuko gives each team its own agent, memory, channels, and policy
-        on your own host. The config is files. Rollback is
-        <code>git revert</code>.
+        on your own host. Config is files. Rollback is <code>git revert</code>.
       </p>
 
       <h2>how it works</h2>
@@ -88,133 +80,90 @@
         instance.
       </p>
 
-      <h2>organize</h2>
+      <h2>agents</h2>
       <ul>
         <li>
-          <strong>Agents as folders.</strong>
-          <code>corp/sales</code>, <code>corp/eng/sre</code>,
-          <code>corp/support</code> &mdash; each a directory with a prompt
-          file, a memory file, and a skill set. One directory, one agent.
+          <strong>Each folder is an agent.</strong> Put teams like
+          <code>corp/sales</code> in their own path with
+          <code>PERSONA.md</code>, <code>skills/</code>, and memory beside them.
         </li>
         <li>
-          <strong>Personality, skills, and memory.</strong> Each folder has a
-          <code>PERSONA.md</code> (voice and instructions), a
-          <code>skills/</code> set, and memory that accumulates across weeks.
-          An agent that helped close a deal in January remembers it in March.
+          <strong>Identity lives in files.</strong> Personality comes from
+          <code>PERSONA.md</code>, tools come from <code>skills/</code>, and
+          memory accumulates across weeks.
         </li>
         <li>
-          <strong>Topics that fork.</strong> Spin a side-conversation off any
-          thread &mdash; the new topic copies the parent&rsquo;s session
-          (<code>cp -r .claude/</code>), so the agent starts with full
-          context. Parallel threads, no context loss.
+          <strong>Topics fork cleanly.</strong> When a thread splits, the new
+          topic copies the parent&rsquo;s session (<code>cp -r .claude/</code>)
+          and both paths run in parallel with full context.
         </li>
         <li>
-          <strong>Agents that commission agents.</strong> A root agent can
-          create a child group on first contact, assign routes, and schedule
+          <strong>Agents can create agents.</strong> A root agent can
+          commission child groups on first contact, assign routes, and schedule
           tasks &mdash; using the same MCP tools a human operator would invoke.
-          Deploy a per-customer support agent automatically &mdash; no automation
-          logic to write.
+        </li>
+        <li>
+          <strong>Knowledge lands where the agent works.</strong> Mount the
+          workspace via WebDAV and drop docs, notes, or files. When an agent
+          researches something mid-session, it writes findings to its own
+          <code>facts/</code> &mdash; the next session, it already knows.
         </li>
       </ul>
 
-      <h2>ingest</h2>
+      <h2>channels and coordination</h2>
       <ul>
         <li>
-          <strong>Drops in, stays in.</strong> Mount the agent&rsquo;s
-          workspace via WebDAV and drop your docs, notes, or structured files.
-          Every session from that point has access. No import wizard, no format
-          conversion.
+          <strong>Messages arrive through 11 adapters.</strong> Telegram,
+          Discord, WhatsApp, IMAP/SMTP, Mastodon, Bluesky, Slack AI sidebar,
+          Reddit, Twitter/X, LinkedIn &mdash; each adapter owns its platform
+          connection and delivers events webhooks can&rsquo;t (threads,
+          reactions, voice messages).
         </li>
         <li>
-          <strong>Agents grow their own knowledge.</strong> When an agent
-          researches something mid-conversation, it writes the findings to its
-          own <code>facts/</code>. The next session, it already knows. No admin
-          step, no sync job.
+          <strong>Public surfaces are plain URLs.</strong> Issue a route token
+          and any folder gets a <code>/chat/&lt;token&gt;/</code> page (SSE,
+          works in a browser) and a <code>/hook/&lt;token&gt;</code> endpoint
+          (POST JSON, fires the agent).
         </li>
         <li>
-          <strong>Every system can feed it.</strong> Every folder has a webhook
-          endpoint. Pipe in alerts, tickets, or CRM events &mdash; they arrive
-          as messages and the agent decides what to keep.
-        </li>
-      </ul>
-
-      <h2>coordinate</h2>
-      <ul>
-        <li>
-          <strong>Agents talk to each other.</strong> Route a message from
-          support to eng, delegate from parent to child, broadcast across
-          siblings. <code>delegate_group</code>, <code>broadcast</code>, and
-          <code>observe_group</code> are MCP tools &mdash; cross-folder
-          coordination goes through the same controlled socket as everything
-          else.
+          <strong>Agents coordinate directly.</strong>
+          <code>delegate_group</code>, <code>broadcast</code>, and
+          <code>observe_group</code> are MCP tools &mdash; cross-folder work
+          goes through the same controlled socket as everything else.
         </li>
         <li>
-          <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
-          daily summaries, weekly reports, background work &mdash; each running
-          with the folder&rsquo;s full memory and persona. The agent sets them
-          up, or you do from the dashboard.
+          <strong>Webhooks become messages; schedules become work.</strong>
+          POST alerts, tickets, or CRM events to any folder webhook. Cron tasks
+          per folder run daily summaries, weekly reports, or background jobs
+          with the folder&rsquo;s full memory.
         </li>
         <li>
-          <strong>Webhooks as messages.</strong> POST to
-          <code>/hook/&lt;token&gt;</code> from any external system &mdash;
-          the payload lands as a message in any folder. Pair with a scheduled
-          curation agent: no custom integration code, just a prompt and a cron.
-        </li>
-        <li>
-          <strong>Acts, doesn&rsquo;t just answer.</strong>
-          A curation agent reads your Slack intake, decides what matters, and
-          writes a daily brief. A support agent remembers every customer
-          interaction and escalates without being asked. That&rsquo;s not a
-          knowledge base &mdash; that&rsquo;s an agent with memory and a job.
-        </li>
-      </ul>
-
-      <h2>connect</h2>
-      <ul>
-        <li>
-          <strong>Channel-native adapters.</strong> Each adapter speaks the
-          platform&rsquo;s own API: Telegram bot API, Discord gateway, WhatsApp
-          web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
-          webhook relay &mdash; the adapter owns the connection and delivers
-          events (threads, reactions, voice messages) that webhooks
-          can&rsquo;t. Slack gets a full AI sidebar via the Slack AI
-          MCP protocol.
-        </li>
-        <li>
-          <strong>Public chat and webhook surfaces.</strong> Issue a route
-          token and any folder gets a <code>/chat/&lt;token&gt;/</code> page
-          (SSE, works in a browser) and a <code>/hook/&lt;token&gt;</code>
-          endpoint (POST JSON, fires the agent). No extra config.
-        </li>
-        <li>
-          <strong>Everything meets at <code>messages.db</code>.</strong>
-          Routes match on <code>key=glob</code>. ACL is one row:
-          <code>(principal, action, scope, params)</code>. Siblings see each
-          other&rsquo;s observed messages unless the group is closed. Channels
-          speak HTTP. No hidden state elsewhere.
+          <strong>Agents act, not just answer.</strong> A curation agent reads
+          Slack intake, decides what matters, and writes a daily brief. A
+          support agent remembers every interaction and escalates without being
+          asked.
         </li>
       </ul>
 
       <h2>operate</h2>
       <ul>
         <li>
-          <strong>MCP over a unix socket.</strong> Every agent connects to
-          <code>gated</code> via a MCP unix socket bridged into the container.
-          Tool calls go through that socket; the host controls what the agent
-          can reach. Side effects are auditable, revocable, and scoped to the
-          folder&rsquo;s grant rules.
+          <strong>MCP runs over a gated unix socket.</strong> Every agent
+          connects to <code>gated</code> via a unix socket bridged into the
+          container. Tool calls use scoped grants; each folder gets only the
+          access you allow.
         </li>
         <li>
-          <strong>Operator dashboard.</strong> <code>/dash/</code> with a
-          routes editor, task scheduler, group settings, secrets, and
-          create&thinsp;/&thinsp;delete. No editing <code>.env</code> by hand
-          to rewire a route.
+          <strong>The operator view lives at <code>/dash/</code>.</strong>
+          Routes editor, task scheduler, group settings, secrets, and
+          create&thinsp;/&thinsp;delete &mdash; no editing <code>.env</code>
+          by hand to rewire a route.
         </li>
         <li>
-          <strong>Egress sandboxing.</strong> <code>crackbox</code> wraps each
-          container with a per-folder hostname allowlist, HTTPS via CONNECT,
-          and DNS filtering. The agent can only reach what you explicitly
-          permit. See <a href="crackbox/">crackbox</a>.
+          <strong>Egress is sandboxed with crackbox.</strong>
+          <code>crackbox</code> wraps each container with a per-folder hostname
+          allowlist, HTTPS via CONNECT, and DNS filtering. See
+          <a href="crackbox/">crackbox</a>.
         </li>
       </ul>
 
