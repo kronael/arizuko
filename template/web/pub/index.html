@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko</title>
+    <title>arizuko — agent organization platform</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -44,12 +44,13 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Self-hosted platform for running Claude agents at scale. Deploy one
-        agent per team, project, or product &mdash; each isolated, persistent,
-        and connected to wherever it needs to be: chat, email, web, webhooks,
-        or APIs. No managed control plane, no per-seat pricing. Runs on a $5
-        VPS; backs up with one <code>tar</code>; scales to 10,000 teams on the
-        same binary.
+        Self-hosted agent organization platform. One AI for everything
+        produces noise &mdash; sales, support, and ops each need their own
+        context, memory, and personality. arizuko organizes them as a folder
+        hierarchy: each folder is an agent with its own memory, skills, and
+        channel connections. Agents run on MCP over a unix socket, so tool
+        calls are controlled and auditable. No control plane, no per-seat
+        pricing. $5 VPS, one <code>tar</code> backup.
       </p>
 
       <h2>why not Claude.ai or the Assistants API?</h2>
@@ -60,59 +61,119 @@
         <li>No self-hosting &mdash; your prompts, context, and files go through their servers.</li>
       </ul>
       <p>
-        arizuko runs on your infrastructure. The agents accumulate context over
+        arizuko runs on your infrastructure. Agents accumulate context over
         weeks, fork topics, publish to the web, and coordinate across teams.
         That&rsquo;s the feature, not the complexity.
       </p>
 
-      <h2>what you get</h2>
+      <h2>how it works</h2>
+      <p>
+        A folder is an agent: a directory with a <code>PERSONA.md</code>,
+        a <code>skills/</code> set, memory files, and an ACL row. Folders
+        compose into a hierarchy &mdash; <code>corp/sales</code>,
+        <code>corp/eng/sre</code>, <code>corp/support</code> &mdash; and each
+        one runs in its own Docker container when a message arrives. The
+        container connects back to <code>gated</code> via MCP over a unix
+        socket; every tool call (send a message, read memory, call an API)
+        goes through that socket. The host decides what the agent can reach.
+        All state lives in one SQLite WAL database; the container is
+        stateless. One <code>tar</code> of the data directory is the entire
+        instance.
+      </p>
+
+      <h2>organize</h2>
       <ul>
         <li>
-          <strong>One agent per team, not one agent for everything.</strong>
-          Sales, SRE, and recruiting each get their own container with their own
-          persistent context window. Mixing unrelated concerns in one context
-          produces noise, blended answers, and hallucinated cross-references.
-          Each folder is a clean context boundary that accumulates only the
-          conversations relevant to it.
+          <strong>Agents as folders.</strong>
+          <code>corp/sales</code>, <code>corp/eng/sre</code>,
+          <code>corp/support</code> &mdash; each a directory with a prompt
+          file, a memory file, and a skill set. Add a folder, get an agent.
+          One directory, no extra steps.
         </li>
         <li>
-          <strong>One agent per team, task, department, or product.</strong>
-          A support bot, a content pipeline, a PM board, a Slack team agent &mdash;
-          each is a folder. Pre-seeded recipes at
-          <a href="products/">products/</a> land one in five minutes.
+          <strong>Personality, skills, and memory.</strong> Each folder has a
+          <code>PERSONA.md</code> (voice and instructions), a
+          <code>skills/</code> set, and memory that accumulates across weeks.
+          An agent that helped close a deal in January remembers it in March.
         </li>
         <li>
-          <strong>Topics that fork.</strong> A side-topic copies its parent&rsquo;s
-          Claude session via plain <code>cp -r</code> on <code>.claude/</code>,
-          so the agent walks in with context. See
-          <a href="concepts/topics.html">concepts/topics</a>.
+          <strong>Topics that fork.</strong> Spin a side-conversation off any
+          thread &mdash; the new topic copies the parent&rsquo;s Claude session
+          (<code>cp -r .claude/</code>), so the agent walks in with full
+          context. Parallel workstreams, no context loss.
+        </li>
+      </ul>
+
+      <h2>coordinate</h2>
+      <ul>
+        <li>
+          <strong>Agents talk to each other.</strong> Route a message from
+          support to eng, delegate from parent to child, broadcast across
+          siblings. <code>delegate_group</code>, <code>broadcast</code>, and
+          <code>observe_group</code> are MCP tools &mdash; cross-folder
+          coordination goes through the same controlled socket as everything
+          else.
         </li>
         <li>
-          <strong>Sibling folders share context.</strong> Observed messages in a
-          folder are visible to its siblings unless <code>open=0</code>. See
-          <a href="concepts/scopes.html">concepts/scopes</a>.
+          <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
+          daily summaries, weekly reports, autonomous background work &mdash;
+          each running with the folder&rsquo;s full memory and personality.
+          Set up by the agent itself or from the dashboard.
         </li>
         <li>
-          <strong>Slack AI sidebar.</strong> The agent stages suggested prompts
-          and pane titles via MCP and knows which channel the pane is attached
-          to. See <a href="concepts/slack-pane.html">concepts/slack-pane</a>.
+          <strong>Webhooks as messages.</strong> POST to
+          <code>/hook/&lt;token&gt;</code> from any external system &mdash;
+          the payload lands as a message in any folder. Pair with a scheduled
+          curation agent: no custom integration code, just a prompt and a cron.
+        </li>
+      </ul>
+
+      <h2>connect</h2>
+      <ul>
+        <li>
+          <strong>Channel-native adapters.</strong> Each adapter speaks the
+          platform&rsquo;s own API: Telegram bot API, Discord gateway, WhatsApp
+          web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
+          webhook relay &mdash; the adapter owns the connection and surfaces
+          events (threads, reactions, voice messages) that webhooks
+          can&rsquo;t express. Slack gets a full AI sidebar via the Slack AI
+          MCP protocol.
         </li>
         <li>
-          <strong>Email in, email out.</strong> <code>emaid</code> ingests
-          DMARC-verified mail as a normal channel; unverified senders route
-          to a <code>verb=untrusted</code> quarantine instead of reaching
-          the agent. SMTP send works the same direction.
-        </li>
-        <li>
-          <strong>Operator dashboard CRUD.</strong> <code>dashd</code> serves
-          <code>/dash/</code> with a routes editor, group settings, and group
-          create / delete. No editing <code>.env</code> by hand to rewire a route.
+          <strong>Public chat and webhook surfaces.</strong> Issue a route
+          token and any folder gets a <code>/chat/&lt;token&gt;/</code> page
+          (SSE, works in a browser) and a <code>/hook/&lt;token&gt;</code>
+          endpoint (POST JSON, fires the agent). No extra config.
         </li>
         <li>
           <strong>Everything meets at <code>messages.db</code>.</strong>
-          Folders are folders. Routes match on <code>key=glob</code>. ACL is
-          one row: <code>(principal, action, scope, params)</code>. Channels
-          speak HTTP. Containers are per-group. No hidden state elsewhere.
+          Routes match on <code>key=glob</code>. ACL is one row:
+          <code>(principal, action, scope, params)</code>. Siblings see each
+          other&rsquo;s observed messages unless closed. Channels speak HTTP.
+          No hidden state elsewhere.
+        </li>
+      </ul>
+
+      <h2>operate</h2>
+      <ul>
+        <li>
+          <strong>MCP over a unix socket.</strong> Every agent connects to
+          <code>gated</code> via a MCP unix socket bridged into the container.
+          Tool calls go through that socket; the host controls what the agent
+          can reach. Side effects are auditable, revocable, and scoped to the
+          folder&rsquo;s grant rules.
+        </li>
+        <li>
+          <strong>Operator dashboard.</strong> <code>/dash/</code> with a
+          routes editor, task scheduler, group settings, secrets, and
+          create&thinsp;/&thinsp;delete. No editing <code>.env</code> by hand
+          to rewire a route.
+        </li>
+        <li>
+          <strong>Egress sandboxing.</strong> <code>crackbox</code> wraps each
+          container with a per-folder hostname allowlist, HTTPS via CONNECT,
+          and DNS filtering. The agent can only reach what you explicitly
+          permit. See <a href="crackbox/">crackbox</a>.
         </li>
       </ul>
 
