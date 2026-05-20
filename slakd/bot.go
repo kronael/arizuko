@@ -127,6 +127,11 @@ func (b *bot) sendTypingChannel(jid string) bool {
 		return true // transient error — keep trying
 	}
 	if !resp.OK {
+		// unknown_method / missing_scope = permanent; bot tokens can't use this
+		// endpoint (user token required). Cancel refresher to stop log spam.
+		if resp.Error == "unknown_method" || resp.Error == "missing_scope" || resp.Error == "not_allowed_token_type" {
+			return false
+		}
 		slog.Warn("slack conversations.typing error", "jid", jid, "error", resp.Error)
 	}
 	return true
