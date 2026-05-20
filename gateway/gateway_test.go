@@ -604,6 +604,44 @@ func TestPollOnce_NonObserve_EngagementOverride(t *testing.T) {
 	}
 }
 
+// Spec 5/G thread-reply fallback: engagement set on root topic (topic="") must
+// cover replies that arrive on a Slack thread topic (non-empty). Real failure:
+// user mentions @atlas in channel (topic=""), atlas bumps engagement on "", user
+// replies in the resulting thread (topic="1779265834.891349"), IsEngaged misses.
+func TestPollOnce_Observe_EngagementOverride_RootFallback(t *testing.T) {
+	gw, s := testGateway(t)
+	gw.cfg.EngagementTTL = 10 * time.Minute
+
+	jid := "slack:TEAM/channel/CHAN2"
+	threadTopic := "1779265834.891349"
+	if err := s.PutGroup(core.Group{Folder: "grp"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(core.Route{Seq: 0, Match: "chat_jid=slack:*/channel/*", Target: "grp#observe"}); err != nil {
+		t.Fatal(err)
+	}
+	// Engagement on root topic only (as BumpEngagement sets after @mention in channel).
+	if err := s.BumpEngagement(jid, "", "grp", time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Follow-up arrives in the thread Slack created for that exchange.
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "slack:user/U1",
+		Content: "follow up in thread", Topic: threadTopic,
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+
+	// Cursor must NOT advance — root engagement should override observe.
+	if got := s.GetAgentCursor(jid); !got.IsZero() {
+		t.Errorf("root-engaged thread reply: cursor advanced (message dropped), want zero, got %v", got)
+	}
+}
+
 // Spec 5/G — after steering an inbound message into an active container,
 // BumpEngagement must fire so IsEngaged returns true for that (jid, topic).
 func TestPollOnce_BumpEngagementOnSend(t *testing.T) {

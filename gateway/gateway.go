@@ -615,13 +615,20 @@ func (g *Gateway) pollOnce() {
 
 		rt := router.ResolveRouteTarget(last, routes)
 		effTopic := g.effectiveTopic(chatJid, last.Topic)
-		if g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, effTopic, time.Now()) {
+		// Thread replies fall back to root-topic engagement: when atlas engages
+		// in a channel (topic="") and the user replies in the resulting thread,
+		// the thread topic won't match — check topic="" as fallback.
+		engTopic := effTopic
+		if g.cfg.EngagementTTL > 0 && effTopic != "" && !g.store.IsEngaged(chatJid, effTopic, time.Now()) {
+			engTopic = ""
+		}
+		if g.cfg.EngagementTTL > 0 && g.store.IsEngaged(chatJid, engTopic, time.Now()) {
 			// Spec 5/G: engagement overrides the route table entirely. Once the
 			// agent has replied in (chat, topic), subsequent messages deliver to
 			// the engaged folder regardless of what the route table says.
-			if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
+			if folder := g.store.EngagedFolder(chatJid, engTopic); folder != "" {
 				if gr, ok2 := g.store.GroupByFolder(folder); ok2 {
-					slog.Info("poll: engagement override", "jid", chatJid, "topic", effTopic, "folder", folder)
+					slog.Info("poll: engagement override", "jid", chatJid, "topic", effTopic, "engTopic", engTopic, "folder", folder)
 					group = gr
 				}
 			}
