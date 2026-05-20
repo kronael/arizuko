@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -412,7 +411,6 @@ func (a *Audit) poll(ctx context.Context, db *sql.DB, cur *cursor) {
 			a.pollTaskRunLogs(db, cur)
 			a.pollSecretUseLog(db, cur)
 			a.pollCLIAudit(db, cur)
-			a.pollIPCAudit(db, cur)
 			cur.save()
 			a.messages.mu.Lock()
 			a.messages.flushWebhookLocked(true)
@@ -658,46 +656,6 @@ func (a *Audit) pollCLIAudit(db *sql.DB, cur *cursor) {
 		// cli_audit events go into the system stream via emitSystemFromPoll
 		// (no webhook flush — already batched at tick boundary, but we use
 		// the same writer for consistency).
-		a.emitSystemFromPoll(e)
-		cur.set(table, id)
-	}
-}
-
-func (a *Audit) pollIPCAudit(db *sql.DB, cur *cursor) {
-	const table = "ipc_audit"
-	last := cur.get(table)
-	rows, err := db.Query(
-		`SELECT id, ts, folder, sub, tool, params, outcome
-		 FROM ipc_audit WHERE id > ? ORDER BY id LIMIT 500`, last)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var ts, folder, sub, tool, params, outcome string
-		if err := rows.Scan(&id, &ts, &folder, &sub, &tool, &params, &outcome); err != nil {
-			continue
-		}
-		status := "ok"
-		detail := ""
-		if strings.HasPrefix(outcome, "error: ") {
-			status = "error"
-			detail = strings.TrimPrefix(outcome, "error: ")
-		} else if outcome == "authz_denied" {
-			status = "authz_denied"
-		}
-		var p map[string]any
-		_ = json.Unmarshal([]byte(params), &p)
-		e := SystemEvent{
-			ID:       fmt.Sprintf("ipc:%d", id),
-			TS:       ts,
-			ActorSub: sub,
-			Tool:     tool,
-			Folder:   folder,
-			Params:   p,
-			Outcome:  Outcome{Status: status, Detail: detail},
-		}
 		a.emitSystemFromPoll(e)
 		cur.set(table, id)
 	}
