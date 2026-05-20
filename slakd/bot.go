@@ -894,6 +894,7 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 	if emoji == "" {
 		emoji = "thumbsup"
 	}
+	slog.Info("like", "channel", parts.ID, "ts", req.TargetID, "emoji", emoji)
 	form := url.Values{}
 	form.Set("channel", parts.ID)
 	form.Set("name", emoji)
@@ -903,9 +904,11 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 		Error string `json:"error"`
 	}
 	if err := b.postForm(context.Background(), "/reactions.add", form, &resp); err != nil {
+		slog.Error("like failed", "channel", parts.ID, "ts", req.TargetID, "err", err)
 		return fmt.Errorf("slack like: %w", err)
 	}
 	if !resp.OK && resp.Error != "already_reacted" {
+		slog.Error("like failed", "channel", parts.ID, "ts", req.TargetID, "slack_err", resp.Error)
 		return fmt.Errorf("slack like: %s", resp.Error)
 	}
 	return nil
@@ -920,6 +923,7 @@ func (b *bot) Delete(req chanlib.DeleteRequest) error {
 	if err != nil {
 		return err
 	}
+	slog.Info("delete", "channel", parts.ID, "ts", req.TargetID)
 	form := url.Values{}
 	form.Set("channel", parts.ID)
 	form.Set("ts", req.TargetID)
@@ -928,9 +932,11 @@ func (b *bot) Delete(req chanlib.DeleteRequest) error {
 		Error string `json:"error"`
 	}
 	if err := b.postForm(context.Background(), "/chat.delete", form, &resp); err != nil {
+		slog.Error("delete failed", "channel", parts.ID, "ts", req.TargetID, "err", err)
 		return fmt.Errorf("slack delete: %w", err)
 	}
 	if !resp.OK {
+		slog.Error("delete failed", "channel", parts.ID, "ts", req.TargetID, "slack_err", resp.Error)
 		return fmt.Errorf("slack delete: %s", resp.Error)
 	}
 	return nil
