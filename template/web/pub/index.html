@@ -167,9 +167,9 @@
           step, no sync job.
         </li>
         <li>
-          <strong>Every system can feed it.</strong> Every folder has a webhook
-          endpoint. Pipe in alerts, tickets, or CRM events &mdash; they arrive
-          as messages and the agent decides what to retain.
+          <strong>Every system can feed it.</strong> Issue a webhook token for
+          any folder and pipe in alerts, tickets, or CRM events &mdash; they
+          arrive as messages and the agent decides what to retain.
         </li>
       </ul>
 
@@ -212,8 +212,9 @@
           web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
           webhook relay &mdash; the adapter owns the connection and surfaces
           events (threads, reactions, voice messages) that webhooks
-          can&rsquo;t express. Slack gets a full AI sidebar via the Slack AI
-          MCP protocol.
+          can&rsquo;t express. Also: Slack (<code>slakd</code>, AI assistant
+          pane), Reddit (<code>reditd</code>), X/Twitter (<code>twitd</code>),
+          LinkedIn (<code>linkd</code>).
         </li>
         <li>
           <strong>Public chat and webhook surfaces.</strong> Issue a route
@@ -240,10 +241,11 @@
           folder&rsquo;s grant rules.
         </li>
         <li>
-          <strong>Operator dashboard.</strong> <code>/dash/</code> with a
-          routes editor, task scheduler, group settings, secrets, and
-          create&thinsp;/&thinsp;delete. No editing <code>.env</code> by hand
-          to rewire a route.
+          <strong>Operator dashboard.</strong> <code>/dash/</code> — routes
+          editor, task scheduler, per-group model selector (Opus&thinsp;/
+          Sonnet&thinsp;/&thinsp;Haiku), skill toggles, grants editor, invite
+          management, usage metrics, and secrets (AES-256-GCM encrypted at
+          rest). No editing <code>.env</code> by hand to rewire a route.
         </li>
         <li>
           <strong>Egress sandboxing.</strong> <code>crackbox</code> wraps each
