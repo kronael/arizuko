@@ -44,29 +44,28 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Self-hosted orchestration platform for Claude agents. Agents are
-        first-class operators: every platform operation &mdash; create a
-        folder, add a route, commission another agent, issue a token &mdash;
-        is an MCP tool. An agent and a human operator use the same surface.
-        Each team or function is an agent: a folder with its own persona,
-        memory, skills, and channel connections. <code>gated</code> brokers
-        every tool call and enforces what each one can reach. No managed
-        control plane, no per-seat pricing. One <code>tar</code> backs up
-        the instance.
+        Self-hosted orchestration platform for Claude agents. Each agent is
+        a folder: its own persona, memory, skills, routes, and files. Every
+        platform operation &mdash; create a folder, add a route, commission
+        another agent, issue a token &mdash; is an MCP tool and a REST
+        endpoint, so agents and operators use the same surface.
+        <code>gated</code> brokers every tool call and enforces scope.
+        No managed control plane, no per-seat pricing.
       </p>
 
-      <h2>agents as code</h2>
+      <h2>agents as data</h2>
       <p>
-        An agent is a folder. Change its persona by editing a file; the next
-        session picks it up. Add a skill by dropping a directory. The org chart
-        is the folder tree &mdash; same depth as your team structure.
+        An agent is a folder of files the LLM loop reads. The persona is a
+        file. Memory is a file. Skills are directories. Config is a file you
+        can diff, review in a PR, and roll back with <code>git revert</code>.
+        The org chart is the folder tree.
       </p>
       <p>
-        Agent configs live in files you can diff, review in a PR, and roll
-        back with <code>git revert</code>. Each team gets its own context
-        boundary: <code>corp/sales</code> doesn&rsquo;t see
-        <code>corp/eng/sre</code>&rsquo;s memory. Agents accumulate context
-        over weeks, fork topics, and coordinate across teams.
+        Each folder is a context boundary: <code>corp/sales</code>
+        doesn&rsquo;t see <code>corp/eng/sre</code>&rsquo;s memory. Change
+        the persona by editing a file; the next session picks it up. Add a
+        skill by dropping a directory. Everything an agent knows or can do
+        is readable, inspectable, and replaceable.
       </p>
       <p>
         Agents need structure the same way humans do &mdash; not bureaucracy,
@@ -84,9 +83,9 @@
           memory.</li>
         <li><strong>Old context changes new work</strong> &mdash; unrelated
           threads stay attached unless somebody clears them.</li>
-        <li><strong>Your real system isn&rsquo;t a chat tab</strong> &mdash;
-          it&rsquo;s Slack, email, webhooks, and folders; a shared assistant
-          only sees one surface.</li>
+        <li><strong>Your system lives in Slack, email, and files</strong> &mdash;
+          one shared assistant sees one thread, not the whole operating
+          surface.</li>
         <li><strong>Failures are hard to inspect</strong> &mdash; there&rsquo;s
           no file to diff, no route to trace, and no clean rollback.</li>
       </ul>
@@ -97,30 +96,19 @@
 
       <h2>how it works</h2>
       <p>
-        A folder is an agent: a directory with a <code>PERSONA.md</code>,
-        a <code>skills/</code> set, memory files, and an ACL row. Folders
-        compose into a hierarchy &mdash; <code>corp/sales</code>,
-        <code>corp/eng/sre</code>, <code>corp/support</code> &mdash; and each
-        one runs in its own Docker container when a message arrives. The
-        container connects back to <code>gated</code> via MCP over a unix
-        socket; every tool call (send a message, read memory, call an API)
-        goes through that socket. The host decides what the agent can reach.
-        Every platform operation &mdash; create a folder, add a route, set a
-        grant, issue a token &mdash; is available as both an MCP tool and a
-        REST endpoint. Agents and operators use the same surface; there is no
-        separate agent API.
-        All state lives in one SQLite WAL database; the container is
-        stateless. One <code>tar</code> of the data directory is the entire
-        instance.
+        A folder is an agent: <code>PERSONA.md</code>, a <code>skills/</code>
+        set, memory files, and an ACL row. When a message arrives, a Docker
+        container starts for the folder and connects to <code>gated</code>
+        via MCP over a unix socket. Every tool call goes through that socket;
+        the host controls what the agent can reach. Every platform operation
+        is an MCP tool and a REST endpoint &mdash; no separate agent API.
+        All state is in SQLite WAL; the container is stateless.
       </p>
       <p>
-        Agent teams are not web apps. Five agents exchanging 50 messages a
-        day is nothing for SQLite WAL &mdash; concurrent reads and writes, no
-        contention. <code>proxyd</code> signs identity headers in one binary,
-        so there&rsquo;s no Auth0, no Vault, no Redis session store. Docker
-        Compose on a $5 VPS handles what would take a full managed stack at
-        web scale. The stack is sized for agent scale &mdash; 50 messages a
-        day, not 50,000 requests per second.
+        The stack is sized for agent teams: dozens of messages a day, not
+        web-scale traffic. Go binaries, Docker Compose, SQLite WAL,
+        <code>proxyd</code> signing identity headers &mdash; no Auth0, no
+        Redis, no Vault.
       </p>
 
       <h2>organize</h2>
@@ -139,9 +127,8 @@
         </li>
         <li>
           <strong>Topics that fork.</strong> Spin a side-conversation off any
-          thread &mdash; the new topic copies the parent&rsquo;s Claude session
-          (<code>cp -r .claude/</code>), so the agent walks in with full
-          context. Parallel workstreams, no context loss.
+          thread &mdash; the new topic carries the parent&rsquo;s conversation
+          as its starting context. Parallel workstreams, no context loss.
         </li>
         <li>
           <strong>Agents that commission agents.</strong> A root agent can
@@ -155,10 +142,10 @@
       <h2>ingest</h2>
       <ul>
         <li>
-          <strong>Drops in, stays in.</strong> Mount the agent&rsquo;s
-          workspace via WebDAV and drop your docs, notes, or structured files.
-          Every session from that point has access. No import wizard, no format
-          conversion.
+          <strong>Any surface works.</strong> Drop files via WebDAV, send a
+          message in chat, email the agent&rsquo;s address, or POST to a
+          webhook &mdash; they all arrive as messages in the same folder. No
+          import wizard, no format conversion.
         </li>
         <li>
           <strong>Agents grow their own knowledge.</strong> When an agent
@@ -177,11 +164,10 @@
       <ul>
         <li>
           <strong>Agents talk to each other.</strong> Route a message from
-          support to eng, delegate from parent to child, broadcast across
-          siblings. <code>delegate_group</code>, <code>broadcast</code>, and
-          <code>observe_group</code> are MCP tools &mdash; cross-folder
-          coordination goes through the same controlled socket as everything
-          else.
+          support to eng, delegate work to a child, escalate to a parent.
+          <code>delegate_group</code>, <code>escalate_group</code>, and
+          <code>observe_group</code> are MCP tools built around the same
+          coordination protocols a human operator would use.
         </li>
         <li>
           <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
