@@ -212,6 +212,9 @@ type StoreFns struct {
 	// params in the context of folder. Used by ServeMCP when callerSub != ""
 	// (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
 	Authorize func(sub, folder, action string, params map[string]string) bool
+
+	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
+	LogIPCAudit func(folder, sub, tool, params, outcome string) error
 }
 
 // WebRoute mirrors store.WebRoute for the ipc layer.
@@ -693,12 +696,34 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		all := append([]mcp.ToolOption{mcp.WithDescription(desc)}, opts...)
 		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
+	// emitAuthzDenied records an authorization failure for any tool call.
+	// Called from granted wrapper on grants/authorize denial.
+	emitAuthzDenied := func(tool, actorSub string) {
+		actor := actorSub
+		if actor == "" {
+			actor = "agent:" + folder
+		}
+		if db.LogIPCAudit != nil {
+			_ = db.LogIPCAudit(folder, actor, tool, "{}", "authz_denied")
+		}
+		if gated.Audit != nil {
+			gated.Audit.EmitSystem(audit.SystemEvent{
+				ActorSub: actor,
+				Tool:     tool,
+				Folder:   folder,
+				Outcome:  audit.Outcome{Status: "authz_denied"},
+			})
+		}
+	}
+
 	granted := func(name, desc string, opts []mcp.ToolOption, h server.ToolHandlerFunc) {
 		registerRaw(name, desc, opts, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !grantslib.CheckAction(rules, name, nil) {
+				emitAuthzDenied(name, callerSub)
 				return toolErr(name + ": not permitted")
 			}
 			if !authorizeCall(name, nil) {
+				emitAuthzDenied(name, callerSub)
 				return toolErr(name + ": not permitted")
 			}
 			return h(ctx, req)
@@ -708,16 +733,24 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	// emitSys records a system audit event for mutating MCP tool calls.
 	// actorSub is the session caller; params must already be redacted.
 	emitSys := func(tool, targetFolder, actorSub string, params map[string]any, err error) {
+		actor := actorSub
+		if actor == "" {
+			actor = "agent:" + folder
+		}
+		outcomeStr := "ok"
+		if err != nil {
+			outcomeStr = "error: " + err.Error()
+		}
+		if db.LogIPCAudit != nil {
+			paramsJSON, _ := json.Marshal(params)
+			_ = db.LogIPCAudit(targetFolder, actor, tool, string(paramsJSON), outcomeStr)
+		}
 		if gated.Audit == nil {
 			return
 		}
 		outcome := audit.Outcome{Status: "ok"}
 		if err != nil {
 			outcome = audit.Outcome{Status: "error", Detail: err.Error()}
-		}
-		actor := actorSub
-		if actor == "" {
-			actor = "agent:" + folder
 		}
 		gated.Audit.EmitSystem(audit.SystemEvent{
 			ActorSub: actor,
@@ -726,6 +759,15 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			Params:   params,
 			Outcome:  outcome,
 		})
+	}
+
+	// authzStructural wraps auth.AuthorizeStructural and logs authz_denied on failure.
+	authzStructural := func(action string, target auth.AuthzTarget) error {
+		err := auth.AuthorizeStructural(id, action, target)
+		if err != nil {
+			emitAuthzDenied(action, callerSub)
+		}
+		return err
 	}
 
 	// log_external_cost — agent reports a non-Anthropic LLM call's cost
@@ -1193,7 +1235,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if child == "" {
 				return toolErr("child required")
 			}
-			if err := auth.AuthorizeStructural(id, "fork_topic", auth.AuthzTarget{TargetFolder: id.Folder}); err != nil {
+			if err := authzStructural("fork_topic", auth.AuthzTarget{TargetFolder: id.Folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			force := req.GetBool("force", false)
@@ -1304,7 +1346,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if gated.ClearSession == nil {
 				return toolErr("reset_session not configured")
 			}
-			if err := auth.AuthorizeStructural(id, "reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+			if err := authzStructural("reset_session", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())
 			}
 			slog.Info("reset_session", "folder", folder, "targetFolder", gf)
@@ -1370,7 +1412,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !ok {
 				return toolErr("set_group_open: open must be bool")
 			}
-			if err := auth.AuthorizeStructural(id, "set_group_open", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+			if err := authzStructural("set_group_open", auth.AuthzTarget{TargetFolder: folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := gated.SetGroupOpen(folder, open); err != nil {
@@ -1397,7 +1439,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chatJid required")
 			}
-			if err := auth.AuthorizeStructural(id, "inject_message", auth.AuthzTarget{TargetFolder: jid}); err != nil {
+			if err := authzStructural("inject_message", auth.AuthzTarget{TargetFolder: jid}); err != nil {
 				return toolErr(err.Error())
 			}
 			sender := req.GetString("sender", "")
@@ -1454,7 +1496,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if gfld == "" {
 				return toolErr("folder required when fromPrototype is false")
 			}
-			if err := auth.AuthorizeStructural(id, "register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
+			if err := authzStructural("register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
 				return toolErr(err.Error())
 			}
 			groups := gated.GetGroups()
@@ -1493,7 +1535,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
 				return toolErr("escalate_group not configured")
 			}
-			if err := auth.AuthorizeStructural(id, "escalate_group", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+			if err := authzStructural("escalate_group", auth.AuthzTarget{TargetFolder: folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			prompt := req.GetString("prompt", "")
@@ -1556,7 +1598,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			target := req.GetString("group", "")
-			if err := auth.AuthorizeStructural(id, "delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
+			if err := authzStructural("delegate_group", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())
 			}
 			if db.PutMessage == nil || gated.EnqueueMessageCheck == nil {
@@ -1600,7 +1642,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.SetRoutes == nil {
 				return toolErr("set_routes not configured")
 			}
-			if err := auth.AuthorizeStructural(id, "set_routes", auth.AuthzTarget{RouteTarget: id.Folder}); err != nil {
+			if err := authzStructural("set_routes", auth.AuthzTarget{RouteTarget: id.Folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			var routes []core.Route
@@ -1659,7 +1701,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if route.Target == "" {
 				return toolErr("route.target required")
 			}
-			if err := auth.AuthorizeStructural(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+			if err := authzStructural("add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
 			}
 			rid, err := db.AddRoute(route)
@@ -1691,7 +1733,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if isSelfDefault(route, id.Folder) {
 				return toolErr("cannot delete own default route")
 			}
-			if err := auth.AuthorizeStructural(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+			if err := authzStructural("delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := db.DeleteRoute(rid); err != nil {
@@ -1732,7 +1774,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("target group not registered")
 			}
 
-			if err := auth.AuthorizeStructural(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
+			if err := authzStructural("schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
 				return toolErr(err.Error())
 			}
 
@@ -1812,7 +1854,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					if !ok {
 						return toolErr("task not found")
 					}
-					if err := auth.AuthorizeStructural(id, op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+					if err := authzStructural(op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
 						return toolErr(err.Error())
 					}
 					if err := op.exec(taskID); err != nil {
@@ -1847,7 +1889,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if gf == "" {
 				return toolErr("folder required")
 			}
-			if err := auth.AuthorizeStructural(id, "list_acl", auth.AuthzTarget{TargetFolder: gf}); err != nil {
+			if err := authzStructural("list_acl", auth.AuthzTarget{TargetFolder: gf}); err != nil {
 				return toolErr(err.Error())
 			}
 			rows := db.ListACL("")
@@ -1881,7 +1923,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if targetGlob == "" {
 				return toolErr("target_glob required")
 			}
-			if err := auth.AuthorizeStructural(id, "invite_create", auth.AuthzTarget{TargetFolder: targetGlob}); err != nil {
+			if err := authzStructural("invite_create", auth.AuthzTarget{TargetFolder: targetGlob}); err != nil {
 				return toolErr(err.Error())
 			}
 			maxUses := req.GetInt("max_uses", 1)
@@ -1956,6 +1998,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				target := strings.TrimSpace(req.GetString("target_folder", folder))
 				if err := authorizeMint(target); err != nil {
+					emitAuthzDenied("issue_chat_link", callerSub)
 					return toolErr(err.Error())
 				}
 				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))
@@ -1995,6 +2038,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				}
 				target := strings.TrimSpace(req.GetString("target_folder", folder))
 				if err := authorizeMint(target); err != nil {
+					emitAuthzDenied("issue_webhook", callerSub)
 					return toolErr(err.Error())
 				}
 				suffix := strings.TrimSpace(req.GetString("jid_suffix", ""))

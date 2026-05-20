@@ -408,7 +408,7 @@ func logging(next http.Handler, aud *audit.Audit) http.Handler {
 		slog.Info("request",
 			"method", r.Method, "path", r.URL.Path,
 			"status", sw.Code, "dur", time.Since(start).String(),
-			"sub", r.Header.Get("X-User-Sub"),
+			"actor_sub", r.Header.Get("X-User-Sub"),
 			"remote", peer, "host", r.Host)
 		if aud != nil && r.URL.Path != "/health" {
 			aud.EmitWeb(audit.WebEvent{

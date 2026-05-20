@@ -353,6 +353,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 			}
 			return auth.AuthorizeWith(g.store, caller, action, folder, params, opts)
 		},
+		LogIPCAudit: g.store.LogIPCAudit,
 	}
 
 	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),
