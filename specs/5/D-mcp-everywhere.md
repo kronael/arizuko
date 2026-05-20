@@ -23,7 +23,7 @@ token), CLI (operator over a local socket). All converge on the same
 function in `resreg.Resource.Handler`. No surface is privileged with
 features the others lack.
 
-Auth uniformly via `Authorize` from `specs/5/9-acl-unified.md`. The
+Auth uniformly via `Authorize` from `specs/4/9-acl-unified.md`. The
 `Caller` in `resreg/resreg.go:44` is the surface-agnostic principal;
 its `Scope` field is the operator-token shorthand resolved against
 the ACL at session bind.
@@ -164,7 +164,7 @@ in a saner state (REST parity); M3+M4 are the structural wins.
 
 ## Auth shape for management operations
 
-Under unified ACL (`specs/5/9-acl-unified.md`):
+Under unified ACL (`specs/4/9-acl-unified.md`):
 
 - **Operator human** — `(google:114operator, '*', '**')`. One row.
   All resources, all actions, everywhere.

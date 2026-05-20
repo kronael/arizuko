@@ -224,7 +224,7 @@ name="..."/>` always; if a `user_jids` claim exists, it
   forward-looking lens; GRANTS is the present-tense reference.
 - No code change is mandated by this spec. The end-state and tactical
   step each need their own follow-up spec and PR.
-- **Subsumed by `5/9-acl-unified.md`**: the user-side and agent-side
+- **Subsumed by `4/9-acl-unified.md`**: the user-side and agent-side
   grant systems collapse into a single `acl` table with a unified
   `Authorize` function. Role indirection (Postgres / IAM-shaped) and
   audience predicates live there. The "user-sub patterns" tactical

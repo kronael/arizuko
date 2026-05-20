@@ -57,7 +57,7 @@ the others.
 
 ## 6/6a — MCP chain
 
-> **Under `specs/5/9-acl-unified.md`** `granted` and `grantedJID`
+> **Under `specs/4/9-acl-unified.md`** `granted` and `grantedJID`
 > collapse to a single `gated(Authorize)` wrapper — JID flows through
 > `params`. The two-wrapper plan below is the interim shape until 6/9
 > ships; once `Authorize` is the single entry point, every MCP tool

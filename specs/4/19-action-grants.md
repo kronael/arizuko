@@ -4,7 +4,7 @@ status: shipped
 
 # Action Grants
 
-> **Storage subsumed by `specs/5/9-acl-unified.md`.** The `grant_rules`
+> **Storage subsumed by `specs/4/9-acl-unified.md`.** The `grant_rules`
 > table and the `**` operator marker on `user_groups` collapse into the
 > unified `acl` table; rule overrides become `acl` rows with
 > `action='mcp:<tool>'`. The rule grammar (`[!]action[(param=glob)]`)
