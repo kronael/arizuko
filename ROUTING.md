@@ -164,6 +164,32 @@ guild; the catchall (seq 30) silently archives the rest under `main`
 in observe mode. The named-guild rule (seq 10) opts `sloth` out of the
 mention gate and treats every message as a trigger.
 
+### Example: Slack workspace mention-only
+
+The same pattern on Slack — agent reads all channels but only replies
+when directly @-mentioned:
+
+```
+seq  match                                             target
+40   chat_jid=slack:*/channel/* verb=mention           atlas
+40   chat_jid=slack:*/group/*   verb=mention           atlas
+100  chat_jid=slack:*/channel/*                        atlas#observe
+100  chat_jid=slack:*/group/*                          atlas#observe
+```
+
+A message in any Slack channel or private group without `@atlas` hits
+seq 100 and is stored as observed context — no turn fires, atlas stays
+silent. An `@atlas` mention promotes `verb=mention` (gateway-side verb
+promotion, spec 6/J), which matches seq 40 first and fires a turn.
+
+DMs (`slack:*/dm/*`) are routed separately at a lower seq number with
+a plain trigger target, so the agent always replies in DMs regardless
+of mention.
+
+This is correct, intentional behavior. To make the agent reply to
+every channel message, change the seq-100 targets from `atlas#observe`
+to `atlas`.
+
 ### Inline `@name` / `#topic` prefix layer
 
 The `@` and `#` prefix layer is **not** in the routes table; it lives
