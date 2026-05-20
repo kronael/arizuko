@@ -54,20 +54,18 @@
         <code>tar</code> of the data directory is the full backup.
       </p>
 
-      <h2>why not Claude.ai or the Assistants API?</h2>
+      <h2>agents as code</h2>
       <p>
-        One shared agent means sales context bleeds into ops context &mdash;
-        each team needs its own <code>PERSONA.md</code>, memory, and channel.
-        Hosted platforms don&rsquo;t give you that:
+        An agent is a folder. Change its persona by editing a file; the next
+        session picks it up. Add a skill by dropping a directory. The org chart
+        is the folder tree &mdash; same depth as your team structure.
       </p>
-      <ul>
-        <li>No persistent memory &mdash; each session starts blank.</li>
-        <li>No custom channels: you get a chat window, not Slack, email, or webhooks.</li>
-        <li>No self-hosting &mdash; your prompts, context, and files go through their servers.</li>
-      </ul>
       <p>
-        arizuko runs on your infrastructure. Agents accumulate context over
-        weeks, fork topics, and coordinate across teams.
+        Agent configs live in files you can diff, review in a PR, and roll
+        back with <code>git revert</code>. Each team gets its own context
+        boundary: <code>corp/sales</code> doesn&rsquo;t see
+        <code>corp/eng/sre</code>&rsquo;s memory. Agents accumulate context
+        over weeks, fork topics, and coordinate across teams.
       </p>
 
       <h2>how it works</h2>
@@ -105,6 +103,13 @@
           thread &mdash; the new topic copies the parent&rsquo;s Claude session
           (<code>cp -r .claude/</code>), so the agent walks in with full
           context. Parallel workstreams, no context loss.
+        </li>
+        <li>
+          <strong>Agents that commission agents.</strong> A root agent can
+          create a child group on first contact, assign routes, and schedule
+          tasks &mdash; using the same MCP tools a human operator would invoke.
+          Deploy a per-customer support agent automatically, with no automation
+          logic to write.
         </li>
       </ul>
 
@@ -320,7 +325,7 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
       </ul>
 
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
-        <a href="changelog/">v0.42.0</a> &middot; MIT &middot;
+        <a href="changelog/">v0.44.0</a> &middot; MIT &middot;
         Go + SQLite (WAL) + Docker &middot; running on
         <code>krons</code>, <code>marinade</code>, <code>sloth</code>.
       </p>
