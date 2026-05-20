@@ -624,10 +624,17 @@ func readSecrets() map[string]string {
 	return s
 }
 
+func seedOutputStyles(cfg *core.Config, claudeDir string) {
+	src := filepath.Join(cfg.HostAppDir, "ant", "output-styles")
+	dst := filepath.Join(claudeDir, "output-styles")
+	cpDirFresh(src, dst)
+}
+
 func seedSettings(
 	claudeDir string, cfg *core.Config,
 	in Input, root bool,
 ) {
+	seedOutputStyles(cfg, claudeDir)
 	fp := filepath.Join(claudeDir, "settings.json")
 	var settings map[string]any
 	if data, err := os.ReadFile(fp); err == nil {
