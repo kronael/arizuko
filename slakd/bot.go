@@ -837,7 +837,7 @@ func (b *bot) Typing(jid string, on bool) {
 			return
 		}
 		if !resp.OK && resp.Error == "missing_scope" {
-			slog.Warn("slack setStatus missing_scope (assistant:write required)", "jid", jid)
+			slog.Warn("slack setStatus missing_scope (chat:write or assistant:write required)", "jid", jid)
 			return
 		}
 		if resp.OK && b.store != nil {
