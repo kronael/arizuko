@@ -1,21 +1,37 @@
 # arizuko
 
-Multitenant Claude agent router. External channel adapters (Telegram,
-Discord, Slack, Mastodon, Bluesky, Reddit, Email, WhatsApp, LinkedIn,
-web chat) register with the router over HTTP; per-group Claude Code
-agents run in Docker containers with an MCP socket bridged in for
-controlled side effects. Go, SQLite (WAL), Docker.
+Agent orchestration platform. Each folder is a persistent agent context
+with its own memory, persona, skills, and ACL. Go daemons, SQLite WAL,
+Docker containers, MCP over unix socket.
 
-## What it does
+## what it is
 
-Routes inbound messages from any registered channel to the right agent
-container, keyed by group folder. Each group owns its own session state,
-diary, skills, and ACLs. Agents can spawn children, schedule cron tasks,
-delegate to siblings, and act on behalf of users subject to grant rules.
-One SQLite DB (`messages.db`) is the single source of truth; `gated`
-owns the schema, other daemons connect read/write.
+A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a
+`MEMORY.md`, a conversation diary, and an ACL. Folders form a hierarchy
+(`corp/sales`, `corp/eng/sre`) — each node is an independent agent that
+accumulates only the conversations relevant to it. The container boundary
+is the context boundary: sibling groups run separate containers on
+separate networks and never share a context window.
 
-## What it can be
+Inbound messages arrive from channel adapters over HTTP (`POST /v1/messages`).
+`gated` polls `messages.db`, resolves the target folder via the route table,
+spawns a Docker container for that group if one is not running, bridges an MCP
+unix socket into the container via socat, runs the Claude Code agent, and
+delivers output back to the originating channel (`POST <adapter>/send`).
+Per-turn results flow over MCP via `submit_turn`; stdout is ignored.
+
+Agents coordinate through the same message bus they use to serve users. An
+agent can route a message to a sibling folder, delegate to a child, schedule a
+cron task via `timed`, ingest webhooks via route tokens, or accept DMARC-filtered
+email via `emaid` — all by writing rows to `messages.db` and calling
+`EnqueueMessageCheck`. No special coordination bus; the route table and
+`PutMessage` are the coordination primitives.
+
+State lives entirely in one SQLite database (`messages.db`). Containers are
+stateless — they mount the group folder, run, and exit. A tar of
+`/srv/data/arizuko_<name>/` is a complete instance backup.
+
+## what you can build
 
 The same daemons, configured differently, fill several adjacent niches.
 
