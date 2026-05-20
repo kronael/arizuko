@@ -22,7 +22,7 @@ func main() {
 		Prefixes:      []string{"slack:"},
 		Caps: map[string]bool{
 			"send_text": true, "send_file": true, "fetch_history": false,
-			"edit": true, "like": true, "delete": true, "dislike": true, "post": true,
+			"typing": true, "edit": true, "like": true, "delete": true, "dislike": true, "post": true,
 		},
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
