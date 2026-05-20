@@ -9,6 +9,7 @@ Proxyd routes all web traffic. URL structure:
 | `/hook/*`   | token    | webd    | Route-token webhook ingest (public)      |
 | `/panel/*`  | JWT      | webd    | Authenticated operator chat panel        |
 | `/dash/*`   | JWT      | dashd   | Operator dashboard                       |
+| `/me/*`     | JWT      | webd    | User portal (folder tree, chats, threads)|
 | `/api/*`    | JWT      | webd    | API endpoints                            |
 | `/auth/*`   | none     | proxyd  | OAuth login/callback/logout              |
 | `/x/*`      | JWT      | webd    | Extensions (served by webd, not static)  |

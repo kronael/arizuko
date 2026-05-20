@@ -2,6 +2,8 @@
 
 Live in your session — callable directly, no skill invocation needed.
 
+## Messaging
+
 | Tool             | Description                                                               |
 | ---------------- | ------------------------------------------------------------------------- |
 | `send`           | Send a text message to a chat (use chatJid param to target)               |
@@ -17,11 +19,21 @@ Live in your session — callable directly, no skill invocation needed.
 | `quote`          | Republish on your feed with commentary (bluesky native; mastodon: post)   |
 | `repost`         | Amplify a message on your feed (mastodon boost, bluesky repost)           |
 | `inject_message` | Inject a message into the store for a chat (system-generated)             |
-| `schedule_task`  | Schedule recurring or one-time agent task                                 |
-| `pause_task`     | Pause a scheduled task                                                    |
-| `resume_task`    | Resume a paused task                                                      |
-| `cancel_task`    | Cancel and delete a scheduled task                                        |
-| `list_tasks`     | List scheduled tasks visible to this group                                |
+
+## Scheduling
+
+| Tool            | Description                                          |
+| --------------- | ---------------------------------------------------- |
+| `schedule_task` | Schedule recurring or one-time agent task            |
+| `pause_task`    | Pause a scheduled task                               |
+| `resume_task`   | Resume a paused task                                 |
+| `cancel_task`   | Cancel and delete a scheduled task                   |
+| `list_tasks`    | List scheduled tasks visible to this group           |
+
+## Groups and routing
+
+| Tool             | Description                                                               |
+| ---------------- | ------------------------------------------------------------------------- |
 | `register_group` | Register new agent group                                                  |
 | `refresh_groups` | Reload registered groups list (tier ≤ 2)                                  |
 | `delegate_group` | Forward a message to a child group for processing                         |
@@ -29,26 +41,76 @@ Live in your session — callable directly, no skill invocation needed.
 | `list_routes`    | List all routes visible to this group                                     |
 | `set_routes`     | Replace all routes for a JID                                              |
 | `add_route`      | Add a single route for a JID                                              |
-| `get_routes`     | Get routes for a JID                                                      |
 | `delete_route`   | Delete a route by ID                                                      |
-| `fetch_history`  | Pull authoritative platform-side history; reconstruct context after reset |
-| `get_thread`     | Read local DB rows for one (chat_jid, topic) thread                       |
-| `inspect_messages` | Read local DB rows for a JID (pagination: `before`, `limit`)            |
-| `inspect_routing`  | Routes + JID→folder + errored-message aggregate                         |
-| `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)      |
-| `inspect_session`  | Current session_id + recent `session_log` entries                       |
-| `reset_session`  | Clear this group's session and start fresh                                |
-| `get_web_host`   | Get web hostname for a vhost (tier 0-1 only)                              |
-| `set_web_host`   | Set web hostname mapping in vhosts.json (tier 0 only)                     |
-| `get_grants`     | Get grant rules for a folder (tier 0-1 only)                              |
-| `set_grants`     | Set grant rules for a folder (tier 0-1 only)                              |
 
-History tools differ — pick by intent: `inspect_messages` for whole-chat
-DB audit, `get_thread` for one (chat_jid, topic) slice when a chat fans
-into topics, `fetch_history` for authoritative platform-side context
-(use after `reset_session` or first-contact). See `/typed-jids` for
-chatJid format; bare ids like `telegram:1234` are stale — pass typed
-forms (`telegram:user/<id>`, `discord:dm/<channel>`).
+## Engagement
+
+| Tool                 | Description                                                                    |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `engage`             | Mark (jid, topic) engaged so subsequent inbounds fire even without a mention. Use for autonomous turns or recovery after a failed reply. Caller must already own the conversation. |
+| `disengage`          | Clear engagement for (jid, topic). Subsequent inbounds need a fresh mention to re-fire. |
+| `set_observe_window` | Override this group's ambient observe-window caps (messages and/or chars). Pass -1 to clear. |
+| `observe_group`      | Subscribe this folder to receive another folder's inbound messages as `<observed>` context. Use to let a parent monitor a child or aggregate context. Not for routing takeover. |
+| `unobserve_group`    | Cancel an observe_group subscription.                                          |
+| `set_group_open`     | Toggle this group's visibility to siblings (tier 0-1 only).                   |
+| `fork_topic`         | Branch a topic from another's current state. Child gets a fresh session; the parent's session jsonl is copied so the child resumes natively. |
+
+## Route tokens
+
+| Tool              | Description                                                                    |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `issue_chat_link` | Mint a route token serving the anonymous web chat widget at `/chat/<token>/`. Returns {token, url, jid} once. |
+| `issue_webhook`   | Mint a route token for inbound webhook at `/hook/<token>`. Returns {token, url, jid} once. Use to register GitHub, Linear, Stripe, etc. as event sources. |
+| `list_tokens`     | List route tokens (chat links + webhooks) owned by your folder. Raw tokens not returned. |
+| `revoke_token`    | Revoke a route token by JID. Takes effect immediately (URL returns 404). Caller must own the token. |
+| `invite_create`   | Issue an invite token granting access to a path glob. Recipient accepts via `/invite/<token>`. Tier 0-2 only. |
+
+## Web routing
+
+| Tool              | Description                                                                    |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `get_web_host`    | Get web hostname for a vhost (tier 0-1 only)                                   |
+| `set_web_host`    | Set web hostname mapping in vhosts.json (tier 0 only)                          |
+| `set_web_route`   | Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. `access` ∈ {public, auth, deny, redirect}. |
+| `del_web_route`   | Delete a web route by path. Only routes owned by this folder.                  |
+| `list_web_routes` | List all web routes owned by this folder.                                      |
+
+## Workspace
+
+| Tool        | Description                                                                        |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `get_work`  | Read this group's work.md — current work, blockers, next steps. Use at session start to recover what was in-flight. |
+| `set_work`  | Overwrite this group's work.md with a fresh snapshot. Use at turn end to checkpoint state. Read with get_work first if merging. |
+
+## Slack pane (Slack only)
+
+| Tool               | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `pane_set_prompts` | Stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply. 3-4 prompts max. Pass array of {title, message}. |
+| `pane_set_title`   | Override the title shown at the top of the assistant pane. Fires after next reply. |
+
+## Inspection and ACL
+
+| Tool               | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `fetch_history`    | Pull authoritative platform-side history; reconstruct context after reset   |
+| `get_thread`       | Read local DB rows for one (chat_jid, topic) thread                         |
+| `inspect_messages` | Read local DB rows for a JID (pagination: `before`, `limit`)                |
+| `inspect_routing`  | Routes + JID→folder + errored-message aggregate                             |
+| `inspect_tasks`    | Scheduled tasks + recent `task_run_logs` (pass `task_id` for runs)          |
+| `inspect_session`  | Current session_id + recent `session_log` entries                           |
+| `inspect_identity` | Resolve a platform sender sub to its canonical identity and all claimed subs. Use to recognize a user across channels. |
+| `list_acl`         | List ACL rules visible to this group.                                       |
+| `reset_session`    | Clear this group's session and start fresh                                  |
+| `log_external_cost`| Record a non-Anthropic LLM call against the folder's daily budget (e.g. after `/oracle`). Pass provider, model, token counts, cost_usd. |
+
+## History tools — which to use
+
+- `inspect_messages` — whole-chat DB audit, outbound log, errored rows
+- `get_thread` — one (chat_jid, topic) slice when chat fans into topics
+- `fetch_history` — authoritative platform-side context (use after `reset_session` or first-contact)
+
+See `/typed-jids` for chatJid format. Bare ids like `telegram:1234` are stale — use typed forms (`telegram:user/<id>`, `discord:dm/<channel>`).
 
 ## mcpc (calling MCP tools from scripts)
 

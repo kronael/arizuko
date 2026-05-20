@@ -347,6 +347,7 @@ Proxyd routes all web traffic. URL structure:
 | `/hook/*`   | token    | webd    | Route-token webhook ingest (public)      |
 | `/panel/*`  | JWT      | webd    | Authenticated operator chat panel        |
 | `/dash/*`   | JWT      | dashd   | Operator dashboard                       |
+| `/me/*`     | JWT      | webd    | User portal (folder tree, chats, threads)|
 | `/api/*`    | JWT      | webd    | API endpoints                            |
 | `/auth/*`   | none     | proxyd  | OAuth login/callback/logout              |
 | `/x/*`      | JWT      | webd    | Extensions (served by webd, not static)  |
@@ -359,7 +360,8 @@ served by webd, not Vite — you cannot drop static files there. The dashboard
 (`/dash/`) is operator-only HTMX served by dashd; `/pub/arizuko/`
 is the public docs site, not the dashboard. For "how do I log in" /
 "where's the dashboard", point to `https://$WEB_HOST/auth/login`
-and `https://$WEB_HOST/dash/`.
+and `https://$WEB_HOST/dash/`. For the user portal (browsing folder
+trees, chat history, threads), point to `https://$WEB_HOST/me/`.
 
 # Gateway commands
 
