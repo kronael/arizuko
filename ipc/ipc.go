@@ -676,7 +676,7 @@ func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 }
 
 func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, callerSub string) *server.MCPServer {
-	id := auth.Resolve(folder)
+	identity := auth.Resolve(folder)
 	srv := server.NewMCPServer("arizuko", "1.0")
 
 	authorizeCall := func(name string, params map[string]string) bool {
@@ -763,7 +763,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 
 	// authzStructural wraps auth.AuthorizeStructural and logs authz_denied on failure.
 	authzStructural := func(action string, target auth.AuthzTarget) error {
-		err := auth.AuthorizeStructural(id, action, target)
+		err := auth.AuthorizeStructural(identity, action, target)
 		if err != nil {
 			emitAuthzDenied(action, callerSub)
 		}
@@ -841,7 +841,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !authorizeCall("send", map[string]string{"jid": jid}) {
 				return toolErr("send: not permitted")
 			}
-			if err := authorizeJID(id, "send", jid, db); err != nil {
+			if err := authorizeJID(identity, "send", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
 			text := req.GetString("text", "")
@@ -870,7 +870,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !authorizeCall("reply", map[string]string{"jid": jid}) {
 				return toolErr("reply: not permitted")
 			}
-			if err := authorizeJID(id, "reply", jid, db); err != nil {
+			if err := authorizeJID(identity, "reply", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.SendReply == nil {
@@ -904,7 +904,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !authorizeCall("send_file", map[string]string{"jid": jid}) {
 				return toolErr("send_file: not permitted")
 			}
-			if err := authorizeJID(id, "send_file", jid, db); err != nil {
+			if err := authorizeJID(identity, "send_file", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
 			fp := req.GetString("filepath", "")
@@ -942,7 +942,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !authorizeCall("send_voice", map[string]string{"jid": jid}) {
 				return toolErr("send_voice: not permitted")
 			}
-			if err := authorizeJID(id, "send_voice", jid, db); err != nil {
+			if err := authorizeJID(identity, "send_voice", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.SendVoice == nil {
@@ -983,7 +983,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !authorizeCall("post", map[string]string{"jid": jid}) {
 				return toolErr("post: not permitted")
 			}
-			if err := authorizeJID(id, "post", jid, db); err != nil {
+			if err := authorizeJID(identity, "post", jid, db); err != nil {
 				return toolErr(err.Error())
 			}
 			if gated.Post == nil {
@@ -1049,7 +1049,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				if !authorizeCall(s.name, map[string]string{"jid": jid}) {
 					return toolErr(s.name + ": not permitted")
 				}
-				if err := authorizeJID(id, s.name, jid, db); err != nil {
+				if err := authorizeJID(identity, s.name, jid, db); err != nil {
 					return toolErr(err.Error())
 				}
 				slog.Info(s.name, "folder", folder, "jid", jid)
@@ -1172,7 +1172,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				if !authorizeCall("pane_set_prompts", map[string]string{"jid": jid}) {
 					return toolErr("pane_set_prompts: not permitted")
 				}
-				if err := authorizeJID(id, "pane_set_prompts", jid, db); err != nil {
+				if err := authorizeJID(identity, "pane_set_prompts", jid, db); err != nil {
 					return toolErr(err.Error())
 				}
 				raw := req.GetArguments()["prompts"]
@@ -1202,7 +1202,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				if !authorizeCall("pane_set_title", map[string]string{"jid": jid}) {
 					return toolErr("pane_set_title: not permitted")
 				}
-				if err := authorizeJID(id, "pane_set_title", jid, db); err != nil {
+				if err := authorizeJID(identity, "pane_set_title", jid, db); err != nil {
 					return toolErr(err.Error())
 				}
 				title := strings.TrimSpace(req.GetString("title", ""))
@@ -1235,19 +1235,19 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if child == "" {
 				return toolErr("child required")
 			}
-			if err := authzStructural("fork_topic", auth.AuthzTarget{TargetFolder: id.Folder}); err != nil {
+			if err := authzStructural("fork_topic", auth.AuthzTarget{TargetFolder: identity.Folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			force := req.GetBool("force", false)
-			if err := gated.ForkTopic(id.Folder, parent, child, force); err != nil {
+			if err := gated.ForkTopic(identity.Folder, parent, child, force); err != nil {
 				if errors.Is(err, core.ErrTopicExists) {
 					return toolErr("topic_exists")
 				}
 				return toolErr(err.Error())
 			}
-			slog.Info("topic forked", "folder", id.Folder, "parent", parent, "child", child, "force", force)
+			slog.Info("topic forked", "folder", identity.Folder, "parent", parent, "child", child, "force", force)
 			return toolJSON(map[string]any{
-				"folder":       id.Folder,
+				"folder":       identity.Folder,
 				"parent_topic": parent,
 				"child_topic":  child,
 			})
@@ -1266,23 +1266,23 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	//      otherwise have no path to engage). Stealing an active
 	//      engagement still requires arm 1 or 2.
 	engagementAuthz := func(jid, topic string) error {
-		if id.Folder == "" {
+		if identity.Folder == "" {
 			return fmt.Errorf("engagement: caller folder unresolved")
 		}
 		currentOwner := ""
 		if db.EngagedFolder != nil {
 			currentOwner = db.EngagedFolder(jid, topic)
 		}
-		if currentOwner != "" && currentOwner == id.Folder {
+		if currentOwner != "" && currentOwner == identity.Folder {
 			return nil
 		}
-		if db.JIDRoutedToFolder != nil && db.JIDRoutedToFolder(jid, id.Folder) {
+		if db.JIDRoutedToFolder != nil && db.JIDRoutedToFolder(jid, identity.Folder) {
 			return nil
 		}
 		if currentOwner == "" {
 			return nil
 		}
-		return fmt.Errorf("engagement: %q owned by %q, not caller %q", jid, currentOwner, id.Folder)
+		return fmt.Errorf("engagement: %q owned by %q, not caller %q", jid, currentOwner, identity.Folder)
 	}
 
 	granted("engage",
@@ -1306,7 +1306,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			// Spec 5/G fix 5: write engaged_folder = caller, so
 			// future inbounds steer here. Authz already validated
 			// the caller may claim this conversation.
-			if err := db.SetEngagement(jid, topic, id.Folder, time.Now().Add(gated.EngagementTTL)); err != nil {
+			if err := db.SetEngagement(jid, topic, identity.Folder, time.Now().Add(gated.EngagementTTL)); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolJSON(map[string]any{"ok": true})
@@ -1330,7 +1330,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.SetEngagement == nil {
 				return toolErr("disengage not configured")
 			}
-			if err := db.SetEngagement(jid, topic, id.Folder, time.Time{}); err != nil {
+			if err := db.SetEngagement(jid, topic, identity.Folder, time.Time{}); err != nil {
 				return toolErr(err.Error())
 			}
 			return toolJSON(map[string]any{"ok": true})
@@ -1570,7 +1570,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
 
-	if id.Tier <= 2 {
+	if identity.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("refresh_groups",
 			mcp.WithDescription("Return folder for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks)."),
 		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1631,7 +1631,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.ListRoutes == nil {
 				return toolErr("list_routes not configured")
 			}
-			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, id.Tier == 0)})
+			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, identity.Tier == 0)})
 		})
 
 	granted("set_routes",
@@ -1642,7 +1642,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.SetRoutes == nil {
 				return toolErr("set_routes not configured")
 			}
-			if err := authzStructural("set_routes", auth.AuthzTarget{RouteTarget: id.Folder}); err != nil {
+			if err := authzStructural("set_routes", auth.AuthzTarget{RouteTarget: identity.Folder}); err != nil {
 				return toolErr(err.Error())
 			}
 			var routes []core.Route
@@ -1650,14 +1650,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("invalid routes json: " + err.Error())
 			}
 			for _, r := range routes {
-				if !routeTargetWithin(r.Target, id.Folder) {
+				if !routeTargetWithin(r.Target, identity.Folder) {
 					return toolErr("route target outside own folder: " + r.Target)
 				}
 			}
 			if db.ListRoutes != nil {
 				hadDefault := false
-				for _, r := range db.ListRoutes(id.Folder, false) {
-					if isSelfDefault(r, id.Folder) {
+				for _, r := range db.ListRoutes(identity.Folder, false) {
+					if isSelfDefault(r, identity.Folder) {
 						hadDefault = true
 						break
 					}
@@ -1665,7 +1665,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				if hadDefault {
 					keepsDefault := false
 					for _, r := range routes {
-						if isSelfDefault(r, id.Folder) {
+						if isSelfDefault(r, identity.Folder) {
 							keepsDefault = true
 							break
 						}
@@ -1675,14 +1675,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					}
 				}
 			}
-			if err := db.SetRoutes(id.Folder, routes); err != nil {
-				emitSys("set_routes", id.Folder, callerSub,
+			if err := db.SetRoutes(identity.Folder, routes); err != nil {
+				emitSys("set_routes", identity.Folder, callerSub,
 					map[string]any{"count": len(routes)}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("set_routes", id.Folder, callerSub,
+			emitSys("set_routes", identity.Folder, callerSub,
 				map[string]any{"count": len(routes)}, nil)
-			slog.Info("routes set", "folder", id.Folder, "count", len(routes))
+			slog.Info("routes set", "folder", identity.Folder, "count", len(routes))
 			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
 		})
 
@@ -1706,11 +1706,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			rid, err := db.AddRoute(route)
 			if err != nil {
-				emitSys("add_route", id.Folder, callerSub,
+				emitSys("add_route", identity.Folder, callerSub,
 					map[string]any{"target": route.Target}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("add_route", id.Folder, callerSub,
+			emitSys("add_route", identity.Folder, callerSub,
 				map[string]any{"target": route.Target, "id": rid}, nil)
 			slog.Info("route added", "id", rid, "target", route.Target, "match", route.Match)
 			return toolJSON(map[string]any{"id": rid})
@@ -1730,18 +1730,18 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !ok {
 				return toolErr(fmt.Sprintf("route not found: %d", rid))
 			}
-			if isSelfDefault(route, id.Folder) {
+			if isSelfDefault(route, identity.Folder) {
 				return toolErr("cannot delete own default route")
 			}
 			if err := authzStructural("delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
 				return toolErr(err.Error())
 			}
 			if err := db.DeleteRoute(rid); err != nil {
-				emitSys("delete_route", id.Folder, callerSub,
+				emitSys("delete_route", identity.Folder, callerSub,
 					map[string]any{"id": rid}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("delete_route", id.Folder, callerSub,
+			emitSys("delete_route", identity.Folder, callerSub,
 				map[string]any{"id": rid, "target": route.Target}, nil)
 			slog.Info("route deleted", "id", rid)
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
@@ -1871,10 +1871,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if db.ListTasks == nil {
 				return toolErr("list_tasks not configured")
 			}
-			return toolJSON(db.ListTasks(folder, id.Tier == 0))
+			return toolJSON(db.ListTasks(folder, identity.Tier == 0))
 		})
 
-	if id.Tier <= 2 {
+	if identity.Tier <= 2 {
 		// Unified ACL inspection. Reads acl rows scoped to folder; subsumes
 		// the legacy get_grants/set_grants surface. Writes go through
 		// dashd or `arizuko grant`. Tier 0-2 only.
@@ -1972,10 +1972,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		if t == "" {
 			t = folder
 		}
-		if id.Tier >= 3 {
-			return fmt.Errorf("unauthorized: tier %d cannot issue route tokens", id.Tier)
+		if identity.Tier >= 3 {
+			return fmt.Errorf("unauthorized: tier %d cannot issue route tokens", identity.Tier)
 		}
-		if id.Tier <= 2 && t != folder && !strings.HasPrefix(t, folder+"/") {
+		if identity.Tier <= 2 && t != folder && !strings.HasPrefix(t, folder+"/") {
 			return fmt.Errorf("unauthorized: can only mint for self+descendants")
 		}
 		return nil
@@ -2102,7 +2102,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chat_jid required")
 			}
-			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 100)
@@ -2158,7 +2158,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if topic == "" {
 				return toolErr("topic required")
 			}
-			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 50)
@@ -2197,7 +2197,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if jid == "" {
 				return toolErr("chat_jid required")
 			}
-			if id.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
+			if identity.Tier > 0 && db.JIDRoutedToFolder != nil && !db.JIDRoutedToFolder(jid, folder) {
 				return toolErr("access_denied: jid not routed to your group")
 			}
 			limitVal := req.GetInt("limit", 100)
@@ -2226,7 +2226,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	if id.Tier == 0 {
+	if identity.Tier == 0 {
 		granted("set_web_host", "Bind a hostname to a group folder in vhosts.json so proxyd serves that folder at that host. Use when exposing a group's web/ via a custom domain. Tier 0 only.",
 			[]mcp.ToolOption{
 				mcp.WithString("hostname", mcp.Required()),
@@ -2277,7 +2277,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		return toolJSON(map[string]any{"content": string(data), "exists": true})
 	})
 
-	if id.Tier <= 2 {
+	if identity.Tier <= 2 {
 		srv.AddTool(mcp.NewTool("set_work",
 			mcp.WithDescription("Overwrite this group's work.md with a fresh snapshot of current work, blockers, and next steps. Use at turn end to checkpoint state for the next session. This replaces the file — read with get_work first if merging."),
 			mcp.WithString("content", mcp.Required()),
@@ -2354,7 +2354,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("path required")
 			}
 			scopedFolder := folder
-			if id.Tier == 0 {
+			if identity.Tier == 0 {
 				scopedFolder = ""
 			}
 			ok, err := db.DelWebRoute(p, scopedFolder)
@@ -2380,9 +2380,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(db.ListWebRoutes(folder))
 		})
 
-	registerInspect(srv, db, id, folder)
+	registerInspect(srv, db, identity, folder)
 
-	if id.Tier <= 2 {
+	if identity.Tier <= 2 {
 		granted("get_web_host", "Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Tier 0-2; non-root can only query own folder or descendants.",
 			[]mcp.ToolOption{mcp.WithString("folder")},
 			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2390,7 +2390,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				if targetFolder == "" {
 					targetFolder = folder
 				}
-				if id.Tier > 0 && targetFolder != folder &&
+				if identity.Tier > 0 && targetFolder != folder &&
 					!strings.HasPrefix(targetFolder, folder+"/") {
 					return toolErr("get_web_host: can only query own folder or descendants")
 				}
