@@ -152,6 +152,11 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
 	mux.HandleFunc("GET /dash/activity/x/recent", d.handleActivityPartial)
 
+	// Task detail, actions, create.
+	mux.HandleFunc("GET /dash/tasks/{id}", d.handleTaskDetail)
+	mux.HandleFunc("POST /dash/tasks/", d.handleTaskCreate)
+	mux.HandleFunc("POST /dash/tasks/{id}/{action}", d.handleTaskAction)
+
 	// /dash/me/secrets — per-user secret CRUD. Identity-bound to signed-in
 	// X-User-Sub (proxyd-verified). CSRF on writes via same-origin check.
 	mux.HandleFunc("GET /dash/me/secrets", d.handleMeSecrets)
@@ -421,10 +426,21 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Tasks")
 	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
-		`<thead><tr><th>ID</th><th>Group</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
+		`<thead><tr><th>ID</th><th>Group</th><th>Prompt</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
 		`<tbody>`)
 	d.writeTaskRows(w)
 	fmt.Fprint(w, `</tbody></table>`)
+
+	fmt.Fprint(w, htmlSection("Create task",
+		`<form method="post" action="/dash/tasks/">`+
+			htmlFormRow("Group (owner)", `<input type="text" name="owner" placeholder="alice" required size="40">`)+
+			htmlFormRow("Chat JID", `<input type="text" name="chat_jid" placeholder="alice@s.whatsapp.net" required size="50">`)+
+			htmlFormRow("Prompt", `<textarea name="prompt" rows="3" cols="60" required></textarea>`)+
+			htmlFormRow("Cron", `<input type="text" name="cron" placeholder="0 9 * * *" required size="20">`)+
+			`<p><button type="submit">create</button></p>`+
+			`</form>`+
+			`<p class="dim">Cron in UTC. Owner = group folder. Chat JID = the chat this task posts to.</p>`,
+	))
 	pageClose(w, r)
 }
 
@@ -435,21 +451,21 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) writeTaskRows(w http.ResponseWriter) {
 	rows, err := d.db.Query(
-		`SELECT id, owner, cron, status, created_at, next_run
+		`SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
 		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
 	if err != nil {
 		slog.Warn("tasks: query", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">error: %s</td></tr>`, esc(err.Error()))
+		fmt.Fprintf(w, `<tr><td colspan=7 class="empty">error: %s</td></tr>`, esc(err.Error()))
 		return
 	}
 	defer rows.Close()
 	var n int
 	for rows.Next() {
-		var id, owner, status, createdAt string
+		var id, owner, prompt, status, createdAt string
 		var cron, nextRun sql.NullString
-		if err := rows.Scan(&id, &owner, &cron, &status, &createdAt, &nextRun); err != nil {
+		if err := rows.Scan(&id, &owner, &prompt, &cron, &status, &createdAt, &nextRun); err != nil {
 			slog.Warn("tasks: scan row", "err", err)
-			fmt.Fprintf(w, `<tr><td colspan=6 class="empty">scan error: %s</td></tr>`,
+			fmt.Fprintf(w, `<tr><td colspan=7 class="empty">scan error: %s</td></tr>`,
 				esc(err.Error()))
 			continue
 		}
@@ -457,10 +473,19 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 		if status != "active" {
 			dot = "dot-warn"
 		}
-		fmt.Fprintf(w, `<tr><td><code>%s</code></td><td>%s</td><td><code>%s</code></td>`+
-			`<td><span class="dot %s"></span>%s</td><td>%s</td><td>%s</td></tr>`,
-			esc(id),
+		fmt.Fprintf(w,
+			`<tr>`+
+				`<td><a href="/dash/tasks/%s"><code>%s</code></a></td>`+
+				`<td>%s</td>`+
+				`<td title="%s">%s</td>`+
+				`<td><code>%s</code></td>`+
+				`<td><span class="dot %s"></span>%s</td>`+
+				`<td>%s</td>`+
+				`<td>%s</td>`+
+				`</tr>`,
+			esc(id), esc(id),
 			esc(owner),
+			esc(prompt), esc(truncate64(prompt)),
 			esc(cron.String),
 			dot, esc(status),
 			esc(createdAt),
@@ -470,12 +495,12 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("tasks: rows", "err", err)
-		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">rows error: %s</td></tr>`,
+		fmt.Fprintf(w, `<tr><td colspan=7 class="empty">rows error: %s</td></tr>`,
 			esc(err.Error()))
 		return
 	}
 	if n == 0 {
-		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No scheduled tasks. `+
+		fmt.Fprint(w, `<tr><td colspan=7 class="empty">No scheduled tasks. `+
 			`Ask the agent to schedule one (e.g. "remind me every morning at 8am").</td></tr>`)
 	}
 }
