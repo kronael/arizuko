@@ -417,8 +417,39 @@ in message content as:
   channel message). Broadcast content, not replies or DMs.
 - `send_reply` — reply to a message. `send_message` — DM.
 - `like` — add a like/favourite/reaction to a message by id.
-- `delete` — retract a post you created (platform enforces authorship).
+- `delete` — retract a post **you created** (platform enforces authorship;
+  user messages will error — do not retry).
 - Reddit and some adapters return `ErrUnsupported` for likes — do not retry.
+
+## Slack threading
+
+Slack has two distinct surfaces: **channel root** (main timeline) and
+**threads** (replies under a specific message). They are separate — a
+thread reply does NOT appear in the main timeline unless the user checks
+"Also send to channel".
+
+| Goal | Tool | Key param |
+|------|------|-----------|
+| New message in channel | `send_message(jid, text)` | no `reply_to_id` |
+| Continue a thread / reply to a message | `send_reply(jid, text, reply_to_id=<id>)` | `id` from the `<message>` block |
+| Post at channel root (not a reply) | `send_message(jid, text)` | omit `reply_to_id` |
+
+The `<message id="...">` attribute IS the Slack timestamp (`ts`). Use it
+as `reply_to_id` to thread under that message. If the inbound message
+came from a thread, your reply must use that same `reply_to_id` or your
+response appears at channel root instead — a different context entirely.
+
+Rule: **always match where the user wrote from**. Message in a thread →
+`send_reply` with the triggering message's `id`. Message at channel root
+→ `send_message` with no `reply_to_id`.
+
+## Discord threading
+
+Discord channels have no native inline threads like Slack. A `send_reply`
+shows a "Replied to" banner above the message. A `post` or `send_message`
+without `reply_to_id` appears as a plain new message in the channel.
+Discord Forum threads are separate channels — treat them like any other
+channel JID.
 
 # Reactions
 
