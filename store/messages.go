@@ -377,29 +377,58 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil
 	}
-	// Spec 6/F ambient join: include open siblings so a topic in folder A
-	// surfaces ambient context from sibling B (and vice versa). The query
-	// stays a single SELECT — siblings widen routed_to, nothing else.
-	folders := append([]string{folder}, s.SiblingFolders(folder)...)
-	placeholders := "?" + strings.Repeat(",?", len(folders)-1)
-	args := make([]any, 0, len(folders)+2)
-	for _, f := range folders {
+	// Spec 6/F ambient join: open siblings widen routed_to for is_observed=1 rows.
+	siblings := s.SiblingFolders(folder)
+	// observe_group: watched source folders contribute their primary-delivery
+	// messages (is_observed=0) as additional ambient context for the observer.
+	watched := s.WatchedSources(folder)
+
+	// Build a UNION of two shapes:
+	//   (a) is_observed=1 rows routed to folder or open siblings
+	//   (b) is_observed=0 rows routed to watched sources (primary delivery to another folder)
+	observed := append([]string{folder}, siblings...)
+	observedPH := "?" + strings.Repeat(",?", len(observed)-1)
+	args := make([]any, 0, len(observed)+len(watched)+3)
+	for _, f := range observed {
 		args = append(args, f)
 	}
+
 	cursorClause := ""
 	if cursor != "" {
 		cursorClause = " AND timestamp > ?"
-		args = append(args, cursor)
 	}
-	args = append(args, maxMsgs)
-	rows, err := s.db.Query(
-		`SELECT `+msgCols+` FROM messages
-		 WHERE routed_to IN (`+placeholders+`) AND is_observed = 1
-		   AND is_bot_message = 0 AND content != ''`+cursorClause+`
-		 ORDER BY timestamp DESC
-		 LIMIT ?`,
-		args...,
-	)
+
+	var q string
+	if len(watched) > 0 {
+		watchedPH := "?" + strings.Repeat(",?", len(watched)-1)
+		for _, f := range watched {
+			args = append(args, f)
+		}
+		if cursor != "" {
+			args = append(args, cursor, cursor)
+		}
+		args = append(args, maxMsgs)
+		q = `SELECT ` + msgCols + ` FROM messages
+		     WHERE routed_to IN (` + observedPH + `) AND is_observed = 1
+		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		     UNION ALL
+		     SELECT ` + msgCols + ` FROM messages
+		     WHERE routed_to IN (` + watchedPH + `) AND is_observed = 0
+		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		     ORDER BY timestamp DESC
+		     LIMIT ?`
+	} else {
+		if cursor != "" {
+			args = append(args, cursor)
+		}
+		args = append(args, maxMsgs)
+		q = `SELECT ` + msgCols + ` FROM messages
+		     WHERE routed_to IN (` + observedPH + `) AND is_observed = 1
+		       AND is_bot_message = 0 AND content != ''` + cursorClause + `
+		     ORDER BY timestamp DESC
+		     LIMIT ?`
+	}
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil
 	}

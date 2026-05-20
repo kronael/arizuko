@@ -88,6 +88,22 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: target outside own subtree")
 		}
 		return nil
+	case "observe_group", "unobserve_group":
+		// Tier 0/1 can observe any folder. Tier 2 agents can observe
+		// their parent (escalation path) or their own subtree. Tier 3
+		// cannot subscribe cross-folder observations.
+		if id.Tier >= 3 {
+			return fmt.Errorf("unauthorized: tier %d cannot use observe_group", id.Tier)
+		}
+		if id.Tier == 2 {
+			src := target.TargetFolder
+			if src != "" && src != id.Folder &&
+				!strings.HasPrefix(src, id.Folder+"/") &&
+				!strings.HasPrefix(id.Folder, src+"/") {
+				return fmt.Errorf("unauthorized: observe source outside own subtree or parent chain")
+			}
+		}
+		return nil
 	case "get_grants", "set_grants", "list_acl":
 		if id.Tier > 1 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage grants", id.Tier)

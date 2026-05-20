@@ -222,3 +222,59 @@ func TestObservedSince_OpenSiblingsCrossFolder(t *testing.T) {
 		t.Fatalf("after closing B: got %+v, want [a-1]", got)
 	}
 }
+
+// observe_group: observer sees primary-delivered messages from watched source
+// as ambient context even though those messages are not is_observed=1.
+func TestObservedSince_WatchedSources(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	for _, f := range []string{"root", "child"} {
+		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	// Primary delivery to child (is_observed=0).
+	if err := s.PutMessage(core.Message{
+		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
+		Content: "child-msg", Timestamp: now.Add(-time.Minute),
+		Verb: "message", Source: "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE messages SET routed_to = 'child', is_observed = 0 WHERE id = 'c-1'`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without watching: root sees nothing.
+	got := s.ObservedSince("root", "", 10, 4000)
+	if len(got) != 0 {
+		t.Fatalf("no watcher: got %d msgs, want 0", len(got))
+	}
+
+	// Register root as watcher of child.
+	if err := s.AddGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now root sees the child's primary-delivered message.
+	got = s.ObservedSince("root", "", 10, 4000)
+	if len(got) != 1 || got[0].ID != "c-1" {
+		t.Fatalf("after watching: got %+v, want [c-1]", got)
+	}
+
+	// Unwatch: root no longer sees it.
+	if err := s.RemoveGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+	got = s.ObservedSince("root", "", 10, 4000)
+	if len(got) != 0 {
+		t.Fatalf("after unwatch: got %d msgs, want 0", len(got))
+	}
+}

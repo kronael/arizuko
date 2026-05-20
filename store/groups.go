@@ -312,6 +312,45 @@ func (s *Store) SiblingFolders(folder string) []string {
 	return out
 }
 
+// AddGroupWatcher registers observer to receive source's inbound messages
+// as <observed> context. Idempotent. Spec: specs/5/F-topic-lineage.md.
+func (s *Store) AddGroupWatcher(observer, source string) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO group_watchers (observer, source) VALUES (?, ?)`,
+		observer, source,
+	)
+	return err
+}
+
+// RemoveGroupWatcher cancels an observe_group subscription.
+func (s *Store) RemoveGroupWatcher(observer, source string) error {
+	_, err := s.db.Exec(
+		`DELETE FROM group_watchers WHERE observer = ? AND source = ?`,
+		observer, source,
+	)
+	return err
+}
+
+// WatchedSources returns the list of source folders that observer has
+// subscribed to via observe_group.
+func (s *Store) WatchedSources(observer string) []string {
+	rows, err := s.db.Query(
+		`SELECT source FROM group_watchers WHERE observer = ?`, observer,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if rows.Scan(&f) == nil {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func (s *Store) SetStickyTopic(jid, topic string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO chats (jid, sticky_topic) VALUES (?, ?)

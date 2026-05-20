@@ -254,6 +254,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetGroupOpen:           g.store.SetGroupOpen,
 		SetGroupObserveWindow:  g.store.SetGroupObserveWindow,
 		GroupObserveWindow:     g.store.GroupObserveWindow,
+		AddGroupWatcher:        g.store.AddGroupWatcher,
+		RemoveGroupWatcher:     g.store.RemoveGroupWatcher,
 		EngagementTTL:          g.cfg.EngagementTTL,
 	}
 	g.storeFns = ipc.StoreFns{

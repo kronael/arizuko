@@ -191,6 +191,47 @@ Comprehensive — operator explicitly called out new-session-in-thread
 - Trigger turn for main → prompt contains `<topic name="" />`.
 - Verify envelope appears before trigger messages, after sysMsgs.
 
+## observe_group — directional cross-folder subscription
+
+`observe_group(source)` makes the calling folder (observer) receive
+source's inbound messages as `<observed>` context on the observer's
+next trigger turn. The observer does not become source's active agent;
+it just gets a read-only ambient feed.
+
+**Distinction from `set_group_open`**: `set_group_open` exposes
+_already-observed_ (is_observed=1) messages to open siblings. It
+requires an `#observe` route on the source side to produce those rows.
+`observe_group` is directional and picks up source's _primary-delivered_
+(is_observed=0) messages — no route change needed on source.
+
+### Implementation
+
+New table `group_watchers (observer TEXT, source TEXT, PRIMARY KEY
+(observer, source))`. `ObservedSince` UNION-joins watched source folders'
+primary messages (is_observed=0) alongside the existing is_observed=1
+query.
+
+### Auth
+
+Tier 0/1: any target. Tier 2: own subtree or parent chain (escalation).
+Tier 3: denied.
+
+### Schema
+
+```sql
+-- 0063-group-watchers.sql
+CREATE TABLE IF NOT EXISTS group_watchers (
+    observer TEXT NOT NULL,
+    source   TEXT NOT NULL,
+    PRIMARY KEY (observer, source)
+);
+```
+
+### MCP tools
+
+- `observe_group(source)` — subscribe
+- `unobserve_group(source)` — cancel
+
 ## What this is NOT
 
 - **NOT a marker-line-in-history hack.** No synthetic entries

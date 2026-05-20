@@ -59,6 +59,9 @@ type GatedFns struct {
 	SetGroupOpen           func(folder string, open bool) error
 	SetGroupObserveWindow  func(folder string, msgs, chars int) error
 	GroupObserveWindow     func(folder string) (msgs, chars int)
+	// observe_group cross-folder subscriptions (spec 5/F).
+	AddGroupWatcher    func(observer, source string) error
+	RemoveGroupWatcher func(observer, source string) error
 	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir            string
 	WebDir               string
@@ -1425,6 +1428,61 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			emitSys("set_group_open", folder, callerSub, map[string]any{"open": open}, nil)
 			slog.Info("set_group_open", "folder", folder, "open", open)
 			return toolJSON(map[string]any{"ok": true, "open": open})
+		})
+
+	granted("observe_group",
+		"Subscribe this folder to receive another folder's inbound messages as <observed> context on future turns. "+
+			"The observer sees what arrives at source without becoming its active agent. "+
+			"Use to let a parent monitor a child, a sibling watch a sibling, or a root agent aggregate context. "+
+			"Not for taking over routing (add_route) or ambient sibling visibility (set_group_open). Spec: specs/5/F.",
+		[]mcp.ToolOption{
+			mcp.WithString("source", mcp.Required(),
+				mcp.Description("folder to observe, e.g. corp/sales")),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.AddGroupWatcher == nil {
+				return toolErr("observe_group not configured")
+			}
+			src := req.GetString("source", "")
+			if src == "" {
+				return toolErr("source required")
+			}
+			if err := authzStructural("observe_group", auth.AuthzTarget{TargetFolder: src}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := gated.AddGroupWatcher(folder, src); err != nil {
+				emitSys("observe_group", folder, callerSub, map[string]any{"source": src}, err)
+				return toolErr(err.Error())
+			}
+			emitSys("observe_group", folder, callerSub, map[string]any{"source": src}, nil)
+			slog.Info("observe_group", "observer", folder, "source", src)
+			return toolJSON(map[string]any{"ok": true, "observer": folder, "source": src})
+		})
+
+	granted("unobserve_group",
+		"Cancel an observe_group subscription. After this call, source's messages no longer surface in this folder's <observed> context.",
+		[]mcp.ToolOption{
+			mcp.WithString("source", mcp.Required(),
+				mcp.Description("folder to stop observing")),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.RemoveGroupWatcher == nil {
+				return toolErr("unobserve_group not configured")
+			}
+			src := req.GetString("source", "")
+			if src == "" {
+				return toolErr("source required")
+			}
+			if err := authzStructural("unobserve_group", auth.AuthzTarget{TargetFolder: src}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := gated.RemoveGroupWatcher(folder, src); err != nil {
+				emitSys("unobserve_group", folder, callerSub, map[string]any{"source": src}, err)
+				return toolErr(err.Error())
+			}
+			emitSys("unobserve_group", folder, callerSub, map[string]any{"source": src}, nil)
+			slog.Info("unobserve_group", "observer", folder, "source", src)
+			return toolJSON(map[string]any{"ok": true, "observer": folder, "source": src})
 		})
 
 	granted("inject_message", "Write a synthetic inbound message into the store as if received from chat, triggering the normal agent loop. Use for programmatic prompts, tests, or scheduling one-off runs from tool code. Not for clearing context (reset_session) or sending output to users (`send`).",
