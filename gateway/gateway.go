@@ -621,6 +621,7 @@ func (g *Gateway) pollOnce() {
 			// the engaged folder regardless of what the route table says.
 			if folder := g.store.EngagedFolder(chatJid, effTopic); folder != "" {
 				if gr, ok2 := g.store.GroupByFolder(folder); ok2 {
+					slog.Info("poll: engagement override", "jid", chatJid, "topic", effTopic, "folder", folder)
 					group = gr
 				}
 			}
