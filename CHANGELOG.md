@@ -12,6 +12,41 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.2] — 2026-05-20
+
+> arizuko v0.45.2 — Slack threading + 👀 cleanup
+>
+> Replies now thread under the triggering message by default — no `reply_to_id` needed. Orphan 👀 reactions from crashes are swept on restart. Bot messages are visible to the agent so it can find and delete its own posts.
+>
+> • `send_reply` defaults to the inbound trigger — threads correctly without manual `reply_to_id`
+> • Orphan 👀 cleared on startup via `reactions.list` sweep — no stuck reactions after crashes
+> • `inspect_messages` now includes bot messages — agent can see and delete its own posts
+> • Docker builds faster: BuildKit cache, parallel `make -j`, context pruned from 4 GB to ~200 MB
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- slakd: `activeEyesTS` snapshot on typing start so removal targets the
+  right message even when new inbound arrives mid-processing
+- slakd: sweep `reactions.list` on startup, remove any orphan 👀 the bot
+  left from a prior crash (single page, no pagination needed)
+- gateway: seed `last_reply_id` with the inbound trigger TS at turn start
+  so `send_reply` with no `reply_to_id` threads under the triggering message
+- store: `MessagesBefore` includes bot messages — `inspect_messages` now
+  shows outbound rows so the agent can find platform IDs for `delete`
+
+### Changed
+
+- docker: BuildKit cache mount + parallel `make -j docker-build` via per-daemon
+  `OUT` variable; `.dockerignore` excludes `refs/` (2.8 GB) and `bin/`
+- docs: `ant/CLAUDE.md` — Slack/Discord threading rules, `send_reply` default,
+  `delete` authorship constraint
+- docs: `SECURITY.md` — audit trail section (proxyd JSON access log, journald
+  as single sink)
+
+---
+
 ## [v0.45.1] — 2026-05-20
 
 > arizuko v0.45.1 — slakd typing via reactions
