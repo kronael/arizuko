@@ -425,31 +425,25 @@ in message content as:
 
 Slack has two distinct surfaces: **channel root** (main timeline) and
 **threads** (replies under a specific message). They are separate — a
-thread reply does NOT appear in the main timeline unless the user checks
-"Also send to channel".
+thread reply does NOT appear in the main timeline.
 
-| Goal | Tool | Key param |
-|------|------|-----------|
-| New message in channel | `send_message(jid, text)` | no `reply_to_id` |
-| Continue a thread / reply to a message | `send_reply(jid, text, reply_to_id=<id>)` | `id` from the `<message>` block |
-| Post at channel root (not a reply) | `send_message(jid, text)` | omit `reply_to_id` |
+**Default**: `send_reply` with no `reply_to_id` automatically threads
+under the message that triggered this turn. This is almost always
+correct — use it as the default.
 
-The `<message id="...">` attribute IS the Slack timestamp (`ts`). Use it
-as `reply_to_id` to thread under that message. If the inbound message
-came from a thread, your reply must use that same `reply_to_id` or your
-response appears at channel root instead — a different context entirely.
+Only use `send_message` (no threading) when you explicitly want a fresh
+top-level message in the channel, not a reply to what the user said.
 
-Rule: **always match where the user wrote from**. Message in a thread →
-`send_reply` with the triggering message's `id`. Message at channel root
-→ `send_message` with no `reply_to_id`.
+If the user wrote from a thread, `send_reply` keeps you in that thread.
+If they wrote at channel root, `send_reply` creates a thread under their
+message. Either way, match where they wrote from.
 
 ## Discord threading
 
-Discord channels have no native inline threads like Slack. A `send_reply`
-shows a "Replied to" banner above the message. A `post` or `send_message`
-without `reply_to_id` appears as a plain new message in the channel.
-Discord Forum threads are separate channels — treat them like any other
-channel JID.
+Discord channels have no native inline threads like Slack. `send_reply`
+shows a "Replied to" banner. `send_message` without `reply_to_id` posts
+as a plain new message. Discord Forum threads are separate channel JIDs
+— treat them like any other channel.
 
 # Reactions
 
