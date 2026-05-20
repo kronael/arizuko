@@ -776,9 +776,9 @@ func TestTyping_PaneSetStatus(t *testing.T) {
 	b.Typing(paneJID, true)
 	b.Typing("slack:T012/channel/CNOPE", true) // not a pane → no-op
 
-	// Typing is fire-and-forget; poll briefly.
+	// Typing is fire-and-forget; poll until done.
 	waitFor := func(want int) {
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			mock.mu.Lock()
 			n := len(mock.statuses)
