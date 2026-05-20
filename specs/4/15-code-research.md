@@ -55,7 +55,7 @@ Two-phase (`ant/skills/find/SKILL.md`):
 
 Results written to `facts/<slug>.md`. Agent answers from verified facts.
 Research+verify prompts ported from eliza-plugin-evangelist;
-see `specs/res/eliza-prompts.md`.
+see `refs/eliza-prompts.md`.
 
 ## SYSTEM.md
 
