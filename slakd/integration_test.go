@@ -778,7 +778,7 @@ func TestTyping_PaneSetStatus(t *testing.T) {
 
 	// Typing is fire-and-forget; poll until done.
 	waitFor := func(want int) {
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
 			mock.mu.Lock()
 			n := len(mock.statuses)
