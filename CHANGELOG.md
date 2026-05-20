@@ -16,6 +16,41 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.43.0] — 2026-05-20
+
+> arizuko v0.43.0 — tasks dashboard + engagement thread fix
+>
+> The operator dashboard now shows scheduled task run history and lets you create, pause, resume, and cancel tasks. Slack thread replies to an engaged agent now reliably continue the conversation.
+>
+> • Tasks dashboard — /dash/tasks/ with per-task run history, status, and actions.
+> • Engagement root fallback — Slack thread follow-ups route to the engaged agent even when thread topic differs from engagement record.
+> • Agent organization platform — landing page and README reframed.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- dashd tasks dashboard: `GET /dash/tasks/` lists all tasks with last-run
+  status; `GET /dash/tasks/{id}` shows run history from `task_run_logs`;
+  `POST /dash/tasks/` creates a task; `POST /dash/tasks/{id}/{action}` runs
+  pause/resume/cancel.
+
+### Fixed
+
+- Engagement root fallback: Slack thread replies arrive with
+  `topic="<thread_ts>"` which has no engagement record. When the threaded
+  topic has no own record, `pollOnce` now checks the root topic (`topic=""`)
+  so the engaged agent continues handling follow-ups.
+
+### Changed
+
+- Landing page rewritten as "agent organization platform" — four grouped
+  sections (organize, coordinate, connect, operate) replacing flat bullet list.
+- README reframed as agent orchestration platform.
+- `ipc.go`: `buildMCPServer` local `id` → `identity` (name clarity, no behavior change).
+
+---
+
 ## [v0.42.0] — 2026-05-19
 
 > arizuko v0.42.0 — dashboard overhaul + security hardening
