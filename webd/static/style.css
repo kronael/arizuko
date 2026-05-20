@@ -27,6 +27,48 @@ footer button:active{background:#f0f0f0}
 .msg.user{align-self:flex-end;background:#e0f2fe}
 .msg.assistant{align-self:flex-start;background:#fff;border:1px solid #e0e0e0}
 
+/* me-shell three-pane layout */
+body.me-shell{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:unset;background:#fff}
+.topbar{display:flex;align-items:center;padding:0 1rem;height:3rem;border-bottom:1px solid #e0e0e0;background:#fff;gap:.5rem;flex-shrink:0}
+.topbar .logo{font-weight:700;text-decoration:none;color:inherit;margin-right:1rem}
+.topnav{display:flex;align-items:center;gap:.75rem;margin-left:auto}
+.topnav a{text-decoration:none;color:#444;font-size:.9rem}
+.topnav a:hover{color:#000}
+.topnav .sub{color:#999;font-size:.8rem}
+.topnav button{padding:.3rem .7rem;cursor:pointer;font-size:.85rem}
+.me-layout{display:flex;flex:1;overflow:hidden}
+.me-sidebar{width:220px;min-width:160px;overflow-y:auto;border-right:1px solid #e0e0e0;padding:.5rem;flex-shrink:0}
+.me-main{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+/* thread */
+.thread{display:flex;flex-direction:column;height:100%}
+#messages{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.5rem}
+.send-form{padding:.75rem;border-top:1px solid #e0e0e0;display:flex;gap:.5rem;align-items:flex-end;flex-shrink:0}
+.send-form textarea{flex:1;resize:none;padding:.4rem .6rem;border:1px solid #ccc;border-radius:6px;font:inherit;min-height:2.4rem;max-height:30vh}
+.send-form button{padding:.45rem 1rem;background:#000;color:#fff;border:none;border-radius:6px;cursor:pointer;min-height:36px}
+.send-form button:active{background:#333}
+/* message bubbles — me-shell overrides */
+body.me-shell .msg{max-width:80%;border-radius:12px;padding:.5rem .75rem;align-self:flex-start}
+body.me-shell .msg.user{align-self:flex-end;background:#000;color:#fff}
+body.me-shell .msg.assistant{background:#f5f5f5;border:1px solid #e0e0e0}
+body.me-shell .msg .body{line-height:1.4;word-wrap:break-word;overflow-wrap:anywhere}
+body.me-shell .msg time{display:block;font-size:.7rem;color:#aaa;margin-top:.2rem}
+body.me-shell .msg.user time{color:#bbb}
+/* folder tree */
+.tree .tree-leaf{display:block;padding:.25rem .5rem;color:#333;text-decoration:none;border-radius:4px;font-size:.9rem}
+.tree .tree-leaf:hover{background:#f5f5f5}
+.tree details{margin-bottom:.1rem}
+.tree details summary{cursor:pointer;padding:.25rem .5rem;border-radius:4px;font-size:.9rem;font-weight:500;user-select:none}
+.tree details summary:hover{background:#f5f5f5}
+.tree ul{list-style:none;padding-left:.25rem}
+.tree li a{display:block;padding:.2rem .5rem .2rem 1rem;color:#444;text-decoration:none;font-size:.88rem;border-radius:4px}
+.tree li a:hover{background:#f5f5f5}
+.sidebar-toggle{display:none;background:none;border:none;font-size:1.1rem;cursor:pointer;padding:.25rem .5rem;margin-bottom:.25rem}
+/* chat list */
+.chat-list{padding:1rem}
+.chat-item{display:block;padding:.75rem;border-bottom:1px solid #f0f0f0;color:inherit;text-decoration:none}
+.chat-item:hover{background:#f9f9f9}
+.chat-item .meta{font-size:.8rem;color:#999;margin-top:.2rem}
+
 /* mobile */
 @media (max-width:640px){
   header{gap:.5rem;padding:.6rem .75rem}
@@ -38,4 +80,9 @@ footer button:active{background:#f0f0f0}
   footer textarea{padding:.55rem .7rem;font-size:16px}
   .msg{max-width:88%;padding:.55rem .8rem}
   #topic-select{max-width:40vw}
+  /* me-shell mobile */
+  .me-sidebar{display:none;position:fixed;top:3rem;left:0;bottom:0;z-index:10;background:#fff;border-right:1px solid #e0e0e0;width:80vw;max-width:280px}
+  .me-sidebar.open{display:block}
+  .sidebar-toggle{display:inline-block}
+  .topnav .sub{display:none}
 }

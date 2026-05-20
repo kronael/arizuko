@@ -92,6 +92,22 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /mcp", s.requireUser(s.handleMCP))
 	mux.HandleFunc("DELETE /mcp", s.requireUser(s.handleMCP))
 
+	// User dashboard /me/*
+	mux.HandleFunc("GET /me/", s.requireUser(s.handleMeIndex))
+	mux.HandleFunc("GET /me/chats", s.requireUser(s.handleMeChats))
+	mux.HandleFunc("GET /me/chats/new", s.requireUser(s.handleMeNewChat))
+	mux.HandleFunc("POST /me/chats/new", s.requireUser(s.handleMeNewChatPost))
+	mux.HandleFunc("GET /me/settings", s.requireUser(s.handleMeSettings))
+	mux.HandleFunc("PATCH /me/settings", s.requireUser(s.handleMeSettingsPatch))
+	mux.HandleFunc("GET /me/x/folders", s.requireUser(s.handleMeXFolders))
+	mux.HandleFunc("GET /me/x/chats", s.requireUser(s.handleMeXChats))
+	mux.HandleFunc("GET /me/x/thread", s.requireUser(s.handleMeXThread))
+	// /me/chats/{folder...} and /me/folders/{folder...} use catch-all path values;
+	// sub-paths (send, sse) are handled by checking suffixes in meFolderTopic.
+	mux.HandleFunc("GET /me/chats/{folder...}", s.requireUser(s.handleMeThreadOrList))
+	mux.HandleFunc("POST /me/chats/{folder...}", s.requireUser(s.handleMeThreadOrList))
+	mux.HandleFunc("GET /me/folders/{folder...}", s.requireUser(s.handleMeFolderOrFiles))
+
 	mux.HandleFunc("GET /{$}", s.requireUser(s.handleGroupsPage))
 	mux.HandleFunc("GET /panel/{folder...}", s.requireFolder(s.handleChatPage))
 
