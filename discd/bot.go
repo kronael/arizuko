@@ -361,7 +361,7 @@ func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 	return "", nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption string) error {
+func (b *bot) SendFile(jid, path, name, caption, _ string) error {
 	chID := chanID(jid)
 	f, err := os.Open(path)
 	if err != nil {

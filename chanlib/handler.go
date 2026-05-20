@@ -26,7 +26,7 @@ type SendRequest struct {
 // embed NoVoiceSender; those without social verbs embed NoSocial.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
-	SendFile(jid, path, name, caption string) error
+	SendFile(jid, path, name, caption, replyTo string) error
 	SendVoice(jid, audioPath, caption string) (string, error)
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
@@ -146,7 +146,7 @@ type HistoryProvider interface {
 
 type NoFileSender struct{}
 
-func (NoFileSender) SendFile(_, _, _, _ string) error {
+func (NoFileSender) SendFile(_, _, _, _, _ string) error {
 	return Unsupported("send_file", "", "this adapter does not support file uploads")
 }
 
@@ -301,7 +301,8 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		defer cleanup()
-		if err := bot.SendFile(jid, localPath, name, caption); err != nil {
+		replyTo := r.FormValue("reply_to")
+		if err := bot.SendFile(jid, localPath, name, caption, replyTo); err != nil {
 			WriteErr(w, 502, err.Error())
 			return
 		}

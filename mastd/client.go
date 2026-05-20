@@ -310,7 +310,7 @@ func (mc *mastoClient) Edit(req chanlib.EditRequest) error {
 	return nil
 }
 
-func (mc *mastoClient) SendFile(_, _, _, _ string) error {
+func (mc *mastoClient) SendFile(_, _, _, _, _ string) error {
 	return chanlib.Unsupported("send_file", "mastodon",
 		"Mastodon media upload (POST /api/v2/media + media_ids on toot) is not wired up yet. Inline a URL in `post(content=...)` for now.")
 }

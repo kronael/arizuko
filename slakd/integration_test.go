@@ -650,7 +650,7 @@ func TestOutbound_SendFile(t *testing.T) {
 	path := dir + "/hello.png"
 	writeFile(t, path, []byte("PNGDATA"))
 
-	if err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption"); err != nil {
+	if err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", ""); err != nil {
 		t.Fatal(err)
 	}
 	mock.mu.Lock()

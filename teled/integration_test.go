@@ -247,7 +247,7 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 					t.Fatalf("SendVoice: %v", err)
 				}
 			} else {
-				if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), ""); err != nil {
+				if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", ""); err != nil {
 					t.Fatalf("SendFile: %v", err)
 				}
 			}

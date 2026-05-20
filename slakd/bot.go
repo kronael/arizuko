@@ -731,7 +731,7 @@ func (b *bot) setPanePending(team, user, thread string, prompts []panePrompt, ti
 	}
 }
 
-func (b *bot) SendFile(jid, path, name, caption string) error {
+func (b *bot) SendFile(jid, path, name, caption, replyTo string) error {
 	parts, err := parseJID(jid)
 	if err != nil {
 		return err
@@ -782,6 +782,9 @@ func (b *bot) SendFile(jid, path, name, caption string) error {
 	complete.Set("channel_id", parts.ID)
 	if caption != "" {
 		complete.Set("initial_comment", caption)
+	}
+	if replyTo != "" {
+		complete.Set("thread_ts", replyTo)
 	}
 	var done struct {
 		OK    bool   `json:"ok"`

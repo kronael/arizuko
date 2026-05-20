@@ -361,7 +361,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption string) error {
+func (b *bot) SendFile(jid, path, name, caption, _ string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err

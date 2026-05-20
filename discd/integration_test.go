@@ -357,7 +357,7 @@ func TestSendFile(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption"); err != nil {
+	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", ""); err != nil {
 		t.Fatal(err)
 	}
 	if atomic.LoadInt32(&hitCount) != 1 {
@@ -372,7 +372,7 @@ func TestSendFile(t *testing.T) {
 
 func TestSendFile_OpenFails(t *testing.T) {
 	b := &bot{session: newTestSession(t)}
-	err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c")
+	err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "")
 	if err == nil {
 		t.Fatal("expected open error")
 	}

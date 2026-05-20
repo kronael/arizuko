@@ -33,7 +33,7 @@ func (m *mockBot) Send(req SendRequest) (string, error) {
 	return m.sendID, m.sendErr
 }
 
-func (m *mockBot) SendFile(jid, _, name, _ string) error {
+func (m *mockBot) SendFile(jid, _, name, _, _ string) error {
 	m.fileJID = jid
 	m.fileName = name
 	return m.fileErr

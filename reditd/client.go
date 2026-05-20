@@ -493,7 +493,7 @@ func (rc *redditClient) Like(req chanlib.LikeRequest) error {
 	return rc.vote(req.TargetID, 1, "like")
 }
 
-func (rc *redditClient) SendFile(_, _, _, _ string) error {
+func (rc *redditClient) SendFile(_, _, _, _, _ string) error {
 	return chanlib.Unsupported("send_file", "reddit",
 		"Reddit image upload is a 3-step flow (websocket lease → S3 PUT → submit kind:image) and is not wired up. Inline a URL in `post(content=...)` for now.")
 }

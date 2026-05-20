@@ -34,7 +34,7 @@ import (
 type GatedFns struct {
 	SendMessage         func(jid, text string) (string, error)
 	SendReply           func(jid, text, replyToId string) (string, error)
-	SendDocument        func(jid, path, filename, caption string) error
+	SendDocument        func(jid, path, filename, caption, replyTo string) error
 	SendVoice           func(jid, text, voice, folder string) (string, error)
 	Post                func(jid, content string, mediaPaths []string) (string, error)
 	Like                func(jid, targetID, reaction string) error
@@ -524,7 +524,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		return fmt.Errorf("send_file not configured")
 	}
 	for _, f := range files {
-		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text); err != nil {
+		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo); err != nil {
 			return err
 		}
 		recordOutbound(gated, db, jid, text, "", folder)
@@ -535,6 +535,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 type internalSendFile struct {
 	LocalPath string
 	Filename  string
+	ReplyTo   string
 }
 
 func validHostname(h string) bool {
@@ -895,6 +896,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			mcp.WithString("filepath", mcp.Required()),
 			mcp.WithString("filename"),
 			mcp.WithString("caption", mcp.Description("Message text to accompany the file. This IS the message — do not output separate text.")),
+			mcp.WithString("replyToId", mcp.Description("Post the file into a thread (Slack thread_ts). Omit to post at channel root.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			jid := req.GetString("chatJid", "")
@@ -910,6 +912,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			fp := req.GetString("filepath", "")
 			name := req.GetString("filename", "")
 			caption := req.GetString("caption", "")
+			replyToID := req.GetString("replyToId", "")
 			rel, err := workspaceRel(fp)
 			if err != nil {
 				return toolErr(err.Error())
@@ -921,7 +924,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
 			if err := internalSend(gated, db, folder, jid, caption,
-				[]internalSendFile{{LocalPath: localPath, Filename: name}},
+				[]internalSendFile{{LocalPath: localPath, Filename: name, ReplyTo: replyToID}},
 			); err != nil {
 				return toolErr(err.Error())
 			}

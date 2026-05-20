@@ -35,7 +35,7 @@ func newServer(cfg config, db *sql.DB, reg *attRegistry, isConnected func() bool
 // SMTP has no native forward primitive. Every social verb is a hint
 // pointing the agent at `send` with the original quoted in the body.
 
-func (s *server) SendFile(_, _, _, _ string) error {
+func (s *server) SendFile(_, _, _, _, _ string) error {
 	return chanlib.Unsupported("send_file", "email", "MIME attachments not implemented; inline the content in `send` body.")
 }
 func (s *server) SendVoice(_, _, _ string) (string, error) {
