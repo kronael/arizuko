@@ -44,26 +44,30 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Self-hosted agent organization platform. One AI for everything
-        produces noise &mdash; sales, support, and ops each need their own
-        context, memory, and personality. arizuko organizes them as a folder
-        hierarchy: each folder is an agent with its own memory, skills, and
-        channel connections. Agents run on MCP over a unix socket, so tool
-        calls are controlled and auditable. No control plane, no per-seat
-        pricing. $5 VPS, one <code>tar</code> backup.
+        Self-hosted toolkit for organizing Claude agents as a folder
+        hierarchy. Each folder is an agent with its own memory, skills, and
+        channel connections &mdash; <code>corp/sales</code>,
+        <code>corp/eng/sre</code>, <code>corp/support</code>. Agents connect
+        back to the host via MCP over a unix socket; every tool call routes
+        through <code>gated</code>, which logs and enforces it. No hosted
+        control plane, no per-seat pricing. $5 VPS; one
+        <code>tar</code> of the data directory is the full backup.
       </p>
 
       <h2>why not Claude.ai or the Assistants API?</h2>
+      <p>
+        One shared agent means sales context bleeds into ops context &mdash;
+        each team needs its own <code>PERSONA.md</code>, memory, and channel.
+        Hosted platforms don&rsquo;t give you that:
+      </p>
       <ul>
-        <li>No memory that persists across conversations or users.</li>
-        <li>No per-team isolation &mdash; everyone shares one context.</li>
+        <li>No persistent memory &mdash; each session starts blank.</li>
         <li>No custom channels: you get a chat window, not Slack, email, or webhooks.</li>
         <li>No self-hosting &mdash; your prompts, context, and files go through their servers.</li>
       </ul>
       <p>
         arizuko runs on your infrastructure. Agents accumulate context over
-        weeks, fork topics, publish to the web, and coordinate across teams.
-        That&rsquo;s the feature, not the complexity.
+        weeks, fork topics, and coordinate across teams.
       </p>
 
       <h2>how it works</h2>
