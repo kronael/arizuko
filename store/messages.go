@@ -625,7 +625,7 @@ func (s *Store) MessagesBefore(jid string, before time.Time, limit int) ([]core.
 	}
 	rows, err := s.db.Query(
 		`SELECT `+msgCols+` FROM messages
-		 WHERE chat_jid = ? AND timestamp < ? AND is_bot_message = 0
+		 WHERE chat_jid = ? AND timestamp < ?
 		 ORDER BY timestamp DESC
 		 LIMIT ?`,
 		jid, before.Format(time.RFC3339Nano), limit,
