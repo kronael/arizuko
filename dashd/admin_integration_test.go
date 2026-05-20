@@ -287,3 +287,221 @@ func TestDash_GrantAdd_DenyNonAdmin(t *testing.T) {
 		t.Errorf("status = %d, want 403", resp.StatusCode)
 	}
 }
+
+// TestDash_TaskCreate: admin creates a task, then views the detail page.
+func TestDash_TaskCreate(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"owner":    {"alice"},
+		"chat_jid": {"alice@s.whatsapp.net"},
+		"prompt":   {"say hello"},
+		"cron":     {"0 9 * * *"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/tasks/",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create status = %d, want 303", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.HasPrefix(loc, "/dash/tasks/t-") {
+		t.Fatalf("redirect to %q; expected /dash/tasks/t-<id>", loc)
+	}
+
+	// Fetch the detail page (direct httptest call to avoid redirect loop).
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbPath: "memory",
+		groupsDir: filepath.Join(inst.Tmp, "groups")}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+	taskID := strings.TrimPrefix(loc, "/dash/tasks/")
+	detailReq := httptest.NewRequest("GET", "/dash/tasks/"+taskID, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, detailReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("detail status = %d", w.Code)
+	}
+	bs := w.Body.String()
+	for _, want := range []string{"say hello", "0 9 * * *", "alice", "active"} {
+		if !strings.Contains(bs, want) {
+			t.Errorf("detail missing %q", want)
+		}
+	}
+}
+
+// TestDash_TaskPauseResume: admin pauses then resumes a task.
+func TestDash_TaskPauseResume(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
+		 VALUES ('t1', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(path string) int {
+		req, _ := http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("X-User-Sub", "alice@x")
+		resp, err := noFollow().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := post("/dash/tasks/t1/pause"); code != http.StatusSeeOther {
+		t.Errorf("pause: status = %d, want 303", code)
+	}
+	var status string
+	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t1'`).Scan(&status)
+	if status != "paused" {
+		t.Errorf("after pause: status = %q, want paused", status)
+	}
+
+	if code := post("/dash/tasks/t1/resume"); code != http.StatusSeeOther {
+		t.Errorf("resume: status = %d, want 303", code)
+	}
+	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t1'`).Scan(&status)
+	if status != "active" {
+		t.Errorf("after resume: status = %q, want active", status)
+	}
+}
+
+// TestDash_TaskCancel: admin cancels a task.
+func TestDash_TaskCancel(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
+		 VALUES ('t2', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/tasks/t2/cancel", nil)
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("cancel: status = %d, want 303", resp.StatusCode)
+	}
+	var status string
+	inst.DB.QueryRow(`SELECT status FROM scheduled_tasks WHERE id='t2'`).Scan(&status)
+	if status != "cancelled" {
+		t.Errorf("after cancel: status = %q, want cancelled", status)
+	}
+}
+
+// TestDash_TaskAction_DenyNonAdmin: non-admin cannot pause a task.
+func TestDash_TaskAction_DenyNonAdmin(t *testing.T) {
+	srv, inst, _ := newRWDashServer(t)
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
+		 VALUES ('t3', 'alice', 'alice@s.whatsapp.net', 'ping', '* * * * *', 'active', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("POST", srv.URL+"/dash/tasks/t3/pause", nil)
+	req.Header.Set("X-User-Sub", "stranger@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestDash_TaskDetail_RunLogs: seed task + run logs, verify they appear.
+func TestDash_TaskDetail_RunLogs(t *testing.T) {
+	_, inst, _ := newRWDashServer(t)
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
+		 VALUES ('t4', 'bob', 'bob@s.whatsapp.net', 'daily report', '0 8 * * *', 'active', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := inst.DB.Exec(
+			`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, error)
+			 VALUES ('t4', ?, ?, 'ok', '')`,
+			now, (i+1)*100); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbPath: "memory",
+		groupsDir: filepath.Join(inst.Tmp, "groups")}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+	req := httptest.NewRequest("GET", "/dash/tasks/t4", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	bs := w.Body.String()
+	for _, want := range []string{"daily report", "0 8 * * *", "bob", "100 ms", "Run history"} {
+		if !strings.Contains(bs, want) {
+			t.Errorf("detail page missing %q", want)
+		}
+	}
+}
+
+// TestDash_TasksPage_PromptColumn: tasks list page includes Prompt column.
+func TestDash_TasksPage_PromptColumn(t *testing.T) {
+	_, inst, _ := newRWDashServer(t)
+	now := time.Now().Format(time.RFC3339)
+	if _, err := inst.DB.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
+		 VALUES ('t5', 'carol', 'carol@s.whatsapp.net', 'send summary', '0 7 * * *', 'active', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &dash{db: inst.DB, dbPath: "memory",
+		groupsDir: filepath.Join(inst.Tmp, "groups")}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+	req := httptest.NewRequest("GET", "/dash/tasks/", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	bs := w.Body.String()
+	if !strings.Contains(bs, "Prompt") {
+		t.Errorf("tasks page missing Prompt column header")
+	}
+	if !strings.Contains(bs, "send summary") {
+		t.Errorf("tasks page missing prompt text")
+	}
+}
