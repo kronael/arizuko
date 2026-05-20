@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko — agent organization platform</title>
+    <title>arizuko — self-hosted agent orchestration</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -44,13 +44,13 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        A self-hosted system where each agent is just a folder. That folder
-        holds its prompt, memory, skills, routes, and files &mdash;
-        <code>corp/sales</code>, <code>corp/eng/sre</code>,
-        <code>corp/support</code>. When a message arrives the agent runs in a
-        container; <code>gated</code> on the host decides what it can touch.
-        No managed control plane, no per-seat pricing. One
-        <code>tar</code> of the data directory is the full backup.
+        Self-hosted orchestration platform for Claude agents. Each team or
+        function is an agent &mdash; a folder with its own persona, memory,
+        skills, and channel connections. Agents coordinate, delegate, and
+        commission each other through <code>gated</code>, which brokers every
+        tool call and enforces what each one can reach. No managed control
+        plane, no per-seat pricing. One <code>tar</code> backs up the
+        instance.
       </p>
 
       <h2>why not a shared assistant?</h2>
