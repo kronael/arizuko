@@ -48,7 +48,7 @@ them on each request.
   through one hand-written handler — no auto-generated DSL, no
   catalog-driven mapper. arizuko is agent-first; MCP is the canonical
   protocol; REST is the boundary impedance match for non-MCP callers.
-  Spec: `specs/6/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
+  Spec: `specs/5/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions, the same scopes, the same auth gate.
 
@@ -124,7 +124,7 @@ model outgrows a row in the root table.
   and `/hook/<token>` surfaces; spec `specs/5/W-webhook-routes.md`.
 - **EXTENDING.md** — channels, actions, routing, mounts, skills,
   tasks, diary, autocall extension points.
-- **GRANTS.md** — pointer to `specs/6/9-acl-unified.md` (canonical) + the operator concepts page.
+- **GRANTS.md** — pointer to `specs/4/9-acl-unified.md` (canonical) + the operator concepts page.
 - **CHANGELOG.md** — what shipped, dated.
 
 Keep `EXTENDING.md` current as extension points evolve (channels,
@@ -198,7 +198,7 @@ issues the prior one couldn't see.
 - **Adding a channel adapter**: ship a `template/services/<daemon>.toml`
   with the daemon's compose env + a `[[proxyd_route]]` block. No edit to
   `proxyd/main.go` or `compose/compose.go`. Spec:
-  `specs/6/2-proxyd-standalone.md`.
+  `specs/5/35-proxyd-standalone.md`.
 - **Daemon HTTP port: `:8080` inside the container, always.** Every
   daemon's `LISTEN_ADDR` code-default is `:8080`; every service TOML
   in `template/services/` declares `LISTEN_ADDR=:8080` explicitly

@@ -130,7 +130,7 @@ readable by that folder's agent.
 Future modes (`#drop`, `#digest`, …) extend the fragment vocabulary
 without a schema change — one column, free-form fragment.
 
-Spec: `specs/6/B-route-mode-ingestion.md`.
+Spec: `specs/5/B-route-mode-ingestion.md`.
 
 ### Verb promotion + annotation (gateway-side)
 

@@ -16,7 +16,7 @@ in code (`grants.DeriveRules`); operator overrides become `acl` rows.
 
 ## Canonical sources
 
-- **Spec**: [`specs/6/9-acl-unified.md`](specs/6/9-acl-unified.md) —
+- **Spec**: [`specs/4/9-acl-unified.md`](specs/4/9-acl-unified.md) —
   the model, principal namespace, action lattice, evaluation order,
   bootstrap, audit.
 - **Operator concepts**: `template/web/pub/concepts/grants.html` —
@@ -33,7 +33,7 @@ in code (`grants.DeriveRules`); operator overrides become `acl` rows.
   (consumed by `Authorize`'s fallback path).
 - `specs/4/19-action-grants.md` — rule grammar (`!send`,
   `send(jid=telegram:*)`) used inside the tier-default rule list.
-- `specs/6/6-middleware-pipeline.md` — MCP call-site wrapping
+- `specs/5/6-middleware-pipeline.md` — MCP call-site wrapping
   (`gated(Authorize)`).
 
 Earlier revisions of this file documented a 4-layer composition

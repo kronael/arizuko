@@ -312,7 +312,7 @@ CODEX_VERSION` in `ant/Dockerfile` (when the codex backend
   have what we need, we wait for upstream or pick a different
   harness. Not maintaining a fork.
 - Backend-specific operator verbs in arizuko. The fleet ops in
-  [../10/e-ant-portability.md](../10/e-ant-portability.md) work
+  [../7/7-ant-portability.md](../7/7-ant-portability.md) work
   identically regardless of backend, because they operate on the
   folder, not the harness.
 
@@ -326,5 +326,5 @@ CODEX_VERSION` in `ant/Dockerfile` (when the codex backend
 - [../10/d-ant-image-cutover.md](../10/d-ant-image-cutover.md) —
   image build; a Codex variant follows the same pattern (`ARG
 CODEX_VERSION`, similar Dockerfile).
-- [../10/e-ant-portability.md](../10/e-ant-portability.md) — fleet
+- [../7/7-ant-portability.md](../7/7-ant-portability.md) — fleet
   ops; lockfile and verbs are backend-agnostic.
