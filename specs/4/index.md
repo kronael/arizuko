@@ -9,7 +9,6 @@ progress.
 
 ## Draft
 
-- [N-platform-api.md](N-platform-api.md) — group CRUD + slink under one `/v1/*` surface
 - [U-user-dashboard.md](U-user-dashboard.md) — per-user `/me/*` portal (memberships, JIDs, secrets)
 - [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — dashd operator ACL editor on unified `acl` table
 
