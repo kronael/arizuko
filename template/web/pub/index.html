@@ -54,18 +54,22 @@
         <code>tar</code> of the data directory is the full backup.
       </p>
 
-      <h2>agents as code</h2>
+      <h2>why not a shared assistant?</h2>
       <p>
-        An agent is a folder. Change its persona by editing a file; the next
-        session picks it up. Add a skill by dropping a directory. The org chart
-        is the folder tree &mdash; same depth as your team structure.
+        One agent for the whole company means sales context bleeds into ops
+        context &mdash; each team needs its own persona, memory, and channel.
       </p>
+      <ul>
+        <li>Shared context means one team&rsquo;s history contaminates
+          another&rsquo;s answers.</li>
+        <li>No code path &mdash; configuration lives in a GUI, not in files
+          you can diff, review, and roll back.</li>
+        <li>Your prompts, context, and files go through someone
+          else&rsquo;s servers.</li>
+      </ul>
       <p>
-        Agent configs live in files you can diff, review in a PR, and roll
-        back with <code>git revert</code>. Each team gets its own context
-        boundary: <code>corp/sales</code> doesn&rsquo;t see
-        <code>corp/eng/sre</code>&rsquo;s memory. Agents accumulate context
-        over weeks, fork topics, and coordinate across teams.
+        arizuko runs on your infrastructure. Agent configs are files. Changes
+        are diffs. Rollback is <code>git revert</code>.
       </p>
 
       <h2>how it works</h2>
