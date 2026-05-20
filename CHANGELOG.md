@@ -12,6 +12,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- slakd: typing indicator uses `reactions.add`/`remove` with 👀 (`eyes`)
+  on the trigger message instead of the discontinued `conversations.typing`
+  (RTM-only). One code path for pane and regular channels. Tracks last
+  inbound message TS per JID.
+
+---
+
 ## [v0.45.0] — 2026-05-20
 
 > arizuko v0.45.0 — observe_group, user portal, file threading

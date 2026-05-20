@@ -72,9 +72,11 @@ pane. slakd implements the full lifecycle when the app has
 * `assistant_thread_context_changed` → updates
   `pane_sessions.context_jid` with the workspace channel the user is
   viewing. No synthetic turn (context drift isn't a user action).
-* `Typing()` calls `assistant.threads.setStatus` only when the JID
-  maps to an open pane (`pane_sessions` lookup by `channel_id`);
-  stamps `last_status_at` for debounce.
+* `Typing()` adds a 👀 reaction to the last inbound message for the JID
+  (on=true) and removes it (on=false). Same path for pane and regular
+  channels — no `conversations.typing` (RTM-only, discontinued) and no
+  `assistant.threads.setStatus`. Silent no-op when no prior inbound
+  message is known.
 * `Send()` into a pane channel drains pending prompts/title staged
   via the MCP tools below and fires `assistant.threads.setSuggestedPrompts`
   / `setTitle` after the `chat.postMessage` succeeds.
