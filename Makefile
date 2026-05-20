@@ -8,6 +8,7 @@ COMPONENTS = crackbox
 # in the docker group (then `make images DOCKER=docker`). Default is
 # `sudo docker` so `make images` works consistently across dev hosts.
 DOCKER ?= sudo docker
+export DOCKER_BUILDKIT=1
 
 build:
 	go build -o arizuko ./cmd/arizuko/

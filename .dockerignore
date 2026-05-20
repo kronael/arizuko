@@ -1,7 +1,12 @@
 cfg/
 tmp/
+bin/
+refs/
 .ship/
+.diary/
 .git
+ant/node_modules
+ant/.next
 openclaw/.git
 openclaw/node_modules
 openclaw/dist
