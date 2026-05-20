@@ -12,6 +12,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.3] — 2026-05-20
+
+> arizuko v0.45.3 — slakd reaction/delete logging + build fix
+>
+> Like and delete calls now log to journald — channel, message ID, and any Slack error — so failures are visible without guessing. Docker BuildKit now actually activates under sudo.
+>
+> • slakd `like`/`delete` log the message TS and surface Slack errors in journald
+> • `make images` works under sudo — `DOCKER_BUILDKIT` injected via `env` to survive sudo's env reset
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- slakd: `Like` and `Delete` now log channel, timestamp, and Slack error code to
+  journald — previously errors were returned to the agent silently
+- build: `DOCKER_BUILDKIT=1` injected via `sudo env` so BuildKit activates when
+  `make images` runs under sudo (earlier approach with `export` was stripped)
+
+---
+
 ## [v0.45.2] — 2026-05-20
 
 > arizuko v0.45.2 — Slack threading + 👀 cleanup
