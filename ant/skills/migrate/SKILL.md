@@ -228,20 +228,22 @@ test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
 echo "$latest" > ~/.announced-version
 ```
 
-Extract the version header + `>` blockquote; skip `### Added/Changed/Fixed`:
+Extract the version tagline and send a terse one-liner + changelog link:
 
 ```bash
-header=$(awk '/^## \[v/{print; exit}' /workspace/self/CHANGELOG.md)
-summary=$(awk '/^## \[v/{n++} n==1 && /^> /{sub(/^> ?/, ""); print} n==1 && /^### /{exit}' \
+# "## [v0.42.0] — 2026-05-19" → "v0.42.0 — 2026-05-19"
+header=$(awk '/^## \[v/{gsub(/[#\[\] ]/," "); gsub(/^ +/,""); print; exit}' \
+  /workspace/self/CHANGELOG.md | sed 's/  */ /g; s/^ //')
+# First non-empty line of the blockquote (the tagline sentence)
+tagline=$(awk '/^## \[v/{n++} n==1 && /^> /{sub(/^> ?/,""); if(NF>0){print; exit}}' \
   /workspace/self/CHANGELOG.md)
 
-MSG="$header
+MSG="${header}
+${tagline}
 
-$summary"
+Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md"
 ```
 
-Format: see "## Announcing" in root `CLAUDE.md`. The blockquote is the broadcast verbatim.
-If a version block has no blockquote, fall back to "v0.X deployed" + changelog URL.
 One message per release, not per migration. Repo URL: `github.com/kronael/arizuko`.
 
 Fan out via `refresh_groups` → resolve each folder's primary JID from
