@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o proxyd .
+	go build -o $(OUT)/proxyd .
 
 test:
 	go test ./... -count=1

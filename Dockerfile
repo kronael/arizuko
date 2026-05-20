@@ -2,28 +2,14 @@
 # Reproducibility contract: base images pinned to explicit tags.
 # Bump versions intentionally; digests can be re-pinned via `docker pull` output.
 FROM golang:1.25-alpine AS build
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+RUN apk add --no-cache gcc musl-dev sqlite-dev make
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY third_party ./third_party
 RUN go mod download
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -o /arizuko ./cmd/arizuko/ && \
-    CGO_ENABLED=1 go build -o /gated ./gated/ && \
-    CGO_ENABLED=1 go build -o /timed ./timed/ && \
-    CGO_ENABLED=0 go build -o /teled ./teled/ && \
-    CGO_ENABLED=0 go build -o /discd ./discd/ && \
-    CGO_ENABLED=0 go build -o /onbod ./onbod/ && \
-    CGO_ENABLED=0 go build -o /dashd ./dashd/ && \
-    CGO_ENABLED=0 go build -o /proxyd ./proxyd/ && \
-    CGO_ENABLED=0 go build -o /webd ./webd/ && \
-    CGO_ENABLED=0 go build -o /linkd ./linkd/ && \
-    CGO_ENABLED=0 go build -o /slakd ./slakd/ && \
-    CGO_ENABLED=0 go build -o /emaid ./emaid/ && \
-    CGO_ENABLED=0 go build -o /bskyd ./bskyd/ && \
-    CGO_ENABLED=0 go build -o /mastd ./mastd/ && \
-    CGO_ENABLED=0 go build -o /reditd ./reditd/
+    make -j$(nproc) docker-build OUT=/
 
 FROM alpine:3.20
 RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \

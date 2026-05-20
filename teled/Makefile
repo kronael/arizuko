@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o teled .
+	go build -o $(OUT)/teled .
 
 test:
 	go test ./... -count=1

@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o onbod .
+	go build -o $(OUT)/onbod .
 
 test:
 	go test ./... -count=1

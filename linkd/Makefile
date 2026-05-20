@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o linkd .
+	go build -o $(OUT)/linkd .
 
 test:
 	go test ./... -count=1

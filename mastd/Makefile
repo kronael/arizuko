@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o mastd .
+	go build -o $(OUT)/mastd .
 
 test:
 	go test ./... -count=1

@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o ttsd .
+	go build -o $(OUT)/ttsd .
 
 test:
 	go test ./... -count=1

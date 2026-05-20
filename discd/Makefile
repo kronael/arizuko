@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o discd .
+	go build -o $(OUT)/discd .
 
 test:
 	go test ./... -count=1

@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o emaid .
+	go build -o $(OUT)/emaid .
 
 test:
 	go test ./... -count=1

@@ -15,6 +15,19 @@ build:
 	$(foreach d,$(DAEMONS),make -C $(d) build;)
 	$(foreach c,$(COMPONENTS),make -C $(c) build;)
 
+OUT ?= .
+DOCKER_TARGETS = $(addprefix docker-build-,arizuko $(DAEMONS))
+
+docker-build: $(DOCKER_TARGETS)
+
+docker-build-arizuko:
+	CGO_ENABLED=1 go build -o $(OUT)/arizuko ./cmd/arizuko/
+
+$(addprefix docker-build-,$(DAEMONS)): docker-build-%:
+	$(MAKE) -C $* OUT=$(OUT) build
+
+.PHONY: docker-build docker-build-arizuko $(DOCKER_TARGETS)
+
 lint:
 	go vet ./...
 	$(foreach d,$(DAEMONS),make -C $(d) lint;)

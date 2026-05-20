@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o reditd .
+	go build -o $(OUT)/reditd .
 
 test:
 	go test ./... -count=1

@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o timed .
+	go build -o $(OUT)/timed .
 
 test:
 	go test ./... -count=1

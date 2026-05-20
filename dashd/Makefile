@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o dashd .
+	go build -o $(OUT)/dashd .
 
 test:
 	go test ./... -count=1

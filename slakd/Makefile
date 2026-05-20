@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o slakd .
+	go build -o $(OUT)/slakd .
 
 test:
 	go test ./... -count=1

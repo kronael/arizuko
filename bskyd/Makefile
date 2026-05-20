@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o bskyd .
+	go build -o $(OUT)/bskyd .
 
 test:
 	go test ./... -count=1

@@ -1,5 +1,6 @@
+OUT ?= .
 build:
-	go build -o webd .
+	go build -o $(OUT)/webd .
 
 test:
 	go test ./... -count=1 -short
