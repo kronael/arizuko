@@ -44,32 +44,33 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Self-hosted toolkit for organizing Claude agents as a folder
-        hierarchy. Each folder is an agent with its own memory, skills, and
-        channel connections &mdash; <code>corp/sales</code>,
-        <code>corp/eng/sre</code>, <code>corp/support</code>. Agents connect
-        back to the host via MCP over a unix socket; every tool call routes
-        through <code>gated</code>, which logs and enforces it. No hosted
-        control plane, no per-seat pricing. $5 VPS; one
+        A self-hosted system where each agent is just a folder. That folder
+        holds its prompt, memory, skills, routes, and files &mdash;
+        <code>corp/sales</code>, <code>corp/eng/sre</code>,
+        <code>corp/support</code>. When a message arrives the agent runs in a
+        container; <code>gated</code> on the host decides what it can touch.
+        No managed control plane, no per-seat pricing. One
         <code>tar</code> of the data directory is the full backup.
       </p>
 
       <h2>why not a shared assistant?</h2>
       <p>
-        One agent for the whole company means sales context bleeds into ops
-        context &mdash; each team needs its own persona, memory, and channel.
+        A shared assistant becomes a junk drawer. Everyone throws context into
+        the same box, and nobody trusts what comes back out.
       </p>
       <ul>
-        <li>One team&rsquo;s history bleeds into another&rsquo;s answers.</li>
-        <li>Sessions start blank &mdash; no memory across conversations.</li>
-        <li>One surface: a chat window. No Slack, email, or Discord.</li>
-        <li>Config in a GUI &mdash; nothing to diff, review, or roll back.</li>
-        <li>No way to extend it &mdash; you can&rsquo;t add channels, skills, or
-          routing logic without leaving the platform.</li>
+        <li>Sales asks for help and gets ops baggage.</li>
+        <li>Support inherits yesterday&rsquo;s unrelated thread.</li>
+        <li>The thing forgets, unless the vendor decides it should remember.</li>
+        <li>Your real system is Slack + email + webhooks &mdash; the assistant
+          lives in one chat tab.</li>
+        <li>When it misbehaves, there&rsquo;s no file to diff, no route to
+          inspect, and no clean rollback.</li>
       </ul>
       <p>
-        arizuko runs on your infrastructure. Agent configs are files. Changes
-        are diffs. Rollback is <code>git revert</code>.
+        arizuko gives each team its own agent, memory, channels, and policy
+        on your own host. The config is files. Rollback is
+        <code>git revert</code>.
       </p>
 
       <h2>how it works</h2>
