@@ -841,6 +841,9 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	isolated := strings.HasPrefix(last.Sender, "timed-isolated")
+	// Seed last-reply with the inbound trigger ID so send_reply with no
+	// reply_to_id threads under the triggering message by default.
+	_ = g.store.SetLastReply(chatJid, topic, last.ID, group.Folder)
 	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder, last.Sender)
 	// Spec 5/G — expose trigger sender to MCP recordOutbound so the
 	// timed-* skip works for agent-side send/reply/post too.
@@ -915,6 +918,7 @@ func (g *Gateway) processWebTopics(
 			ch.Typing(chatJid, true)
 		}
 
+		_ = g.store.SetLastReply(chatJid, effectiveTopic, last.ID, group.Folder)
 		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder, last.Sender)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, effectiveTopic, last.ID, len(topicMsgs))
