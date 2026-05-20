@@ -12,7 +12,39 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.44.0] — 2026-05-20
+
+> arizuko v0.44.0 — typing indicators, silent-agent fix, ingest docs
+>
+> Slack typing indicators now show while the agent thinks. The agent no longer goes silent on short or ambiguous messages — it searches conversation history first.
+>
+> • Slack typing — slakd was missing the typing capability flag; fixed, indicators now fire.
+> • Silent agent — agent now calls inspect_messages before giving up on a short message ("ok", "better", "yes").
+> • Ingest section — landing page explains how to feed agents knowledge (WebDAV, /find, webhooks).
+> • migrate announce — hard-blocked paraphrase; script output used verbatim.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- slakd: `"typing": true` was missing from the capability map sent to the
+  gateway on registration. `HTTPChannel.Typing` silently skipped the HTTP
+  call when the cap was absent. Typing indicators now fire on Slack.
+- slakd: reverted over-engineered permanent-error switch on `conversations.typing`
+  (not_in_channel, not_allowed_token_type) introduced while diagnosing the
+  cap bug. Simple warn-and-continue restored.
+- ant: agent now calls `inspect_messages` before staying silent on short or
+  ambiguous messages ("ok", "better", "yes", "improve"). Prevents silent turns
+  after session resume with no context.
+- migrate skill: announce step now hard-blocks paraphrase with a bold
+  constraint; script stdout used verbatim as the broadcast message.
+
+### Changed
+
+- Landing page: new `ingest` section (WebDAV drop, `/find` skill, webhook
+  push path) placed between `organize` and `coordinate`.
+- specs/7/8: company-brain status → "not planned"; data ingestion framed
+  as the primary gap; connector skill and Onyx integration as future directions.
 
 ---
 
