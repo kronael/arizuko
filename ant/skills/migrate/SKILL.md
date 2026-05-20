@@ -218,31 +218,31 @@ done
 
 ## e) Announce the release
 
-Claim the version before fan-out so a mid-broadcast restart cannot re-announce:
+**ANNOUNCEMENT FORMAT IS FIXED. Do NOT write your own message. Do NOT paraphrase.
+Run the script below, capture its stdout, and use that exact string verbatim
+as the `text` argument to `send_message`. No additions, no bullets, no blockquote.**
+
+Claim the version and build the message in one script. Run it with `bash -s` or
+save to a temp file and execute:
 
 ```bash
-latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md \
-  | tr -d '[]')
+latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
 last=$(cat ~/.announced-version 2>/dev/null || echo "")
-test "$latest" = "$last" && { echo "already announced $latest"; exit 0; }
+if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
 echo "$latest" > ~/.announced-version
-```
 
-Extract the version tagline and send a terse one-liner + changelog link:
-
-```bash
 # "## [v0.42.0] — 2026-05-19" → "v0.42.0 — 2026-05-19"
 header=$(awk '/^## \[v/{gsub(/[#\[\] ]/," "); gsub(/^ +/,""); print; exit}' \
   /workspace/self/CHANGELOG.md | sed 's/  */ /g; s/^ //')
-# First non-empty line of the blockquote (the tagline sentence)
 tagline=$(awk '/^## \[v/{n++} n==1 && /^> /{sub(/^> ?/,""); if(NF>0){print; exit}}' \
   /workspace/self/CHANGELOG.md)
 
-MSG="${header}
-${tagline}
-
-Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md"
+printf '%s\n%s\n\nFull notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' \
+  "$header" "$tagline"
 ```
+
+The script prints either `SKIP` (already announced — stop) or the exact message
+to send. Copy the printed text verbatim into `send_message`. Do not edit it.
 
 One message per release, not per migration. Repo URL: `github.com/kronael/arizuko`.
 
