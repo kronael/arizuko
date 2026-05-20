@@ -48,9 +48,10 @@
         function is an agent &mdash; a folder with its own persona, memory,
         skills, and channel connections. Agents coordinate, delegate, and
         commission each other through <code>gated</code>, which brokers every
-        tool call and enforces what each one can reach. No managed control
-        plane, no per-seat pricing. One <code>tar</code> backs up the
-        instance.
+        tool call and enforces what each one can reach. Every platform
+        operation is an MCP tool and a REST endpoint &mdash; agents and
+        operators share the same surface. No managed control plane, no
+        per-seat pricing. One <code>tar</code> backs up the instance.
       </p>
 
       <h2>agents as code</h2>
@@ -65,6 +66,14 @@
         boundary: <code>corp/sales</code> doesn&rsquo;t see
         <code>corp/eng/sre</code>&rsquo;s memory. Agents accumulate context
         over weeks, fork topics, and coordinate across teams.
+      </p>
+      <p>
+        Agents need structure the same way humans do &mdash; not bureaucracy,
+        but enough to know what they can reach, what their job is, and who
+        they answer to. Minimality and orthogonality provide that: one concept
+        per primitive, nothing hidden, everything composable. A system simple
+        enough for a human to reason about is simple enough for an agent to
+        manage. That&rsquo;s the design principle arizuko is built around.
       </p>
 
       <h2>why not a shared assistant?</h2>
@@ -95,9 +104,22 @@
         container connects back to <code>gated</code> via MCP over a unix
         socket; every tool call (send a message, read memory, call an API)
         goes through that socket. The host decides what the agent can reach.
+        Every platform operation &mdash; create a folder, add a route, set a
+        grant, issue a token &mdash; is available as both an MCP tool and a
+        REST endpoint. Agents and operators use the same surface; there is no
+        separate agent API.
         All state lives in one SQLite WAL database; the container is
         stateless. One <code>tar</code> of the data directory is the entire
         instance.
+      </p>
+      <p>
+        Agent teams are not web apps. Five agents exchanging 50 messages a
+        day is nothing for SQLite WAL &mdash; concurrent reads and writes, no
+        contention. <code>proxyd</code> signs identity headers in one binary,
+        so there&rsquo;s no Auth0, no Vault, no Redis session store. Docker
+        Compose on a $5 VPS handles what would take a full managed stack at
+        web scale. The stack is sized for agent scale &mdash; 50 messages a
+        day, not 50,000 requests per second.
       </p>
 
       <h2>organize</h2>
