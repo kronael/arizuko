@@ -8,7 +8,11 @@ COMPONENTS = crackbox
 # in the docker group (then `make images DOCKER=docker`). Default is
 # `sudo docker` so `make images` works consistently across dev hosts.
 DOCKER ?= sudo docker
-DOCKER_BUILD = DOCKER_BUILDKIT=1 $(DOCKER) build
+# sudo strips env; inject DOCKER_BUILDKIT via `env` after the sudo prefix.
+# If DOCKER is overridden to plain `docker`, the env prefix is still harmless.
+DOCKER_SUDO = $(filter sudo,$(DOCKER))
+DOCKER_BIN  = $(filter-out sudo,$(DOCKER))
+DOCKER_BUILD = $(DOCKER_SUDO) env DOCKER_BUILDKIT=1 $(DOCKER_BIN) build
 
 build:
 	go build -o arizuko ./cmd/arizuko/
