@@ -1,5 +1,5 @@
 ---
-status: active
+status: shipped
 ---
 
 # specs/3 — features & extensions

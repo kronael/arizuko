@@ -6,8 +6,8 @@ status: shipped
 
 A user-facing, authenticated portal: account, orgs, folders, chat
 browser + continuation, secrets, costs, invites. Distinct from
-`dashd` (`/dash/*`, operator surface). Subsumes today's `/chat/*`
-under `webd`.
+`dashd` (`/dash/*`, operator surface). `/chat/*` is subsumed under
+`webd/me.go`.
 
 ## Essence
 
@@ -156,58 +156,26 @@ Cap-hit folders rendered red; near-cap (≥80%) amber.
 
 ## Open questions
 
-1. **Cross-org folder names.** Two orgs both have `team/eng`. The
-   path is globally unique (`acme/team/eng` vs `globex/team/eng`),
-   but UI breadcrumbs need org scoping. Confirm the rule.
-2. **Anonymous viewing of one's own channel-route threads.** spec
-   5/A says anonymous interaction is first-class. Can a sub WITHOUT
-   a JID-claim see threads they participated in via a channel route?
-   Probably no — the dashboard requires an OAuth-authenticated
-   account; channel-only users get no dashboard.
-3. **Secret leakage via thread transcript.** If the agent ever
-   echoed a secret into a message (it shouldn't), the chat browser
-   surfaces it. Do we redact `[A-Z0-9]{20,}` heuristically, or
-   trust upstream skill discipline?
-4. **JID-claim invite UX.** spec 5/A splits invites into JID-claim
-   and folder-grant. Where does the claim flow start — `/me/account`
-   issues a token the user pastes into the channel-side bot, or the
-   reverse (channel-side `/claim` command issues a URL)?
-5. **Pagination scaling.** A power user with 10⁵ messages: cursor
-   pagination by `(timestamp, id)` likely fine, but the GROUP BY in
-   the index query may need a materialized `conversations` view.
-6. **SSE multiplexing.** One browser tab open on three threads = three
-   SSE connections. Tolerable, or do we want one connection
-   multiplexed by topic? Defer until measured.
-7. **Sub-folder creation policy.** Who decides whether a member can
-   create sub-folders? Per-org `settings.toml` flag? A new grant
-   right (`create`)? Spec 5/A only defines `interact`+`admin`.
-8. **Operator (`**`) visibility through `/me/`.** Does an operator
-see all threads via `/me/chats`? Likely **no** — `/me/*` is the
-   user's view of *themselves*. Operator omniscience belongs to
-   `/dash/*`. State this explicitly to prevent drift.
-9. **Settings persistence.** New table `user_settings(sub, key,
-value)` or extend `auth_users` columns? Schema lives in `gated`
-   per CLAUDE.md; webd writes via `/v1/users/{sub}/settings`.
-10. **Mobile.** HTMX server-rendered is fine on mobile but the
-    folder-tree rail needs collapse behavior. Spec the breakpoint.
-
-## Implementation phases
-
-Each phase is independently shippable. Tests written in the same
-commit as the feature (per `ship_with_tests`).
-
-- **M0 — read-only foundation.** `/me/`, `/me/account`, `/me/orgs`,
-  `/me/orgs/{org}`, `/me/chats`, `/me/chats/{folder}/{topic}`,
-  `/me/settings` (GET only). All reads scope by JWT sub. No writes.
-  Subsumes today's `/chat/*` read paths.
-- **M1 — chat continuation.** `/me/chats/{folder}/{topic}/send`,
-  `/me/chats/{folder}/{topic}/sse`, `/me/chats/new`. Reuses webd's
-  SSE hub; `/chat/*` deleted in this phase.
-- **M2 — secrets + costs.** `/me/secrets/*`, `/me/costs`,
-  `/me/folders/{folder}/files` read paths. Audit-log surface.
-- **M3 — admin + invites.** Folder-grant invite issuance,
-  sub-folder creation, JID-claim invites, admission-queue view.
-  Gated on `admin` rights.
+1. **Cross-org folder names.** Path is globally unique (`acme/team/eng`
+   vs `globex/team/eng`), but UI breadcrumbs need org scoping. Confirm
+   the rule.
+2. **Anonymous viewing.** Dashboard requires OAuth. Channel-only users
+   (no JID-claim) get no `/me/*` access.
+3. **Secret leakage via thread transcript.** If the agent echoed a
+   secret into a message, the chat browser surfaces it. Redact
+   `[A-Z0-9]{20,}` heuristically or trust upstream skill discipline?
+4. **JID-claim invite UX.** Where does the claim flow start —
+   `/me/account` issues a token, or channel-side `/claim` command
+   issues a URL?
+5. **Pagination scaling.** 10⁵ messages: cursor pagination is likely
+   fine but the GROUP BY in the index query may need a materialized
+   `conversations` view.
+6. **SSE multiplexing.** Three tabs × three SSE connections — tolerable
+   or multiplex by topic? Defer until measured.
+7. **Sub-folder creation policy.** Per-org flag or new grant right
+   (`create`)? Spec 5/A only defines `interact`+`admin`.
+8. **Operator visibility.** `/me/*` is the user's slice; operator
+   omniscience belongs to `/dash/*`, not `/me/chats`.
 
 ## Dependencies
 
@@ -216,14 +184,14 @@ commit as the feature (per `ship_with_tests`).
 - spec 5/32 — org-chart vocabulary (worlds = orgs).
 - spec 6/R — `/v1/*` federation; `/me/*` should be a `/v1/*` client
   of gated/onbod where possible (parallel to dashd's migration
-  table). Direct DB reads acceptable in M0, migrate in M2/M3.
+  table). Direct DB reads are acceptable initially.
 - `cost_log` (migration 0049), `groups`/`routes` (0051),
   `user_groups` (0013), `messages` (`routed_to`, `topic`).
 
 ## Non-goals
 
 - Operator views (stay in `/dash/*`).
-- Backwards compatibility for `/chat/*` (deleted in M1).
+- Backwards compatibility for `/chat/*` (deleted, no shim).
 - Native mobile app or SPA (HTMX only).
 - Replacing channel adapters with web-first chat — channels remain
   the primary surface; `/me/chat` is the convenient overflow.

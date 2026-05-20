@@ -1,18 +1,8 @@
 ---
-status: active
+status: shipped
 ---
 
 # specs/4 — dashboards, memory
-
-Core architecture — mostly shipped, plus platform-shaping specs in
-progress.
-
-## Draft
-
-- [U-user-dashboard.md](U-user-dashboard.md) — per-user `/me/*` portal (memberships, JIDs, secrets)
-- [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — dashd operator ACL editor on unified `acl` table
-
-## Shipped
 
 - [1-channel-protocol.md](1-channel-protocol.md) — HTTP adapter protocol: register/send/health
 - [8-scheduler-service.md](8-scheduler-service.md) — timed daemon: cron poll, one-shot, schema
@@ -36,3 +26,6 @@ progress.
 - [S-e2e-tests.md](S-e2e-tests.md) — mock-agent-based end-to-end tests
 - [2-proxyd.md](2-proxyd.md) — public-facing auth proxy; routes to dashd/webd/vited
 - [3-chat-ui.md](3-chat-ui.md) — webd channel adapter, HTMX UI, slink/SSE, two auth planes
+- [U-user-dashboard.md](U-user-dashboard.md) — per-user `/me/*` portal (chats, folders, settings)
+- [V-dashd-acl-ui.md](V-dashd-acl-ui.md) — dashd operator ACL editor on unified `acl` table
+- [9-acl-unified.md](9-acl-unified.md) — one ACL primitive, three principals, `Authorize` call

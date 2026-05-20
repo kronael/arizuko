@@ -5,31 +5,28 @@ status: shipped
 > Shipped 2026-04-22 (commits `d94c0af`, `847cb4a`, `44122e1`):
 > `fetch_history` + `inspect_messages` registered in `ipc/ipc.go:897-953`;
 > FetchHistory implemented on discd, bskyd, mastd, reditd, emaid, teled,
-> linkd. whapd deferred (Baileys unreliable). Decision block below kept
-> for historical context.
+> linkd. whapd deferred (Baileys unreliable).
 
 # History Fetch (channel-first) + Inspect Tools
 
-Rename and split today's single `get_history` into two distinct tools
-with distinct audiences:
+Two tools with distinct audiences:
 
 | Tool               | Source        | Audience           | Purpose                               |
 | ------------------ | ------------- | ------------------ | ------------------------------------- |
 | `fetch_history`    | channel (API) | agent (reasoning)  | conversation context, backfill depth  |
 | `inspect_messages` | local DB      | agent (ops / logs) | outbound audit, routing, errored rows |
 
-## Why split
+## Why two tools
 
-`get_history` today reads the local DB. That conflates two jobs:
-
-1. **What was actually said in the conversation** — for which the
-   channel/platform is authoritative. Local DB may be missing rows
-   (adapter was offline, WhatsApp LID translation failing, etc.).
+1. **What was actually said in the conversation** — the channel/platform
+   is authoritative. Local DB may be missing rows (adapter was offline,
+   WhatsApp LID translation failing, etc.).
 2. **What passed through arizuko** — inbound rows, outbound audit,
    `errored=1` flags, bot IDs. For this, local DB is authoritative.
 
-Calling local DB "history" hides the platform gap and mixes ops data
-into reasoning context.
+`inspect_messages` and `fetch_history` serve different audiences;
+conflating them hides the platform gap and mixes ops data into reasoning
+context.
 
 ## `fetch_history` — channel-first
 
@@ -42,27 +39,17 @@ Fallback: if adapter is offline or platform errors, gateway returns
 `{source: "cache"}` with whatever local DB has. Agent sees the source
 tag.
 
-Ship Discord first (clean API, unlimited depth). Then Bluesky, Mastodon,
-Reddit, Email. Telegram is 24h-limited — wrap with `source:"platform",
-cap:"24h"`. WhatsApp is excepted (Baileys unreliable) — returns local
-DB only with `source:"cache-only"`.
+Telegram is 24h-limited (`source:"platform", cap:"24h"`). WhatsApp is
+excepted (Baileys unreliable) — returns local DB only with
+`source:"cache-only"`.
 
 ## `inspect_messages` — local DB, operational
 
-Same shape as today's `get_history`. Used for:
+Used for:
 
 - answering "what did I send the last time" (outbound audit)
 - debugging (`errored=1` rows, session boundaries, bot_message flag)
 - /logs-style skills
-
-No rename-and-flip migration needed in agent skills — `get_history`
-stays as a thin alias for `inspect_messages` for one release, then the
-alias is removed.
-
-## Decision
-
-Deferred. Ship the Discord proof of `fetch_history` first; rename only
-after the pattern is proven on one adapter.
 
 ## Non-goals
 

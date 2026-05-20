@@ -197,22 +197,3 @@ No SPA. No JSON endpoints from dashd. Same `theme.CSS` +
    gate ("type the principal exactly"); deletion of the bootstrap
    `role:operator, *, **` row warns "this is the bootstrap row;
    continuing requires DB shell access". Lean: enforce the gate.
-
-## Phases
-
-- **M0 — read-only views.** `/dash/acl`, `/dash/membership`,
-  `/dash/roles`, `/dash/principals/{id}` all GET only. No filter,
-  no expander; plain tables. Refresh of `/dash/groups` to include
-  ACL rows + principals (read-only).
-- **M1 — row CRUD.** POST + DELETE on `/dash/acl`. Insert form,
-  delete buttons, validation pass on predicate / params syntax.
-  Filter form on `/dash/acl`.
-- **M2 — membership UI.** POST + DELETE on `/dash/membership`;
-  cycle check enforced. Transitive expander partial.
-- **M3 — principal-effective + role detail.** Full
-  `/dash/principals/{id}` with tier-default fallback; role detail
-  with members + permissions panels. Wildcard-delete gate.
-
-Each phase ships with `dashd/integration_test.go` coverage
-(`dashd/integration_test.go:1-163` pattern) plus
-`dashd/coverage_test.go` exercise of the new routes.
