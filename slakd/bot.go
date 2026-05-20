@@ -107,10 +107,76 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 	return b, nil
 }
 
+// clearOrphanEyes calls reactions.list on startup and removes any 👀 the bot
+// left on messages (e.g. from a crash mid-processing). Runs once; no stored
+// state needed.
+func (b *bot) clearOrphanEyes(ctx context.Context) {
+	type reactionItem struct {
+		Type    string `json:"type"`
+		Channel string `json:"channel"`
+		Message struct {
+			TS        string `json:"ts"`
+			Reactions []struct {
+				Name  string   `json:"name"`
+				Users []string `json:"users"`
+			} `json:"reactions"`
+		} `json:"message"`
+	}
+	var cursor string
+	botID := b.BotUserID()
+	for {
+		form := url.Values{"full": {"true"}, "limit": {"200"}}
+		if cursor != "" {
+			form.Set("cursor", cursor)
+		}
+		var resp struct {
+			OK               bool           `json:"ok"`
+			Items            []reactionItem `json:"items"`
+			ResponseMetadata struct {
+				NextCursor string `json:"next_cursor"`
+			} `json:"response_metadata"`
+		}
+		if err := b.postForm(ctx, "/reactions.list", form, &resp); err != nil || !resp.OK {
+			return
+		}
+		for _, item := range resp.Items {
+			if item.Type != "message" {
+				continue
+			}
+			for _, r := range item.Message.Reactions {
+				if r.Name != "eyes" {
+					continue
+				}
+				for _, u := range r.Users {
+					if u != botID {
+						continue
+					}
+					rm := url.Values{}
+					rm.Set("channel", item.Channel)
+					rm.Set("name", "eyes")
+					rm.Set("timestamp", item.Message.TS)
+					var rmResp struct {
+						OK    bool   `json:"ok"`
+						Error string `json:"error"`
+					}
+					if err := b.postForm(ctx, "/reactions.remove", rm, &rmResp); err != nil {
+						slog.Debug("clear orphan eyes failed", "ts", item.Message.TS, "err", err)
+					}
+				}
+			}
+		}
+		if resp.ResponseMetadata.NextCursor == "" {
+			break
+		}
+		cursor = resp.ResponseMetadata.NextCursor
+	}
+}
+
 // setTypingReaction adds (on=true) or removes (on=false) the 👀 reaction on
 // the trigger message for jid. On add we snapshot the current lastMsgTS into
 // activeEyesTS so that removal always targets the same message even if new
 // inbound messages arrive and update lastMsgTS before the agent finishes.
+// State is persisted to DATA_DIR/eyes.json so orphans are cleaned on restart.
 func (b *bot) setTypingReaction(jid string, on bool) {
 	var ts any
 	var ok bool
@@ -162,6 +228,7 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.teamID.Store(team)
 	b.connected.Store(true)
 	slog.Info("slack connected", "bot_user_id", user, "team_id", team)
+	go b.clearOrphanEyes(context.Background())
 	return nil
 }
 
