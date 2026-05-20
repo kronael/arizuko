@@ -12,6 +12,48 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.0] — 2026-05-20
+
+> arizuko v0.45.0 — observe_group, user portal, file threading
+>
+> Agents can now subscribe to another folder's messages as ambient context. Users get a web portal to browse folder trees and chat threads. File uploads now thread correctly on platforms that support it.
+>
+> • observe_group — subscribe to another folder's inbound messages as `<observed>` context; unobserve_group cancels it.
+> • User portal — `/me/` three-pane dashboard: folder tree, chat list, thread view with live SSE updates.
+> • send_file replyTo — file uploads carry thread context on Slack and other platforms.
+> • Landing page — "agents as data" framing; primitive-first lede; shorter how-it-works.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `observe_group(source)` / `unobserve_group(source)` MCP tools: subscribe a
+  folder to receive another folder's primary-delivered messages as `<observed>`
+  ambient context on the observer's next trigger turn. New `group_watchers`
+  table (migration 0063); `ObservedSince` extended with UNION join.
+  Auth: tier 0/1 any target, tier 2 own subtree or parent chain. Spec 5/F.
+- webd `/me/*` user portal: three-pane shell (folder tree | chat list |
+  thread+SSE), send form, settings page, file stub. 11 tests.
+- `send_file` `replyTo` parameter threaded through full chain: chanlib
+  `BotHandler`, chanreg, gateway, ipc `GatedFns`, all 10 adapter impls.
+  slakd uses it as `thread_ts` in `files.completeUploadExternal`.
+
+### Fixed
+
+- slakd: `setStatus` missing-scope log was `assistant:write required` — corrected
+  to `chat:write or assistant:write`.
+
+### Changed
+
+- Landing page: "agents as code" → "agents as data" (the folder is context the
+  LLM loop reads). Primitive-first lede. "how it works" cut to two paragraphs.
+  `broadcast` removed; `escalate_group` added to coordinate section. Ingest
+  section now mentions chat, email, and webhook as input paths alongside WebDAV.
+- Output styles: Discord drops headers by default (use `**bold**`). Discord and
+  Slack DM/thread capped at 150-word sweet spot / 250-word hard max.
+
+---
+
 ## [v0.44.0] — 2026-05-20
 
 > arizuko v0.44.0 — typing indicators, silent-agent fix, ingest docs
