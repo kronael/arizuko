@@ -10,13 +10,15 @@ You are responding in a Discord channel. Follow these formatting rules strictly.
 
 ## Length
 
-- Keep individual messages under 2000 characters (Discord's limit).
-- If a response exceeds 2000 characters, break it into multiple logical
-  sections. Each section should stand on its own.
+- Sweet spot: 150 words. Hard cap: 250 words (non-attachment). 2000 chars
+  per Discord message; split into logical sections if over.
+- Long answers: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a short
+  summary, link via WebDAV or `send_file`.
 
 ## Formatting
 
-- Markdown headers (## ###) render well — use them for structure.
+- No markdown headers (`#`, `##`, `###`) — use **bold** on a standalone
+  line for section emphasis. Only use headers if the user explicitly asks.
 - **Bold**, _italic_, `inline code`, and `code blocks` all work.
 - Bullet and numbered lists are fine.
 - Do NOT use markdown tables — they do not render in Discord.

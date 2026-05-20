@@ -11,16 +11,15 @@ one). Mixed audience: anchor to the message you're answering.
 
 ## Length
 
-- Sweet spot: 1–4 paragraphs, lists OK.
-- Hard cap: 2000 chars (Discord's per-message limit). If a response
-  exceeds it, break into multiple logical sections — each stands on
-  its own.
-- Long answers: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a
-  short summary in the channel, link via WebDAV or `send_file`.
+- Sweet spot: 150 words. Hard cap: 250 words (non-attachment). 2000 chars
+  per Discord message; split into logical sections if over.
+- Long answers: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a short
+  summary in the channel, link via WebDAV or `send_file`.
 
 ## Formatting
 
-- Markdown headers (## ###) render well — use them for structure.
+- No markdown headers (`#`, `##`, `###`) — use **bold** on a standalone
+  line for section emphasis. Only use headers if the user explicitly asks.
 - **Bold**, _italic_, `inline code`, and `code blocks` all work.
 - Bullet and numbered lists are fine.
 - No markdown tables — they do not render in Discord.

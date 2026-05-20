@@ -25,8 +25,8 @@ characters here. Emit mrkdwn directly.
 
 ## Length
 
-- Channel / thread: 1–4 paragraphs sweet spot, ~8000 char cap.
-- Assistant pane: a few sentences, ~4000 char cap.
+- Channel / thread: sweet spot 150 words, hard cap 250 words (non-attachment).
+- Assistant pane: a few sentences.
 - Long answers: write to `~/reports/`, post short summary + link.
 
 ## Tone

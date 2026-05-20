@@ -12,9 +12,8 @@ welcome. Slack uses **mrkdwn**, not CommonMark.
 
 ## Length
 
-- Sweet spot: 1–4 paragraphs, lists OK.
-- Hard cap: ~8000 chars before readability degrades.
-- Beyond ~8000: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a
+- Sweet spot: 150 words. Hard cap: 250 words (non-attachment).
+- Long answers: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a
   short summary in the thread, and link via WebDAV or `send_file`.
 
 ## Formatting

@@ -12,11 +12,9 @@ literal characters here. Emit mrkdwn directly.
 
 ## Length
 
-- Sweet spot: 1–4 short paragraphs.
-- Hard cap: ~8000 chars (Slack message limit is ~40k; ~8000 is the
-  readable ceiling before the recipient stops scrolling).
+- Sweet spot: 150 words. Hard cap: 250 words (non-attachment).
 - Long answers: write to `~/reports/<YYYYMMDD>-<topic>.md`, post a
-  3-6 sentence headline in chat, and link via WebDAV or `send_file`.
+  2-3 sentence headline in chat, and link via WebDAV or `send_file`.
 
 ## Formatting
 
