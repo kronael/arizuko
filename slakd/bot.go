@@ -59,6 +59,7 @@ type bot struct {
 	connected     atomic.Bool
 	lastInboundAt atomic.Int64
 	lastMsgTS     sync.Map // jid → Slack TS of last inbound message
+	activeEyesTS  sync.Map // jid → Slack TS that currently has 👀 on it
 
 	// pendingPrompts holds prompts the agent staged via MCP for the
 	// next outbound on a pane (keyed by team/user/thread_ts). Consumed
@@ -107,12 +108,24 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 }
 
 // setTypingReaction adds (on=true) or removes (on=false) the 👀 reaction on
-// the last known inbound message for jid. Used for non-pane channels where
-// conversations.typing is RTM-only and not available to bot tokens.
+// the trigger message for jid. On add we snapshot the current lastMsgTS into
+// activeEyesTS so that removal always targets the same message even if new
+// inbound messages arrive and update lastMsgTS before the agent finishes.
 func (b *bot) setTypingReaction(jid string, on bool) {
-	ts, ok := b.lastMsgTS.Load(jid)
-	if !ok {
-		return
+	var ts any
+	var ok bool
+	if on {
+		ts, ok = b.lastMsgTS.Load(jid)
+		if !ok {
+			return
+		}
+		b.activeEyesTS.Store(jid, ts)
+	} else {
+		ts, ok = b.activeEyesTS.Load(jid)
+		if !ok {
+			return
+		}
+		b.activeEyesTS.Delete(jid)
 	}
 	parts, err := parseJID(jid)
 	if err != nil {
