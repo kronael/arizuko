@@ -108,6 +108,25 @@
         </li>
       </ul>
 
+      <h2>ingest</h2>
+      <p>
+        Each agent&rsquo;s knowledge lives in <code>facts/</code> &mdash; a
+        directory in its workspace that you own entirely. Mount it via WebDAV
+        and drop whatever you have: markdown notes, PDFs, structured files. The
+        format is yours; there&rsquo;s no schema to fight and no connector
+        policy to work around. The <code>/find</code> skill fills gaps during
+        conversation: the agent researches a topic, writes notes to
+        <code>facts/</code>, and those carry into every future session. For
+        live data, POST to <code>/hook/&lt;token&gt;</code> &mdash; a
+        monitoring alert, a support ticket, a form submission &mdash; the
+        payload lands as a message and the agent can extract what matters and
+        write it to memory. Agents read files directly, no search index; that
+        holds for tens of documents. For larger corpora, run a retrieval
+        service (Onyx, Qdrant, or similar) behind a skill &mdash; the agent
+        searches via MCP tool call and gets ranked results back without a
+        pipeline between them.
+      </p>
+
       <h2>coordinate</h2>
       <ul>
         <li>
