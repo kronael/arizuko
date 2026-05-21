@@ -218,54 +218,45 @@ done
 
 ## e) Announce the release
 
-**ANNOUNCEMENT FORMAT IS FIXED. Do NOT write your own message. Do NOT paraphrase.
-Run the script below, capture its stdout, and use that exact string verbatim
-as the `text` argument to `send_message`. No additions, no bullets, no blockquote.**
+**One short message. Run the script, send verbatim. No additions.**
 
-Claim the version and build the message in one script. Run it with `bash -s` or
-save to a temp file and execute:
+The announcement is a single line: version + changelog link. ≤15 words.
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
-last=$(cat ~/.announced-version 2>/dev/null || echo "")
+# Guard: use a persistent file in the group dir, not ~/.announced-version (ephemeral)
+guard="$HOME/announced-version"
+last=$(cat "$guard" 2>/dev/null || echo "")
 if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
-echo "$latest" > ~/.announced-version
-
-# "## [v0.42.0] — 2026-05-19" → "v0.42.0 — 2026-05-19"
-header=$(awk '/^## \[v/{gsub(/[#\[\] ]/," "); gsub(/^ +/,""); print; exit}' \
-  /workspace/self/CHANGELOG.md | sed 's/  */ /g; s/^ //')
-tagline=$(awk '/^## \[v/{n++} n==1 && /^> /{sub(/^> ?/,""); if(NF>0){print; exit}}' \
-  /workspace/self/CHANGELOG.md)
-
-printf '%s\n%s\n\nFull notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' \
-  "$header" "$tagline"
+echo "$latest" > "$guard"
+printf '%s — github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest"
 ```
 
-The script prints either `SKIP` (already announced — stop) or the exact message
-to send. Copy the printed text verbatim into `send_message`. Do not edit it.
+The script prints `SKIP` (already announced — stop) or the exact message.
+Use that string verbatim as the `text` argument to `send`. Do not add bullets,
+taglines, or blockquotes — the link is the detail, not your summary of it.
 
-One message per release, not per migration. Repo URL: `github.com/kronael/arizuko`.
-
-Fan out via `refresh_groups` → resolve each folder's primary JID from
-`inspect_routing` (routes with `match` prefix `room=` point at a JID) →
-`send_message`:
+Fan out via `refresh_groups` → `inspect_routing` → `send` to every group
+that has a primary JID. Primary JID = first route whose `match` starts with
+`room=`, `chat_jid=slack:`, `chat_jid=slink:`, or `chat_jid=web:`:
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
+MSG="<output of script above>"
 
 routes=$(mcpc @s tools-call inspect_routing)
 
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while read folder; do
     jid=$(echo "$routes" | jq -r --arg f "$folder" '
-      .routes[] | select(.target == $f)
-                | .match | select(startswith("room=")) | sub("^room=";"")
+      .routes[] | select(.target == $f) | .match
+      | select(startswith("room=") or startswith("chat_jid="))
+      | sub("^room=";"") | sub("^chat_jid=";"")
     ' | head -1)
-    test -n "$jid" && mcpc @s tools-call send_message \
+    test -n "$jid" && mcpc @s tools-call send \
       jid:="$jid" text:="$MSG"
   done
 ```
 
-Per-group retries are fine; do NOT re-write `~/.announced-version`.
-Send once; let the channel queue handle offline groups.
+Per-group retries are fine; do NOT re-write `$HOME/announced-version`.
