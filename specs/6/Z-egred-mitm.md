@@ -73,55 +73,78 @@ Roughly: **~300 LOC lifted, ~150 LOC adapted, the rest discarded.**
 crackbox/pkg/mitm/                       new package
   cagen.go        port of iron-proxy/internal/cagen/cagen.go
   leafcache.go    port of iron-proxy/internal/certcache/cache.go
-  listener.go     hand off a hijacked CONNECT conn to tls.Server (the new bit)
-  headers.go      placeholder-swap on Authorization-class headers
-  secrets.go      resolver: scope=(folder|user) lookup via store.LookupSecret
+  chain.go        []func(http.Handler) http.Handler + Chain(slice, terminal) reducer
+  bypass.go       bypassCheck middleware: SNI allowlist → passthrough decision
+  tls.go          tlsTerminate middleware: hijack CONNECT, hand to tls.Server, leaf cert
+  audit.go        auditMITM middleware: emit secret_use_log row, caller='egred'
+  bodycap.go      bodyCap middleware: 10 MB request-body cap
 
-crackbox/pkg/admin/registry.go            entry grows MITM bool + BypassMITM + Placeholders
+crackbox/pkg/admin/registry.go            entry grows MITM bool + BypassMITM + SecretScope
 crackbox/pkg/admin/api.go                 WireEntry grows the same three fields
-crackbox/pkg/proxy/proxy.go               handleConnect calls shouldMITM(entry, host)
+crackbox/pkg/proxy/proxy.go               handleConnect runs the chain
 crackbox/cmd/crackbox/main.go             new `ca init` subcommand wraps cagen
 ```
+
+The data path is a `[]func(http.Handler) http.Handler` slice reduced
+into a single handler by `Chain(slice, terminal)` — same idiom as
+`proxyd/main.go` (see `specs/5/6-middleware-pipeline.md ## 6/6c HTTP
+chain`):
+
+```go
+var mitmChain = []func(http.Handler) http.Handler{
+    bypassCheck,          // SNI in entry.BypassMITM → io.Copy splice, skip rest
+    tlsTerminate,         // hijack CONNECT, tls.Server with leaf from leafcache
+    injectSecretsBroker,  // imports Y-secret-broker's injectSecrets, keyed by entry.SecretScope
+    auditMITM,            // one secret_use_log row per request, tool='egred:mitm'
+    bodyCap,              // first 10 MB buffered for header swap; rest streams past
+}
+handler := Chain(mitmChain, forwardUpstream)
+```
+
+`forwardUpstream` is the terminal: real TLS dial to the SNI host,
+re-encrypt the (possibly swapped) request, stream the response back.
 
 Per-source registration shape (extends today's `WireEntry`):
 
 ```go
 type WireEntry struct {
-    IP           string            `json:"ip"`
-    ID           string            `json:"id"`
-    Allowlist    []string          `json:"allowlist"`
-    MITM         bool              `json:"mitm,omitempty"`
-    BypassMITM   []string          `json:"bypass_mitm,omitempty"`
-    Placeholders map[string]string `json:"placeholders,omitempty"`
+    IP          string   `json:"ip"`
+    ID          string   `json:"id"`
+    Allowlist   []string `json:"allowlist"`
+    MITM        bool     `json:"mitm,omitempty"`
+    BypassMITM  []string `json:"bypass_mitm,omitempty"`
+    SecretScope string   `json:"secret_scope,omitempty"`
 }
 ```
 
-`Placeholders` maps the placeholder _literal_ (`"$ANTHROPIC_API_KEY"`)
-to a **secret_ref** (`"user:alice-sub:ANTHROPIC_API_KEY"` or
-`"folder:corp/eng:ANTHROPIC_API_KEY"`). The resolver parses the ref
-and calls `store.LookupSecret(scope, scopeID, key)` at request time.
-No values land in the registry on disk — only references do.
-`BypassMITM` holds per-source SNI rules evaluated before TLS — see
-`## Escape hatches` for the matcher and operator guidance.
+`SecretScope` names the folder whose secrets the broker is allowed to
+see for this source (`"corp/eng"`, `"solo/inbox"`, …). egred never
+holds the placeholder map and never resolves anything — it just passes
+`SecretScope` to the broker middleware, which enforces visibility at
+request time. `BypassMITM` holds per-source SNI rules evaluated by
+`bypassCheck` before TLS — see `## Escape hatches` for the matcher and
+operator guidance.
 
 CONNECT flow with MITM on (rough):
 
 ```
 1. Client (in container 10.99.0.42) sends CONNECT api.anthropic.com:443
 2. egred handleConnect: src=10.99.0.42 → registry.Lookup → entry
-3. shouldMITM(entry, "api.anthropic.com") = true (entry.MITM && no bypass match)
+3. bypassCheck: entry.MITM && no rule in entry.BypassMITM matches → continue chain
 4. egred returns "HTTP/1.1 200 Connection Established\r\n\r\n" to client
-5. egred wraps the hijacked conn in tls.Server{ GetCertificate: leafcache.GetOrCreate }
+5. tlsTerminate: wrap hijacked conn in tls.Server{ GetCertificate: leafcache.GetOrCreate }
 6. Client TLS-handshakes against egred (sees leaf signed by arizuko-ca)
 7. egred reads HTTP/1.1 request off the decrypted conn
-8. headers.SwapPlaceholders(req, entry.Placeholders, resolver)
-9. egred dials upstream (real TLS to api.anthropic.com:443), forwards request
-10. Response streamed back through the same decrypted/re-encrypted seam
+8. injectSecretsBroker: call broker scoped to entry.SecretScope, swap Authorization-class headers
+9. auditMITM: write secret_use_log row (caller='egred', tool='egred:mitm')
+10. forwardUpstream: dial upstream (real TLS to api.anthropic.com:443), forward request
+11. Response streamed back through the same decrypted/re-encrypted seam
 ```
 
-If `shouldMITM` returns false (no `entry.MITM`, or a `bypass_mitm`
-rule matches the CONNECT host), egred skips steps 5–8 and falls back
-to today's raw `io.Copy` splice.
+If `bypassCheck` short-circuits (no `entry.MITM`, or a `bypass_mitm`
+rule matches the CONNECT host), the chain stops at step 3 and egred
+falls back to today's raw `io.Copy` splice. No leaf is minted, no
+plaintext is observed, no audit row is written.
 
 CA cert + key live at `/srv/data/store/crackbox-ca/ca.crt` (mode 0644)
 and `/srv/data/store/crackbox-ca/ca.key` (mode 0600, owned by the egred
@@ -183,66 +206,54 @@ those are handled by `bypass_mitm` — see `## Escape hatches`.
 
 ## Secret source binding
 
-At container spawn, `gated`'s container runner builds the placeholder
-map for that container's source IP and POSTs it to egred's
-`/v1/register` along with the existing allowlist. Two pieces:
+egred binds no secrets. The MITM path is a broker caller: at container
+spawn, `gated`'s container runner POSTs the source's `WireEntry` to
+egred's `/v1/register` carrying `secret_scope` (the folder whose
+secrets this source may see). egred persists the scope and nothing
+else — no placeholder map, no `secret_ref` strings, no plaintext.
 
-1. **What placeholders look like**. Identical syntax to folder env
-   secrets: `$VAR_NAME`. No new mental model — what an agent sees as
-   `ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY` in `env` is the same
-   `$ANTHROPIC_API_KEY` the proxy swaps. Decision (c) below.
-2. **How they resolve**. Each placeholder maps to a `secret_ref`
-   (`folder:<path>:<key>` or `user:<sub>:<key>`). The runner picks the
-   ref based on the spawn's owner: per-user spawns get `user:` refs;
-   shared-folder spawns get `folder:` refs. Mixed (some keys user, some
-   folder) is supported — the map is per-placeholder.
+At request time, `injectSecretsBroker` calls the broker's
+`injectSecrets` middleware (spec 6/Y `## Resolution (the broker
+middleware)`) with `entry.SecretScope` as the visibility key. The
+broker holds the resolved value for request lifetime, in `gated`'s
+process, and returns swapped headers. egred re-encrypts to upstream
+and forgets.
 
-At request time, the MITM listener calls into a resolver:
-
-```go
-// crackbox/pkg/mitm/secrets.go
-type Resolver interface {
-    Resolve(ref string) (value string, ok bool)
-}
-
-// arizuko-side impl in gated wires:
-// ref="user:alice-sub:GITHUB_TOKEN" → store.LookupSecret(user, "alice-sub", "GITHUB_TOKEN")
-```
-
-The resolver is an interface so egred ships without an arizuko
-dependency. arizuko's `gated` registers an HTTP-backed resolver against
-the admin API (`POST /v1/resolve`) — egred holds no DB handle. The
-plaintext secret crosses the loopback once per request, never written
-to disk on the egred side, never cached past the request lifetime.
-
-Each successful swap emits one row to `secret_use_log` (same table 6/Y
-writes to — Decision d):
+Audit is `auditMITM`, the next link in the chain — it writes one row
+per request to `secret_use_log` (the same table 6/Y writes to):
 
 ```
 secret_use_log(ts, spawn_id, caller_sub, folder, tool='egred:mitm',
-               key, scope, status, latency_ms)
+               key, scope, status, latency_ms, caller='egred')
 ```
 
-`tool='egred:mitm'` distinguishes MITM swaps from broker-mediated
-tool calls in the same table — one grep splits them.
+`caller='egred'` distinguishes MITM-path swaps from MCP-path swaps
+written by the broker's own audit middleware; one grep splits them.
+egred owns no store handle and no in-process secret cache. Removing
+the parallel resolver is decision (c).
 
 ## Threat model
 
 egred's host process today holds: per-source allowlists, no secrets.
-With MITM on it holds: the CA private key (in process memory after
-boot), and the plaintext secret for each in-flight request. Both are
-higher-value than today.
+With MITM on it adds the CA private key (in process memory after
+boot). It does **not** add plaintext secrets — those live in the
+broker (in `gated`'s process) for request lifetime, and the swap
+happens inside `injectSecretsBroker` against headers egred forwards.
+The attack surface on egred shrinks compared to a self-contained
+resolver design.
 
-| Asset                     | Existing scope                               | New mitigation                                                                                                                                                                                                                                                         |
-| ------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CA private key            | File at `/srv/data/store/crackbox-ca/ca.key` | Mode `0600`, owned by egred uid, never read by other processes. Loaded into memory at boot. Never logged. Rotation: `crackbox ca init --force` writes a new pair, restart egred, redeploy `arizuko-ant` image with the new cert.                                       |
-| Plaintext secrets         | None today                                   | In-memory only for request lifetime. No request-level cache. Resolver call is per-request. Never logged. `secret_use_log` records the _fact_ of the swap, not the value.                                                                                               |
-| Leaf certs                | None today                                   | In-memory LRU. ECDSA-P256 leaf keys never written to disk. Lost on restart (cache miss → regenerate).                                                                                                                                                                  |
-| Compromised egred process | Process can pivot, no creds                  | Process can mint leaf certs for any SNI (impersonate arbitrary HTTPS sites _to containers that trust this CA_) and read every in-flight secret. Containment: egred runs as a low-privilege uid, on its own Docker network, with the CA key as its only on-disk secret. |
+| Asset                     | Existing scope                               | New mitigation                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CA private key            | File at `/srv/data/store/crackbox-ca/ca.key` | Mode `0600`, owned by egred uid, never read by other processes. Loaded into memory at boot. Never logged. Rotation: `crackbox ca init --force` writes a new pair, restart egred; new CA propagates to containers on next spawn. |
+| Plaintext secrets         | None — broker holds them in `gated`          | egred never sees a plaintext secret on disk or in memory between requests. Swap happens in `injectSecretsBroker` (broker call), in-flight only. Compromised egred cannot dump the secrets table — it has no handle to it.       |
+| Leaf certs                | None today                                   | In-memory LRU. ECDSA-P256 leaf keys never written to disk. Lost on restart (cache miss → regenerate).                                                                                                                           |
+| Compromised egred process | Process can pivot, no creds                  | Process can mint leaf certs for any SNI (impersonate arbitrary HTTPS sites _to containers that trust this CA_) and observe in-flight swapped headers. Cannot enumerate the secrets table; cannot read scopes it doesn't proxy.  |
 
-A compromised egred process is roughly as bad as a compromised gated
-process — both can read the secrets table. MITM does not add a _new_
-attack vector to the cluster's overall posture; it shifts the surface.
+A compromised egred process can see secrets _it actively proxies_ but
+cannot enumerate the rest of the secrets table — that takes a
+compromised `gated`. MITM does not collapse egred and gated into one
+trust boundary; it adds the CA key to egred and leaves secrets where
+they were.
 
 ## Honest gaps
 
@@ -460,33 +471,51 @@ after policy has been chosen.
 
 ## Effort estimate
 
-| Bucket                                                                                  | LOC         |
-| --------------------------------------------------------------------------------------- | ----------- |
-| `crackbox/pkg/mitm/cagen.go` (port of iron-proxy/internal/cagen)                        | ~140        |
-| `crackbox/pkg/mitm/leafcache.go` (port of iron-proxy/internal/certcache)                | ~170        |
-| `crackbox/pkg/mitm/listener.go` (hijacked-CONNECT → tls.Server, new)                    | ~120        |
-| `crackbox/pkg/mitm/headers.go` (placeholder swap, adapt from secrets pkg)               | ~80         |
-| `crackbox/pkg/mitm/secrets.go` (resolver interface + HTTP impl)                         | ~60         |
-| `crackbox/pkg/admin/api.go` + `registry.go` deltas (MITM + BypassMITM + Placeholders)   | ~40         |
-| `crackbox/pkg/proxy/proxy.go` deltas (`shouldMITM` + CONNECT branch + `sniMatch`)       | ~80         |
-| `crackbox/cmd/crackbox/main.go` (`ca init` subcommand)                                  | ~50         |
-| Tests (CA gen, leaf mint, header swap, `sniMatch`, end-to-end with real TLS)            | ~280        |
-| `ant/Dockerfile` (CA install + env vars + helper binary)                                | ~10         |
-| `arizuko-ant/cmd/arizuko-ca-sync/main.go` (container-start trust helper)                | ~80         |
-| `container/runner.go` (mount CA + bootstrap helper + placeholder + bypass map on spawn) | ~60         |
-| arizuko-side resolver HTTP handler in `gated`                                           | ~60         |
-| `store/migrations/0065-egred-mitm.sql` (extend allowlist persistence?)                  | ~10 (see ↓) |
-| **Total net new in Go**                                                                 | **~895**    |
+Prior round (custom resolver + `arizuko-ca-sync` helper) estimated
+**~895 LOC net new in Go**. Broker unification and CA simplification
+remove four buckets:
 
-The migration is small: per-source `Placeholders` map and `BypassMITM`
-list live in the admin registry's existing JSON state file
-(`CRACKBOX_STATE_PATH`). No new SQL table needed. `secret_use_log`
-(0048) already exists from 6/Y.
+- `crackbox/pkg/mitm/headers.go` (placeholder swap) — **~80 LOC gone**
+- `crackbox/pkg/mitm/secrets.go` (resolver interface + HTTP impl) — **~60 LOC gone**
+- arizuko-side resolver HTTP handler in `gated` — **~60 LOC gone**
+- `arizuko-ant/cmd/arizuko-ca-sync/main.go` — **~80 LOC gone**
 
-Tests: leaf-cert chain verification with `x509.Verify`, header swap on
-canonical/non-canonical casing (port iron-proxy's `replaceInHeader`
-behavior), end-to-end with a fake upstream that asserts the swap
-happened. Target ~250 LOC of test code; matches iron-proxy's ratio.
+Net deletion: **~280 LOC**. New total drops to **~720 LOC net new**.
+
+| Bucket                                                                                   | LOC      |
+| ---------------------------------------------------------------------------------------- | -------- |
+| `crackbox/pkg/mitm/cagen.go` (port of iron-proxy/internal/cagen)                         | ~140     |
+| `crackbox/pkg/mitm/leafcache.go` (port of iron-proxy/internal/certcache)                 | ~170     |
+| `crackbox/pkg/mitm/chain.go` (`Chain(slice, terminal)` reducer)                          | ~10      |
+| `crackbox/pkg/mitm/bypass.go` (`bypassCheck` middleware + `sniMatch`)                    | ~60      |
+| `crackbox/pkg/mitm/tls.go` (`tlsTerminate` middleware: hijacked-CONNECT → tls.Server)    | ~100     |
+| `crackbox/pkg/mitm/inject.go` (`injectSecretsBroker` shim importing Y's `injectSecrets`) | ~5       |
+| `crackbox/pkg/mitm/audit.go` (`auditMITM` middleware → `secret_use_log`)                 | ~30      |
+| `crackbox/pkg/mitm/bodycap.go` (`bodyCap` middleware, 10 MB)                             | ~30      |
+| `crackbox/pkg/admin/api.go` + `registry.go` deltas (MITM + BypassMITM + SecretScope)     | ~30      |
+| `crackbox/pkg/proxy/proxy.go` deltas (run the chain at CONNECT)                          | ~50      |
+| `crackbox/cmd/crackbox/main.go` (`ca init` subcommand)                                   | ~50      |
+| `ant/Dockerfile` (CA `COPY` + `update-ca-certificates` + env vars)                       | ~5       |
+| `compose/compose.go` (CA bind-mount + env-var fan)                                       | ~5       |
+| `container/runner.go` (bypass + secret_scope on spawn)                                   | ~30      |
+| Tests (CA gen, leaf mint, chain order, `sniMatch`, end-to-end with real TLS)             | ~245     |
+| **Total**                                                                                | **~960** |
+
+The table sums to ~960 because it counts new code in absolute terms;
+~240 of that is tests, leaving ~720 of production code. Headline is
+**~720 LOC net new** vs ~895 prior — the unification + CA
+simplification pay for themselves in deleted future work.
+
+Per-source registry state grows by one string (`secret_scope`) and
+one slice (`bypass_mitm`); the existing JSON state file
+(`CRACKBOX_STATE_PATH`) carries both. No new SQL table.
+`secret_use_log` (0048) already exists from 6/Y; the schema gains a
+`caller` column owned by 6/Y's migration.
+
+Tests: leaf-cert chain verification with `x509.Verify`, middleware
+order (bypass short-circuits before `tlsTerminate`), end-to-end with
+a fake upstream that asserts `injectSecretsBroker` swapped the
+`Authorization` header.
 
 ## Decisions
 
@@ -499,39 +528,43 @@ instance gets its own `crackbox-ca/`. Cross-instance secret leakage
 via shared CA is impossible. Trade: every instance must distribute
 its own CA to its containers (the image is per-instance anyway).
 
-c. **Placeholders use `$VAR` syntax, same as folder env secrets.** No
-new mental model. Operator who writes `ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY`
-in a folder's env file gets the swap for free — same literal string,
-one resolution path.
+c. **MITM is a broker middleware caller, not a parallel resolver.**
+Spec 6/Y is canonical for secret resolution; this spec imports the
+broker's `injectSecrets` middleware function and lists it in the
+chain. egred holds no placeholder map, no `secret_ref` strings, no
+in-process secret cache. Per-source `WireEntry` carries `secret_scope`
+(visibility), nothing more. One resolver in the system, two callers
+(MCP dispatch, MITM data path).
 
-d. **Reuse `secret_use_log`, no new audit table.** Spec 6/Y already
-built this. `tool='egred:mitm'` discriminates MITM swaps from broker
+d. **MITM data path uses the same `Chain(slice, terminal)` idiom as
+proxyd.** Middlewares are `func(http.Handler) http.Handler` slice
+elements, reduced with `Chain`. Order is auditable, new middleware
+lands in one slot. Cross-reference `specs/5/6-middleware-pipeline.md
+
+## 6/6c HTTP chain`.
+
+e. **Reuse `secret_use_log`, no new audit table.** Spec 6/Y already
+built this. `caller='egred'` discriminates MITM swaps from broker
 swaps. Same operator analytics work.
 
-e. **Client-to-egred MITM is HTTP/1.1 only in v1; HTTP/2-required
+f. **Client-to-egred MITM is HTTP/1.1 only in v1; HTTP/2-required
 hosts use `bypass_mitm`.** The MITM listener advertises `http/1.1`
 only. Upstream side is whatever upstream prefers. Real h2 MITM is
 deferred; operationally, h2-only destinations are registered under
 `bypass_mitm` so the client negotiates h2 directly with upstream.
 
-f. **We do NOT vendor iron-proxy.** We port the small surface we need
-(~310 LOC across cagen + leafcache + the MITM-listener entrypoint)
+g. **We do NOT vendor iron-proxy.** We port the small surface we need
+(~310 LOC across cagen + leafcache + the MITM listener entrypoint)
 and own its lifecycle. Their YAML, gRPC management API, 1Password
 resolver, host-match rules, and transform pipeline all stay in their
 repo. Boring code: we won't carry a dep we use 6% of.
 
-g. **Escape hatches are per-source `bypass_mitm` SNI rules, not
+h. **Escape hatches are per-source `bypass_mitm` SNI rules, not
 per-request headers.** `WireEntry` carries `bypass_mitm: []string`
 with exact-host and `*.` wildcard patterns. `handleConnect` evaluates
 the CONNECT authority before any TLS and chooses raw passthrough when
 a rule matches. There is no `X-Crackbox-No-MITM` header in v1. Detail:
 `## Escape hatches`.
-
-h. **Rust trust bootstrap ships as `arizuko-ca-sync` at container
-start.** The helper installs the per-instance CA into the container
-trust store and rewrites the env-backed CA hints on every spawn so CA
-rotation does not depend on image rebuilds. This improves native-root
-clients but does not claim to fix bundled-root rustls.
 
 i. **Pinned-cert and custom-`tls.Config` clients are handled by
 hostname bypass, not process patching.** If a client rejects the
