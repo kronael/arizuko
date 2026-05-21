@@ -49,21 +49,21 @@ gets deprecated. Until then, the safety net earns its keep.
 
 iron-proxy is ~50 KLOC. We need a small fraction. Per-subsystem call:
 
-| iron-proxy subsystem                                                              | Verdict   | Notes for egred                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/cagen/cagen.go` (137 LOC) — CA gen, RSA4096/Ed25519, PKCS8 PEM          | **lift**  | Port nearly verbatim to `crackbox/pkg/mitm/cagen.go`. Drop the RSA4096 default to Ed25519 (smaller, faster, modern clients are fine).                                                                                                                                                                                                                                                                                                                                                                          |
-| `internal/certcache/cache.go` (174 LOC) — LRU per-SNI leaf, P256 keys, signs leaf | **lift**  | Port as `crackbox/pkg/mitm/leafcache.go`. Keep `hashicorp/golang-lru/v2/expirable` (tiny dep already in tree-friendly module).                                                                                                                                                                                                                                                                                                                                                                                 |
-| `internal/proxy/proxy.go:serveHTTPSMITM` (`/tmp/ip-proxy.go:159-168`)             | **adapt** | egred's existing CONNECT handler grows a branch: if registered source has `mitm: true`, hand the hijacked conn to a `tls.Server` using `GetCertificate: leafcache.GetOrCreate` instead of `io.Copy`-splicing to the upstream. No second listener — MITM is a per-source decision at CONNECT-accept time, not a separate `:443`.                                                                                                                                                                                |
-| `internal/proxy/proxy.go:getCertificate` (`/tmp/ip-proxy.go:222-229`)             | **lift**  | SNI → leaf, one-line wrapper.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `internal/transform/secrets/secrets.go` (593 LOC, pipeline shape)                 | **adapt** | Replace with a `func(http.Handler) http.Handler` middleware that delegates to Y-secret-broker's `injectSecrets` (see 6/Y `## Resolution (the broker middleware)`). The MITM-side middleware is a ~30 LOC shim: scan `Authorization` / `X-Api-Key`-class headers for `$VAR` placeholders, call broker for the resolved value keyed by the source's `secret_scope`, substring-replace. No YAML, no body/path/query swap, no inject mode, no formatter templates, no multi-header matchers, no parallel resolver. |
-| `internal/transform/secrets/resolver.go` (392 LOC) + `op_resolver.go` + `aws_sm`  | **drop**  | Resolution is the broker's job; egred owns no store lookup, no cache, no audit table. egred imports the broker's middleware function and lists it in the chain — same shape MCP dispatch uses (see 6/Y "the handler shape converges"). No 1Password, no AWS SM, no GCP — arizuko already has Y's resolver.                                                                                                                                                                                                     |
-| `internal/controlplane/poller.go` (config-reload watcher)                         | **drop**  | egred admin API already handles dynamic registration; `mitm` flag rides the same `POST /v1/register` path. Restart-to-reload for global config (CA path) is acceptable; arizuko restarts are cheap.                                                                                                                                                                                                                                                                                                            |
-| gRPC management API (`proto/`, `internal/controlplane`)                           | **drop**  | egred has `:3129` admin API. Don't grow a second control plane.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `internal/hostmatch` (per-host policy rules)                                      | **drop**  | egred's per-source-IP allowlist already gates _which_ hosts the source may reach; MITM has nothing to add about _who_ can call _where_.                                                                                                                                                                                                                                                                                                                                                                        |
-| `internal/dnsguard`                                                               | **drop**  | egred can grow DNS guard separately (spec 9/15); orthogonal.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `internal/mcp` (MCP policy interceptor)                                           | **drop**  | arizuko owns the MCP surface upstream of egred; redundant here.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `iron-proxy.example.yaml` (644 LOC of options)                                    | **drop**  | Configuration is per-source via the admin API, not via YAML. The TOML/env at `~/.crackboxrc` only carries the global CA path + leaf TTL.                                                                                                                                                                                                                                                                                                                                                                       |
-| `internal/transform/pipeline.go` (multi-transform chain, audit emit)              | **drop**  | One transform (secrets), called inline. No registry, no pluggable transform list, no audit pipeline — egred logs to `secret_use_log` directly.                                                                                                                                                                                                                                                                                                                                                                 |
+| iron-proxy subsystem                                                              | Verdict   | Notes for egred                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/cagen/cagen.go` (137 LOC) — CA gen, RSA4096/Ed25519, PKCS8 PEM          | **lift**  | Port nearly verbatim to `crackbox/pkg/mitm/cagen.go`. Drop the RSA4096 default to Ed25519 (smaller, faster, modern clients are fine).                                                                                                                                                                                                                                                     |
+| `internal/certcache/cache.go` (174 LOC) — LRU per-SNI leaf, P256 keys, signs leaf | **lift**  | Port as `crackbox/pkg/mitm/leafcache.go`. Keep `hashicorp/golang-lru/v2/expirable` (tiny dep already in tree-friendly module).                                                                                                                                                                                                                                                            |
+| `internal/proxy/proxy.go:serveHTTPSMITM` (`/tmp/ip-proxy.go:159-168`)             | **adapt** | egred's existing CONNECT handler grows a branch: if registered source has `mitm: true`, hand the hijacked conn to a `tls.Server` using `GetCertificate: leafcache.GetOrCreate` instead of `io.Copy`-splicing to the upstream. No second listener — MITM is a per-source decision at CONNECT-accept time, not a separate `:443`.                                                           |
+| `internal/proxy/proxy.go:getCertificate` (`/tmp/ip-proxy.go:222-229`)             | **lift**  | SNI → leaf, one-line wrapper.                                                                                                                                                                                                                                                                                                                                                             |
+| `internal/transform/secrets/secrets.go` (593 LOC, pipeline shape)                 | **adapt** | Replace with a ~5 LOC `injectSecretsBroker` shim that imports Y-secret-broker's `injectSecrets` middleware (see 6/Y `## Resolution (the broker middleware)`) and slots it into the chain keyed by the source's `secret_scope`. egred scans no headers, holds no placeholder map, and runs no parallel resolver. No YAML, no body/path/query swap, no inject mode, no formatter templates. |
+| `internal/transform/secrets/resolver.go` (392 LOC) + `op_resolver.go` + `aws_sm`  | **drop**  | Resolution is the broker's job; egred owns no store lookup, no cache, no audit table. egred imports the broker's middleware function and lists it in the chain — same shape MCP dispatch uses (see 6/Y "the handler shape converges"). No 1Password, no AWS SM, no GCP — arizuko already has Y's resolver.                                                                                |
+| `internal/controlplane/poller.go` (config-reload watcher)                         | **drop**  | egred admin API already handles dynamic registration; `mitm` flag rides the same `POST /v1/register` path. Restart-to-reload for global config (CA path) is acceptable; arizuko restarts are cheap.                                                                                                                                                                                       |
+| gRPC management API (`proto/`, `internal/controlplane`)                           | **drop**  | egred has `:3129` admin API. Don't grow a second control plane.                                                                                                                                                                                                                                                                                                                           |
+| `internal/hostmatch` (per-host policy rules)                                      | **drop**  | egred's per-source-IP allowlist already gates _which_ hosts the source may reach; MITM has nothing to add about _who_ can call _where_.                                                                                                                                                                                                                                                   |
+| `internal/dnsguard`                                                               | **drop**  | egred can grow DNS guard separately (spec 9/15); orthogonal.                                                                                                                                                                                                                                                                                                                              |
+| `internal/mcp` (MCP policy interceptor)                                           | **drop**  | arizuko owns the MCP surface upstream of egred; redundant here.                                                                                                                                                                                                                                                                                                                           |
+| `iron-proxy.example.yaml` (644 LOC of options)                                    | **drop**  | Configuration is per-source via the admin API, not via YAML. The TOML/env at `~/.crackboxrc` only carries the global CA path + leaf TTL.                                                                                                                                                                                                                                                  |
+| `internal/transform/pipeline.go` (multi-transform chain, audit emit)              | **drop**  | egred runs the same `Chain(slice, terminal)` idiom as `proxyd/main.go` (spec 5/6) — no separate transform registry. Audit is one middleware (`auditMITM`) writing to the broker's `secret_use_log` with `caller='egred'`.                                                                                                                                                                 |
 
 Roughly: **~300 LOC lifted, ~150 LOC adapted, the rest discarded.**
 
@@ -76,6 +76,7 @@ crackbox/pkg/mitm/                       new package
   chain.go        []func(http.Handler) http.Handler + Chain(slice, terminal) reducer
   bypass.go       bypassCheck middleware: SNI allowlist → passthrough decision
   tls.go          tlsTerminate middleware: hijack CONNECT, hand to tls.Server, leaf cert
+  inject.go       injectSecretsBroker shim importing Y's injectSecrets
   audit.go        auditMITM middleware: emit secret_use_log row, caller='egred'
   bodycap.go      bodyCap middleware: 10 MB request-body cap
 
@@ -159,50 +160,55 @@ loses the cache; first request per host pays one ECDSA-P256 sign
 
 ## CA distribution
 
-Each HTTPS client library carries its own trust store. The CA cert must
-be installed in every place a client looks. arizuko's krons run already
-failed this once — Python `requests` ignored `update-ca-certificates`
-because it bundles its own `certifi` store. The full list:
+Each HTTPS client library carries its own trust store. arizuko's krons
+run failed this once — Python `requests` ignored
+`update-ca-certificates` because it bundles its own `certifi` store.
+Coverage matrix:
 
-| Client                               | Trust mechanism                          | What to set                                                                                                           |
-| ------------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Go `net/http`                        | System trust (`/etc/ssl/certs`)          | `update-ca-certificates` after copying to `/usr/local/share/ca-certificates/`                                         |
-| `curl`, `wget`                       | System trust                             | Same.                                                                                                                 |
-| Node.js (`fetch`, `https`)           | Bundled, plus `NODE_EXTRA_CA_CERTS`      | `ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/arizuko-ca.crt`                                             |
-| Python `requests`                    | `certifi` bundle                         | `ENV REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/arizuko-ca.crt`                                              |
-| Python `urllib`, `httpx`             | OpenSSL default + `SSL_CERT_FILE`        | `ENV SSL_CERT_FILE=/usr/local/share/ca-certificates/arizuko-ca.crt`                                                   |
-| Ruby `Net::HTTP`                     | OpenSSL default + `SSL_CERT_FILE`        | Same as above.                                                                                                        |
-| Rust `rustls` (native-roots)         | `rustls-native-certs` reads system trust | `arizuko-ca-sync` writes the CA into `/usr/local/share/ca-certificates/` at container start. See `## Escape hatches`. |
-| Rust `rustls` (webpki-roots)         | Bundled root set, ignores system trust   | No env or trust-store knob helps. Register the host under per-source `bypass_mitm` — see `## Escape hatches`.         |
-| Go programs with custom `tls.Config` | Hard-coded `RootCAs` ignores system      | Register the host under per-source `bypass_mitm` — see `## Escape hatches`. No runtime patching.                      |
+| Client                                  | Trust mechanism                 | What to set                                                             |
+| --------------------------------------- | ------------------------------- | ----------------------------------------------------------------------- |
+| Go `net/http`, `curl`, OpenSSL, Ruby    | System trust                    | `COPY` + `update-ca-certificates` in `ant/Dockerfile`.                  |
+| Rust `rustls-native-certs`              | Reads system trust              | Same.                                                                   |
+| Python `requests`                       | `certifi` bundle                | `REQUESTS_CA_BUNDLE=/etc/ssl/certs/arizuko-ca.pem` (compose env).       |
+| Python `urllib`, `httpx`                | OpenSSL + `SSL_CERT_FILE`       | `SSL_CERT_FILE=/etc/ssl/certs/arizuko-ca.pem` (compose env).            |
+| Node.js (`fetch`, `https`)              | Bundled + `NODE_EXTRA_CA_CERTS` | `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/arizuko-ca.pem` (compose env).      |
+| Rust `webpki-roots` (compiled-in roots) | Ignores system entirely         | Register host under per-source `bypass_mitm` — see `## Escape hatches`. |
+| Go binaries with custom `tls.Config`    | Hard-coded `RootCAs`            | Same — `bypass_mitm`. No runtime patching.                              |
 
-Concrete setup steps:
+Setup:
 
 1. **Once per instance**, on host: `crackbox ca init`. Writes
-   `/srv/data/store/crackbox-ca/{ca.crt,ca.key}`.
-2. **In `arizuko-ant` Dockerfile**, add:
+   `/srv/data/store/crackbox-ca/{cert.pem,key.pem}`.
+2. **`ant/Dockerfile`** installs the CA into the system trust store at
+   image build:
    ```dockerfile
-   COPY arizuko-ca.crt /usr/local/share/ca-certificates/arizuko-ca.crt
+   COPY arizuko-ca.crt /usr/local/share/ca-certificates/
    RUN update-ca-certificates
-   ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/arizuko-ca.crt \
-       REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/arizuko-ca.crt \
-       SSL_CERT_FILE=/usr/local/share/ca-certificates/arizuko-ca.crt
    ```
-3. **At container spawn**, `container/runner.go` mounts the per-instance
-   CA cert (read-only) at `/run/arizuko/ca/ca.crt` and the bootstrap
-   runs `arizuko-ca-sync` (shipped in `arizuko-ant/cmd/arizuko-ca-sync`)
-   which copies the cert into `/usr/local/share/ca-certificates/arizuko-ca.crt`,
-   runs `update-ca-certificates`, and writes the env-var fan
-   (`NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`) into
-   the container's env file. CA rotation propagates on the next spawn
-   without an image rebuild.
-4. **For the proxy itself**, the container env already sets
+   That covers Go, curl, OpenSSL, Python with default bundle, and
+   rustls-native-certs in one line.
+3. **Compose env vars** (one knob per client family that ignores
+   system trust):
+   ```
+   NODE_EXTRA_CA_CERTS=/etc/ssl/certs/arizuko-ca.pem
+   REQUESTS_CA_BUNDLE=/etc/ssl/certs/arizuko-ca.pem
+   SSL_CERT_FILE=/etc/ssl/certs/arizuko-ca.pem
+   ```
+4. **Compose bind-mount** the live CA from
+   `/srv/data/store/crackbox-ca/cert.pem` into the container as
+   `/usr/local/share/ca-certificates/arizuko-ca.crt` (read-only). The
+   container entrypoint runs `update-ca-certificates` before launching
+   ant so the mounted cert overrides the baked-in one. CA rotation
+   (`crackbox ca init --force` + container restart) propagates without
+   an image rebuild.
+5. **For the proxy itself**, the container env already sets
    `HTTPS_PROXY=http://egred:3128`. No change.
 
-`arizuko-ca-sync` fixes native-root rustls (`rustls-native-certs`) and
-every other client that reads the system trust store. It does **not**
-fix bundled-root rustls (`webpki-roots`) or any pinned-cert client;
-those are handled by `bypass_mitm` — see `## Escape hatches`.
+Bundled-root rustls (`webpki-roots`) and certificate-pinning SDKs
+ignore everything above; both are handled by `bypass_mitm` (see
+`## Escape hatches`). No helper binary needed — the per-source bypass
+list is already the answer for clients we cannot reach through the
+trust store.
 
 ## Secret source binding
 
@@ -282,16 +288,18 @@ they were.
   upgrade handshake completes, then the proxy hijacks bidirectionally
   — same as iron-proxy. No swap on WS frames; tokens in `Sec-WebSocket-Protocol`
   are out of scope.
-- **Time-to-leak**. From client TLS handshake to upstream dial, the
-  plaintext secret lives in process memory for ~milliseconds. A core
-  dump during that window leaks. Run egred without dump-permitting
-  ulimits and consider `prctl(PR_SET_DUMPABLE, 0)`.
-- **CA rotation breaks in-flight containers**. New CA takes effect on
-  the next container spawn via `arizuko-ca-sync` (no image rebuild
-  needed). In-flight containers continue trusting the old CA until
-  respawn. v1 has no hot-rotation inside a live container; document
-  the 30 d leaf expiry and the ~yearly CA rotation cadence in
-  `SECURITY.md`.
+- **Time-to-leak**. Plaintext secrets live in the broker (`gated`)
+  for request lifetime. egred sees swapped headers between
+  `injectSecretsBroker` and upstream dial — ~milliseconds. A core
+  dump on either process during that window leaks. Run both without
+  dump-permitting ulimits and consider `prctl(PR_SET_DUMPABLE, 0)`.
+- **CA rotation breaks in-flight containers**. The live CA is
+  bind-mounted from `/srv/data/store/crackbox-ca/cert.pem`; rotation
+  (`crackbox ca init --force` + container restart) propagates without
+  an image rebuild. In-flight containers continue trusting the old CA
+  until respawn. v1 has no hot-rotation inside a live container;
+  document the 30 d leaf expiry and the ~yearly CA rotation cadence
+  in `SECURITY.md`.
 
 ## Escape hatches
 
@@ -304,12 +312,12 @@ bytes move, so arizuko adds `bypass_mitm` to the registered
 
 ```go
 type WireEntry struct {
-    IP           string            `json:"ip"`
-    ID           string            `json:"id"`
-    Allowlist    []string          `json:"allowlist"`
-    MITM         bool              `json:"mitm,omitempty"`
-    BypassMITM   []string          `json:"bypass_mitm,omitempty"`
-    Placeholders map[string]string `json:"placeholders,omitempty"`
+    IP          string   `json:"ip"`
+    ID          string   `json:"id"`
+    Allowlist   []string `json:"allowlist"`
+    MITM        bool     `json:"mitm,omitempty"`
+    BypassMITM  []string `json:"bypass_mitm,omitempty"`
+    SecretScope string   `json:"secret_scope,omitempty"`
 }
 ```
 
@@ -320,8 +328,10 @@ hostname with no trailing dot. IP literals never match wildcard rules.
 
 The CONNECT path decides before TLS. `crackbox/pkg/proxy/proxy.go`
 reads the authority host from `CONNECT host:443`, looks up the source
-entry, evaluates `bypass_mitm`, and only then chooses `io.Copy` splice
-or `mitm.ServeTLS`.
+entry, runs the chain — `bypassCheck` is the first middleware and
+short-circuits to `io.Copy` splice when a `bypass_mitm` rule matches;
+otherwise the rest of the chain runs (`tlsTerminate` →
+`injectSecretsBroker` → `auditMITM` → `bodyCap` → `forwardUpstream`).
 
 ```go
 func shouldMITM(entry WireEntry, connectHost string) bool {
@@ -366,24 +376,20 @@ full MITM with likely certificate failure. v1 documents that
 host-based bypass requires hostname CONNECT.
 
 Registration is written by `container/runner.go` when the spawn is
-created. The runner already knows the per-source allowlist and
-placeholder map; it now also sends `bypass_mitm` in the same
-`POST /v1/register` body to egred `:3129`. Operators extend the list
-through the same arizuko-side surface; no in-band agent API is added.
+created. The runner already knows the per-source allowlist and the
+spawn's folder; it now also sends `secret_scope` and `bypass_mitm`
+in the same `POST /v1/register` body to egred `:3129`. Operators
+extend the bypass list through the same arizuko-side surface; no
+in-band agent API is added.
 
-**Rustls — `arizuko-ca-sync` at container start.** Shipped in
-`arizuko-ant/cmd/arizuko-ca-sync`, copied into the image at
-`/usr/local/bin/arizuko-ca-sync`, run by the spawn bootstrap before
-the agent command. It reads the mounted instance cert from
-`/run/arizuko/ca/ca.crt`, writes it to
-`/usr/local/share/ca-certificates/arizuko-ca.crt`, runs
-`update-ca-certificates`, and writes `NODE_EXTRA_CA_CERTS`,
-`REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` to the container env. Chose
-install-time trust patch over per-app wrappers (don't cover arbitrary
-subprocess trees) and over explicit-bypass-only (would throw away
-working native-root clients). Fixes `rustls-native-certs` and any
-client that reads the system store; does NOT fix `webpki-roots` or
-embedded root sets — those use `bypass_mitm`.
+**Rustls native-roots and other system-trust clients — image +
+compose.** The CA lands in the system trust store at image build
+(`COPY` + `update-ca-certificates` in `ant/Dockerfile`) and the live
+per-instance CA is bind-mounted on top by compose so rotation does
+not require an image rebuild. See `## CA distribution`. Fixes
+`rustls-native-certs` and any client that reads the system store;
+does NOT fix `webpki-roots` or embedded root sets — those use
+`bypass_mitm`.
 
 **Pinned-cert clients — `bypass_mitm`.** No fallback header, no
 best-effort partial interception. Operator lists the pinned host
@@ -396,7 +402,7 @@ run for that host. Starter defaults to suggest in docs and examples:
 `*.s3.amazonaws.com`, `sts.amazonaws.com`, `*.amazonaws.com`.
 
 **HTTP/2 — h1-only with `bypass_mitm` escape.**
-`crackbox/pkg/mitm/listener.go` advertises
+`crackbox/pkg/mitm/tls.go` advertises
 `NextProtos: []string{"http/1.1"}` and does not ship h2 MITM in v1.
 H2-required hosts go in `bypass_mitm`; egred uses pure CONNECT
 passthrough so the client negotiates h2 directly with upstream. There
@@ -413,13 +419,15 @@ detection; documented hostname lists and 401s in `secret_use_log`
 
 **Concrete code shape.**
 
-- `arizuko-ant/cmd/arizuko-ca-sync/main.go` — the helper.
-- `container/runner.go` — mounts `/srv/data/store/crackbox-ca/ca.crt`
-  read-only at `/run/arizuko/ca/ca.crt` and invokes the helper in the
-  container bootstrap.
-- `crackbox/pkg/admin/api.go` + `registry.go` — persist `BypassMITM`.
-- `crackbox/pkg/proxy/proxy.go` — calls `shouldMITM(entry, connectHost)`.
-- `crackbox/pkg/mitm/listener.go` — `NextProtos: []string{"http/1.1"}`.
+- `ant/Dockerfile` — `COPY` + `update-ca-certificates` at image build.
+- `compose/compose.go` — bind-mount the live CA from
+  `/srv/data/store/crackbox-ca/cert.pem` and set the env-var fan
+  (`NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`).
+- `crackbox/pkg/admin/api.go` + `registry.go` — persist `BypassMITM`
+  and `SecretScope`.
+- `crackbox/pkg/proxy/proxy.go` — runs the chain at CONNECT;
+  `bypassCheck` is the first middleware (decides splice vs MITM).
+- `crackbox/pkg/mitm/tls.go` — `NextProtos: []string{"http/1.1"}`.
 - Operator-facing docs include the starter bypass host list and the
   failure-mode table from `## CA distribution`.
 
@@ -539,9 +547,8 @@ in-process secret cache. Per-source `WireEntry` carries `secret_scope`
 d. **MITM data path uses the same `Chain(slice, terminal)` idiom as
 proxyd.** Middlewares are `func(http.Handler) http.Handler` slice
 elements, reduced with `Chain`. Order is auditable, new middleware
-lands in one slot. Cross-reference `specs/5/6-middleware-pipeline.md
-
-## 6/6c HTTP chain`.
+lands in one slot. Cross-reference
+`specs/5/6-middleware-pipeline.md ## 6/6c HTTP chain`.
 
 e. **Reuse `secret_use_log`, no new audit table.** Spec 6/Y already
 built this. `caller='egred'` discriminates MITM swaps from broker
