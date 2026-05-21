@@ -65,7 +65,7 @@ iron-proxy is ~50 KLOC. We need a small fraction. Per-subsystem call:
 | `iron-proxy.example.yaml` (644 LOC of options)                                    | **drop**  | Configuration is per-source via the admin API, not via YAML. The TOML/env at `~/.crackboxrc` only carries the global CA path + leaf TTL.                                                                                                                                                                                                                                                  |
 | `internal/transform/pipeline.go` (multi-transform chain, audit emit)              | **drop**  | egred runs the same `Chain(slice, terminal)` idiom as `proxyd/main.go` (spec 5/6) — no separate transform registry. Audit is one middleware (`auditMITM`) writing to the broker's `secret_use_log` with `caller='egred'`.                                                                                                                                                                 |
 
-Roughly: **~300 LOC lifted, ~150 LOC adapted, the rest discarded.**
+Roughly: **~310 LOC lifted (cagen + leafcache), ~5 LOC adapted (the broker shim), the rest discarded.**
 
 ## egred-side architecture
 
