@@ -21,6 +21,7 @@ out of the box.
 | [6-web-routes.md](6-web-routes.md)               | draft  | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.        |
 | [7-ant-portability.md](7-ant-portability.md)     | draft  | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.  |
 | [1-git-channel.md](1-git-channel.md)             | draft  | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace. |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft  | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.    |
 
 Platform/API surface moved to [specs/6/](../6/) — products consume the
 control API; the API design ships before the products that depend on it.
