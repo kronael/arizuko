@@ -248,16 +248,19 @@ MSG="<output of script above>"
 
 routes=$(mcpc @s tools-call inspect_routing)
 
+# Collect one JID per group, deduplicate — one send per unique recipient.
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while read folder; do
-    jid=$(echo "$routes" | jq -r --arg f "$folder" '
+    echo "$routes" | jq -r --arg f "$folder" '
       .routes[] | select(.target == $f) | .match
       | select(startswith("room=") or startswith("chat_jid="))
       | sub("^room=";"") | sub("^chat_jid=";"")
-    ' | head -1)
-    test -n "$jid" && mcpc @s tools-call send \
-      jid:="$jid" text:="$MSG"
+    ' | head -1
+  done \
+  | sort -u \
+  | while read jid; do
+    test -n "$jid" && mcpc @s tools-call send jid:="$jid" text:="$MSG"
   done
 ```
 
-Per-group retries are fine; do NOT re-write `$HOME/announced-version`.
+Per-group retries are fine; do NOT re-write `~/.announced-version`.
