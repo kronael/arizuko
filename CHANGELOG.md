@@ -12,6 +12,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.4] — 2026-05-21
+
+> arizuko v0.45.4 — fix agent tool names, Slack delete/like workflow
+>
+> The agent was calling `send_reply` and `send_message` — tools that don't exist. Fixed to `reply` and `send`. Also documents how to find a Slack message TS for delete/like (inspect_messages → reply_to_id).
+>
+> • `reply` and `send` are the correct tool names — `send_reply`/`send_message` never existed
+> • Slack delete/like: use `inspect_messages` → bot row → `reply_to_id` for the Slack TS
+> • Slack `like` errors (scope missing): log, don't retry, don't alarm users
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- ant/CLAUDE.md: all `send_reply` → `reply`, `send_message` → `send` — these were
+  hallucinated tool names causing `tool-not-found` errors every turn
+- ant/CLAUDE.md: Slack delete/like workflow — `inspect_messages` → find bot row →
+  use `reply_to_id` as Slack TS for `targetId`; the `id=` XML attribute is internal DB only
+- ant/CLAUDE.md: Slack `like` error handling — scope issue, log to issues.md, no retry loop
+
+---
+
 ## [v0.45.3] — 2026-05-20
 
 > arizuko v0.45.3 — slakd reaction/delete logging + build fix

@@ -140,8 +140,8 @@ to retrieve recent conversation history first, then respond.
 # Task discipline
 
 - Never leave a task incomplete. Keep working until done or blocked.
-- When information is missing, ask the user — via `send_message` /
-  `send_reply`. **NEVER call `AskUserQuestion`**: it's a Claude Code
+- When information is missing, ask the user — via `send` /
+  `reply`. **NEVER call `AskUserQuestion`**: it's a Claude Code
   SDK interactive prompt with no chat fallback; the user can't see
   it, the call resolves with nothing, and your turn ends silent. To
   ask, send the questions as a normal chat message.
@@ -415,11 +415,19 @@ in message content as:
 
 - `post` — new top-level post (mastodon toot, bluesky post, discord
   channel message). Broadcast content, not replies or DMs.
-- `send_reply` — reply to a message. `send_message` — DM.
-- `like` — add a like/favourite/reaction to a message by id.
+- `reply` — threaded reply to a specific message. `send` — top-level or DM.
+- `like` — add a reaction to a message by id. `targetId` must be the
+  platform message id (Slack TS, not the DB `id=` attribute).
+  On Slack, to react to a bot message you sent: call `inspect_messages`,
+  find the bot row, use its `reply_to_id` value as `targetId` (that is the
+  Slack TS). The `id=` attribute in the XML is an internal DB id — unusable.
 - `delete` — retract a post **you created** (platform enforces authorship;
   user messages will error — do not retry).
+  On Slack, same lookup as `like`: `inspect_messages` → bot row → `reply_to_id` = Slack TS.
 - Reddit and some adapters return `ErrUnsupported` for likes — do not retry.
+- Slack `like` returning an error usually means `reactions:write` scope is
+  missing on the bot token — log to ~/issues.md, do not loop-retry, do not
+  tell the user the channel is broken.
 
 ## Slack threading
 
@@ -427,21 +435,20 @@ Slack has two distinct surfaces: **channel root** (main timeline) and
 **threads** (replies under a specific message). They are separate — a
 thread reply does NOT appear in the main timeline.
 
-**Default**: `send_reply` with no `reply_to_id` automatically threads
-under the message that triggered this turn. This is almost always
-correct — use it as the default.
+**Default**: `reply` with no `replyToId` automatically threads under the
+message that triggered this turn. This is almost always correct.
 
-Only use `send_message` (no threading) when you explicitly want a fresh
-top-level message in the channel, not a reply to what the user said.
+Only use `send` (no threading) when you explicitly want a fresh top-level
+message in the channel, not a reply to what the user said.
 
-If the user wrote from a thread, `send_reply` keeps you in that thread.
-If they wrote at channel root, `send_reply` creates a thread under their
+If the user wrote from a thread, `reply` keeps you in that thread.
+If they wrote at channel root, `reply` creates a thread under their
 message. Either way, match where they wrote from.
 
 ## Discord threading
 
-Discord channels have no native inline threads like Slack. `send_reply`
-shows a "Replied to" banner. `send_message` without `reply_to_id` posts
+Discord channels have no native inline threads like Slack. `reply`
+shows a "Replied to" banner. `send` without `replyToId` posts
 as a plain new message. Discord Forum threads are separate channel JIDs
 — treat them like any other channel.
 
@@ -480,7 +487,7 @@ messages, using 👍 on something that deserves a word.
 ALWAYS use `send_file` to deliver files — NEVER inline contents in
 text. Call with an absolute path under `~/` (`/home/node/`); use
 `~/tmp/` for temp output. Use the `caption` parameter for an
-accompanying message — do NOT call `send_message` separately after
+accompanying message — do NOT call `send` separately after
 `send_file`.
 
 # Local paths vs public URLs
