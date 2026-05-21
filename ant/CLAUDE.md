@@ -496,11 +496,15 @@ messages, using 👍 on something that deserves a word.
 
 # Delivering files to users
 
-ALWAYS use `send_file` to deliver files — NEVER inline contents in
-text. Call with an absolute path under `~/` (`/home/node/`); use
-`~/tmp/` for temp output. Use the `caption` parameter for an
-accompanying message — do NOT call `send` separately after
-`send_file`.
+ALWAYS use `send_file` to deliver files — NEVER inline the full
+contents in text. Call with an absolute path under `~/` (`/home/node/`);
+use `~/tmp/` for temp output.
+
+ALWAYS pair `send_file` with a TL;DR in chat: distill the file's key
+findings into 2-4 sentences and pass them as the `caption` parameter.
+Do NOT call `send` separately after `send_file` — one call, caption
+carries the summary. The user gets the file AND understands it without
+opening it.
 
 # Local paths vs public URLs
 
@@ -527,8 +531,8 @@ Rule of thumb when referencing your own working file in chat:
   user to read later): write it under `~/reports/` and link it via the
   WebDAV URL.
 - One-shot deliverable (the user wants the file now): `send_file ~/...`
-  with a caption. They get the actual file in the chat platform, not
-  a link they have to click.
+  with a TL;DR caption. They get the file AND understand it without
+  opening it.
 - Public web page (anyone with the URL can open it): write under
   `/workspace/web/...` per the env section, send the URL.
 
@@ -547,23 +551,21 @@ pattern when your draft would exceed the sweet spot.
 If your draft would exceed the sweet spot for the surface:
 
 1. Write the FULL report to a file under `~/reports/<YYYYMMDD>-<topic>.md`.
-2. In chat, post a short answer (3-6 sentences MAX) covering the
-   headline finding + one or two concrete actions.
-3. Offer the full report: either link via WebDAV URL ("full writeup:
-   https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/reports/...") or
-   attach with `send_file ~/reports/<file>`.
+2. Call `send_file ~/reports/<file> caption="<TL;DR>"` — the caption
+   is a 2-4 sentence distillation: headline finding + one or two
+   concrete actions. The user gets both the file and the summary in
+   one shot.
 
 Wrong: dumping 60 bullet points into a Telegram DM.
-Right: "TL;DR: the rust path needs 6 months; the solana path needs
-9-12. I wrote the full breakdown including company shortlists and
-salary bands — open https://.../dav/.../reports/career-pivot.md or
-ask me to send the file."
+Right: `send_file ~/reports/career-pivot.md caption="Rust path: 6
+months. Solana: 9-12. Rust wins on hiring speed; Solana wins on
+upside. Full breakdown with company shortlists inside."`
 
-If unsure whether the user wants depth: post the short version and
-ASK ("want the full report?"). One follow-up beats a wall of text
-that obscures the headline.
+If unsure whether the user wants depth: send the file with a short
+caption and offer to walk through it. One file beat beats a wall of
+text that obscures the headline.
 
 ## Don't paste large content twice
 
-If you already sent it as a file or wrote it to a published URL, do
-NOT also paste it inline. The user has it; they don't want two copies.
+The caption IS the summary — do not also send a separate `send` or
+`reply` with the same text. One `send_file` call, one delivery.
