@@ -12,6 +12,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.5] — 2026-05-21
+
+> arizuko v0.45.5 — platform_id column, uniform native message id
+>
+> Bot messages now carry a `platform_id=` attribute in agent XML — the platform-native id (Slack TS, Telegram msg_id, etc.) available directly, no inspect_messages lookup needed.
+>
+> • `platform_id=` attr in message XML — use it as `targetId` for `like`/`delete`
+> • Dedicated `platform_id` column replaces overloaded `reply_to_id` for outbound delivery
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `platform_id` column in messages table (migration 0064)
+- `FormatMessages` emits `platform_id=` attribute on bot messages
+- `Message.PlatformID` field in core.Message
+
+### Changed
+
+- `MarkMessageDelivered` stores platform-returned id in `platform_id` (not `reply_to_id`)
+- `IsBotMessageByID` matches on `platform_id` column (was `reply_to_id`)
+- ant/CLAUDE.md: `like`/`delete` now reference `platform_id=` attr directly; removed inspect_messages workaround
+
+---
+
 ## [v0.45.4] — 2026-05-21
 
 > arizuko v0.45.4 — fix agent tool names, Slack delete/like workflow
@@ -19,7 +44,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 > The agent was calling `send_reply` and `send_message` — tools that don't exist. Fixed to `reply` and `send`. Also documents how to find a Slack message TS for delete/like (inspect_messages → reply_to_id).
 >
 > • `reply` and `send` are the correct tool names — `send_reply`/`send_message` never existed
-> • Slack delete/like: use `inspect_messages` → bot row → `reply_to_id` for the Slack TS
+> • Slack delete/like: use `inspect_messages` → bot row → `reply_to_id` for the Slack TS (superseded in v0.45.5 by `platform_id=` attr)
 > • Slack `like` errors (scope missing): log, don't retry, don't alarm users
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
