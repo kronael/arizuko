@@ -417,13 +417,13 @@ in message content as:
   channel message). Broadcast content, not replies or DMs.
 - `reply` — threaded reply to a specific message. `send` — top-level or DM.
 - `like` — add a reaction to a message by id. `targetId` must be the
-  platform message id (Slack TS, not the DB `id=` attribute).
-  On Slack, to react to a bot message you sent: call `inspect_messages`,
-  find the bot row, use its `reply_to_id` value as `targetId` (that is the
-  Slack TS). The `id=` attribute in the XML is an internal DB id — unusable.
+  platform-native message id. Use the `platform_id=` attribute from the
+  message XML — it is present on all adapters and holds the native id
+  (Slack TS, Telegram msg_id, etc.). The `id=` attribute is an internal
+  DB id — unusable for platform actions.
 - `delete` — retract a post **you created** (platform enforces authorship;
-  user messages will error — do not retry).
-  On Slack, same lookup as `like`: `inspect_messages` → bot row → `reply_to_id` = Slack TS.
+  user messages will error — do not retry). Use `platform_id=` as `targetId`,
+  same as `like`.
 - Reddit and some adapters return `ErrUnsupported` for likes — do not retry.
 - Slack `like` returning an error usually means `reactions:write` scope is
   missing on the bot token — log to ~/issues.md, do not loop-retry, do not

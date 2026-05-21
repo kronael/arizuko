@@ -19,14 +19,14 @@ func (s *Store) PutMessage(m core.Message) error {
 		`INSERT OR IGNORE INTO messages
 		 (id, chat_jid, sender, sender_name, content, timestamp,
 		  is_from_me, is_bot_message, forwarded_from,
-		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id, status, chat_name)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, turn_id, status, chat_name, platform_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content,
 		m.Timestamp.Format(time.RFC3339Nano),
 		btoi(m.FromMe), btoi(m.BotMsg),
 		nilIfEmpty(m.ForwardedFrom),
 		nilIfEmpty(m.ReplyToID), nilIfEmpty(m.ReplyToText), nilIfEmpty(m.ReplyToSender),
-		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID), m.Status, m.ChatName,
+		m.Topic, m.RoutedTo, m.Verb, m.Attachments, m.Source, nilIfEmpty(m.TurnID), m.Status, m.ChatName, nilIfEmpty(m.PlatformID),
 	)
 	return err
 }
@@ -38,7 +38,7 @@ func (s *Store) MarkMessageStatus(id, status string) error {
 
 func (s *Store) MarkMessageDelivered(id, platformID string) error {
 	_, err := s.db.Exec(
-		`UPDATE messages SET status = 'sent', reply_to_id = ? WHERE id = ?`,
+		`UPDATE messages SET status = 'sent', platform_id = ? WHERE id = ?`,
 		nilIfEmpty(platformID), id,
 	)
 	return err
@@ -78,7 +78,7 @@ func scanMessageWithStatus(r rowScanner) (core.Message, error) {
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName, &m.Status); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName, &m.PlatformID, &m.Status); err != nil {
 		return m, err
 	}
 	m.FromMe = fromMe != 0
@@ -106,7 +106,7 @@ func nilIfEmpty(s string) *string {
 const msgCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp,
 	is_from_me, is_bot_message, COALESCE(forwarded_from,''),
 	COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''),
-	topic, routed_to, verb, attachments, source, errored, COALESCE(turn_id,''), COALESCE(chat_name,'')`
+	topic, routed_to, verb, attachments, source, errored, COALESCE(turn_id,''), COALESCE(chat_name,''), COALESCE(platform_id,'')`
 
 func (s *Store) NewMessages(jids []string, since time.Time, botName string) ([]core.Message, time.Time, error) {
 	var rows *sql.Rows
@@ -231,7 +231,7 @@ func scanMessage(r rowScanner) (core.Message, error) {
 	if err := r.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content,
 		&ts, &fromMe, &botMsg, &m.ForwardedFrom,
 		&m.ReplyToID, &m.ReplyToText, &m.ReplyToSender,
-		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName); err != nil {
+		&m.Topic, &m.RoutedTo, &m.Verb, &m.Attachments, &m.Source, &errored, &m.TurnID, &m.ChatName, &m.PlatformID); err != nil {
 		return m, err
 	}
 	m.FromMe = fromMe != 0
@@ -564,8 +564,8 @@ func (s *Store) RoutedToByMessageID(id string) string {
 //
 // Outbound bot rows carry a SYNTHETIC primary id (e.g. "out-<nano>") set
 // by gateway, and `MarkMessageDelivered` stuffs the platform's returned
-// id into the `reply_to_id` column. An inbound reaction's `reply_to`
-// carries the platform id — so we have to match either column.
+// id into `platform_id`. An inbound reaction's `reply_to` carries the
+// platform id — so we match either column.
 func (s *Store) IsBotMessageByID(id string) bool {
 	if id == "" {
 		return false
@@ -573,7 +573,7 @@ func (s *Store) IsBotMessageByID(id string) bool {
 	var v int
 	s.db.QueryRow(
 		`SELECT 1 FROM messages
-		  WHERE (id=? OR reply_to_id=?) AND is_bot_message=1
+		  WHERE (id=? OR platform_id=?) AND is_bot_message=1
 		  LIMIT 1`,
 		id, id,
 	).Scan(&v)

@@ -23,6 +23,7 @@ type Message struct {
 	ReplyToID     string
 	ReplyToText   string
 	ReplyToSender string
+	PlatformID    string // platform-native message ID (Slack TS, Telegram msg_id, etc.) for outbound messages
 	Topic         string
 	RoutedTo      string
 	Verb          string // event type: "message" (default), "join", "edit", "delete", etc.

@@ -125,6 +125,11 @@ func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
 			b.WriteString(p)
 			b.WriteString(`"`)
 		}
+		if m.PlatformID != "" {
+			b.WriteString(` platform_id="`)
+			b.WriteString(escapeXml(m.PlatformID))
+			b.WriteString(`"`)
+		}
 		if m.Verb != "" && m.Verb != "message" {
 			b.WriteString(` verb="`)
 			b.WriteString(escapeXml(m.Verb))

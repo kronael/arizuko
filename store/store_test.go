@@ -735,11 +735,11 @@ func TestPendingOutboundOlderThan_AndMarkDelivered(t *testing.T) {
 	if err := s.MarkMessageDelivered("p1", "platform-xyz"); err != nil {
 		t.Fatal(err)
 	}
-	var st, replyID string
-	s.db.QueryRow(`SELECT status, COALESCE(reply_to_id,'') FROM messages WHERE id = ?`, "p1").
-		Scan(&st, &replyID)
-	if st != core.MessageStatusSent || replyID != "platform-xyz" {
-		t.Errorf("after MarkMessageDelivered: status=%q reply=%q", st, replyID)
+	var st, platformID string
+	s.db.QueryRow(`SELECT status, COALESCE(platform_id,'') FROM messages WHERE id = ?`, "p1").
+		Scan(&st, &platformID)
+	if st != core.MessageStatusSent || platformID != "platform-xyz" {
+		t.Errorf("after MarkMessageDelivered: status=%q platform_id=%q", st, platformID)
 	}
 
 	if err := s.MarkMessageStatus("p2", core.MessageStatusFailed); err != nil {
