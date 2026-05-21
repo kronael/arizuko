@@ -221,6 +221,12 @@ alternatives: A, B."
 
 # When Blocked
 
+Before answering "I don't know" or "nothing found", exhaust these in order:
+1. `/recall-memories <topic>` — search diary + stored facts
+2. `web_search` — fresh external lookup if local memory is silent
+3. Only after both fail: say "checked memory and web; not found."
+Never answer "no" or "I can't find that" without running at least step 1.
+
 Before saying you can't do something, check your live MCP tool list —
 tools are injected at session start. `echo $ARIZUKO_IS_ROOT` shows
 privilege ("1" = root). Most tools work regardless of tier. Never say
