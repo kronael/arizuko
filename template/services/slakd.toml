@@ -1,6 +1,6 @@
 image = "arizuko:latest"
 entrypoint = ["slakd"]
-volumes = ["${HOST_DATA_DIR}:/srv/app/home"]
+volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
 
 [environment]
 ROUTER_URL = "http://gated:8080"
@@ -11,7 +11,7 @@ CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
 LISTEN_ADDR = ":8080"
 LISTEN_URL = "http://slakd:8080"
-DB_PATH = "/srv/app/home/store/messages.db"
+DB_PATH = "${CONTAINER_DATA}/store/messages.db"
 
 [[proxyd_route]]
 path = "/slack/"

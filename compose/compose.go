@@ -12,7 +12,15 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/joho/godotenv"
+
+	"github.com/kronael/arizuko/core"
 )
+
+// containerDataMount is the container-side path where HOST_DATA_DIR is mounted.
+const containerDataMount = "/srv/app/home"
+
+// containerSrcMount is the container-side path where HOST_APP_DIR is mounted.
+const containerSrcMount = "/srv/app/arizuko"
 
 // dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
 // gated must be in this group to spawn agent containers as uid 1000.
@@ -239,9 +247,10 @@ func Generate(dataDir string) (string, error) {
 		env = map[string]string{}
 	}
 	for k, v := range map[string]string{
-		"API_PORT":       "8080",
+		"API_PORT":       fmt.Sprintf("%d", core.DefaultAPIPort),
 		"ASSISTANT_NAME": "arizuko",
-		"DATA_DIR":       dataDir, // host path; used in extra service volume strings
+		"DATA_DIR":       dataDir,          // host path; used in extra service volume strings
+		"CONTAINER_DATA": containerDataMount, // container-internal data path for TOML templates
 	} {
 		if _, ok := env[k]; !ok {
 			env[k] = v
@@ -428,7 +437,7 @@ func writeSvc(def svcDef) string {
 	b.WriteString("    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['%s']\n", def.entrypoint)
 	b.WriteString("    user: '1000:1000'\n")
-	fmt.Fprintf(&b, "    volumes:\n      - %s:/srv/app/home\n", def.dataDir)
+	fmt.Fprintf(&b, "    volumes:\n      - %s:%s\n", def.dataDir, containerDataMount)
 	if len(def.ports) > 0 {
 		b.WriteString("    ports:\n")
 		for _, p := range def.ports {
@@ -439,7 +448,7 @@ func writeSvc(def svcDef) string {
 	// DATA_DIR is always the container-internal mount point — .env doesn't
 	// know this path, so every arizuko daemon needs the override.
 	b.WriteString("    environment:\n")
-	b.WriteString("      DATA_DIR: '/srv/app/home'\n")
+	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
 	if len(def.environment) > 0 {
 		writeEnv(&b, def.environment)
 	}
@@ -464,18 +473,18 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    user: '1000:1000'\n")
 	fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
 	b.WriteString("    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
+	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
 	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
 	gatedEnv := map[string]string{
-		"API_PORT": "8080",
-		"DATA_DIR": "/srv/app/home",
+		"API_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
+		"DATA_DIR": containerDataMount,
 	}
 	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
-		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
-		gatedEnv["APP_SRC_DIR"] = "/srv/app/arizuko"
+		fmt.Fprintf(&b, "      - %s:%s:ro\n", hostApp, containerSrcMount)
+		gatedEnv["APP_SRC_DIR"] = containerSrcMount
 	}
 	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:8080'\n", envOr(env, "API_PORT", "8080"))
+	fmt.Fprintf(&b, "      - '%s:%d'\n", envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort)), core.DefaultAPIPort)
 	b.WriteString("    extra_hosts:\n")
 	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
 	b.WriteString(envFileFor("gated"))
@@ -526,8 +535,8 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
 		// even when .env sets DASH_PORT for host-side publish.
 		environment: map[string]string{
-			"DB_PATH":   "/srv/app/home/store/messages.db",
-			"DASH_PORT": "8080",
+			"DB_PATH":   containerDataMount + "/store/messages.db",
+			"DASH_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
 		},
 	}
 	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {

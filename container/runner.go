@@ -29,7 +29,7 @@ import (
 
 const (
 	maxOutputSize             = 10 * 1024 * 1024 // 10MB
-	containerHome             = "/home/node"
+	containerHome             = core.ContainerHome
 	containerGracePeriod      = 30 * time.Second
 	containerSoftDeadlineOffset = 2 * time.Minute
 )
@@ -503,12 +503,12 @@ func buildMounts(
 	if cfg.HostCodexDir != "" {
 		groupCodex := filepath.Join(groupDir, ".codex")
 		os.MkdirAll(groupCodex, 0o755)
-		m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: "/home/node/.codex"})
+		m = append(m, volumeMount{Host: hp(cfg, groupCodex), Container: containerHome + "/.codex"})
 		m = append(m, volumeMount{
-			Host: filepath.Join(cfg.HostCodexDir, "auth.json"), Container: "/home/node/.codex/auth.json", RO: true,
+			Host: filepath.Join(cfg.HostCodexDir, "auth.json"), Container: containerHome + "/.codex/auth.json", RO: true,
 		})
 		m = append(m, volumeMount{
-			Host: filepath.Join(cfg.HostCodexDir, "config.toml"), Container: "/home/node/.codex/config.toml", RO: true,
+			Host: filepath.Join(cfg.HostCodexDir, "config.toml"), Container: containerHome + "/.codex/config.toml", RO: true,
 		})
 	}
 

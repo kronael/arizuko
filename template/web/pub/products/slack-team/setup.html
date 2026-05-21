@@ -280,7 +280,7 @@ arizuko invite acme list</code></pre>
       <pre><code># /srv/data/arizuko_acme/services/slakd-beta.toml
 image = "arizuko:latest"
 entrypoint = ["slakd"]
-volumes = ["${HOST_DATA_DIR}:/srv/app/home"]
+volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
 
 [environment]
 ROUTER_URL = "http://gated:8080"

@@ -451,16 +451,8 @@ func (g *Gateway) seedCodexDirs() {
 }
 
 func (g *Gateway) checkMigrationVersion() {
-	// Try the container-side mount first (/srv/app/arizuko is the canonical
-	// compose mount point), then fall back to HostAppDir for local dev.
-	var latest int
-	for _, base := range []string{"/srv/app/arizuko", g.cfg.HostAppDir} {
-		latest = container.MigrationVersion(
-			filepath.Join(base, "ant", "skills", "self", "MIGRATION_VERSION"))
-		if latest > 0 {
-			break
-		}
-	}
+	latest := container.MigrationVersion(
+		filepath.Join(g.cfg.AppSrcDir, "ant", "skills", "self", "MIGRATION_VERSION"))
 	if latest == 0 {
 		return
 	}
@@ -1684,7 +1676,7 @@ func (g *Gateway) enrichAttachments(ctx context.Context, msg *core.Message, fold
 				}
 			}
 		}
-		containerPath := "/home/node/media/" + day + "/" + fname
+		containerPath := core.ContainerHome + "/media/" + day + "/" + fname
 		if transcript != "" {
 			extra += fmt.Sprintf("\n<attachment path=%q mime=%q filename=%q transcript=%q/>",
 				containerPath, att.Mime, displayName, transcript)

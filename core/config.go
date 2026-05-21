@@ -12,6 +12,20 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// ContainerHome is the home directory inside every agent container.
+// ipc, gateway, and container/runner all need this; it lives here to
+// avoid import cycles (container imports ipc).
+const ContainerHome = "/home/node"
+
+// DefaultImage is the agent container image name used when CONTAINER_IMAGE
+// is not set. cmd/arizuko seeds this value into generated .env files; both
+// must stay in sync.
+const DefaultImage = "arizuko-ant:latest"
+
+// DefaultAPIPort is the gated listen port, used as the default for API_PORT
+// in config, compose generation, and seeded .env files.
+const DefaultAPIPort = 8080
+
 type Config struct {
 	Name                string
 	TelegramToken       string
@@ -125,7 +139,7 @@ func LoadConfig() (*Config, error) {
 	c := &Config{
 		Name:                name,
 		TelegramToken:       envOr("TELEGRAM_BOT_TOKEN", ""),
-		Image:               envOr("CONTAINER_IMAGE", "arizuko-ant:latest"),
+		Image:               envOr("CONTAINER_IMAGE", DefaultImage),
 		Timeout:             envDur("CONTAINER_TIMEOUT", 60*time.Minute),
 		IdleTimeout:         envDur("IDLE_TIMEOUT", 60*time.Minute),
 		MaxContainers:       envInt("MAX_CONCURRENT_CONTAINERS", 5),
@@ -154,7 +168,7 @@ func LoadConfig() (*Config, error) {
 		WebDir:          filepath.Join(root, "web"),
 		HostCodexDir:    envOr("HOST_CODEX_DIR", ""),
 
-		APIPort:              envInt("API_PORT", 8080),
+		APIPort:              envInt("API_PORT", DefaultAPIPort),
 		ChannelSecret:        envOr("CHANNEL_SECRET", ""),
 		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),

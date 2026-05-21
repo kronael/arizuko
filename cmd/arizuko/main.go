@@ -231,8 +231,8 @@ func cmdCreate(args []string) {
 		if _, err := rand.Read(secret); err != nil {
 			die("Failed: crypto/rand: %v", err)
 		}
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=arizuko-ant:latest\nAPI_PORT=8080\nCHANNEL_SECRET=%s\n",
-			name, hex.EncodeToString(secret))
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nCHANNEL_SECRET=%s\n",
+			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(secret))
 		// 0600: .env holds CHANNEL_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {

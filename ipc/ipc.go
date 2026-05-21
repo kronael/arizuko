@@ -592,10 +592,11 @@ func isSelfDefault(r core.Route, owner string) bool {
 }
 
 func workspaceRel(fp string) (string, error) {
-	if strings.HasPrefix(fp, "/home/node/") {
-		return strings.TrimPrefix(fp, "/home/node/"), nil
+	prefix := core.ContainerHome + "/"
+	if strings.HasPrefix(fp, prefix) {
+		return strings.TrimPrefix(fp, prefix), nil
 	}
-	return "", fmt.Errorf("filepath must be under ~/ (/home/node)")
+	return "", fmt.Errorf("filepath must be under ~/ (%s)", core.ContainerHome)
 }
 
 // decodePanePrompts coerces the MCP `prompts` arg into typed
