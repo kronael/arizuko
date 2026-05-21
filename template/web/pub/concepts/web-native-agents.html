@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>web-native agents &middot; concept</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; width: 100%; font-size: 0.92em; }
+    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.6em; text-align: left; vertical-align: top; }
+    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../concepts/">concepts</a> &rsaquo; web-native agents</p>
+    <h1>web-native agents</h1>
+    <p class="dim">each folder is a microsite</p>
+
+    <p class="lede">Most agent platforms wire a model behind a chat box on someone else's product. An arizuko folder can additionally own a public website &mdash; static pages, an embedded chat widget, a form intake, and content the agent writes itself &mdash; with no extra services. The folder <em>is</em> the microsite.</p>
+
+    <section>
+      <h2>the four pieces</h2>
+      <p>One folder, four surfaces sharing one container and one history:</p>
+      <table>
+        <tr><th>piece</th><th>what it does</th><th>path</th></tr>
+        <tr><td>public page</td><td><code>vited</code> serves static files anyone can fetch.</td><td><code>groups/&lt;folder&gt;/workspace/web/pub/*</code></td></tr>
+        <tr><td>chat widget</td><td><code>slink</code> embeds in the page; messages land at <code>web:&lt;folder&gt;</code>.</td><td><code>/chat/&lt;token&gt;/</code></td></tr>
+        <tr><td>form intake</td><td>POSTs land at <code>web:&lt;folder&gt;/submissions</code> &mdash; a separate sub-chat.</td><td><code>/chat/&lt;token&gt;/</code> (suffixed JID)</td></tr>
+        <tr><td>generated content</td><td>Agent writes HTML, PNG, or JSON over WebDAV; <code>vited</code> serves it next request.</td><td>same <code>workspace/web/pub/</code> tree</td></tr>
+      </table>
+      <p>Diary, facts, and per-user notes accumulate in the same folder.</p>
+    </section>
+
+    <section>
+      <h2>flow</h2>
+      <pre><code>visitor
+  GET /pub/&lt;folder&gt;/  ──&gt;  vited  ──&gt;  static HTML + chat widget
+
+  POST /chat/&lt;token&gt;/  ──&gt;  webd  ──&gt;  message at web:&lt;folder&gt;
+                                          │
+  POST /chat/&lt;form-token&gt;/  ──&gt;  webd  ──&gt;  message at web:&lt;folder&gt;/submissions
+                                          │
+                                          ▼
+                                        gated
+                                          │
+                                          ▼
+                                   container (agent)
+                                          │
+        davd write  &lt;──  workspace/web/pub/&lt;name&gt;.html
+                                          │
+                                          ▼
+                          next GET /pub/&lt;folder&gt;/&lt;name&gt;.html
+                          serves the file the agent just wrote</code></pre>
+      <p>The form post lands on a sibling chat thread; routing keeps it separate from the page chat.</p>
+    </section>
+
+    <section>
+      <h2>worked example: atlas/strengths</h2>
+      <p>A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. They paste their Gallup CliftonStrengths results and click submit.</p>
+      <ol>
+        <li>The form POSTs to <code>/chat/&lt;form-token&gt;/</code>; <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>.</li>
+        <li><code>gated</code> routes that message to the <code>atlas/strengths</code> container.</li>
+        <li>The agent dispatches its <code>process-strengths</code> skill and writes <code>workspace/web/pub/strengths/&lt;name&gt;.html</code> via <code>davd</code>.</li>
+        <li>The visitor is redirected to that new path. <code>vited</code> serves the personalised report on the next request.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>what it replaces</h2>
+      <p>The same workflow on a typical stack is a Webflow page, a Zapier or Make webhook, an OpenAI call from a backend, and a storage bucket for the output. Here it's one folder. No CMS, no glue service, no backend code beyond a skill that writes HTML. The agent itself plays the role of CMS, ETL, and generator.</p>
+    </section>
+
+    <section>
+      <h2>use cases</h2>
+      <ul>
+        <li>Personalised reports &mdash; paste data, get a report URL; gated CliftonStrengths, resume reviews, lab results.</li>
+        <li>Tools &mdash; calculators, generators, and intake forms where the answer needs an LLM to compose it.</li>
+        <li>Customer-facing demos &mdash; a one-page site that shows what the agent does, with a working chat next to it.</li>
+        <li>Submission queues &mdash; intake forms whose entries the agent triages, replies to, or escalates to a topic.</li>
+        <li>Tutors &mdash; persistent context per user across visits, with the page itself acting as the workbook.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>constraints</h2>
+      <ul>
+        <li>One folder, one site. Sub-sites under one folder share the same agent, ACL, and history; for separate sites use separate folders.</li>
+        <li>Pages are whatever the agent writes. There is no DB-backed templating layer &mdash; a dynamic page needs a skill that writes the HTML.</li>
+        <li><code>vited</code> is the origin. No CDN, no edge caching; put one in front if traffic warrants it.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../concepts/routing.html">routing</a> &mdash; how <code>web:&lt;folder&gt;</code> and <code>web:&lt;folder&gt;/submissions</code> reach the right agent.</li>
+        <li><a href="../concepts/tokens.html">route tokens</a> &mdash; the <code>/chat/&lt;token&gt;/</code> URL the page and form post to.</li>
+        <li><a href="../concepts/tasks.html">tasks</a> &mdash; schedule the agent to regenerate or sweep the site.</li>
+        <li><a href="../concepts/skills.html">skills</a> &mdash; the markdown instruction set that turns a form post into HTML.</li>
+        <li><a href="../concepts/webdav.html">webdav</a> &mdash; the file workspace the agent writes through.</li>
+        <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; mint the token the page embeds.</li>
+      </ul>
+    </section>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
