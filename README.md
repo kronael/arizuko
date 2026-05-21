@@ -1,84 +1,62 @@
 # arizuko
 
-Agent orchestration platform. Each folder is a persistent agent context
-with its own memory, persona, skills, and ACL. Go daemons, SQLite WAL,
-Docker containers, MCP over unix socket.
+<p align="center">
+  Persistent AI agents for teams. Each folder is an agent with its own memory, persona, and ACL.
+</p>
 
-## what it is
+<p align="center">
+  <a href="#what-its-good-for">Use cases</a> •
+  <a href="#overview">Overview</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#security-model">Security</a> •
+  <a href="#docs">Docs</a>
+</p>
 
-A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a
-`MEMORY.md`, a conversation diary, and an ACL. Folders form a hierarchy
-(`corp/sales`, `corp/eng/sre`) — each node is an independent agent that
-accumulates only the conversations relevant to it. The container boundary
-is the context boundary: sibling groups run separate containers on
-separate networks and never share a context window.
+## What it's good for
 
-Inbound messages arrive from channel adapters over HTTP (`POST /v1/messages`).
-`gated` polls `messages.db`, resolves the target folder via the route table,
-spawns a Docker container for that group if one is not running, bridges an MCP
-unix socket into the container via socat, runs the Claude Code agent, and
-delivers output back to the originating channel (`POST <adapter>/send`).
-Per-turn results flow over MCP via `submit_turn`; stdout is ignored.
+- **Team agent in Slack / Discord / Telegram** — mention-based or DM, with per-channel persona and memory
+- **Long-running personal assistant** — persists conversation history, diary, and user profile across restarts
+- **Multi-channel orchestrator** — one agent across Slack + Discord + email + WhatsApp + web chat, same database
+- **Scheduler / cron-bot** — `timed` injects turns into the message bus on a schedule, no webhook needed
+- **Email or webhook agent** — `emaid` ingests IMAP with DMARC filtering; arbitrary callers POST to `/hook/<token>`
+- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite
+- **Multi-tenant agent platform** — one deployment, arbitrary folder depth; `corp/eng/sre` and `solo/inbox` run the same code
 
-Agents coordinate through the same message bus they use to serve users. An
-agent can route a message to a sibling folder, delegate to a child, schedule a
-cron task via `timed`, ingest webhooks via route tokens, or accept DMARC-filtered
-email via `emaid` — all by writing rows to `messages.db` and calling
-`EnqueueMessageCheck`. No special coordination bus; the route table and
-`PutMessage` are the coordination primitives.
+A tar of `/srv/data/arizuko_<name>/` is a complete instance backup.
 
-State lives entirely in one SQLite database (`messages.db`). Containers are
-stateless — they mount the group folder, run, and exit. A tar of
-`/srv/data/arizuko_<name>/` is a complete instance backup.
+## Overview
 
-## what you can build
+A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md`, a conversation diary, and an ACL. Folders form a hierarchy (`corp/sales`, `corp/eng/sre`) — each node is an independent agent that accumulates only the conversations relevant to it.
 
-The same daemons, configured differently, fill several adjacent niches.
+```
+# A message arrives in Slack.
+@andy can you summarize the open PRs?
 
-**Shipped today:**
+# 1. slakd posts to gated  →  messages.db
+# 2. gated polls DB, resolves folder via route table
+# 3. Docker container spawns for that group
+# 4. MCP unix socket bridges into container
+# 5. Claude Code agent runs, calls tools, submits turn
+# 6. gated delivers reply back to Slack via slakd
+```
 
-- **A team agent in Slack / Discord / Telegram** — channel-bound persona,
-  mention-only or DM. Via the channel adapters + per-folder
-  `PERSONA.md`; product page at
-  [template/web/pub/products/slack-team/](template/web/pub/products/slack-team/index.html).
-- **A self-hosted RAG-over-team-docs** — mount the team's repo via WebDAV
-  (`davd`) and let the agent grep, read, and cite. Today via mounts +
-  the `facts/` seed dir.
-- **A long-running personal assistant** — per-user memory, linked OAuth
-  identities (GitHub / Google / Discord / Telegram) resolving to one
-  `auth_users.sub`.
-- **A multi-channel orchestrator** — one agent across Slack + Discord +
-  email + WhatsApp + web chat, same `messages.db`. Every adapter speaks
-  the [channel protocol](specs/4/1-channel-protocol.md).
-- **A scheduler / cron-bot** — `timed` writes scheduled turns into the
-  same message bus.
-- **An email or webhook agent** — `emaid` ingests IMAP with DMARC + sender
-  allowlist (spec 8/17); arbitrary HTTP callers POST to `/v1/messages` via
-  the same channel protocol.
-- **Chat + webhook links** — `issue_chat_link` / `issue_webhook` MCP tools
-  mint `/chat/<token>/` (web widget) and `/hook/<token>` (fire-and-forget)
-  routes backed by the `route_tokens` table; legacy `/slink/*` 301s to
-  `/chat/<token>/` ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md)).
+Agents coordinate through the same message bus they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by writing rows to `messages.db` and calling `EnqueueMessageCheck`. No separate coordination bus.
 
-**Spec'd, not yet shipped:**
+State lives entirely in one SQLite database. Containers are stateless — they mount the group folder, run, and exit.
 
-- **A federated multi-tenant control API** — `/v1/*` surface across every
-  daemon ([specs/6/R-platform-api.md](specs/6/R-platform-api.md), `spec`).
-- **A meta-agent platform** — end users POST an agent definition and get
-  a tenant + chat token back
-  ([specs/6/3-user-spawned-agents.md](specs/6/3-user-spawned-agents.md), `spec`).
-- **Proactive interjection** — lurk-mode + validator chain
-  ([specs/5/33-proactive-interjection.md](specs/5/33-proactive-interjection.md), `spec`).
-- **Cost caps** — per-folder/user daily spend cap; pre-spawn gate
-  replies "Budget reached for today" without invoking the LLM
-  ([specs/5/34-cost-caps.md](specs/5/34-cost-caps.md), `spec`).
+## Getting Started
 
-arizuko's primitives — folders, grants, secrets, channel adapters,
-containerized agents, capability tokens — compose into all of these.
-Curated configurations are published at `/pub/products/` (see
-[specs/7/](specs/7/) for the catalog).
+```bash
+make build                                 # ./arizuko + daemon binaries
+arizuko create foo                         # seed /srv/data/arizuko_foo + .env
+vim /srv/data/arizuko_foo/.env             # set CHANNEL_SECRET, AUTH_SECRET, WEB_HOST, …
+arizuko group foo add tg:-123456789 main   # register first group
+arizuko run foo                            # generate compose + docker compose up
+```
 
-## Architecture at a glance
+Then add a channel adapter. Each adapter is one `[[service]]` block in the compose. See [CLAUDE.md](CLAUDE.md) for env vars and [EXTENDING.md](EXTENDING.md) for wiring new channels.
+
+## How it works
 
 ```
 adapter (teled/discd/slakd/…) --HTTP--> gated (api + gateway)
@@ -88,155 +66,85 @@ adapter (teled/discd/slakd/…) --HTTP--> gated (api + gateway)
                                           │     └── MCP over unix socket (ipc)
                                           └── chanreg (adapter health, outbound)
 
-timed   — scheduler, writes messages
+timed   — scheduler, writes messages into bus
 onbod   — onboarding, OAuth, gated admission
-webd    — web chat channel adapter
+webd    — web chat channel adapter + SSE hub
 proxyd  — auth-gated reverse proxy (TOML route table)
-vited   — web origin: serves /pub/* + auth-gated default route (Vite)
-davd    — WebDAV workspace (dufs wrapper)
-dashd   — operator dashboards + TIER 1 routes/groups/secrets CRUD
+vited   — serves /pub/* + auth-gated default route
+davd    — WebDAV workspace (per-group, dufs)
+dashd   — operator dashboards + admin CRUD
 ```
 
-Full graph, message flow, container lifecycle, SQLite schema in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+Full package graph, message flow, container lifecycle, and SQLite schema in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Subsystems
+## Channel adapters
 
-arizuko has two flavors of feature: **core** primitives that define the
-system shape and are always present, and **integrations** that plug into
-the core and are picked per deployment. Daemon and library tables below
-mark each row accordingly. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
-package graph and [EXTENDING.md](EXTENDING.md) for adding new integrations.
+| adapter | platform           |
+| ------- | ------------------ |
+| teled   | Telegram           |
+| discd   | Discord            |
+| slakd   | Slack (Events API) |
+| mastd   | Mastodon           |
+| bskyd   | Bluesky            |
+| reditd  | Reddit             |
+| emaid   | Email (IMAP/SMTP)  |
+| whapd   | WhatsApp (Baileys) |
+| twitd   | X/Twitter          |
+| linkd   | LinkedIn           |
 
-### Daemons
+A minimal deployment runs `gated` + one adapter. Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets).
 
-| name   | kind        | role                                                                                                                 | README                               |
-| ------ | ----------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| gated  | core        | HTTP API + message loop + container runner; owns schema                                                              | [gated/README.md](gated/README.md)   |
-| timed  | core        | cron/interval scheduler                                                                                              | [timed/README.md](timed/README.md)   |
-| onbod  | core        | onboarding, OAuth, gated admission queue                                                                             | [onbod/README.md](onbod/README.md)   |
-| dashd  | core        | HTMX operator dashboards + TIER 1 admin CRUD (invites, model selector, skill toggle, grants viewer, workspace links) | [dashd/README.md](dashd/README.md)   |
-| webd   | core        | web channel: SSE hub, `/chat/<token>/` widget + `/hook/<token>` ingest, MCP transport                                | [webd/README.md](webd/README.md)     |
-| proxyd | core        | auth-gated reverse proxy                                                                                             | [proxyd/README.md](proxyd/README.md) |
-| davd   | core        | WebDAV workspace (per-group, dufs)                                                                                   | [davd/README.md](davd/README.md)     |
-| teled  | integration | Telegram adapter                                                                                                     | [teled/README.md](teled/README.md)   |
-| discd  | integration | Discord adapter                                                                                                      | [discd/README.md](discd/README.md)   |
-| slakd  | integration | Slack adapter (bot-token, Events API)                                                                                | [slakd/README.md](slakd/README.md)   |
-| mastd  | integration | Mastodon adapter                                                                                                     | [mastd/README.md](mastd/README.md)   |
-| bskyd  | integration | Bluesky adapter                                                                                                      | [bskyd/README.md](bskyd/README.md)   |
-| reditd | integration | Reddit adapter                                                                                                       | [reditd/README.md](reditd/README.md) |
-| emaid  | integration | Email (IMAP/SMTP) adapter                                                                                            | [emaid/README.md](emaid/README.md)   |
-| whapd  | integration | WhatsApp adapter (TypeScript, Baileys)                                                                               | [whapd/README.md](whapd/README.md)   |
-| twitd  | integration | X/Twitter adapter (TypeScript, browser emulation)                                                                    | [twitd/README.md](twitd/README.md)   |
-| linkd  | integration | LinkedIn adapter (partial native, v2 API)                                                                            | [linkd/README.md](linkd/README.md)   |
-| ttsd   | integration | OpenAI-compatible TTS proxy (Kokoro by default)                                                                      | [ttsd/README.md](ttsd/README.md)     |
+Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-A minimal deployment runs core + one channel-adapter integration; a
-maxed-out deployment runs all of them. Optional capability hooks
-(Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
-`TTS_BASE_URL`, oracle skill via `OPENAI_API_KEY`/`CODEX_API_KEY`)
-plug into the core via env vars and skills, not new daemons.
+## Security model
 
-### Libraries
+- **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
+- **Egress isolation**: `crackbox` (`egred` proxy daemon) enforces default-deny on agent outbound traffic. Agents receive proxy tokens; real credentials are swapped at the boundary.
+- **ACL**: `auth.Authorize` — one `acl` table, deny-wins, tier defaults in code. MCP tools gated per-action per-principal.
+- **Secret injection**: folder secrets are AES-256-GCM encrypted at rest; injected into the container at spawn time, never written to disk in plaintext.
+- **Signed requests**: `proxyd` signs identity headers; every backend verifies via `auth/middleware.go`. Unsigned `X-User-Sub` headers are stripped.
 
-All libraries are core unless marked otherwise.
+Full threat model in [SECURITY.md](SECURITY.md).
 
-| name        | kind        | role                                                                                                                                       | README                                         |
-| ----------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| cmd/arizuko | core        | CLI entrypoint (`create`, `run`, `generate`, `group`, `gate`, `invite`, `identity`, `network`, `pair`, `send`, `budget`, `chat`, `status`) | [cmd/arizuko/README.md](cmd/arizuko/README.md) |
-| gateway     | core        | poll loop, routing, autocalls, route-target modes                                                                                          | [gateway/README.md](gateway/README.md)         |
-| core        | core        | types, config, `Channel` interface                                                                                                         | [core/README.md](core/README.md)               |
-| store       | core        | SQLite access + migrations                                                                                                                 | [store/README.md](store/README.md)             |
-| api         | core        | router-side HTTP API                                                                                                                       | [api/README.md](api/README.md)                 |
-| chanreg     | core        | channel registry + `HTTPChannel`                                                                                                           | [chanreg/README.md](chanreg/README.md)         |
-| chanlib     | core        | shared HTTP/auth primitives for adapters                                                                                                   | [chanlib/README.md](chanlib/README.md)         |
-| router      | core        | message formatting, route evaluation                                                                                                       | [router/README.md](router/README.md)           |
-| resreg      | core        | resource registry (one handler per action, REST+MCP auto-adapters)                                                                         | [resreg/README.md](resreg/README.md)           |
-| queue       | core        | per-group concurrency + circuit breaker                                                                                                    | [queue/README.md](queue/README.md)             |
-| container   | core        | docker runner + skill seeding                                                                                                              | [container/README.md](container/README.md)     |
-| compose     | core        | `docker-compose.yml` generator                                                                                                             | [compose/README.md](compose/README.md)         |
-| ipc         | core        | MCP server on unix socket                                                                                                                  | [ipc/README.md](ipc/README.md)                 |
-| auth        | core        | identity, JWT, OAuth, policy, HMAC                                                                                                         | [auth/README.md](auth/README.md)               |
-| grants      | core        | grant rule engine                                                                                                                          | [grants/README.md](grants/README.md)           |
-| diary       | core        | diary reader for prompt injection                                                                                                          | [diary/README.md](diary/README.md)             |
-| db_utils    | core        | embedded-FS migration runner                                                                                                               | [db_utils/README.md](db_utils/README.md)       |
-| theme       | core        | shared CSS/HTML helpers                                                                                                                    | [theme/README.md](theme/README.md)             |
-| groupfolder | core        | group-folder path validation                                                                                                               | [groupfolder/README.md](groupfolder/README.md) |
-| mountsec    | core        | mount allowlist + path validation                                                                                                          | [mountsec/README.md](mountsec/README.md)       |
-| template    | core        | instance seed files + adapter TOMLs                                                                                                        | [template/README.md](template/README.md)       |
-| sidecar     | integration | whisper transcription image                                                                                                                | [sidecar/README.md](sidecar/README.md)         |
+## What's planned
 
-The `ant/` directory (in-container agent, TypeScript) has its own
-layered docs and is not indexed here.
+- Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
+- Message actions — agent-side edit, delete, pin ([spec](specs/5/Z-message-actions.md))
+- Platform API — federated `/v1/*` surface across daemons ([spec](specs/5/V-platform-api.md))
+- End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 
-### Components (orthogonal siblings)
+## Build & test
 
-Shippable separately, usable outside arizuko. No imports of
-arizuko-internal packages. From arizuko's perspective these are
-**integrations** — opted in per deployment (e.g. `CRACKBOX_ADMIN_API`
-pulls in crackbox); from their own perspective they are standalone
-binaries. See [`specs/9/b-orthogonal-components.md`](specs/9/b-orthogonal-components.md).
-
-| name     | kind        | role                                                                                                                          | README                                   |
-| -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| crackbox | integration | umbrella: `egred` proxy daemon (shipped) + `pkg/host/` KVM lib (shipped, see [specs/9/12](specs/9/12-crackbox-sandboxing.md)) | [crackbox/README.md](crackbox/README.md) |
-
-## Features
-
-| feature                                 | code                                                       | spec                                                             |
-| --------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| multitenant routing + delegation        | [gateway/](gateway/), [router/](router/)                   | [ROUTING.md](ROUTING.md)                                         |
-| MCP tooling (action + inspect families) | [ipc/ipc.go](ipc/ipc.go), [ipc/inspect.go](ipc/inspect.go) | [specs/5/30-inspect-tools.md](specs/5/30-inspect-tools.md)       |
-| channel adapters (HTTP protocol)        | [chanlib/](chanlib/), `<adapter>/`                         | [specs/4/1-channel-protocol.md](specs/4/1-channel-protocol.md)   |
-| web auth + onboarding (OAuth, gated)    | [proxyd/](proxyd/), [onbod/](onbod/)                       | [specs/5/A-auth-consolidated.md](specs/5/A-auth-consolidated.md) |
-| scheduler (cron + interval)             | [timed/main.go](timed/main.go)                             | [specs/4/8-scheduler-service.md](specs/4/8-scheduler-service.md) |
-| containerized agents (per-group, MCP)   | [container/](container/), [ant/](ant/)                     | [ARCHITECTURE.md](ARCHITECTURE.md)                               |
-
-Full feature history in [CHANGELOG.md](CHANGELOG.md); current spec status
-in [specs/index.md](specs/index.md).
+```bash
+make build           # go build → ./arizuko + daemon binaries
+make test            # go test ./... -count=1 -short
+make images          # all docker images
+make agent           # agent image only (ant/)
+make smoke           # post-deploy health check (SMOKE_INSTANCE=krons)
+```
 
 ## Docs
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, schema
-- [ROUTING.md](ROUTING.md) — routing rules and examples
-- [SECURITY.md](SECURITY.md) — threat model
-- [EXTENDING.md](EXTENDING.md) — add channels, tools, skills, autocalls, connectors
+- [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, full daemon/library tables, schema
+- [ROUTING.md](ROUTING.md) — route table syntax and examples
+- [SECURITY.md](SECURITY.md) — full threat model, egress isolation, secrets boundaries
+- [EXTENDING.md](EXTENDING.md) — add channels, skills, autocalls, connectors, actions
+- [GRANTS.md](GRANTS.md) — ACL model, principal namespaces, action lattice
 - [CHANGELOG.md](CHANGELOG.md) — shipped changes
-- [MIGRATION.md](MIGRATION.md) — kanipi → arizuko
-- [specs/](specs/) — per-phase specifications (planned + shipped work)
-- [CLAUDE.md](CLAUDE.md) — project-specific patterns, env vars
-
-## Build & run
-
-```bash
-make build           # ./arizuko + daemon binaries
-make test            # go test ./... -count=1
-make images          # all docker images
-make agent           # agent image only
-
-arizuko create foo                         # seed /srv/data/arizuko_foo
-vim /srv/data/arizuko_foo/.env             # configure
-arizuko group foo add tg:-123456789 main   # register first group
-arizuko run foo                            # generate compose + up
-```
-
-Env vars, data dir layout, and the full toolchain sit in
-[CLAUDE.md](CLAUDE.md).
+- [specs/](specs/) — per-phase specifications
 
 ## Thanks
 
-| Project                                                  | Author            | License     | Contribution                                        |
-| -------------------------------------------------------- | ----------------- | ----------- | --------------------------------------------------- |
-| [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai          | MIT         | Container-per-session model                         |
-| [kanipi](https://github.com/kronael/kanipi)              | kronael           | MIT         | TS proof-of-concept; routing, MCP IPC, skill system |
-| [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS           | MIT         | character.json persona model                        |
-| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic         | Proprietary | The agent runtime                                   |
-| [smolagents](https://github.com/huggingface/smolagents)  | Hugging Face      | Apache-2.0  | Code-as-action framing                              |
-| [OpenClaw](https://github.com/openclaw/openclaw)         | Peter Steinberger | MIT         | Multi-channel binding                               |
-| [NemoClaw](https://github.com/NVIDIA/NemoClaw)           | NVIDIA            | Apache-2.0  | Landlock + seccomp + netns sandboxing               |
-| [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis       | MIT         | QEMU micro-VM isolation, 3-tier chronicle memory    |
-| [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research     | MIT         | Self-improving skill learning across sessions       |
-| [takopi](https://github.com/banteg/takopi)               | banteg            | MIT         | Telegram dispatch, progress streaming               |
+| Project                                                  | Author        | Contribution                                        |
+| -------------------------------------------------------- | ------------- | --------------------------------------------------- |
+| [nanoclaw](https://github.com/qwibitai/nanoclaw)         | qwibitai      | Container-per-session model                         |
+| [kanipi](https://github.com/kronael/kanipi)              | kronael       | TS proof-of-concept; routing, MCP IPC, skill system |
+| [ElizaOS](https://github.com/elizaOS/eliza)              | elizaOS       | character.json persona model                        |
+| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic     | The agent runtime                                   |
+| [smolagents](https://github.com/huggingface/smolagents)  | Hugging Face  | Code-as-action framing                              |
+| [Muaddib](https://github.com/pasky/muaddib)              | Petr Baudis   | QEMU micro-VM isolation, 3-tier chronicle memory    |
+| [Hermes](https://github.com/NousResearch/hermes-agent)   | Nous Research | Self-improving skill learning across sessions       |
+| [takopi](https://github.com/banteg/takopi)               | banteg        | Telegram dispatch, progress streaming               |
 
 ## License
 
