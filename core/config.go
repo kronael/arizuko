@@ -36,6 +36,7 @@ type Config struct {
 	ProjectRoot     string
 	HostProjectRoot string
 	HostAppDir      string
+	AppSrcDir       string // in-container source path; defaults to HostAppDir
 	StoreDir        string
 	GroupsDir       string
 	IpcDir          string
@@ -118,6 +119,7 @@ func LoadConfig() (*Config, error) {
 	root := envOr("DATA_DIR", mustCwd())
 	hostRoot := envOr("HOST_DATA_DIR", root)
 	appDir := envOr("HOST_APP_DIR", execDir())
+	appSrcDir := envOr("APP_SRC_DIR", appDir)
 	name := envOr("ASSISTANT_NAME", "Andy")
 
 	c := &Config{
@@ -144,6 +146,7 @@ func LoadConfig() (*Config, error) {
 		ProjectRoot:     root,
 		HostProjectRoot: hostRoot,
 		HostAppDir:      appDir,
+		AppSrcDir:       appSrcDir,
 		StoreDir:        filepath.Join(root, "store"),
 		GroupsDir:       filepath.Join(root, "groups"),
 		IpcDir:          filepath.Join(root, "ipc"),

@@ -392,7 +392,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 	latest := MigrationVersion(
-		filepath.Join(cfg.HostAppDir, "ant", "skills", "self", "MIGRATION_VERSION"))
+		filepath.Join(cfg.AppSrcDir, "ant", "skills", "self", "MIGRATION_VERSION"))
 	agent := MigrationVersion(
 		filepath.Join(groupDir, ".claude", "skills", "self", "MIGRATION_VERSION"))
 	if agent < latest {
@@ -625,7 +625,7 @@ func readSecrets() map[string]string {
 }
 
 func seedOutputStyles(cfg *core.Config, claudeDir string) {
-	src := filepath.Join(cfg.HostAppDir, "ant", "output-styles")
+	src := filepath.Join(cfg.AppSrcDir, "ant", "output-styles")
 	dst := filepath.Join(claudeDir, "output-styles")
 	cpDirFresh(src, dst)
 }
@@ -841,7 +841,7 @@ func chownR(root string, uid, gid int) {
 }
 
 func seedSkills(cfg *core.Config, claudeDir, folder string) {
-	src := filepath.Join(cfg.HostAppDir, "ant", "skills")
+	src := filepath.Join(cfg.AppSrcDir, "ant", "skills")
 	dst := filepath.Join(claudeDir, "skills")
 	base := filepath.Join(claudeDir, ".merge-base", "skills")
 
@@ -877,7 +877,7 @@ func seedSkills(cfg *core.Config, claudeDir, folder string) {
 		cpDirOverwrite(s, baseDir)
 	}
 
-	mdSrc := filepath.Join(cfg.HostAppDir, "ant", "CLAUDE.md")
+	mdSrc := filepath.Join(cfg.AppSrcDir, "ant", "CLAUDE.md")
 	mdDst := filepath.Join(claudeDir, "CLAUDE.md")
 	mdBase := filepath.Join(claudeDir, ".merge-base", "CLAUDE.md")
 	if data, err := os.ReadFile(mdSrc); err == nil {

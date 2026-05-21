@@ -478,8 +478,9 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	// Host-publish side uses the .env value as external port.
 	b.WriteString("    environment:\n")
 	writeEnv(&b, map[string]string{
-		"API_PORT": "8080",
-		"DATA_DIR": "/srv/app/home",
+		"API_PORT":    "8080",
+		"DATA_DIR":    "/srv/app/home",
+		"APP_SRC_DIR": "/srv/app/arizuko",
 	})
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
