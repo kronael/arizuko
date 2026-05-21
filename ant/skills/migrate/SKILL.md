@@ -237,9 +237,11 @@ printf '%s — %s github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest"
 The script prints `SKIP` (stop) or the exact message. Send verbatim via `send`.
 No extra bullets, no blockquote — the link is where details live.
 
-Fan out via `refresh_groups` → `inspect_routing` → `send` to every group
-that has a primary JID. Primary JID = first route whose `match` starts with
-`room=`, `chat_jid=slack:`, `chat_jid=slink:`, or `chat_jid=web:`:
+Fan out rules:
+- **Telegram** (`room=`): one message per unique JID
+- **Slack**: one message per workspace (team ID) — pick first concrete channel, skip wildcards
+- **Discord**: one message per server (guild ID) — pick first concrete channel, skip wildcards
+- **web:, slink:, wildcards (`*`)**: skip — no announcements
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
@@ -248,16 +250,24 @@ MSG="<output of script above>"
 
 routes=$(mcpc @s tools-call inspect_routing)
 
-# Collect one JID per group, deduplicate — one send per unique recipient.
+# Collect candidate JIDs — skip web:, slink:, and wildcard routes.
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while read folder; do
     echo "$routes" | jq -r --arg f "$folder" '
       .routes[] | select(.target == $f) | .match
-      | select(startswith("room=") or startswith("chat_jid="))
-      | sub("^room=";"") | sub("^chat_jid=";"")
+      | if startswith("room=") then sub("^room=";"")
+        elif startswith("chat_jid=slack:") or startswith("chat_jid=discord:") then
+          sub("^chat_jid=";"")
+        else empty end
+      | select(contains("*") | not)
     ' | head -1
   done \
-  | sort -u \
+  | awk '
+    /^slack:/ { key="slack:"substr($0,8,index(substr($0,8),"/")-1) }
+    /^discord:/ { key="discord:"substr($0,9,index(substr($0,9),"/")-1) }
+    !/^slack:|^discord:/ { key=$0 }
+    !seen[key]++ { print }
+  ' \
   | while read jid; do
     test -n "$jid" && mcpc @s tools-call send jid:="$jid" text:="$MSG"
   done
