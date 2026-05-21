@@ -220,21 +220,22 @@ done
 
 **One short message. Run the script, send verbatim. No additions.**
 
-The announcement is a single line: version + changelog link. ≤15 words.
+Format: `version — most impactful user-facing change. changelog link`
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
-# Guard: use a persistent file in the group dir, not ~/.announced-version (ephemeral)
 guard=~/.announced-version
 last=$(cat "$guard" 2>/dev/null || echo "")
 if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
 echo "$latest" > "$guard"
-printf '%s — github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest"
+# First bullet under the > blockquote — the top user-facing change
+bullet=$(awk '/^## \[v/{n++} n==1 && /^> •/{sub(/^> • /,""); print; exit}' \
+  /workspace/self/CHANGELOG.md)
+printf '%s — %s github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest" "$bullet"
 ```
 
-The script prints `SKIP` (already announced — stop) or the exact message.
-Use that string verbatim as the `text` argument to `send`. Do not add bullets,
-taglines, or blockquotes — the link is the detail, not your summary of it.
+The script prints `SKIP` (stop) or the exact message. Send verbatim via `send`.
+No extra bullets, no blockquote — the link is where details live.
 
 Fan out via `refresh_groups` → `inspect_routing` → `send` to every group
 that has a primary JID. Primary JID = first route whose `match` starts with
