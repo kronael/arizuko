@@ -42,11 +42,11 @@ type taggedMsg struct {
 }
 
 func FormatMessages(msgs []core.Message, observed ...[]core.Message) string {
-	cap := len(msgs)
+	n := len(msgs)
 	if len(observed) > 0 {
-		cap += len(observed[0])
+		n += len(observed[0])
 	}
-	tagged := make([]taggedMsg, 0, cap)
+	tagged := make([]taggedMsg, 0, n)
 	for _, m := range msgs {
 		tagged = append(tagged, taggedMsg{m, "message"})
 	}

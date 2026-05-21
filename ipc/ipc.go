@@ -82,10 +82,6 @@ type GatedFns struct {
 	IssueRouteToken    func(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (RouteTokenInfo, error)
 	ListRouteTokens    func(ownerFolder string) []RouteTokenInfo
 	RevokeRouteToken   func(jid, ownerFolder string) (bool, error)
-	// WebBaseURL is the externally-reachable base for built route URLs
-	// (https://krons.fiu.wtf). Empty when unset — callers omit `url`.
-	WebBaseURL string
-
 	// Audit receives system events for mutating MCP tool calls. Nil = no-op.
 	Audit *audit.Audit
 }

@@ -50,7 +50,7 @@ type Config struct {
 	ProjectRoot     string
 	HostProjectRoot string
 	HostAppDir      string
-	AppSrcDir       string // in-container source path; defaults to HostAppDir
+	AppSrcDir       string // in-container source path; defaults to HostAppDir via EffectiveAppSrcDir()
 	StoreDir        string
 	GroupsDir       string
 	IpcDir          string
@@ -224,6 +224,16 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return c, nil
+}
+
+// EffectiveAppSrcDir returns the in-container source path for reading ant/
+// skills and output-styles. Falls back to HostAppDir so tests that only set
+// HostAppDir work without also needing AppSrcDir explicitly.
+func (c *Config) EffectiveAppSrcDir() string {
+	if c.AppSrcDir != "" {
+		return c.AppSrcDir
+	}
+	return c.HostAppDir
 }
 
 var (

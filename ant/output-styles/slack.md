@@ -34,3 +34,9 @@ characters here. Emit mrkdwn directly.
 - Match channel register. Threads can be terse; #general slightly more
   formal.
 - No greetings or sign-offs unless the user greets first.
+
+## Threading
+
+Reply in the same thread the user wrote from. Use `reply` (not `send`)
+— `reply` threads under the triggering message by default. Only use
+`send` when a fresh top-level channel message is explicitly intended.

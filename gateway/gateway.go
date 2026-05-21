@@ -106,6 +106,13 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 
 func (g *Gateway) SetRunner(r container.Runner) { g.runner = r }
 
+func (g *Gateway) context() context.Context {
+	if g.ctx != nil {
+		return g.ctx
+	}
+	return context.Background()
+}
+
 // GatedFns exposes the wired-up GatedFns for callers (api.Server) that
 // need to invoke the same handlers the MCP face calls.
 func (g *Gateway) GatedFns() ipc.GatedFns { return g.gatedFns }
@@ -245,7 +252,6 @@ func (g *Gateway) Run(ctx context.Context) error {
 		},
 		SubmitTurn:    g.handleSubmitTurn,
 		AcceptURLBase: g.cfg.AuthBaseURL,
-		WebBaseURL:    g.cfg.AuthBaseURL,
 		IssueRouteToken:  g.issueRouteToken,
 		ListRouteTokens:  g.listRouteTokens,
 		RevokeRouteToken: g.store.RevokeRouteToken,
@@ -452,7 +458,7 @@ func (g *Gateway) seedCodexDirs() {
 
 func (g *Gateway) checkMigrationVersion() {
 	latest := container.MigrationVersion(
-		filepath.Join(g.cfg.AppSrcDir, "ant", "skills", "self", "MIGRATION_VERSION"))
+		filepath.Join(g.cfg.EffectiveAppSrcDir(), "ant", "skills", "self", "MIGRATION_VERSION"))
 	if latest == 0 {
 		return
 	}
@@ -648,10 +654,7 @@ func (g *Gateway) pollOnce() {
 			last.Topic = rt.Topic
 		}
 
-		ctx := g.ctx
-		if ctx == nil {
-			ctx = context.Background()
-		}
+		ctx := g.context()
 		for i := range chatMsgs {
 			g.enrichAttachments(ctx, &chatMsgs[i], group.Folder)
 		}
@@ -726,7 +729,7 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 			continue
 		}
 
-		if !g.processSenderBatch(group, chatJid, batch, agentTs) {
+		if !g.processSenderBatch(group, chatJid, batch) {
 			// Keep cursor where it was; errored rows stay visible so
 			// they're re-fed (tagged) on the next run.
 			return false, fmt.Errorf("sender batch failed: %s", last.Sender)
@@ -787,14 +790,11 @@ func (g *Gateway) logAgentError(group core.Group, key, value, errStr string) {
 }
 
 func (g *Gateway) processSenderBatch(
-	group core.Group, chatJid string, msgs []core.Message, agentTs time.Time,
+	group core.Group, chatJid string, msgs []core.Message,
 ) bool {
 	last := msgs[len(msgs)-1]
 
-	ctx := g.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := g.context()
 	for i := range msgs {
 		g.enrichAttachments(ctx, &msgs[i], group.Folder)
 	}
@@ -811,7 +811,6 @@ func (g *Gateway) processSenderBatch(
 	}
 
 	g.emitSystemEvents(group, chatJid)
-	_ = agentTs
 	topic := g.effectiveTopic(chatJid, last.Topic)
 	// Spec 6/F: new topic's parent is the topic of the message it
 	// replies to (the natural "branch from here" semantics). Falls
@@ -2292,7 +2291,16 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 // terminal round_done event and disconnect. No-op for chats that aren't
 // served by webd.
 func (g *Gateway) publishRoundDone(folder, turnID, status, errMsg string) {
-	ch := g.findChannelForJID("web:" + folder)
+	// The chat_jid may differ from "web:"+folder when a routing rule maps
+	// web:<jid-folder>/suffix → a group with a different folder name.
+	// Look up the originating message to get the actual chat_jid so the
+	// round_done is published to the key the SSE subscriber is using.
+	chatJID := "web:" + folder
+	if msg, ok := g.store.MessageByID(turnID); ok && strings.HasPrefix(msg.ChatJID, "web:") {
+		chatJID = msg.ChatJID
+	}
+	pubFolder := strings.TrimPrefix(chatJID, "web:")
+	ch := g.findChannelForJID(chatJID)
 	if ch == nil {
 		return
 	}
@@ -2300,9 +2308,9 @@ func (g *Gateway) publishRoundDone(folder, turnID, status, errMsg string) {
 	if !ok {
 		return
 	}
-	if err := hc.PostRoundDone(folder, turnID, status, errMsg); err != nil {
+	if err := hc.PostRoundDone(pubFolder, turnID, status, errMsg); err != nil {
 		slog.Warn("round_done publish failed",
-			"folder", folder, "turn_id", turnID, "err", err)
+			"folder", pubFolder, "turn_id", turnID, "err", err)
 	}
 }
 

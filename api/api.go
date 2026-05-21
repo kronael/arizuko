@@ -61,20 +61,20 @@ func (s *Server) ChannelLookup(fn func(name string) *chanreg.HTTPChannel) {
 func (s *Server) SetEngagementTTL(d time.Duration) { s.engagementTTL = d }
 
 func (s *Server) Handler() http.Handler {
-	auth := func(h http.HandlerFunc) http.HandlerFunc {
+	requireAuth := func(h http.HandlerFunc) http.HandlerFunc {
 		return chanlib.Auth(s.reg.Secret(), h)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/channels/register", auth(capBody(maxBodyDefault, s.handleRegister)))
+	mux.HandleFunc("POST /v1/channels/register", requireAuth(capBody(maxBodyDefault, s.handleRegister)))
 	mux.HandleFunc("POST /v1/channels/deregister", capBody(maxBodyDefault, s.handleDeregister))
-	mux.HandleFunc("POST /v1/outbound", auth(capBody(maxBodyDefault, s.handleOutbound)))
+	mux.HandleFunc("POST /v1/outbound", requireAuth(capBody(maxBodyDefault, s.handleOutbound)))
 	mux.HandleFunc("POST /v1/messages", capBody(maxBodyMessages, s.handleMessage))
-	mux.HandleFunc("GET /v1/channels", auth(s.handleListChannels))
+	mux.HandleFunc("GET /v1/channels", requireAuth(s.handleListChannels))
 	// Route tokens (spec 5/W). Operator-only via proxyd-signed identity.
 	mux.HandleFunc("POST /v1/route_tokens", capBody(maxBodyDefault, s.handleCreateRouteToken))
 	mux.HandleFunc("GET /v1/route_tokens", s.handleListRouteTokens)
 	mux.HandleFunc("DELETE /v1/route_tokens/{jid}", s.handleDeleteRouteToken)
-	mux.HandleFunc("GET /v1/tools", auth(s.handleListTools))
+	mux.HandleFunc("GET /v1/tools", requireAuth(s.handleListTools))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /ready", s.handleHealth)
 	return mux
