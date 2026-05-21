@@ -77,6 +77,7 @@ type Gateway struct {
 // turnState is the per-active-run state needed to absorb submit_turn
 // callbacks coming back over MCP.
 type turnState struct {
+	chatJID      string
 	onOutput     func(result, status string)
 	newSessionID string
 	lastError    string
@@ -1246,7 +1247,7 @@ func (g *Gateway) runAgentWithOpts(
 		},
 	}
 
-	st := g.beginTurnRun(group.Folder, onOutput)
+	st := g.beginTurnRun(group.Folder, chatJid, onOutput)
 	defer g.endTurnRun(group.Folder)
 	out := g.runner.Run(g.cfg, g.folders, input)
 	if st.newSessionID != "" {
@@ -2235,8 +2236,8 @@ func (g *Gateway) recoverPendingMessages() {
 	}
 }
 
-func (g *Gateway) beginTurnRun(folder string, onOutput func(result, status string)) *turnState {
-	st := &turnState{onOutput: onOutput}
+func (g *Gateway) beginTurnRun(folder, chatJID string, onOutput func(result, status string)) *turnState {
+	st := &turnState{chatJID: chatJID, onOutput: onOutput}
 	g.turnsMu.Lock()
 	g.inFlightTurns[folder] = st
 	g.turnsMu.Unlock()
@@ -2264,8 +2265,6 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 	// Empty Models is the pre-cutover case; recordTurnCost no-ops.
 	g.recordTurnCost(folder, t.CallerSub, t.Models)
 
-	g.publishRoundDone(folder, t.TurnID, t.Status, t.Error)
-
 	g.turnsMu.Lock()
 	st := g.inFlightTurns[folder]
 	g.turnsMu.Unlock()
@@ -2274,6 +2273,8 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 			"folder", folder, "turn_id", t.TurnID)
 		return nil
 	}
+
+	g.publishRoundDone(st.chatJID, t.TurnID, t.Status, t.Error)
 	if t.SessionID != "" {
 		st.newSessionID = t.SessionID
 	}
@@ -2290,14 +2291,11 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 // streams subscribed via the slink round-handle protocol can emit a
 // terminal round_done event and disconnect. No-op for chats that aren't
 // served by webd.
-func (g *Gateway) publishRoundDone(folder, turnID, status, errMsg string) {
-	// The chat_jid may differ from "web:"+folder when a routing rule maps
-	// web:<jid-folder>/suffix → a group with a different folder name.
-	// Look up the originating message to get the actual chat_jid so the
-	// round_done is published to the key the SSE subscriber is using.
-	chatJID := "web:" + folder
-	if msg, ok := g.store.MessageByID(turnID); ok && strings.HasPrefix(msg.ChatJID, "web:") {
-		chatJID = msg.ChatJID
+// chatJID is the originating chat (may differ from "web:"+folder when a
+// routing rule maps web:<jid-folder>/suffix to a group with a different name).
+func (g *Gateway) publishRoundDone(chatJID, turnID, status, errMsg string) {
+	if !strings.HasPrefix(chatJID, "web:") {
+		return
 	}
 	pubFolder := strings.TrimPrefix(chatJID, "web:")
 	ch := g.findChannelForJID(chatJID)
