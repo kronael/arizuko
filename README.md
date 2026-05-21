@@ -1,11 +1,11 @@
 # arizuko
 
 <p align="center">
-  Persistent AI agents for teams. Each folder is an agent with its own memory, persona, and ACL.
+  Run persistent AI agents for teams. Each folder is an agent with its own memory, persona, and ACL.
 </p>
 
 <p align="center">
-  <a href="#what-its-good-for">Use cases</a> •
+  <a href="#run-agents-in-real-channels">Use cases</a> •
   <a href="#overview">Overview</a> •
   <a href="#when-to-use-arizuko">When to use</a> •
   <a href="#getting-started">Getting Started</a> •
@@ -13,7 +13,7 @@
   <a href="#docs">Docs</a>
 </p>
 
-## What it's good for
+## Run agents in real channels
 
 - **Team agent in Slack / Discord / Telegram** — mention-based or DM, with per-channel persona and memory
 - **Long-running personal assistant** — persists conversation history, diary, and user profile across restarts
