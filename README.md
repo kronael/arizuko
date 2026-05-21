@@ -7,6 +7,7 @@
 <p align="center">
   <a href="#what-its-good-for">Use cases</a> •
   <a href="#overview">Overview</a> •
+  <a href="#when-to-use-arizuko">When to use</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#security-model">Security</a> •
   <a href="#docs">Docs</a>
@@ -21,8 +22,6 @@
 - **Email or webhook agent** — `emaid` ingests IMAP with DMARC filtering; arbitrary callers POST to `/hook/<token>`
 - **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite
 - **Multi-tenant agent platform** — one deployment, arbitrary folder depth; `corp/eng/sre` and `solo/inbox` run the same code
-
-A tar of `/srv/data/arizuko_<name>/` is a complete instance backup.
 
 ## Overview
 
@@ -44,7 +43,25 @@ Agents coordinate through the same message bus they serve users on. A container 
 
 State lives entirely in one SQLite database. Containers are stateless — they mount the group folder, run, and exit.
 
+## When to use arizuko
+
+Use arizuko if the agent needs to live in real channels and keep a separate identity per team, customer, or workflow.
+
+Choose arizuko when you need:
+
+- one agent per folder, with separate persona, memory, skills, and ACL
+- channel-native operation in Slack, Discord, Telegram, email, web chat, or webhooks
+- scheduled work, delegation, and long-running background behavior
+- self-hosting on one machine with Docker and SQLite
+- a system you can inspect as files, routes, and database rows
+
+Do not choose arizuko if your main problem is enterprise document search. It does not ship a connector sync pipeline, vector index, or permission mirroring from Confluence, Notion, Drive, or Jira. For that, pair it with a retrieval system and use arizuko as the agent layer that acts on the results.
+
+If you want a local coding assistant for one developer machine, tools like [brainpro](https://github.com/qwibitai/brainpro) or [Hermes](https://github.com/NousResearch/hermes-agent) are a closer fit. arizuko is built for persistent agents that sit behind channels and routes.
+
 ## Getting Started
+
+**You need:** Docker, a Linux host, credentials for at least one channel adapter, and write access to `/srv/data/`.
 
 ```bash
 make build                                 # ./arizuko + daemon binaries
@@ -54,7 +71,9 @@ arizuko group foo add tg:-123456789 main   # register first group
 arizuko run foo                            # generate compose + docker compose up
 ```
 
-Then add a channel adapter. Each adapter is one `[[service]]` block in the compose. See [CLAUDE.md](CLAUDE.md) for env vars and [EXTENDING.md](EXTENDING.md) for wiring new channels.
+A first deployment runs `gated` + one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter is one `[[service]]` block in the compose. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
+
+A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — `messages.db` (WAL), group folders, per-user memory, secrets, agent files.
 
 ## How it works
 
@@ -92,9 +111,19 @@ Full package graph, message flow, container lifecycle, and SQLite schema in [ARC
 | twitd   | X/Twitter          |
 | linkd   | LinkedIn           |
 
-A minimal deployment runs `gated` + one adapter. Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets).
+Optional capability hooks: Whisper transcription (`WHISPER_BASE_URL`), TTS (`ttsd` + `TTS_BASE_URL`), second LLM (`OPENAI_API_KEY`/`CODEX_API_KEY` in folder secrets).
 
 Full daemon and library tables in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## What arizuko does not include
+
+- connector crawlers for Confluence, Notion, Google Drive, Jira, or Salesforce
+- a built-in embedding pipeline or vector database
+- permission sync from external systems into per-document ACLs
+- multi-model routing across providers (the agent runtime is Claude Code)
+- a managed control plane or hosted SaaS path
+
+Documents can be mounted or written into a group's workspace; agents can read them directly. For large-scale retrieval, pair arizuko with a separate retrieval stack and use it as the part that receives messages, keeps per-group memory, enforces grants, schedules tasks, and takes actions across channels.
 
 ## Security model
 
