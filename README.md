@@ -55,9 +55,9 @@ Choose arizuko when you need:
 - self-hosting on one machine with Docker and SQLite
 - a system you can inspect as files, routes, and database rows
 
-Do not choose arizuko if your main problem is enterprise document search. It does not ship a connector sync pipeline, vector index, or permission mirroring from Confluence, Notion, Drive, or Jira. For that, pair it with a retrieval system and use arizuko as the agent layer that acts on the results.
+Do not choose arizuko if your main problem is enterprise document search — it has no connector sync pipeline or vector index. Pair it with a retrieval system and use arizuko as the agent layer that acts on the results (see [What arizuko does not include](#what-arizuko-does-not-include)).
 
-If you want a local coding assistant for one developer machine, tools like [brainpro](https://github.com/qwibitai/brainpro) or [Hermes](https://github.com/NousResearch/hermes-agent) are a closer fit. arizuko is built for persistent agents that sit behind channels and routes.
+If you want a local coding assistant for one developer machine, a single-user tool (brainpro, Hermes) is a closer fit. arizuko is built for persistent agents that sit behind channels and serve teams.
 
 ## Getting Started
 
@@ -71,7 +71,7 @@ arizuko group foo add tg:-123456789 main   # register first group
 arizuko run foo                            # generate compose + docker compose up
 ```
 
-A first deployment runs `gated` + one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter is one `[[service]]` block in the compose. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
+A first deployment runs `gated` + one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a `template/services/<name>.toml` — no Go edits required. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
 
 A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — `messages.db` (WAL), group folders, per-user memory, secrets, agent files.
 
