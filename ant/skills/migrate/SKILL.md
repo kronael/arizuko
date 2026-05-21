@@ -225,7 +225,7 @@ The announcement is a single line: version + changelog link. ≤15 words.
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
 # Guard: use a persistent file in the group dir, not ~/.announced-version (ephemeral)
-guard="$HOME/announced-version"
+guard=~/.announced-version
 last=$(cat "$guard" 2>/dev/null || echo "")
 if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
 echo "$latest" > "$guard"
