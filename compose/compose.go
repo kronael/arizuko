@@ -466,8 +466,13 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s:/srv/app/home\n", dataDir)
 	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
+	gatedEnv := map[string]string{
+		"API_PORT": "8080",
+		"DATA_DIR": "/srv/app/home",
+	}
 	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
 		fmt.Fprintf(&b, "      - %s:/srv/app/arizuko:ro\n", hostApp)
+		gatedEnv["APP_SRC_DIR"] = "/srv/app/arizuko"
 	}
 	b.WriteString("    ports:\n")
 	fmt.Fprintf(&b, "      - '%s:8080'\n", envOr(env, "API_PORT", "8080"))
@@ -477,11 +482,7 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	// API_PORT override pins gated's internal listen to 8080 (unified).
 	// Host-publish side uses the .env value as external port.
 	b.WriteString("    environment:\n")
-	writeEnv(&b, map[string]string{
-		"API_PORT":    "8080",
-		"DATA_DIR":    "/srv/app/home",
-		"APP_SRC_DIR": "/srv/app/arizuko",
-	})
+	writeEnv(&b, gatedEnv)
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
