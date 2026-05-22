@@ -280,6 +280,44 @@ INSERT INTO acl_membership (child, parent, added_at)
 Operator corrections via `membership.add` / `membership.remove` MCP tools;
 emergency escape hatch is direct DB edit.
 
+## Related work — OPA / Rego
+
+Open Policy Agent (CNCF graduated) ships a Datalog-based policy
+language, Rego, that solves the policy-decision shape arizuko's ACL
+table covers and several it doesn't (cross-row conditions, time
+predicates, multi-step set computation, decisions-with-explanation).
+Reference: https://www.openpolicyagent.org/docs/policy-language.
+
+Why we haven't adopted it (yet):
+
+- Our 80% case is `reply(jid=slack:*)`-shaped per-tool gating; Rego
+  is overkill.
+- arizuko's "minimal primitives" posture pushes against a heavy
+  embedded DSL prematurely.
+- Pulling in `github.com/open-policy-agent/opa/v1/rego` adds binary
+  weight and a learning curve for operators who'd need to author it.
+
+Where it becomes interesting (reopen this spec when any of these land):
+
+- Cross-row conditions ("agent can `merge` only if it previously
+  `reviewed` the same PR"). Today: emergent in Go in `Authorize`.
+- Time-of-day or rate-shaped rules.
+- External compliance policies operators write themselves.
+- Self-healing repair gates (`specs/8/3-repair-playbooks.md`) — e.g.
+  "auto-repair only for skills tagged `auto_repairable`".
+
+Adoption shapes if the threshold is crossed (in order of weight):
+
+1. **Coexistence** — fall through to Rego when ACL has no decision.
+2. **Replacement** — rewrite `grants/grants.go` as a Rego frontend;
+   `acl` table becomes Rego data input.
+3. **Steal ideas** — extend our DSL with Rego primitives (sets, time)
+   without embedding OPA. Mid-weight; preserves no-deps posture.
+
+For now the simple DSL stays. See `memory/reference_opa.md` for the
+deeper write-up, including which adoption shape each future need
+would push toward.
+
 ## Open questions
 
 1. **Predicate grammar.** Single `key=value` glob, or boolean
