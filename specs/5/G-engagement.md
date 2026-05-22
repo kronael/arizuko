@@ -265,7 +265,7 @@ closure around both tool handlers.
 
 ## Env vars
 
-- `ENGAGEMENT_TTL` (default `10m`) — window after a triggering
+- `ENGAGEMENT_TTL` (default `20m`) — window after a triggering
   event during which inbounds auto-fire via the engagement
   fallback.
 
@@ -322,7 +322,7 @@ for one outbound. Next inbound that's verb=mention re-engages.
 | `api/api.go handleMessage`                    | `SetEngagement` on `verb=mention` after promotion                                                 | ~6  |
 | `slakd/bot.go`                                | **no change** (Send already threads on ReplyTo)                                                   | 0   |
 | `ipc/ipc.go`                                  | `engage`, `disengage` MCP tools wrapping `SetEngagement`                                          | ~50 |
-| `core/config.go`                              | `ENGAGEMENT_TTL` (default `10m`)                                                                  | ~3  |
+| `core/config.go`                              | `ENGAGEMENT_TTL` (default `20m`)                                                                  | ~3  |
 | `ant/CLAUDE.md`                               | corrective-fork convention                                                                        | ~8  |
 | Tests (`store/store_test.go`, gateway, ipc)   | TTL window, MCP set/clear, thread auto-set, fallback routing                                      | ~80 |
 

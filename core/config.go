@@ -200,7 +200,7 @@ func LoadConfig() (*Config, error) {
 
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 
-		EngagementTTL: envDur("ENGAGEMENT_TTL", 10*time.Minute),
+		EngagementTTL: envDur("ENGAGEMENT_TTL", 20*time.Minute),
 
 		SecretsKey: envOr("SECRETS_KEY", ""),
 	}
