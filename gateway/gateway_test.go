@@ -317,14 +317,15 @@ func TestResolveGroup_BareFolder(t *testing.T) {
 	}
 }
 
-// TestResolveGroup_WebOffFolder covers the case where a web: chat JID
-// does NOT directly name a registered group folder, but a route table
-// rule maps it to one. Pre-fix bug: resolveGroup early-returned
-// (Group{}, false) without consulting the route table, so off-folder
-// web chats like web:<folder>/submissions never triggered the agent.
-func TestResolveGroup_WebOffFolder(t *testing.T) {
+// TestResolveGroup_WebStrict1to1 pins the contract: web:<folder> is 1:1
+// with a registered group. The route table does NOT apply to web: JIDs.
+// If the group is missing, resolveGroup returns false (chat is unrouted)
+// even if a chat_jid=web:* route exists. Operator must create the group.
+func TestResolveGroup_WebStrict1to1(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "atlas/strengths"})
+	// A misguided route that tries to redirect a web: chat to a different
+	// folder must NOT have any effect — web JIDs bypass the route table.
 	s.AddRoute(core.Route{
 		Seq:    90,
 		Match:  "chat_jid=web:atlas/strengths/*",
@@ -335,20 +336,15 @@ func TestResolveGroup_WebOffFolder(t *testing.T) {
 		ChatJID: "web:atlas/strengths/submissions",
 		Verb:    "message",
 	}
-	gr, ok := gw.resolveGroup(msg)
-	if !ok {
-		t.Fatal("resolveGroup returned false for off-folder web chat with matching route")
-	}
-	if gr.Folder != "atlas/strengths" {
-		t.Errorf("folder = %q, want %q", gr.Folder, "atlas/strengths")
+	if _, ok := gw.resolveGroup(msg); ok {
+		t.Fatal("resolveGroup returned true for web JID with no matching group — route table must not apply to web: chats")
 	}
 }
 
-// TestFolderForJid_WebOffFolder mirrors the resolveGroup case for the
-// queue's folder-mutex lookup. Without this fall-through, an off-folder
-// web chat would skip the per-folder mutex entirely (folder="" returned),
-// allowing parallel containers for the same agent folder.
-func TestFolderForJid_WebOffFolder(t *testing.T) {
+// TestFolderForJid_WebStrict1to1 mirrors the strict-1:1 rule for the
+// queue's folder-mutex lookup: web JIDs with no matching group return
+// empty, never consult the route table.
+func TestFolderForJid_WebStrict1to1(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "atlas/strengths"})
 	s.AddRoute(core.Route{
@@ -357,46 +353,8 @@ func TestFolderForJid_WebOffFolder(t *testing.T) {
 		Target: "atlas/strengths",
 	})
 
-	got := gw.folderForJid("web:atlas/strengths/submissions")
-	if got != "atlas/strengths" {
-		t.Errorf("folderForJid = %q, want %q", got, "atlas/strengths")
-	}
-}
-
-// TestPollOnce_WebOffFolder_Triggers proves the end-to-end fix: a new
-// message on an off-folder web chat must NOT silently advance the cursor
-// — it must reach the agent path (queue enqueue) so a container spawns.
-// Pre-fix bug: cursor advanced to message timestamp, no container ever
-// ran, form submission silently dropped.
-func TestPollOnce_WebOffFolder_Triggers(t *testing.T) {
-	gw, s := testGateway(t)
-	if err := s.PutGroup(core.Group{Folder: "atlas/strengths"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddRoute(core.Route{
-		Seq:    90,
-		Match:  "chat_jid=web:atlas/strengths/*",
-		Target: "atlas/strengths",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	jid := "web:atlas/strengths/submissions"
-	if err := s.PutMessage(core.Message{
-		ID: "m1", ChatJID: jid, Sender: "anon:test",
-		Content: "form post", Timestamp: time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	gw.pollOnce()
-
-	// Cursor must NOT advance past m1 — the agent path (queue) owns the
-	// cursor advance, and the message hasn't been processed yet. Pre-fix
-	// bug: poll loop's "no route" branch advanced cursor silently.
-	got := s.GetAgentCursor(jid)
-	if !got.IsZero() {
-		t.Errorf("cursor advanced before agent run: %v (form submission would be dropped)", got)
+	if got := gw.folderForJid("web:atlas/strengths/submissions"); got != "" {
+		t.Errorf("folderForJid = %q, want \"\" (route table must not apply to web: chats)", got)
 	}
 }
 
