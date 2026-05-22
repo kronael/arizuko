@@ -1896,8 +1896,14 @@ func escalationWorker(prompt string) string {
 }
 
 func (g *Gateway) resolveGroup(msg core.Message) (core.Group, bool) {
+	// web:<folder> directly addresses a group when that folder is
+	// registered (1:1 chat-per-group case). Otherwise fall through to the
+	// route table so off-folder web chats like web:<folder>/submissions
+	// resolve via their routing rule.
 	if folder, ok := strings.CutPrefix(msg.ChatJID, "web:"); ok {
-		return g.store.GroupByFolder(folder)
+		if gr, ok := g.store.GroupByFolder(folder); ok {
+			return gr, true
+		}
 	}
 	// Bare folder paths (no `:`) address groups directly when the path
 	// matches a registered group; otherwise fall through to route lookup
@@ -1922,7 +1928,8 @@ func (g *Gateway) folderForJid(jid string) string {
 		if _, exists := g.store.GroupByFolder(folder); exists {
 			return folder
 		}
-		return ""
+		// Off-folder web chat (web:<folder>/submissions etc.) — fall
+		// through to DefaultFolderForJID so the route table decides.
 	}
 	if !strings.Contains(jid, ":") {
 		if _, exists := g.store.GroupByFolder(jid); exists {
