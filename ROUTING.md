@@ -21,11 +21,21 @@ treat it as an opaque string with `path.Match` glob semantics over `/`.
 | linkd   | `linkedin:` | `linkedin:user/<urn>`                                               |
 | emaid   | `email:`    | `email:address/foo@bar.com`                                         |
 | twitd   | `twitter:`  | `twitter:home`, `twitter:dm/<id>`                                   |
-| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`)                                   |
+| webd    | `web:`      | `web:<folder>` (e.g. `web:atlas`) — see "Web JID model" below       |
 
 `core.JidPlatform("twitter:dm/abc")` returns `twitter`; `core.JidRoom`
 returns `dm/abc`. Use `platform=` predicates to match a whole platform
 and `room=` globs to filter by kind/segment.
+
+### Web JID model — 1:1 with groups, no route table
+
+`web:<folder>` addresses group `<folder>` **directly**. The route table
+does NOT apply to web JIDs; the gateway resolves them via
+`GroupByFolder` without consulting `routes`. To carve a chat surface
+into sub-flows (form intake threads, separate report channels), create
+sub-groups (`<parent>/<sub>`) — each gets its own `web:<parent>/<sub>`
+JID. `store.AddRoute` rejects `chat_jid=web:*` predicates at insert
+time so the mistake fails loudly.
 
 ## Route Table
 

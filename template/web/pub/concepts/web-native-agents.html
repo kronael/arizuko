@@ -32,7 +32,7 @@
         <tr><th>piece</th><th>what it does</th><th>path</th></tr>
         <tr><td>public page</td><td><code>vited</code> serves static files anyone can fetch.</td><td><code>groups/&lt;folder&gt;/workspace/web/pub/*</code></td></tr>
         <tr><td>chat widget</td><td><code>slink</code> embeds in the page; messages land at <code>web:&lt;folder&gt;</code>.</td><td><code>/chat/&lt;token&gt;/</code></td></tr>
-        <tr><td>form intake</td><td>POSTs land at <code>web:&lt;folder&gt;/submissions</code> &mdash; a separate sub-chat.</td><td><code>/chat/&lt;token&gt;/</code> (suffixed JID)</td></tr>
+        <tr><td>form intake</td><td>POSTs land at <code>web:&lt;folder&gt;/&lt;sub&gt;</code> &mdash; that JID requires a real sub-group (e.g. <code>setup_group atlas/strengths/submissions</code>); web JIDs are 1:1 with groups.</td><td><code>/chat/&lt;token&gt;/</code> (suffixed JID)</td></tr>
         <tr><td>generated content</td><td>Agent writes HTML, PNG, or JSON over WebDAV; <code>vited</code> serves it next request.</td><td>same <code>workspace/web/pub/</code> tree</td></tr>
       </table>
       <p>Diary, facts, and per-user notes accumulate in the same folder.</p>
@@ -65,8 +65,8 @@
       <h2>worked example: atlas/strengths</h2>
       <p>A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. They paste their Gallup CliftonStrengths results and click submit.</p>
       <ol>
-        <li>The form POSTs to <code>/chat/&lt;form-token&gt;/</code>; <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>.</li>
-        <li><code>gated</code> routes that message to the <code>atlas/strengths</code> container.</li>
+        <li>The form POSTs to <code>/chat/&lt;form-token&gt;/</code>; <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>. The <code>atlas/strengths/submissions</code> group must exist — web JIDs map 1:1 to group folders, the route table does not apply.</li>
+        <li><code>gated</code> spawns the <code>atlas/strengths/submissions</code> container to process the form post.</li>
         <li>The agent dispatches its <code>process-strengths</code> skill and writes <code>workspace/web/pub/strengths/&lt;name&gt;.html</code> via <code>davd</code>.</li>
         <li>The visitor is redirected to that new path. <code>vited</code> serves the personalised report on the next request.</li>
       </ol>

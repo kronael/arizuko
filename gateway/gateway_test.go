@@ -319,42 +319,30 @@ func TestResolveGroup_BareFolder(t *testing.T) {
 
 // TestResolveGroup_WebStrict1to1 pins the contract: web:<folder> is 1:1
 // with a registered group. The route table does NOT apply to web: JIDs.
-// If the group is missing, resolveGroup returns false (chat is unrouted)
-// even if a chat_jid=web:* route exists. Operator must create the group.
+// If the group is missing, resolveGroup returns false (chat is unrouted).
+// Operator must create the group; the route table is not a workaround.
 func TestResolveGroup_WebStrict1to1(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "atlas/strengths"})
-	// A misguided route that tries to redirect a web: chat to a different
-	// folder must NOT have any effect — web JIDs bypass the route table.
-	s.AddRoute(core.Route{
-		Seq:    90,
-		Match:  "chat_jid=web:atlas/strengths/*",
-		Target: "atlas/strengths",
-	})
 
 	msg := core.Message{
 		ChatJID: "web:atlas/strengths/submissions",
 		Verb:    "message",
 	}
 	if _, ok := gw.resolveGroup(msg); ok {
-		t.Fatal("resolveGroup returned true for web JID with no matching group — route table must not apply to web: chats")
+		t.Fatal("resolveGroup returned true for web JID with no matching group")
 	}
 }
 
 // TestFolderForJid_WebStrict1to1 mirrors the strict-1:1 rule for the
 // queue's folder-mutex lookup: web JIDs with no matching group return
-// empty, never consult the route table.
+// empty, never fall back to DefaultFolderForJID.
 func TestFolderForJid_WebStrict1to1(t *testing.T) {
 	gw, s := testGateway(t)
 	s.PutGroup(core.Group{Folder: "atlas/strengths"})
-	s.AddRoute(core.Route{
-		Seq:    90,
-		Match:  "chat_jid=web:atlas/strengths/*",
-		Target: "atlas/strengths",
-	})
 
 	if got := gw.folderForJid("web:atlas/strengths/submissions"); got != "" {
-		t.Errorf("folderForJid = %q, want \"\" (route table must not apply to web: chats)", got)
+		t.Errorf("folderForJid = %q, want \"\" (no fallback for web JIDs)", got)
 	}
 }
 

@@ -12,6 +12,44 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.7] — 2026-05-22
+
+> arizuko v0.45.7 — web JIDs are 1:1 with groups
+>
+> Form intakes, separate report channels, and any sub-flow with its own JID now need a sub-group. The route table no longer redirects `web:*` chats — `add_route` rejects such rules at insert time. Atlas got bit by this on the strengths form; the fix prevents the next agent from repeating it.
+>
+> • `web:<folder>` always resolves to group `<folder>` directly — `GroupByFolder` only, no route fallback
+> • `store.AddRoute` rejects `chat_jid=web:*` predicates with `ErrWebJIDRouted` and a clear "create the group instead" message
+> • `/self web-routing.md` carries the full rule + rationale; `ROUTING.md` adds a short summary
+> • Bundles v0.45.6 work (send_file TL;DR caption rule, round_done routing fix, AppSrcDir split, atlas template, message-handling rules)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `store.ErrWebJIDRouted` + `matchesWebJID` predicate (`store/routes.go`)
+- `ant/skills/self/web-routing.md` — "Web JID model" section (dense, ~50 lines)
+- Migration `146-v0.45.7-web-jid-rule.md`
+- Regression tests: `TestAddRoute_RejectsWebJIDPredicate`, `TestAddRoute_AllowsNonWebJID`, `TestResolveGroup_WebStrict1to1`, `TestFolderForJid_WebStrict1to1`
+
+### Changed
+
+- `ROUTING.md` — new "Web JID model" subsection in JID prefix table
+- `template/web/pub/concepts/web-native-agents.html` — form intake row + worked example call out that sub-chats require sub-groups
+- `MIGRATION_VERSION` 145 → 146
+
+### Fixed (bundled v0.45.6)
+
+- `gateway/gateway.go: publishRoundDone` — pass chatJID via turnState, no DB lookup (1a6c7c8 + 52f8043)
+- `gateway/gateway.go` — route `round_done` to originating chat JID, not group folder (1a6c7c8)
+- `container/runner.go` — separate `AppSrcDir` from `HostAppDir` for in-container reads (308f60e)
+- `ant/CLAUDE.md` — `verb=mention` always requires visible output (4c9bd38); exhaust recall-memories+web_search before "not found" (0a6cdbb); `<think>` exemption explicit (66c8c8f)
+- `migrate` skill announce — one msg per Slack workspace/Discord server, dedup recipients, lead with top user-facing bullet (6e82164, d375fc6, 56d54d5)
+- Discord output-styles — length ceiling aligned with CLAUDE.md (995eeb0)
+- `send_file` rule — always includes TL;DR caption distilled from file contents (555f704)
+
+---
+
 ## [v0.45.5] — 2026-05-21
 
 > arizuko v0.45.5 — platform_id column, uniform native message id

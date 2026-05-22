@@ -2,8 +2,20 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 
 	"github.com/kronael/arizuko/core"
+)
+
+// ErrWebJIDRouted is returned by AddRoute when the operator tries to
+// register a chat_jid=web:* predicate. Web JIDs are 1:1 with groups —
+// the gateway addresses web:<folder> directly via GroupByFolder and
+// never consults the route table. The fix is to create the group, not
+// add a route.
+var ErrWebJIDRouted = fmt.Errorf(
+	"web: JIDs are 1:1 with groups; route table does not apply. " +
+		"Create the group via setup_group instead.",
 )
 
 const routeCols = `id, seq, match, target,
@@ -30,6 +42,9 @@ func (s *Store) GetRoute(id int64) (core.Route, bool) {
 }
 
 func (s *Store) AddRoute(r core.Route) (int64, error) {
+	if matchesWebJID(r.Match) {
+		return 0, ErrWebJIDRouted
+	}
 	res, err := s.db.Exec(
 		`INSERT INTO routes (seq, match, target, observe_window_messages, observe_window_chars)
 		 VALUES (?, ?, ?, ?, ?)`,
@@ -40,6 +55,23 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// matchesWebJID reports whether a route's Match expression includes a
+// chat_jid predicate that begins with "web:". Such routes can never
+// fire — the gateway addresses web JIDs directly — and silently mask
+// the operator's setup error.
+func matchesWebJID(match string) bool {
+	for _, f := range strings.Fields(match) {
+		k, pat, ok := strings.Cut(f, "=")
+		if !ok || k != "chat_jid" {
+			continue
+		}
+		if strings.HasPrefix(pat, "web:") {
+			return true
+		}
+	}
+	return false
 }
 
 // SetRoutes replaces the routes whose target (sans fragment) is `folder`
