@@ -6,7 +6,7 @@ shipped: 2026-04-29
 # Egred — forward proxy with per-source allowlists
 
 > One daemon, one registry, one matchHost. Ships in the
-> [crackbox component](../6/12-crackbox-sandboxing.md). The
+> [crackbox component](../10/12-crackbox-sandboxing.md). The
 > daemon is named `egred`; the larger `crackbox` component
 > (library + bundled binaries) provides VM sandboxing on top.
 
@@ -84,15 +84,15 @@ primitives. It does not contain a special-case proxy.
 
 ## Where egred fits in the bigger picture
 
-| Component                | Role                                                                   |
-| ------------------------ | ---------------------------------------------------------------------- |
-| `egred`                  | The proxy daemon. This spec.                                           |
-| `crackbox/pkg/proxy/`    | Library used by `egred` and `crackbox proxy serve`.                    |
-| `crackbox/pkg/host/`     | Library for VM sandboxing (see [8/a](../6/12-crackbox-sandboxing.md)). |
-| `crackbox/cmd/crackbox/` | Umbrella CLI: `proxy serve`, `run`, `state`, `host`.                   |
-| `crackbox/cmd/egred/`    | Standalone proxy binary, just the proxy.                               |
-| [`sandd`](c-sandd.md)    | arizuko-internal daemon that uses the docker or                        |
-|                          | crackbox-host backend; wire-format independent of egred.               |
+| Component                | Role                                                                     |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `egred`                  | The proxy daemon. This spec.                                             |
+| `crackbox/pkg/proxy/`    | Library used by `egred` and `crackbox proxy serve`.                      |
+| `crackbox/pkg/host/`     | Library for VM sandboxing (see [10/a](../10/12-crackbox-sandboxing.md)). |
+| `crackbox/cmd/crackbox/` | Umbrella CLI: `proxy serve`, `run`, `state`, `host`.                     |
+| `crackbox/cmd/egred/`    | Standalone proxy binary, just the proxy.                                 |
+| [`sandd`](c-sandd.md)    | arizuko-internal daemon that uses the docker or                          |
+|                          | crackbox-host backend; wire-format independent of egred.                 |
 
 The naming distinction matters once VM sandboxing lands:
 **crackbox = library + bundled binaries (the umbrella component);
@@ -166,9 +166,9 @@ IP itself:
 
 Listed for visibility, deferred:
 
-- Secret handling (now spec [9/11](11-crackbox-secrets.md), tool-level
+- Secret handling (now spec [10/11](11-crackbox-secrets.md), tool-level
   broker — no proxy involvement).
-- KVM/qemu sandbox host (now lives in [8/a](../6/12-crackbox-sandboxing.md))
+- KVM/qemu sandbox host (now lives in [10/a](../10/12-crackbox-sandboxing.md))
 - MCP tools (`request_network`, `list_network_rules`).
 - Traffic logs and audit.
 - Response scanning.

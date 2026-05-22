@@ -71,5 +71,5 @@ pattern as existing MCP tools.
 ## Out of scope
 
 - Writing logs (use existing `slog`).
-- Modifying routes (see `8/32-dynamic-channels.md`).
+- Modifying routes (see `9/32-dynamic-channels.md`).
 - Arbitrary shell (use `Bash`, tier-gated).

@@ -116,7 +116,7 @@ correct `SECRETS.toml`. Browse + enable + key entry without ssh.
   uniformity? Probably yes long-term, but a plugin-as-built-in shim
   during transition.
 - **Cost tracking**: per-folder spend caps for paid plugins (Replicate,
-  OpenAI). Hooks into specs/8/4-rate-limits.md.
+  OpenAI). Hooks into specs/9/4-rate-limits.md.
 
 ## References
 

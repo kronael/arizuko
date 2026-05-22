@@ -26,7 +26,7 @@ operator-justified shapes:
    the raw report (sender, timestamp, attachments) without
    paraphrase distortion.
 2. **Quarantine review.** `atlas/quarantine` (see
-   `specs/8/17-emaid-auth.md`) holds unverified email; operator
+   `specs/9/17-emaid-auth.md`) holds unverified email; operator
    reacts ✅; bot forwards the original to `atlas/inbox` for normal
    triage. Provenance matters — paraphrase loses headers.
 3. **Daily digest relay.** Bot picks 3 messages from a noisy

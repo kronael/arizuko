@@ -300,7 +300,7 @@ strip_prefix = false                         # optional; default false
 
 No verb allowlist (WebDAV write-block stays a davd-specific in-proxyd
 check, `proxyd/main.go:572-588`); no per-route `rate_limit` (slink's
-`10/min/ip` at `proxyd/main.go:257` stays hardcoded); no `token_param`
+`11/min/ip` at `proxyd/main.go:257` stays hardcoded); no `token_param`
 (slink URL-token resolution at `proxyd/main.go:427-453` stays bespoke);
 single env-var `gated_by` only (no compound gates).
 

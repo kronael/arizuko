@@ -28,7 +28,7 @@ your agent" rather than "pick from a menu".
 ## Trust model
 
 Runtime sandbox is unchanged — same crackbox boundary
-([../9/12-crackbox-sandboxing.md](../9/12-crackbox-sandboxing.md)),
+([../10/12-crackbox-sandboxing.md](../10/12-crackbox-sandboxing.md)),
 same MCP socket model. The new surface is the _creation_ gate.
 
 - **Per-instance cap.** `USER_SPAWNED_TENANTS_MAX` in `.env` (default

@@ -27,7 +27,7 @@ Verified by reading the source before writing this spec:
 | Per-user grants                                | `user_groups` rows + GRANTS.md "deepest match wins"; no template work needed.                                                                                                                                                                                       |
 | Channel-scoped secrets injected into agent env | `container.resolveSpawnEnv` (`container/runner.go:642`) merges `FolderSecretsResolved(folder)` into the agent container spawn env.                                                                                                                                  |
 | Per-user secrets at tool-call time             | **Not free.** Storage exists (`store/migrations/0034-secrets.sql`, `Store.SetSecret`/`GetSecret`, `UserSecrets`); resolution path is folder-only for group chats — `resolveSpawnEnv` only overlays user secrets when `chats.is_group = 0`. See "Honest gaps" below. |
-| `SECRETS.toml`                                 | **Vapour today.** The only repo refs are the product HTML page and `specs/8/14-plugins.md`. The actual at-rest store is the `secrets` SQLite table. Treat `SECRETS.toml` as the eventual operator-edit format; ship the product against the table.                  |
+| `SECRETS.toml`                                 | **Vapour today.** The only repo refs are the product HTML page and `specs/9/14-plugins.md`. The actual at-rest store is the `secrets` SQLite table. Treat `SECRETS.toml` as the eventual operator-edit format; ship the product against the table.                  |
 
 ## File set to ship
 
@@ -150,14 +150,14 @@ arizuko run acme
 # 5. Bind the Slack channel JID to a group folder
 arizuko group acme add slack:T01ABC/channel/C02XYZ eng-support
 
-# 6. (Optional, until the operator CLI in spec 9/11 lands) pre-seed a
+# 6. (Optional, until the operator CLI in spec 10/11 lands) pre-seed a
 #    folder secret for an API the agent calls — e.g. a shared Jira
 #    token for #eng-support:
 sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
   "INSERT INTO secrets (scope_kind, scope_id, key, value, created_at) \
    VALUES ('folder','eng-support','JIRA_TOKEN','atlassian-pat-...', \
    datetime('now'));"
-# (NOTE: `arizuko secret set` is spec'd in 9/11 but not shipped today.)
+# (NOTE: `arizuko secret set` is spec'd in 10/11 but not shipped today.)
 
 # 7. (Optional) Teammates only need OAuth at /auth/login for per-user
 #    features (per-user secrets, web UI). Baseline channel access uses
@@ -174,7 +174,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    shape for per-user tokens in a multi-user channel — the container
    spawns once and serves multiple callers.
 
-   Spec covering this: **`specs/9/11-crackbox-secrets.md`** (tool-level
+   Spec covering this: **`specs/10/11-crackbox-secrets.md`** (tool-level
    broker). The broker resolves per-call:
    - `/dash/me/secrets` UI for users to paste tokens.
    - At tool-call time, MCP handlers in `gated` resolve
@@ -184,7 +184,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    - Resolution is per-caller per-turn, so Alice's `github_pr` call
      and Bob's see different tokens in the same channel.
 
-   Until 9/11 ships, the product covers **shared, channel-scoped
+   Until 10/11 ships, the product covers **shared, channel-scoped
    tokens** (a team's shared Jira/GitHub bot key), not per-teammate
    credentials. The page promises both; the template should be
    honest in `PRODUCT.md` comments that per-user secrets are
@@ -192,8 +192,8 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
 
 2. **No CLI / dash UI to set a folder secret.**
    `Store.SetSecret` exists but nothing wraps it. v1 stores plaintext
-   (per spec 9/11), so a direct `sqlite3 INSERT` is the workaround
-   today; the operator CLI lands in 9/11 M4.
+   (per spec 10/11), so a direct `sqlite3 INSERT` is the workaround
+   today; the operator CLI lands in 10/11 M4.
    Smallest no-code fix that's still operator-usable:
    - Ship a tiny shell helper at `template/products/slack-team/init.sh`
      that the operator runs once: it prompts for `JIRA_TOKEN` etc.,
@@ -201,7 +201,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
      socket, and asks the root agent to call a `set_folder_secret`
      MCP tool — **except that tool doesn't exist either**.
    - Cleanest no-code path: defer secret-setting to the
-     forthcoming `specs/9/11-crackbox-secrets.md` dashboard UX. For now, document the
+     forthcoming `specs/10/11-crackbox-secrets.md` dashboard UX. For now, document the
      direct-SQLite pattern (with a small Go helper at
      `cmd/arizuko-secret/` — but that IS a new binary, so out of
      scope here).
@@ -211,8 +211,8 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    vars (already free — adapter env, not folder secret). Agent-side
    tool API keys go into the same `.env` for v0 of the product.
    Folder-scoped secrets (true `secrets` table) require either:
-   (a) `specs/8/14-plugins.md` (operator UX via `arizuko plugin`),
-   or (b) `specs/9/11-crackbox-secrets.md` (dashboard
+   (a) `specs/9/14-plugins.md` (operator UX via `arizuko plugin`),
+   or (b) `specs/10/11-crackbox-secrets.md` (dashboard
    `/dash/me/secrets`). Both are
    out of scope here.
 
@@ -250,7 +250,7 @@ The operator can verify the template is correctly installed with:
 If 1–6 pass, the product template is mechanically correct. (7)
 verifies the secret integration path that the page promises for
 _channel-scoped_ keys; per-user secrets require
-`specs/9/11-crackbox-secrets.md`.
+`specs/10/11-crackbox-secrets.md`.
 
 ## Open
 
@@ -259,7 +259,7 @@ _channel-scoped_ keys; per-user secrets require
   one-line PR; not part of this product spec.
 - `SECRETS.toml` as the canonical operator-edit format vs the
   `secrets` SQLite table as ground truth: pick one, write a
-  reconciler. See `specs/8/14-plugins.md`. Out of scope here.
+  reconciler. See `specs/9/14-plugins.md`. Out of scope here.
 - `arizuko secret <set|list>` CLI subcommand to remove the
   direct-SQLite step from step 6 of the runbook. Trivial code,
   but new code — defer to its own spec.

@@ -2,36 +2,20 @@
 status: active
 ---
 
-# specs/10 — standalone + reusable
+# specs/10 — security + standalone
 
-Making each arizuko daemon and capability presentable and usable
-standalone, reusable across other agent workloads beyond arizuko.
+Hardening the security perimeter and splitting components into
+standalone shippable units usable outside arizuko.
 
-| Spec                                                     | Status | Hook                                                            |
-| -------------------------------------------------------- | ------ | --------------------------------------------------------------- |
-| [b-ant-standalone.md](b-ant-standalone.md)               | draft  | ant as standalone Claude Code distribution; `ant <folder>` CLI  |
-| [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | draft  | Go runtime: MCP front (stream-progress), claude NDJSON driver   |
-| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | draft  | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol        |
-| [6-workflows.md](6-workflows.md)                         | draft  | workflowd — TOML flow engine over shared SQLite; agent-agnostic |
-| [8-self-eval-skill.md](8-self-eval-skill.md)             | draft  | Self-eval sub-query at container exit; portable skill           |
-| [1-multi-agent-commits.md](1-multi-agent-commits.md)     | draft  | Committer script for multi-agent git safety (openclaw pattern)  |
-| [2-printing-press.md](2-printing-press.md)               | draft  | Integrate printingpress.dev — agent-native CLI generator + MCP. |
-| [3-template-distillation.md](3-template-distillation.md) | draft  | Harvest live-group wisdom back into `ant/examples/<product>/`.  |
-
----
-
-## Queue (from comparative research)
-
-Patterns identified by muaddib / hermes / nanoclaw / openclaw / Anthropic-plugin deep-reads that arizuko genuinely lacks but doesn't yet have a written spec for. See [`tmp/improvements.md`](../../tmp/improvements.md) `## True-gap queue` for the 9 entries:
-
-- NULL-sentinel agent decline
-- Pre-container command gate
-- Periodic memory/skill nudges
-- Versioned PATCH + optimistic concurrency on persona/grants/settings
-- Column-flag for per-generation message visibility (steer race persistence)
-- `onExit`-callback-chained respawn
-- Bidirectional MCP-as-channel triad
-- FTS5 over messages
-- JSONL durable session log + observer-finalize
-
-Each promotes to its own spec — landing here when cross-cutting / platform-level, or extending an existing spec in `specs/4/`, `specs/5/`, `specs/6/` when the pattern is bucket-specific.
+| Spec                                                     | Status               | Hook                                                                                                            |
+| -------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [7-self-learning.md](7-self-learning.md)                 | draft                | Pattern recognition → operator-gated proposals (skill, memory, persona)                                         |
+| [8-skill-guard.md](8-skill-guard.md)                     | draft                | Threat-pattern PreToolUse hook on agent-written skills (hermes peel)                                            |
+| [9-crackbox-standalone.md](9-crackbox-standalone.md)     | shipped              | egred — forward proxy with per-source allowlists (2026-04-29)                                                   |
+| [10-crackbox-arizuko.md](10-crackbox-arizuko.md)         | shipped              | arizuko consumer of egred; sandd transition planned                                                             |
+| [11-crackbox-secrets.md](11-crackbox-secrets.md)         | draft                | Tool-level secret broker + MCP-connector subprocesses with per-call env injection (PAT-only v1; no MITM, no CA) |
+| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md)   | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing                                                            |
+| [14-surrogate-oauth.md](14-surrogate-oauth.md)           | draft                | Surrogate OAuth dance + refresh wrapper — writer-side feed into 10/11's `secrets` table                         |
+| [15-crackbox-dns-filter.md](15-crackbox-dns-filter.md)   | draft                | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host`; ANY refused                                      |
+| [b-orthogonal-components.md](b-orthogonal-components.md) | draft                | Sibling shippable components: crackbox, gateway, mcp-firewall                                                   |
+| [c-sandd.md](c-sandd.md)                                 | draft                | Sandbox-spawn daemon; gated keeps spawn ownership for now                                                       |

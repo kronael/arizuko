@@ -189,14 +189,14 @@ operator-token-minting affordance over the same ACL rows.
    registry; latency argues direct. Lean: writes via registry, reads
    direct for the dashboard's own UI.
 3. **Secret value reads via MCP.** The broker invariant
-   (`specs/9/11-crackbox-secrets.md`, referenced
+   (`specs/10/11-crackbox-secrets.md`, referenced
    `specs/5/5-uniform-mcp-rest.md:144`) says the agent never reads
    secret values. The registry must enforce this — `secrets.get`
    returns metadata only, never the value. How to express in
    `resreg`? A per-action handler that scrubs the response, or a
    policy declaring "no value field in MCP responses ever"?
 4. **Rate limits on management operations.** spec 6/5 punts to
-   `specs/8/4-rate-limits.md`. ACL writes are low-volume; an
+   `specs/9/4-rate-limits.md`. ACL writes are low-volume; an
    accidental loop in the agent that calls `acl.create` every turn
    would fill the table fast. Need a write-rate cap somewhere.
 5. **Backwards-compat during cutover.** M3 swaps CLI command bodies

@@ -5,7 +5,7 @@ status: shipped
 > Shipped: both shapes rely only on existing primitives. Orchestration
 > uses slink (`1/W-slink.md`) + `send_message`. Workflows use the Claude
 > Code Agent tool inside a container. No gateway work outstanding;
-> declarative workflow syntax tracked separately in `10/6-workflows.md`.
+> declarative workflow syntax tracked separately in `11/6-workflows.md`.
 
 # Agent orchestration & workflows
 
@@ -20,4 +20,4 @@ Rationale: workflows already work via Claude Code Agent tool. No gateway
 changes needed. Orchestration = existing slink + `send_message` + skill
 files driving the topology.
 
-Superseded for declarative flows by [../10/6-workflows.md](../10/6-workflows.md).
+Superseded for declarative flows by [../11/6-workflows.md](../11/6-workflows.md).

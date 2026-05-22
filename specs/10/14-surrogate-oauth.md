@@ -1,13 +1,13 @@
 ---
 status: draft
-depends: [9/11-crackbox-secrets, 5/1-auth-standalone]
+depends: [10/11-crackbox-secrets, 5/1-auth-standalone]
 ---
 
 # Surrogate OAuth — fill the broker's `secrets` table via OAuth flows
 
 > The user clicks "Connect GitHub" in their dashboard; arizuko does
 > the OAuth dance; the resulting access + refresh tokens land in the
-> `secrets` table that [`9/11`](11-crackbox-secrets.md)'s broker
+> `secrets` table that [`10/11`](11-crackbox-secrets.md)'s broker
 > already reads at tool-call time. The agent and the MCP server stay
 > unchanged — the only thing that changes is _how_ the token row got
 > written.
@@ -18,7 +18,7 @@ arizuko-the-bot _to_ a third party, as if it were the user.
 
 ## Why a separate spec
 
-[`9/11`](11-crackbox-secrets.md) ships a broker that injects whatever
+[`10/11`](11-crackbox-secrets.md) ships a broker that injects whatever
 sits in `secrets.value` into MCP-subprocess env on each call. The
 writer side is initially just `/dash/me/secrets` (manual paste) —
 which is fully useful with **PATs** (GitHub fine-grained tokens,
@@ -28,18 +28,18 @@ per-user `github_*` tools end-to-end with no OAuth code.
 OAuth is the **upgrade**: short-lived scoped tokens, auto-refresh,
 "Connect GitHub" button instead of "go to settings/tokens, paste this
 opaque string". Different code path, same destination row. Splitting
-lets 9/11 ship without OAuth blocking it, and lets 9/14 ship against
+lets 10/11 ship without OAuth blocking it, and lets 10/14 ship against
 an already-tested broker.
 
 ## Orthogonality split
 
-| Concern                                                                | Owner                                |
-| ---------------------------------------------------------------------- | ------------------------------------ |
-| OAuth primitives (URL build, code exchange, refresh via refresh_token) | `auth/surrogate.go` (library)        |
-| Surrogate OAuth dance (start, callback, persist)                       | dashd `/dash/me/connections/`        |
-| Token storage (access + refresh + expires_at)                          | gated `secrets` table                |
-| Refresh on call (401 retry, near-expiry pre-emptive)                   | gated broker wrapper (from 9/11 M6)  |
-| Using the token for outbound HTTP                                      | MCP subprocess (unchanged from 9/11) |
+| Concern                                                                | Owner                                 |
+| ---------------------------------------------------------------------- | ------------------------------------- |
+| OAuth primitives (URL build, code exchange, refresh via refresh_token) | `auth/surrogate.go` (library)         |
+| Surrogate OAuth dance (start, callback, persist)                       | dashd `/dash/me/connections/`         |
+| Token storage (access + refresh + expires_at)                          | gated `secrets` table                 |
+| Refresh on call (401 retry, near-expiry pre-emptive)                   | gated broker wrapper (from 10/11 M6)  |
+| Using the token for outbound HTTP                                      | MCP subprocess (unchanged from 10/11) |
 
 The MCP server never knows OAuth exists. It reads
 `GITHUB_PERSONAL_ACCESS_TOKEN` on startup, uses whatever string is
@@ -146,10 +146,10 @@ and adds a second source of truth for "the latest access_token".
       DELETE /<provider>        (form delete; revoke at provider; remove row)
 ```
 
-The same surface that `/dash/me/secrets` (9/11 M3) uses; the
+The same surface that `/dash/me/secrets` (10/11 M3) uses; the
 distinguisher is whether the provider has a registered surrogate
 config. UI lists both groups: "OAuth connections" (this spec) and
-"Pasted tokens" (9/11 M3).
+"Pasted tokens" (10/11 M3).
 
 ## Acceptance
 
@@ -157,7 +157,7 @@ config. UI lists both groups: "OAuth connections" (this spec) and
    Round-trip returns her to the page; GitHub row in `secrets` with
    `provider='github'`, non-NULL `expires_at`, non-NULL `refresh_val`.
 2. **Tool call uses fresh token**: Alice invokes `github_create_pr`
-   (via 9/11 broker). Broker resolves her GitHub row, sees
+   (via 10/11 broker). Broker resolves her GitHub row, sees
    `expires_at` is in the future, spawns github-mcp with current
    `value`. PR is created.
 3. **Refresh on near-expiry**: time-travel `expires_at` to `now+30s`.
@@ -171,7 +171,7 @@ config. UI lists both groups: "OAuth connections" (this spec) and
    reconnect" on subsequent calls.
 5. **Per-user isolation**: Bob's `github_create_pr` in the same Slack
    channel spawns a different subprocess with Bob's token. Neither
-   sees the other's. (Inherits from 9/11.)
+   sees the other's. (Inherits from 10/11.)
 6. **Revoke**: Alice's `DELETE /dash/me/connections/github` removes
    the row; github's revocation endpoint receives the POST; next
    tool call errors "no token".
@@ -204,7 +204,7 @@ N days per new provider thereafter.
 
 ## Cross-references
 
-- [`specs/9/11-crackbox-secrets.md`](11-crackbox-secrets.md) — the
+- [`specs/10/11-crackbox-secrets.md`](11-crackbox-secrets.md) — the
   broker that reads the rows this spec writes.
 - [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md) — auth
   capability library; surrogate flows are a sibling of identity OAuth.

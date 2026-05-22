@@ -278,12 +278,12 @@ No proxy changes. No CA. No TLS termination. No
 - AES-GCM at rest — cipher code removed from `store/secrets.go`
   (v1 stores plaintext). Re-add behind `AUTH_SECRET` when threat
   model demands.
-- **OAuth dance + token refresh** — [`specs/9/14-surrogate-oauth.md`](../9/14-surrogate-oauth.md).
+- **OAuth dance + token refresh** — [`specs/10/14-surrogate-oauth.md`](../10/14-surrogate-oauth.md).
   The broker treats `secrets.value` as opaque; whether it landed
   there via user paste (`/dash/me/secrets`) or via a completed OAuth
   flow is the writer's concern. v1 ships PAT-only: pastable
   long-lived tokens (GitHub fine-grained PAT, Linear PAT, OpenAI
-  key). 9/14 adds the dance + refresh wrapper.
+  key). 10/14 adds the dance + refresh wrapper.
 - MCP handler isolation beyond subprocess boundary (containerized
   per-call MCP servers ship under spec 9/12 sandboxing extensions).
 - HSM / KMS integration.
@@ -294,9 +294,9 @@ No proxy changes. No CA. No TLS termination. No
   GitHub token flow, the canonical v1 user.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.
-- [`specs/9/10-crackbox-arizuko.md`](../9/10-crackbox-arizuko.md) — egred
+- [`specs/10/10-crackbox-arizuko.md`](../10/10-crackbox-arizuko.md) — egred
   keeps CONNECT-splice + per-source allowlists; untouched by this spec.
-- [`specs/9/14-surrogate-oauth.md`](../9/14-surrogate-oauth.md) — OAuth
+- [`specs/10/14-surrogate-oauth.md`](../10/14-surrogate-oauth.md) — OAuth
   dance + refresh wrapper; writer-side feed into the `secrets` table
-  the broker reads. Independent ship: 9/11 ships PAT-only and is
+  the broker reads. Independent ship: 10/11 ships PAT-only and is
   useful end-to-end without it.

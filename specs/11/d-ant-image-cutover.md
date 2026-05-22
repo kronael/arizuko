@@ -261,5 +261,5 @@ vs the current TS image: ~600 MB (Node + Bun + node_modules + claude
 - [../7/7-ant-portability.md](../7/7-ant-portability.md) — wires
   `CLAUDE_PROJECTS_DIR` to a per-folder bind when sessions ship
   with the agent.
-- [../9/](../9/) — `mcp-fw` / standalone hardening; the MCP socket
+- [../10/](../10/) — `mcp-fw` / standalone hardening; the MCP socket
   permissions on `/run/ipc/ant.sock` use the same conventions.

@@ -121,23 +121,23 @@ primitive.
 
 ## Per-resource access matrix
 
-| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                      | Backing tables                                                  |
-| ------------------- | -------- | -------- | ---------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `grants`            | operator | operator | agent + user     | agent + user                                                           | `grants` (gated)                                                |
-| `routes`            | operator | operator | —                | —                                                                      | `routes` (gated)                                                |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/9/11`](../9/11-crackbox-secrets.md)) | `secrets` (gated)                                               |
-| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                           | `scheduled_tasks` (timed)                                       |
-| `chats`             | operator | operator | agent + user     | — (operator-only)                                                      | `messages` (gated)                                              |
-| `group_folders`     | operator | operator | —                | —                                                                      | `groups` (gated)                                                |
-| `egress_allowlist`  | operator | operator | —                | agent                                                                  | crackbox register ([`specs/9/10`](../9/10-crackbox-arizuko.md)) |
-| `user_groups` (ACL) | operator | operator | —                | —                                                                      | `user_groups` (gated)                                           |
-| `invites`           | operator | operator | agent (tier ≤ 1) | agent (tier ≤ 1)                                                       | `invites` (onbod)                                               |
+| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                        | Backing tables                                                    |
+| ------------------- | -------- | -------- | ---------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `grants`            | operator | operator | agent + user     | agent + user                                                             | `grants` (gated)                                                  |
+| `routes`            | operator | operator | —                | —                                                                        | `routes` (gated)                                                  |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/10/11`](../10/11-crackbox-secrets.md)) | `secrets` (gated)                                                 |
+| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                             | `scheduled_tasks` (timed)                                         |
+| `chats`             | operator | operator | agent + user     | — (operator-only)                                                        | `messages` (gated)                                                |
+| `group_folders`     | operator | operator | —                | —                                                                        | `groups` (gated)                                                  |
+| `egress_allowlist`  | operator | operator | —                | agent                                                                    | crackbox register ([`specs/10/10`](../10/10-crackbox-arizuko.md)) |
+| `user_groups` (ACL) | operator | operator | —                | —                                                                        | `user_groups` (gated)                                             |
+| `invites`           | operator | operator | agent (tier ≤ 1) | agent (tier ≤ 1)                                                         | `invites` (onbod)                                                 |
 
 Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
 both axes — the agent can't reach into its own ACL or topology; that's
 the trust boundary. `secrets:write:own_group` is user-via-dashboard
 only; the agent never reads or rotates secrets (invariant in
-[`specs/9/11`](../9/11-crackbox-secrets.md); the broker resolves
+[`specs/10/11`](../10/11-crackbox-secrets.md); the broker resolves
 folder/user secrets inside the tool handler on the host, the container
 never sees them). `egress_allowlist:write:own_group` lets the
 agent add a host to its own allowlist (today's crackbox register
@@ -248,7 +248,7 @@ Phase A unblocks
 
 - Not streaming. SSE endpoints (slink message stream, agent live
   output) stay as-is — not CRUD/RPC.
-- Not rate limits ([`specs/8/4-rate-limits.md`](../8/4-rate-limits.md)).
+- Not rate limits ([`specs/9/4-rate-limits.md`](../9/4-rate-limits.md)).
 - Not transport addition. REST + MCP only. No GraphQL, no gRPC.
 - Not per-tenant policy variants. One global policy table per resource.
 - Not a permission-model overhaul. Grants (per

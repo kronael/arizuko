@@ -10,7 +10,7 @@ First implementation: the existing claude-CLI driver. Second
 implementation: OpenAI's Codex via `codex app-server` (JSON-RPC 2.0
 over stdio). Future candidates: `opencode.ai`, etc.
 
-Sibling to [../10/c-ant-mcp-runtime.md](../10/c-ant-mcp-runtime.md)
+Sibling to [../11/c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md)
 (the claude-specific runtime), which becomes the first
 implementation of this interface.
 
@@ -318,12 +318,12 @@ CODEX_VERSION` in `ant/Dockerfile` (when the codex backend
 
 ## Relation to other specs
 
-- [../10/c-ant-mcp-runtime.md](../10/c-ant-mcp-runtime.md) — the
+- [../11/c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md) — the
   claude-specific runtime that becomes the first `Backend`
   implementation.
-- [../10/b-ant-standalone.md](../10/b-ant-standalone.md) — folder
+- [../11/b-ant-standalone.md](../11/b-ant-standalone.md) — folder
   shape; this spec adds an optional `backend:` hint.
-- [../10/d-ant-image-cutover.md](../10/d-ant-image-cutover.md) —
+- [../11/d-ant-image-cutover.md](../11/d-ant-image-cutover.md) —
   image build; a Codex variant follows the same pattern (`ARG
 CODEX_VERSION`, similar Dockerfile).
 - [../7/7-ant-portability.md](../7/7-ant-portability.md) — fleet

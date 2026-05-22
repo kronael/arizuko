@@ -17,7 +17,7 @@ holding the `**` super-grant can re-pair from the browser in under
 30 seconds.
 
 The auth-dir auto-rotate on consecutive 401s is a separate concern
-(filed as `specs/8/16-whapd-auth-rotate.md`); this spec is only the
+(filed as `specs/9/16-whapd-auth-rotate.md`); this spec is only the
 re-pair flow.
 
 ## Scope (operator-only)
@@ -222,7 +222,7 @@ per-channel cache / env); env wins on minimality + correct scope.
 - NOT a way to bypass WhatsApp's per-account link-rate limit. The
   5/hour cap is for arizuko's protection; WhatsApp will still
   enforce its own.
-- NOT the auth-dir auto-rotate. See `specs/8/16-whapd-auth-rotate.md`.
+- NOT the auth-dir auto-rotate. See `specs/9/16-whapd-auth-rotate.md`.
 
 ## Tests required
 
@@ -297,5 +297,5 @@ socket); then the dashd page; then the whapd refactor; then 3, 4,
 2. **Audit row's group folder.** `groups/krons` (the instance root)
    or `groups/main`? Probably `groups/krons` since pairing affects
    the instance-wide WhatsApp identity, not the main group.
-3. ~~Auto-rotate spec stub.~~ Done — `specs/8/16-whapd-auth-rotate.md`
+3. ~~Auto-rotate spec stub.~~ Done — `specs/9/16-whapd-auth-rotate.md`
    is written, status `discussion`, mutex-coordinated with this spec.

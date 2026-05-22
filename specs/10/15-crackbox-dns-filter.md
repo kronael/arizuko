@@ -37,7 +37,7 @@ consumer changes are out of scope here, each owns its own change:
   `HTTPS_PROXY` but never resolves it to an IP
   ([`container/egress.go:13-44`](../../container/egress.go),
   [`container/network.go:177`](../../container/network.go)).
-  Tracked as a follow-up under [`9/10`](10-crackbox-arizuko.md).
+  Tracked as a follow-up under [`10/10`](10-crackbox-arizuko.md).
 - **transparent-mode rebinding boundary**: see below.
 
 Inside scope: a UDP/53 listener bundled with `crackbox proxy serve`
@@ -129,10 +129,10 @@ the crackbox listener. It does **not** automatically defend:
   client's resolver returns an address, so the name is the unit of
   enforcement. The HTTP path remains the second gate; DNS is
   additive defense-in-depth.
-- **Spec 9/11 secrets**: the tool-level broker model runs in `gated`
+- **Spec 10/11 secrets**: the tool-level broker model runs in `gated`
   on the host and never touches egress; the DNS filter and the broker
   share no data path. Cross-ref:
-  [`9/11`](11-crackbox-secrets.md).
+  [`10/11`](11-crackbox-secrets.md).
 
 ## Container-side wiring
 
@@ -145,7 +145,7 @@ to the user container's create args.
 
 The arizuko-side change is **not** one-line and is **not** part of
 this spec. It needs `EgressConfig.CrackboxIPOnNetwork(folder)` or
-equivalent. Owned by [`9/10`](10-crackbox-arizuko.md).
+equivalent. Owned by [`10/10`](10-crackbox-arizuko.md).
 
 ## Config
 
@@ -250,12 +250,12 @@ allows all. No new wildcard syntax.
 
 - Openclaw: `refs/openclaw-managed-agents/docker/egress-proxy/proxy.mjs:220-251`
   - `.../dns.mjs` (porting the shape, hardening the forwarder).
-- [`9/9-crackbox-standalone.md`](9-crackbox-standalone.md) — daemon
+- [`10/9-crackbox-standalone.md`](9-crackbox-standalone.md) — daemon
   shape, env naming, no-supervision rule.
-- [`9/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — consumer.
+- [`10/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — consumer.
   Discovering the per-folder crackbox IP and adding `--dns` is
   follow-up work owned there.
-- [`9/11-crackbox-secrets.md`](11-crackbox-secrets.md) — tool-level
+- [`10/11-crackbox-secrets.md`](11-crackbox-secrets.md) — tool-level
   broker. Independent of egress; DNS filter and broker do not share
   state.
 

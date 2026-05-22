@@ -23,7 +23,7 @@ same way HTTP itself is.
 
 The `/v1/*` shape is the platform's external surface — dashboard, agent
 MCP federation, third-party operators, and code generators
-([`specs/10/2-printing-press.md:124-136`](../10/2-printing-press.md))
+([`specs/11/2-printing-press.md:124-136`](../11/2-printing-press.md))
 all consume it. Today the surface lives in Go source
 ([`api/api.go:50-56`](../../api/api.go),
 [`webd/server.go:48-78`](../../webd/server.go),
@@ -36,7 +36,7 @@ no consumer can introspect the platform at runtime.
 [R-platform-api.md](R-platform-api.md) Phase 2 already calls for
 per-daemon `openapi.json`; this spec is the contract for how they're
 produced, where they live, and how drift is prevented.
-[`specs/10/2-printing-press.md:130-134`](../10/2-printing-press.md)
+[`specs/11/2-printing-press.md:130-134`](../11/2-printing-press.md)
 already assumes `GET /v1/openapi.json` exists — **that path is wrong**
 and is reconciled below.
 
@@ -68,7 +68,7 @@ the upgrade.
 Path is `/openapi.json`, not `/v1/openapi.json` — the doc spans all
 versions a daemon serves, it's infrastructure not a versioned
 resource. Reconciles
-[`specs/10/2-printing-press.md:130-134`](../10/2-printing-press.md).
+[`specs/11/2-printing-press.md:130-134`](../11/2-printing-press.md).
 
 ## Tooling: huma
 
@@ -144,7 +144,7 @@ TS tooling — emit `whapd/openapi.json` from handler types, expose
 ## Out of scope
 
 - GraphQL / gRPC — HTTP/JSON only.
-- SDK generation — `specs/10/2-printing-press.md` handles that.
+- SDK generation — `specs/11/2-printing-press.md` handles that.
 - Per-tenant API surface variants — one shape per daemon.
 - MCP tool introspection — `tools/list` covers it; MCP is JSON-RPC
   over a unix socket, not HTTP.
@@ -170,7 +170,7 @@ TS tooling — emit `whapd/openapi.json` from handler types, expose
 - [R-genericization.md](R-genericization.md) — once daemons use
   generic `tenant_id`/`subject_id`, the schemas use those names, not
   `Folder`/`ChatJID`.
-- [`specs/10/2-printing-press.md`](../10/2-printing-press.md) —
+- [`specs/11/2-printing-press.md`](../11/2-printing-press.md) —
   consumes the generated specs; path `/v1/openapi.json` there needs
   updating to `/openapi.json`.
 - [`refs/openclaw-managed-agents/openapi/openapi.yaml`](../../refs/openclaw-managed-agents/openapi/openapi.yaml) —
