@@ -42,7 +42,7 @@ what audit costs.
 │    routes/                    route table (ordered TOML)     │
 │    skills/                    referenced by products         │
 │    personas/                  referenced by products         │
-│    secrets/                   age-encrypted blobs (or refs)  │
+│    (NO secrets/ in git — refs only, blobs stay in SQLite)    │
 │    groups/<folder>/                                          │
 │      MEMORY.md                                               │
 │      .diary/                                                 │
@@ -140,19 +140,23 @@ On crash:
 No `audit_log committed_at` machinery is needed for the cold tier.
 SQLite hot tier handles its own recovery as it does today.
 
-## Secrets in git
+## Secrets are NOT in git
 
-Per `specs/7/2-data-model.md` open question:
+Secrets stay in SQLite, AES-256-GCM encrypted, as today
+(`store/secrets.go`). Git carries only references
+(`{ scope = "folder", name = "slack" }`) — no values, no
+ciphertext. Per `specs/7/2-data-model.md`.
 
-**Decision (to confirm in implementation):** age-encrypted blobs in
-git, per-folder recipient. `arizuko secret add/rotate/show` wraps
-the encryption. Operator owns the age private key
-(out-of-git, on-host or in operator vault). Rotation = re-encrypt
+Rationale: git is for _configuration that should be distributed,
+forked, audited_. Secret blobs are _operational state that must
+stay on the operator's host_. Pushing encrypted-but-distributable
+blobs invites compromise (one stolen key decrypts the whole
+history). Operator vault → in-host SQLite is the trust boundary;
+git crosses it for config, never for secrets.
 
-- commit; lookup history via `git log secrets/<name>`.
-
-Alternative paths in `specs/7/2-data-model.md`. If implementation
-hits a blocker, fall back to vault-reference-only.
+Rotation, BYOA layering, per-call audit — all stay in
+`store/secrets.go` and Phase 6 Phase C (5/32 secrets layering).
+No phase-7 work here.
 
 ## Federation topology
 
@@ -293,8 +297,6 @@ Anything in Phase 3c stays in SQLite until its specific spec lands.
 
 - Inbound message storage (per-day digest vs hot-only) — see above.
 - Sidecar enough or per-event commits on a side branch — see above.
-- Secret blob location (in-git vs hash-reference vs vault) —
-  upstream from `specs/7/2-data-model.md`.
 - `arizuko log/diff/revert` wrapper UX — what surface do operators
   actually want?
 - "GitOps" as a term vs "git-native" — affects positioning, not

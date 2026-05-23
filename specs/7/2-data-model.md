@@ -35,7 +35,7 @@ in which tables migrate, which stay, and what shape they take.
 
 | Tier              | Examples                                                                                | Lives in (post-phase)                |
 | ----------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| Cold (config)     | ACL, routes, persona refs, skills selection, secret metadata, products, deployments     | Git — versioned, signed, distributed |
+| Cold (config)     | ACL, routes, persona refs, skills selection, secret refs, products, deployments         | Git — versioned, signed, distributed |
 | Warm (decisions)  | turn transcripts, grant audit, route mutations                                          | Git via digest commit at turn end    |
 | Hot (operational) | message queue, cursors, in-flight turn state, engagement TTLs, sticky bindings, indexes | SQLite only — rebuildable            |
 
@@ -60,17 +60,21 @@ current schema needs to be split.
 
 ### `secrets`
 
-- Cold: name, scope (folder/user), encryption method, metadata
-  (created, rotated, who).
-- **Out of git: the actual encrypted blob** — too sensitive even
-  age-encrypted to live next to readable config? OPEN QUESTION.
-  Three paths:
-  1. age-encrypted blob IN git (sealed-secrets style) — single
-     source of truth, simplest mental model
-  2. blob OUT of git, referenced by content-hash — git stores the
-     reference, the blob sits in `secrets/blobs/<hash>` not tracked
-  3. blob in a separate vault, git stores only the reference
-- Hot: nothing — pure config; resolution happens at spawn.
+**Secrets stay in SQLite. Git carries only names and scopes as
+references.** The AES-256-GCM encrypted blob never leaves
+`store/secrets.go`. This is non-negotiable: git is for distribution
+and audit of _configuration_; secret blobs are operational state
+that must stay on the operator's host, not in any artifact that
+gets pushed/cloned/diffed.
+
+- In SQLite (unchanged): name, scope (folder/user), AES-256-GCM
+  ciphertext, salt, metadata (created, rotated, who).
+- In git (reference only): a product or deployment in `agents.toml`
+  declares `slack_token = { scope = "folder", name = "slack" }` —
+  no value, no ciphertext, just the lookup tuple.
+- At spawn: container's secret-resolver looks up `(scope, name)`
+  in SQLite, decrypts in-process, injects into env. Existing
+  primitives.
 
 ### `chats`
 
@@ -138,8 +142,8 @@ Migrations under `store/migrations/` as usual. Schema owner is
 
 ## Open questions
 
-- Secret blob location (3 options above) — must be decided in this
-  spec; Action 3 depends on it.
+- ~~Secret blob location~~ — decided: stays in SQLite, git holds
+  refs only. Closed.
 - Routes ↔ chats refactor — clean move or compat shim?
 - `audit_log` — append-only single table, or per-resource tables?
   Single table simpler; per-resource scales better. Lean single
