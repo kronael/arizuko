@@ -218,6 +218,84 @@ func TestSetGroupOpen_MCP_FlipsAndGatesByTier(t *testing.T) {
 	}
 }
 
+// TestSetGroupOpen_MCP_CrossFolder_DescendantAllowed: a tier-1 parent
+// can flip a descendant's open flag by passing `folder=`. Mirrors what
+// dashd and CLI already permit, and matches auth/policy.go's subtree
+// rule. Previously the MCP tool hardcoded the caller's folder, so the
+// parent had to ask each child to call set_group_open themselves —
+// reported as a UX bug by operators.
+func TestSetGroupOpen_MCP_CrossFolder_DescendantAllowed(t *testing.T) {
+	h := newMCPHarness(t, "world/parent") // tier 1
+	// Create a descendant row so SetGroupOpen has something to update.
+	if err := h.S.PutGroup(core.Group{Folder: "world/parent/child", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.call(t, "set_group_open", map[string]any{
+		"open":   false,
+		"folder": "world/parent/child",
+	})
+	if res.IsError {
+		t.Fatalf("parent → descendant: %+v", res.Content)
+	}
+	if h.S.IsGroupOpen("world/parent/child") {
+		t.Errorf("descendant still open after parent's set_group_open(false)")
+	}
+	if !h.S.IsGroupOpen("world/parent") {
+		t.Errorf("caller's own folder flipped — should not have been touched")
+	}
+}
+
+// TestSetGroupOpen_MCP_CrossFolder_OutsideSubtreeDenied: a tier-1
+// caller cannot flip a folder outside its own subtree (peer sibling
+// or unrelated world). Mirrors auth/policy.go's subtree check; the
+// route exists for parent→descendant only.
+func TestSetGroupOpen_MCP_CrossFolder_OutsideSubtreeDenied(t *testing.T) {
+	h := newMCPHarness(t, "world/a") // tier 1
+	if err := h.S.PutGroup(core.Group{Folder: "world/b", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.call(t, "set_group_open", map[string]any{
+		"open":   false,
+		"folder": "world/b",
+	})
+	if !res.IsError {
+		t.Fatal("expected denial editing peer sibling")
+	}
+	if !contentContains(res, "unauthorized") {
+		t.Errorf("error msg missing 'unauthorized': %v", res.Content)
+	}
+	if !h.S.IsGroupOpen("world/b") {
+		t.Errorf("sibling was modified despite denial")
+	}
+}
+
+// TestSetObserveWindow_MCP_CrossFolder_DescendantAllowed: same shape
+// as set_group_open's cross-folder test — parent edits descendant's
+// window via the optional `folder` arg.
+func TestSetObserveWindow_MCP_CrossFolder_DescendantAllowed(t *testing.T) {
+	h := newMCPHarness(t, "world/parent")
+	if err := h.S.PutGroup(core.Group{Folder: "world/parent/child", AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	res := h.call(t, "set_observe_window", map[string]any{
+		"messages": float64(7),
+		"chars":    float64(300),
+		"folder":   "world/parent/child",
+	})
+	if res.IsError {
+		t.Fatalf("parent → descendant: %+v", res.Content)
+	}
+	m, c := h.S.GroupObserveWindow("world/parent/child")
+	if m != 7 || c != 300 {
+		t.Errorf("descendant window m=%d c=%d, want 7,300", m, c)
+	}
+	// Caller's own window should be untouched (still -1, -1).
+	mSelf, cSelf := h.S.GroupObserveWindow("world/parent")
+	if mSelf != -1 || cSelf != -1 {
+		t.Errorf("caller's own window leaked: m=%d c=%d", mSelf, cSelf)
+	}
+}
+
 func contentContains(res *mcp.CallToolResult, sub string) bool {
 	for _, c := range res.Content {
 		if tc, ok := c.(mcp.TextContent); ok && strings.Contains(tc.Text, sub) {

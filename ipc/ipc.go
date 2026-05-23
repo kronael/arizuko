@@ -1357,15 +1357,18 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolOK()
 		})
 
-	// Per-group ambient controls (spec 6/F). Both write the calling
-	// folder's row; cross-folder edits go through CLI, not MCP.
+	// Per-group ambient controls (spec 6/F). Both default to the calling
+	// folder; pass `folder` to edit a descendant. AuthorizeStructural
+	// gates cross-folder writes to own subtree (tier 0/1).
 	granted("set_observe_window",
-		"Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults; per-route caps still win over both. Pass -1 to clear an override. Omit a field to leave it unchanged.",
+		"Override a group's ambient observe-window caps (messages and/or chars). Defaults to this folder; pass `folder` to edit a descendant. Per-group caps win over instance env defaults; per-route caps still win over both. Pass -1 to clear an override. Omit messages|chars to leave unchanged.",
 		[]mcp.ToolOption{
 			mcp.WithNumber("messages",
 				mcp.Description("max ambient messages surfaced per turn; -1 clears override")),
 			mcp.WithNumber("chars",
 				mcp.Description("max ambient chars surfaced per turn; -1 clears override")),
+			mcp.WithString("folder",
+				mcp.Description("target group folder; defaults to caller's folder. Must be caller's folder or a descendant.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.SetGroupObserveWindow == nil || gated.GroupObserveWindow == nil {
@@ -1377,30 +1380,39 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !mOK && !cOK {
 				return toolErr("set_observe_window: at least one of messages|chars required")
 			}
+			target := folder
+			if f, _ := args["folder"].(string); f != "" {
+				target = f
+			}
+			if err := authzStructural("set_observe_window", auth.AuthzTarget{TargetFolder: target}); err != nil {
+				return toolErr(err.Error())
+			}
 			// Absent args preserve the stored value; explicit -1 clears.
-			prevM, prevC := gated.GroupObserveWindow(folder)
+			prevM, prevC := gated.GroupObserveWindow(target)
 			if !mOK {
 				msgs = prevM
 			}
 			if !cOK {
 				chars = prevC
 			}
-			if err := gated.SetGroupObserveWindow(folder, msgs, chars); err != nil {
-				emitSys("set_observe_window", folder, callerSub,
+			if err := gated.SetGroupObserveWindow(target, msgs, chars); err != nil {
+				emitSys("set_observe_window", target, callerSub,
 					map[string]any{"messages": msgs, "chars": chars}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("set_observe_window", folder, callerSub,
+			emitSys("set_observe_window", target, callerSub,
 				map[string]any{"messages": msgs, "chars": chars}, nil)
-			slog.Info("set_observe_window", "folder", folder, "messages", msgs, "chars", chars)
-			return toolJSON(map[string]any{"ok": true, "messages": msgs, "chars": chars})
+			slog.Info("set_observe_window", "folder", target, "caller", folder, "messages", msgs, "chars", chars)
+			return toolJSON(map[string]any{"ok": true, "folder": target, "messages": msgs, "chars": chars})
 		})
 
 	granted("set_group_open",
-		"Toggle this group's visibility to its siblings. When open=true, sibling folders' ambient observed messages surface in this group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1 only.",
+		"Toggle a group's visibility to its siblings. Defaults to this folder; pass `folder` to flip a descendant (e.g. a parent opening a child for cross-sibling observation). When open=true, sibling folders' ambient observed messages surface in that group's <observed> block (and vice versa) — see spec 6/F. Tier 0-1; target must be caller's folder or a descendant.",
 		[]mcp.ToolOption{
 			mcp.WithBoolean("open", mcp.Required(),
 				mcp.Description("true to expose to siblings, false to seal off")),
+			mcp.WithString("folder",
+				mcp.Description("target group folder; defaults to caller's folder. Must be caller's folder or a descendant.")),
 		},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if gated.SetGroupOpen == nil {
@@ -1415,16 +1427,20 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			if !ok {
 				return toolErr("set_group_open: open must be bool")
 			}
-			if err := authzStructural("set_group_open", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+			target := folder
+			if f, _ := args["folder"].(string); f != "" {
+				target = f
+			}
+			if err := authzStructural("set_group_open", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())
 			}
-			if err := gated.SetGroupOpen(folder, open); err != nil {
-				emitSys("set_group_open", folder, callerSub, map[string]any{"open": open}, err)
+			if err := gated.SetGroupOpen(target, open); err != nil {
+				emitSys("set_group_open", target, callerSub, map[string]any{"open": open}, err)
 				return toolErr(err.Error())
 			}
-			emitSys("set_group_open", folder, callerSub, map[string]any{"open": open}, nil)
-			slog.Info("set_group_open", "folder", folder, "open", open)
-			return toolJSON(map[string]any{"ok": true, "open": open})
+			emitSys("set_group_open", target, callerSub, map[string]any{"open": open}, nil)
+			slog.Info("set_group_open", "folder", target, "caller", folder, "open", open)
+			return toolJSON(map[string]any{"ok": true, "folder": target, "open": open})
 		})
 
 	granted("observe_group",
