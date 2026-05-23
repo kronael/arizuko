@@ -12,6 +12,27 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.8] — 2026-05-22
+
+> arizuko v0.45.8 — Tufte-style chart skill
+>
+> The agent now reaches for a Tufte-compliant chart whenever you ask it to visualize, build a dashboard, or critique a graph. Output is a single self-contained HTML/SVG file — no external JS, no external CSS — ready to attach via `send_file`.
+>
+> • New stock skill `tufte` — adapted from `aref-vc/tufte-claude-skill` (MIT), substantive content (principles, kill-list, chart-selection, checklist, presets) preserved verbatim
+> • Triggers on "make a chart", "visualize", "improve this chart", "design a dashboard", `/tufte`, and the usual viz keywords (chart, graph, dashboard, infographic, sparkline, small multiples, KPI tile)
+> • Two output stacks: self-contained HTML/SVG (default for chat replies) and React (Recharts + D3 fallback) for projects that already use React
+> • Upstream gallery PNGs and printable PDF dropped to keep skill under 200 KB; full gallery remains at the upstream repo
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- `ant/skills/tufte/` — new stock skill (`SKILL.md`, `principles.md`, `chart-selection.md`, `kill-list.md`, `checklist.md`, `before-after.html`, `cheatsheet.html`, `presets/html-svg.md`, `presets/react.md`, `assets/*.svg`, `LICENSE`)
+- Migration `147-v0.45.8-tufte-skill.md`
+- `MIGRATION_VERSION` 146 → 147
+
+---
+
 ## [v0.45.7] — 2026-05-22
 
 > arizuko v0.45.7 — web JIDs are 1:1 with groups
