@@ -8,8 +8,8 @@ depends: 9-crackbox-standalone
 
 > Today: `gated` directly spawns Docker + POSTs `/v1/register` to
 > egred. Next: `gated` gains a Backend interface and imports
-> [`crackbox/pkg/host/`](../10/12-crackbox-sandboxing.md) for the KVM
-> backend. Sandd extraction ([10/c](../10/c-sandd.md)) deferred.
+> [`crackbox/pkg/host/`](../11/12-crackbox-sandboxing.md) for the KVM
+> backend. Sandd extraction ([10/c](../11/c-sandd.md)) deferred.
 > Egred remains the egress proxy in both paths.
 
 ## Status
@@ -96,7 +96,7 @@ both backends ─── POST /v1/register ──→ egred (egress proxy)
 Privilege impact: gated already mounts `docker.sock` (root-
 equivalent). Adding `/dev/kvm` + `CAP_NET_ADMIN` is incremental,
 not a new attack surface. The privilege-isolation extraction into a
-separate `sandd` daemon ([spec 10/c](../10/c-sandd.md)) is deferred —
+separate `sandd` daemon ([spec 10/c](../11/c-sandd.md)) is deferred —
 ship KVM behind the Backend interface first; revisit the daemon
 split when there's a concrete symptom that needs it.
 

@@ -20,4 +20,4 @@ Rationale: workflows already work via Claude Code Agent tool. No gateway
 changes needed. Orchestration = existing slink + `send_message` + skill
 files driving the topology.
 
-Superseded for declarative flows by [../11/6-workflows.md](../11/6-workflows.md).
+Superseded for declarative flows by [../12/6-workflows.md](../12/6-workflows.md).

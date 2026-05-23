@@ -10,8 +10,8 @@ updated, drift-detected, and rolled back across N groups. The
 verbs live in `arizuko/`; the per-folder mechanics live in ant as
 library packages.
 
-Sibling to [b-ant-standalone.md](../11/b-ant-standalone.md) (folder
-shape) and [c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md) (runtime
+Sibling to [b-ant-standalone.md](../12/b-ant-standalone.md) (folder
+shape) and [c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md) (runtime
 contract). This spec depends on neither's implementation details —
 the lockfile and merge work apply to any folder that follows the
 documented layout.
@@ -454,14 +454,14 @@ then, the sidecar surface stays unspecified.
 
 ## Relation to other specs
 
-- [b-ant-standalone.md](../11/b-ant-standalone.md) — folder layout the
+- [b-ant-standalone.md](../12/b-ant-standalone.md) — folder layout the
   pack format mirrors.
-- [c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md) — runtime that
+- [c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md) — runtime that
   consumes the folder; unaffected by this spec.
-- [d-ant-image-cutover.md](../11/d-ant-image-cutover.md) — bind-mount
+- [d-ant-image-cutover.md](../12/d-ant-image-cutover.md) — bind-mount
   layout for `~/.claude` ties into `--include-sessions` here.
-- [3-template-distillation.md](../11/3-template-distillation.md) —
+- [3-template-distillation.md](../12/3-template-distillation.md) —
   producer side of templates; this spec is the consumer side.
-- [../9/14-plugins.md](../9/14-plugins.md) — MCP-tool plugin
+- [../10/14-plugins.md](../10/14-plugins.md) — MCP-tool plugin
   layer; same "manifest + lockfile + verbs" shape, may share
   `pkg/lockfile`.

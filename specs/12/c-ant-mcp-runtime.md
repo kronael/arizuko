@@ -363,9 +363,9 @@ gated MCP socket, the gateway, and every consumer above stays.
   folder/CLI shape this runtime sits behind. Open questions there
   (CLAUDE.md collision, binary naming, root Makefile wiring) carry
   over.
-- [../10/](../10/) — `mcp-fw` / standalone hardening. The MCP server
+- [../11/](../11/) — `mcp-fw` / standalone hardening. The MCP server
   here is the same protocol; reuse any shared MCP client/server
   helpers if they land first.
-- [../10/12-crackbox-sandboxing.md](../10/12-crackbox-sandboxing.md) —
+- [../11/12-crackbox-sandboxing.md](../11/12-crackbox-sandboxing.md) —
   `--sandbox=crackbox` consumes this runtime's CLI surface; no
   protocol-level coupling.

@@ -4,7 +4,7 @@ status: draft
 
 # whapd auth-dir auto-rotate on 401 storms
 
-Sibling to `specs/9/15-whapd-self-rebind.md`. Independent concern,
+Sibling to `specs/10/15-whapd-self-rebind.md`. Independent concern,
 deliberately separate spec.
 
 ## Problem

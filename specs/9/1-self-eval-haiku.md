@@ -1,6 +1,6 @@
 ---
 status: draft
-supersedes: specs/11/8-self-eval-skill.md (judge-model choice + data shape)
+supersedes: specs/12/8-self-eval-skill.md (judge-model choice + data shape)
 source: aeon mechanism #2 (Haiku-scores-Opus); reference_aeon.md
 ---
 
@@ -22,7 +22,7 @@ Aeon's design: Opus does the work, Haiku judges. Two reasons:
    self-eval signal more independence. The judge isn't authoritative
    ground-truth; it's a noise floor on quality.
 
-This supersedes the `specs/11/8-self-eval-skill.md` design where the
+This supersedes the `specs/12/8-self-eval-skill.md` design where the
 judge was a restricted `query()` in the same container with the same
 model. That spec is marked superseded on the model + data-shape
 axes; the trigger-shape research (run at container exit, not on cron)
@@ -93,7 +93,7 @@ cleanup job in `timed` only when disk pressure shows.
 ## Trigger
 
 Sub-`query()` at container exit, NOT a separate cron. (Same trigger
-choice as `specs/11/8-self-eval-skill.md`; that part holds.) Fires on
+choice as `specs/12/8-self-eval-skill.md`; that part holds.) Fires on
 every successful run. Cost gate via existing per-folder budget — if
 the folder is over its cap, skip the judge and write a `score=NULL`
 sentinel row.

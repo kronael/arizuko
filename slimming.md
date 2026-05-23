@@ -97,7 +97,7 @@ pre-migration name, still being called), `send_file` (3), the rest
 
 Did not deep-audit; spec directory has 13 numbered buckets. Per the
 brief's exclusion, anything `status: spec` or `status: discussion` is
-out of scope. Candidates worth a future targeted audit: `specs/10/`
+out of scope. Candidates worth a future targeted audit: `specs/11/`
 (printing-press, multi-agent-commits) — multiple `status: planned`
 entries dating from earlier project epochs.
 

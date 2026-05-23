@@ -12,7 +12,7 @@ platform; the platform runs the tenants.
 Rides on [R-platform-api.md](R-platform-api.md) (federated `/v1/*` and
 capability tokens) and [R-genericization.md](R-genericization.md)
 (`tenant_id`, `agent-runnerd`). Shares its seeding code with
-[../7/R-products.md](../7/R-products.md) — products are the static path,
+[../8/R-products.md](../8/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
 [`refs/openclaw-managed-agents/openapi/openapi.yaml`](../../refs/openclaw-managed-agents/openapi/openapi.yaml).
 
@@ -28,7 +28,7 @@ your agent" rather than "pick from a menu".
 ## Trust model
 
 Runtime sandbox is unchanged — same crackbox boundary
-([../10/12-crackbox-sandboxing.md](../10/12-crackbox-sandboxing.md)),
+([../11/12-crackbox-sandboxing.md](../11/12-crackbox-sandboxing.md)),
 same MCP socket model. The new surface is the _creation_ gate.
 
 - **Per-instance cap.** `USER_SPAWNED_TENANTS_MAX` in `.env` (default

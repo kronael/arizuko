@@ -158,7 +158,7 @@ the contributor list before the first turn.
   unstuck a broken pipeline without scoped grants (re-run workflow,
   edit YAML). Default-deny.
 - **Force-push and history rewriting**: never allowed without HITL
-  firewall (`specs/7/4`). The agent can `commit` and `push` to its
+  firewall (`specs/8/4`). The agent can `commit` and `push` to its
   branches; cannot `push --force` or `rebase` shared branches.
 - **Secrets in CI**: agent must never read `GITHUB_TOKEN`-equivalent
   secrets from `actions/secrets`. Workspace is read-only on

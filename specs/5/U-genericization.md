@@ -17,7 +17,7 @@ arizuko concepts wired into its types isn't reusable, and the API
 contract is more honest once the concepts are factored out.
 
 The discipline that crackbox already follows
-([`specs/10/b-orthogonal-components.md`](../10/b-orthogonal-components.md))
+([`specs/11/b-orthogonal-components.md`](../11/b-orthogonal-components.md))
 is the model: a sibling component lives in the same repo + module,
 but its import graph has zero references to arizuko-internal
 packages. Apply the same discipline daemon-by-daemon here.
@@ -287,7 +287,7 @@ secret resolution, egress register, soft/hard deadlines) stays in
 | ------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `DockerRuntime`                 | today (extract from `runner.go`)             | production default                                                                                                            |
 | `LocalRuntime`                  | new                                          | dev/test — runs the agent binary directly, no isolation; bypasses network rules                                               |
-| `KVMRuntime`                    | dormant (specs/10/12-crackbox-sandboxing.md) | stronger isolation via crackbox VM lifecycle                                                                                  |
+| `KVMRuntime`                    | dormant (specs/11/12-crackbox-sandboxing.md) | stronger isolation via crackbox VM lifecycle                                                                                  |
 | `SSHRuntime`                    | future                                       | run on a remote host (hermes pattern, [`tools/environments/ssh.py`](../../refs/hermes-agent-fresh/tools/environments/ssh.py)) |
 | `ModalRuntime`/`DaytonaRuntime` | future                                       | paid managed sandbox; only when a customer needs it                                                                           |
 
@@ -408,7 +408,7 @@ custom UI replacements, not via reusing dashd.
   systematic (identify type, replace, propagate).
 - Not a separate-go.mod-per-daemon proposal. One module stays;
   package boundaries enforce import discipline. (Same rule
-  `specs/10/b-orthogonal-components.md` uses for crackbox.)
+  `specs/11/b-orthogonal-components.md` uses for crackbox.)
 - Not breaking compatibility. Migrations carry forward; the generic
   shapes are aliases for the existing types until callers swap over.
 
@@ -459,5 +459,5 @@ custom UI replacements, not via reusing dashd.
 - `gated/main.go` — entry point for the future split.
 - `container/runner.go` — the `agent-runnerd` core; already factored
   enough to move.
-- `specs/10/b-orthogonal-components.md` — the discipline this spec
+- `specs/11/b-orthogonal-components.md` — the discipline this spec
   adopts (zero internal-package imports per shippable component).

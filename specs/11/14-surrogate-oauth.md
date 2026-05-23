@@ -204,10 +204,10 @@ N days per new provider thereafter.
 
 ## Cross-references
 
-- [`specs/10/11-crackbox-secrets.md`](11-crackbox-secrets.md) — the
+- [`specs/11/11-crackbox-secrets.md`](11-crackbox-secrets.md) — the
   broker that reads the rows this spec writes.
 - [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md) — auth
   capability library; surrogate flows are a sibling of identity OAuth.
-- [`specs/7/product-slack-team.md`](../7/product-slack-team.md) — the
+- [`specs/8/product-slack-team.md`](../8/product-slack-team.md) — the
   product that benefits first: "Alice asks @bot about her PRs" goes
   from PAT-paste to "Connect GitHub" button.

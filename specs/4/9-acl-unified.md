@@ -303,7 +303,7 @@ Where it becomes interesting (reopen this spec when any of these land):
   `reviewed` the same PR"). Today: emergent in Go in `Authorize`.
 - Time-of-day or rate-shaped rules.
 - External compliance policies operators write themselves.
-- Self-healing repair gates (`specs/8/3-repair-playbooks.md`) — e.g.
+- Self-healing repair gates (`specs/9/3-repair-playbooks.md`) — e.g.
   "auto-repair only for skills tagged `auto_repairable`".
 
 Adoption shapes if the threshold is crossed (in order of weight):

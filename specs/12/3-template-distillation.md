@@ -18,7 +18,7 @@ scores, a canonical source-path convention
 CLAUDE.md drift in "When to respond" and tool-ack sections. None
 lands in `ant/examples/support/`, so a fresh deploy reproduces the
 discovery sequence — the five-correction `bidTooLowPenalty.coef`
-exchange that motivated `/support` (specs/7/2) repeats per operator.
+exchange that motivated `/support` (specs/8/2) repeats per operator.
 
 ## What
 

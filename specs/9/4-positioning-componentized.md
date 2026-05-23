@@ -1,6 +1,6 @@
 ---
 status: draft
-references: specs/7/9-positioning.md
+references: specs/8/9-positioning.md
 source: aeon-vs-arizuko comparison (2026-05-22)
 ---
 
@@ -83,7 +83,7 @@ asks "could we drop this for an off-the-shelf alternative?") — the
 folding pattern asks "could we replace this with an agent that does
 the same job?".
 
-## Updates to `specs/7/9-positioning.md`
+## Updates to `specs/8/9-positioning.md`
 
 Add a new section to that spec:
 
@@ -102,8 +102,8 @@ This means:
    agent.
 2. Any daemon can be replaced by an agent doing the same job, as
    long as it speaks the schema (web-native agents framing).
-3. The replaceability story (specs/12/f) and the
-   agent-managing-agents story (specs/7/9) compose.
+3. The replaceability story (specs/13/f) and the
+   agent-managing-agents story (specs/8/9) compose.
 ```
 
 And update the "What arizuko Is" framing line:
@@ -112,7 +112,7 @@ And update the "What arizuko Is" framing line:
 > Daemons are replaceable processes. The seam is data, not function
 > calls. Composable, foldable, version-controlled.
 
-## Drop `specs/11/6-workflows.md` (workflowd)
+## Drop `specs/12/6-workflows.md` (workflowd)
 
 The original case for `workflowd` was a TOML flow engine — declarative
 multi-step automations over the shared SQLite. The folding pattern
@@ -122,7 +122,7 @@ the agent reasons about them.
 
 This is the "automations are folders" reframe. Recommend:
 
-1. Mark `specs/11/6-workflows.md` as superseded.
+1. Mark `specs/12/6-workflows.md` as superseded.
 2. Cross-link this spec as the supersede reason.
 3. The use cases workflowd was meant to cover (TOML flow for
    non-conversational batch work) are covered by folder agents +
@@ -130,7 +130,7 @@ This is the "automations are folders" reframe. Recommend:
 
 ## Pitch-level wording
 
-Three messaging anchors `specs/7/9` should add:
+Three messaging anchors `specs/8/9` should add:
 
 - **"Componentized, not monolithic."** Every daemon does one thing.
   Replace any of them without touching the rest.
@@ -169,10 +169,10 @@ Three messaging anchors `specs/7/9` should add:
 - The differentiator is **componentized + foldable**, not
   realtime-vs-batch. Realtime falls out of componentized; folding
   falls out of "every automation is a folder".
-- `specs/7/9-positioning.md` gets a "Why componentized matters"
+- `specs/8/9-positioning.md` gets a "Why componentized matters"
   section + an updated "What arizuko Is" line. This spec is the
   source.
-- `specs/11/6-workflows.md` (workflowd) is recommended for supersede.
+- `specs/12/6-workflows.md` (workflowd) is recommended for supersede.
   The use cases collapse into "make a folder".
 - Daemons are evaluated against two questions: (1) could we drop
   this for an off-the-shelf alternative? (`12/f`), and (2) could
@@ -180,8 +180,8 @@ Three messaging anchors `specs/7/9` should add:
 
 ## References
 
-- `specs/7/9-positioning.md` — the doc this updates.
-- `specs/12/f-replaceability-research.md` — sibling axis.
+- `specs/8/9-positioning.md` — the doc this updates.
+- `specs/13/f-replaceability-research.md` — sibling axis.
 - `template/web/pub/concepts/web-native-agents.html` — the prior
   framing of "automations are folders".
-- `specs/11/6-workflows.md` — the spec this recommends superseding.
+- `specs/12/6-workflows.md` — the spec this recommends superseding.

@@ -1,12 +1,12 @@
 ---
 status: superseded
-superseded-by: specs/8/1-self-eval-haiku.md
+superseded-by: specs/9/1-self-eval-haiku.md
 source: hermes-agent peel (2026-04-11)
 ---
 
 # Self-eval via sub-query at container exit
 
-> **Superseded by [specs/8/1-self-eval-haiku.md](../8/1-self-eval-haiku.md)
+> **Superseded by [specs/9/1-self-eval-haiku.md](../9/1-self-eval-haiku.md)
 > on 2026-05-22.** The model choice (same-model `query()`) and the data
 > shape (no persistent row) have been replaced: 8/1 ships Haiku-judges-Opus
 > with a `skill_health` table. The trigger-shape research below (run at
@@ -64,7 +64,7 @@ increments).
 
 Unblockers: threshold tuning (10 may be too rare for DM workloads —
 consider signal-driven: fire when tool-calls ≥3), race with skill-guard
-([../10/8-skill-guard.md](../10/8-skill-guard.md)) composes naturally
+([../11/8-skill-guard.md](../11/8-skill-guard.md)) composes naturally
 (Write fails, counter still advances).
 
 Phase 2: split memory/skill counters, per-group tunable interval,

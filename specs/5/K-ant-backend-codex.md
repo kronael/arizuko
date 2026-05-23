@@ -10,7 +10,7 @@ First implementation: the existing claude-CLI driver. Second
 implementation: OpenAI's Codex via `codex app-server` (JSON-RPC 2.0
 over stdio). Future candidates: `opencode.ai`, etc.
 
-Sibling to [../11/c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md)
+Sibling to [../12/c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md)
 (the claude-specific runtime), which becomes the first
 implementation of this interface.
 
@@ -312,19 +312,19 @@ CODEX_VERSION` in `ant/Dockerfile` (when the codex backend
   have what we need, we wait for upstream or pick a different
   harness. Not maintaining a fork.
 - Backend-specific operator verbs in arizuko. The fleet ops in
-  [../7/7-ant-portability.md](../7/7-ant-portability.md) work
+  [../8/7-ant-portability.md](../8/7-ant-portability.md) work
   identically regardless of backend, because they operate on the
   folder, not the harness.
 
 ## Relation to other specs
 
-- [../11/c-ant-mcp-runtime.md](../11/c-ant-mcp-runtime.md) — the
+- [../12/c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md) — the
   claude-specific runtime that becomes the first `Backend`
   implementation.
-- [../11/b-ant-standalone.md](../11/b-ant-standalone.md) — folder
+- [../12/b-ant-standalone.md](../12/b-ant-standalone.md) — folder
   shape; this spec adds an optional `backend:` hint.
-- [../11/d-ant-image-cutover.md](../11/d-ant-image-cutover.md) —
+- [../12/d-ant-image-cutover.md](../12/d-ant-image-cutover.md) —
   image build; a Codex variant follows the same pattern (`ARG
 CODEX_VERSION`, similar Dockerfile).
-- [../7/7-ant-portability.md](../7/7-ant-portability.md) — fleet
+- [../8/7-ant-portability.md](../8/7-ant-portability.md) — fleet
   ops; lockfile and verbs are backend-agnostic.

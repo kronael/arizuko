@@ -1,6 +1,6 @@
 ---
 status: draft
-depends-on: specs/8/2-state-evaluator.md
+depends-on: specs/9/2-state-evaluator.md
 source: aeon mechanism #4 (category repair playbooks)
 ---
 

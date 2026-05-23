@@ -6,9 +6,9 @@ Sandbox + egress umbrella component. Two halves:
   allowlist, admin API, transparent + forward modes. Same binary as
   `crackbox proxy serve`. See [`specs/6/9`](../specs/6/9-crackbox-standalone.md).
 - **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (planned;
-  see [`specs/8/a`](../specs/6/12-crackbox-sandboxing.md)). Spawns VMs,
+  see [`specs/9/a`](../specs/6/12-crackbox-sandboxing.md)). Spawns VMs,
   manages privileges, ensures egred is up. Imported by
-  [`sandd`](../specs/8/c-sandd.md) (arizuko-internal sandbox daemon)
+  [`sandd`](../specs/9/c-sandd.md) (arizuko-internal sandbox daemon)
   and by `crackbox run --kvm` for laptop one-shots.
 
 The two halves ship together so `crackbox run` composes a

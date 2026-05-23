@@ -36,4 +36,4 @@ published = permanent. `/pub/` is served by `vited`.
 
 - [HITL firewall](4-hitl-firewall.md)
 - An adapter exposing a publish capability (bsky or mastodon)
-- [ant standalone](../11/b-ant-standalone.md) for the folder shape
+- [ant standalone](../12/b-ant-standalone.md) for the folder shape

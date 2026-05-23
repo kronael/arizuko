@@ -2,88 +2,69 @@
 status: active
 ---
 
-# specs/8 — self-healing (Aeon mechanism incorporation)
+# specs/8 — products
 
-A deliberate import of the three load-bearing mechanisms from
-[Aeon](https://github.com/aaronjmars/aeon) — a GitHub-Actions-based
-agent framework with 121 skills and a "self-healing" reputation. Aeon
-runs on cron in GHA; arizuko is a channel-native multi-tenant
-platform. The architecture does not port. The mechanisms do.
+Launching products built on arizuko: persona templates, packaging,
+and the publish surface that lets operators deploy a configured agent
+out of the box.
 
-Source analysis (memory): `reference_aeon.md`. Of the 9 mechanisms
-catalogued, three are imports for this phase, three are deferred to
-later phases, three are skipped because arizuko has a better answer.
+## Infrastructure
 
-## Why this phase exists
+| Spec                                             | Status | Hook                                                                             |
+| ------------------------------------------------ | ------ | -------------------------------------------------------------------------------- |
+| [R-products.md](R-products.md)                   | draft  | Curated persona+skill templates; `--product` flag on `arizuko create`.           |
+| [P-product-templates.md](P-product-templates.md) | draft  | Template authoring conventions: persona, skills, seed files per product.         |
+| [chat-web-app.md](chat-web-app.md)               | draft  | Web chat UI surface; ant link + dashboard companion app.                         |
+| [2-support-skill.md](2-support-skill.md)         | draft  | `/support` orchestrator: primary-source citation + multi-turn case threading.    |
+| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft  | pending_actions queue + /dash/review; holds MCP calls for operator review.       |
+| [5-authoring-product.md](5-authoring-product.md) | draft  | Authoring agent design reference (see product-creator.md).                       |
+| [6-web-routes.md](6-web-routes.md)               | draft  | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.        |
+| [7-ant-portability.md](7-ant-portability.md)     | draft  | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.  |
+| [1-git-channel.md](1-git-channel.md)             | draft  | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace. |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft  | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.    |
 
-Aeon's "self-healing" reduces to a small loop:
+Platform/API surface moved to [specs/6/](../6/) — products consume the
+control API; the API design ships before the products that depend on it.
 
-1. **LLM-as-quality-gate** — Haiku scores Opus output after every run
-   (1-5 + flags + reasoning, JSON).
-2. **State-evaluator** — periodic check on a rolling score history
-   fires a reactive trigger when conditions match.
-3. **Repair playbooks** — opinionated skills the agent invokes on the
-   reactive trigger.
+## Product catalog
 
-Combined with a cooldown table, that loop turns a noisy failure mode
-into a tracked, throttled, agent-driven repair. arizuko doesn't have
-this loop today. It should — once, mechanically, riding existing
-primitives.
+Each product ships as `ant/examples/<name>/` and installs via
+`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
 
-## Design principle (carried from CLAUDE.md)
+Developer capabilities are embedded in each product that needs them
+(oracle + bash grants, scoped per deployment) — not a separate product.
 
-**Minimality and orthogonality.** Don't introduce new primitives where
-the messaging primitive carries the seam.
+| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
+| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
+| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
+| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
+| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
+| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
+| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
+| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
+| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
+| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
 
-- State-evaluator is a message producer, like `timed`. No new trigger
-  type in the gateway, no new MCP tool, no new daemon shape.
-- Repair playbooks are skills, not infrastructure. They drop into
-  `ant/skills/` and are invoked via normal dispatch when the agent
-  handles `verb=state-event`.
-- Self-eval is a Haiku sub-query at container exit, writing a row to
-  `skill_health`. Same shape as the existing `specs/11/8-self-eval`
-  predecessor — but with a stronger judge and a persistent surface.
+## Arizuko features required per product
 
-The seam is the SQLite schema (`skill_health`, `cooldowns`) plus the
-existing message bus. Nothing else.
+| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
+| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
+| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
+| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
+| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
+| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
+| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
 
-## Specs in this phase
+## Products in spec only (not yet in ant/examples/)
 
-| Spec                                                             | Status | Hook                                                               |
-| ---------------------------------------------------------------- | ------ | ------------------------------------------------------------------ |
-| [1-self-eval-haiku.md](1-self-eval-haiku.md)                     | draft  | Haiku scores Opus output; writes `skill_health` rows per run.      |
-| [2-state-evaluator.md](2-state-evaluator.md)                     | draft  | Message producer fires `verb=state-event` on conditions; cooldown. |
-| [3-repair-playbooks.md](3-repair-playbooks.md)                   | draft  | Opinionated skills for typed failure recovery (api, rate, schema). |
-| [4-positioning-componentized.md](4-positioning-componentized.md) | draft  | Capture componentized-daemon vs monolithic-GHA as the real diff.   |
-| [5-skill-catalog-audit.md](5-skill-catalog-audit.md)             | draft  | Map Aeon's 121 skills against arizuko's 56; prioritise imports.    |
+Specced in this directory but no template folder shipped yet:
 
-## Cross-spec dependencies
-
-- **`specs/4/P-personas.md`** — skills lifecycle, versioning, migration
-  hook. Repair playbooks ship under the same lifecycle (skill file in
-  `ant/skills/`, MIGRATION_VERSION bump, auto-broadcast on tag).
-- **`specs/11/8-self-eval-skill.md`** — the predecessor self-eval
-  spec, where the judge was the same model via in-container
-  `query()`. Superseded by `8/1` — Aeon's Haiku-judges-Opus is the
-  stronger design (cheaper judge, less reflexive). The 11/8 spec
-  retains the trigger-shape research; 8/1 supersedes the model
-  choice and the data shape.
-- **`specs/11/6-workflows.md`** — workflowd. `8/4` proposes dropping
-  this in favour of "any automation is a folder" — see that spec for
-  the case.
-- **`specs/6/Y-secret-broker.md`** — arizuko's answer to Aeon's
-  prefetch-outside-sandbox pattern. Not imported; called out in
-  `8/4` as "we already do this, but better".
-
-## Out of scope for this phase
-
-- **Regression-hunter / git-blame** (Aeon mechanism #5). Useful for
-  the arizuko _codebase_ (developer tool), not for agents.
-- **Cluster-first triage** (mechanism #6). Defer until `skill_health`
-  data accumulates and signature-grouping has signal to chew on.
-- **24h repair cooldown** (mechanism #9). Folded into `8/2` as the
-  cooldowns table; not a separate spec.
-- **Pull-based Telegram scheduler** (mechanism #8). Skip; we have
-  instant webhooks.
-- **Git-as-database** (mechanism #1). Skip; SQLite + per-folder
-  files is more flexible.
+| Spec                                           | Value prop                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
+| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
+| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |

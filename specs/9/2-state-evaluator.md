@@ -1,6 +1,6 @@
 ---
 status: draft
-depends-on: specs/8/1-self-eval-haiku.md
+depends-on: specs/9/1-self-eval-haiku.md
 source: aeon mechanisms #3 (reactive state triggers) + #9 (cooldown)
 ---
 

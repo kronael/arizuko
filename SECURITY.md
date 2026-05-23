@@ -82,7 +82,7 @@ cross-tenant threat go away.
 | Secret injection    | Folder/user secrets env injection planned (spec 6/Y); today only API keys from host env injected                                 | `container/runner.go` (`resolveSpawnEnv`)                                                         |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                     | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
-| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                  | `crackbox/pkg/dns/`, `specs/9/15-crackbox-dns-filter.md`                                          |
+| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                  | `crackbox/pkg/dns/`, `specs/10/15-crackbox-dns-filter.md`                                         |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -182,13 +182,13 @@ Caveats:
 - IPv6 is not redirected by the entrypoint script.
 
 **DNS filter** (`crackbox/pkg/dns/`,
-`specs/9/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
+`specs/10/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
 listener is shipped: gated allowlisted hostnames forward to the
 upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.
 **Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
 `container.Run` to `docker create`) under
-`specs/9/10-crackbox-arizuko.md`; today agent containers still use
+`specs/10/10-crackbox-arizuko.md`; today agent containers still use
 the default Docker resolver, so the DNS path is additive defense
 rather than the primary gate. The HTTP/CONNECT 403 in
 `crackbox/pkg/proxy/` remains the enforced path.
