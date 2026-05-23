@@ -5,6 +5,11 @@ depends: [V-platform-api, 1-auth-standalone, 35-proxyd-standalone]
 
 # Uniform REST + MCP per resource
 
+> **Canonical principle.** Closed across all resources in
+> [`../7/1-mcp-rest-unification.md`](../7/1-mcp-rest-unification.md) —
+> the phase 7 spec carries the coverage matrix, per-resource handler
+> pattern, audit contract, and acceptance criteria.
+
 **Every operator action accessible via both REST (outside, OAuth-gated)
 AND MCP (inside, tier-gated), wrapped over a single handler.** One
 resource, one handler, two faces. Auth is the only thing that differs.

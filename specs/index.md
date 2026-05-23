@@ -1,13 +1,39 @@
 # specs
 
+## The story (phases 5 → 6 → 7)
+
+**Phase 5** builds the platform's core capabilities: the surfaces
+(MCP, REST, web, voice, WebDAV), identity (auth, ACL, JID format,
+multi-account), routing (route table, topics, engagement, mentions,
+webhooks), tenancy (org-chart, invites, user-spawned agents,
+genericized daemons), and runtime (pipeline, middleware, modality).
+
+**Phase 6** layers enterprise hardening on top of those
+capabilities: encryption at rest, audit stream, per-daemon secrets,
+SSO/SAML, tool-level secret broker, MITM-isolated egress. The trust
+primitives that make arizuko credible to regulated buyers.
+
+**Phase 7** delivers the operationally-minimal pivot: MCP+REST
+unification (one mutation path), data-model tier separation
+(cold / warm / hot), git-as-truth for the cold tier (audit,
+history, fork, distribute — native git verbs replace bespoke
+machinery). Secrets stay in SQLite; git carries only references.
+
+Together: phases 5 + 6 give **enterprise-ready** (capabilities +
+trust); phase 7 gives **operationally minimal** (one surface, one
+storage discipline, git as the universal versioned-data primitive).
+The combination is the platform thesis arizuko ships toward.
+
+## Phase table
+
 | Phase      | Description                                                       | Status   |
 | ---------- | ----------------------------------------------------------------- | -------- |
 | [1/](1/)   | core gateway — routing, channels, auth, scheduler                 | shipped  |
 | [2/](2/)   | social channels — events, actions, twitter                        | shipped  |
 | [3/](3/)   | permissions, cleanup, gaps                                        | shipped  |
 | [4/](4/)   | dashboards, memory, web layer — core architecture                 | shipped  |
-| [5/](5/)   | agent extensions, platform core, cross-cutting                    | active   |
-| [6/](6/)   | platform adapters (per-channel behavior)                          | active   |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime     | active   |
+| [6/](6/)   | enterprise hardening — encryption, audit, SSO, secret broker      | active   |
 | [7/](7/)   | platform program — MCP+REST unification, data model, git-as-truth | drafting |
 | [8/](8/)   | products — persona templates, publishing surface                  | active   |
 | [9/](9/)   | self-healing — Aeon mechanism incorporation                       | active   |

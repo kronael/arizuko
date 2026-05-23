@@ -4,6 +4,11 @@ status: partial
 
 # specs/6/E — Encryption at rest
 
+> Why this matters for phase 7: encrypted secrets in SQLite are
+> exactly why [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) keeps
+> secret blobs OUT of git. Git carries the `(scope, name)` reference;
+> the encrypted value stays here, decrypted in-process at spawn.
+
 **Shipped (secrets table):** AES-256-GCM on `secrets.value` via `Store.SetSecretKey` + `Store.PurgeUnencryptedSecrets`. Key = SHA-256(AUTH_SECRET). Plaintext rows purged on startup — operators must re-enter secrets after first encrypted boot.
 
 **Deferred:** messages.db column encryption (content, raw).

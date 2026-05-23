@@ -155,8 +155,10 @@ history). Operator vault → in-host SQLite is the trust boundary;
 git crosses it for config, never for secrets.
 
 Rotation, BYOA layering, per-call audit — all stay in
-`store/secrets.go` and Phase 6 Phase C (5/32 secrets layering).
-No phase-7 work here.
+`store/secrets.go`, in **Phase C of `specs/5/32-tenant-self-service.md`**
+(folder/user-scope secrets layering), and in
+`specs/6/Y-secret-broker.md` (tool-level audit edge). No
+phase-7 work here.
 
 ## Federation topology
 

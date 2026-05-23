@@ -4,6 +4,13 @@ status: spec
 
 # specs/6/F — Audit log
 
+> Pairs with [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md):
+> SQLite audit tables defined here cover warm-tier decisions (every
+> turn writes a sidecar referencing actor + action IDs from these
+> tables), while cold-tier config writes are audited natively by git
+> history. Together they form the complete audit surface — enterprise
+> readable via SQL, distribution-ready via `git log`.
+
 ## What this solves
 
 Mutating platform actions need a queryable, append-only trail. Today:

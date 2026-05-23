@@ -25,7 +25,7 @@ _agents as data_ — and agents managing agents on top of it.
 Each of the three actions is independently shippable. Together they
 are the platform thesis. Out of order they don't compose. Pre-ordered:
 
-1. **MCP+REST unification** — finish what `specs/6/5-uniform-mcp-rest.md`
+1. **MCP+REST unification** — finish what `specs/5/5-uniform-mcp-rest.md`
    started. One hand-rolled handler per resource, both protocols,
    identical scopes + auth gate. Without this, the operator + agent
    surfaces drift and the "git as truth" reconcile loop has two
@@ -80,9 +80,16 @@ surface). Actions 1+2 unblock Action 3 (clean entities + clean
 surface = clean git serialization). Within each action, ship the
 smallest viable version first; iterate behind that surface.
 
-Hard dependency on **Phase 6 Phase C** (`specs/5/32-tenant-self-service.md`
-folder/user-scope secrets layering) — the BYOA primitive. Without
-secrets-as-references-in-git, Action 3 can't ship safely.
+Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
+(folder/user-scope secrets layering) — the BYOA primitive. Without
+secrets-as-references-resolvable-at-spawn, Action 3 can't ship
+safely.
+
+Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
+(audit log for warm tier), `specs/6/E-encryption-at-rest.md`
+(secrets stay encrypted in SQLite, never leak into git),
+`specs/6/Y-secret-broker.md` (per-call audit at the secret edge),
+`specs/6/H-per-daemon-secrets.md` (adapter-side compartments).
 
 ## Specs in this phase
 

@@ -2,12 +2,50 @@
 status: active
 ---
 
-# specs/6 — platform adapters (per-channel behavior)
+# specs/6 — enterprise hardening: trust primitives on top of phase 5
 
-Per-platform adapter specs: behavior, surface, and quirks that are
-specific to one channel (Slack, Telegram, Discord, WhatsApp, Mastodon,
-Bluesky, Reddit, email, LinkedIn, Twitter, …). Cross-cutting
-gateway/router/auth/MCP concerns live in [specs/5/](../5/).
+The trust layer. Hardening that makes arizuko credible to regulated
+buyers and enterprise security reviews:
+
+- **Encryption at rest** — `messages.db` + `secrets` table (`E`)
+- **Audit stream** — `ipc_audit` for MCP mutations + proxyd access
+  log + cli_audit (`F`)
+- **Per-daemon secrets** — channel-secret separation; leaking one
+  adapter's bearer does not compromise others (`H`)
+- **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
+  Code; JIT provisioning + SCIM deprovisioning (`X`)
+- **Tool-level secret broker** — `injectSecretsAdapter`,
+  `secret_use_log`, `/dash/me/secrets`, connector spawner;
+  per-call audit (`Y`)
+- **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
+  placeholder swap, per-instance CA; catches opaque HTTP clients
+  the broker can't (`Z`)
+
+## Where this leads
+
+Phase 6 hardening composes with phase 7's git-as-truth into the
+platform thesis:
+
+- **Audit stream** (`F`) provides the SQLite audit log that
+  pairs with git history for warm-tier decisions; phase 7's
+  per-turn decision sidecar references the same actor identities.
+- **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
+  while phase 7 explicitly keeps secrets OUT of git (refs only).
+- **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
+  the secret access surface that phase 7 references via
+  `(scope, name)` tuples in `agents.toml`.
+- **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
+  asks; they don't depend on phase 7 but make the same buyer
+  ready to adopt it.
+
+## Scope notes
+
+Two specs in this phase are channel-flavored historical exceptions
+(D-slack-agent-pane, G-slack-multi-workspace) that bled in before
+the phase 5/6 split was clean. Per-platform adapter behavior
+generally lives next to daemon code (`slakd/`, `teled/`, etc.),
+not as spec files. Future channel-specific items get a per-daemon
+README rather than a phase-6 spec.
 
 | Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
 | -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

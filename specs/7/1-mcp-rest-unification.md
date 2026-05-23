@@ -1,6 +1,6 @@
 ---
 status: drafting
-depends: specs/6/5-uniform-mcp-rest.md
+depends: specs/5/5-uniform-mcp-rest.md
 ---
 
 # specs/7/1 — MCP + REST unification (finish what 6/5 started)
@@ -8,7 +8,7 @@ depends: specs/6/5-uniform-mcp-rest.md
 ## Why
 
 The platform thesis (`specs/7/index.md`) says agents and humans see
-the same actions through the same auth gate. `specs/6/5-uniform-mcp-rest.md`
+the same actions through the same auth gate. `specs/5/5-uniform-mcp-rest.md`
 established the principle: "every resource is reachable via both MCP
 (for agents) and REST (for humans / external tools) through one
 hand-written handler — no auto-generated DSL, no catalog-driven
@@ -50,7 +50,7 @@ Read these to confirm before implementing (paths are post-renumber):
 - `gateway/` — current resource handlers
 - `ipc/` — MCP tool implementations
 - `webd/`, `dashd/`, `onbod/`, `proxyd/` — REST surfaces
-- `specs/6/5-uniform-mcp-rest.md` — the canonical spec
+- `specs/5/5-uniform-mcp-rest.md` — the canonical spec
 
 Resources to verify uniform coverage on (non-exhaustive, refine
 during implementation):
