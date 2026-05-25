@@ -1,5 +1,7 @@
 # bugs.md
 
+Workflow: see `/bugs` skill.
+
 Bugs / follow-ups discovered during voice + media-dispatch audit (2026-05-01).
 
 ## SendFile gaps (platforms with native media but no implementation)
