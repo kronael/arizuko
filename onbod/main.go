@@ -588,6 +588,19 @@ func linkJID(db *sql.DB, jid, userSub string) {
 			db.Exec(
 				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
 				userSub, k, now, jid)
+			audit.Emit(context.Background(), audit.Event{
+				Category: audit.CategoryMutation,
+				Action:   "onboarding.queue",
+				Actor:    "user:" + userSub,
+				ActorSub: userSub,
+				Surface:  audit.SurfaceREST,
+				Resource: "onboarding/" + jid,
+				Outcome:  audit.OutcomeOK,
+				ParamsSummary: map[string]any{
+					"jid":  jid,
+					"gate": k,
+				},
+			})
 			slog.Info("queued jid", "jid", jid, "user", userSub, "gate", k)
 			return
 		}
@@ -597,6 +610,19 @@ func linkJID(db *sql.DB, jid, userSub string) {
 
 	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE jid = ?`,
 		userSub, jid)
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "onboarding.approve",
+		Actor:    "user:" + userSub,
+		ActorSub: userSub,
+		Surface:  audit.SurfaceREST,
+		Resource: "onboarding/" + jid,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"jid":  jid,
+			"gate": "none",
+		},
+	})
 	slog.Info("approved jid", "jid", jid, "user", userSub, "gate", "none")
 }
 
@@ -684,6 +710,18 @@ func admitFromQueue(db *sql.DB) {
 			continue
 		}
 		for _, jid := range batch {
+			audit.Emit(context.Background(), audit.Event{
+				Category: audit.CategoryMutation,
+				Action:   "onboarding.approve",
+				Actor:    "system",
+				Surface:  audit.SurfaceCron,
+				Resource: "onboarding/" + jid,
+				Outcome:  audit.OutcomeOK,
+				ParamsSummary: map[string]any{
+					"jid":  jid,
+					"gate": k,
+				},
+			})
 			slog.Info("admitted from queue", "jid", jid, "gate", k)
 		}
 	}

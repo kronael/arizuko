@@ -1,9 +1,16 @@
 package store
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/kronael/arizuko/audit"
+)
 
 // SecretUseRow is one audit row written by the broker middleware per
-// (tool call × resolved key). Spec 9/11.
+// (tool call × resolved key). Spec 9/11. Persists to the legacy
+// secret_use_log table AND emits one audit_log row (category=access /
+// secret, action=secret.read) per call.
 type SecretUseRow struct {
 	TS        time.Time
 	SpawnID   string
@@ -21,12 +28,38 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
-	_, err := s.db.Exec(
+	if _, err := s.db.Exec(
 		`INSERT INTO secret_use_log
 		 (ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ts.Format(time.RFC3339Nano), r.SpawnID, r.CallerSub, r.Folder,
-		r.Tool, r.Key, r.Scope, r.Status, r.LatencyMS)
+		r.Tool, r.Key, r.Scope, r.Status, r.LatencyMS); err != nil {
+		return err
+	}
+	out := audit.OutcomeOK
+	errMsg := ""
+	switch r.Status {
+	case "err", "timeout":
+		out = audit.OutcomeError
+		errMsg = r.Status
+	}
+	_, err := audit.EmitDB(context.Background(), s.db, audit.Event{
+		Category:   audit.CategorySecret,
+		Action:     "secret.read",
+		Actor:      r.CallerSub,
+		ActorSub:   r.CallerSub,
+		Surface:    audit.SurfaceCrackbox,
+		Resource:   "secrets/" + r.Scope + "/" + r.Folder + "/" + r.Key,
+		Scope:      r.Scope,
+		Folder:     r.Folder,
+		Outcome:    out,
+		ErrorMsg:   errMsg,
+		DurationMS: r.LatencyMS,
+		ParamsSummary: map[string]any{
+			"tool":     r.Tool,
+			"spawn_id": r.SpawnID,
+		},
+	})
 	return err
 }
 
