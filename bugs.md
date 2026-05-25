@@ -444,3 +444,260 @@ need the per-group data (`.diary/`, `MEMORY.md`, persona, skills,
 episodes, etc.).
 
 No other instances touched. krons + sloth unchanged.
+
+## Aggregated user-reported issues — 2026-05-25 (post-2026-05-03 sweep)
+
+Three parallel audits ran across krons / marinade / sloth groups + per-group
+`issues.md` + per-group `.diary/` entries dated after 2026-05-03. Debounced
+against the 2026-05-03 aggregation above. 27 new issues, 11 stale revivals,
+10 cross-cutting patterns.
+
+### Cross-cutting platform patterns (highest leverage)
+
+#### CC1 — Cross-folder / tier-0 broadcast still blocked
+
+Every migration cycle from v0.34 (2026-05-14) through v0.45.10 (2026-05-25)
+logs the same workaround: MCP `send` enforces folder scope even for tier-0
+root, so a migrate skill running in mayai can't broadcast version
+announcements to krons/rhias/happy. The migrate skill papers over with
+per-group fires; the underlying `auth/policy.go` has no tier-0 broadcast
+escape hatch.
+
+- **Severity:** medium (recurring; single most-repeated user friction)
+- **Scope:** platform — `auth/policy.go` + new tier-0 broadcast tool needed
+- **Affected:** krons/mayai, recurring across all releases since v0.34
+- **Sources:** `/srv/data/arizuko_krons/groups/mayai/issues.md:5`; diary
+  blasts in rhias 2026-05-19, rhias/nemo 2026-05-17
+- **Status:** open. Root `bugs.md` 2026-05-03 entry marked `[STALE? — likely
+  fixed since v0.29.4]` — audit confirms NOT fixed. Re-open.
+
+#### CC2 — crackbox network-connect race on container restart
+
+Across krons (2026-05-19, ~600 recovery entries across 4 group diaries) and
+marinade (2026-05-16, 18, 19 — 100+ retries each), the pattern is the same:
+crackbox container disappears (restart, redeploy, OOM), agent containers
+hit `connection refused` on `egress register: crackbox register: Post
+http://crackbox:3129/v1/register`, retry-loop without backoff and without
+self-healing the docker-network attach. The "identity is configured, never
+derived" CLAUDE.md note hints the fix landed for one class; the
+network-attach side still has hard dependency on a container that can vanish.
+
+- **Severity:** high (took down ingestion across 4 krons groups for ~50min on 2026-05-19)
+- **Scope:** platform — crackbox lifecycle + container network-attach race
+- **Affected:** krons (rhias + sibling groups), marinade (atlas)
+- **Sources:** `/srv/data/arizuko_krons/groups/rhias/issues.md:1-14`;
+  `/srv/data/arizuko_krons/groups/{krons,rhias,happy,mayai}/diary/20260519.md`;
+  marinade atlas diaries
+- **Status:** open. Probably interacts with the proxyd-redeploy side-effect
+  memory note — restart sequencing also part of the fix.
+
+#### CC3 — `/web` skill drift on multi-tier deployments
+
+Tier-2 groups (`rhias/nemo`, `atlas/strengths`) hit the recipe wrong: 404s,
+wrong paths, missing `/workspace/web/` mounts. Tier formula collision +
+`WEB_PREFIX` empty + per-page custom CLAUDE.md not respected. v0.45.10
+shipped a defensive recipe but the underlying mount-gap + case-selection
+logic isn't bullet-proof.
+
+- **Severity:** medium-high (persistent operator friction; high "fuck the style" factor)
+- **Scope:** platform (mount strategy) + skill (`/web` per-tier docs)
+- **Affected:** krons/rhias/nemo (mount missing), marinade/atlas/strengths
+  (case-selection wrong), krons (custom CLAUDE.md overrides not honored)
+- **Sources:** `/srv/data/arizuko_krons/groups/rhias/nemo/issues.md:5-7`;
+  root bugs.md tier-2 web entry (2026-05-25)
+- **Status:** in-progress. Defensive recipe landed in v0.45.10; mount + case
+  selection logic still pending.
+
+#### CC4 — Adapter 502 cluster (Slack + Discord)
+
+Three Slack 502s on marinade (May 15 send / May 20 like / May 25 /pub/) +
+two Discord 502s on sloth (May 14, two within 46min on same channel).
+Could be coincidence with upstream APIs, but the time-cluster on marinade
+suggests proxyd or vited had a marinade-instance-wide event. No
+root-cause investigation has happened.
+
+- **Severity:** medium (sporadic but unconfirmed root cause)
+- **Scope:** adapter (slakd + discd) or proxyd/vited
+- **Affected:** marinade/atlas, sloth/main
+- **Sources:** `/srv/data/arizuko_marinade/groups/atlas/issues.md:1-96`;
+  `/srv/data/arizuko_sloth/groups/main/issues.md:3-4`
+- **Status:** open. Worth a single investigation rather than three independent fixes.
+
+#### CC5 — Subagent context drift
+
+Task-delegated subagents repeatedly ignore parent-context standards:
+visual language file (`~/killer-visual-language.md`), parent CLAUDE.md
+hierarchy, project-specific styling. Operator quote: "fuck the style so
+much", "horrendous". Partial fix in `~/.claude/skills/hub/SKILL.md`
+mandating reference-read; structural fix (shared stylesheet or per-subdir
+CLAUDE.md with visual language inline) outstanding.
+
+- **Severity:** medium (recurring per-build regression risk)
+- **Scope:** platform (subagent context inheritance) + skill (hub/web)
+- **Affected:** marinade/atlas (NEAR validators hub, strengths form)
+- **Sources:** `/srv/data/arizuko_marinade/groups/atlas/issues.md:98-133`
+- **Status:** in-progress
+
+#### CC6 — 900s container timeout on long parallel research
+
+Hit on 4 dates in May (atlas 2026-05-07, 19, 25; krons 2026-05-25;
+support 2026-05-19). Same pattern as 2026-04-17 OOM (atlas, 8 crashes in
+one day). Hard cap in Claude Code SDK; user-visible as "Container exited
+with code 1" reply.
+
+- **Severity:** medium (intentional design limit; user-visible as failure)
+- **Scope:** docs (ARCHITECTURE.md / EXTENDING.md) — mitigation hints not
+  written yet despite earlier note
+- **Affected:** krons + marinade atlas/atlas-support
+- **Sources:** root bugs.md `Krons agent 900s timeout`; new krons diary
+  + marinade atlas + atlas-support diaries
+- **Status:** logged as design limit; ARCHITECTURE.md note still missing.
+
+#### CC7 — Agent over-cautious asking + chat-routing discipline
+
+Two manifestations of the same agent-discipline class. **Over-asking**:
+"should I commit and create skill?" when the user already directed it
+(krons 2026-05-17 — same as 2026-04-23 atlas). **Routing override**: agent
+inserts `chatJid=` in send/reply when the platform already handles
+routing, lands reply in wrong channel (sloth 2026-05-16); separately,
+agent ignores `thread=` attr on inbound and doesn't switch chat_jid
+(sloth 2026-05-23).
+
+- **Severity:** medium (cumulative friction)
+- **Scope:** skill / CLAUDE.md guidance — `/resolve`, `/issues` template
+- **Affected:** krons/krons, sloth/main
+- **Sources:** `/srv/data/arizuko_krons/groups/krons/issues.md:5`;
+  `/srv/data/arizuko_sloth/groups/main/issues.md:7,10`
+- **Status:** open. CLAUDE.md tightening shipped previously but not enough.
+
+#### CC8 — Egress isolation hits user features
+
+Two sloth cases: `agent-browser` blocked on bot-detection sites (in root
+bugs.md 2026-05-03 already); crypto data APIs (CoinMarketCap, CoinGecko,
+CoinPaprika) all blocked from agent container (sloth main/main
+2026-05-25). Same root cause: crackbox egress allowlist doesn't include
+"research APIs" or "stealth browser endpoints".
+
+- **Severity:** high (blocks core trading + research workflows on sloth)
+- **Scope:** platform (crackbox egress) — allowlist or trusted-egress channel
+- **Affected:** sloth/main, sloth/main/main
+- **Sources:** root bugs.md 2026-05-03 agent-browser line;
+  `/srv/data/arizuko_sloth/groups/main/main/issues.md:1`
+- **Status:** open
+
+#### CC9 — Research-correctness on volatile data
+
+Sloth's research-style workflows surfaced two distinct correctness gaps:
+**oracle verbosity** in chat context (full long-form analysis when a
+brief summary was wanted — May 16) and **date-confusion in BTC pricing**
+(cited May-15 article as May-17 context, actual price ~3% off — May 17,
+caught by user). Both came from research/oracle calls; both warrant a
+shared "research output discipline" (brief-summary + artifact via
+send_file; source-date verification before quoting).
+
+- **Severity:** medium (oracle UX) + high (correctness on financial claims)
+- **Scope:** skill (oracle + research) — output discipline
+- **Affected:** sloth/main
+- **Sources:** `/srv/data/arizuko_sloth/groups/main/issues.md:6,8`
+- **Status:** open
+
+#### CC10 — Per-group `issues.md` not being groomed
+
+Already-resolved entries linger across instances. Marinade atlas
+2026-05-21/22 strengths-form routing items marked **fixed** in the file
+but never deleted; atlas/support 2026-05-13 recall-memories also marked
+Fixed but still present. The 2026-04-16 atlas issue ("verify the
+consolidation pipeline runs and is documented") is essentially the meta-
+bug describing this very process — and it's still manual.
+
+- **Severity:** low (operational)
+- **Scope:** ops / skill (groom per-group issues.md after consolidation)
+- **Affected:** all instances
+- **Status:** open
+
+### Per-instance unique items not covered above
+
+#### krons
+
+- **2026-05-21** Oracle skill leaks cost line ("cost: $0.11") into user chat.
+  Skill / `/oracle` output post-processing. Low severity. (`krons/krons/issues.md:7`)
+- **2026-05-24** Feature request: `/feed` (changelog feed) skill — diary →
+  feed.json → /pub/index.html re-render. Low. (`krons/krons/issues.md:9`)
+- **2026-05-24** Feature request: install best-in-class frontend / wiki
+  design-system skills. Low. (`krons/krons/issues.md:8`)
+- **2026-05-14** Migration broadcast can't cross folder boundaries —
+  already covered under CC1.
+
+#### marinade
+
+- **2026-05-20** slakd `conversations.typing` API returns `unknown_method`
+  every ~3s (continuous WARN spam since v0.42.0). Migration 136 advertised
+  the feature; Slack documents only `assistant.threads.setStatus` for
+  pane. Low severity (cosmetic), but broken feature.
+  (journalctl 2026-05-20T14:58Z)
+- **2026-05-24** Agent sends bare URLs as plain text; user wants explicit
+  `[text](url)` markdown link formatting. Low.
+  (`marinade/atlas/issues.md:56-73`)
+- **2026-05-06** PSR-dashboard GUIDE.md bond formula references external
+  coefficient names without values. Operator-owned external project doc,
+  not arizuko platform. Logged here because it sits in the per-group
+  queue. (`marinade/atlas/support/issues.md:6-32`)
+
+#### sloth
+
+- **2026-05-15** **Discord message echo loop** — bot's own messages
+  re-trigger agent via sender_id `discord:user/1325081371307278484`
+  (sloth_re_tardus). High severity — burns cost + loops.
+  Adapter (discd) needs self-message filter to also check selfbot user ID.
+  (`sloth/main/issues.md:5`)
+- **2026-05-23** News-backtest skill manual workflow shipped; real-time
+  path open (bot not in paid/private Telegram channels Zoomer, aggrnews,
+  Solid Intel, Layergg, PhoenixNews). Low (feature).
+  (`sloth/main/issues.md:9`)
+- **main/trading 0 compaction** — already covered by root bugs.md
+  "Compaction — sloth has zero compact-log entries post-v0.45.9".
+
+### Stale revivals worth re-checking
+
+- **Selective Telegram message loss** (atlas 2026-04-25, krons/mayai
+  2026-04-25 same date) — never confirmed fix; no recurrence in May logs
+  either. Spot-check still warranted.
+- **/resolve skipping on continuations** (atlas-support 2026-04-25/26) —
+  CLAUDE.md tightened, no audit confirms behavior change.
+- **2026-04-25 sloth/main items** (`routing-task-to-wrong-session`,
+  `social-actions-pin-messages`, `topic-reset-on-inactivity`,
+  `topic-visibility-and-replies`) — partially addressed by topic MCP
+  tools (`fork_topic` etc. shipped v0.40.0); verify operator-facing
+  resolution.
+- **OOM during large tasks** (atlas 2026-04-17, 8 crashes one day) — no
+  recurrence in May, but 900s timeout (CC6) is the same long-task class
+  resurfacing. Worth unifying.
+- **Migration-skill diary noise** — krons mayai 2026-05-17 has duplicate
+  "13:51" diary entries from auto-migrate. Migrate skill may be
+  double-writing.
+- **Sloth/main pre-2026-05-03 items in root bugs.md** (`agent-browser
+  undetected mode`, `web auto-add back-nav`) — no fix shipped; the
+  2026-05-25 crypto-API-blocked entry is plausibly the same class.
+
+### Totals
+
+- Instances audited: 3
+- Per-group `issues.md` files scanned: 10 (krons 4, marinade 3, sloth 3)
+- Per-group `.diary/` scanned: ~45 files across the three instances
+- **New unresolved issues since 2026-05-03: 27**
+- **Cross-cutting platform patterns: 10**
+- **Stale items worth re-checking: 11**
+- Group-level `bugs.md` files: 0 (all aggregation rolls up to root)
+
+### What to fix first (suggested priority)
+
+1. **CC2 crackbox lifecycle** (high; recurring; took down 4 groups for ~50min on 2026-05-19)
+2. **CC8 egress isolation** (high; blocks core sloth trading workflow today)
+3. **Sloth Discord echo loop** (high; cost + loop, fix is small — selfbot user ID filter)
+4. **Sloth date-confusion on financial claims** (high; correctness)
+5. **CC1 cross-folder broadcast** (medium; recurring; needs new tier-0 tool)
+6. **CC3 /web tier drift** (medium-high; v0.45.10 softened, structural fix outstanding)
+7. **CC4 adapter 502 cluster** (medium; needs root-cause investigation, not per-incident fix)
+8. **CC5 subagent context drift** (medium; partial fix in hub skill, structural pending)
+
+Everything else is medium-low and can ride the next refine cycle.
