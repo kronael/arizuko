@@ -45,12 +45,10 @@ One package, one call per daemon at top of `main()`:
 defer obs.Setup("gated", os.Getenv("ARIZUKO_INSTANCE"))()
 ```
 
-`ARIZUKO_INSTANCE` is seeded by compose generation from the data-dir
-flavor (e.g. `arizuko_krons` → `krons`); operators override via `.env`.
-
-Endpoint unset → stock JSON handler + no-op shutdown. Set →
-`otlploghttp` exporter + `LoggerProvider` + fanout `slog.Handler` that
-tees every record to stderr AND the OTel bridge.
+`ARIZUKO_INSTANCE` is seeded by compose (data-dir flavor); operators
+override via `.env`. Endpoint unset → stock JSON handler + no-op
+shutdown. Set → `otlploghttp` exporter + `LoggerProvider` + fanout
+`slog.Handler` that tees every record to stderr AND the OTel bridge.
 
 Stock handler stays primary. OTLP errors are swallowed; batch processor
 drops on overflow (SDK default queue cap). **App correctness MUST NOT
