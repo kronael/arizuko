@@ -210,11 +210,16 @@ grant ...` etc. The MCP cutover means 5 sockets, 5 connections.
    Trivial in shell, more interesting for tooling. Lean: don't
    solve; the per-instance shape matches the per-instance data dir
    shape.
-7. **Audit trail location.** `resreg/resreg.go:328` emits
-   structured log lines. Operator queries — "show me every ACL
-   write in the last week" — want a queryable store. Promote to a
-   real table (`audit_log`)? Lean: log-line for now; revisit when
-   the first real audit query comes up.
+7. **Audit emit contract.** Settled (2026-05-25): every state-changing
+   op via `resreg` writes exactly one `audit_log` row, synchronous and
+   transactional with the resource mutation — if the audit insert
+   fails, the mutation rolls back. Read-only ops emit slog telemetry
+   only, no DB row. slog → journald is separate operational telemetry
+   (lossy, interactive); `audit_log` is the source of truth. Field
+   schema: [`I-tool-call-logging.md`](I-tool-call-logging.md). Table
+   definition: [`../6/F-audit-stream.md`](../6/F-audit-stream.md).
+   `resreg/resreg.go:328`'s structured log line becomes one of two
+   sinks (slog + `audit_log` insert) for mutating actions.
 8. **Resource ownership across daemons.** `groups` is gated's;
    `invites` is onbod's; `web_routes` is webd's. Each registers its
    own resources. The MCP socket terminates in gated, so MCP calls

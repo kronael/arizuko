@@ -121,6 +121,15 @@ the same handler instance. Asserts:
 - The audit log shows exactly one row per state transition,
   regardless of which surface initiated it.
 
+### Audit contract
+
+Every state-changing handler MUST write exactly one `audit_log` row in
+the SAME database transaction as the resource mutation; if the audit
+row write fails, the mutation MUST roll back. Read-only handlers emit
+slog telemetry only — no audit row. Field schema:
+[`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md). Table
+definition: [`../6/F-audit-stream.md`](../6/F-audit-stream.md).
+
 ## Open questions
 
 - Streaming endpoints (server-sent events on REST, MCP notifications

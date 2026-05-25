@@ -93,10 +93,14 @@ This avoids:
 ## Commit granularity
 
 **One commit per turn boundary.** The commit message is a short
-summary; the `decisions/<sha>.md` sidecar lists the individual
-events (ACL grants, route mutations, secret rotations, memory
-edits, etc.) with timestamps and actors. Sub-turn lineage lives in
-the sidecar; turn-level lineage lives in the git history.
+summary; the `decisions/<sha>.md` sidecar references the row range
+in `audit_log` for that turn (`audit_log.id BETWEEN <turn_start_id>
+AND <turn_end_id>`) — that table is the canonical record of every
+state-changing call ([`../6/F-audit-stream.md`](../6/F-audit-stream.md),
+field schema [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md)).
+The sidecar carries the human summary; `audit_log` carries the
+machine-readable rows. Sub-turn lineage lives in the table; turn-level
+lineage lives in the git history.
 
 Why not per-event commits: a busy turn can emit dozens of MCP
 calls. Per-event would produce dozens of commits per turn,
@@ -104,6 +108,10 @@ bloating history and making `git log --oneline` useless.
 
 Why not per-day commits (digests only): a single bad turn buries
 inside a day's roll-up; bisecting becomes impossible.
+
+Why not journalctl as the audit substrate: slog → journald is lossy
+by design (rotation, level filtering). The sidecar needs a stable
+key that survives forever — `audit_log.id` is that key.
 
 ## Hot path: inbound messages
 
@@ -137,8 +145,13 @@ On crash:
 - **Mid-commit:** git's own commit is atomic. Either the commit
   lands or the index is preserved. Re-run on next start.
 
-No `audit_log committed_at` machinery is needed for the cold tier.
-SQLite hot tier handles its own recovery as it does today.
+No `audit_log committed_at` machinery is needed for the cold tier —
+the git index IS the staging area. The warm `audit_log` table
+([`../6/F`](../6/F-audit-stream.md)) is its own crash-safe substrate
+(SQLite WAL); rows are transactional with their mutations. The
+turn-end sidecar references the row range that landed during the
+turn, so a `[recovery]` commit can be reconstructed from the table
+even if the in-flight Go state was lost.
 
 ## Secrets are NOT in git
 
