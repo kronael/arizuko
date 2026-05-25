@@ -6,9 +6,33 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
+
+// schemaSQL mirrors store/migrations/0066-audit-log.sql for the audit
+// package's own tests, which can't import the store package (store
+// imports audit since LogIPCAudit/LogCLIAudit funnel through here).
+const schemaSQL = `
+CREATE TABLE audit_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  category        TEXT    NOT NULL,
+  action          TEXT    NOT NULL,
+  actor           TEXT    NOT NULL,
+  actor_sub       TEXT,
+  resource        TEXT,
+  scope           TEXT,
+  surface         TEXT,
+  params_summary  TEXT,
+  outcome         TEXT    NOT NULL,
+  error_msg       TEXT,
+  duration_ms     INTEGER,
+  turn_id         TEXT,
+  folder          TEXT,
+  instance        TEXT,
+  request_id      TEXT,
+  source_ip       TEXT
+);`
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -16,7 +40,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Migrate(db); err != nil {
+	if _, err := db.Exec(schemaSQL); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
