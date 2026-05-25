@@ -253,62 +253,90 @@ is empty, say "web host not configured". NEVER write web content to
 
 ## How to publish a web page
 
-Step 1 — check what surface you have:
+**Verify-before-announce is mandatory. Never emit a URL you haven't
+confirmed with `curl -sI` returns 200. If verification fails, the
+recipe is wrong for this instance — fall through to Case A.**
+
+### Step 1 — probe the surface
 
 ```bash
 ls /workspace/web/ 2>/dev/null && echo "have mount" || echo "no mount"
-echo "WEB_PREFIX=$WEB_PREFIX"
+echo "WEB_PREFIX=$WEB_PREFIX  WEB_HOST=$WEB_HOST"
 ```
 
-Step 2 — pick the case that matches:
+### Step 2 — pick a case based on `WEB_PREFIX`
 
-**Case A — root (`WEB_PREFIX=pub`).** You own the whole site.
+**Case A — root or pub (`WEB_PREFIX=pub`).** Write under `/pub/`.
 
 ```bash
 mkdir -p /workspace/web/pub/myapp
 cat > /workspace/web/pub/myapp/index.html <<'HTML'
 <!doctype html><title>hi</title><h1>hello</h1>
 HTML
-# served at https://$WEB_HOST/pub/myapp/
-curl -sI "https://$WEB_HOST/pub/myapp/"   # expect 200
+url="https://$WEB_HOST/pub/myapp/"
+curl -sI "$url" | head -1   # MUST be 200; otherwise stop
 ```
 
-**Case B — tier 1 world (`WEB_PREFIX` non-empty, no `pub/`,
-e.g. `rhias`).** You own one world; URLs use the vhost subdomain.
+**Case B — tier 1 world (`WEB_PREFIX` is your tenant name).** Write
+under `/workspace/web/`; URL uses the vhost subdomain.
 
 ```bash
 mkdir -p /workspace/web/myapp
 cat > /workspace/web/myapp/index.html <<'HTML'
 <!doctype html><title>hi</title><h1>hello from world</h1>
 HTML
-# served at https://$WEB_PREFIX.$WEB_HOST/myapp/
-curl -sI "https://$WEB_PREFIX.$WEB_HOST/myapp/"   # expect 200
+url="https://$WEB_PREFIX.$WEB_HOST/myapp/"
+curl -sI "$url" | head -1   # MUST be 200; otherwise see "Fall-through"
 ```
 
-The path-prefix `https://$WEB_HOST/pub/<world>/myapp/` does NOT
-serve these files — only the subdomain does.
-
-**Case C — tier 2 (`WEB_PREFIX` non-empty, `/workspace/web/` present).**
-You share the parent world's vhost. Write to a subdirectory named after
-your group; URLs use `$WEB_PREFIX.$WEB_HOST/<groupname>/<app>/`.
+**Case C — tier 2 (`WEB_PREFIX` is parent world).** Write under
+`/workspace/web/$ARIZUKO_GROUP_NAME/`; URL uses the parent's subdomain.
 
 ```bash
 mkdir -p /workspace/web/$ARIZUKO_GROUP_NAME/myapp
 cat > /workspace/web/$ARIZUKO_GROUP_NAME/myapp/index.html <<'HTML'
 <!doctype html><title>hi</title><h1>hello from group</h1>
 HTML
-# served at https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/
-curl -sI "https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/"
+url="https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/"
+curl -sI "$url" | head -1   # MUST be 200; otherwise see "Fall-through"
 ```
 
-**Case D — tier 3+ (`WEB_PREFIX` empty, no `/workspace/web/`).**
-You have NO publishing surface. Hand off to a tier ≤2 ancestor — write
-the HTML to `/home/node/` and ask the parent agent to publish it.
+**Case D — tier 3+ (`WEB_PREFIX` empty, no `/workspace/web/`).** No
+publishing surface. Hand off to a tier ≤2 ancestor.
 
-## After publishing
+### Fall-through rule (load-bearing — read this)
 
-Always verify with `curl -sI <url>` and report the resolved URL to
-the user, not the env-var template.
+Case B and C assume the instance has subdomain vhosts configured
+(e.g. `mytenant.host.example`). Some deployments are
+**single-vhost**: only the root `host.example/pub/` is served, and
+the subdomain DNS doesn't resolve. Symptoms: `curl -sI` returns
+4xx, NXDOMAIN, or a 403 from a wildcard catch-all.
+
+**If your Case-B or Case-C URL does not return 200:**
+
+1. **Do not announce the URL.** Verification is the contract.
+2. **Do not move the files.** If files already render at some path,
+   moving them breaks that.
+3. **Fall through to Case A** — use `/workspace/web/pub/<groupname>/`
+   (tier 1) or `/workspace/web/pub/<groupname>/<app>/` (tier 2).
+   URL: `https://$WEB_HOST/pub/<groupname>/...`.
+4. Re-verify with `curl -sI`. If still not 200, stop and report
+   the failure — do NOT keep moving files trying to find what works.
+
+The operator may have overridden the recipe in `~/CLAUDE.md` —
+that overlay takes precedence over this case-by-tier logic. Read
+`~/CLAUDE.md` first; if it specifies a path/URL, use it verbatim.
+
+### Anti-patterns (each one shipped to a real user)
+
+- Announcing a URL based on env vars without curl-verifying — the
+  env vars can lie when subdomains aren't configured.
+- Moving files between locations to "fix" a 4xx — the original
+  location was probably correct. Verify in place; if broken, write
+  fresh in the Case-A location; never move working files.
+- Treating `curl -sI` 4xx as a transient (it isn't). 4xx from a
+  vhost almost always means the vhost is misconfigured, not that
+  the file takes time to propagate.
 
 # Storage — persistent vs transient
 

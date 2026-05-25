@@ -12,6 +12,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.10] — 2026-05-25
+
+> arizuko v0.45.10 — defensive web-publish recipe
+>
+> Forensic trace of an atlas/strengths failure on marinade found an agent that wrote files correctly, then moved them based on env vars that promised a subdomain vhost that doesn't exist on this instance. Four pages shipped with broken URLs before pushback caught it.
+>
+> • Verify-before-announce is now mandatory — agents cannot emit a URL they haven't curl-verified to return 200
+> • Explicit fall-through to Case A (root `/pub/`) when subdomain URLs fail — single-vhost deployments work without operator overlays
+> • Anti-patterns named: trusting env vars without verifying, moving working files to "fix" 4xx, treating 4xx as transient
+> • Operator overlay precedence reiterated — `~/CLAUDE.md` beats the case-by-tier logic
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/CLAUDE.md ## How to publish a web page` — verify-before-announce, fall-through rule, anti-patterns block
+- Migration `149-v0.45.10-web-publish-defensive.md`
+- `MIGRATION_VERSION` 148 → 149
+- `ant/skills/migrate/SKILL.md` — announce format (URL on own line, plain text, `https://` prefix) — shipped in same release window
+
+---
+
 ## [v0.45.9] — 2026-05-25
 
 > arizuko v0.45.9 — compact-memories correctness
