@@ -140,3 +140,67 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
   Production groups like `solo/inbox` or `corp/eng/sre/oncall` are
   unreachable by these endpoints today. Caught by
   `tests/dashd-playwright/groups.spec.ts` (working around via flat seed).
+
+## Episode compaction audit (2026-05-25, all instances)
+
+Three-instance audit (krons + marinade + sloth) found systemic
+silent-success in compact-memories cron skill. Each row below cites
+audit findings; SKILL.md rewrite at commit `ff2c0eb` (v0.45.9) addresses
+patterns A–C, F–H, J, K. Patterns D, I are operator-data; D explicitly
+left as-is per user, I scheduled for fix below.
+
+### Code/skill (FIXED in v0.45.9)
+
+- **A — Silent success**. `task_run_logs.status='success'` only records
+  prompt dispatch (0–6ms duration). Agent silently no-op leaves no
+  observable record. Fix: skill now writes JSONL line per invocation
+  to `~/episodes/.compact-log.jl` / `~/diary/.compact-log.jl` with
+  outcome + sources_found + output path.
+- **B — Diary-month 100% broken**. No `diary/month/` directory exists
+  in any group across any instance despite every May-1 cron marked
+  success. Fix: skill must `mkdir -p ~/diary/month/` before write.
+- **C — Week/month rollups silently skipped despite sources present**.
+  35+ rollups missing across instances. Fix: deterministic target-period
+  math + override arg for backfills + explicit source-glob per level.
+- **E — Week-label off-by-one**. atlas/2026-W22.md (marinade) labeled
+  current week instead of last-completed. Fix: target period = last
+  completed ISO week, never current.
+- **F — Frontmatter contamination**. atlas/2026-W22 had bullets mixed
+  into `sources:` YAML. Fix: explicit validation rules; reject on
+  body-leak.
+- **G — Source-path format drift**. atlas/2026-W17 used prefixed
+  paths, W18+ used bare. Fix: validation enforces bare-filename only.
+- **H — Pre-skill non-conformant files**. ~8 files across instances
+  with missing/wrong frontmatter (predate skill). Action: delete so
+  next backfill regenerates with correct shape (per user direction).
+- **J — Re-compaction without stamp update**. Files rewritten,
+  `aggregated_at` stale. Fix: SKIP_EXISTS by default unless override
+  arg given.
+- **K — Schema column doc drift**. `chat_jid` not `target_jid`;
+  `run_at/result/error` not `started_at/finished_at/message`. Fixed
+  in SKILL.md cron table.
+- **L — Schedule key naming inconsistency**. `<folder>-mem-N` vs
+  `task-<ts>-<hash>` IDs. Two creation paths. Not addressed in v0.45.9;
+  cosmetic only.
+
+### Operator-data (left as zero-output per user)
+
+- **D — JID identity drift**. `Coach` (capital) vs `coach` folder on
+  sloth; `Strengths` non-canonical on marinade; `local:main` orphaned
+  after sub-group split on sloth. Per user direction (2026-05-25):
+  these tasks produce zero output but are harmless — DO NOT delete.
+
+### Operator-data (still to fix)
+
+- **I — Missing schedules**. sloth `main/content` is an active group
+  (938KB jsonl, 14 diary days) with zero compact-memories scheduled
+  tasks. Action: provision the 5 cron tasks (episodes day/week/month,
+  diary week/month). Investigate whether onbod/SetupGroup auto-provisions
+  these for new groups; if so, why did `main/content` miss them.
+
+### Backfills queued (post-v0.45.9 deploy)
+
+For each (instance, group, period) tuple where the audit found a
+sources-present-but-output-missing case, queue a one-off invocation
+using the new override arg. Target list assembled from audit reports;
+execution sequenced after v0.45.9 image deploy.
