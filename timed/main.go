@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/obs"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
 )
@@ -19,9 +20,7 @@ import (
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup("timed", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	dataDir := os.Getenv("DATA_DIR")
 

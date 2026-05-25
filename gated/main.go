@@ -18,13 +18,12 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/gateway"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup("gated", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	cfg, err := core.LoadConfig()
 	if err != nil {

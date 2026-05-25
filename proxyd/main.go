@@ -27,6 +27,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
@@ -790,9 +791,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup("proxyd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	coreCfg, err := core.LoadConfig()
 	if err != nil {

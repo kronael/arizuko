@@ -19,6 +19,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
@@ -74,9 +75,7 @@ func folderPath(folder string) string {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup("dashd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	dataDir := os.Getenv("DATA_DIR")
 	groupsDir := filepath.Join(dataDir, "groups")

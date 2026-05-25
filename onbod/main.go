@@ -23,6 +23,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
@@ -48,9 +49,7 @@ type config struct {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup("onbod", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	if os.Getenv("ONBOARDING_ENABLED") == "0" {
 		slog.Info("onboarding disabled")

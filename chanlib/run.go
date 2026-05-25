@@ -10,6 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/kronael/arizuko/obs"
 )
 
 // RunOpts configures Run. Start is called after registration; its handler serves
@@ -27,9 +29,7 @@ type RunOpts struct {
 
 // Run is the shared main loop for channel adapter daemons.
 func Run(opts RunOpts) {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})))
+	defer obs.Setup(opts.Name, os.Getenv("ARIZUKO_INSTANCE"))()
 	if opts.ChannelSecret == "" {
 		slog.Error("CHANNEL_SECRET not set; refusing to start unauthenticated adapter")
 		os.Exit(1)
