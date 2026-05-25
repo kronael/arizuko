@@ -204,3 +204,27 @@ For each (instance, group, period) tuple where the audit found a
 sources-present-but-output-missing case, queue a one-off invocation
 using the new override arg. Target list assembled from audit reports;
 execution sequenced after v0.45.9 image deploy.
+
+## Tier-2 web publishing recipe breaks when WEB_PREFIX is unset (2026-05-25)
+
+Found via atlas/strengths confusion eval: when a tier-2 group runs on an
+instance where `WEB_PREFIX` is unset (single-vhost deployment, no
+`<prefix>.<host>` subdomain configured), the Case-C tier-2 recipe in
+`ant/CLAUDE.md ## How to publish a web page` emits broken URLs:
+`https://.fab.krons.cx/...` and writes files to wrong paths
+(`/workspace/web/<groupname>/<app>/`).
+
+The case check should fall through to Case A (root `pub/`) when:
+- `WEB_PREFIX` is empty OR unset
+- `/workspace/web/pub/` exists
+
+Today the agent reasons through tier from depth and picks the matching
+Case directly, ignoring the env-var sanity check. Worth tightening the
+case-selection logic in the platform CLAUDE.md so a single-vhost
+deployment without a subdomain configured doesn't dispatch agents to
+the tier-2 recipe.
+
+Operator-data fix landed for atlas/strengths
+(`/srv/data/arizuko_marinade/groups/atlas/strengths/CLAUDE.md` —
+explicit override disabling the tier-2 recipe). Platform fix queued
+for triage.
