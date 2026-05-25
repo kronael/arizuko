@@ -488,6 +488,48 @@ func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 	}
 }
 
+// TestOnMessage_ThreadInGuild_UsesParentJID verifies that a thread message
+// in a guild stores chat_jid pointing at the *parent* channel with topic =
+// thread ID. Without this fix, fetch_history(thread_jid) misses the parent
+// channel reply that spawned the thread (real-world bug: sloth replied at
+// 14:09 in parent channel; user followed up at 14:55 in spawned thread;
+// agent's fetch_history on the thread returned only the follow-up, missing
+// its own prior reply).
+func TestOnMessage_ThreadInGuild_UsesParentJID(t *testing.T) {
+	mr := newDiscdRouterMock()
+	defer mr.close()
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc.SetToken("tok")
+
+	sess := newTestSession(t)
+	// Parent text channel + thread channel with ParentID linking it.
+	if err := sess.State.ChannelAdd(&discordgo.Channel{ID: "ch-parent", GuildID: "g1", Type: discordgo.ChannelTypeGuildText}); err != nil {
+		t.Fatalf("ChannelAdd parent: %v", err)
+	}
+	if err := sess.State.ChannelAdd(&discordgo.Channel{ID: "thread-9", GuildID: "g1", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "ch-parent"}); err != nil {
+		t.Fatalf("ChannelAdd thread: %v", err)
+	}
+
+	srv := newServer(config{Name: "discord"}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	b := &bot{session: sess, cfg: config{}, rc: rc, files: srv.files}
+	b.onMessage(sess, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "t9", ChannelID: "thread-9", GuildID: "g1", Content: "follow-up",
+		Author: &discordgo.User{ID: "u1"}, Timestamp: time.Now(),
+	}})
+
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 1 {
+		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	}
+	if mr.msgs[0].ChatJID != "discord:g1/ch-parent" {
+		t.Errorf("ChatJID = %q, want discord:g1/ch-parent (parent channel)", mr.msgs[0].ChatJID)
+	}
+	if mr.msgs[0].Topic != "thread-9" {
+		t.Errorf("Topic = %q, want thread-9", mr.msgs[0].Topic)
+	}
+}
+
 func TestOnMessage_BotIgnored(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()

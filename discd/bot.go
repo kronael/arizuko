@@ -188,6 +188,15 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if err == nil {
 		if ch.Type == discordgo.ChannelTypeGuildPublicThread || ch.Type == discordgo.ChannelTypeGuildPrivateThread {
 			topic = m.ChannelID
+			// Threads are first-class topics within their parent channel.
+			// Store under parent_jid + topic=thread_id so fetch_history,
+			// engagement, and routes see the whole conversation. Outbound
+			// replies still land in the thread via SendRequest.ThreadID
+			// (gateway.makeOutputCallback plumbs topic → ThreadID; Send
+			// overrides chID when ThreadID is set).
+			if ch.ParentID != "" {
+				jid = chatJID(m.GuildID, ch.ParentID)
+			}
 		}
 	}
 	chatName := b.channelName(m.ChannelID)
