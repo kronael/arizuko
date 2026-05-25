@@ -1,8 +1,9 @@
 # bugs.md
 
-Workflow: see `/bugs` skill.
-
-Bugs / follow-ups discovered during voice + media-dispatch audit (2026-05-01).
+Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
+`.diary/20260525.md` for the most recent cleanup. New finds: record
+date + scope + severity + suspected fix-path; don't auto-fix during
+general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
 ## SendFile gaps (platforms with native media but no implementation)
 
@@ -103,12 +104,6 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 - 2026-04-26 (telegram): Review and consolidate Knowledge Pipeline / fact-verification protocol duplication across system prompt, CLAUDE.md, and `/facts` skill. Decide canonical location for each protocol piece; whether to copy full Knowledge Pipeline to CLAUDE.md; whether to auto-load skills when directories are touched.
 - 2026-04-26 (telegram): Auto-load `/facts` skill when agent reads/lists/searches `facts/` directory. Verify whether gateway feature (auto-dispatch by path) or explicit resolve/dispatch logic is needed. Added reminder to `facts/CLAUDE.md`.
 
-## 2026-05-05
-
-- **Orphaned container on instance restart** (`gateway/gateway.go`): Container name was `arizuko-<folder>-<ts>` but `CleanupOrphans` looked for prefix `arizuko-<instance>-`. Prefix never matched → orphaned containers survived restarts → duplicate containers per group → racing turns → duplicate message delivery and cursor skip. **Fixed**: container name now `arizuko-<instance>-<folder>-<ts>`. Tests: `TestContainerNameIncludesInstance`.
-
-- **Cursor skip on orphaned-container race** (`gateway/gateway.go` + `store/messages.go`): Agent cursor is a high-water timestamp. When two containers raced (above bug) and the newer one processed a later "?" message, the cursor advanced past earlier unprocessed messages from before the crash, permanently losing them. Secondary symptom of the orphaned-container bug; fixed at root. Manual recovery: reset `chats.agent_cursor` to before the earliest lost message timestamp.
-
 ## 2026-05-13 — architecture-doc audit (vited + diagrams)
 
 - **Normalize `vited` as first-class sourceless core daemon**: create top-level `vited/` directory mirroring `davd/` shape — move `ant/Dockerfile.vite` to `vited/Dockerfile`, write `vited/README.md` (purpose: web origin for `/pub/*` + auth-gated default; mount `<dataDir>/web:/web`; healthcheck `/@vite/client`), update `Makefile:74-77` `vite-image` target, add row to `README.md` daemon table between `davd` and `teled`. Cost: 1 file move, 1 README, 2 Makefile lines, 1 table row. No code change. (Oracle action #2; deferred because it's a structural rename across docs/Makefile.) See `tmp/vited-audit.md`.
@@ -119,9 +114,6 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 ## 2026-05-13 — reference-manual audit findings
 
 - **Stale tool name in `tier1FixedActions`** (ipc/): registered list contains `get_routes` but the actual registered tool name is `list_routes`. Tier-1 callers asking for the routes-list tool by canonical name miss the allowlist entry. Single-string fix; verify against `ipc/inspect.go` and the routing-tool registrations.
-- ✅ **FIXED 2026-05-25**: **Vestigial `grants` table** — dropped in migration 0065.
-- ✅ **FIXED 2026-05-25**: **Read-only `channels` table** — dropped in migration 0065. dashd's three `FROM channels` reads removed; `chanCount==0 → err` status-dot logic (firing falsely since 2026-04-15) removed. spec `specs/4/1-channel-protocol.md` updated to document chanreg in-memory as the canonical registry.
-- ✅ **FIXED 2026-05-25**: **Dead `email_threads` in shared DB** — dropped in migration 0065. emaid keeps its own emaid.db.
 - **`concepts/grants.html` tier formula** — superseded by deeper bug below (two tier formulas collide). Page itself documents one tier model while agent runtime uses another. Fix is at the code level, not the doc level.
 
 ## Tier-formula collision (surfaced 2026-05-25)
@@ -153,13 +145,6 @@ the canonical one for both env injection AND authz — `min(...,3)`
 collapses tiers 3+ into "no surface" which is a different concern.
 Worth a dedicated spec.
 
-## Topic / pane MCP tools (2026-05-16, found via integration tests)
-
-- ✅ **FIXED** — `fork_topic` was missing from `auth.AuthorizeStructural`
-  switch; every call hit the `default: unknown tool` branch and the MCP
-  tool errored out with `unknown tool: fork_topic`. Added to the
-  `reset_session` case (same subtree-gated rule). Test unskipped + passes.
-
 ## dashd nested-folder path routing (2026-05-16, found via playwright)
 
 - **dashd admin endpoints can't address nested folders.**
@@ -175,41 +160,10 @@ Worth a dedicated spec.
 ## Episode compaction audit (2026-05-25, all instances)
 
 Three-instance audit (krons + marinade + sloth) found systemic
-silent-success in compact-memories cron skill. Each row below cites
-audit findings; SKILL.md rewrite at commit `ff2c0eb` (v0.45.9) addresses
-patterns A–C, F–H, J, K. Patterns D, I are operator-data; D explicitly
-left as-is per user, I scheduled for fix below.
+silent-success in compact-memories cron skill. Code/skill fixes
+shipped in v0.45.9 (commit `ff2c0eb`) — see `.diary/20260525.md`.
+Operator-data items below remain open.
 
-### Code/skill (FIXED in v0.45.9)
-
-- **A — Silent success**. `task_run_logs.status='success'` only records
-  prompt dispatch (0–6ms duration). Agent silently no-op leaves no
-  observable record. Fix: skill now writes JSONL line per invocation
-  to `~/episodes/.compact-log.jl` / `~/diary/.compact-log.jl` with
-  outcome + sources_found + output path.
-- **B — Diary-month 100% broken**. No `diary/month/` directory exists
-  in any group across any instance despite every May-1 cron marked
-  success. Fix: skill must `mkdir -p ~/diary/month/` before write.
-- **C — Week/month rollups silently skipped despite sources present**.
-  35+ rollups missing across instances. Fix: deterministic target-period
-  math + override arg for backfills + explicit source-glob per level.
-- **E — Week-label off-by-one**. atlas/2026-W22.md (marinade) labeled
-  current week instead of last-completed. Fix: target period = last
-  completed ISO week, never current.
-- **F — Frontmatter contamination**. atlas/2026-W22 had bullets mixed
-  into `sources:` YAML. Fix: explicit validation rules; reject on
-  body-leak.
-- **G — Source-path format drift**. atlas/2026-W17 used prefixed
-  paths, W18+ used bare. Fix: validation enforces bare-filename only.
-- **H — Pre-skill non-conformant files**. ~8 files across instances
-  with missing/wrong frontmatter (predate skill). Action: delete so
-  next backfill regenerates with correct shape (per user direction).
-- **J — Re-compaction without stamp update**. Files rewritten,
-  `aggregated_at` stale. Fix: SKIP_EXISTS by default unless override
-  arg given.
-- **K — Schema column doc drift**. `chat_jid` not `target_jid`;
-  `run_at/result/error` not `started_at/finished_at/message`. Fixed
-  in SKILL.md cron table.
 - **L — Schedule key naming inconsistency**. `<folder>-mem-N` vs
   `task-<ts>-<hash>` IDs. Two creation paths. Not addressed in v0.45.9;
   cosmetic only.
@@ -260,35 +214,15 @@ Operator-data fix landed for atlas/strengths
 explicit override disabling the tier-2 recipe). Platform fix queued
 for triage.
 
-## Discord — thread fetch_history blindness (2026-05-25, fixed)
+## Discord thread voice/file leak to parent channel (2026-05-25)
 
-**Fixed:** commit `098996c` — `discd/bot.go` now stores Discord-thread
-inbound under the parent channel's `chat_jid` with `topic = thread_id`.
-Before: thread messages got `chat_jid=<guild>/<thread_id>` siloed from
-the parent channel that spawned them, so `fetch_history(thread_jid)`
-missed the agent's own prior reply in the parent. Real-world trigger:
-sloth replied at 14:09 in channel `920916162416635944` to "@sloth long
-oil right now?"; user followed up at 14:55 in a thread spawned off
-that reply (thread `1508471966544433243`); agent's fetch on the thread
-returned only the follow-up, missing its own reply. Agent then admitted
-"I can't see my own message in this thread's history" — exact bug.
-
-Test: `discd/integration_test.go::TestOnMessage_ThreadInGuild_UsesParentJID`.
-Deployed to krons + marinade + sloth via `sudo make images` + systemctl
-restart at 2026-05-25T15:35Z. Discord adapter (`arizuko_discd_sloth`)
-reconnected as `sloth_re_tardus` at 15:35:19.
-
-**Caveat (known limitation, not addressed in this fix):** `SendVoice`
-and `SendFile` signatures in `chanlib.BotHandler` don't carry a
-`topic` field. Voice/file replies from within a thread will land in
-the **parent channel**, not the thread. Out of scope for the
-fetch_history fix. Tracked separately (low priority — voice/file in
-discord threads is rare; agent text replies via Send do route to the
-thread correctly via `SendRequest.ThreadID`).
-
-**Migration:** existing thread rows keep their old `chat_jid=thread_id`.
-Engagement TTLs on stale thread JIDs expire within ~20m. No data
-rewrite.
+Carryover from the thread fetch_history fix (commit `098996c`, see
+`.diary/20260525.md`): `SendVoice` and `SendFile` signatures in
+`chanlib.BotHandler` don't carry a `topic` field, so voice/file replies
+from within a Discord thread land in the **parent channel**, not the
+thread. Text replies via `Send` route correctly via
+`SendRequest.ThreadID`. Low priority — voice/file in discord threads is
+rare; needs a signature extension across all adapters when addressed.
 
 ## whapd_krons session-401 restart loop (2026-05-25, ops)
 
@@ -305,22 +239,13 @@ anyway with no session). To clear: complete pairing on the phone via
 LMDTPW8J, OR remove whapd from `template/services/whapd.toml` for the
 krons compose if WhatsApp on krons is no longer wanted.
 
-## Krons agent 900s container timeout on long parallel research (2026-05-25, design limit)
+## 900s container timeout — design limit (2026-05-25)
 
-Krons agent hit `Query timeout (900000ms) reached, aborting` during a
-parallel-subagent guide-writing task at 15:50:26 UTC. 35 turns of
-user/assistant alternation, oracle critique loops. Container exited
-with code 1; user-visible as an aborted reply. Recovery: agent
-recovered on next turn (15:51:37). Two user messages (`build a guide
-for each...` + `also once done based on this suggest improvements...`)
-ended up with `errored=1` in the messages table — visible to the user
-as failed turns. **Status: design limit, not a bug.** 900s is the
-intentional Claude Code SDK abortion cap. Worth surfacing in
-ARCHITECTURE.md / EXTENDING.md as a known constraint with mitigation
-hints (split long tasks into multiple turns; checkpoint progress to
-~/facts/ to survive the abort; spawn fewer parallel subagents).
-
-Docs: `ARCHITECTURE.md` ## Long-running tasks — the 900s container timeout
+900s is the Claude Code SDK abortion cap; user-visible as `errored=1`
+on long parallel-research turns. Not a bug — see
+`ARCHITECTURE.md ## Long-running tasks — the 900s container timeout`
+for mitigation hints (split tasks across turns, checkpoint to
+`~/facts/`, fewer parallel subagents).
 
 ## Compaction — sloth has zero compact-log entries post-v0.45.9 (2026-05-25)
 
@@ -380,39 +305,13 @@ profile (or set `EMAIL_ACCOUNT=` empty so compose skips it).
 
 Not present on krons or sloth (0 IMAP errors). marinade-only.
 
-## atlas/tom 5 compact-memories crons deleted — user blocked the bot (2026-05-25)
-
-Reason: `telegram:user/1818847397` (atlas/tom's user) blocked the marinade
-bot on Telegram (timestamp unknown — earliest observed `Forbidden: bot
-was blocked by the user` in journal is ~2026-05-14). Five cron tasks
-were firing into this dead recipient and accumulating failed outbound:
-
-- 10 `status='failed'` + 1 `status='pending'` outbound rows
-  for `telegram:user/1818847397` over the last 30 days
-- Compaction work itself succeeded (files written) but the agent's
-  reply about it never reached the user
-- Gateway retry loop kept queueing the failed deliveries until
-  `outboundMaxAge` aged them out — wasted retries every interval
-
-Deleted from marinade `scheduled_tasks`:
-
-```
-task-1776095386149-a731a432  /compact-memories episodes day    0 2 * * *
-task-1776095387093-2731ef42  /compact-memories episodes week   0 3 * * 1
-task-1776095388038-8ea477fb  /compact-memories episodes month  0 4 1 * *
-task-1776095388507-681e5919  /compact-memories diary week      0 3 * * 1
-task-1776095389276-bf255c3c  /compact-memories diary month     0 4 1 * *
-```
-
-Historic failed outbound rows kept in `messages` table as audit. No
-re-provisioning until the user unblocks the bot.
-
-### Platform follow-up (not done)
+## Telegram blocked-bot is a permanent fail, not transient (platform follow-up from atlas/tom removal)
 
 teled correctly emits `Forbidden: bot was blocked by the user` as a
 403 error, but gateway treats it as transient and retries indefinitely
 until `outboundMaxAge`. A 403/blocked is permanent (only the user can
-unblock from the Telegram client). Patch sketch:
+unblock from the Telegram client). Surfaced 2026-05-25 when atlas/tom
+crons were deleted (see `.diary/20260525.md`). Patch sketch:
 
 - `teled/bot.go::Send` — classify "bot was blocked by the user" /
   "user is deactivated" as a typed permanent-fail error
@@ -426,28 +325,6 @@ unblock from the Telegram client). Patch sketch:
 
 Low priority — atlas/tom was the only affected JID across all three
 instances. Will become more valuable if other recipients block bots.
-
-## atlas/tom group removed from marinade (2026-05-25)
-
-Per user direction: full group removal beyond just the cron tasks.
-
-Removed:
-- `routes` row id=7 (`room=user/1818847397 → atlas/tom`)
-- `groups` row `atlas/tom` (1 row)
-- Group folder moved to backup: `/srv/data/arizuko_marinade/groups/atlas/.tom.removed-20260525/` (123M, recoverable)
-
-Preserved (audit trail):
-- 87 historical messages in `messages` table with `chat_jid='telegram:user/1818847397'`
-- 11 failed/pending outbound rows from before the cron cleanup
-- 5 cron tasks deleted in prior commit (`bfadd59`)
-
-Backup folder uses the `.tom.removed-20260525` name so it sorts to the
-top of `ls` (dot-prefixed) and is unambiguous about deletion intent.
-Remove permanently with `sudo rm -rf` once you're certain you don't
-need the per-group data (`.diary/`, `MEMORY.md`, persona, skills,
-episodes, etc.).
-
-No other instances touched. krons + sloth unchanged.
 
 ## Aggregated user-reported issues — 2026-05-25 (post-2026-05-03 sweep)
 
@@ -634,15 +511,6 @@ bug describing this very process — and it's still manual.
 
 #### marinade
 
-- ✅ **FIXED 2026-05-25** (already in HEAD, commit `2b7f5c0`): slakd
-  `conversations.typing` API returns `unknown_method` every ~3s
-  (continuous WARN spam since v0.42.0). Migration 136 advertised the
-  feature; Slack documents only `assistant.threads.setStatus` for pane.
-  Resolved 2026-05-20 by replacing both the `conversations.typing` and
-  `assistant.threads.setStatus` paths with a unified 👀 `reactions.add`
-  on the trigger message (`slakd/bot.go::setTypingReaction`). Bug
-  filed at 14:58Z; fix committed same day 20:28Z. Krons needs image
-  rebuild + restart to pick up the fix. (journalctl 2026-05-20T14:58Z)
 - **2026-05-24** Agent sends bare URLs as plain text; user wants explicit
   `[text](url)` markdown link formatting. Low.
   (`marinade/atlas/issues.md:56-73`)
@@ -653,15 +521,6 @@ bug describing this very process — and it's still manual.
 
 #### sloth
 
-- **2026-05-15** **Discord message echo loop** — bot's own messages
-  re-trigger agent via sender_id `discord:user/1325081371307278484`
-  (sloth_re_tardus). **Fixed** in commit f9c180c (2026-05-15T18:56Z,
-  8 min after report) by filtering on `session.State.User.ID` in
-  `discd/bot.go:170-174` — `Author.Bot=false` for user-mode accounts
-  so the original `Author.Bot` guard missed it. Both inbound paths
-  (`onMessage`, `onReactionAdd`) now drop self. Verified 2026-05-25
-  via DB scan: zero selfbot-as-inbound rows since 2026-05-15T21:58Z
-  across 681 subsequent Discord messages. (`sloth/main/issues.md:5`)
 - **2026-05-23** News-backtest skill manual workflow shipped; real-time
   path open (bot not in paid/private Telegram channels Zoomer, aggrnews,
   Solid Intel, Layergg, PhoenixNews). Low (feature).
@@ -711,32 +570,12 @@ bug describing this very process — and it's still manual.
 6. **CC4 adapter 502 cluster** (medium; needs root-cause investigation, not per-incident fix)
 7. **CC5 subagent context drift** (medium; partial fix in hub skill, structural pending)
 
-(2026-05-15 sloth Discord echo loop dropped — fixed in commit f9c180c
-the same day; verified clean 2026-05-25.)
-
 Everything else is medium-low and can ride the next refine cycle.
 
-## Oracle skill — cost line leaked into user-visible reply (2026-05-25, fixed)
+## LOCAL.md canonical-skills path drift (2026-05-25)
 
-Slug: `[krons/krons/20260521/oracle-cost-chat-leak]`. The `/oracle`
-skill drove `codex exec` as a subprocess, and codex's trailing cost
-summary (e.g. `cost: $0.11`) got forwarded into the chat reply. Cost
-tracking is internal — `log_external_cost` MCP tool — never chat.
-
-Fix: added explicit "NEVER leak cost to the user" rule to all three
-oracle SKILL.md copies:
-
-- `ant/skills/oracle/SKILL.md` (in-tree, used by agent containers)
-- `~/.claude/skills/oracle/SKILL.md` (host Claude Code)
-- `~/app/tools/skills/oracle/SKILL.md` (canonical kronael/tools mirror)
-
-Rule says: never quote/paraphrase/forward codex's cost or token
-line, never mention dollar amounts or token counts from codex
-output, extract the answer text and drop the trailing cost block,
-reason about cost only inside `<think>`. `log_external_cost` is
-the only sanctioned destination.
-
-Surprising bit: LOCAL.md still points at
+Surfaced during the oracle cost-leak fix (`.diary/20260525.md`):
+LOCAL.md still points at
 `~/app/tools/assistants/claude-template/global/skills/`, which
 doesn't exist on this host — the actual canonical is
 `~/app/tools/skills/oracle/`. LOCAL.md needs a refresh.
