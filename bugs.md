@@ -653,9 +653,13 @@ bug describing this very process — and it's still manual.
 
 - **2026-05-15** **Discord message echo loop** — bot's own messages
   re-trigger agent via sender_id `discord:user/1325081371307278484`
-  (sloth_re_tardus). High severity — burns cost + loops.
-  Adapter (discd) needs self-message filter to also check selfbot user ID.
-  (`sloth/main/issues.md:5`)
+  (sloth_re_tardus). **Fixed** in commit f9c180c (2026-05-15T18:56Z,
+  8 min after report) by filtering on `session.State.User.ID` in
+  `discd/bot.go:170-174` — `Author.Bot=false` for user-mode accounts
+  so the original `Author.Bot` guard missed it. Both inbound paths
+  (`onMessage`, `onReactionAdd`) now drop self. Verified 2026-05-25
+  via DB scan: zero selfbot-as-inbound rows since 2026-05-15T21:58Z
+  across 681 subsequent Discord messages. (`sloth/main/issues.md:5`)
 - **2026-05-23** News-backtest skill manual workflow shipped; real-time
   path open (bot not in paid/private Telegram channels Zoomer, aggrnews,
   Solid Intel, Layergg, PhoenixNews). Low (feature).
@@ -699,12 +703,14 @@ bug describing this very process — and it's still manual.
 
 1. **CC2 crackbox lifecycle** (high; recurring; took down 4 groups for ~50min on 2026-05-19)
 2. **CC8 egress isolation** (high; blocks core sloth trading workflow today)
-3. **Sloth Discord echo loop** (high; cost + loop, fix is small — selfbot user ID filter)
-4. **Sloth date-confusion on financial claims** (high; correctness)
-5. **CC1 cross-folder broadcast** (medium; recurring; needs new tier-0 tool)
-6. **CC3 /web tier drift** (medium-high; v0.45.10 softened, structural fix outstanding)
-7. **CC4 adapter 502 cluster** (medium; needs root-cause investigation, not per-incident fix)
-8. **CC5 subagent context drift** (medium; partial fix in hub skill, structural pending)
+3. **Sloth date-confusion on financial claims** (high; correctness)
+4. **CC1 cross-folder broadcast** (medium; recurring; needs new tier-0 tool)
+5. **CC3 /web tier drift** (medium-high; v0.45.10 softened, structural fix outstanding)
+6. **CC4 adapter 502 cluster** (medium; needs root-cause investigation, not per-incident fix)
+7. **CC5 subagent context drift** (medium; partial fix in hub skill, structural pending)
+
+(2026-05-15 sloth Discord echo loop dropped — fixed in commit f9c180c
+the same day; verified clean 2026-05-25.)
 
 Everything else is medium-low and can ride the next refine cycle.
 
