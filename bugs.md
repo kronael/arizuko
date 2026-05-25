@@ -375,3 +375,50 @@ marinade is no longer wanted, remove emaid from the marinade compose
 profile (or set `EMAIL_ACCOUNT=` empty so compose skips it).
 
 Not present on krons or sloth (0 IMAP errors). marinade-only.
+
+## atlas/tom 5 compact-memories crons deleted — user blocked the bot (2026-05-25)
+
+Reason: `telegram:user/1818847397` (atlas/tom's user) blocked the marinade
+bot on Telegram (timestamp unknown — earliest observed `Forbidden: bot
+was blocked by the user` in journal is ~2026-05-14). Five cron tasks
+were firing into this dead recipient and accumulating failed outbound:
+
+- 10 `status='failed'` + 1 `status='pending'` outbound rows
+  for `telegram:user/1818847397` over the last 30 days
+- Compaction work itself succeeded (files written) but the agent's
+  reply about it never reached the user
+- Gateway retry loop kept queueing the failed deliveries until
+  `outboundMaxAge` aged them out — wasted retries every interval
+
+Deleted from marinade `scheduled_tasks`:
+
+```
+task-1776095386149-a731a432  /compact-memories episodes day    0 2 * * *
+task-1776095387093-2731ef42  /compact-memories episodes week   0 3 * * 1
+task-1776095388038-8ea477fb  /compact-memories episodes month  0 4 1 * *
+task-1776095388507-681e5919  /compact-memories diary week      0 3 * * 1
+task-1776095389276-bf255c3c  /compact-memories diary month     0 4 1 * *
+```
+
+Historic failed outbound rows kept in `messages` table as audit. No
+re-provisioning until the user unblocks the bot.
+
+### Platform follow-up (not done)
+
+teled correctly emits `Forbidden: bot was blocked by the user` as a
+403 error, but gateway treats it as transient and retries indefinitely
+until `outboundMaxAge`. A 403/blocked is permanent (only the user can
+unblock from the Telegram client). Patch sketch:
+
+- `teled/bot.go::Send` — classify "bot was blocked by the user" /
+  "user is deactivated" as a typed permanent-fail error
+- `gateway/gateway.go::dispatchOutbound` — on permanent-fail, set
+  status='failed' immediately, skip retry queue
+- Optional: mark the chat as `blocked` (new `chats.blocked` column);
+  skip future outbound until next inbound from that user
+  (auto-unblocks)
+- Optional: pause scheduled_tasks targeting a `blocked` chat; resume
+  on first inbound
+
+Low priority — atlas/tom was the only affected JID across all three
+instances. Will become more valuable if other recipients block bots.
