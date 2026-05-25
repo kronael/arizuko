@@ -42,8 +42,11 @@ Resource attrs set by the library: `service.name=<daemonName>`,
 One package, one call per daemon at top of `main()`:
 
 ```go
-defer obs.Setup("gated", coreCfg.Name)()
+defer obs.Setup("gated", os.Getenv("ARIZUKO_INSTANCE"))()
 ```
+
+`ARIZUKO_INSTANCE` is seeded by compose generation from the data-dir
+flavor (e.g. `arizuko_krons` → `krons`); operators override via `.env`.
 
 Endpoint unset → stock JSON handler + no-op shutdown. Set →
 `otlploghttp` exporter + `LoggerProvider` + fanout `slog.Handler` that

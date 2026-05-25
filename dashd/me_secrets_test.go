@@ -28,7 +28,16 @@ func meSecretsTestDB(t *testing.T) *dash {
 			value      TEXT NOT NULL,
 			created_at TEXT NOT NULL,
 			PRIMARY KEY (scope_kind, scope_id, key)
-		)`,
+		);
+		CREATE TABLE audit_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
+			actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
+			params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
+			duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
+			request_id TEXT, source_ip TEXT
+		);`,
 	); err != nil {
 		t.Fatalf("schema: %v", err)
 	}

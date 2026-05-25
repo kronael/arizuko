@@ -61,6 +61,7 @@ func testDB(t *testing.T) *sql.DB {
 		CREATE TABLE channels (name TEXT PRIMARY KEY, url TEXT, capabilities TEXT);
 		CREATE TABLE onboarding_gates (gate TEXT PRIMARY KEY, limit_per_day INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
 		CREATE TABLE invites (token TEXT PRIMARY KEY, target_glob TEXT NOT NULL, issued_by_sub TEXT NOT NULL, issued_at TEXT NOT NULL, expires_at TEXT, max_uses INTEGER NOT NULL DEFAULT 1, used_count INTEGER NOT NULL DEFAULT 0);
+		CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL, actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT, params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT, duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT, request_id TEXT, source_ip TEXT);
 	`)
 	if err != nil {
 		t.Fatal(err)

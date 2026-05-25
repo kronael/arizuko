@@ -1,9 +1,12 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -20,28 +23,84 @@ func (s *Store) AddACLRow(row core.ACLRow) error {
 	if row.GrantedBy != "" {
 		grantedBy = row.GrantedBy
 	}
-	_, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO acl
 		  (principal, action, scope, effect, params, predicate, granted_by, granted_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.Principal, row.Action, row.Scope, row.Effect,
 		row.Params, row.Predicate, grantedBy, row.GrantedAt,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	actor := row.GrantedBy
+	if actor == "" {
+		actor = "system"
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryAuthZ,
+		Action:   "acl.add",
+		Actor:    actor,
+		ActorSub: row.GrantedBy,
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
+		Folder:   row.Scope,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"principal": row.Principal,
+			"action":    row.Action,
+			"scope":     row.Scope,
+			"effect":    row.Effect,
+			"predicate": row.Predicate,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	if row.Effect == "" {
 		row.Effect = "allow"
 	}
-	_, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM acl
 		 WHERE principal = ? AND action = ? AND scope = ?
 		   AND params = ? AND predicate = ? AND effect = ?`,
 		row.Principal, row.Action, row.Scope,
 		row.Params, row.Predicate, row.Effect,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryAuthZ,
+		Action:   "acl.remove",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("acl/%s/%s/%s", row.Principal, row.Action, row.Scope),
+		Folder:   row.Scope,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"principal": row.Principal,
+			"action":    row.Action,
+			"scope":     row.Scope,
+			"effect":    row.Effect,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {

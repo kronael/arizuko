@@ -1,12 +1,14 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
@@ -51,11 +53,25 @@ func (s *Store) CreateInvite(targetGlob, issuedBySub string, maxUses int, expire
 	if expiresAt != nil {
 		expStr = sql.NullString{String: expiresAt.UTC().Format(time.RFC3339), Valid: true}
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO invites (`+inviteCols+`)
-		 VALUES (?, ?, ?, ?, ?, ?, 0)`,
-		token, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses)
-	if err != nil {
+	if err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO invites (`+inviteCols+`)
+			 VALUES (?, ?, ?, ?, ?, ?, 0)`,
+			token, targetGlob, issuedBySub, now.Format(time.RFC3339), expStr, maxUses)
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "invite.create",
+			Actor:    "user:" + issuedBySub,
+			ActorSub: issuedBySub,
+			Surface:  audit.SurfaceGateway,
+			Resource: "invites/" + token[:min(len(token), 8)],
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"target_glob": targetGlob,
+				"max_uses":    maxUses,
+			},
+		}, err
+	}); err != nil {
 		return nil, err
 	}
 	return &Invite{
@@ -116,8 +132,17 @@ func (s *Store) ListInvites(forIssuer string) ([]Invite, error) {
 }
 
 func (s *Store) RevokeInvite(token string) error {
-	_, err := s.db.Exec(`DELETE FROM invites WHERE token = ?`, token)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(`DELETE FROM invites WHERE token = ?`, token)
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "invite.revoke",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "invites/" + token[:min(len(token), 8)],
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 // ConsumeInvite atomically increments used_count (guarding max_uses and expiry)
@@ -159,6 +184,21 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 			userSub, inv.TargetGlob); err != nil {
 			return nil, err
 		}
+	}
+	if err := audit.EmitInTx(context.Background(), tx, audit.Event{
+		Category: audit.CategoryAuthN,
+		Action:   "invite.consume",
+		Actor:    "user:" + userSub,
+		ActorSub: userSub,
+		Surface:  audit.SurfaceGateway,
+		Resource: "invites/" + token[:min(len(token), 8)],
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"target_glob": inv.TargetGlob,
+			"used_count":  inv.UsedCount,
+		},
+	}); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

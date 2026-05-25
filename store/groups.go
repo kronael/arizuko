@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/router"
@@ -24,26 +25,49 @@ func (s *Store) PutGroup(g core.Group) error {
 	if product == "" {
 		product = core.DefaultProduct
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO groups
-		 (folder, added_at, container_config, product, updated_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(folder) DO UPDATE SET
-		   container_config=excluded.container_config,
-		   product=excluded.product,
-		   updated_at=excluded.updated_at`,
-		g.Folder,
-		g.AddedAt.Format(time.RFC3339),
-		string(cfgJSON),
-		product,
-		time.Now().Format(time.RFC3339),
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO groups
+			 (folder, added_at, container_config, product, updated_at)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(folder) DO UPDATE SET
+			   container_config=excluded.container_config,
+			   product=excluded.product,
+			   updated_at=excluded.updated_at`,
+			g.Folder,
+			g.AddedAt.Format(time.RFC3339),
+			string(cfgJSON),
+			product,
+			time.Now().Format(time.RFC3339),
+		)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "group.upsert",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "groups/" + g.Folder,
+			Folder:   g.Folder,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"product": product,
+			},
+		}, err
+	})
 }
 
 func (s *Store) DeleteGroup(folder string) error {
-	_, err := s.db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "group.delete",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "groups/" + folder,
+			Folder:   folder,
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 const groupCols = `folder, added_at, container_config, product, COALESCE(model,'')`

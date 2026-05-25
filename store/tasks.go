@@ -1,10 +1,12 @@
 package store
 
 import (
+	"database/sql"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -23,13 +25,27 @@ func (s *Store) CreateTask(t core.Task) error {
 	if cm == "" {
 		cm = "group"
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO scheduled_tasks (`+taskCols+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
-		nextRun, t.Status, t.Created.Format(time.RFC3339), cm,
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO scheduled_tasks (`+taskCols+`)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
+			nextRun, t.Status, t.Created.Format(time.RFC3339), cm,
+		)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "task.create",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "scheduled_tasks/" + t.ID,
+			Folder:   t.Owner,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"cron":         t.Cron,
+				"context_mode": cm,
+			},
+		}, err
+	})
 }
 
 const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
@@ -77,14 +93,40 @@ func (s *Store) UpdateTask(id string, p TaskPatch) error {
 		return nil
 	}
 	args = append(args, id)
-	_, err := s.db.Exec(
-		"UPDATE scheduled_tasks SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			"UPDATE scheduled_tasks SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+		params := map[string]any{}
+		if p.Status != nil {
+			params["status"] = *p.Status
+		}
+		if p.NextRun != nil {
+			params["next_run"] = p.NextRun.Format(time.RFC3339)
+		}
+		return audit.Event{
+			Category:      audit.CategoryMutation,
+			Action:        "task.update",
+			Actor:         "system",
+			Surface:       audit.SurfaceGateway,
+			Resource:      "scheduled_tasks/" + id,
+			Outcome:       audit.OutcomeOK,
+			ParamsSummary: params,
+		}, err
+	})
 }
 
 func (s *Store) DeleteTask(id string) error {
-	_, err := s.db.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "task.delete",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "scheduled_tasks/" + id,
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 func (s *Store) CountActiveTasks() int {

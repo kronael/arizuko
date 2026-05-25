@@ -54,28 +54,75 @@ which surface gets a feature is accidental, not principled.
 
 ```go
 type Caller struct {
-    Identity auth.Identity   // Sub, Folder, Tier (Go-side derived), Audience, Issuer, Expires
-    Scope    []string        // "<resource>:<verb>[:own_group]"
+    Sub    string
+    Name   string
+    Folder string
+    Tier   int
+    Claims map[string]string  // JWT claims for ACL row predicates
 }
 
 type Resource struct {
     Name      string
-    Endpoints []Endpoint                      // REST faces
-    MCPTools  []MCPTool                       // MCP faces
-    Policy    map[Action]ScopePred
-    Handler   func(Caller, Action, Args) (Result, error)
+    Endpoints []Endpoint   // REST faces
+    MCPTools  []MCPTool    // MCP faces
+    Authz     func(c Caller, action Action, args Args) (scope string, params map[string]string, err error)
+    Handler   func(ctx context.Context, x Execution) (any, error)
+    Store     *store.Store // when set: adapter opens tx, audit row in same tx
 }
 
-type Endpoint  struct { Path, Verb string; Action Action }
-type MCPTool   struct { Name string; Action Action }
-type Action    string                         // "create" | "update" | "delete" | "list" | "get"
-type ScopePred func(c Caller, target Folder) bool
+// Execution carries the surface-agnostic context the handler runs in.
+// Tx is non-nil only for mutating actions on store-backed resources;
+// forwarders and read-only paths see Tx == nil.
+type Execution struct {
+    Caller    Caller
+    Action    Action
+    Resource  string
+    Args      Args
+    TurnID    string  // X-Turn-Id header (REST) or _meta.turn_id (MCP)
+    RequestID string  // X-Request-Id (REST) or _meta.request_id (MCP)
+    SourceIP  string  // REST only
+    Surface   string  // "rest" | "mcp"
+    Tx        *sql.Tx
+}
+
+type Endpoint struct { Path, Verb string; Action Action; Status int }
+type MCPTool  struct { Name, Description string; Action Action; Args []MCPArg }
+type Action   string  // "list" | "get" | "create" | "update" | "delete"
 ```
 
-`ScopePred` takes the target folder explicitly because `:own_group` scopes
-need it; the predicate cannot decide solely from `[]string`. `Surface`
-is not on `Caller` — it's a property of the adapter invocation site,
-not the caller; the audit/metrics adapters carry their own constant.
+`Authz` returns `(scope, params, err)`: the adapter calls
+`auth.Authorize(Store, callerToAuth(c), "<Name>:<action>", scope, params)`
+as the canonical ACL gate (see [`../4/9-acl-unified.md`](../4/9-acl-unified.md)).
+Returning `err` short-circuits — validation failures map to 400 without
+ever consulting auth. `Surface` belongs to the adapter invocation site,
+not the caller; it lives on `Execution`, not `Caller`.
+
+**Per-invocation caller resolution.** The MCP adapter takes a
+`callerFor(ctx, req) (Caller, error)` resolver, invoked every call —
+never captured at registration. Privilege confusion in shared MCP
+servers is structurally precluded: each agent's request resolves to
+its own principal at call time.
+
+## Execution context
+
+`Execution.Tx` is the contract between the adapter and the handler:
+
+- **Mutating action + `Resource.Store` set.** Adapter calls
+  `Store.DB().BeginTx(ctx, nil)`, threads the `*sql.Tx` into `Execution`,
+  invokes the handler, then writes the audit row via
+  `audit.EmitInTx(tx, ...)` _in the same tx_, then commits. On any
+  handler error the tx rolls back and a non-tx audit row records the
+  failure (slog + `audit.Emit`). On audit-insert failure the mutation
+  rolls back — per spec contract, the audit row IS the mutation.
+- **Read-only action.** Handler runs without a tx (`Tx == nil`); slog
+  line emitted; no `audit_log` row (volume).
+- **Forwarder (`Resource.Store == nil`).** Adapter never opens a tx;
+  the handler is expected to call downstream over HTTP/IPC. The
+  downstream daemon writes the audit row. Avoids double-logging.
+
+Audit row insertion is the adapter's responsibility. Handlers don't
+have to remember; they only run the mutation against `Execution.Tx`
+when it's non-nil.
 
 REST verbs and MCP tool names collapse to one `Action` per handler
 branch. New action: one handler branch + one endpoint + one tool + one
@@ -119,10 +166,12 @@ addition to
   the enumerated list (≤20 strings at current resource count). Two
   matching paths hurt audit reasoning more than one short list does.
 
-`HasScope(c, "grants", "write")` returns true iff caller has
-`grants:write` OR (`grants:write:own_group` AND target folder ⊆
-`Identity.Folder`). The folder check piggybacks on the suffix; no new
-primitive.
+The scope vocabulary is the operator-token shorthand; the
+authoritative gate is `auth.Authorize` over the unified ACL — see
+[`../4/9-acl-unified.md`](../4/9-acl-unified.md). resreg's `Authz`
+callback derives `(scope, params)` per-action; the adapter then
+delegates to `auth.Authorize`. No parallel `HasScope`-style predicate
+machinery; the ACL row table is the single source of truth.
 
 ## Per-resource access matrix
 

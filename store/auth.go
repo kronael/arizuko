@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 type AuthUser struct {
@@ -117,12 +119,25 @@ func (s *Store) LinkedSubs(canonical string) []string {
 }
 
 func (s *Store) CreateAuthSession(tokenHash, userSub string, expiresAt time.Time) error {
-	_, err := s.db.Exec(
-		`INSERT INTO auth_sessions (token_hash, user_sub, expires_at, created_at)
-		 VALUES (?, ?, ?, ?)`,
-		tokenHash, userSub, expiresAt.Format(time.RFC3339), time.Now().Format(time.RFC3339),
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO auth_sessions (token_hash, user_sub, expires_at, created_at)
+			 VALUES (?, ?, ?, ?)`,
+			tokenHash, userSub, expiresAt.Format(time.RFC3339), time.Now().Format(time.RFC3339),
+		)
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "token.mint",
+			Actor:    "user:" + userSub,
+			ActorSub: userSub,
+			Surface:  audit.SurfaceGateway,
+			Resource: "sessions/" + tokenHash[:min(len(tokenHash), 8)],
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"expires_at": expiresAt.Format(time.RFC3339),
+			},
+		}, err
+	})
 }
 
 func (s *Store) AuthSession(tokenHash string) (AuthSession, bool) {
@@ -141,8 +156,17 @@ func (s *Store) AuthSession(tokenHash string) (AuthSession, bool) {
 }
 
 func (s *Store) DeleteAuthSession(tokenHash string) error {
-	_, err := s.db.Exec(`DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(`DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash)
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "logout",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "sessions/" + tokenHash[:min(len(tokenHash), 8)],
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 // User-folder grants live in the `acl` table (post-0053). See

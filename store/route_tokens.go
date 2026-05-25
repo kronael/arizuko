@@ -3,10 +3,13 @@ package store
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // RouteToken maps a bearer token to a single inbound JID + admin folder.
@@ -74,11 +77,25 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-		hashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano),
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
+			hashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano),
+		)
+		return audit.Event{
+			Category: audit.CategoryChannel,
+			Action:   "route_token.mint",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "route_tokens/" + t.JID,
+			Folder:   t.OwnerFolder,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"owner_folder": t.OwnerFolder,
+				"jid_kind":     RouteTokenKind(t.JID),
+			},
+		}, err
+	})
 }
 
 // LookupRouteToken resolves a raw bearer token to its row. Returns
@@ -128,13 +145,26 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 // no matching row existed. ACL scope: the caller's `owner_folder` MUST
 // match — agents in folder A cannot revoke folder B's tokens.
 func (s *Store) RevokeRouteToken(jid, ownerFolder string) (bool, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ?`,
-		jid, ownerFolder,
-	)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	var hit bool
+	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		res, err := tx.Exec(
+			`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ?`,
+			jid, ownerFolder,
+		)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, _ := res.RowsAffected()
+		hit = n > 0
+		return audit.Event{
+			Category: audit.CategoryChannel,
+			Action:   "route_token.revoke",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "route_tokens/" + jid,
+			Folder:   ownerFolder,
+			Outcome:  audit.OutcomeOK,
+		}, nil
+	})
+	return hit, err
 }

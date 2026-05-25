@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 )
 
@@ -45,7 +47,13 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	if matchesWebJID(r.Match) {
 		return 0, ErrWebJIDRouted
 	}
-	res, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO routes (seq, match, target, observe_window_messages, observe_window_chars)
 		 VALUES (?, ?, ?, ?, ?)`,
 		r.Seq, r.Match, r.Target,
@@ -54,7 +62,30 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.create",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   r.Target,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"match":  r.Match,
+			"target": r.Target,
+			"seq":    r.Seq,
+		},
+	}); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // matchesWebJID reports whether a route's Match expression includes a
@@ -77,12 +108,13 @@ func matchesWebJID(match string) bool {
 // SetRoutes replaces the routes whose target (sans fragment) is `folder`
 // or under `folder/`.
 func (s *Store) SetRoutes(folder string, routes []core.Route) error {
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM routes
 		 WHERE target = ? OR target LIKE ?||'#%'
 		    OR target LIKE ?||'/%'`,
@@ -91,7 +123,7 @@ func (s *Store) SetRoutes(folder string, routes []core.Route) error {
 		return err
 	}
 	for _, r := range routes {
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO routes (seq, match, target, observe_window_messages, observe_window_chars)
 			 VALUES (?, ?, ?, ?, ?)`,
 			r.Seq, r.Match, r.Target,
@@ -100,12 +132,45 @@ func (s *Store) SetRoutes(folder string, routes []core.Route) error {
 			return err
 		}
 	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.replace",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: "routes/" + folder,
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"folder": folder,
+			"count":  len(routes),
+		},
+	}); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 func (s *Store) DeleteRoute(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
-	return err
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM routes WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.delete",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Outcome:  audit.OutcomeOK,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListRoutes(folder string, isRoot bool) []core.Route {

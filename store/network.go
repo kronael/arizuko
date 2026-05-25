@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 type NetworkRule struct {
@@ -14,20 +16,51 @@ type NetworkRule struct {
 }
 
 func (s *Store) AddNetworkRule(folder, target, by string) error {
-	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
-		 VALUES (?, ?, ?, ?)`,
-		folder, target, time.Now().UTC().Format(time.RFC3339), by,
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
+			 VALUES (?, ?, ?, ?)`,
+			folder, target, time.Now().UTC().Format(time.RFC3339), by,
+		)
+		actor := by
+		if actor == "" {
+			actor = "system"
+		}
+		return audit.Event{
+			Category: audit.CategoryNetwork,
+			Action:   "egress.allow.add",
+			Actor:    actor,
+			ActorSub: by,
+			Surface:  audit.SurfaceGateway,
+			Resource: "network_rules/" + folder + "/" + target,
+			Folder:   folder,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"target": target,
+			},
+		}, err
+	})
 }
 
 func (s *Store) RemoveNetworkRule(folder, target string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM network_rules WHERE folder = ? AND target = ?`,
-		folder, target,
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`DELETE FROM network_rules WHERE folder = ? AND target = ?`,
+			folder, target,
+		)
+		return audit.Event{
+			Category: audit.CategoryNetwork,
+			Action:   "egress.allow.remove",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "network_rules/" + folder + "/" + target,
+			Folder:   folder,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"target": target,
+			},
+		}, err
+	})
 }
 
 func (s *Store) ListNetworkRules(folder string) ([]NetworkRule, error) {

@@ -1,8 +1,12 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // ErrCycle: adding the edge would create a cycle in acl_membership.
@@ -56,15 +60,43 @@ func (s *Store) AddMembership(child, parent, addedBy string) error {
 	); err != nil {
 		return err
 	}
+	actor := addedBy
+	if actor == "" {
+		actor = "system"
+	}
+	if err := audit.EmitInTx(context.Background(), tx, audit.Event{
+		Category: audit.CategoryAuthZ,
+		Action:   "membership.add",
+		Actor:    actor,
+		ActorSub: addedBy,
+		Surface:  audit.SurfaceGateway,
+		Resource: "acl_membership/" + child + "/" + parent,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"child":  child,
+			"parent": parent,
+		},
+	}); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 func (s *Store) RemoveMembership(child, parent string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM acl_membership WHERE child = ? AND parent = ?`,
-		child, parent,
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`DELETE FROM acl_membership WHERE child = ? AND parent = ?`,
+			child, parent,
+		)
+		return audit.Event{
+			Category: audit.CategoryAuthZ,
+			Action:   "membership.remove",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "acl_membership/" + child + "/" + parent,
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 // Members returns direct children of `parent`.

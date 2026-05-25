@@ -1,6 +1,11 @@
 package store
 
-import "time"
+import (
+	"database/sql"
+	"time"
+
+	"github.com/kronael/arizuko/audit"
+)
 
 type WebRoute struct {
 	PathPrefix string
@@ -21,30 +26,57 @@ func scanWebRoute(r rowScanner) (WebRoute, error) {
 }
 
 func (s *Store) SetWebRoute(r WebRoute) error {
-	_, err := s.db.Exec(
-		`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(path_prefix) DO UPDATE SET
-		   access = excluded.access,
-		   redirect_to = excluded.redirect_to,
-		   folder = excluded.folder,
-		   created_at = excluded.created_at`,
-		r.PathPrefix, r.Access, nilIfEmpty(r.RedirectTo), r.Folder,
-		r.CreatedAt.UTC().Format(time.RFC3339),
-	)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO web_routes (path_prefix, access, redirect_to, folder, created_at)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(path_prefix) DO UPDATE SET
+			   access = excluded.access,
+			   redirect_to = excluded.redirect_to,
+			   folder = excluded.folder,
+			   created_at = excluded.created_at`,
+			r.PathPrefix, r.Access, nilIfEmpty(r.RedirectTo), r.Folder,
+			r.CreatedAt.UTC().Format(time.RFC3339),
+		)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "web_route.set",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "web_routes/" + r.PathPrefix,
+			Folder:   r.Folder,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"access":      r.Access,
+				"redirect_to": r.RedirectTo,
+			},
+		}, err
+	})
 }
 
 func (s *Store) DelWebRoute(pathPrefix, folder string) (bool, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM web_routes WHERE path_prefix = ? AND (folder = ? OR ? = '')`,
-		pathPrefix, folder, folder,
-	)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	var hit bool
+	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		res, err := tx.Exec(
+			`DELETE FROM web_routes WHERE path_prefix = ? AND (folder = ? OR ? = '')`,
+			pathPrefix, folder, folder,
+		)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, _ := res.RowsAffected()
+		hit = n > 0
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "web_route.delete",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "web_routes/" + pathPrefix,
+			Folder:   folder,
+			Outcome:  audit.OutcomeOK,
+		}, nil
+	})
+	return hit, err
 }
 
 func (s *Store) ListWebRoutes(folder string) []WebRoute {

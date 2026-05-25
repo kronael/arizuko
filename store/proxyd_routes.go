@@ -1,8 +1,11 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
@@ -69,36 +72,76 @@ func proxydRouteFields(r ProxydRoute) (headers string, strip int) {
 
 func (s *Store) InsertProxydRoute(r ProxydRoute) error {
 	headers, strip := proxydRouteFields(r)
-	_, err := s.db.Exec(`INSERT INTO proxyd_routes
-	                     (path, backend, auth, gated_by, preserve_headers, strip_prefix)
-	                     VALUES (?, ?, ?, ?, ?, ?)`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(`INSERT INTO proxyd_routes
+		                     (path, backend, auth, gated_by, preserve_headers, strip_prefix)
+		                     VALUES (?, ?, ?, ?, ?, ?)`,
+			r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "route.create",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "proxyd_routes/" + r.Path,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"backend":  r.Backend,
+				"auth":     r.Auth,
+				"gated_by": r.GatedBy,
+			},
+		}, err
+	})
 }
 
 func (s *Store) UpdateProxydRoute(r ProxydRoute) error {
 	headers, strip := proxydRouteFields(r)
-	res, err := s.db.Exec(`UPDATE proxyd_routes
-	                       SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
-	                       WHERE path=?`,
-		r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("proxyd route %q not found", r.Path)
-	}
-	return nil
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		res, err := tx.Exec(`UPDATE proxyd_routes
+		                       SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
+		                       WHERE path=?`,
+			r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return audit.Event{}, fmt.Errorf("proxyd route %q not found", r.Path)
+		}
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "route.update",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "proxyd_routes/" + r.Path,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"backend":  r.Backend,
+				"auth":     r.Auth,
+				"gated_by": r.GatedBy,
+			},
+		}, nil
+	})
 }
 
 func (s *Store) DeleteProxydRoute(path string) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM proxyd_routes WHERE path = ?`, path)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	var hit bool
+	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		res, err := tx.Exec(`DELETE FROM proxyd_routes WHERE path = ?`, path)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, _ := res.RowsAffected()
+		hit = n > 0
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "route.delete",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "proxyd_routes/" + path,
+			Outcome:  audit.OutcomeOK,
+		}, nil
+	})
+	return hit, err
 }
 
 // CountProxydRoutes returns total row count; proxyd checks this at boot to

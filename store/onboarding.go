@@ -1,6 +1,11 @@
 package store
 
-import "time"
+import (
+	"database/sql"
+	"time"
+
+	"github.com/kronael/arizuko/audit"
+)
 
 func (s *Store) InsertOnboarding(jid string) error {
 	_, err := s.db.Exec(
@@ -39,23 +44,57 @@ func (s *Store) ListGates() ([]OnboardingGate, error) {
 }
 
 func (s *Store) PutGate(gate string, limitPerDay int) error {
-	_, err := s.db.Exec(
-		`INSERT INTO onboarding_gates (gate, limit_per_day, enabled)
-		 VALUES (?, ?, 1)
-		 ON CONFLICT(gate) DO UPDATE SET limit_per_day = excluded.limit_per_day`,
-		gate, limitPerDay)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT INTO onboarding_gates (gate, limit_per_day, enabled)
+			 VALUES (?, ?, 1)
+			 ON CONFLICT(gate) DO UPDATE SET limit_per_day = excluded.limit_per_day`,
+			gate, limitPerDay)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "gate.set",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "onboarding_gates/" + gate,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"gate":          gate,
+				"limit_per_day": limitPerDay,
+			},
+		}, err
+	})
 }
 
 func (s *Store) DeleteGate(gate string) error {
-	_, err := s.db.Exec(
-		`DELETE FROM onboarding_gates WHERE gate = ?`, gate)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`DELETE FROM onboarding_gates WHERE gate = ?`, gate)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "gate.delete",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "onboarding_gates/" + gate,
+			Outcome:  audit.OutcomeOK,
+		}, err
+	})
 }
 
 func (s *Store) EnableGate(gate string, enabled bool) error {
-	_, err := s.db.Exec(
-		`UPDATE onboarding_gates SET enabled = ? WHERE gate = ?`,
-		btoi(enabled), gate)
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`UPDATE onboarding_gates SET enabled = ? WHERE gate = ?`,
+			btoi(enabled), gate)
+		return audit.Event{
+			Category: audit.CategoryMutation,
+			Action:   "gate.set",
+			Actor:    "system",
+			Surface:  audit.SurfaceGateway,
+			Resource: "onboarding_gates/" + gate,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"enabled": enabled,
+			},
+		}, err
+	})
 }

@@ -2,6 +2,7 @@ package container
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
@@ -183,6 +185,20 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	slog.Debug("container args",
 		"group", in.Folder,
 		"args", strings.Join(args, " "))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryAgent,
+		Action:   "container.spawn",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: "containers/" + containerName,
+		Folder:   in.Folder,
+		TurnID:   in.SessionID,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"image": cfg.Image,
+			"root":  root,
+		},
+	})
 
 	start := time.Now()
 
@@ -360,6 +376,32 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	slog.Info("container exited",
 		"group", in.Folder, "container", containerName, "code", code,
 		"duration", elapsed, "timedOut", to)
+	exitOutcome := audit.OutcomeOK
+	if code != 0 || to {
+		exitOutcome = audit.OutcomeError
+	}
+	exitErrMsg := ""
+	if to {
+		exitErrMsg = "timeout"
+	} else if code != 0 {
+		exitErrMsg = fmt.Sprintf("exit_code=%d", code)
+	}
+	audit.Emit(context.Background(), audit.Event{
+		Category:   audit.CategoryAgent,
+		Action:     "container.exit",
+		Actor:      "system",
+		Surface:    audit.SurfaceGateway,
+		Resource:   "containers/" + containerName,
+		Folder:     in.Folder,
+		TurnID:     in.SessionID,
+		Outcome:    exitOutcome,
+		ErrorMsg:   exitErrMsg,
+		DurationMS: elapsed.Milliseconds(),
+		ParamsSummary: map[string]any{
+			"exit_code": code,
+			"timed_out": to,
+		},
+	})
 
 	if to {
 		slog.Error("container timed out",

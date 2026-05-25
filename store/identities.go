@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 type Identity struct {
@@ -107,21 +109,48 @@ func (s *Store) ListIdentities() ([]Identity, error) {
 
 // LinkSub binds sub to identityID; rebinds if already claimed elsewhere.
 func (s *Store) LinkSub(identityID, sub string) error {
-	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO identity_claims (sub, identity_id, claimed_at)
-		 VALUES (?, ?, ?)`,
-		sub, identityID, time.Now().Format(time.RFC3339))
-	return err
+	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		_, err := tx.Exec(
+			`INSERT OR REPLACE INTO identity_claims (sub, identity_id, claimed_at)
+			 VALUES (?, ?, ?)`,
+			sub, identityID, time.Now().Format(time.RFC3339))
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "identity.link",
+			Actor:    "user:" + sub,
+			ActorSub: sub,
+			Surface:  audit.SurfaceGateway,
+			Resource: "identities/" + identityID,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"sub":         sub,
+				"identity_id": identityID,
+			},
+		}, err
+	})
 }
 
 func (s *Store) UnlinkSub(sub string) (bool, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM identity_claims WHERE sub = ?`, sub)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	var hit bool
+	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
+		res, err := tx.Exec(
+			`DELETE FROM identity_claims WHERE sub = ?`, sub)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		n, _ := res.RowsAffected()
+		hit = n > 0
+		return audit.Event{
+			Category: audit.CategoryAuthN,
+			Action:   "identity.unlink",
+			Actor:    "user:" + sub,
+			ActorSub: sub,
+			Surface:  audit.SurfaceGateway,
+			Resource: "identity_claims/" + sub,
+			Outcome:  audit.OutcomeOK,
+		}, nil
+	})
+	return hit, err
 }
 
 func (s *Store) MintLinkCode(identityID string, ttl time.Duration) (string, error) {

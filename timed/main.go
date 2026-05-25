@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	"github.com/robfig/cron/v3"
@@ -45,6 +47,20 @@ func main() {
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		slog.Warn("set WAL mode", "err", err)
 	}
+
+	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: "daemons/timed",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"tz":  tz,
+			"dsn": dsn,
+		},
+	})
 
 	slog.Info("scheduler started", "db", dsn, "tz", tz)
 
@@ -126,6 +142,19 @@ func fire(db *sql.DB, tz string) {
 		if t.contextMode == "isolated" {
 			sender = "timed-isolated:" + t.id
 		}
+		audit.Emit(context.Background(), audit.Event{
+			Category: audit.CategoryScheduler,
+			Action:   "task.fire",
+			Actor:    "system",
+			Surface:  audit.SurfaceCron,
+			Resource: "scheduled_tasks/" + t.id,
+			Outcome:  audit.OutcomeOK,
+			ParamsSummary: map[string]any{
+				"chat_jid":     t.jid,
+				"cron":         t.cronExpr,
+				"context_mode": t.contextMode,
+			},
+		})
 		id := core.MsgID("sched-" + t.id)
 		_, err := db.Exec(
 			`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
@@ -135,6 +164,16 @@ func fire(db *sql.DB, tz string) {
 			slog.Error("insert message", "task", t.id, "jid", t.jid, "err", err)
 			logRun(db, t.id, "error", err.Error(), time.Since(start).Milliseconds())
 			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
+			audit.Emit(context.Background(), audit.Event{
+				Category:   audit.CategoryScheduler,
+				Action:     "task.error",
+				Actor:      "system",
+				Surface:    audit.SurfaceCron,
+				Resource:   "scheduled_tasks/" + t.id,
+				Outcome:    audit.OutcomeError,
+				ErrorMsg:   err.Error(),
+				DurationMS: time.Since(start).Milliseconds(),
+			})
 			continue
 		}
 
@@ -151,6 +190,18 @@ func fire(db *sql.DB, tz string) {
 		}
 
 		logRun(db, t.id, "success", "", time.Since(start).Milliseconds())
+		audit.Emit(context.Background(), audit.Event{
+			Category:   audit.CategoryScheduler,
+			Action:     "task.complete",
+			Actor:      "system",
+			Surface:    audit.SurfaceCron,
+			Resource:   "scheduled_tasks/" + t.id,
+			Outcome:    audit.OutcomeOK,
+			DurationMS: time.Since(start).Milliseconds(),
+			ParamsSummary: map[string]any{
+				"next_run": nextRun,
+			},
+		})
 		slog.Info("fired task",
 			"id", t.id, "jid", t.jid, "cron", t.cronExpr,
 			"context_mode", t.contextMode, "next_run", nextRun)

@@ -38,6 +38,13 @@ func testDB(t *testing.T) *sql.DB {
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT,
 			seq INTEGER DEFAULT 0, match TEXT, target TEXT,
 			observe_window_messages INTEGER, observe_window_chars INTEGER)`,
+		`CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			category TEXT NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL,
+			actor_sub TEXT, resource TEXT, scope TEXT, surface TEXT,
+			params_summary TEXT, outcome TEXT NOT NULL, error_msg TEXT,
+			duration_ms INTEGER, turn_id TEXT, folder TEXT, instance TEXT,
+			request_id TEXT, source_ip TEXT)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("schema: %v", err)

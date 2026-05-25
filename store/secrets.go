@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
@@ -52,15 +54,42 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
 		   value = excluded.value,
 		   created_at = excluded.created_at`,
 		string(scope), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	folder := ""
+	if scope == ScopeFolder {
+		folder = scopeID
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.set",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("secrets/%s/%s/%s", scope, scopeID, key),
+		Scope:    string(scope),
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"value": value,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error) {
@@ -116,11 +145,35 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM secrets WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
 		string(scope), scopeID, key,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	folder := ""
+	if scope == ScopeFolder {
+		folder = scopeID
+	}
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.delete",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: fmt.Sprintf("secrets/%s/%s/%s", scope, scopeID, key),
+		Scope:    string(scope),
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // PurgeUnencryptedSecrets removes secrets not prefixed with "v1:" (plaintext
