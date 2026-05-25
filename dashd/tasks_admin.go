@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // handleTaskDetail renders GET /dash/tasks/{id} — full task fields + last 20 run logs.
@@ -154,6 +157,17 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "task.update",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: "scheduled_tasks/" + id,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"status": newStatus,
+		},
+	})
 	slog.Info("task action", "id", id, "action", action, "status", newStatus)
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }
@@ -198,6 +212,18 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "task.create",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: "scheduled_tasks/" + id,
+		Folder:   owner,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"cron": cron,
+		},
+	})
 	slog.Info("task created", "id", id, "owner", owner, "cron", cron)
 	http.Redirect(w, r, "/dash/tasks/"+id, http.StatusSeeOther)
 }

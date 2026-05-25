@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
@@ -190,6 +192,20 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.update",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   body.Target,
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"seq":    body.Seq,
+			"match":  body.Match,
+			"target": body.Target,
+		},
+	})
 	slog.Info("route updated", "id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -225,6 +241,15 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "route.delete",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: fmt.Sprintf("routes/%d", id),
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+	})
 	slog.Info("route deleted", "id", id)
 	if r.Method == http.MethodPost {
 		http.Redirect(w, r, "/dash/routes/", http.StatusSeeOther)

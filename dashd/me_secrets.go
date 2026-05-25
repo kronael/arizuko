@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 // keyPattern: uppercase ENV-style identifiers only.
@@ -140,6 +143,19 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.set",
+		Actor:    "user:" + sub,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: "secrets/user/" + sub + "/" + body.Key,
+		Scope:    "user",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"value": body.Value,
+		},
+	})
 	slog.Info("me_secrets create", "sub", sub, "key", body.Key)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -184,6 +200,19 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.set",
+		Actor:    "user:" + sub,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: "secrets/user/" + sub + "/" + key,
+		Scope:    "user",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"value": body.Value,
+		},
+	})
 	slog.Info("me_secrets update", "sub", sub, "key", key)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -218,6 +247,16 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySecret,
+		Action:   "secret.delete",
+		Actor:    "user:" + sub,
+		ActorSub: sub,
+		Surface:  audit.SurfaceREST,
+		Resource: "secrets/user/" + sub + "/" + key,
+		Scope:    "user",
+		Outcome:  audit.OutcomeOK,
+	})
 	slog.Info("me_secrets delete", "sub", sub, "key", key)
 	w.WriteHeader(http.StatusNoContent)
 }

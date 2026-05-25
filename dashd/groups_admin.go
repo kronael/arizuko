@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -389,6 +391,15 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryMutation,
+		Action:   "group.delete",
+		Actor:    "rest:dashd",
+		Surface:  audit.SurfaceREST,
+		Resource: "groups/" + folder,
+		Folder:   folder,
+		Outcome:  audit.OutcomeOK,
+	})
 	if d.groupsDir != "" {
 		// Best-effort cleanup. Symlink-escape guard via filepath.Clean +
 		// prefix check before rm.
