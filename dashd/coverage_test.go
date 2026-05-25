@@ -40,49 +40,10 @@ func testDBFile(t *testing.T) *sql.DB {
 
 // --- data-path tests for row-rendering functions ---
 
-func TestStatusWithChannels(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel', 'http://t/'), ('disc', 'http://d/')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, errored)
-		 VALUES('m1', 'a', 'u', 'ok', '2026-01-01T00:00:00Z', 0),
-		       ('m2', 'b', 'u', 'bad', '2026-01-01T00:00:00Z', 1)`); err != nil {
-		t.Fatal(err)
-	}
-	d := &dash{db: db, dbPath: "/tmp/x.db"}
-	mux := http.NewServeMux()
-	d.registerRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/dash/status/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("status = %d", w.Code)
-	}
-	body := w.Body.String()
-	for _, want := range []string{"tel", "http://t/", "disc", "banner-warn"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in body: %s", want, body)
-		}
-	}
-}
-
-func TestStatusNoChannelsErrBanner(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:"}
-	mux := http.NewServeMux()
-	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/status/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if !strings.Contains(w.Body.String(), "banner-err") {
-		t.Errorf("expected banner-err for zero channels: %s", w.Body.String())
-	}
-}
+// Channels widget was removed when the channels SQL table was dropped
+// (migration 0065). Production registry is in-memory chanreg fed by
+// adapter HTTP self-registration; dashd no longer reads channels.
+// TestStatusWithChannels + TestStatusNoChannelsErrBanner removed.
 
 func TestTasksPartialRows(t *testing.T) {
 	db := testDB(t)
@@ -604,32 +565,5 @@ func TestPortalRejectsNonRoot(t *testing.T) {
 	}
 }
 
-// --- LIMIT 500 bound: confirm the handler caps rows. ---
-
-func TestStatusChannelsLimit500(t *testing.T) {
-	db := testDB(t)
-	defer db.Close()
-	// Insert 600 channels; handler should cap at 500.
-	tx, _ := db.Begin()
-	stmt, _ := tx.Prepare(`INSERT INTO channels(name, url) VALUES(?, ?)`)
-	for i := 0; i < 600; i++ {
-		if _, err := stmt.Exec("ch"+itoa(i), "u"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	stmt.Close()
-	tx.Commit()
-
-	d := &dash{db: db, dbPath: ":memory:"}
-	mux := http.NewServeMux()
-	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/status/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	body := w.Body.String()
-	// count channel rows: every channel emits <tr><td>...chN...</td>
-	n := strings.Count(body, "<tr><td>ch")
-	if n != 500 {
-		t.Errorf("channel rows = %d, want 500 (LIMIT bound)", n)
-	}
-}
+// TestStatusChannelsLimit500 removed alongside the channels widget
+// (migration 0065 dropped the channels table; dashd no longer reads it).

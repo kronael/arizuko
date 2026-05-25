@@ -195,32 +195,35 @@ and outbound queues internally until the channel re-registers.
 Declared at registration. The router refuses outbound calls when the
 relevant capability is `false`:
 
-| Capability      | Endpoint guarded                           |
-| --------------- | ------------------------------------------ |
-| `send_text`     | `/send`                                    |
-| `send_file`     | `/send-file`                               |
-| `typing`        | `/typing` (silently no-op when false)      |
-| `fetch_history` | `GET /v1/history`                          |
-| `fwd`           | `/forward`                                 |
-| `quote`         | `/quote`                                   |
-| `repost`        | `/repost`                                  |
-| `dislike`       | `/dislike` (separate from `/like`)         |
-| `edit`          | `/edit`                                    |
-| `receive_only`  | channel never delivers inbound (docs-only) |
+| Capability      | Endpoint guarded                      |
+| --------------- | ------------------------------------- |
+| `send_text`     | `/send`                               |
+| `send_file`     | `/send-file`                          |
+| `typing`        | `/typing` (silently no-op when false) |
+| `fetch_history` | `GET /v1/history`                     |
+| `fwd`           | `/forward`                            |
+| `quote`         | `/quote`                              |
+| `repost`        | `/repost`                             |
+| `dislike`       | `/dislike` (separate from `/like`)    |
+| `edit`          | `/edit`                               |
 
 Extensible. Unknown capabilities are ignored. `/like`, `/post`,
 `/delete` are not capability-gated by the router — adapters that
 can't satisfy them respond `501 unsupported` with a structured
 `{tool, platform, hint}` body.
 
-## Internal service channels
+## Internal services and outbound
 
-Internal services (onbod, dashd) register in the same
-channels table as external adapters using `receive_only: true` —
-they receive routed messages but never deliver inbound messages.
-No JID prefixes — router sends to them only when a route rule
-targets their service name. See individual service specs for
-their registration details.
+Internal services (onbod, timed, dashd) are NOT channels. They do
+not call `/v1/channels/register`. They are HTTP clients of the
+router that emit outbound messages via `/v1/outbound` (see below)
+when they need to deliver something to a chat.
+
+The earlier design persisted an adapter registry in a SQL
+`channels` table for cross-process lookup. That table was retired
+in v0.28.0 — the in-memory `chanreg` registry (fed by HTTP
+self-registration of external adapters) is the only registry.
+The SQL table was dropped in migration 0065.
 
 ### Outbound via router (`/v1/outbound`)
 

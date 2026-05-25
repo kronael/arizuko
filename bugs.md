@@ -117,10 +117,39 @@ Consolidated from per-group `issues.md` files across krons, sloth, marinade.
 ## 2026-05-13 — reference-manual audit findings
 
 - **Stale tool name in `tier1FixedActions`** (ipc/): registered list contains `get_routes` but the actual registered tool name is `list_routes`. Tier-1 callers asking for the routes-list tool by canonical name miss the allowlist entry. Single-string fix; verify against `ipc/inspect.go` and the routing-tool registrations.
-- **Vestigial `grants` table** (`store/migrations/0005-grants.sql`): zero live readers/writers in Go; only the 0042 typed-JID migration touches it. Either delete via a new migration or document the dormant-by-design status.
-- **Read-only `channels` table** (from migration 0009): dashd reads, no production writer; production registry lives in-memory in `chanreg/`. If the in-memory registry is canonical, drop the table; if the table should hydrate the registry, wire it.
-- **Dead `email_threads` in shared DB**: emaid stores its own `emaid.db` with a different shape. The shared-DB version is orphaned. Audit + drop.
-- **Existing `concepts/grants.html` has wrong tier formula**: claims a bare `atlas` (no slash) is tier 1; actual formula in `grants.DeriveRules` is `Tier = min(strings.Count(folder, "/"), 3)` so bare `atlas` is tier 0. New `reference/grants.html` is correct; either update or redirect the old page.
+- ✅ **FIXED 2026-05-25**: **Vestigial `grants` table** — dropped in migration 0065.
+- ✅ **FIXED 2026-05-25**: **Read-only `channels` table** — dropped in migration 0065. dashd's three `FROM channels` reads removed; `chanCount==0 → err` status-dot logic (firing falsely since 2026-04-15) removed. spec `specs/4/1-channel-protocol.md` updated to document chanreg in-memory as the canonical registry.
+- ✅ **FIXED 2026-05-25**: **Dead `email_threads` in shared DB** — dropped in migration 0065. emaid keeps its own emaid.db.
+- **`concepts/grants.html` tier formula** — superseded by deeper bug below (two tier formulas collide). Page itself documents one tier model while agent runtime uses another. Fix is at the code level, not the doc level.
+
+## Tier-formula collision (surfaced 2026-05-25)
+
+Two competing formulas compute "tier" for the same folder:
+
+- `auth/identity.go:19` — `Tier = min(strings.Count(folder, "/"), 3)`.
+  Bare `atlas` (no slash) → tier 0. Used by `auth.Authorize`,
+  `auth/policy.go` (Structural and other authz checks).
+- `container/runner.go:70` — `strings.Count(folder, "/") + 1` (when
+  not root). Bare `atlas` → tier 1. Used to set `ARIZUKO_TIER` env
+  var injected into agent containers. Agent reads this and follows
+  the tier-1 web-publishing recipe in `~/.claude/CLAUDE.md`.
+
+So `atlas` is simultaneously tier 0 (per auth) and tier 1 (per agent
+env). They encode different concepts under the same word —
+"privilege class" vs "nesting depth." Authz is looser than the
+agent thinks; the agent applies a recipe (Case B: subdomain vhost)
+that authz wouldn't enforce.
+
+Concrete symptom: atlas/strengths failure traced 2026-05-25 — agent
+saw `tier=1` env, applied subdomain recipe, subdomain didn't exist,
+files went to wrong path. v0.45.10 patched the recipe to be
+defensive; the formula split itself remains.
+
+Fix: pick one canonical formula, replace the other call sites,
+align all docs. Likely the `runner.go` form (privilege class) is
+the canonical one for both env injection AND authz — `min(...,3)`
+collapses tiers 3+ into "no surface" which is a different concern.
+Worth a dedicated spec.
 
 ## Topic / pane MCP tools (2026-05-16, found via integration tests)
 

@@ -277,13 +277,12 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var chanCount, erroredCount, failedTasks int
+	var erroredCount, failedTasks int
 	var scanErrs []string
 	for _, q := range []struct {
 		sql string
 		dst *int
 	}{
-		{`SELECT COUNT(*) FROM channels`, &chanCount},
 		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
 		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, &failedTasks},
 	} {
@@ -296,7 +295,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	errMsg := strings.Join(scanErrs, "; ")
 
 	statusDot := "ok"
-	if len(scanErrs) > 0 || chanCount == 0 {
+	if len(scanErrs) > 0 {
 		statusDot = "err"
 	} else if erroredCount > 0 {
 		statusDot = "warn"
@@ -362,14 +361,13 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Status")
 
-	var groupCount, sessionCount, chanCount, erroredCount int
+	var groupCount, sessionCount, erroredCount int
 	for _, q := range []struct {
 		sql string
 		dst *int
 	}{
 		{`SELECT COUNT(*) FROM groups`, &groupCount},
 		{`SELECT COUNT(*) FROM sessions`, &sessionCount},
-		{`SELECT COUNT(*) FROM channels`, &chanCount},
 		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
 	} {
 		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
@@ -377,11 +375,9 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bannerText := fmt.Sprintf("%d channels, %d groups, %d errored chats", chanCount, groupCount, erroredCount)
+	bannerText := fmt.Sprintf("%d groups, %d errored chats", groupCount, erroredCount)
 	bannerClass := "ok"
-	if chanCount == 0 {
-		bannerClass = "err"
-	} else if erroredCount > 0 {
+	if erroredCount > 0 {
 		bannerClass = "warn"
 	}
 	fmt.Fprint(w, `<p class="dim">Service health</p>`)
@@ -392,31 +388,6 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 		{`Active sessions`, fmt.Sprintf(`%d`, sessionCount)},
 	}
 	fmt.Fprint(w, htmlTable([]string{"metric", "value"}, metricRows))
-
-	rows, err := d.db.Query(`SELECT name, url FROM channels ORDER BY name LIMIT 500`)
-	if err != nil {
-		slog.Warn("status: query channels", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "channels query error: "+err.Error()))
-		pageClose(w, r)
-		return
-	}
-	defer rows.Close()
-	var chanRows [][]string
-	for rows.Next() {
-		var name, chanURL string
-		if err := rows.Scan(&name, &chanURL); err != nil {
-			slog.Warn("status: scan channels row", "err", err)
-			continue
-		}
-		chanRows = append(chanRows, []string{esc(name), esc(chanURL)})
-	}
-	if err := rows.Err(); err != nil {
-		slog.Warn("status: channels rows", "err", err)
-		fmt.Fprint(w, htmlBanner("err", "channels rows error: "+err.Error()))
-		pageClose(w, r)
-		return
-	}
-	fmt.Fprint(w, htmlSection("Channels", htmlTable([]string{"name", "url"}, chanRows)))
 
 	pageClose(w, r)
 }
