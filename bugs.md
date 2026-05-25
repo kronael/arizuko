@@ -355,3 +355,23 @@ marinade. Still missing for: `krons/krons` (root), `atlas/tom`,
 Backfill mechanism exists per v0.45.9 (`/compact-memories diary
 month 2026-04` override arg). Not auto-queued. Operator can run
 manually per affected group.
+
+## marinade emaid IMAP auth failure — 8 days continuous (2026-05-25)
+
+`arizuko_emaid_marinade` has been logging `imap: NO [AUTHENTICATIONFAILED]
+Invalid credentials (Failure)` against `imap.gmail.com:993` every ~60s
+since **2026-05-17 18:13 UTC** (8 days, 11,463 error rows). Account:
+`im.atlas.the.alpha@gmail.com`. Most likely cause: Gmail app-specific
+password was revoked or 2FA changed.
+
+Effect: marinade's email channel is dead (no inbound, no outbound),
+emaid container is healthy but performing zero useful work. Burns CPU
+on the auth-retry loop.
+
+To clear: operator regenerates a Gmail app password for the account,
+updates `EMAIL_PASSWORD` in `/srv/data/arizuko_marinade/.env`, runs
+`sudo systemctl restart arizuko_marinade`. Alternatively, if email on
+marinade is no longer wanted, remove emaid from the marinade compose
+profile (or set `EMAIL_ACCOUNT=` empty so compose skips it).
+
+Not present on krons or sloth (0 IMAP errors). marinade-only.
