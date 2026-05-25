@@ -422,3 +422,25 @@ unblock from the Telegram client). Patch sketch:
 
 Low priority — atlas/tom was the only affected JID across all three
 instances. Will become more valuable if other recipients block bots.
+
+## atlas/tom group removed from marinade (2026-05-25)
+
+Per user direction: full group removal beyond just the cron tasks.
+
+Removed:
+- `routes` row id=7 (`room=user/1818847397 → atlas/tom`)
+- `groups` row `atlas/tom` (1 row)
+- Group folder moved to backup: `/srv/data/arizuko_marinade/groups/atlas/.tom.removed-20260525/` (123M, recoverable)
+
+Preserved (audit trail):
+- 87 historical messages in `messages` table with `chat_jid='telegram:user/1818847397'`
+- 11 failed/pending outbound rows from before the cron cleanup
+- 5 cron tasks deleted in prior commit (`bfadd59`)
+
+Backup folder uses the `.tom.removed-20260525` name so it sorts to the
+top of `ls` (dot-prefixed) and is unambiguous about deletion intent.
+Remove permanently with `sudo rm -rf` once you're certain you don't
+need the per-group data (`.diary/`, `MEMORY.md`, persona, skills,
+episodes, etc.).
+
+No other instances touched. krons + sloth unchanged.
