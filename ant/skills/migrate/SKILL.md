@@ -220,7 +220,13 @@ done
 
 **One short message. Run the script, send verbatim. No additions.**
 
-Format: `version — most impactful user-facing change. changelog link`
+Format (three lines, blank between bullet and link):
+
+```
+version — most impactful user-facing change
+<blank>
+https://github.com/kronael/arizuko/blob/main/CHANGELOG.md
+```
 
 ```bash
 latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
@@ -231,11 +237,12 @@ echo "$latest" > "$guard"
 # First bullet under the > blockquote — the top user-facing change
 bullet=$(awk '/^## \[v/{n++} n==1 && /^> •/{sub(/^> • /,""); print; exit}' \
   /workspace/self/CHANGELOG.md)
-printf '%s — %s github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest" "$bullet"
+printf '%s — %s\n\nhttps://github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest" "$bullet"
 ```
 
-The script prints `SKIP` (stop) or the exact message. Send verbatim via `send`.
-No extra bullets, no blockquote — the link is where details live.
+The script prints `SKIP` (stop) or the exact message. Send verbatim via
+`send`. Plain text — no markdown bold, no blockquote, no extra bullets.
+The link on its own line so chat clients render it as a preview card.
 
 Fan out rules:
 - **Telegram** (`room=`): one message per unique JID
