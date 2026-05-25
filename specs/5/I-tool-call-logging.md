@@ -152,10 +152,9 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 
 ## Non-goals
 
-- **OTLP export.** Sending audit / telemetry to an external collector
-  is a separate spec, postponed. Acknowledged path: the slog stream
-  can be tee'd to an OTLP exporter without changing the source of
-  truth.
+- **OTLP export.** Defined in [`O-otlp-export.md`](O-otlp-export.md):
+  slog stream tee'd to an OTLP exporter without changing the source
+  of truth (`audit_log` stays SQLite-canonical).
 - **Replacing slog with audit_log as the only sink.** slog is the
   high-rate, lossy, interactive channel; audit_log is the durable,
   transactional, queryable channel. Both stay.

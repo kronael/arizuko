@@ -132,7 +132,7 @@ sudo sqlite3 /srv/data/arizuko_krons/store/messages.db \
 ## What's out of scope
 
 - File rotation, JSONL export, SIEM webhooks — add later if operators need them
-- OTLP exporter — postponed; tee'd off slog when it lands
+- OTLP exporter — covered by [`../5/O-otlp-export.md`](../5/O-otlp-export.md); slog stream tee'd to OTLP, this table stays canonical
 - Message content — never logged (PII)
 - Agent tool-use telemetry (Bash, Edit, Read in-container) — emitted to
   slog under [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md)
