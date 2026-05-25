@@ -257,3 +257,101 @@ Operator-data fix landed for atlas/strengths
 (`/srv/data/arizuko_marinade/groups/atlas/strengths/CLAUDE.md` —
 explicit override disabling the tier-2 recipe). Platform fix queued
 for triage.
+
+## Discord — thread fetch_history blindness (2026-05-25, fixed)
+
+**Fixed:** commit `098996c` — `discd/bot.go` now stores Discord-thread
+inbound under the parent channel's `chat_jid` with `topic = thread_id`.
+Before: thread messages got `chat_jid=<guild>/<thread_id>` siloed from
+the parent channel that spawned them, so `fetch_history(thread_jid)`
+missed the agent's own prior reply in the parent. Real-world trigger:
+sloth replied at 14:09 in channel `920916162416635944` to "@sloth long
+oil right now?"; user followed up at 14:55 in a thread spawned off
+that reply (thread `1508471966544433243`); agent's fetch on the thread
+returned only the follow-up, missing its own reply. Agent then admitted
+"I can't see my own message in this thread's history" — exact bug.
+
+Test: `discd/integration_test.go::TestOnMessage_ThreadInGuild_UsesParentJID`.
+Deployed to krons + marinade + sloth via `sudo make images` + systemctl
+restart at 2026-05-25T15:35Z. Discord adapter (`arizuko_discd_sloth`)
+reconnected as `sloth_re_tardus` at 15:35:19.
+
+**Caveat (known limitation, not addressed in this fix):** `SendVoice`
+and `SendFile` signatures in `chanlib.BotHandler` don't carry a
+`topic` field. Voice/file replies from within a thread will land in
+the **parent channel**, not the thread. Out of scope for the
+fetch_history fix. Tracked separately (low priority — voice/file in
+discord threads is rare; agent text replies via Send do route to the
+thread correctly via `SendRequest.ThreadID`).
+
+**Migration:** existing thread rows keep their old `chat_jid=thread_id`.
+Engagement TTLs on stale thread JIDs expire within ~20m. No data
+rewrite.
+
+## whapd_krons session-401 restart loop (2026-05-25, ops)
+
+`arizuko_whapd_krons` is in a restart loop every ~60s. Pattern: WHATSAPP
+session token invalidated (`code=401`, `"session invalidated, delete
+auth dir and re-pair"`), container exits, systemd restarts, repeat.
+Memory note `reference_whapd_pairing` from 2026-05-21: pairing code
+`LMDTPW8J` was issued to user's phone (+420735544891); user hasn't
+completed the pairing flow on the device side. **Status: waiting on
+user phone action; not a platform bug.** Side effect: `arizuko_gated_krons`
+emits WARN every ~30s about the failed channel health check (DNS
+miss → 503 disconnected). No traffic impact (whatsapp routes won't fire
+anyway with no session). To clear: complete pairing on the phone via
+LMDTPW8J, OR remove whapd from `template/services/whapd.toml` for the
+krons compose if WhatsApp on krons is no longer wanted.
+
+## Krons agent 900s container timeout on long parallel research (2026-05-25, design limit)
+
+Krons agent hit `Query timeout (900000ms) reached, aborting` during a
+parallel-subagent guide-writing task at 15:50:26 UTC. 35 turns of
+user/assistant alternation, oracle critique loops. Container exited
+with code 1; user-visible as an aborted reply. Recovery: agent
+recovered on next turn (15:51:37). Two user messages (`build a guide
+for each...` + `also once done based on this suggest improvements...`)
+ended up with `errored=1` in the messages table — visible to the user
+as failed turns. **Status: design limit, not a bug.** 900s is the
+intentional Claude Code SDK abortion cap. Worth surfacing in
+ARCHITECTURE.md / EXTENDING.md as a known constraint with mitigation
+hints (split long tasks into multiple turns; checkpoint progress to
+~/facts/ to survive the abort; spawn fewer parallel subagents).
+
+## Compaction — sloth has zero compact-log entries post-v0.45.9 (2026-05-25)
+
+v0.45.9 introduced `.compact-log.jl` artifacts under
+`<group>/episodes/` and `<group>/diary/`. After redeploy:
+
+- krons: 9 WRITE + 1 SKIP_NO_SOURCES (8 diary-month + 1 month written)
+- marinade: 2 WRITE + 9 SKIP_NO_SOURCES (3 diary-month written)
+- **sloth: 0 entries — no compaction has executed since v0.45.9 deploy**
+
+Likely root cause: sloth's scheduled_tasks point at non-canonical
+chat_jids (`Coach` capital vs lowercase `coach` folder; `local:main`
+after sub-group split; `Strengths` shape). The cron prompts dispatch
+but the agent container for those JIDs never spawns — no agent =
+no compact-log. Per prior user direction (bugs.md "Operator-data —
+left as zero-output"): **do not delete** these tasks. But the
+secondary effect is sloth gets no compaction at all. Tension between
+"don't delete" and "system should be perfect." Worth a re-decision:
+either route sloth's cron tasks to a valid agent (e.g. rename `Coach`
+chat_jid to `coach`, migrate `local:main` to a sub-group, provision
+proper task for `main/content`), or accept sloth runs without
+compaction indefinitely.
+
+## Diary/month — partial coverage after v0.45.9 (2026-05-25)
+
+April 2026 diary-month rollups produced for 7 groups across krons +
+marinade. Still missing for: `krons/krons` (root), `atlas/tom`,
+`atlas/content`, all sloth groups. Likely a mix of:
+
+1. Groups where the May-1 04:00 UTC diary-month cron hasn't fired
+   yet on a post-v0.45.9 image. Will fix itself on June 1.
+2. Groups where the cron task is misconfigured (sloth's JID drift).
+3. Groups where source data (`diary/week/*.md`) doesn't exist for
+   the period — legitimate SKIP_NO_SOURCES.
+
+Backfill mechanism exists per v0.45.9 (`/compact-memories diary
+month 2026-04` override arg). Not auto-queued. Operator can run
+manually per affected group.
