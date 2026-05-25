@@ -5,7 +5,6 @@ description: >
   frontmatter. USE for new specs, status updates (draft→spec→partial
   →shipped), `specs/index.md`, architecture docs. NOT for CLAUDE.md
   (use wisdom) or in-flight tasks (use ship).
-user-invocable: true
 ---
 
 # Specs

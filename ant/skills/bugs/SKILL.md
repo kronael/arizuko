@@ -4,7 +4,6 @@ description: >
   Record open issues in `bugs.md` at project root. NOT for fixing — fixes happen on
   explicit request. After resolution, move a one-line reference to the diary.
 when_to_use: "bug found", "log this bug", "open issues", debugging-but-not-fixing-now, audit-record-only, "what's broken", "what's the queue"
-user-invocable: true
 ---
 
 # Bugs
