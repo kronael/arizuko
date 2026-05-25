@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"database/sql"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
@@ -103,6 +105,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceREST,
+		Resource: "daemons/dashd",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"port": port,
+		},
+	})
 
 	slog.Info("dashd started", "db", dsn, "port", port)
 

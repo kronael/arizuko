@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/container"
@@ -72,6 +74,19 @@ func main() {
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		slog.Warn("set WAL mode", "err", err)
 	}
+
+	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceREST,
+		Resource: "daemons/onbod",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"addr": cfg.listenAddr,
+		},
+	})
 
 	mux := http.NewServeMux()
 	stripUnsigned := auth.StripUnsigned(os.Getenv("PROXYD_HMAC_SECRET"))
