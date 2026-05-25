@@ -100,6 +100,10 @@ Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
 - [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
   writer; dual-write event-sourcing-lite; SQLite as cache; fork via
   `git worktree`; audit via `git log`.
+- [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
+  — open questions: how ingestion, curation, and eventing fit the
+  agent-is-data + git-as-truth thesis. Status: open-questions; no
+  mechanism proposed.
 
 ## Open questions (referenced from each spec)
 
