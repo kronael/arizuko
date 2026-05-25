@@ -121,6 +121,20 @@ func main() {
 	gw.SetAudit(aud)
 	aud.StartPoll(ctx, s.DB())
 
+	audit.Init(s.DB(), cfg.Name)
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceGateway,
+		Resource: "daemons/gated",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"poll_interval":  cfg.PollInterval.String(),
+			"max_containers": cfg.MaxContainers,
+		},
+	})
+
 	reg.StartHealthLoop(ctx)
 
 	go func() {

@@ -23,10 +23,12 @@ token), CLI (operator over a local socket). All converge on the same
 function in `resreg.Resource.Handler`. No surface is privileged with
 features the others lack.
 
-Auth uniformly via `Authorize` from `specs/4/9-acl-unified.md`. The
-`Caller` in `resreg/resreg.go:44` is the surface-agnostic principal;
-its `Scope` field is the operator-token shorthand resolved against
-the ACL at session bind.
+Auth uniformly via `auth.Authorize` from
+[`specs/4/9-acl-unified.md`](../4/9-acl-unified.md). `resreg.Caller` is
+the surface-agnostic principal (`Sub`, `Name`, `Folder`, `Tier`,
+`Claims`); `Claims` carries JWT predicates the ACL rows match against
+(e.g. `operator=1`). Per-call resolvers populate it for each surface;
+no scope-list shorthand survives — the ACL rows are the source.
 
 ## Inventory — today's writes
 
@@ -74,10 +76,13 @@ is a small struct literal. Catalog of new resources:
 | `scheduled_tasks` | (already partial — finish symmetry)                                             | timed         | folder-`admin` at scope                                         |
 | `web_routes`      | (already MCP — add REST mirror)                                                 | webd          | folder-`admin` at scope                                         |
 
-The pattern from `resreg/resreg.go:99` (`Resource` literal with
-`Endpoints`, `MCPTools`, `Policy`, `Handler`) covers each row. New
-action = one struct literal addition + one handler function. The
-handler is the only behavior; everything else is registration.
+The pattern from `resreg/resreg.go` (`Resource` literal with
+`Endpoints`, `MCPTools`, `Authz`, `Handler`, `Store`) covers each row.
+New action = one struct literal addition + one handler function. The
+handler is the only behavior; everything else is registration. Authz
+delegates to `auth.Authorize`; for store-backed resources the adapter
+threads a `*sql.Tx` in `Execution` so the mutation + audit row commit
+as a unit.
 
 ## CLI evolution — `cmd/arizuko/*.go`
 
@@ -177,9 +182,19 @@ Under unified ACL (`specs/4/9-acl-unified.md`):
 - **Leaf agent** — no `admin` rows; only `mcp:<tool>` rows derived
   from tier defaults. Same as today.
 
-`Authorize` is the only check. `resreg.ScopePred` consults it. The
-spec-6/5 `<resource>:<verb>[:own_group]` shorthand becomes an
-operator-token-minting affordance over the same ACL rows.
+`auth.Authorize` is the only check. resreg's per-resource `Authz`
+callback derives `(scope, params)` from the call and delegates —
+there is no parallel predicate machinery. The
+[`5/5`](5-uniform-mcp-rest.md) `<resource>:<verb>[:own_group]`
+shorthand is the operator-token-minting affordance over the same
+ACL rows.
+
+`resreg` is the canonical mechanism. Existing `ipc/ipc.go` hand-rolled
+tools migrate incrementally — see migration plan in
+[`5/5` Phased rollout](5-uniform-mcp-rest.md). The shape was reshaped
+post-oracle 2026-05-25 (per-invocation caller, tx-bound audit,
+forwarder pattern); see [`5/5` Execution context](5-uniform-mcp-rest.md)
+for the contract handlers must honour.
 
 ## Open questions
 
@@ -212,28 +227,32 @@ grant ...` etc. The MCP cutover means 5 sockets, 5 connections.
    shape.
 7. **Audit emit contract.** Settled (2026-05-25): every state-changing
    op via `resreg` writes exactly one `audit_log` row, synchronous and
-   transactional with the resource mutation — if the audit insert
-   fails, the mutation rolls back. Read-only ops emit slog telemetry
-   only, no DB row. slog → journald is separate operational telemetry
+   transactional with the resource mutation — adapter calls
+   `audit.EmitInTx(tx, ...)` _inside_ the same tx; on insert failure
+   the mutation rolls back. Read-only ops emit slog telemetry only,
+   no DB row. Forwarder resources (`Resource.Store == nil`, e.g.
+   `webd/routes_mcp.go`) skip the local audit row — the downstream
+   daemon writes it. slog → journald is separate operational telemetry
    (lossy, interactive); `audit_log` is the source of truth. Field
    schema: [`I-tool-call-logging.md`](I-tool-call-logging.md). Table
    definition: [`../6/F-audit-stream.md`](../6/F-audit-stream.md).
-   `resreg/resreg.go:328`'s structured log line becomes one of two
-   sinks (slog + `audit_log` insert) for mutating actions.
+   Implemented in `resreg/resreg.go` via the `Execution.Tx` contract.
 8. **Resource ownership across daemons.** `groups` is gated's;
    `invites` is onbod's; `web_routes` is webd's. Each registers its
    own resources. The MCP socket terminates in gated, so MCP calls
-   to `invites.*` must forward to onbod over HTTP. Pattern:
-   `resreg.Forwarder{To: "http://onbod:8080/v1/invites"}` as a
-   handler. Worth specifying explicitly or leave to per-resource
-   implementation? Lean: spec the forwarder when the first
-   cross-daemon resource lands (`invites` is it).
+   to `invites.*` must forward to onbod over HTTP. Pattern shipped
+   (2026-05-25): the forwarder is a `Resource{Store: nil}` whose
+   `Handler` does an HTTP call downstream; the adapter skips the
+   tx/audit dance, and the destination daemon writes the audit row.
+   `webd/routes_mcp.go` is the canonical example.
 
 ## Code pointers
 
-- `resreg/resreg.go:99` — `Resource` literal shape.
-- `resreg/resreg.go:182` — `RegisterREST` mux mount.
-- `resreg/resreg.go:234` — `MCPTools` MCP registration.
+- `resreg/resreg.go` — `Resource` / `Execution` / `Handler` types,
+  `RegisterREST`, `MCPTools` (per-invocation caller resolver), `invoke`
+  (authz → tx → handler → audit → commit/rollback).
+- `proxyd/resource.go` + `webd/routes_mcp.go` — the two existing call
+  sites (routes resource, store-backed + forwarder respectively).
 - `ipc/ipc.go:632`, `:646`, `:922` — existing wrappers (`granted`,
   `registerWithSecrets`, `regSocial`) that the registry replaces.
 - `store/*.go` — every write call to migrate, per inventory above.
