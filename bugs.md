@@ -318,6 +318,8 @@ ARCHITECTURE.md / EXTENDING.md as a known constraint with mitigation
 hints (split long tasks into multiple turns; checkpoint progress to
 ~/facts/ to survive the abort; spawn fewer parallel subagents).
 
+Docs: `ARCHITECTURE.md` ## Long-running tasks — the 900s container timeout
+
 ## Compaction — sloth has zero compact-log entries post-v0.45.9 (2026-05-25)
 
 v0.45.9 introduced `.compact-log.jl` artifacts under

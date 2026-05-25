@@ -475,6 +475,46 @@ per-chat quarantine.
   message gets a clean run.
 - Container timeout: graceful `docker stop` → `Process.Kill`.
 
+## Long-running tasks — the 900s container timeout
+
+The Claude Code SDK inside the agent container hard-aborts any single
+turn at **900 seconds (15 min) of wall time**. This is a property of
+the upstream SDK, not arizuko — there is no platform-side knob to
+raise it. Observed 4+ times in May 2026 (atlas 2026-05-07/19/25,
+krons 2026-05-25, atlas-support 2026-05-19).
+
+In logs:
+
+```
+Query timeout (900000ms) reached, aborting
+Container exited with code 1
+```
+
+User-visible impact: the in-flight reply is dropped; any inbound
+messages that arrived during the timing-out turn get tagged
+`errored=1` in `messages`. The agent typically recovers on the next
+inbound (cursor advanced, fresh container), but the errored rows
+stay flagged in the DB and surface as failed turns in the UI.
+
+Mitigations available to skill authors and agents (no platform
+change required):
+
+- **Split into multiple turns** — emit partial results, ask the user
+  for "continue" rather than packing a 15-minute job into one turn.
+- **Checkpoint progress** — write intermediate state to `~/facts/`
+  or `~/tmp/` between subtasks so a fresh container can resume
+  instead of restarting from zero.
+- **Fewer parallel subagents** — every Task subagent shares the
+  parent turn's wall budget; 8 parallel critics is 8× the chance of
+  one stalling out the whole turn.
+- **Background long jobs** — pass `run_in_background: true` to the
+  Task tool for genuinely long work; the parent turn returns
+  immediately and the agent can poll/resume later.
+- **Self-terminate agentic loops** — count actual iterations and
+  stop well before the cap; a loop that ran 28 of an intended 30
+  iterations and saved partial output is better than one that hit
+  900s mid-iteration 30 and dropped everything.
+
 ## Prompt Assembly
 
 Every inbound turn the gateway emits an envelope of small XML-shaped
