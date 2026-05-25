@@ -816,6 +816,20 @@ func main() {
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
+	audit.Init(st.DB(), coreCfg.Name)
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceREST,
+		Resource: "daemons/proxyd",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"port":   cfg.port,
+			"routes": len(s.routes()),
+		},
+	})
+
 	go func() {
 		t := time.NewTicker(5 * time.Second)
 		defer t.Stop()

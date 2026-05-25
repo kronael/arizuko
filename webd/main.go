@@ -11,6 +11,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
@@ -57,6 +58,19 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+
+	audit.Init(st.DB(), os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceREST,
+		Resource: "daemons/webd",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"addr": cfg.listenAddr,
+		},
+	})
 
 	hub := newHub()
 

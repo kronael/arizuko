@@ -1,6 +1,7 @@
 package chanreg
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/audit"
 )
 
 type Entry struct {
@@ -110,6 +113,20 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 	r.entries[name] = e
 	r.byToken[token] = e
 
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategoryChannel,
+		Action:   "channel.register",
+		Actor:    "channel:" + name,
+		Surface:  audit.SurfaceREST,
+		Resource: "channels/" + name,
+		Outcome:  audit.OutcomeOK,
+		SourceIP: originIP,
+		ParamsSummary: map[string]any{
+			"url":      rawURL,
+			"prefixes": prefixes,
+		},
+	})
+
 	return token, nil
 }
 
@@ -121,6 +138,16 @@ func (r *Registry) Deregister(name string) {
 		delete(r.entries, name)
 	}
 	r.mu.Unlock()
+	if ok {
+		audit.Emit(context.Background(), audit.Event{
+			Category: audit.CategoryChannel,
+			Action:   "channel.deregister",
+			Actor:    "channel:" + name,
+			Surface:  audit.SurfaceREST,
+			Resource: "channels/" + name,
+			Outcome:  audit.OutcomeOK,
+		})
+	}
 }
 
 func (r *Registry) Get(name string) *Entry {
