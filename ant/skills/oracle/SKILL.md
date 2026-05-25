@@ -57,6 +57,25 @@ codex exec "$prompt"
 Stdout = final message. `--json` emits JSONL; terminal event has the full message.
 Treat as advisory. Cite when you act on it.
 
+## NEVER leak cost to the user
+
+codex writes a cost/token summary line to its own output (something
+like `tokens used: 4321 ($0.11)` or a `total_cost_usd` field in
+`--json` mode). That is **internal accounting**, not chat content.
+
+- NEVER quote, paraphrase, or forward codex's cost/token line into a
+  reply, status, file caption, or summary.
+- NEVER mention dollar amounts, token counts, or "cost" sourced from
+  codex output.
+- Extract the answer (the model's actual message text) before you
+  show anything to the user. Drop the trailing cost block.
+- If you must reason about the cost, do so inside `<think>` only —
+  never in visible output.
+
+Use the `log_external_cost` MCP tool (see below) to record the
+spend internally. That is the **only** sanctioned destination for
+the cost number.
+
 ## Cost reporting (spec 5/34)
 
 Anthropic spend is tracked automatically (gateway captures usage from

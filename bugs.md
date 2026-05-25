@@ -632,11 +632,15 @@ bug describing this very process — and it's still manual.
 
 #### marinade
 
-- **2026-05-20** slakd `conversations.typing` API returns `unknown_method`
-  every ~3s (continuous WARN spam since v0.42.0). Migration 136 advertised
-  the feature; Slack documents only `assistant.threads.setStatus` for
-  pane. Low severity (cosmetic), but broken feature.
-  (journalctl 2026-05-20T14:58Z)
+- ✅ **FIXED 2026-05-25** (already in HEAD, commit `2b7f5c0`): slakd
+  `conversations.typing` API returns `unknown_method` every ~3s
+  (continuous WARN spam since v0.42.0). Migration 136 advertised the
+  feature; Slack documents only `assistant.threads.setStatus` for pane.
+  Resolved 2026-05-20 by replacing both the `conversations.typing` and
+  `assistant.threads.setStatus` paths with a unified 👀 `reactions.add`
+  on the trigger message (`slakd/bot.go::setTypingReaction`). Bug
+  filed at 14:58Z; fix committed same day 20:28Z. Krons needs image
+  rebuild + restart to pick up the fix. (journalctl 2026-05-20T14:58Z)
 - **2026-05-24** Agent sends bare URLs as plain text; user wants explicit
   `[text](url)` markdown link formatting. Low.
   (`marinade/atlas/issues.md:56-73`)
@@ -703,3 +707,28 @@ bug describing this very process — and it's still manual.
 8. **CC5 subagent context drift** (medium; partial fix in hub skill, structural pending)
 
 Everything else is medium-low and can ride the next refine cycle.
+
+## Oracle skill — cost line leaked into user-visible reply (2026-05-25, fixed)
+
+Slug: `[krons/krons/20260521/oracle-cost-chat-leak]`. The `/oracle`
+skill drove `codex exec` as a subprocess, and codex's trailing cost
+summary (e.g. `cost: $0.11`) got forwarded into the chat reply. Cost
+tracking is internal — `log_external_cost` MCP tool — never chat.
+
+Fix: added explicit "NEVER leak cost to the user" rule to all three
+oracle SKILL.md copies:
+
+- `ant/skills/oracle/SKILL.md` (in-tree, used by agent containers)
+- `~/.claude/skills/oracle/SKILL.md` (host Claude Code)
+- `~/app/tools/skills/oracle/SKILL.md` (canonical kronael/tools mirror)
+
+Rule says: never quote/paraphrase/forward codex's cost or token
+line, never mention dollar amounts or token counts from codex
+output, extract the answer text and drop the trailing cost block,
+reason about cost only inside `<think>`. `log_external_cost` is
+the only sanctioned destination.
+
+Surprising bit: LOCAL.md still points at
+`~/app/tools/assistants/claude-template/global/skills/`, which
+doesn't exist on this host — the actual canonical is
+`~/app/tools/skills/oracle/`. LOCAL.md needs a refresh.
