@@ -65,7 +65,7 @@ skills  = ["diary", "facts", "recall-memories", "users", "issues", "web", "hello
 # 6. (Optional) teammates sign in via OAuth at /auth/login ONLY if they
 #    need per-user features (web UI, per-user secrets). Baseline channel
 #    access is authorized by the Slack workspace membership via the
-#    channel route — see specs/5/A-auth-consolidated.md.
+#    channel route — see specs/4/9-acl-unified.md.
 # 7. (Optional) operator pre-seeds per-folder API tokens via
 #    `sqlite3 store/messages.db` (runbook below)
 
@@ -161,7 +161,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
 
 # 7. (Optional) Teammates only need OAuth at /auth/login for per-user
 #    features (per-user secrets, web UI). Baseline channel access uses
-#    the channel route as the auth fence — see specs/5/A-auth-consolidated.md.
+#    the channel route as the auth fence — see specs/4/9-acl-unified.md.
 ```
 
 ## Honest gaps — what doesn't work without code

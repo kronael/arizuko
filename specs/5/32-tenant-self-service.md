@@ -197,10 +197,10 @@ Ship in order; each phase is useful even if later phases never land.
 Specs already shipped or planned that this references (do not duplicate
 their content):
 
-- `5/A-auth-consolidated.md` — folders + routes + ACL + identities;
-  supersedes the earlier `5/28-mass-onboarding.md` and `5/29-acl.md`
-  drafts (shipped)
-- `4/9-acl-unified.md` — single `acl` + `acl_membership` schema (shipped)
+- `4/9-acl-unified.md` — canonical unified ACL (shipped); subsumes the
+  earlier `5/A-auth-consolidated.md` design log (folders + routes +
+  identities + the three auth shapes), which in turn superseded
+  `5/28-mass-onboarding.md` and `5/29-acl.md`.
 - `7/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/30-inspect-tools.md` — read-only introspection (shipped)

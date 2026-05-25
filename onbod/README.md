@@ -106,6 +106,6 @@ rather than panicking. Do not remove this nil-check as dead code.
 ## Related docs
 
 - `specs/4/26-prototypes.md` (prototype mechanic)
-- `specs/5/A-auth-consolidated.md` (supersedes mass-onboarding + ACL specs)
+- `specs/4/9-acl-unified.md` (canonical ACL; subsumes the earlier `5/A-auth-consolidated.md` design log)
 - `specs/6/R-platform-api.md` (full `/v1/*` contract, token model)
 - `ARCHITECTURE.md` (Onboarding section)
