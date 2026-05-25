@@ -12,6 +12,28 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.9] — 2026-05-25
+
+> arizuko v0.45.9 — compact-memories correctness
+>
+> Audit across krons + marinade + sloth found 578 cron runs marked success while 35+ weekly/monthly rollups were silently skipped. `diary/month/` never created in any group across any instance. This release rewrites the skill to be deterministic and auditable.
+>
+> • Deterministic target-period math — week = last completed ISO week, month = last completed calendar month; no more current-vs-last-completed ambiguity
+> • Optional period-override arg for backfills (`/compact-memories episodes week 2026-W18`)
+> • Compact-log JSONL written every invocation — actual audit trail (`task_run_logs.status='success'` only confirms dispatch)
+> • Diary-month path explicit — `mkdir -p ~/diary/month/` on first invocation; was 100% broken before
+> • Strict frontmatter validation — period format, bare-filename sources, no duplicates, no body leak
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `ant/skills/compact-memories/SKILL.md` — full rewrite of target-period semantics, validation rules, audit logging
+- Migration `148-v0.45.9-compact-memories-fix.md`
+- `MIGRATION_VERSION` 147 → 148
+
+---
+
 ## [v0.45.8] — 2026-05-22
 
 > arizuko v0.45.8 — Tufte-style chart skill
