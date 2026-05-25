@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -106,10 +107,11 @@ func argRoute(args resreg.Args) (Route, error) {
 }
 
 // handle is the single Handler called by both REST and MCP adapters.
-// The action selects the branch; no surface-specific code lives below
-// this line.
-func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action resreg.Action, args resreg.Args) (any, error) {
-	switch action {
+// Mutating actions run inside x.Tx — DB writes via tx-aware store
+// helpers; in-memory cache swap happens after the tx commits in
+// adapter (the swap is best-effort; restart picks up persisted state).
+func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, error) {
+	switch x.Action {
 	case resreg.ActionList:
 		routes, _ := rr.snapshot()
 		out := make([]Route, 0, len(routes))
@@ -117,12 +119,9 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		return map[string]any{"routes": out}, nil
 
 	case resreg.ActionGet:
-		path, _ := args["path"].(string)
+		path := normalisePath(x.Args["path"])
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
-		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
 		}
 		routes, _ := rr.snapshot()
 		for _, r := range routes {
@@ -133,7 +132,7 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		return nil, resreg.Errorf(http.StatusNotFound, "route %q not found", path)
 
 	case resreg.ActionCreate:
-		r, err := argRoute(args)
+		r, err := argRoute(x.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -141,7 +140,7 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		if err := validateRoute(r, routes, false); err != nil {
 			return nil, err
 		}
-		if err := rr.st.InsertProxydRoute(toStoreRoute(r)); err != nil {
+		if err := insertProxydRouteTx(ctx, x.Tx, toStoreRoute(r)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		next := append([]Route(nil), routes...)
@@ -152,12 +151,9 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		return r, nil
 
 	case resreg.ActionUpdate:
-		path, _ := args["path"].(string)
+		path := normalisePath(x.Args["path"])
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
-		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
 		}
 		routes, _ := rr.snapshot()
 		idx := -1
@@ -170,21 +166,20 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		if idx < 0 {
 			return nil, resreg.Errorf(http.StatusNotFound, "route %q not found", path)
 		}
-		// Merge: start from existing, apply provided fields.
 		merged := routes[idx]
-		if v, ok := args["backend"].(string); ok && v != "" {
+		if v, ok := x.Args["backend"].(string); ok && v != "" {
 			merged.Backend = v
 		}
-		if v, ok := args["auth"].(string); ok && v != "" {
+		if v, ok := x.Args["auth"].(string); ok && v != "" {
 			merged.Auth = v
 		}
-		if v, ok := args["gated_by"].(string); ok {
+		if v, ok := x.Args["gated_by"].(string); ok {
 			merged.GatedBy = v
 		}
-		if v, ok := args["strip_prefix"].(bool); ok {
+		if v, ok := x.Args["strip_prefix"].(bool); ok {
 			merged.StripPrefix = v
 		}
-		if v, ok := args["preserve_headers"].([]any); ok {
+		if v, ok := x.Args["preserve_headers"].([]any); ok {
 			hs := make([]string, 0, len(v))
 			for _, h := range v {
 				if s, ok := h.(string); ok {
@@ -196,7 +191,7 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		if err := validateRoute(merged, routes, true); err != nil {
 			return nil, err
 		}
-		if err := rr.st.UpdateProxydRoute(toStoreRoute(merged)); err != nil {
+		if err := updateProxydRouteTx(ctx, x.Tx, toStoreRoute(merged)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
 		next := append([]Route(nil), routes...)
@@ -207,14 +202,11 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		return merged, nil
 
 	case resreg.ActionDelete:
-		path, _ := args["path"].(string)
+		path := normalisePath(x.Args["path"])
 		if path == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-		if _, err := rr.st.DeleteProxydRoute(path); err != nil {
+		if _, err := deleteProxydRouteTx(ctx, x.Tx, path); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "delete: %v", err)
 		}
 		routes, _ := rr.snapshot()
@@ -230,33 +222,31 @@ func (rr *routesResource) handle(ctx context.Context, c resreg.Caller, action re
 		return nil, nil
 
 	default:
-		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", action)
+		return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 	}
 }
 
-// routesPolicy enforces operator-only access on all five actions. routes
-// is a global resource (no :own_group axis) per spec 6/5 §"Per-resource
-// access matrix". `routes:read` admits the two read actions; `routes:write`
-// admits the three mutating actions.
-func routesPolicy() map[resreg.Action]resreg.ScopePred {
-	read := func(c resreg.Caller, _ string) bool {
-		return resreg.HasScope(c, "routes", "read") || resreg.HasScope(c, "routes", "write")
+func normalisePath(v any) string {
+	s, _ := v.(string)
+	if s == "" {
+		return ""
 	}
-	write := func(c resreg.Caller, _ string) bool {
-		return resreg.HasScope(c, "routes", "write")
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
 	}
-	return map[resreg.Action]resreg.ScopePred{
-		resreg.ActionList:   read,
-		resreg.ActionGet:    read,
-		resreg.ActionCreate: write,
-		resreg.ActionUpdate: write,
-		resreg.ActionDelete: write,
-	}
+	return s
+}
+
+// routesAuthz is the per-action ACL scope/params derivation. routes is
+// a global resource — no per-folder axis, scope="" and no params.
+// Operators carry an ACL row like `(google:op, '*', '**')`; the
+// canonical auth.Authorize call is the gate.
+func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[string]string, error) {
+	return "", nil, nil
 }
 
 // routesResourceDecl is the resreg.Resource literal: REST endpoints,
-// MCP tools, policy, single handler. New surface for an existing action
-// = one row; no code beyond the literal. Per spec 6/5.
+// MCP tools, authz, single handler. Per spec 5/5.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return resreg.Resource{
 		Name: "routes",
@@ -297,16 +287,18 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 				Description: "Delete a proxyd route. Idempotent.",
 				Args: []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
 		},
-		Policy:  routesPolicy(),
+		Authz:   routesAuthz,
 		Handler: rr.handle,
+		Store:   rr.st,
 	}
 }
 
 // callerFromHTTP builds a resreg.Caller from proxyd's signed identity
-// headers. Operators carry the `**` marker in X-User-Groups (current
-// auth model); they receive `routes:*` so both read+write admit. JWT
-// scope claims will replace this mapping once they ship — documented
-// in spec 6/5 §"Token / auth model" as a temporary gap.
+// headers. Operator detection (the `**` marker in X-User-Groups) is
+// recorded into Claims["operator"]="1" so ACL row predicates can
+// match `predicate="operator=1"`. Until the ACL is seeded with
+// operator rows for the routes resource, this is the bridge — see
+// spec 4/9 §"Operator implicit".
 func callerFromHTTP(hmacSecret string) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
 		if !auth.VerifyUserSig(hmacSecret, r) {
@@ -318,15 +310,60 @@ func callerFromHTTP(hmacSecret string) resreg.CallerFromHTTPFunc {
 		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
 			_ = json.Unmarshal([]byte(hdr), &groups)
 		}
-		c := resreg.Caller{Sub: sub, Name: name}
-		// Operator detection: the `**` marker in the groups claim is the
-		// operator gate (auth.MatchGroups). Mint `routes:*` for them.
+		c := resreg.Caller{Sub: sub, Name: name, Claims: map[string]string{}}
 		for _, g := range groups {
 			if g == "**" {
-				c.Scope = append(c.Scope, "routes:*")
+				c.Claims["operator"] = "1"
 				break
 			}
 		}
 		return c, nil
 	}
+}
+
+// Tx-aware store helpers — proxyd-local until store/ exposes them
+// uniformly. Keeps the mutation + audit row in one transaction.
+func insertProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
+	headers, strip := proxydRouteJSON(r)
+	_, err := tx.ExecContext(ctx, `INSERT INTO proxyd_routes
+		(path, backend, auth, gated_by, preserve_headers, strip_prefix)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
+	return err
+}
+
+func updateProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
+	headers, strip := proxydRouteJSON(r)
+	res, err := tx.ExecContext(ctx, `UPDATE proxyd_routes
+		SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
+		WHERE path=?`,
+		r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("proxyd route %q not found", r.Path)
+	}
+	return nil
+}
+
+func deleteProxydRouteTx(ctx context.Context, tx *sql.Tx, path string) (bool, error) {
+	res, err := tx.ExecContext(ctx, `DELETE FROM proxyd_routes WHERE path = ?`, path)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func proxydRouteJSON(r store.ProxydRoute) (headers string, strip int) {
+	b, _ := json.Marshal(r.PreserveHeaders)
+	if r.PreserveHeaders == nil {
+		b = []byte("[]")
+	}
+	if r.StripPrefix {
+		strip = 1
+	}
+	return string(b), strip
 }

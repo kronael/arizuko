@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/store"
 )
@@ -26,6 +27,14 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	// Seed ACL so the operator (predicate operator=1) admits everywhere.
+	// Spec 4/9 — operator is emergent from the `**` row, not a role.
+	if err := st.AddACLRow(core.ACLRow{
+		Principal: "**", Action: "*", Scope: "**",
+		Effect: "allow", Predicate: "operator=1",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	rr := newRoutesResource(st, nil)
 	if callerBuild == nil {
 		callerBuild = callerFromHTTP(testHMAC)
@@ -244,29 +253,25 @@ func TestRoutesResource_Durable(t *testing.T) {
 }
 
 // One Handler, two adapters: the handler used by REST is the exact same
-// function value the MCP tool dispatches to. Spec 6/5 §"One renderer,
+// function value the MCP tool dispatches to. Spec 5/5 §"One renderer,
 // many sinks" — structurally proves no duplication.
 func TestRoutesResource_SingleHandler(t *testing.T) {
 	st, _ := store.OpenMem()
 	defer st.Close()
 	rr := newRoutesResource(st, nil)
 	res := routesResourceDecl(rr)
-	// Handler field is what both adapters call; identity check via
-	// pointer-equality through reflect would be reflection-heavy.
-	// Instead invoke directly with operator caller and ensure all
-	// five actions are dispatched by the same function.
-	c := resreg.Caller{Sub: "op", Scope: []string{"routes:*"}}
-	for _, a := range []resreg.Action{resreg.ActionList, resreg.ActionGet, resreg.ActionCreate, resreg.ActionUpdate, resreg.ActionDelete} {
-		// Only List is callable without args; the others are exercised
-		// fully by TestRoutesResource_EndToEnd. The point here is that
-		// res.Handler is non-nil and the same for every action.
-		if res.Handler == nil {
-			t.Fatal("handler nil")
-		}
-		_ = a
+	if res.Handler == nil {
+		t.Fatal("handler nil")
 	}
-	// Sanity: List works in-process via the Handler field.
-	out, err := res.Handler(nil, c, resreg.ActionList, resreg.Args{})
+	// Sanity: List works in-process via the Handler field (read-only,
+	// no tx needed).
+	x := resreg.Execution{
+		Caller:   resreg.Caller{Sub: "op"},
+		Action:   resreg.ActionList,
+		Resource: "routes",
+		Args:     resreg.Args{},
+	}
+	out, err := res.Handler(nil, x)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,32 +1,51 @@
 // Package resreg implements the uniform Resource registry from spec
-// 6/5-uniform-mcp-rest.md: one Handler per (Resource, Action), wrapped
+// 5/5-uniform-mcp-rest.md: one Handler per (Resource, Action), wrapped
 // by two auto-adapters (REST + MCP) so any caller surface reaches the
-// same code. Today the only resource is proxyd's runtime route table
-// (spec 6/2 Phase-3); the package is built so additional resources
-// (grants, scheduled_tasks, ...) drop in as struct literals.
+// same code. Resources using it: proxyd's runtime route table
+// (proxyd/resource.go) and webd's operator-side MCP forwarder
+// (webd/routes_mcp.go). Migration of ipc/ipc.go is pending.
 //
-// The spec-6/5 Go sketch is the contract; this file is the
-// implementation. Surface-specific concerns (HTTP status mapping, MCP
-// tool argument validation) live next to the adapters.
+// Design (post oracle critique 2026-05-25):
+//
+//   - Per-invocation caller resolution. MCPTools takes a callerFor(ctx, req)
+//     resolver, not a captured Caller — shared MCP servers no longer
+//     collapse every call to one principal at registration time.
+//   - Canonical ACL gate. Resource.Authz returns (scope, params); the
+//     adapter calls auth.Authorize(...) per specs/4/9-acl-unified.md. No
+//     parallel scope predicate machinery.
+//   - Tx-bound audit. State-changing actions run inside a SQL
+//     transaction: handler does its work via Execution.Tx, the adapter
+//     writes one audit_log row via audit.EmitInTx in the SAME tx, and
+//     the tx commits as a unit. On any error the tx rolls back; the
+//     audit row never outlives the mutation it claims to record.
+//   - Forwarder pattern. Resources with Store nil (e.g. webd's HTTP
+//     forwarder to proxyd) skip the tx/audit dance — the downstream
+//     daemon writes the row. Avoids double-logging.
 package resreg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
 )
 
 // Action is the short verb constant (Create, Update, List, Get, Delete
 // or any resource-specific shape). The composed string
-// `<Resource.Name>.<Action>` is the operator-facing contract — used as
-// MCP tool name and audit-log action= field.
+// `<Resource.Name>:<Action>` is the operator-facing contract — used as
+// the ACL action key and the audit-log action field.
 type Action string
 
 const (
@@ -37,37 +56,56 @@ const (
 	ActionDelete Action = "delete"
 )
 
+// Mutates reports whether an action writes state. Read-only actions
+// (list, get) emit slog only; mutating actions write one audit_log row
+// inside the same tx as the resource mutation.
+func (a Action) Mutates() bool {
+	switch a {
+	case ActionList, ActionGet:
+		return false
+	}
+	return true
+}
+
 // Caller is the surface-agnostic principal built by each adapter from
 // its identity carrier. Folder is the caller's home folder ("" for
-// operators); Scope is the flat list of `<resource>:<verb>[:own_group]`
-// strings minted at session bind.
+// operators); Claims carry JWT claims used by ACL row predicates.
 type Caller struct {
 	Sub    string
 	Name   string
 	Folder string
 	Tier   int
-	Scope  []string
+	Claims map[string]string
 }
-
-// ScopePred decides whether the caller is allowed to invoke an action
-// against a target folder. Returning false → 403/error. Target is the
-// folder the action operates on; pass "" for global resources where
-// :own_group has no meaning (routes is one such resource).
-type ScopePred func(c Caller, target string) bool
 
 // Args is the JSON-decoded argument map an adapter passes in. URL-path
 // values (e.g. {path}) are merged into Args under their parameter name
 // before the handler sees them, so the handler reads one source.
 type Args map[string]any
 
-// Handler is the single per-resource entry point. It dispatches on the
-// Action; the adapters never call resource-specific code directly.
-type Handler func(ctx context.Context, c Caller, action Action, args Args) (any, error)
+// Execution carries everything a handler needs to act + emit audit.
+// The adapter constructs it once per request; handlers honour Tx for
+// mutating actions on store-backed resources and ignore it otherwise.
+type Execution struct {
+	Caller    Caller
+	Action    Action
+	Resource  string
+	Args      Args
+	TurnID    string  // X-Turn-Id header (REST) or _meta.turn_id (MCP)
+	RequestID string  // X-Request-Id (REST) or _meta.request_id (MCP)
+	SourceIP  string  // REST only
+	Surface   string  // "rest" | "mcp"
+	Tx        *sql.Tx // non-nil only when Resource.Store != nil and action mutates
+}
+
+// Handler is the single per-resource entry point. The adapter dispatches
+// on Execution.Action; the handler runs its mutation inside Execution.Tx
+// when Tx is non-nil.
+type Handler func(ctx context.Context, x Execution) (any, error)
 
 // Endpoint declares one REST face of an action. Verb is the HTTP method.
-// Path is a stdlib-mux pattern; placeholders ({name}) are bound to Args
-// keys of the same name. Status is the success response code (200, 201,
-// 204).
+// Path is a stdlib-mux pattern; placeholders ({name}) bind to Args keys
+// of the same name. Status is the success response code.
 type Endpoint struct {
 	Verb   string
 	Path   string
@@ -76,9 +114,9 @@ type Endpoint struct {
 }
 
 // MCPTool declares one MCP face. Name is the surfaced tool name
-// (spec-6/5 convention: `<resource>.<action>`); Description is the
-// agent-facing one-liner; ArgSpec is the JSON-Schema-shaped parameter
-// list the auto-adapter materialises into mcp.WithString/Number/etc.
+// (`<resource>.<action>`); Description is the agent-facing one-liner;
+// Args is the JSON-Schema-shaped parameter list the auto-adapter
+// materialises into mcp.WithString/Number/etc.
 type MCPTool struct {
 	Name        string
 	Action      Action
@@ -93,22 +131,32 @@ type MCPArg struct {
 	Required    bool
 }
 
-// Resource ties the three faces together: identity (Name + Policy +
-// Handler) and registration metadata (Endpoints + MCPTools). One literal
-// per resource per daemon; spec 6/5 §"Single source of truth".
+// Resource ties identity (Name + Authz + Handler) to registration
+// metadata (Endpoints + MCPTools). One literal per resource per daemon.
+//
+// Authz returns (scope, params, err). The adapter then calls
+// auth.Authorize(Store, authCaller, "<Name>:<action>", scope, params)
+// as the canonical ACL gate. Returning err short-circuits the call
+// (e.g. validation -> 400) without touching auth.
+//
+// Store, when non-nil, makes the adapter open a tx for mutating actions
+// and pass it through Execution.Tx, then write the audit_log row inside
+// the same tx via audit.EmitInTx. Set Store nil for forwarder resources
+// (webd → proxyd) — the downstream daemon writes the audit row.
 type Resource struct {
 	Name      string
 	Endpoints []Endpoint
 	MCPTools  []MCPTool
-	Policy    map[Action]ScopePred
+	Authz     func(c Caller, action Action, args Args) (scope string, params map[string]string, err error)
 	Handler   Handler
+	Store     *store.Store
 }
 
-// HandlerError is the canonical error type a Handler returns to signal
-// HTTP status / MCP error mapping. The adapters translate Code into
-// HTTP status and MCP error result.
+// HandlerError carries the HTTP status / MCP error code a handler wants
+// to surface. The adapters translate Code into HTTP status and MCP
+// error result; non-HandlerError errors map to 500.
 type HandlerError struct {
-	Code int // matches HTTP semantics: 400/404/409/403/500
+	Code int
 	Msg  string
 }
 
@@ -126,15 +174,25 @@ func errStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-// CallerFromHTTP builds a Caller from proxyd's signed identity headers.
-// Operators (carrying the `**` user_groups marker) receive the wildcard
-// scope set automatically — JWT scope claims are a future hook.
+// CallerFromHTTPFunc builds a Caller from one HTTP request. Called
+// per-invocation by the REST adapter.
 type CallerFromHTTPFunc func(r *http.Request) (Caller, error)
 
-// RESTHandler emits an http.Handler that dispatches every endpoint of
-// r. Caller of RESTHandler mounts the returned handler on the mux using
-// the same method+path patterns r.Endpoints declares (cf. RegisterREST).
-func RESTHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler {
+// CallerFromMCPFunc builds a Caller from one MCP CallToolRequest + ctx.
+// Called per-invocation by the MCP adapter — the resolver runs every
+// time the agent invokes the tool, never at registration time. This is
+// the fix for "captured caller at register time".
+type CallerFromMCPFunc func(ctx context.Context, req mcp.CallToolRequest) (Caller, error)
+
+// RegisterREST mounts every endpoint of r on mux. build derives the
+// surface-specific Caller from each request.
+func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
+	for _, e := range r.Endpoints {
+		mux.Handle(e.Verb+" "+e.Path, restHandler(r, build, e))
+	}
+}
+
+func restHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		caller, err := build(req)
 		if err != nil {
@@ -146,49 +204,209 @@ func RESTHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler 
 			writeREST(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
-		pred, ok := r.Policy[e.Action]
-		if !ok {
-			writeREST(w, http.StatusForbidden, map[string]any{"error": "no policy for action"})
-			return
+		x := Execution{
+			Caller:    caller,
+			Action:    e.Action,
+			Resource:  r.Name,
+			Args:      args,
+			TurnID:    req.Header.Get("X-Turn-Id"),
+			RequestID: req.Header.Get("X-Request-Id"),
+			SourceIP:  clientIP(req),
+			Surface:   audit.SurfaceREST,
 		}
-		target := stringArg(args, "folder")
-		if !pred(caller, target) {
-			audit(caller, r.Name, e.Action, "rest", target, "denied")
-			writeREST(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
-			return
-		}
-		res, err := r.Handler(req.Context(), caller, e.Action, args)
+		res, status, err := invoke(req.Context(), r, x)
 		if err != nil {
-			audit(caller, r.Name, e.Action, "rest", target, "error")
-			writeREST(w, errStatus(err), map[string]any{"error": err.Error()})
+			writeREST(w, status, map[string]any{"error": err.Error()})
 			return
 		}
-		audit(caller, r.Name, e.Action, "rest", target, "allowed")
-		status := e.Status
-		if status == 0 {
-			status = http.StatusOK
+		out := e.Status
+		if out == 0 {
+			out = http.StatusOK
 		}
 		if res == nil {
-			w.WriteHeader(status)
+			w.WriteHeader(out)
 			return
 		}
-		writeREST(w, status, res)
+		writeREST(w, out, res)
 	})
 }
 
-// RegisterREST mounts every endpoint of r on mux using the build func
-// to derive a Caller from the request. Pattern is "<VERB> <PATH>" per
-// stdlib mux conventions; path placeholders bind to Args keys.
-func RegisterREST(mux *http.ServeMux, r Resource, build CallerFromHTTPFunc) {
-	for _, e := range r.Endpoints {
-		pattern := e.Verb + " " + e.Path
-		mux.Handle(pattern, RESTHandler(r, build, e))
+// MCPTools registers every MCP tool of r on srv. callerFor is invoked
+// per call (not at registration) — privilege confusion in shared MCP
+// servers is fixed by this signature.
+func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc) {
+	for _, t := range r.MCPTools {
+		opts := []mcp.ToolOption{mcp.WithDescription(t.Description)}
+		for _, a := range t.Args {
+			opts = append(opts, mcpArgOption(a))
+		}
+		tool := mcp.NewTool(t.Name, opts...)
+		action := t.Action
+		argSpec := append([]MCPArg(nil), t.Args...)
+		srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			caller, err := callerFor(ctx, req)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			x := Execution{
+				Caller:    caller,
+				Action:    action,
+				Resource:  r.Name,
+				Args:      decodeMCPArgs(req, argSpec),
+				TurnID:    mcpMetaString(req, "turn_id"),
+				RequestID: mcpMetaString(req, "request_id"),
+				Surface:   audit.SurfaceMCP,
+			}
+			res, _, err := invoke(ctx, r, x)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			if res == nil {
+				return mcp.NewToolResultText("{}"), nil
+			}
+			b, jerr := json.Marshal(res)
+			if jerr != nil {
+				slog.Warn("resreg: marshal mcp result", "resource", r.Name, "action", action, "err", jerr)
+				return mcp.NewToolResultError("encode result: " + jerr.Error()), nil
+			}
+			return mcp.NewToolResultText(string(b)), nil
+		})
 	}
 }
 
+// invoke is the per-call core: authz → (optional tx) → handler →
+// audit → commit/rollback. Shared between REST and MCP adapters so
+// the path is provably one-rendered.
+func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
+	start := time.Now()
+	forward := r.Store == nil // forwarder: downstream daemon logs
+	scope, params, err := r.Authz(x.Caller, x.Action, x.Args)
+	if err != nil {
+		emitAudit(ctx, nil, x, scope, params, outcomeFor(err), err.Error(), start, forward)
+		return nil, errStatus(err), err
+	}
+	if !forward {
+		if !auth.Authorize(r.Store, authCaller(x.Caller), actionKey(r.Name, x.Action), scope, params) {
+			derr := Errorf(http.StatusForbidden, "forbidden")
+			emitAudit(ctx, nil, x, scope, params, audit.OutcomeDenied, "forbidden", start, false)
+			return nil, http.StatusForbidden, derr
+		}
+	}
+	if !x.Action.Mutates() || forward {
+		res, herr := r.Handler(ctx, x)
+		if herr != nil {
+			emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, forward)
+			return nil, errStatus(herr), herr
+		}
+		emitAudit(ctx, nil, x, scope, params, audit.OutcomeOK, "", start, forward)
+		return res, 0, nil
+	}
+	tx, txErr := r.Store.DB().BeginTx(ctx, nil)
+	if txErr != nil {
+		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, txErr.Error(), start, false)
+		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "begin tx: %v", txErr)
+	}
+	x.Tx = tx
+	res, herr := r.Handler(ctx, x)
+	if herr != nil {
+		_ = tx.Rollback()
+		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, herr.Error(), start, false)
+		return nil, errStatus(herr), herr
+	}
+	if aerr := emitAudit(ctx, tx, x, scope, params, audit.OutcomeOK, "", start, false); aerr != nil {
+		_ = tx.Rollback()
+		slog.Error("resreg: audit emit failed; mutation rolled back",
+			"resource", r.Name, "action", x.Action, "err", aerr)
+		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "audit emit: %v", aerr)
+	}
+	if cerr := tx.Commit(); cerr != nil {
+		emitAudit(ctx, nil, x, scope, params, audit.OutcomeError, cerr.Error(), start, false)
+		return nil, http.StatusInternalServerError, Errorf(http.StatusInternalServerError, "commit: %v", cerr)
+	}
+	return res, 0, nil
+}
+
+func actionKey(resource string, action Action) string {
+	return resource + ":" + string(action)
+}
+
+func authCaller(c Caller) auth.Caller {
+	return auth.Caller{Principal: c.Sub, Claims: c.Claims}
+}
+
+// emitAudit writes one audit_log row (via tx when non-nil, via the
+// package-level DB otherwise) AND a slog line. Read-only OK outcomes
+// skip the DB row (volume); denials and errors always land in the
+// table so privilege-escalation forensics work. Forwarders skip the
+// DB row entirely — the downstream daemon writes it. Returns the
+// EmitInTx error so the caller can roll back the mutation if audit
+// insert fails.
+func emitAudit(ctx context.Context, tx *sql.Tx, x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time, forwarder bool) error {
+	e := buildEvent(x, scope, params, outcome, errMsg, start)
+	slog.Info("resreg",
+		"caller", e.ActorSub, "resource", e.Resource, "action", e.Action,
+		"surface", e.Surface, "outcome", e.Outcome, "duration_ms", e.DurationMS)
+	if tx != nil {
+		return audit.EmitInTx(ctx, tx, e)
+	}
+	if forwarder {
+		return nil
+	}
+	if !x.Action.Mutates() && outcome == audit.OutcomeOK {
+		return nil
+	}
+	audit.Emit(ctx, e)
+	return nil
+}
+
+func buildEvent(x Execution, scope string, params map[string]string, outcome, errMsg string, start time.Time) audit.Event {
+	ps := map[string]any{}
+	for k, v := range x.Args {
+		ps[k] = v
+	}
+	if scope != "" {
+		ps["_scope"] = scope
+	}
+	for k, v := range params {
+		ps["_p_"+k] = v
+	}
+	cat := audit.CategoryMutation
+	if !x.Action.Mutates() {
+		cat = audit.CategoryAccess
+	}
+	if outcome == audit.OutcomeDenied {
+		cat = audit.CategoryAuthZ
+	}
+	return audit.Event{
+		Category:      cat,
+		Action:        actionKey(x.Resource, x.Action),
+		Actor:         x.Caller.Sub,
+		ActorSub:      x.Caller.Sub,
+		Resource:      x.Resource,
+		Scope:         scope,
+		Surface:       x.Surface,
+		ParamsSummary: ps,
+		Outcome:       outcome,
+		ErrorMsg:      errMsg,
+		DurationMS:    time.Since(start).Milliseconds(),
+		TurnID:        x.TurnID,
+		Folder:        x.Caller.Folder,
+		RequestID:     x.RequestID,
+		SourceIP:      x.SourceIP,
+	}
+}
+
+func outcomeFor(err error) string {
+	if errStatus(err) == http.StatusForbidden {
+		return audit.OutcomeDenied
+	}
+	return audit.OutcomeError
+}
+
+// decodeRESTArgs merges JSON body fields and URL path placeholders.
+// The path wins (URL is authoritative for {path...}).
 func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 	args := Args{}
-	// JSON body (POST/PATCH/PUT).
 	if req.Body != nil && (req.Method == "POST" || req.Method == "PATCH" || req.Method == "PUT") {
 		var raw map[string]any
 		dec := json.NewDecoder(req.Body)
@@ -200,7 +418,6 @@ func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 			args[k] = v
 		}
 	}
-	// Path placeholders ({name}, {name...}) — overwrite body values so the URL wins.
 	for _, seg := range strings.Split(e.Path, "/") {
 		if !strings.HasPrefix(seg, "{") || !strings.HasSuffix(seg, "}") {
 			continue
@@ -214,74 +431,57 @@ func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 	return args, nil
 }
 
+func decodeMCPArgs(req mcp.CallToolRequest, spec []MCPArg) Args {
+	a := Args{}
+	for _, s := range spec {
+		switch s.Type {
+		case "number":
+			if v, ok := numArg(req, s.Name); ok {
+				a[s.Name] = v
+			}
+		case "bool":
+			if _, present := req.GetArguments()[s.Name]; present {
+				a[s.Name] = req.GetBool(s.Name, false)
+			}
+		case "array":
+			if v := req.GetStringSlice(s.Name, nil); v != nil {
+				a[s.Name] = v
+			}
+		default:
+			if v := req.GetString(s.Name, ""); v != "" {
+				a[s.Name] = v
+			}
+		}
+	}
+	return a
+}
+
+func mcpMetaString(req mcp.CallToolRequest, key string) string {
+	meta, ok := req.GetArguments()["_meta"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	v, _ := meta[key].(string)
+	return v
+}
+
 func writeREST(w http.ResponseWriter, code int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(body)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.Warn("resreg: rest encode failed", "code", code, "err", err)
+	}
 }
 
-func stringArg(args Args, key string) string {
-	if v, ok := args[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
+// clientIP picks the best-effort source IP off RemoteAddr (form host:port).
+// X-Forwarded-For is intentionally not consulted — proxyd injects
+// identity headers; backends never trust client-provided headers.
+func clientIP(req *http.Request) string {
+	host := req.RemoteAddr
+	if i := strings.LastIndex(host, ":"); i > 0 {
+		host = host[:i]
 	}
-	return ""
-}
-
-// MCPTools registers every MCP tool of r on srv. build maps the
-// surface-specific identity (capability token, etc.) to a Caller.
-func MCPTools(srv *mcpserver.MCPServer, r Resource, caller Caller) {
-	for _, t := range r.MCPTools {
-		opts := []mcp.ToolOption{mcp.WithDescription(t.Description)}
-		for _, a := range t.Args {
-			opts = append(opts, mcpArgOption(a))
-		}
-		tool := mcp.NewTool(t.Name, opts...)
-		action := t.Action
-		args := append([]MCPArg(nil), t.Args...)
-		srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			a := Args{}
-			for _, spec := range args {
-				switch spec.Type {
-				case "number":
-					if v, ok := numArg(req, spec.Name); ok {
-						a[spec.Name] = v
-					}
-				case "bool":
-					a[spec.Name] = req.GetBool(spec.Name, false)
-				case "array":
-					if v := req.GetStringSlice(spec.Name, nil); v != nil {
-						a[spec.Name] = v
-					}
-				default:
-					if v := req.GetString(spec.Name, ""); v != "" {
-						a[spec.Name] = v
-					}
-				}
-			}
-			pred, ok := r.Policy[action]
-			if !ok {
-				return mcp.NewToolResultError("no policy for action"), nil
-			}
-			target := stringArg(a, "folder")
-			if !pred(caller, target) {
-				audit(caller, r.Name, action, "mcp", target, "denied")
-				return mcp.NewToolResultError("forbidden"), nil
-			}
-			res, err := r.Handler(ctx, caller, action, a)
-			if err != nil {
-				audit(caller, r.Name, action, "mcp", target, "error")
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-			audit(caller, r.Name, action, "mcp", target, "allowed")
-			if res == nil {
-				return mcp.NewToolResultText("{}"), nil
-			}
-			b, _ := json.Marshal(res)
-			return mcp.NewToolResultText(string(b)), nil
-		})
-	}
+	return host
 }
 
 func mcpArgOption(a MCPArg) mcp.ToolOption {
@@ -304,8 +504,6 @@ func mcpArgOption(a MCPArg) mcp.ToolOption {
 	}
 }
 
-// numArg pulls a number arg out of the MCP request without GetFloat,
-// which the upstream mcp-go API doesn't expose uniformly across types.
 func numArg(req mcp.CallToolRequest, name string) (float64, bool) {
 	v, ok := req.GetArguments()[name]
 	if !ok {
@@ -320,28 +518,4 @@ func numArg(req mcp.CallToolRequest, name string) (float64, bool) {
 		return float64(t), true
 	}
 	return 0, false
-}
-
-// audit emits the spec-6/5 fixed-shape audit row. Single sink so every
-// adapter logs identically; grep `resource=routes action=create` to find
-// every mutation regardless of surface.
-func audit(c Caller, resource string, action Action, surface, target, result string) {
-	slog.Info("resreg",
-		"caller", c.Sub, "resource", resource, "action", string(action),
-		"surface", surface, "target", target, "result", result)
-}
-
-// HasScope checks whether c has the named scope. `<resource>:*` matches
-// any verb on the resource; explicit `<resource>:<verb>` matches the
-// verb. `:own_group` suffix matching is not relevant for the routes
-// resource (global); add when the first per-folder resource lands.
-func HasScope(c Caller, resource, verb string) bool {
-	full := resource + ":" + verb
-	wildcard := resource + ":*"
-	for _, s := range c.Scope {
-		if s == full || s == wildcard {
-			return true
-		}
-	}
-	return false
 }
