@@ -458,6 +458,24 @@ Episodes (compressed transcripts) follow the same `summary:` format, indexed
 by `/recall`. Compression: daily → weekly → monthly. Spec:
 `specs/4/24-recall.md`.
 
+## Observability
+
+Three substrates, clearly split:
+
+- **`audit_log` SQLite table** — source of truth for state-changing
+  operations. ACID, transactional with the mutation. Forensic queries
+  via `sqlite3`. Spec [`5/I`](specs/5/I-tool-call-logging.md) +
+  [`6/F`](specs/6/F-audit-stream.md).
+- **slog → journald** — operational telemetry for everything (state
+  changes + reads). High-rate, lossy by design (journald rotation,
+  level filtering). `journalctl -u arizuko_<inst>` is the default
+  operator view.
+- **OTLP export (opt-in)** — slog stream tee'd to any OTel-compatible
+  collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the instance
+  `.env`. Logs not spans; `turn_id` → deterministic TraceID across
+  daemons. Library: [`obs/`](obs/). Spec:
+  [`5/O`](specs/5/O-otlp-export.md). Off by default.
+
 ## Error Handling
 
 Per-message `errored` flag (`messages.errored`, migration 0030). No

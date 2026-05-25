@@ -50,6 +50,12 @@ var commonKeys = []string{
 	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
 	"HOST_DATA_DIR", "HOST_APP_DIR", "WEB_HOST",
 	"API_PORT",
+	// OTLP export (spec 5/O). Unset -> stock JSON handler, zero overhead.
+	"ARIZUKO_INSTANCE",
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_PROTOCOL",
+	"OTEL_EXPORTER_OTLP_HEADERS",
+	"OTEL_RESOURCE_ATTRIBUTES",
 	// DATA_DIR is NOT in commonKeys: that would leak the host path
 	// into env/<daemon>.env and into the container. DATA_DIR is the
 	// container-internal mount point, set per-daemon in the compose
@@ -268,6 +274,17 @@ func Generate(dataDir string) (string, error) {
 	}
 	if flavor != "" && !identRE.MatchString(flavor) {
 		return "", fmt.Errorf("invalid instance flavor %q (derived from data dir basename)", flavor)
+	}
+	// ARIZUKO_INSTANCE is the operator-facing instance identifier used as
+	// the OTLP service.instance.id resource attribute (spec 5/O). Default
+	// is the flavor segment (e.g. "krons" from "arizuko_krons"); operator
+	// can override by setting ARIZUKO_INSTANCE in .env.
+	if _, ok := env["ARIZUKO_INSTANCE"]; !ok {
+		if flavor != "" {
+			env["ARIZUKO_INSTANCE"] = flavor
+		} else {
+			env["ARIZUKO_INSTANCE"] = app
+		}
 	}
 	// CRACKBOX_ADMIN_API is the master switch for egress: when set, the
 	// crackbox service is emitted and gated gets the per-folder network

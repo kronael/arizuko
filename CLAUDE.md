@@ -295,6 +295,22 @@ mastd stream dropped, …). Check on the host:
 sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
 ```
 
+## OTLP export (operator observability)
+
+slog → journald is the default and always-on substrate. To also push
+events to an OTel-compatible collector (Grafana / Tempo / Datadog /
+Honeycomb), set `OTEL_EXPORTER_OTLP_ENDPOINT` in the instance `.env`.
+Spec: [`specs/5/O-otlp-export.md`](specs/5/O-otlp-export.md), library:
+[`obs/`](obs/).
+
+- Unset → zero overhead; stderr JSON handler only.
+- Set → every slog event fans out to stderr AND OTLP logs. Records
+  carrying `turn_id` get a deterministic TraceID (`sha256(instance +
+"/" + turn_id)[:16]`) so the collector groups one turn's events.
+- `audit_log` stays SQLite-canonical for forensics; OTLP is observability.
+- One `obs.Setup(daemonName, ARIZUKO_INSTANCE)` call per daemon at top
+  of `main()`. Zero per-emit changes.
+
 ## Shipping changes
 
 1. Add entry to `CHANGELOG.md` (release block + `>` blockquote — see "## Announcing")
