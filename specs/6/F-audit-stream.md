@@ -80,20 +80,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 ```
 
-Written by `resreg` dispatch (and hand-rolled `ipc/ipc.go` handlers
+Written by the `resreg` adapter (and hand-rolled `ipc/ipc.go` handlers
 that haven't migrated yet) in the SAME database transaction as the
-resource mutation. If the audit-row insert fails, the mutation rolls
-back. Per-mutating-tool list is the same set as
+resource mutation. The adapter — not the handler — calls
+`audit.EmitInTx(tx, ...)` after the handler returns successfully, then
+commits the tx; if the audit-row insert fails, the mutation rolls back.
+Handlers don't have to remember; they only run their work against
+`Execution.Tx`. Forwarder resources (`Resource.Store == nil`, e.g.
+`webd/routes_mcp.go`) skip the local row — the downstream daemon
+writes it. The full contract is in
+[`../5/5` Execution context](../5/5-uniform-mcp-rest.md).
+Per-mutating-tool list is the same set as
 [`../5/D-mcp-everywhere.md`](../5/D-mcp-everywhere.md) "Resource
 declarations to add" — every state-changing endpoint there.
 
 Read-only tools (`inspect_*`, `list_*`, `get_*`, REST GETs) do **not**
 write `audit_log` rows — slog only.
 
-Authorization failures on mutating attempts (`outcome='error'`,
-`error='authz_denied'`) ARE recorded — they are the primary signal
-for privilege escalation. Authorization failures on read-only attempts
-are slog-only (volume).
+Authorization failures on mutating attempts (`outcome='denied'`,
+`error_msg='forbidden'`) ARE recorded — primary signal for privilege
+escalation. Authorization failures on read-only attempts are
+slog-only (volume).
 
 ## cli_audit (existing, v0.42.0)
 
