@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { submitTurn } from './mcp.js';
+import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
 
 interface ContainerInput {
   prompt: string;
@@ -496,8 +497,11 @@ async function runQuery(
         mcpServers: injectMcpEnv(agentMcpServers, sdkEnv),
         hooks: {
           PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
-          PreToolUse: [{ matcher: 'Bash', hooks: [createSanitizeBashHook()] }],
-          PostToolUse: [{ hooks: [createIpcDrainHook()] }],
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+            { hooks: [createToolLogPreHook()] },
+          ],
+          PostToolUse: [{ hooks: [createIpcDrainHook(), createToolLogPostHook()] }],
         },
       }
     })) {
