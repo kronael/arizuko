@@ -100,15 +100,17 @@ func (g *Gateway) ttsCacheOrSynthesize(text, voice, model string) (string, error
 }
 
 // synthesize POSTs to the OpenAI-compatible /v1/audio/speech endpoint
-// and returns the audio bytes. Format is fixed to ogg (response_format)
-// because every supported channel encodes its voice primitive as
-// ogg/opus (Telegram NewVoice, WhatsApp ptt, Discord audio attachment).
+// and returns the audio bytes. Format is fixed to opus (Opus codec in
+// Ogg container) because every supported channel encodes its voice
+// primitive that way (Telegram NewVoice, WhatsApp ptt, Discord audio
+// attachment). Kokoro-FastAPI rejects "ogg" — opus is the OpenAI-spec
+// value that yields the same container.
 func (g *Gateway) synthesize(text, voice, model string) ([]byte, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model":           model,
 		"voice":           voice,
 		"input":           text,
-		"response_format": "ogg",
+		"response_format": "opus",
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), g.cfg.TTSTimeout)
 	defer cancel()

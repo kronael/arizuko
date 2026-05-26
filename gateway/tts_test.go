@@ -21,12 +21,20 @@ func TestTTSCacheRoundtrip(t *testing.T) {
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Voice string `json:"voice"`
-			Input string `json:"input"`
+			Voice          string `json:"voice"`
+			Input          string `json:"input"`
+			ResponseFormat string `json:"response_format"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
 		if body.Voice != "af_bella" || body.Input != "hello" {
 			http.Error(w, "bad payload", 400)
+			return
+		}
+		// Kokoro-FastAPI accepts opus/mp3/wav/flac/aac/pcm — not "ogg".
+		// Gateway must send "opus" for the Ogg-Opus container every
+		// voice channel expects (Telegram NewVoice, WhatsApp ptt, …).
+		if body.ResponseFormat != "opus" {
+			http.Error(w, "bad response_format: "+body.ResponseFormat, 422)
 			return
 		}
 		hits++
