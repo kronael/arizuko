@@ -19,16 +19,14 @@ language code blocks, inline cross-refs, prev/next pager. IA + content
 discipline transfer cleanly; visuals do not.
 
 > Arizuko visual identity is load-bearing — keep it. Borrow IA + content
-> patterns from external references (Divio four-category, Stripe three-
-> column, dbt's reference-page rhythm cited 2026-05-25) but do NOT adopt
-> their visuals. The hub.css palette, 2px corners, dense typography, and
-> arizuko color twists stay. The job of an external reference is to
-> inform structure and tone; the look is ours.
+> patterns from external references (dbt's top-level taxonomy, Stripe
+> three-column, dbt's reference-page rhythm cited 2026-05-25) but do
+> NOT adopt their visuals. The hub.css palette, 2px corners, dense
+> typography, and arizuko color twists stay. The job of an external
+> reference is to inform structure and tone; the look is ours.
 
 Phase 1 (reference/ — 9 pages) in detail; Phase 2 (concepts/, howto/,
-examples/) sketched. Divio four-category split is existing and aligns
-with dbt's `/reference/`, `/docs/`, `/guides/` namespacing — not in
-scope to revisit.
+examples/, products/) sketched below.
 
 ## Sources
 
@@ -36,6 +34,8 @@ scope to revisit.
   (21KB, 7 dbt URLs, IA observations + content patterns + per-page-type
   templates + voice/tone + positioning). Authoritative reference for
   every dbt observation cited below.
+- Companion: `/srv/data/arizuko_krons/groups/krons/facts/technical-guide-structure-patterns.md`
+  — cross-vendor structural patterns informing the five-section IA.
 - Current refs: `template/web/pub/arizuko/reference/*.html` (9 pages:
   `cli`, `env`, `grants`, `index`, `jid`, `mcp`, `schema`, `stats`,
   `tokens`, `topics`)
@@ -43,13 +43,31 @@ scope to revisit.
 - Visual-identity guard: root `CLAUDE.md` "Updating the web docs"
   (commit `4c93c49`)
 
+## Information architecture
+
+Five top-level sections under `/pub/arizuko/`, taken from the dbt-docs
+design study. The sections are NOT parallel — each answers a different
+reader posture.
+
+| Section      | What it is                                                                                       | Arizuko example                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `concepts/`  | Narrative explanation of arizuko's mental model — what the system is, how the primitives relate. | "Routing", "Groups and folders", "Grants and tiers"                                                   |
+| `howto/`     | Task-oriented guides; reader knows what they want and needs the recipe.                          | "Add a Slack adapter to a running instance", "Run crackbox standalone", "Write a migration"           |
+| `reference/` | Exhaustive API/CLI/MCP/config surface — every daemon, every env var, every tool.                 | `cli.html`, `env.html`, `mcp.html`, `schema.html`                                                     |
+| `examples/`  | Working snippet/recipe demonstrating a pattern; reader is exploring, no fixed task.              | A `/v1/audio/speech` curl producing voice via ttsd; a YAML manifest adding a webhook + cron + ACL row |
+| `products/`  | Shippable, brandable pieces built on arizuko primitives.                                         | hub.css starter kit; channel-adapter packs; the public docs site itself                               |
+
+Howto = "do this". Examples = "look at this working". Products = "ship
+this". Concepts is narrative; reference is exhaustive. The five
+sections are not parallel and do not get forced into a uniform shape.
+
 ## What we adopt from dbt
 
-1. **Three-pane layout at wide viewport.** Left: section tree (Reference
-   / Concepts / How-To / Examples, current section expanded). Middle:
-   content, capped width. Right: page-internal TOC built from H2/H3.
-   Breakpoint ≥1200px three-pane; <1200px single column, sidebar in a
-   drawer, right TOC absent.
+1. **Three-pane layout at wide viewport.** Left: section tree
+   (Concepts / How-To / Reference / Examples / Products, current
+   section expanded). Middle: content, capped width. Right: page-
+   internal TOC built from H2/H3. Breakpoint ≥1200px three-pane;
+   <1200px single column, sidebar in a drawer, right TOC absent.
 2. **Breadcrumb above H1 on every page**, two-to-three segments, each
    ancestor linked. Format: `arizuko › reference › CLI commands`.
 3. **Reference-page content template**: breadcrumb → H1 (bare name for
@@ -78,17 +96,54 @@ scope to revisit.
 
 - **Docusaurus chrome, fonts, colours, rounded corners** — hub.css
   palette, 2px corners, dense typography stay.
-- **"Copy page" / AI-handoff bar** — novel UX experiment, defer.
 - **Version-selector dropdown in top bar** — one current site; dropdown
   reading "v(current)" is noise. Open question below.
-- **Hosted search (Algolia)** — ~15 pages, browser Ctrl-F suffices.
 - **Tabbed code-block widget** — adds JS and divergence surface;
   sequential captioned blocks stay static-HTML.
 - **Estimated reading time, time-to-read, last-viewed-by** — noise.
 - **Marketing-footer block** — our footer stays minimal: repo link,
-  changelog link, theme toggle.
+  changelog link, theme toggle, version stamp.
 - **Hero/marketing voice under `/reference/`** — reference is for the
   reader who has decided to use the thing.
+
+## Discovery is conversational, not lexical
+
+No in-page search. No hosted search index (Algolia, Meilisearch). The
+agent is the search, via two mechanisms already shipped in
+`template/web/pub/assets/hub.js`:
+
+- **`injectAskAgent()`** — fixed bottom-right button that opens
+  `https://krons.fiu.wtf/chat/<AGENT_TOKEN>/?ref=<page-path>`. The
+  visitor lands inside a live arizuko chat with the page URL as
+  context.
+- **`injectSelectionPopup()`** — selecting 3–500 characters of body
+  text surfaces an "Ask about this" popup; the selection plus page URL
+  are handed to the same agent.
+
+The `AGENT_TOKEN` is a public route token bound to the krons agent,
+which has the codebase + docs in context. Asking the agent IS asking
+the docs. Rate limiting lives at the webd layer (`chat_mcp.go`); the
+token being public is a deliberate design choice.
+
+## First-experience onboarding via the agent
+
+A first-time visitor doesn't need a guided tour. The Ask-the-agent
+button is the onboarding: a question routed to the krons agent
+short-circuits the read-concepts-then-howto-then-reference linear
+path. The select-to-ask popup is the fine-grained variant — highlight
+a paragraph that doesn't parse, click "Ask about this", get an
+in-context answer with the page URL attached as `ref=`. Both surfaces
+exist on every page that loads `hub.js`; no per-page wiring.
+
+## Version visibility
+
+`hub.js:injectFooter()` writes `arizuko vX.Y.Z` into the page footer
+on every load. The version string lives in the `ARIZUKO_VERSION`
+constant at the top of `hub.js` (currently `v0.45.10`). It is bumped
+by hand on each release — same commit that moves `CHANGELOG.md`
+`[Unreleased]` to a dated heading. Until automated, the discipline is:
+edit `template/web/pub/assets/hub.js`, then rsync per the root
+`CLAUDE.md` "Updating the web docs" workflow.
 
 ## Three-pane layout
 
@@ -98,19 +153,18 @@ deleted — every page-level chrome rule moves into `hub.css`.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ top bar — arizuko wordmark · search (later) · theme toggle           │
+│ top bar — arizuko wordmark · theme toggle                            │
 ├──────────┬───────────────────────────────────────┬───────────────────┤
 │ nav      │ breadcrumb                            │ on this page      │
 │          │ H1                                    │  • Definition     │
-│ Reference│ definitional first sentence           │  • Usage          │
-│  cli     │                                       │  • Examples       │
-│  env     │ H2 Definition                         │  • Troubleshoot   │
-│  grants  │   prose, code blocks, inline links    │                   │
-│  …       │ H2 Usage                              │                   │
-│ Concepts │   …                                   │                   │
-│ How-To   │                                       │                   │
-│ Examples │ feedback widget (defer)               │                   │
-│          │ [← prev] · [next →]                   │                   │
+│ Concepts │ definitional first sentence           │  • Usage          │
+│ How-To   │                                       │  • Examples       │
+│ Reference│ H2 Definition                         │  • Troubleshoot   │
+│  cli     │   prose, code blocks, inline links    │                   │
+│  env     │ H2 Usage                              │                   │
+│  …       │   …                                   │                   │
+│ Examples │                                       │                   │
+│ Products │ [← prev] · [next →]                   │                   │
 │          │ Edit this page · last updated         │                   │
 └──────────┴───────────────────────────────────────┴───────────────────┘
 ```
@@ -190,6 +244,8 @@ pager. Phase 2 sections appear as top-level entries from day one but
 each holds only its existing `index.html` until Phase 2 ships content.
 
 ```
+Concepts                   (placeholder — links to concepts/index.html)
+How-To                     (placeholder — links to howto/index.html)
 Reference
   Overview                  (index.html)
   CLI commands              (cli.html)
@@ -201,9 +257,8 @@ Reference
   Topics                    (topics.html)
   Route tokens              (tokens.html)
   Codebase stats            (stats.html)
-Concepts                   (placeholder — links to concepts/index.html)
-How-To                     (placeholder — links to howto/index.html)
 Examples                   (placeholder — links to examples/index.html)
+Products                   (placeholder — links to products/index.html)
 ```
 
 The tree is identical HTML on every reference page (copy-pasted; not
@@ -314,9 +369,9 @@ the template on small pages before reflowing 1600-line ones.
 
 ## Phase 2 sketch
 
-`concepts/`, `howto/`, `examples/` inherit the same three-pane layout
-and the same chrome (breadcrumb, prev/next, edit, last-updated). Page-
-type templates from the research:
+`concepts/`, `howto/`, `examples/`, `products/` inherit the same
+three-pane layout and the same chrome (breadcrumb, prev/next, edit,
+last-updated). Page-type templates from the research:
 
 - **`concepts/`** — concept/introduction template from research §
   "Concept / introduction page". H1 question or noun, opening
@@ -330,33 +385,63 @@ type templates from the research:
 - **`examples/`** — tutorial template. Not directly sampled in dbt's
   `/docs/...` namespace (dbt routes tutorials to `/guides/`). Phase-2
   redesign should sample one dbt guide before locking the template.
+- **`products/`** — product page template. H1 product name, lede
+  one-sentence pitch, H2 "What it is", H2 "How to consume" (npm tag,
+  docker image, rsync snippet — whichever applies), H2 "Source", H2
+  "Status". Each Products page is a shippable artifact; the page is
+  its README on the web.
 
 Each Phase 2 page-type inherits Phase 1's three-pane chrome and the
 nav tree; the body H2 rhythm is what differs.
 
+### Per-component howto pages for standalonable siblings
+
+arizuko's design is that several sibling components are shippable
+outside arizuko. The orthogonality grep at
+[`specs/11/b-orthogonal-components.md`](../11/b-orthogonal-components.md)
+enforces this for `auth|audit|resreg|obs` (extended 2026-05-26 at
+commit `37c99a6`). Each shippable sibling earns a Phase 2 howto page:
+
+- `howto/standalone-crackbox.html` — crackbox as a KVM-isolated
+  sandbox outside arizuko (own `CLAUDE.md`, lives at
+  `/home/onvos/app/crackbox/`).
+- `howto/standalone-auth.html` — `auth/` as a capability library
+  imported by any Go daemon (status: aspirational, see
+  [`5/1-auth-standalone.md`](1-auth-standalone.md) Status blockquote).
+- `howto/standalone-audit.html` — `audit/` as a thin audit-log writer.
+- `howto/standalone-resreg.html` — `resreg/` as a resource registry.
+- `howto/standalone-obs.html` — `obs/` as the OTLP wiring library
+  (already zero arizuko-internal imports — shipped surface).
+- `howto/standalone-chanlib.html` — `chanlib/` as the channel-adapter
+  framework.
+
+Each page answers: what does this component do; what are its
+dependencies (none arizuko-internal); how is it wired into a
+non-arizuko Go service; what's the minimal example. Gated behind
+Phase 1 chrome migration shipping. Planned, not in progress.
+
 ## Open questions
 
-1. **Search UX.** Skip for v1. Browser Ctrl-F covers ~15 pages. If
-   the catalogue grows past ~30 pages, revisit with a JSON index
-   built at copy-to-pub time + a `hub.js` page-internal filter.
-2. **Version selector.** arizuko has versions (current v0.45.x). The
+1. **Version selector.** arizuko has versions (current v0.45.x). The
    reference pages aren't versioned today — they describe the
    current build. Do we surface a "you are reading the v0.45.4 docs"
    line in the breadcrumb area, or stay version-implicit and call
    out inline ("Available since v0.45.4") only where it matters?
-   Recommend: version-implicit, inline-only. Lower noise.
-3. **Code-tab convention.** Locked. Single-language captioned blocks;
+   Recommend: version-implicit, inline-only. Lower noise. The
+   footer-injected version stamp (see "Version visibility") covers
+   the global question of "which build is this?".
+2. **Code-tab convention.** Locked. Single-language captioned blocks;
    multi-shape commands as sequential blocks. No tab widget.
-4. **Feedback widget ("Was this page helpful?").** dbt has one; we
-   don't yet. Defer to Phase 2 — it needs a backend endpoint and an
-   anti-spam story.
-5. **Source-link discipline.** Today's reference pages link each
+3. **Feedback widget ("Was this page helpful?").** dbt has one; we
+   don't. The agent button is the feedback channel — a confused
+   reader clicks Ask-the-agent and the question becomes the report.
+4. **Source-link discipline.** Today's reference pages link each
    entry to `github.com/kronael/arizuko/blob/main/<path>#L<line>` —
    that's the grep-verifiability claim from `index.html` lede.
    Keep, but stop putting them in `<p class="src">` at the foot of
    every entry; fold into the Definition prose where the file is
    first named ("dispatch lives in `cmd/arizuko/main.go:54`").
-6. **Last-updated generation.** Locked: pre-commit hook writes the
+5. **Last-updated generation.** Locked: pre-commit hook writes the
    page's git author-date into a `<time>` element in `.docs-footer`
    on edit. No build step, no manual stamp. Hook lives in
    `.pre-commit-config.yaml` as a local Python entry; ~15 lines.
@@ -369,11 +454,10 @@ nav tree; the body H2 rhythm is what differs.
 - Custom static site generator beyond hub.css/hub.js.
 - Abandoning hub.css palette, 2px corners, dense typography, or
   arizuko color twists.
-- Abandoning the Divio four-category split (concepts / how-to /
-  reference / examples) — it's existing and aligns with dbt.
-- Hosted search (Algolia, Meilisearch). Browser Ctrl-F is enough.
+- In-page search, hosted search index, or any lexical-search UX.
+  Discovery is conversational via the agent button (see "Discovery is
+  conversational, not lexical").
 - Multi-language code-tab UI. dbt doesn't use it; we won't either.
-- AI-handoff utilities (copy-page) for v1.
 
 ## Acceptance for Phase 1
 
