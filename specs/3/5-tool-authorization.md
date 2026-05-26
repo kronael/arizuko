@@ -69,7 +69,7 @@ are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
 `~/public_html` and `~/private_html` are bind-mounted per-group from
 `<data>/web/pub/<folder>/` and `<data>/web/priv/<folder>/`
 respectively — writes appear in the unified web tree (canonical
-filesystem). See `specs/4/18-web-vhosts.md` for the full slot model
+filesystem). See `specs/5/V-web-vhosts.md` for the full slot model
 and URL mapping.
 
 ## Delegation prompt format

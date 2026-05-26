@@ -565,7 +565,7 @@ func buildMounts(
 		}
 	}
 
-	// specs/4/18-web-vhosts.md: tier 0-2 get RO access to the whole public
+	// specs/5/V-web-vhosts.md: tier 0-2 get RO access to the whole public
 	// web tree at /var/lib/www, plus per-group bind-mount slots for the
 	// writable web surfaces (~/public_html and ~/private_html). Tier 3+
 	// get no web surface.
@@ -711,7 +711,7 @@ func seedSettings(
 	// WEB_PREFIX is a legacy hint kept for backward compatibility with older
 	// agent recipes. Tier 0-2 now write through ~/public_html/ (served at
 	// /pub/<folder>/) and ~/private_html/ (served at /priv/<folder>/, JWT).
-	// Tier 3+ get no web surface and WEB_PREFIX="". Spec: specs/4/18-web-vhosts.md.
+	// Tier 3+ get no web surface and WEB_PREFIX="". Spec: specs/5/V-web-vhosts.md.
 	tier := tierOf(in.Folder, root)
 	switch {
 	case root:
@@ -866,7 +866,7 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html
 	// at agent spawn time. Pre-create here so the dirs exist before the first
 	// docker run and inherit the container's uid via chownR in seedGroupDir.
-	// runner.go also MkdirAll-s these defensively at spawn time. Spec 4/18.
+	// runner.go also MkdirAll-s these defensively at spawn time. Spec 5/V.
 	if cfg.WebDir != "" {
 		os.MkdirAll(filepath.Join(cfg.WebDir, "pub", folder), 0o755)
 		os.MkdirAll(filepath.Join(cfg.WebDir, "priv", folder), 0o755)

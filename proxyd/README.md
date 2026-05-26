@@ -15,7 +15,7 @@ headers with an HMAC secret shared with `webd`.
 - Inject `X-User-Sub`, `X-User-Groups`, signature (`PROXYD_HMAC_SECRET`).
 - Route by TOML-declared prefix table (see "Routes are TOML-declared").
 - Rewrite `X-Forwarded-*` from `TRUSTED_PROXIES` CIDRs only.
-- Poll `web/vhosts.json` every 5s for hostname → world routing (`specs/4/18-web-vhosts.md`).
+- Poll `web/vhosts.json` every 5s for hostname → world routing (`specs/5/V-web-vhosts.md`).
 
 ## Routes are TOML-declared
 

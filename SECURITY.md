@@ -99,7 +99,7 @@ never serve from `web/pub/`. Each group's container bind-mounts its
 own slot into `~/public_html/` (public tree) and `~/private_html/`
 (private tree); content cannot leak from one to the other except by
 the agent explicitly copying bytes. Full model:
-`specs/4/18-web-vhosts.md`.
+`specs/5/V-web-vhosts.md`.
 
 ## Identity header trust
 

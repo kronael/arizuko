@@ -16,7 +16,7 @@ Routing (in order):
    from `<data>/web/pub/<folder>/`
 4. `/priv/*` → `WEBD_ADDR`, JWT-gated; serves from
    `<data>/web/priv/<folder>/` (v0.45.11+, see
-   `specs/4/18-web-vhosts.md`)
+   `specs/5/V-web-vhosts.md`)
 5. `/dash/*` → `DASH_ADDR`, auth-gated
 6. `/slink/*` → `WEBD_ADDR`, public (token resolved at proxyd)
 7. `/*` → auth-gated; unauth redirects to `/auth/login`

@@ -169,7 +169,7 @@ Update skills/CLAUDE.md referencing `/workspace/group` → `/home/node`.
 `send_file` path translation strips `/home/node/`. Per-group writable
 web content goes in `~/public_html/` (served at `/pub/<folder>/...`)
 or `~/private_html/` (served at `/priv/<folder>/...`, JWT). Full
-spec: `specs/4/18-web-vhosts.md`.
+spec: `specs/5/V-web-vhosts.md`.
 
 ## Skills / Templates
 

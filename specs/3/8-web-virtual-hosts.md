@@ -52,5 +52,5 @@ One vite process per world web dir. Proxy routes by `Host` header.
 
 - `5-permissions.md` — `/var/lib/www` mount + `~/public_html` /
   `~/private_html` per-group slots
-- `specs/4/18-web-vhosts.md` — canonical web-slot + FHS-mount spec
+- `specs/5/V-web-vhosts.md` — canonical web-slot + FHS-mount spec
   (v0.45.11+)
