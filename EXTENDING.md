@@ -29,6 +29,20 @@ evolves as a unit through specs, not via these extension points. See
 | Network rules | `store/network.go`              | Operator       | CLI + DB rows                                 |
 | Web routes    | `store/web_routes.go`           | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
 | Public pages  | `template/web/pub/`             | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
+| Output styles | `ant/output-styles/`            | Channel author | `<channel>-<surface>.md`; picked per-session  |
+
+## Adding an output-style file
+
+Per-channel + per-surface tone, length, and formatting hints applied
+at session bind. `container/runner.go::pickOutputStyle` derives
+`<channel>-<surface>` from inbound JID + topic + `paneLookup`; falls
+back to `<channel>.md` for channels with no per-surface split. Spec:
+`specs/5/Y-output-styles-per-surface.md`. Conventions, file list, and
+adding-a-new-file recipe: `ant/output-styles/README.md`.
+
+No registration step — `seedOutputStyles` discovers files by directory
+listing at spawn (`container/runner.go:669`). Drop the file, rebuild
+the agent image (`make agent`), redeploy.
 
 ## Adding an autocall
 

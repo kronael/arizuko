@@ -59,7 +59,7 @@ that:
    is mechanical:
 
    ```
-   $ grep -rE 'github.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated)' <component>/
+   $ grep -rE 'github.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated|auth|audit|resreg|obs)' <component>/
    <empty>
    ```
 
@@ -230,7 +230,7 @@ imported Go libraries.
 The pattern is in force when, for every component listed in the
 catalog above:
 
-- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated)' <component>/` returns
+- `grep -rE 'github\.com/[^/]+/arizuko/(store\|core\|gateway\|api\|chanlib\|chanreg\|router\|queue|ipc\|grants\|onbod|webd|gated\|auth\|audit\|resreg\|obs)' <component>/` returns
   nothing outside the component's own `package` declarations.
 - `make -C <component> build && make -C <component> test` passes
   on a host with no arizuko process and no arizuko data directory.

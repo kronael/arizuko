@@ -160,7 +160,7 @@ See [`specs/6/12-crackbox-sandboxing.md`](../specs/6/12-crackbox-sandboxing.md).
 ## Orthogonality
 
 ```sh
-grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated)' crackbox/  # returns empty
+grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated|auth|audit|resreg|obs)' crackbox/  # returns empty
 ```
 
 The grep is owner-agnostic on purpose — `arizuko`'s `go.mod` carries

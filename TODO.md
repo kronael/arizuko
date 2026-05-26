@@ -192,3 +192,42 @@ Not yet:
 - **Crypto**: `solana`, `cast` (Foundry)
 - **Lang**: `ruby`
 - **Misc**: `hexyl`, `mkcert`
+
+## Direction notes — 2026-05-26
+
+### Filestore = WebDAV; auth extensions later
+
+The platform's filestore primitive is `davd` (WebDAV via dufs, spec
+`specs/5/M-webdav.md`, shipped). Today auth is proxyd JWT/cookie. Bigger
+auth surface (per-folder API keys, signed pre-share URLs, time-bounded
+tokens, public-read for specific subtrees) is a future extension —
+parked, not active.
+
+### Ambitious projects to seed the platform
+
+Agents should be able to iterate + build out the platform itself. Open
+target list (capture; pick + spec as they mature):
+
+- **Hive — per-group habitat of services**: webhooks + JSON KV + web
+  proxy + systemd as the four primitives. See 2026-05-26 design
+  discussion. Likely phase 8 spec when triggered.
+- **YAML manifest model**: declarative resource intent dispatched per
+  daemon, k8s-style. Spec drafting in flight as `7/5-yaml-manifests.md`.
+- **Product registry + clone/distribute**: agent products as
+  distributable artifacts (git repo manifest + skill bundle +
+  PERSONA). Foundation for the "agents managing agents" loop.
+- **Self-improving agent loop**: agent reviews its own audit_log +
+  diary, proposes patches to its own skills/persona/ACL via MCP,
+  emits a manifest diff for operator review.
+- **Cross-instance federation**: gateway-to-gateway peer protocol so
+  one operator's agent can delegate to a peer instance's agent.
+  Requires capability token federation + cross-instance audit.
+- **Tenant-managed channel adapters**: each tenant onboards its own
+  Slack/Discord/WhatsApp bot through a UI; today still operator-level.
+- **Filestore auth extensions**: per-folder API keys, signed pre-share
+  URLs, public-read subtrees, time-bounded tokens.
+- **Agent-authored skill marketplace**: agents publish skills to a
+  registry; other agents discover + install with manifest + auth gate.
+
+Each of these earns a spec when it moves to active. Parked here as
+raw direction, not yet committed to.
