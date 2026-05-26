@@ -1,7 +1,7 @@
 ---
 status: draft
-depends: [9-acl-unified]
-relates-to: [6-middleware-pipeline, D-slack-agent-pane]
+depends: [../4/9-acl-unified]
+relates-to: [6-middleware-pipeline, ../6/D-slack-agent-pane]
 ---
 
 # specs/5/E — REST ↔ MCP bridge

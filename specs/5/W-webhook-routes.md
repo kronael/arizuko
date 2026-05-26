@@ -1,7 +1,8 @@
 ---
 status: shipped
 shipped: 2026-05-18
-depends: [Q-unified-routing, S-jid-format, 5-uniform-mcp-rest, 9-acl-unified]
+depends:
+  [Q-unified-routing, S-jid-format, 5-uniform-mcp-rest, ../4/9-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
 

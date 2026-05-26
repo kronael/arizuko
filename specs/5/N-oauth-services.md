@@ -1,8 +1,7 @@
 ---
 status: draft
-depends: [9-acl-unified]
-relates-to:
-  [1-auth-standalone, E-rest-mcp-bridge, A-mcp-everywhere, 5-uniform-mcp-rest]
+depends: [../4/9-acl-unified]
+relates-to: [1-auth-standalone, E-rest-mcp-bridge, 5-uniform-mcp-rest]
 ---
 
 # specs/5/N — third-party OAuth services as agent capabilities
@@ -16,11 +15,11 @@ one of those services has the same OAuth-2-then-REST shape, the MCP
 ecosystem already publishes servers for most of them, and arizuko
 already owns 80% of the primitives — `auth/oauth.go` does Google /
 GitHub / Discord flows, `secrets` table is folder/user-scoped,
-`auth.Authorize` gates actions, the REST↔MCP bridge (spec 6/E) is
+`auth.Authorize` gates actions, the REST↔MCP bridge (spec 5/E) is
 the planned dispatch layer.
 
 This spec frames the design space before any code lands. Sibling
-brainstorm 6/E argues the bridge belongs in the platform; this one
+brainstorm 5/E argues the bridge belongs in the platform; this one
 argues OAuth-mediated services are the first non-arizuko upstream
 that bridge has to handle, and what changes in the auth/secrets/ACL
 schema to support it.
@@ -64,14 +63,14 @@ mechanical, all catalog-driven.
 
 ## Reuse: existing arizuko pieces
 
-| Piece                                    | Today                                                                                              | What this spec adds                                                                                                                                                               |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth/oauth.go`                          | Google / GitHub / Discord login (identity only, `openid email profile` / `read:user` / `identify`) | Extend to per-provider scope sets + token persistence beyond session cookies.                                                                                                     |
-| `secrets` table (`0034-secrets`)         | `(scope_kind, scope_id, key)` plaintext (post-`0047`)                                              | Either widen schema with provider/subject/expiry columns or add a sibling `oauth_tokens` table. Open question — see below.                                                        |
-| `auth.Authorize` + ACL (`9-acl-unified`) | `(principal, action, scope, params, predicate, effect)`                                            | Reuse verbatim. Actions become `gmail:messages.send`, scopes become `gmail:user@domain/label/INBOX`.                                                                              |
-| REST↔MCP bridge (`6/E`)                  | Brainstorm only                                                                                    | This spec is the first concrete upstream catalog the bridge serves. Specs co-evolve.                                                                                              |
-| Folder secrets binding                   | Folder-scoped key/value                                                                            | OAuth tokens land in the same scope namespace — `folder:corp/eng/` owns the Gmail connection; multiple users in the folder share or shadow it (open question).                    |
-| `identities` + `identity_claims`         | Cross-channel user merge                                                                           | Gmail/Notion accounts could be claimed as additional `identity_claims` rows (`gmail:user@domain` as a sub-form), making "this Gmail belongs to this human" first-class. Optional. |
+| Piece                                      | Today                                                                                              | What this spec adds                                                                                                                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth/oauth.go`                            | Google / GitHub / Discord login (identity only, `openid email profile` / `read:user` / `identify`) | Extend to per-provider scope sets + token persistence beyond session cookies.                                                                                                     |
+| `secrets` table (`0034-secrets`)           | `(scope_kind, scope_id, key)` plaintext (post-`0047`)                                              | Either widen schema with provider/subject/expiry columns or add a sibling `oauth_tokens` table. Open question — see below.                                                        |
+| `auth.Authorize` + ACL (`4/9-acl-unified`) | `(principal, action, scope, params, predicate, effect)`                                            | Reuse verbatim. Actions become `gmail:messages.send`, scopes become `gmail:user@domain/label/INBOX`.                                                                              |
+| REST↔MCP bridge (`5/E`)                    | Brainstorm only                                                                                    | This spec is the first concrete upstream catalog the bridge serves. Specs co-evolve.                                                                                              |
+| Folder secrets binding                     | Folder-scoped key/value                                                                            | OAuth tokens land in the same scope namespace — `folder:corp/eng/` owns the Gmail connection; multiple users in the folder share or shadow it (open question).                    |
+| `identities` + `identity_claims`           | Cross-channel user merge                                                                           | Gmail/Notion accounts could be claimed as additional `identity_claims` rows (`gmail:user@domain` as a sub-form), making "this Gmail belongs to this human" first-class. Optional. |
 
 Net new code is bounded to: per-provider scope catalogs, token-refresh
 worker, the bridge's auth-header injection, and the connect/disconnect
@@ -102,12 +101,12 @@ Two integration shapes for off-the-shelf servers:
   pod, injects tokens from folder secrets at spawn, exposes their
   tools through the bridge.
 
-The REST↔MCP bridge (6/E) is the third shape — hand-written catalog
+The REST↔MCP bridge (5/E) is the third shape — hand-written catalog
 for services where neither an off-the-shelf server exists nor is
 maintained. Decision per-service, not per-platform.
 
-Connection back to 6/E: "off-the-shelf MCP server as bridge" was
-listed as one of three catalog-source options in 6/E. This spec
+Connection back to 5/E: "off-the-shelf MCP server as bridge" was
+listed as one of three catalog-source options in 5/E. This spec
 commits to it for any service that has a maintained MCP server, and
 falls back to a hand-written catalog only when none exists.
 
@@ -133,7 +132,7 @@ MCP tools (`gmail:draft`, `gmail:send`, `gcal:events.create`, etc.).
 Bridge or mounted MCP server dispatches; `auth.Authorize` gates each
 call against the folder's ACL.
 
-Same separation already lives in 6/E: edge adapters stay inbound-only,
+Same separation already lives in 5/E: edge adapters stay inbound-only,
 bridge handles agent → platform. This spec extends it from "platform
 adapters we built" to "third-party OAuth services we connect to."
 
@@ -173,7 +172,7 @@ to folder-scope. Same shape as `secrets` resolution.
 
 ## ACL gates
 
-No new auth machinery. Reuse `auth.Authorize` from spec 9.
+No new auth machinery. Reuse `auth.Authorize` from `../4/9-acl-unified.md`.
 
 ```
 auth.Authorize(
@@ -184,7 +183,7 @@ auth.Authorize(
 )
 ```
 
-Action vocabulary follows 6/E's convention: `<provider>:<verb>`.
+Action vocabulary follows 5/E's convention: `<provider>:<verb>`.
 Provider-scoped verbs are free strings; documenting them is the
 provider catalog's job. Scope grammar piggybacks on the JID-shaped
 globs the ACL already matches.
@@ -219,9 +218,10 @@ this lands — is the same playbook for agents:
   GSuite's "sign in with Google" federation, inverted — instead of
   the platform being the IdP everyone else trusts, arizuko is the
   client that holds tokens for every IdP the user has.
-- **Governance**: ACL (spec 9), audit log (`specs/3/c`), HITL
-  firewall (spec 7/4). Need to mature: structured per-tool-call
-  audit, exportable to operator's compliance stack.
+- **Governance**: ACL (`../4/9-acl-unified.md`), audit log
+  (`I-tool-call-logging.md` + `../3/c-audit-log.md`), HITL firewall
+  (`../8/4-hitl-firewall.md`). Need to mature: redacted compliance
+  export pipeline.
 - **Billing**: cost-metering exists (spec `plan-metering`). Per-seat
   / per-token unit economics is the gap.
 - **Marketplace**: products (spec 7), templates, skills. Today
@@ -235,7 +235,7 @@ The five GSuite primitives mapped to arizuko's current state:
 | -------------- | --------------------------------------- | --------------------------------------------- | ---------------------------------------------------------- |
 | Tenant         | Workspace domain                        | Folder hierarchy                              | None — primitive scales corp/eng to solo/inbox.            |
 | Identity / SSO | Sign in with Google → 3p apps           | `auth/oauth.go` (Google/GitHub/Discord login) | OAuth-as-client (this spec) for outbound service identity. |
-| Capabilities   | Drive / Gmail / Calendar APIs           | MCP tools per agent                           | Third-party MCP capability mounting (this spec + 6/E).     |
+| Capabilities   | Drive / Gmail / Calendar APIs           | MCP tools per agent                           | Third-party MCP capability mounting (this spec + 5/E).     |
 | Governance     | Vault, DLP, audit, context-aware access | ACL + HITL queue + audit log                  | Compliance-grade audit export; data-residency story.       |
 | Billing        | Per-seat unit economics + admin console | Cost metering (planned)                       | Per-seat / per-tier productisation; admin billing UI.      |
 | Marketplace    | Workspace Marketplace                   | Curated `--product` list                      | Third-party skill/persona installation + signing.          |
@@ -255,8 +255,9 @@ delivers — just names them):
 - **Multi-user shared agents** — one agent, many human principals
   acting through it, each with their own OAuth wallet and ACL view.
   Most of the primitives exist; the integration test doesn't.
-- **Audit trails for tool calls** — `audit_log` exists but isn't
-  structured per-tool-call yet; needed for compliance-grade exports.
+- **Compliance-grade audit exports** — `audit_log` per-tool-call
+  schema lands in [`I-tool-call-logging.md`](I-tool-call-logging.md);
+  a redacted-export pipeline (PII scrub, signed dump) is still open.
 - **Quota + billing primitives** — per-folder usage caps, per-tier
   pricing, downstream attribution to upstream API spend.
 - **Marketplace** — third-party skill/persona installation, with
@@ -327,7 +328,7 @@ These are the gaps between "useful agent runtime" and "agent-GSuite".
 
 ## Next steps
 
-1. Land 6/E (REST↔MCP bridge) at least to "spec" status — this spec
+1. Land 5/E (REST↔MCP bridge) at least to "spec" status — this spec
    depends on it for dispatch.
 2. Prototype token storage (option 2: `oauth_tokens` table) against
    Google as the first provider since `auth/oauth.go` already does

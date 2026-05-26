@@ -215,7 +215,8 @@ Two splits, both small:
 ### Out of scope
 
 A unified `RouteRegistry` that lets each daemon publish its chain to
-proxyd — that's spec 6/4 / 6/5 territory, not this spec.
+proxyd — that's `35-proxyd-standalone.md` + `7/1-mcp-rest-unification.md`
+territory, not this spec.
 
 ---
 
