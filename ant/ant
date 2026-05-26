@@ -51,8 +51,8 @@ MOUNTS=(
 
 ENV_ARGS=()
 if [[ -n "$GATED_SOCK" ]]; then
-    MOUNTS+=("$(dirname "$GATED_SOCK"):/workspace/ipc:ro")
-    ENV_ARGS+=("-e" "GATED_SOCK=/workspace/ipc/$(basename "$GATED_SOCK")")
+    MOUNTS+=("$(dirname "$GATED_SOCK"):/run/ipc:ro")
+    ENV_ARGS+=("-e" "GATED_SOCK=/run/ipc/$(basename "$GATED_SOCK")")
 fi
 
 docker run --rm -i \
