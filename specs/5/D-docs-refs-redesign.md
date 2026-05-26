@@ -3,7 +3,7 @@ status: draft
 depends: []
 ---
 
-# specs/8/D — docs refs redesign (dbt IA + content patterns over arizuko visuals)
+# specs/5/D — docs refs redesign (dbt IA + content patterns over arizuko visuals)
 
 ## Why
 
