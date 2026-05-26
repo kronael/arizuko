@@ -33,6 +33,24 @@
     document.body.appendChild(f);
   }
 
+  // AI handoff — routes the visitor to the krons arizuko agent, prefilled
+  // with the current page URL as context. Token is public by design; chat
+  // surface is rate-limited at the webd layer (chat_mcp.go).
+  function injectAskAgent() {
+    if (document.querySelector('.ask-agent')) return;
+    var token = 'G6CffSXGc5gBqNUtcwE-cm3hNT1P7TOiSNNPru1MP3Y';
+    var ref = encodeURIComponent(window.location.pathname);
+    var a = document.createElement('a');
+    a.className = 'ask-agent';
+    a.href = 'https://krons.fiu.wtf/chat/' + token + '/?ref=' + ref;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.title =
+      'Open chat with the arizuko agent — it has the codebase + docs in context.';
+    a.textContent = 'Ask the agent →';
+    document.body.appendChild(a);
+  }
+
   function init() {
     initTheme();
     var btn = document.querySelector('.theme-toggle');
@@ -41,6 +59,7 @@
     var empty = document.querySelector('.empty');
     if (grid && empty && grid.children.length > 0) empty.style.display = 'none';
     injectFooter();
+    injectAskAgent();
   }
 
   if (document.readyState === 'loading') {

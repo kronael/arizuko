@@ -104,6 +104,26 @@ pre {
 }
 .theme-toggle:hover { transform: rotate(20deg); }
 
+.ask-agent {
+  position: fixed;
+  bottom: 1em;
+  right: 1em;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.5em 0.8em;
+  font-size: 0.85em;
+  text-decoration: none;
+  z-index: 10;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ask-agent:hover {
+  background: var(--bg-alt);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .hub-footer {
   max-width: 920px;
   margin: 3em auto 2em;
