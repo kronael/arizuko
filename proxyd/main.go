@@ -520,7 +520,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// /priv/* — JWT-gated. Served by the same vited instance as /pub/*,
-	// resolving to files under <data>/web/priv/<folder>/. Spec 4/18:
+	// resolving to files under <data>/web/priv/<folder>/. Spec 5/V:
 	// agents publish to ~/private_html/, bind-mounted from web/priv/.
 	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
 	// to web/priv/X naturally.

@@ -325,7 +325,7 @@ func TestProxydPubPathNoAuth(t *testing.T) {
 }
 
 // /priv/* requires a JWT — anonymous callers bounce to /auth/login.
-// Spec 4/18: web/priv/ is a JWT-gated parallel tree to web/pub/.
+// Spec 5/V: web/priv/ is a JWT-gated parallel tree to web/pub/.
 func TestProxydPrivPathRequiresAuth(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()

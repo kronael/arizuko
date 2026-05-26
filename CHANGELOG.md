@@ -12,6 +12,35 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.45.11] — 2026-05-26
+
+> arizuko v0.45.11 — FHS mount paths + agent web slots (public_html, private_html)
+>
+> Platform mounts moved to FHS canonical locations, and each group now has two writable web slots — `~/public_html/` (public) and `~/private_html/` (OAuth-gated) — served at `/pub/<folder>/` and `/priv/<folder>/`.
+>
+> • `/workspace/self`→`/opt/arizuko`, `/workspace/web`→`/var/lib/www`, `/workspace/ipc`→`/run/ipc`, `/workspace/share`→`/var/lib/share`, `/workspace/data/groups`→`/var/lib/groups`, `/workspace/extra/<n>`→`/mnt/<n>` — devcontainer "your project" lie removed, FHS canonical paths
+> • `~/public_html/` and `~/private_html/` — Apache mod_userdir convention. Bind-mounts of `<data>/web/{pub,priv}/<folder>/`. Public slot serves at `/pub/<folder>/`, private slot serves at `/priv/<folder>/` behind OAuth
+> • New `/priv/*` URL prefix served by vited under JWT gate. Filesystem at `<data>/web/priv/` is parallel to `web/pub/` — never reachable via `/pub/`
+> • Fixes the krons "I built a research hub but can't deploy it" failure: agent writes to `~/public_html/research/`, served at `/pub/krons/research/`. Operator-curated `/pub/arizuko/` stays operator-managed
+> • Migration 150 broadcasts the new model to every group on next spawn
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- `container/runner.go buildMounts` — FHS rename + `~/public_html`/`~/private_html` bind mounts; layered tier-1/tier-2 web overlay removed
+- `container/runner.go SetupGroup` — creates per-group `web/pub/<folder>/` and `web/priv/<folder>/` at group setup
+- `proxyd/main.go route` — new hand-wired `/priv/*` JWT-gated branch forwarding to vited
+- `ant/vite.config.js pubFallback` — skips `/priv/*` so missing private files 404 cleanly instead of falling back to `/pub/priv/*`
+- `ant/src/index.ts` — IPC socket + share + extras paths follow FHS rename (`/run/ipc`, `/var/lib/share`, `/mnt/*`)
+- `mountsec/mountsec.go` — extras path `/workspace/extra/` → `/mnt/`
+- Migration `150-v0.45.11-fhs-and-web-slots.md`, `MIGRATION_VERSION` 149 → 150
+- `ant/skills/self/migration.md` stale "Latest migration version: 144" → 150
+- `specs/4/18-web-vhosts.md` → `specs/5/V-web-vhosts.md` (web layout is a platform-core concern)
+- 25 specs + root MD updated for the new mount model and slot conventions
+
+---
+
 ## [v0.45.10] — 2026-05-25
 
 > arizuko v0.45.10 — defensive web-publish recipe

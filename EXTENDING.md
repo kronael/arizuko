@@ -255,11 +255,13 @@ handle dance; pages call `Arizuko.connect(token)` and stream frames.
   - API table). Sibling skill `slink-mcp/` covers MCP-over-HTTP.
 - Spec: `specs/1/Z2-slink-sdk.md`.
 
-For agent-written pages, the convention is `~/public_html/<app>/`
-inside the container (bind-mounted from
-`<data>/web/pub/<folder>/<app>/`), served at `/pub/<folder>/<app>/`
-by vited. JWT-gated content goes in `~/private_html/<app>/`, served
-at `/priv/<folder>/<app>/`. See `specs/4/18-web-vhosts.md`.
+For agent-written pages, the slot itself (`~/public_html/`) is
+bind-mounted from `<data>/web/pub/<folder>/` and serves at
+`/pub/<folder>/`. For multi-app deployments, nest each app under its
+own subdir: `~/public_html/<app>/` → `/pub/<folder>/<app>/`. JWT-gated
+content lives in `~/private_html/` (or `~/private_html/<app>/`),
+served at `/priv/<folder>/` (or `/priv/<folder>/<app>/`). See
+`specs/5/V-web-vhosts.md`.
 
 ## Extending the public site
 
