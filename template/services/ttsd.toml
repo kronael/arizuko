@@ -1,0 +1,8 @@
+image = "arizuko-ttsd:latest"
+entrypoint = ["ttsd"]
+depends_on = ["kokoro"]
+
+[environment]
+TTSD_ADDR = ":8880"
+TTS_BACKEND_URL = "http://kokoro:8880"
+LOG_LEVEL = "info"

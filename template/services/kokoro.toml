@@ -1,0 +1,3 @@
+image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+entrypoint = []
+depends_on = []
