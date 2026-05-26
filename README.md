@@ -43,6 +43,18 @@ Agents coordinate through the same message bus they serve users on. A container 
 
 State lives entirely in one SQLite database. Containers are stateless — they mount the group folder, run, and exit.
 
+## Direction
+
+That's what arizuko is today: a single-host, multi-tenant agent router with channels, folders, and a shared SQLite. Three frames describe where it's heading.
+
+**Multi-tenant by primitive.** The same code runs `solo/inbox` and `corp/eng/sre/oncall`. Folder hierarchies have no fixed depth. Every primitive — grants, channels, secrets, routes, scheduled work — scales from one-user-one-channel to a fleet of agents under shared admin. Adding tenants is adding rows + folders; the daemon graph is invariant.
+
+**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/7/3](specs/7/3-git-as-truth.md)), with SQLite as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
+
+**Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/5](specs/5/5-uniform-mcp-rest.md)) is one hand-rolled handler per cold-tier resource with two faces — REST for humans + external tools, MCP for in-container agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. The first resource (`proxyd/resource.go`) already runs that pattern; the rest follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/7/5](specs/7/5-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
+
+Nothing in this direction breaks what already runs. The migration is incremental: resource by resource, daemon by daemon, the surface unifies, the cold tier moves to git, the manifest format absorbs the imperative knobs. Containers, channel adapters, the message bus, the per-folder runtime — all unchanged.
+
 ## When to use arizuko
 
 Use arizuko if the agent needs to live in real channels and keep a separate identity per team, customer, or workflow.
@@ -139,7 +151,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 - Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
 - Message actions — agent-side edit, delete, pin ([spec](specs/5/Z-message-actions.md))
-- Platform API — federated `/v1/*` surface across daemons ([spec](specs/5/V-platform-api.md))
+- Platform API — federated `/v1/*` surface across daemons ([spec](specs/5/5-uniform-mcp-rest.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 
 ## Build & test
