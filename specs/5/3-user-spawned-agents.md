@@ -9,8 +9,8 @@ skills, channel binding — and arizuko spawns a tenant for them, returns
 an access token, and lets them interact. The operator runs the
 platform; the platform runs the tenants.
 
-Rides on [R-platform-api.md](R-platform-api.md) (federated `/v1/*` and
-capability tokens) and [R-genericization.md](R-genericization.md)
+Rides on [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) (federated `/v1/*` and
+capability tokens) and [U-genericization.md](U-genericization.md)
 (`tenant_id`, `agent-runnerd`). Shares its seeding code with
 [../8/R-products.md](../8/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
@@ -39,7 +39,7 @@ same MCP socket model. The new surface is the _creation_ gate.
   `admissions` (onbod), operator approves. `USER_SPAWNED_AUTO_APPROVE=true`
   skips for closed-friend instances.
 - **Capability scope.** The token minted at creation
-  (per R-platform-api §Token model) carries
+  (per 5/5 §Token model) carries
   `folder=agents/<user_sub>/<agent_name>`, `tier=user-spawned`, and
   scopes `messages:{read,send}` + `tasks:read`. No `grants:write`,
   no `routes:write` outside the subtree.
@@ -53,7 +53,7 @@ granted. Grant mutation stays operator-only.
 
 ## API surface
 
-All on the federated `/v1/*` (R-platform-api §Daemon ownership); the
+All on the federated `/v1/*` (5/5 §Daemon ownership); the
 agent resource lives on `gated`. Seven endpoints:
 `POST /v1/agents` (submit; 202 if queued, 200 + token if auto-approved),
 `GET /v1/agents` (list caller's), `GET/PATCH/DELETE /v1/agents/{id}`,
@@ -93,7 +93,7 @@ Tenant tree: `groups/agents/<user_sub>/<agent_name>/` — same structure
 as `ant/examples/*` so existing seeding code is reused. `<user_sub>`
 is the stable subject from proxyd/onbod.
 
-New tables (owned by `gated` per R-platform-api):
+New tables (owned by `gated` per 5/5):
 
 | Table                 | Columns                                                                   |
 | --------------------- | ------------------------------------------------------------------------- |
@@ -113,14 +113,14 @@ user --POST /v1/agents--> gated
         ├── insert groups + user_agents + user_agent_versions
         ├── agent-runnerd.SetupGroup(tenant_id, definition)
         ├── register channel bindings via gated/v1/routes
-        ├── mint slink/MCP token (R-platform-api §Token)
+        ├── mint slink/MCP token (5/5 §Token)
         └── return { agent, token, slink_url }
 ```
 
 `arizuko create --product <name>` collapses to the same flow with
 `user_sub=operator`, `auto_approve=true`, definition sourced from
 `ant/examples/<name>/`. One code path; the menu is the operator's
-shortcut. `agent-runnerd` is per R-genericization Phase C; until that
+shortcut. `agent-runnerd` is per U-genericization Phase C; until that
 ships, `container.SetupGroup` + gateway do the job.
 
 ## Out of scope

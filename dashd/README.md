@@ -128,4 +128,4 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 Per-group scoping of read pages (`/dash/status/`, `/dash/activity/`,
 `/dash/memory/`) so a non-admin sees only folders they hold a grant on;
 migration of direct DB reads to `gated/v1/*` once that surface lands
-(`specs/6/R-platform-api.md`).
+(`specs/5/5-uniform-mcp-rest.md`).

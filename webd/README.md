@@ -21,7 +21,7 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 ## Tables owned
 
-Per `specs/6/R-platform-api.md`: `web_routes` and the `slink_token`
+Per `specs/5/5-uniform-mcp-rest.md`: `web_routes` and the `slink_token`
 column on `groups`. Vhost config lives in `web/vhosts.json` (file, not
 table). webd does not own messages — it writes them as a client of
 `gated/v1/messages` (channel adapter inbound) and today reads them via
@@ -44,7 +44,7 @@ Shipped today (see `server.go`):
 - `GET /static/*` — embedded assets.
 - `GET /health`.
 
-Planned per `specs/6/R-platform-api.md`:
+Planned per `specs/5/5-uniform-mcp-rest.md`:
 
 - `/v1/web-routes` — REST verbs on owned tables.
 
@@ -104,7 +104,7 @@ delivered messages.
 
 ## Related docs
 
-- `specs/6/R-platform-api.md` — federated `/v1/*` contract
+- `specs/5/5-uniform-mcp-rest.md` — federated `/v1/*` contract
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/6/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

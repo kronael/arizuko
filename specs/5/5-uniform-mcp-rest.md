@@ -1,11 +1,11 @@
 ---
 status: draft
-depends: [V-platform-api, 1-auth-standalone, 35-proxyd-standalone]
+depends: [1-auth-standalone, 35-proxyd-standalone]
 ---
 
 # Uniform REST + MCP per resource
 
-> **Canonical principle.** Closed across all resources in
+> **Canonical principle + federation.** Closed across all resources in
 > [`../7/1-mcp-rest-unification.md`](../7/1-mcp-rest-unification.md) —
 > the phase 7 spec carries the coverage matrix, per-resource handler
 > pattern, audit contract, and acceptance criteria.
@@ -14,18 +14,19 @@ depends: [V-platform-api, 1-auth-standalone, 35-proxyd-standalone]
 AND MCP (inside, tier-gated), wrapped over a single handler.** One
 resource, one handler, two faces. Auth is the only thing that differs.
 
-Sibling principle to [R-platform-api.md](R-platform-api.md): that spec
-defines the federated `/v1/*` surface and token model; this spec makes
-explicit that the MCP tool surface is the same registry viewed through
-a different auth lens — never a second hand-written tree.
+This spec defines the federated `/v1/*` surface and token model AND
+makes explicit that the MCP tool surface is the same registry viewed
+through a different auth lens — never a second hand-written tree.
+Per-daemon ownership: each daemon owns its tables and serves its own
+`/v1/*`; cross-daemon MCP calls become HTTP forwards over signed
+capability tokens. No new daemon for auth.
 
 ## Why
 
 Today's surface is split asymmetrically:
 
 - `dashd` reads `groups`, `routes`, `messages` direct from the shared
-  DB ([`R-platform-api.md` "Dashboard"](R-platform-api.md)); no write
-  paths exist.
+  DB; no write paths exist.
 - `ipc/ipc.go` registers the action tools the agent can call
   ([`ipc/README.md` "Tool surface"](../../ipc/README.md)), each a
   hand-written wrapper over `gated`/`store` calls.
@@ -146,16 +147,146 @@ Both surfaces produce a `Caller` consumed identically.
 | REST    | `Authorization: Bearer <jwt>` (OAuth session per [`2-proxyd-standalone.md` "Login flow"](2-proxyd-standalone.md)) | [`auth.VerifyHTTP`](../../auth/README.md) | `user_groups` ACL + grants at proxyd login                                        |
 | MCP     | Capability token at agent socket bind ([`ipc/README.md` "Capability token"](../../ipc/README.md))                 | `auth.VerifyToken`                        | Folder tier per [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md) |
 
-Both carry the same JWT shape (HS256, `AUTH_SECRET`,
-[`R-platform-api.md` "Token model"](R-platform-api.md)). Mint sites
-differ; verify path is one function.
+A platform token is a signed JWT (HS256, signed with `AUTH_SECRET`)
+carrying:
+
+```json
+{
+  "sub": "user:abc123" | "agent:atlas/main" | "key:k_42",
+  "scope": ["groups:read", "tasks:write", "messages:send", "groups:*", ...],
+  "folder": "atlas/main",
+  "iat": 1735000000,
+  "exp": 1735003600,
+  "iss": "proxyd" | "mcp-host" | "onbod"
+}
+```
+
+`folder` scopes the token to a subtree. `atlas/main` token can operate
+on `atlas/main/*` resources but not on `rhias/*`. Root tokens omit
+`folder` (or set `folder: "*"`). `tier` is derived from `folder` by
+the verifier (`auth.Resolve(folder).Tier = min(strings.Count(folder,
+"/"), 3)`) and not transmitted in the JWT — carrying a derived value
+across mint sites invites drift.
+
+Scopes are minted from grant rules at issuance time (snapshot), so
+revoking grants requires token expiry or an explicit revocation list.
+Short TTLs are the default; revocation lists deferred until needed.
+
+**Shared minting.** Every issuer (proxyd, MCP host, onbod, dashd)
+produces scopes through one function:
+
+```go
+func MintScopes(identity Identity, store GrantStore, narrow Narrow) []string
+```
+
+`Narrow` is an issuer-specific parameter (e.g. onbod passes an
+invite-restricted subset, dashd passes a long-lived key's declared
+scope-list). One renderer, many sinks; drift across issuers lives in
+`Narrow`, not in the scope-from-grants logic.
+
+### Issuance sites
+
+| Issuer                                       | Triggers on                         | Token shape                                                               | Verifier                    |
+| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- | --------------------------- |
+| **proxyd**                                   | OAuth login (existing)              | user session, scopes from grants                                          | Every backend daemon        |
+| **MCP host** (currently `ipc/` inside gated) | Agent container spawn / socket bind | agent capability, folder-scoped                                           | Every daemon agent talks to |
+| **onbod**                                    | Invite redemption / admission       | initial user session, narrow scope; **same `auth/` lib, same JWT format** | Every backend daemon        |
+| **dashd**                                    | API key creation (operator action)  | long-lived, narrow scope                                                  | Every backend daemon        |
+
+The MCP host mints the agent token at container spawn, embedding
+`(folder, tier, grants snapshot)`. The token is passed into the
+container as an env var or via the MCP socket handshake. Agents use it
+for any HTTP call to a sibling daemon's `/v1/*`.
+
+`auth/Verify(token) → Identity{sub, scope, folder, tier}` lives in the
+shared `auth/` library. Every daemon imports it. No daemon implements
+its own verification.
+
+Per-request auth at every `/v1/*` endpoint:
+
+```go
+ident, err := auth.VerifyHTTP(r)        // signature + exp + iss
+if !auth.HasScope(ident, "tasks", "write") { return 403 }
+if !auth.MatchesFolder(ident, taskFolder) { return 403 }
+// proceed
+```
+
+**No new daemon for auth.** A future `authd` is one refactor away if
+centralized revocation/audit becomes load-bearing — until then,
+distributed minting fits the existing topology.
+
+## Daemon ownership of `/v1/*`
+
+Each daemon owns its tables and serves the matching API. No
+cross-daemon reaches into another's storage.
+
+| Daemon     | Owns                                                 | Serves                                                                                   |
+| ---------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **gated**  | groups, routes, sessions, channels, messages, grants | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
+| **timed**  | scheduled_tasks, task_run_logs                       | `/v1/tasks`                                                                              |
+| **webd**   | web_routes, vhosts, slink tokens                     | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
+| **onbod**  | invites, admissions, auth_users                      | `/v1/invites`, `/v1/users`                                                               |
+| **proxyd** | OAuth state, session-token issuance                  | `/auth/*` (existing); becomes a token issuer surface                                     |
+| **dashd**  | nothing — aggregator UI calling the above            | HTML/HTMX over `/v1/*` of others                                                         |
+
+`grants` lives with gated for now (gated already runs migrations and
+has the broadest schema authority). If a future split puts grants
+elsewhere, the issuance flow doesn't change — issuers query the grants
+owner at mint time.
+
+**proxyd routes** are not in the ownership table: they're declared
+per-daemon in `template/services/<name>.toml` `[[proxyd_route]]`
+blocks, aggregated by `compose/compose.go` at compose-generate time,
+and consumed by proxyd via `PROXYD_ROUTES_JSON`. See
+[`35-proxyd-standalone.md`](35-proxyd-standalone.md) "Per-daemon
+route declarations". proxyd remains the verifier — it doesn't "own"
+a routes table; it executes the operator-composed one.
+
+### MCP federation
+
+The MCP socket terminates in gated. Tools touching tables gated owns
+(groups, routes, sessions, channels, messages, grants) stay local.
+Tools touching tables owned by other daemons (tasks → timed, invites
+→ onbod) become **HTTP forwards** with the agent's capability token:
+
+```
+agent → ipc.tools/call(pause_task, ...)
+       → ipc validates token scope (tasks:write)
+       → ipc HTTP-PATCH timed/v1/tasks/{id} {status: paused}
+              with Authorization: Bearer <agent-token>
+       → timed verifies token, checks scope, executes, returns
+       → ipc returns result to agent as JSON-RPC
+```
+
+Single MCP socket per agent (today's model). The socket host becomes
+a thin API gateway for the agent — local in-process calls for
+own-domain operations, HTTP forwards for cross-daemon. The forwarder
+shape is `Resource{Store: nil}` — the adapter skips the tx/audit
+dance and the destination daemon writes the audit row.
+`webd/routes_mcp.go` is the canonical example.
+
+### Dashboard becomes an aggregator
+
+`dashd` holds an operator session token (issued by proxyd at login)
+and makes `/v1/*` calls to gated, timed, webd, onbod to render its
+pages. Adds write paths (forms posting to `POST/PATCH/DELETE` of the
+relevant daemon) wherever today's UI is read-only.
+
+| dashd page        | Old (direct DB)                        | New (federated API)                                                                   |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `/dash/groups/`   | reads `groups`, `routes`               | `gated/v1/groups`, `gated/v1/routes`                                                  |
+| `/dash/tasks/`    | reads `scheduled_tasks`                | `timed/v1/tasks` (+ form → `POST timed/v1/tasks`)                                     |
+| `/dash/activity/` | reads `messages` LIMIT 50              | `gated/v1/messages?limit=50&order=desc`                                               |
+| `/dash/status/`   | reads `groups`, `sessions`, `channels` | `gated/v1/groups`, `gated/v1/sessions`, `gated/v1/channels`                           |
+| `/dash/memory/`   | direct fs read/write                   | new resource on whichever daemon owns the group fs (likely gated): `gated/v1/files/*` |
+| `/dash/profile/`  | reads `auth_users`                     | `onbod/v1/users/{sub}`                                                                |
+
+dashd never touches tables directly after this refactor.
 
 ## Scope vocabulary
 
-`<resource>:<verb>[:own_group]`. The `:own_group` suffix is the only
-addition to
-[`R-platform-api.md`'s `<resource>:<verb>` shape](R-platform-api.md);
-[its "Open" wildcard lean](R-platform-api.md) stays namespace-only.
+`<resource>:<verb>[:own_group]`. Builds on the `<resource>:<verb>`
+shape with one addition — the `:own_group` suffix.
 
 - `<resource>:read` / `<resource>:write` — admin.
 - `<resource>:read:own_group` / `<resource>:write:own_group` — scoped
@@ -451,17 +582,13 @@ a saner state (REST parity); E+F are the structural wins.
 
 ## Reconciliations
 
-- **vs [`R-platform-api.md` "Resource model"](R-platform-api.md)**:
-  that spec leaves MCP tool registration as "each daemon's MCP server,
-  named for agent ergonomics", with no formal link to `/v1/*`. This
-  spec adds the formal link. Principle was implicit; here it's mandatory.
 - **vs [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md)**:
   the tier × action matrix becomes the scope minter — at socket bind,
   `(folder, tier)` → set of `<resource>:<verb>[:own_group]` scopes.
   Tier model authors which scopes get minted; this spec authors how
   scopes are checked.
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
-  9-case per-tool switch. After Phase D it is **deleted** — not thinned.
+  9-case per-tool switch. After Phase G it is **deleted** — not thinned.
   The per-action `ScopePred` in the registry is the only authorization
   site (`r.Policy[action](caller, target)`). The switch survives in
   CHANGELOG only.
@@ -469,28 +596,50 @@ a saner state (REST parity); E+F are the structural wins.
 ## Open (parked)
 
 - **`:own_group` matching under nested folders.** Subtree containment
-  is the lean. Pin when [`R-genericization.md`](R-genericization.md)
-  lands `MatchesFolder`.
-- **Bulk endpoints.** Inherit
-  [`R-platform-api.md`'s "many POSTs, bulk on demand"](R-platform-api.md).
+  is the lean. Pin when
+  [`U-genericization.md`](U-genericization.md) lands `MatchesFolder`.
+- **Bulk endpoints.** Many POSTs, bulk only on demand.
 - **Action verbs vs CRUD shape.** `messages.send` / `groups.escalate`
-  are action-shaped. Inherit Google's `:verb` convention from
-  [`R-platform-api.md`](R-platform-api.md).
+  are action-shaped. Inherit Google's `:verb` convention.
 - **`ScopePred` concrete shapes** land per-resource in Phase B.
+- **Token TTL & revocation.** Short TTL (1h) is the default;
+  revocation list deferred. Long-lived API keys (dashd-issued) need a
+  revocation table — when, where?
+- **Cross-daemon transactions.** Some operations span tables (e.g.
+  "create group → seed skills → register routes"). Once ownership
+  is split, these become saga-shaped. Acceptable since each step is
+  idempotent; flag if not.
+- **MCP socket lifecycle vs token TTL.** Container can outlive its
+  token if a turn runs longer than TTL. Refresh via the MCP host?
+  Accept the rare expiry? Deferred — short-lived turns mostly avoid
+  this.
+- **dashd hosting decision.** Keep dashd as Go HTML server, or fold
+  HTML rendering into webd? Lean: keep.
+- **`authd` daemon.** Adding it later is one refactor (move minting
+  out of proxyd/onbod/MCP-host into a shared service). Triggered by:
+  centralized revocation list, audit log, OIDC delegation.
 
 ## Code pointers
 
 - `auth/` ([`README.md`](../../auth/README.md)) — gains `Caller`,
-  `Resource`, `Endpoint`, `MCPTool`, `ScopePred`, `RegisterResource`
-  per Phase A.
+  `Resource`, `Endpoint`, `MCPTool`, `ScopePred`, `RegisterResource`,
+  `Mint`, `VerifyHTTP`, `HasScope`, `MatchesFolder` per Phase A. The
+  single source of truth for token format.
 - [`auth/policy.go:14-96`](../../auth/policy.go) — current `Authorize`
-  switch; Phase D replaces with registry lookup.
+  switch; Phase G replaces with registry lookup.
 - [`ipc/ipc.go:32-120`](../../ipc/ipc.go) — `GatedFns`/`StoreFns` plus
   per-tool registrations; resource-action tools migrate to
-  `RegisterResource`, shrinking the file.
+  `RegisterResource`, shrinking the file. MCP host gains agent-token
+  minter and HTTP-forward client for cross-daemon tools.
 - [`proxyd/main.go:590-634`](../../proxyd/main.go) — signed-identity
-  header path; the `Caller` builder for REST. After
-  [`R-platform-api.md` Phase 1](R-platform-api.md), this becomes the
-  same `auth.VerifyHTTP` call every backend uses.
+  header path; the `Caller` builder for REST. Existing OAuth + JWT
+  extends issuance to carry scopes derived from grants.
 - [`gated/`](../../gated/), [`timed/`](../../timed/),
-  [`onbod/`](../../onbod/) — call `RegisterResource` per owned resource.
+  [`onbod/`](../../onbod/), [`webd/`](../../webd/) — each gains a
+  small `v1.go` for its owned resources; calls `RegisterResource` per
+  owned resource.
+- [`dashd/`](../../dashd/) — replaces direct `store.*` calls with
+  `/v1/*` HTTP calls using the operator's session token.
+- `core/grants.go` — stays as the rule evaluator; called only at
+  issuance sites (proxyd, MCP host, dashd) to compute scopes from
+  rules.

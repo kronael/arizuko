@@ -15,7 +15,7 @@ from Go types, not hand-written, so it cannot drift from the handler. A
 top-level aggregator (proxyd-served `/docs/`) renders every daemon's
 spec in one Swagger UI.
 
-Sibling to [R-platform-api.md](R-platform-api.md): that spec defines the
+Sibling to [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md): that spec defines the
 `/v1/*` contract; this one says the contract must be discoverable in the
 same way HTTP itself is.
 
@@ -33,7 +33,7 @@ all consume it. Today the surface lives in Go source
 `<daemon>/README.md`. That doesn't scale: handlers churn, READMEs lag,
 no consumer can introspect the platform at runtime.
 
-[R-platform-api.md](R-platform-api.md) Phase 2 already calls for
+[5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) Phase 2 already calls for
 per-daemon `openapi.json`; this spec is the contract for how they're
 produced, where they live, and how drift is prevented.
 [`specs/12/2-printing-press.md:130-134`](../12/2-printing-press.md)
@@ -126,10 +126,10 @@ routes top-level `/docs/` to it.
 ## Phasing
 
 1. **Phase 1 — daemons with stable HTTP surface.** `gated` (largest;
-   per [R-platform-api.md §Daemon ownership](R-platform-api.md)),
+   per [5-uniform-mcp-rest.md §Daemon ownership](5-uniform-mcp-rest.md)),
    `proxyd`, `dashd` (document the API the dashboard _consumes_, not
    its HTML), `webd`, `onbod`, `timed`, `davd`. Order by
-   R-platform-api Phase 2-3; each daemon documents itself as it grows
+   5/5 Phase 2-3; each daemon documents itself as it grows
    its `/v1/*`.
 2. **Phase 2 — `chanlib` combined doc.** Consumer contract for the
    `chanreg`/router calls every adapter makes
@@ -165,9 +165,9 @@ TS tooling — emit `whapd/openapi.json` from handler types, expose
 
 ## Cross-references
 
-- [R-platform-api.md](R-platform-api.md) — the API contract this
+- [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) — the API contract this
   makes discoverable.
-- [R-genericization.md](R-genericization.md) — once daemons use
+- [U-genericization.md](U-genericization.md) — once daemons use
   generic `tenant_id`/`subject_id`, the schemas use those names, not
   `Folder`/`ChatJID`.
 - [`specs/12/2-printing-press.md`](../12/2-printing-press.md) —

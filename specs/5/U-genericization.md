@@ -12,7 +12,7 @@ have to change for each daemon to be deployable in isolation and
 usable for non-arizuko workloads.
 
 This is the **prerequisite** for the federated control API
-([R-platform-api.md](R-platform-api.md)) — a generic daemon with
+([5-uniform-mcp-rest.md](5-uniform-mcp-rest.md)) — a generic daemon with
 arizuko concepts wired into its types isn't reusable, and the API
 contract is more honest once the concepts are factored out.
 
@@ -428,7 +428,7 @@ custom UI replacements, not via reusing dashd.
    Keep deployable as a single binary (`arizuko-monolith`) for ops
    simplicity during cutover.
 5. **Federated API** — at this point
-   [R-platform-api.md](R-platform-api.md) ships against generic types
+   [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) ships against generic types
    and per-daemon ownership. The contract is honest.
 6. **Phase B.2 — separate DBs** — if/when isolation across hosts
    becomes a real need.
