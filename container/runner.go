@@ -863,6 +863,14 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 			slog.Warn("setup group: copy prototype", "folder", folder, "err", err)
 		}
 	}
+	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html
+	// at agent spawn time. Pre-create here so the dirs exist before the first
+	// docker run and inherit the container's uid via chownR in seedGroupDir.
+	// runner.go also MkdirAll-s these defensively at spawn time. Spec 4/18.
+	if cfg.WebDir != "" {
+		os.MkdirAll(filepath.Join(cfg.WebDir, "pub", folder), 0o755)
+		os.MkdirAll(filepath.Join(cfg.WebDir, "priv", folder), 0o755)
+	}
 	return seedGroupDir(cfg, folder)
 }
 

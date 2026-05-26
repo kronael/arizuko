@@ -205,6 +205,53 @@ func TestBuildMounts_Tier3NoWebSlots(t *testing.T) {
 	}
 }
 
+// TestSetupGroup_CreatesPerGroupWebSlots verifies SetupGroup pre-creates
+// the host-side web/pub/<folder>/ and web/priv/<folder>/ dirs that
+// runner.go bind-mounts into the agent home. Spec 4/18.
+func TestSetupGroup_CreatesPerGroupWebSlots(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &core.Config{
+		GroupsDir: filepath.Join(tmp, "groups"),
+		IpcDir:    filepath.Join(tmp, "ipc"),
+		WebDir:    filepath.Join(tmp, "web"),
+	}
+	os.MkdirAll(cfg.GroupsDir, 0o755)
+	os.MkdirAll(cfg.IpcDir, 0o755)
+
+	if err := SetupGroup(cfg, "newworld", ""); err != nil {
+		t.Fatalf("SetupGroup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "newworld")); err != nil {
+		t.Errorf("expected web/pub/newworld: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.WebDir, "priv", "newworld")); err != nil {
+		t.Errorf("expected web/priv/newworld: %v", err)
+	}
+}
+
+// TestSetupGroup_NestedWebSlots verifies subgroup folders get nested
+// dirs preserved in the unified web tree.
+func TestSetupGroup_NestedWebSlots(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &core.Config{
+		GroupsDir: filepath.Join(tmp, "groups"),
+		IpcDir:    filepath.Join(tmp, "ipc"),
+		WebDir:    filepath.Join(tmp, "web"),
+	}
+	os.MkdirAll(cfg.GroupsDir, 0o755)
+	os.MkdirAll(cfg.IpcDir, 0o755)
+
+	if err := SetupGroup(cfg, "atlas/support", ""); err != nil {
+		t.Fatalf("SetupGroup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.WebDir, "pub", "atlas", "support")); err != nil {
+		t.Errorf("expected web/pub/atlas/support: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.WebDir, "priv", "atlas", "support")); err != nil {
+		t.Errorf("expected web/priv/atlas/support: %v", err)
+	}
+}
+
 // TestBuildMounts_RootGroupsMount verifies tier 0 gets /var/lib/groups.
 func TestBuildMounts_RootGroupsMount(t *testing.T) {
 	tmp := t.TempDir()
