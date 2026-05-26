@@ -135,7 +135,17 @@ permission tiers).
 
 Operator-facing web docs (the `/pub/...` site) live in
 `template/web/pub/` — that's source-of-truth. Voice and style guide
-is in `template/web/CLAUDE.md`. Workflow:
+is in `template/web/CLAUDE.md`.
+
+**Arizuko visuals are load-bearing — never adopt another site's look.**
+We borrow IA + content patterns from external references (Divio
+four-category split, Stripe three-column layout, dbt's reference-page
+rhythm — see `~/facts/technical-guide-structure-patterns.md` on krons),
+but the visual identity stays ours: hub.css palette, 2px corners, dense
+typography, arizuko color twists. External references inform structure
+and tone; the look is the arizuko brand and does not move.
+
+Workflow:
 
 1. Edit pages under `template/web/pub/`.
 2. Verify locally: open the HTML directly or via any static file

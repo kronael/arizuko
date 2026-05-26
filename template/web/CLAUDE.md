@@ -252,6 +252,13 @@ that paragraph.
 
 ## Style rules
 
+> **Arizuko visual identity is load-bearing — keep it.** Borrow IA + content
+> patterns from external references (Divio four-category, Stripe three-column,
+> dbt's reference-page rhythm cited 2026-05-25) but **do NOT adopt their
+> visuals**. The hub.css palette, 2px corners, dense typography, and arizuko
+> color twists stay. The job of an external reference is to inform structure
+> and tone; the look is ours.
+
 All pages use `hub.css` + `hub.js`. Use **relative paths** for all
 internal links and asset references — never `/pub/...` absolute paths.
 The docs are served from a subpath (`/pub/arizuko/`) and absolute paths
