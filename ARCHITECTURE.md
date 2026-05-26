@@ -71,7 +71,7 @@ sidecar/ whisper-cpp container; gateway calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
         in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
-        Shippable separately; specs/10/b-orthogonal-components.md
+        Shippable separately; specs/5/A-orthogonal-components.md
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
@@ -427,7 +427,7 @@ onbod auto-included when `ONBOARDING_ENABLED=true`. All Go daemons
 listen on :8080 internally except ttsd at :8880 — historical default
 that predates the invariant.
 
-`crackbox` (sibling component, see `specs/10/b-orthogonal-components.md`)
+`crackbox` (sibling component, see `specs/5/A-orthogonal-components.md`)
 and an `agents` internal network are emitted when `CRACKBOX_ADMIN_API` is set.
 The internal network has no default route to the internet; crackbox is
 the only container with both NICs (internal + default bridge). gated

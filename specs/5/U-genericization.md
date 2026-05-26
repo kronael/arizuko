@@ -23,7 +23,7 @@ arizuko concepts wired into its types isn't reusable, and the API
 contract is more honest once the concepts are factored out.
 
 The discipline that crackbox already follows
-([`specs/11/b-orthogonal-components.md`](../11/b-orthogonal-components.md))
+([`specs/5/A-orthogonal-components.md`](A-orthogonal-components.md))
 is the model: a sibling component lives in the same repo + module,
 but its import graph has zero references to arizuko-internal
 packages. Apply the same discipline daemon-by-daemon here.
@@ -414,7 +414,7 @@ custom UI replacements, not via reusing dashd.
   systematic (identify type, replace, propagate).
 - Not a separate-go.mod-per-daemon proposal. One module stays;
   package boundaries enforce import discipline. (Same rule
-  `specs/11/b-orthogonal-components.md` uses for crackbox.)
+  `specs/5/A-orthogonal-components.md` uses for crackbox.)
 - Not breaking compatibility. Migrations carry forward; the generic
   shapes are aliases for the existing types until callers swap over.
 
@@ -465,5 +465,5 @@ custom UI replacements, not via reusing dashd.
 - `gated/main.go` — entry point for the future split.
 - `container/runner.go` — the `agent-runnerd` core; already factored
   enough to move.
-- `specs/11/b-orthogonal-components.md` — the discipline this spec
+- `specs/5/A-orthogonal-components.md` — the discipline this spec
   adopts (zero internal-package imports per shippable component).
