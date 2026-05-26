@@ -12,8 +12,10 @@ status: shipped
 - [13-message-ids.md](13-message-ids.md) — reply/forward metadata, channel coverage tables
 - [15-code-research.md](15-code-research.md) — code researcher agent, SYSTEM.md template
 - [17-knowledge-system.md](17-knowledge-system.md) — memory layer taxonomy, push vs pull
-- [18-web-vhosts.md](18-web-vhosts.md) — hostname-based routing, vhosts.json
 - [19-action-grants.md](19-action-grants.md) — grant rules, tier defaults, delegation
+
+(Web vhosts moved to `../5/V-web-vhosts.md` 2026-05-26 — platform-core concern.)
+
 - [23-topic-routing.md](23-topic-routing.md) — `@agent` delegation, `#topic` sessions
 - [26-prototypes.md](26-prototypes.md) — spawn/copy + TTL cleanup via timed
 - [Y-minimal-setup.md](Y-minimal-setup.md) — PROFILE-gated compose generation
