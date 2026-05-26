@@ -519,6 +519,16 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /priv/* — JWT-gated. Served by the same vited instance as /pub/*,
+	// resolving to files under <data>/web/priv/<folder>/. Spec 4/18:
+	// agents publish to ~/private_html/, bind-mounted from web/priv/.
+	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
+	// to web/priv/X naturally.
+	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
+		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		return
+	}
+
 	// Bare /dav and /dav/* both route through the /dav/ entry (davRoute picks
 	// a group for the bare case). When the route is absent (WEBDAV_ENABLED=
 	// false) emit the dedicated 404 rather than the public-redirect fallback.

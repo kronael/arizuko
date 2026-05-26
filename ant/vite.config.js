@@ -10,7 +10,7 @@ function pubFallback() {
         const q = url.indexOf('?');
         const p = q >= 0 ? url.slice(0, q) : url;
         const qs = q >= 0 ? url.slice(q) : '';
-        if (p === '/' || p.startsWith('/pub/') || p.startsWith('/@')) {
+        if (p === '/' || p.startsWith('/pub/') || p.startsWith('/priv/') || p.startsWith('/@')) {
           return next();
         }
         const abs = join(process.cwd(), p);

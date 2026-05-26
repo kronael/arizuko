@@ -324,6 +324,66 @@ func TestProxydPubPathNoAuth(t *testing.T) {
 	}
 }
 
+// /priv/* requires a JWT — anonymous callers bounce to /auth/login.
+// Spec 4/18: web/priv/ is a JWT-gated parallel tree to web/pub/.
+func TestProxydPrivPathRequiresAuth(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/priv/krons/secret.html", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 (auth gate)", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
+	}
+	if w.Header().Get("X-Upstream") == "hit" {
+		t.Error("upstream reached without auth — gate failed")
+	}
+}
+
+// /priv/* with a valid JWT reaches the upstream (vite) — path is
+// preserved (no /pub rewrite) so vite resolves it to web/priv/.
+func TestProxydPrivPathWithJWTReachesUpstream(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+
+	tok := testMintJWT([]byte("testsecret"), "alice")
+	req := httptest.NewRequest("GET", "/priv/krons/secret.html", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("X-Upstream") != "hit" {
+		t.Error("upstream not reached")
+	}
+	// Path must NOT have been rewritten to /pub/...
+	body := w.Body.String()
+	if !strings.Contains(body, "/priv/krons/secret.html") {
+		t.Errorf("expected /priv path preserved at upstream, got %q", body)
+	}
+}
+
+// Bare /priv (no trailing slash) also requires auth.
+func TestProxydPrivBareRequiresAuth(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/priv", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want 303 (auth gate)", w.Code)
+	}
+}
+
 func TestProxydRootRedirectToPub(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
