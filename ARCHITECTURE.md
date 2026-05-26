@@ -382,6 +382,15 @@ make them the operator. Removing the membership demotes them. dashd is the
 management UI; its sessions are scoped to users with at least one allow
 row in `acl` (directly or via membership).
 
+Open design questions for proactive-operator delivery (not yet shipped):
+
+- Error / health-check trigger plumbing (`InsertSysMsg` from `gated`).
+- Dedup / rate-limit policy for error bursts.
+- Listener-digest delivery format.
+
+These are mechanism questions; the addressing question (membership, not
+flag) is settled.
+
 ## Compose Containers
 
 `compose.Generate(dataDir)` builds `docker-compose.yml` from:
