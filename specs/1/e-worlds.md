@@ -22,7 +22,7 @@ worldOf('atlas/support') === 'atlas'
 ## Share mount pattern
 
 ```
-/workspace/share <- groups/<world>/share
+/var/lib/share <- groups/<world>/share
 ```
 
 Tier 0 and world groups can write. Deeper groups are readonly.

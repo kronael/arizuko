@@ -21,6 +21,7 @@ For slink:
 1. `gated` emits a typing SSE event on the slink stream when a container
    starts processing a message for a group
 2. `webd` forwards it down the `/slink/stream` EventSource
-3. Slink frontend (`/workspace/web/pub/slink/`) renders it
+3. Slink frontend (`~/public_html/slink/`, served at
+   `/pub/<folder>/slink/`) renders it
 
 No new API surface — SSE event type `typing` alongside existing `message`.

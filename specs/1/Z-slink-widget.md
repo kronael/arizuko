@@ -78,7 +78,7 @@ the built-in chat page migrates off HTMX.
 - No widget file shipped by arizuko. Agents write their own pages using the
   `slink` skill as a guide.
 - No CDN hosting. Pages are self-hosted on the arizuko instance under
-  `/workspace/web/pub/<name>/`.
+  `~/public_html/` (served at `/pub/<folder>/<name>/`).
 - No per-token UI customization in webd — that's the agent's job.
 
 ## Relationship to W-slink.md

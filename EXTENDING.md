@@ -255,8 +255,11 @@ handle dance; pages call `Arizuko.connect(token)` and stream frames.
   - API table). Sibling skill `slink-mcp/` covers MCP-over-HTTP.
 - Spec: `specs/1/Z2-slink-sdk.md`.
 
-For agent-written pages, the convention is `/workspace/web/pub/<app>/`
-inside the container, served at `/pub/<app>/` by vited.
+For agent-written pages, the convention is `~/public_html/<app>/`
+inside the container (bind-mounted from
+`<data>/web/pub/<folder>/<app>/`), served at `/pub/<folder>/<app>/`
+by vited. JWT-gated content goes in `~/private_html/<app>/`, served
+at `/priv/<folder>/<app>/`. See `specs/4/18-web-vhosts.md`.
 
 ## Extending the public site
 
@@ -291,7 +294,7 @@ Three scopes, no inheritance:
 - `groups/<folder>/.claude/skills/` — per-group, persistent
 - `.claude/skills/` — per-session, seeded from global on first spawn
 
-Canonical definitions at `/workspace/self/ant/skills/` (ro mount) for
+Canonical definitions at `/opt/arizuko/ant/skills/` (ro mount) for
 `/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
 drive upgrades. `/migrate` runs a real 3-way merge against
 `.claude/.merge-base/<path>` (snapshot laid down at seed-time), so

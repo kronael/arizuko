@@ -10,7 +10,7 @@ implemented as an agent skill.
 ## Path
 
 ```
-/workspace/group/work.md
+/home/node/work.md
 ```
 
 Single file per group. Agent-written, agent-read.
@@ -22,7 +22,7 @@ next steps. Overwritten, not appended.
 
 ## Skill: `/work`
 
-Overwrites `/workspace/group/work.md`:
+Overwrites `/home/node/work.md`:
 
 ```markdown
 ## Current task

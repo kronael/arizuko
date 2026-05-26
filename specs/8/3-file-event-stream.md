@@ -194,7 +194,7 @@ Same fan-out pattern as `round_done`:
 ## Honest gaps
 
 - **Symlinks**: inotify follows the watched directory tree but not
-  symlinks. If the agent symlinks `/workspace/foo → /etc/passwd`
+  symlinks. If the agent symlinks `~/foo → /etc/passwd`
   and reads through it, we see the symlink creation but not the
   read of `/etc/passwd`. Security review must not treat absence of
   events as proof of no access. (Containers run as non-root with

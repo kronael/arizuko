@@ -274,7 +274,10 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 One container per group, long-lived across turns. The group folder
 mounts at `/home/node/` so conversation state, diary, skills, and the
-Claude Code session jsonl persist between invocations. Sibling groups
+Claude Code session jsonl persist between invocations. Per-group web
+slots (`~/public_html`, `~/private_html`) bind-mount into the unified
+`<data>/web/{pub,priv}/<folder>/` trees — writes appear at both the
+agent's home path and the URL-serving path. Sibling groups
 get their own containers on their own networks with their own DB
 views — the cross-tenant boundary is the container, not the turn.
 Threat model + isolated axes in `SECURITY.md` § Model.
@@ -589,12 +592,39 @@ concrete alternative (e.g. `dislike` on emoji platforms hints
 sees all instances; tier ≥1 is scoped to its own folder subtree.
 Full tool table in `ant/skills/self/SKILL.md`.
 
+## Container mount layout (v0.45.11+)
+
+Platform mounts follow FHS canonical locations; per-group web slots
+live under `~` in the agent's home. Full spec:
+`specs/4/18-web-vhosts.md`.
+
+| Container         | Host                           | Mode                    |
+| ----------------- | ------------------------------ | ----------------------- |
+| `/opt/arizuko`    | `<repo>`                       | RO                      |
+| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, tier 0-2 |
+| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                      |
+| `/var/lib/share`  | `<data>/groups/<world>/share/` | RO/RW per grant         |
+| `/var/lib/groups` | `<data>/groups/`               | RW, tier 0 only         |
+| `/mnt/<name>`     | operator extras                | varies                  |
+| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)         |
+| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW (per-group slot)     |
+| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW (per-group slot)     |
+
+The `~/public_html` and `~/private_html` slots are bind-mount VIEWS
+into the canonical web tree — writes appear simultaneously at the
+home path and at the URL-serving path. `/pub/<folder>/...` serves
+`web/pub/<folder>/...` (no auth); `/priv/<folder>/...` serves
+`web/priv/<folder>/...` (JWT). Nested subgroup URLs preserved
+(`/pub/atlas/support/...`); name-clash between a parent's own
+subdir and a child subgroup is resolved by visibility through the
+`/var/lib/www/` RO view.
+
 ## Mount Security (mountsec)
 
 `ValidateAdditionalMounts` validates group-configured mounts against a
 caller-supplied `Allowlist`. `ValidateFilePath` guards inbound paths (MCP
 tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
-`.env`, credentials, private keys). Container path: `/workspace/extra/<name>`.
+`.env`, credentials, private keys). Container path: `/mnt/<name>`.
 
 ## Docker-in-Docker Paths
 

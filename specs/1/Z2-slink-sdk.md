@@ -133,7 +133,8 @@ Content:
 ## Sample page — `template/web/pub/examples/slink-sdk.html`
 
 Minimal working page (~50 lines) that uses the SDK to talk to a slink.
-Operators copy this to `/workspace/web/pub/<app>/index.html`, swap the
+Operators copy this to `~/public_html/<app>/index.html` (served at
+`/pub/<folder>/<app>/`), swap the
 token, and have a branded chat in under a minute.
 
 ## Future — docs hosting on the same mechanism

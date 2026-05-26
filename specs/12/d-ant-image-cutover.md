@@ -102,7 +102,7 @@ Notes:
   expressed as one ARG line either way.
 - `skills/` baked into `/opt/ant/skills` is the curated portable set
   from `b-ant-standalone.md`. The agent's per-folder skills under
-  `/workspace/.claude/skills/` layer on top.
+  `~/.claude/skills/` layer on top.
 
 ## Env-var hookups the Go binary needs
 

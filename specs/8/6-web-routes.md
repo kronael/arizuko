@@ -8,7 +8,9 @@ status: draft
 
 Agents have no way to control which web paths are public, auth-gated, denied,
 or redirected. proxyd's routing is hardcoded; agents can drop files in
-`/workspace/web/pub/` but can't control who can reach them or set redirects.
+`~/public_html/` (served at `/pub/<folder>/`) but can't control who can reach
+them or set redirects. `~/private_html/` (served at `/priv/<folder>/`) covers
+JWT-gated content; arbitrary per-path access rules need this table.
 
 ## Approach
 

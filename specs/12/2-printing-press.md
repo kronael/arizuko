@@ -160,7 +160,7 @@ printing-press generate --url https://api.example.com --name example
 
 Persist the result in `/home/node/printing-press/library/<api>/`
 (group-private, survives container restart). For shared/global CLIs,
-agents promote into `/workspace/share/printing-press/` (root-only).
+agents promote into `/var/lib/share/printing-press/` (root-only).
 
 The "gen pause" — printing-press's pipeline takes 5-30 min for new
 APIs (per the README's phase timings) — fits arizuko's existing
@@ -223,7 +223,7 @@ Each independently shippable.
    [5/5-uniform-mcp-rest.md](../5/5-uniform-mcp-rest.md). Phase-coupled
    to phase 6 progress. **(1 day after API ships)**
 5. **Layer 5** — on-demand generation as a documented pattern;
-   janitor for disk; promotion to `/workspace/share/`. **(1 day)**
+   janitor for disk; promotion to `/var/lib/share/`. **(1 day)**
 
 ## Open
 
@@ -233,7 +233,7 @@ Each independently shippable.
   but who decides? Lean: track agent invocations of `printing-press
 generate` over a month, pre-bake the top hits.
 - **Promotion to global.** Agents may want to share a generated CLI
-  across groups (`/workspace/share/`). Permission model: root-only
+  across groups (`/var/lib/share/`). Permission model: root-only
   write, all-groups read. Matches existing share-mount behavior.
 - **Update cadence for pre-baked CLIs.** Upstream library bumps
   often. Cadence: rebuild ant image weekly, pin upstream commit at

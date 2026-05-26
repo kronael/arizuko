@@ -60,35 +60,46 @@ cross-tenant threat go away.
 
 ## Boundaries
 
-| Boundary            | Mechanism                                                                                                                        | Location                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                           | `groupfolder/folder.go`, `container/runner.go` (`buildMounts`)                                    |
-| Group MCP socket    | Per-group mount of `ipcDir` → `/workspace/ipc`; `Resolver.IpcPath` rejects                                                       | `container/runner.go` (`buildMounts`)                                                             |
-| MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                               | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                  |
-| Agent exec scope    | `bypassPermissions` inside container; mounts scoped to the group                                                                 | `ant/src/index.ts`, `container/runner.go`                                                         |
-| Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                          | `mountsec/`                                                                                       |
-| Web routes          | `/pub/*` + `/health` public; `/slink/*` 301→`/chat/<token>/`; `/chat/*` + `/hook/*` token; rest JWT                              | `proxyd/main.go`                                                                                  |
-| Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; possession = group membership                                                           | `webd/chat_mcp.go` (`handleChatMCP`)                                                              |
-| WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                               | `proxyd/main.go` (`davAllow`)                                                                     |
-| Chat identity relay | proxyd signs `X-Folder` via HMAC with `X-Chat-Token`; webd verifies                                                              | `proxyd/main.go`, `auth.SignHMAC`                                                                 |
-| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                            | `auth/web.go`, `auth/oauth.go`                                                                    |
-| Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                 | `auth/web.go`                                                                                     |
-| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                              | `auth/acl.go`, `grants/`                                                                          |
-| Channel ingress     | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                    | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
-| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew  | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
-| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention` | `emaid/imap.go`, spec 8/17                                                                        |
-| Mention promotion   | Gateway-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote | `gateway/gateway.go`, spec 6/J                                                                    |
-| Secrets at rest     | AES-256-GCM encrypted (v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)); plaintext rows purged on startup                    | `store/secrets.go`, migration `0034-secrets.sql`                                                  |
-| Secret injection    | Folder/user secrets env injection planned (spec 6/Y); today only API keys from host env injected                                 | `container/runner.go` (`resolveSpawnEnv`)                                                         |
-| Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                               | `onbod/main.go` (`admitFromQueue`)                                                                |
-| Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                     | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
-| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                  | `crackbox/pkg/dns/`, `specs/10/15-crackbox-dns-filter.md`                                         |
+| Boundary            | Mechanism                                                                                                                                          | Location                                                                                          |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Group filesystem    | Per-group bind mount; `Resolver.GroupPath` rejects `..`, `\`, reserved                                                                             | `groupfolder/folder.go`, `container/runner.go` (`buildMounts`)                                    |
+| Group MCP socket    | Per-group mount of `ipcDir` → `/run/ipc`; `Resolver.IpcPath` rejects                                                                               | `container/runner.go` (`buildMounts`)                                                             |
+| MCP peer identity   | `SO_PEERCRED` peer-uid check on each accepted conn                                                                                                 | `ipc/ipc.go` (`ServeMCP`), see `ipc/SECURITY.md`                                                  |
+| Agent exec scope    | `bypassPermissions` inside container; mounts scoped to the group                                                                                   | `ant/src/index.ts`, `container/runner.go`                                                         |
+| Additional mounts   | `ValidateAdditionalMounts` + `ValidateFilePath` blocklist/symlink guard                                                                            | `mountsec/`                                                                                       |
+| Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` 301→`/chat/<token>/`; `/chat/*` + `/hook/*` token; rest JWT | `proxyd/main.go`                                                                                  |
+| Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; possession = group membership                                                                             | `webd/chat_mcp.go` (`handleChatMCP`)                                                              |
+| WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                 | `proxyd/main.go` (`davAllow`)                                                                     |
+| Chat identity relay | proxyd signs `X-Folder` via HMAC with `X-Chat-Token`; webd verifies                                                                                | `proxyd/main.go`, `auth.SignHMAC`                                                                 |
+| Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                              | `auth/web.go`, `auth/oauth.go`                                                                    |
+| Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                   | `auth/web.go`                                                                                     |
+| Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                                                | `auth/acl.go`, `grants/`                                                                          |
+| Channel ingress     | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                                      | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
+| Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                    | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
+| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                   | `emaid/imap.go`, spec 8/17                                                                        |
+| Mention promotion   | Gateway-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                   | `gateway/gateway.go`, spec 6/J                                                                    |
+| Secrets at rest     | AES-256-GCM encrypted (v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)); plaintext rows purged on startup                                      | `store/secrets.go`, migration `0034-secrets.sql`                                                  |
+| Secret injection    | Folder/user secrets env injection planned (spec 6/Y); today only API keys from host env injected                                                   | `container/runner.go` (`resolveSpawnEnv`)                                                         |
+| Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                 | `onbod/main.go` (`admitFromQueue`)                                                                |
+| Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                       | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
+| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                    | `crackbox/pkg/dns/`, `specs/10/15-crackbox-dns-filter.md`                                         |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
 host root always wins — arizuko does not defend against the host
 operator. The agent container runs with `bypassPermissions`; the
 boundary is the mount set, not the tool policy.
+
+### Public vs private web tree separation
+
+`<data>/web/pub/` and `<data>/web/priv/` are **separate filesystem
+trees**. `/pub/<X>` URLs are public (no auth) and never serve from
+`web/priv/`; `/priv/<X>` URLs require a valid JWT (via proxyd) and
+never serve from `web/pub/`. Each group's container bind-mounts its
+own slot into `~/public_html/` (public tree) and `~/private_html/`
+(private tree); content cannot leak from one to the other except by
+the agent explicitly copying bytes. Full model:
+`specs/4/18-web-vhosts.md`.
 
 ## Identity header trust
 
@@ -133,7 +144,7 @@ anonymous-from-trusted-IP); even there, the call is a boolean
 │  │  ┌─ agent container (per-group, partially trusted) ┐│ │
 │  │  │  claude code + ant/ + skills                    ││ │
 │  │  │  runs arbitrary Bash/Edit/WebFetch              ││ │
-│  │  │  scoped to /workspace/ipc + group mounts        ││ │
+│  │  │  scoped to /run/ipc + group mounts              ││ │
 │  │  └─────────────────────────────────────────────────┘│ │
 │  └─────────────────────────────────────────────────────┘ │
 │                                                          │

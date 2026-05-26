@@ -8,7 +8,7 @@ Root agent modifies the gateway codebase (not just skills/MCP). Two
 strawmen:
 
 - **Plugin dir** — `plugins/{actions,handlers,channels}/` loaded at
-  startup; `/workspace/self/plugins` mounted rw. Upstream updates don't
+  startup; `/opt/arizuko/plugins` mounted rw. Upstream updates don't
   touch.
 - **Agent branch + CI** — rw mount of full repo, agent commits to
   `agent/<instance>`, CI tests + builds + deploys; human reviews.

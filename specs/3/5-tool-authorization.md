@@ -57,12 +57,20 @@ are documented in `ant/CLAUDE.md`. The system reads paths, not labels.
 | `/home/node`         | rw     | rw     | rw          | ro          |
 | `~/.claude/skills`   | --     | --     | ro overlay  | ro (parent) |
 | `~/.claude/projects` | --     | --     | rw (parent) | rw overlay  |
-| `/workspace/share`   | rw     | rw     | ro          | ro          |
-| `/workspace/ipc`     | rw     | rw     | rw          | rw          |
-| `/workspace/web`     | rw     | rw     | no          | no          |
-| `/workspace/self`    | ro     | no     | no          | no          |
-| `~/groups`           | rw     | no     | no          | no          |
+| `~/public_html`      | rw     | rw     | rw          | rw          |
+| `~/private_html`     | rw     | rw     | rw          | rw          |
+| `/var/lib/share`     | rw     | rw     | ro          | ro          |
+| `/run/ipc`           | rw     | rw     | rw          | rw          |
+| `/var/lib/www`       | rw     | ro     | ro          | no          |
+| `/opt/arizuko`       | ro     | no     | no          | no          |
+| `/var/lib/groups`    | rw     | no     | no          | no          |
 | `/app/src`           | rw     | rw     | rw          | ro          |
+
+`~/public_html` and `~/private_html` are bind-mounted per-group from
+`<data>/web/pub/<folder>/` and `<data>/web/priv/<folder>/`
+respectively — writes appear in the unified web tree (canonical
+filesystem). See `specs/4/18-web-vhosts.md` for the full slot model
+and URL mapping.
 
 ## Delegation prompt format
 

@@ -287,9 +287,9 @@ After: the `ant:latest` image's ENTRYPOINT becomes the new Go binary.
 `DockerRunner.Run` is **unchanged** — same stdin shape, same exit
 codes, same stderr marker contract. The runner is talking to a Go
 binary instead of a TS one; that's the only difference. The MCP
-socket is hosted _inside_ the container at `/workspace/ipc/ant.sock`
+socket is hosted _inside_ the container at `/run/ipc/ant.sock`
 and arizuko's gated bridges into it (the current
-`ipc.ServeMCP(/workspace/ipc/<group>.sock)` socket is on the _other_
+`ipc.ServeMCP(/run/ipc/<group>.sock)` socket is on the _other_
 side — that's gated's MCP serving its tools _to_ the agent, and is
 unchanged).
 

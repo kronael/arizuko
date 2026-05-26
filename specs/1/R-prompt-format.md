@@ -77,5 +77,5 @@ default system prompt via `systemMd`.
 
 ## IPC close sentinel
 
-`_close` sentinel file (empty, no ext) in `/workspace/ipc/input/`
+`_close` sentinel file (empty, no ext) in `/run/ipc/input/`
 ends agent loop.

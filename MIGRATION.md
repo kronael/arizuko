@@ -7,7 +7,8 @@ Non-obvious differences only. Unlisted semantics are unchanged.
 Breaking. kanipi used `data/ipc/<group>/requests/<id>.json` →
 `replies/<id>.json`. arizuko uses MCP over a unix socket at
 `ipc/<group>/gated.sock`, mounted in-container at
-`/workspace/ipc/gated.sock`. Agent connects via socat bridge, wired into
+`/run/ipc/gated.sock` (v0.45.11+; was `/workspace/ipc/gated.sock`
+before the FHS rename). Agent connects via socat bridge, wired into
 `.claude/settings.json` as MCP server `arizuko`.
 
 No migration path for file-based agents. Any skill writing `requests/` or
@@ -24,7 +25,8 @@ does not exist — the socket is wired automatically.
 **Changed**:
 
 - `send_file`: kanipi stripped `/home/node/`; arizuko strips
-  `/workspace/group/`. Update any skill that builds absolute paths.
+  `/home/node/` (v0.45.11+, group home now at FHS canonical
+  location). Update any skill that builds absolute paths.
 - `schedule_task`: kanipi had `schedule_type`+`schedule_value`+`context_mode`;
   arizuko has `owner` + `cron` (empty = one-shot, `next_run` set at
   creation). `task_run_logs` table does not exist.
@@ -151,17 +153,23 @@ Telegram widget (`POST /auth/telegram`) only in arizuko.
 
 ## Container Paths
 
-| Purpose     | kanipi             | arizuko                     |
-| ----------- | ------------------ | --------------------------- |
-| Group dir   | `/home/node`       | `/workspace/group`          |
-| Self/skills | `/workspace/self`  | `/workspace/self`           |
-| Share       | `/workspace/share` | `/workspace/share`          |
-| IPC         | `/workspace/ipc`   | `/workspace/ipc`            |
-| Web         | `/workspace/web`   | `/workspace/web`            |
-| MCP socket  | n/a                | `/workspace/ipc/gated.sock` |
+| Purpose     | kanipi             | arizuko (v0.45.11+)               |
+| ----------- | ------------------ | --------------------------------- |
+| Group dir   | `/home/node`       | `/home/node`                      |
+| Self/repo   | `/workspace/self`  | `/opt/arizuko`                    |
+| Share       | `/workspace/share` | `/var/lib/share`                  |
+| IPC         | `/workspace/ipc`   | `/run/ipc`                        |
+| Web (RO)    | `/workspace/web`   | `/var/lib/www` (RO whole pub)     |
+| Public slot | n/a                | `~/public_html` → `web/pub/<F>`   |
+| Authed slot | n/a                | `~/private_html` → `web/priv/<F>` |
+| Extras      | n/a                | `/mnt/<name>`                     |
+| MCP socket  | n/a                | `/run/ipc/gated.sock`             |
 
-Update skills/CLAUDE.md referencing `/home/node` → `/workspace/group`.
-`send_file` path translation strips `/workspace/group/` (not `/home/node/`).
+Update skills/CLAUDE.md referencing `/workspace/group` → `/home/node`.
+`send_file` path translation strips `/home/node/`. Per-group writable
+web content goes in `~/public_html/` (served at `/pub/<folder>/...`)
+or `~/private_html/` (served at `/priv/<folder>/...`, JWT). Full
+spec: `specs/4/18-web-vhosts.md`.
 
 ## Skills / Templates
 
@@ -169,7 +177,8 @@ kanipi seeded from `prototype/workspace/`; arizuko from `template/workspace/`.
 Name changed; mechanism identical.
 
 `prototype/.claude/` seeding: kanipi only. Skills now live under
-`/workspace/self`. Move any baseline files into the skills system.
+`/opt/arizuko/ant/skills/`. Move any baseline files into the skills
+system.
 
 Prototype spawning is wired via `ONBOARDING_PROTOTYPE` env (operator
 default) and `register_group fromPrototype=true` (per-call). New groups

@@ -30,7 +30,7 @@ MCP server (stdio over unix socket). The agent container connects to
 it via socat:
 
 ```
-socat STDIO UNIX-CONNECT:/workspace/ipc/gated.sock
+socat STDIO UNIX-CONNECT:/run/ipc/gated.sock
 ```
 
 CLI chat uses the same transport. The `chat` command:

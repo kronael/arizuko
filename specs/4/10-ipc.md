@@ -49,7 +49,7 @@ socat bridge:
 {
   "arizuko": {
     "command": "socat",
-    "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/router.sock"]
+    "args": ["STDIO", "UNIX-CONNECT:/run/ipc/router.sock"]
   }
 }
 ```

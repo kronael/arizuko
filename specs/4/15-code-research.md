@@ -23,7 +23,7 @@ atlas/              tier 1 — world admin
 
 Per-group mount config lives in `groups.container_config` JSON
 (`core.GroupConfig.Mounts`); `mountsec.ValidateAdditionalMounts`
-validates each entry and routes it to `/workspace/extra/<name>` inside
+validates each entry and routes it to `/mnt/<name>` inside
 the container (`container/runner.go:516`). The ContainerPath defaults
 to the basename of the host path. Read-only by default unless the
 allowlist root permits read-write.
@@ -145,7 +145,7 @@ World: atlas
 Groups: atlas (tier 1), atlas/support (tier 2)
 
 Mounts:
-  /srv/data/REDACTED-repos → /workspace/extra/codebase (ro)
+  /srv/data/REDACTED-repos → /mnt/codebase (ro)
 
 facts/: 40+ verified facts
 Channel: Telegram, requires_trigger=0
