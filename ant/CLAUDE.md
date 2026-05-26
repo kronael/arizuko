@@ -246,113 +246,112 @@ folder.
 
 # Environment
 
-Always resolve `echo "$WEB_HOST"` / `echo "$WEB_PREFIX"` first. NEVER
-output the literal strings `$WEB_HOST` / `$WEB_PREFIX`. If `$WEB_HOST`
-is empty, say "web host not configured". NEVER write web content to
-`/home/node/`.
+Always resolve `echo "$WEB_HOST"` first. NEVER output the literal
+string `$WEB_HOST`. If `$WEB_HOST` is empty, say "web host not
+configured".
+
+## Agent home is your kingdom (v0.45.11+)
+
+> Your home is `~`. Two web slots, both bind-mounted from the unified
+> web tree:
+>
+> - **`~/public_html/`** → served at `/pub/<your-folder>/...` (no auth)
+> - **`~/private_html/`** → served at `/priv/<your-folder>/...` (OAuth/JWT)
+>
+> Off-web storage (`~/workspace/`, `~/diary/`, `~/facts/`, `~/users/`,
+> `~/.claude/`) is never served at any URL. Truly private content
+> stays here.
+>
+> Read-only browse of the whole public web tree at `/var/lib/www/`.
+
+The "two web slots" model replaces the older `/workspace/web/...`
+case-by-tier publishing recipe. Every group (tier 1+) has the same
+two slots in its own home — no per-tier switch needed.
 
 ## How to publish a web page
 
-**Verify-before-announce is mandatory. Never emit a URL you haven't
-confirmed with `curl -sI` returns 200. If verification fails, the
-recipe is wrong for this instance — fall through to Case A.**
+**Verify-before-announce is mandatory. Public `/pub/*` URLs MUST
+return 200. JWT-gated `/priv/*` URLs MUST return 401 from your
+unauthenticated container (or 200 if you have a session cookie) —
+401 confirms the file is there AND the auth gate is engaged. A
+404 means the file isn't where you think it is; do NOT announce.**
 
-### Step 1 — probe the surface
-
-```bash
-ls /workspace/web/ 2>/dev/null && echo "have mount" || echo "no mount"
-echo "WEB_PREFIX=$WEB_PREFIX  WEB_HOST=$WEB_HOST"
-```
-
-### Step 2 — pick a case based on `WEB_PREFIX`
-
-**Case A — root or pub (`WEB_PREFIX=pub`).** Write under `/pub/`.
+### Public page
 
 ```bash
-mkdir -p /workspace/web/pub/myapp
-cat > /workspace/web/pub/myapp/index.html <<'HTML'
+mkdir -p ~/public_html/myapp
+cat > ~/public_html/myapp/index.html <<'HTML'
 <!doctype html><title>hi</title><h1>hello</h1>
 HTML
-url="https://$WEB_HOST/pub/myapp/"
-curl -sI "$url" | head -1   # MUST be 200; otherwise stop
+url="https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/myapp/"
+curl -sI "$url" | head -1   # MUST be 200
 ```
 
-**Case B — tier 1 world (`WEB_PREFIX` is your tenant name).** Write
-under `/workspace/web/`; URL uses the vhost subdomain.
+The bind mount projects `~/public_html/myapp/index.html` into the
+unified tree at `<data>/web/pub/<folder>/myapp/index.html`, served
+verbatim at `/pub/<folder>/myapp/`.
+
+### OAuth-gated page
 
 ```bash
-mkdir -p /workspace/web/myapp
-cat > /workspace/web/myapp/index.html <<'HTML'
-<!doctype html><title>hi</title><h1>hello from world</h1>
+mkdir -p ~/private_html/admin
+cat > ~/private_html/admin/index.html <<'HTML'
+<!doctype html><title>admin</title><h1>internal</h1>
 HTML
-url="https://$WEB_PREFIX.$WEB_HOST/myapp/"
-curl -sI "$url" | head -1   # MUST be 200; otherwise see "Fall-through"
+url="https://$WEB_HOST/priv/$ARIZUKO_GROUP_FOLDER/admin/"
+curl -sI "$url" | head -1   # MUST be 401 (gate engaged) — NOT 404
 ```
 
-**Case C — tier 2 (`WEB_PREFIX` is parent world).** Write under
-`/workspace/web/$ARIZUKO_GROUP_NAME/`; URL uses the parent's subdomain.
+`/priv/*` requires JWT — a logged-in user via OAuth. The filesystem
+tree under `<data>/web/priv/` is SEPARATE from `<data>/web/pub/` —
+content there is NEVER served via `/pub/` URLs.
 
-```bash
-mkdir -p /workspace/web/$ARIZUKO_GROUP_NAME/myapp
-cat > /workspace/web/$ARIZUKO_GROUP_NAME/myapp/index.html <<'HTML'
-<!doctype html><title>hi</title><h1>hello from group</h1>
-HTML
-url="https://$WEB_PREFIX.$WEB_HOST/$ARIZUKO_GROUP_NAME/myapp/"
-curl -sI "$url" | head -1   # MUST be 200; otherwise see "Fall-through"
-```
+### Two URLs, one file
 
-**Case D — tier 3+ (`WEB_PREFIX` empty, no `/workspace/web/`).** No
-publishing surface. Hand off to a tier ≤2 ancestor.
+`https://$WEB_HOST/pub/<X>` (public) and `https://$WEB_HOST/<X>`
+(JWT-gated rewrite) serve the SAME file from `<data>/web/pub/<X>`.
+Different doors to the same content. `https://$WEB_HOST/priv/<X>`
+serves a DIFFERENT file from `<data>/web/priv/<X>`.
 
-### Fall-through rule (load-bearing — read this)
+### Nested subgroups
 
-Case B and C assume the instance has subdomain vhosts configured
-(e.g. `mytenant.host.example`). Some deployments are
-**single-vhost**: only the root `host.example/pub/` is served, and
-the subdomain DNS doesn't resolve. Symptoms: `curl -sI` returns
-4xx, NXDOMAIN, or a 403 from a wildcard catch-all.
+A tier-2 group `atlas/support` has `~/public_html/` bind-mounted from
+`<data>/web/pub/atlas/support/` — the URL hierarchy mirrors the folder
+hierarchy: `/pub/atlas/support/...`. Subgroup names are reserved in
+the parent's view — check `/var/lib/www/<your-folder>/` (RO whole pub
+tree) before writing under a name a subgroup might own.
 
-**If your Case-B or Case-C URL does not return 200:**
+### Tier 0 (root)
 
-1. **Do not announce the URL.** Verification is the contract.
-2. **Do not move the files.** If files already render at some path,
-   moving them breaks that.
-3. **Fall through to Case A** — use `/workspace/web/pub/<groupname>/`
-   (tier 1) or `/workspace/web/pub/<groupname>/<app>/` (tier 2).
-   URL: `https://$WEB_HOST/pub/<groupname>/...`.
-4. Re-verify with `curl -sI`. If still not 200, stop and report
-   the failure — do NOT keep moving files trying to find what works.
-
-The operator may have overridden the recipe in `~/CLAUDE.md` —
-that overlay takes precedence over this case-by-tier logic. Read
-`~/CLAUDE.md` first; if it specifies a path/URL, use it verbatim.
+Root group's `~/public_html/` projects to `<data>/web/pub/` at the
+top level (no folder prefix); it can also write to `/var/lib/www/`
+directly (RW for tier 0 only) to stage content for any group.
 
 ### Anti-patterns (each one shipped to a real user)
 
-- Announcing a URL based on env vars without curl-verifying — the
-  env vars can lie when subdomains aren't configured.
-- Moving files between locations to "fix" a 4xx — the original
-  location was probably correct. Verify in place; if broken, write
-  fresh in the Case-A location; never move working files.
-- Treating `curl -sI` 4xx as a transient (it isn't). 4xx from a
-  vhost almost always means the vhost is misconfigured, not that
-  the file takes time to propagate.
+- Announcing a URL based on env vars without curl-verifying.
+- Writing to `/workspace/web/...` — that path is gone (v0.45.11
+  renamed the platform mounts to FHS).
+- Treating `curl -sI` 4xx as a transient — almost always means the
+  file isn't where you think it is, not that DNS/cache is slow.
 
 # Storage — persistent vs transient
 
-`/home/node/` is your group workspace. It persists across container
-restarts and sessions. Write anything here that should survive.
+`/home/node/` (== `~`) is your group workspace. Persists across
+container restarts and sessions. Write anything here that should
+survive.
 
-| Path | What to put there |
-| ---- | ----------------- |
-| `/home/node/diary/` | Session diary entries (use `/diary` skill) |
-| `/home/node/facts/` | Researched reference facts (use `/find`) |
-| `/home/node/users/` | Per-user memory (use `/users`) |
-| `/home/node/.claude/skills/` | Custom skills you create or install |
-| `/home/node/workspace/` | Long-lived project files, code, data |
-| `/home/node/tmp/` | Single-run scratch — survives this session but treat as disposable |
-
-`/workspace/web/pub/` is served publicly and persists (separate mount).
+| Path                        | What to put there                                            | URL? |
+| --------------------------- | ------------------------------------------------------------ | ---- |
+| `~/diary/`                  | Session diary entries (use `/diary` skill)                   | no   |
+| `~/facts/`                  | Researched reference facts (use `/find`)                     | no   |
+| `~/users/`                  | Per-user memory (use `/users`)                               | no   |
+| `~/.claude/skills/`         | Custom skills you create or install                          | no   |
+| `~/workspace/`              | Long-lived project files, code, data                         | no   |
+| `~/tmp/`                    | Single-run scratch — survives this session but disposable    | no   |
+| `~/public_html/`            | Public web slot, bind-mounted from `<data>/web/pub/<folder>/`| `/pub/<folder>/...` (no auth) |
+| `~/private_html/`           | OAuth web slot, bind-mounted from `<data>/web/priv/<folder>/`| `/priv/<folder>/...` (JWT) |
+| `/var/lib/www/` (RO browse) | Whole unified public web tree                                | n/a (read-only view) |
 
 ## CLAUDE.md ownership
 
@@ -367,14 +366,14 @@ Two `CLAUDE.md` files live near you, with different owners:
 
 Same model applies to `~/.claude/skills/<stock-name>/*` (managed)
 vs `~/.claude/skills/<custom-name>/*` (untouched — anything not
-present in `/workspace/self/ant/skills/`). Drop a `.disabled` file
+present in `/opt/arizuko/ant/skills/`). Drop a `.disabled` file
 in a stock skill dir to opt out of seeding/merging; seedSkills
 removes its `SKILL.md` so Claude Code stops indexing it.
 
 Containers are **ephemeral per turn** — a fresh container starts for
 each agent run. `/home/node/` is volume-mounted so it persists; anything
-written OUTSIDE `/home/node/` or `/workspace/` (e.g. `/tmp/`) is lost
-when the container exits. NEVER store run outputs in `/tmp/`.
+written OUTSIDE `/home/node/` (e.g. `/tmp/`) is lost when the container
+exits. NEVER store run outputs in `/tmp/`.
 
 # Web routing and auth
 
@@ -382,7 +381,8 @@ Proxyd routes all web traffic. URL structure:
 
 | Path        | Auth     | Backend | Purpose                                  |
 | ----------- | -------- | ------- | ---------------------------------------- |
-| `/pub/*`    | none     | vite    | Public static files                      |
+| `/pub/*`    | none     | vite    | Public static files (served from `<data>/web/pub/`) |
+| `/priv/*`   | JWT      | vite    | OAuth-gated static files (served from `<data>/web/priv/`) |
 | `/chat/*`   | token    | webd    | Route-token chat widget (public)         |
 | `/hook/*`   | token    | webd    | Route-token webhook ingest (public)      |
 | `/panel/*`  | JWT      | webd    | Authenticated operator chat panel        |
@@ -393,14 +393,17 @@ Proxyd routes all web traffic. URL structure:
 | `/x/*`      | JWT      | webd    | Extensions (served by webd, not static)  |
 | other       | JWT      | vite    | Auth-gated; rewrites to `/pub/<path>`    |
 
-Default is auth-gated. `/pub/*` is explicitly public. Everything else
-requires a valid JWT and is served from the vite root via transparent
-rewrite — the browser URL stays unchanged. `/x/` is auth-gated but
-served by webd, not Vite — you cannot drop static files there. The dashboard
-(`/dash/`) is operator-only HTMX served by dashd; `/pub/arizuko/`
-is the public docs site, not the dashboard. For "how do I log in" /
-"where's the dashboard", point to `https://$WEB_HOST/auth/login`
-and `https://$WEB_HOST/dash/`. For the user portal (browsing folder
+Default is auth-gated. `/pub/*` is explicitly public. `/priv/*` is
+JWT-gated AND served from a separate filesystem tree
+(`<data>/web/priv/`) — content there is unreachable via `/pub/`. The
+fallback `other` rewrites to `/pub/<path>` after JWT check, so
+`https://$WEB_HOST/X` and `https://$WEB_HOST/pub/X` serve the SAME
+file (different doors). `/x/` is auth-gated but served by webd, not
+Vite — you cannot drop static files there. The dashboard (`/dash/`)
+is operator-only HTMX served by dashd; `/pub/arizuko/` is the public
+docs site, not the dashboard. For "how do I log in" / "where's the
+dashboard", point to `https://$WEB_HOST/auth/login` and
+`https://$WEB_HOST/dash/`. For the user portal (browsing folder
 trees, chat history, threads), point to `https://$WEB_HOST/me/`.
 
 # Gateway commands
@@ -432,7 +435,7 @@ reference like `@sloth`, or just prose).
 - **TypeScript/JS**: `bun` for scripts and packages (`bun run`, `bun add`). Node 22 available.
 - **Go**: `go run`, `go build`, `go install`.
 - **Rust**: `cargo run`, `cargo install` for tools.
-- **Web**: static sites go in `/workspace/web/pub/`.
+- **Web**: static sites go in `~/public_html/` (public) or `~/private_html/` (JWT).
 
 # Inbound media attachments
 
@@ -536,22 +539,20 @@ opening it.
 
 # Local paths vs public URLs
 
-The user CANNOT open `/home/node/...` or `/workspace/web/...` paths.
+The user CANNOT open container paths (`~/...`, `/var/lib/www/...`).
 NEVER emit those in chat as if they were links. When you want to
 point the user at a file or page, translate to the public URL first.
 
 ## Mapping
 
-Three mounts, three public surfaces. Resolve `$WEB_HOST` and
-`$WEB_PREFIX` with `echo` first — never emit the literal `$…`.
+Resolve `$WEB_HOST` and `$ARIZUKO_GROUP_FOLDER` with `echo` first —
+never emit the literal `$…`.
 
 | Where you wrote it (local) | What the user opens (public) |
 | --- | --- |
-| `~/<file>` or `/home/node/<file>` | `https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/<file>` (WebDAV, read-only for the user via browser) |
-| `/workspace/web/pub/<app>/<file>` (tier 0) | `https://$WEB_HOST/pub/<app>/<file>` |
-| `/workspace/web/<app>/<file>` (tier 1) | `https://$WEB_PREFIX.$WEB_HOST/<app>/<file>` (vhost subdomain) |
-| `/workspace/web/<groupname>/<app>/<file>` (tier 2) | `https://$WEB_PREFIX.$WEB_HOST/<groupname>/<app>/<file>` |
-| `/workspace/web/...` (tier 3+) | NOT publishable — see env section |
+| `~/<file>` (private home, off-web) | `https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/<file>` (WebDAV, JWT-gated for the operator via browser) |
+| `~/public_html/<app>/<file>`  | `https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/<app>/<file>` (no auth) |
+| `~/private_html/<app>/<file>` | `https://$WEB_HOST/priv/$ARIZUKO_GROUP_FOLDER/<app>/<file>` (JWT) |
 
 Rule of thumb when referencing your own working file in chat:
 
@@ -562,10 +563,12 @@ Rule of thumb when referencing your own working file in chat:
   with a TL;DR caption. They get the file AND understand it without
   opening it.
 - Public web page (anyone with the URL can open it): write under
-  `/workspace/web/...` per the env section, send the URL.
+  `~/public_html/...`, send the `/pub/<folder>/...` URL.
+- OAuth-gated page (logged-in users only): write under
+  `~/private_html/...`, send the `/priv/<folder>/...` URL.
 
-Wrong: `Saved to /home/node/reports/weekly.md` — the user can't open this.
-Right: `Saved to https://your-instance.example.com/dav/<instance>/reports/weekly.md`
+Wrong: `Saved to ~/reports/weekly.md` — the user can't open this.
+Right: `Saved to https://your-instance.example.com/dav/<folder>/reports/weekly.md`
 (or `send_file ~/reports/weekly.md caption="this week's roundup"`).
 
 # Response size + medium

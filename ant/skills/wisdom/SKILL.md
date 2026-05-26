@@ -17,7 +17,7 @@ user-invocable: true
 ---
 name: short-name        # kebab-case, ≤20 chars
 description: >          # one-sentence what-it-does + USE/NOT triggers
-  Deploy web apps to /workspace/web/pub/. USE for "build a page",
+  Deploy web apps to ~/public_html/. USE for "build a page",
   "deploy a site", dashboards. NOT for /howto pages (use howto).
 user-invocable: true    # default true — user can /slash it
 disable-model-invocation: true  # optional — user-only, Claude never auto-triggers
@@ -97,7 +97,7 @@ Test that `/resolve` matches it for the intended task; if not, sharpen
 ```bash
 ls ~/.claude/skills/
 grep -E '^description:' ~/.claude/skills/*/SKILL.md
-diff ~/.claude/skills/myskill/SKILL.md /workspace/self/ant/skills/myskill/SKILL.md
+diff ~/.claude/skills/myskill/SKILL.md /opt/arizuko/ant/skills/myskill/SKILL.md
 ```
 
 ## Historical: when_to_use
@@ -109,5 +109,5 @@ silently ignored.
 
 ## Canonical location
 
-- Source: `/workspace/self/ant/skills/` (read-only, baked into image)
+- Source: `/opt/arizuko/ant/skills/` (read-only, baked into image)
 - Agent copy: `~/.claude/skills/` (seeded on first spawn; `/migrate` syncs)

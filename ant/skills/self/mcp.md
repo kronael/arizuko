@@ -115,7 +115,7 @@ See `/typed-jids` for chatJid format. Bare ids like `telegram:1234` are stale â€
 ## mcpc (calling MCP tools from scripts)
 
 Ad-hoc scripts inside the container use apify's `mcpc` over
-`$ARIZUKO_MCP_SOCKET` (= `/workspace/ipc/gated.sock`):
+`$ARIZUKO_MCP_SOCKET` (= `/run/ipc/gated.sock`):
 
 ```bash
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s

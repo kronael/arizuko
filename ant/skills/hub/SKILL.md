@@ -63,8 +63,8 @@ inline CSS, mobile-responsive, no JS frameworks.
 
 ## 5. Deploy
 
-Drop `index.html` into `/workspace/web/pub/<name>/`. Live at
-`https://$WEB_HOST/pub/<name>/`.
+Drop `index.html` into `~/public_html/<name>/`. Live at
+`https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/<name>/`.
 
 ## Rules
 

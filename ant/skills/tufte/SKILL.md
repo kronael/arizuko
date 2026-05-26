@@ -102,7 +102,7 @@ These belong in most Tufte charts:
 
 ## arizuko notes
 
-- Skill files live at `/workspace/self/ant/skills/tufte/` inside the
+- Skill files live at `/opt/arizuko/ant/skills/tufte/` inside the
   agent container (mounted from the host image build); after the
   migrate skill seeds them, `~/.claude/skills/tufte/` on each group.
 - Default output is a single self-contained `.html` file written to

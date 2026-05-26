@@ -61,7 +61,7 @@ concrete tool calls, one watch-out note.
 
 1. Schedule the task with the inbound JID list as input.
 2. Inside the prompt, call `inspect_routing` to confirm the active JID type.
-3. Branch on the typed JID prefix (howto 08b): `telegram:*` → `send_voice`; `discord:*` → `send_file` with audio; `bluesky:*` → host the file under `/workspace/web/pub/` and `send` the link.
+3. Branch on the typed JID prefix (howto 08b): `telegram:*` → `send_voice`; `discord:*` → `send_file` with audio; `bluesky:*` → host the file under `~/public_html/` and `send` the link.
 4. Each branch uses the same source content; only the delivery primitive changes.
 
 **Watch out:** Bluesky and other no-file adapters silently drop `send_file` calls. Always check the adapter capability matrix (howto 04c) before assuming a delivery succeeded — log the platform's response, not just "sent."
@@ -103,4 +103,4 @@ concrete tool calls, one watch-out note.
 3. Avoid references to `diary/`, `users/`, or "yesterday" — scheduled tasks have no memory injection (howto 10).
 4. Output goes to the host group via `send` or `send_file`. Optional: pipe to a slink so external systems can subscribe.
 
-**Watch out:** Scheduled containers exit after the run. State that needs to persist across runs goes into a file under `/workspace/` written by the task, not into agent memory — memory layers aren't loaded for scheduled work.
+**Watch out:** Scheduled containers exit after the run. State that needs to persist across runs goes into a file under `~/` written by the task, not into agent memory — memory layers aren't loaded for scheduled work.

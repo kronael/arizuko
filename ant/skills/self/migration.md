@@ -1,7 +1,7 @@
 # Skill seeding and migration
 
 On group create, Go (`container.seedSkills`) copies
-`/workspace/self/ant/skills/*` and `/workspace/self/ant/CLAUDE.md` to
+`/opt/arizuko/ant/skills/*` and `/opt/arizuko/ant/CLAUDE.md` to
 `~/.claude/`, AND snapshots the same source files into
 `~/.claude/.merge-base/`. The merge-base is the upstream version we
 last synced; the live copy is what Claude Code reads.
@@ -12,12 +12,12 @@ sync now). The skill walks each stock file and does a 3-way merge:
 
 - `base` = `~/.claude/.merge-base/<path>` (last upstream synced)
 - `ours` = `~/.claude/<path>` (live, possibly operator-edited)
-- `theirs` = `/workspace/self/ant/<path>` (new upstream)
+- `theirs` = `/opt/arizuko/ant/<path>` (new upstream)
 
 Outcomes per file: new upstream → copy; only upstream changed → copy;
 only ours changed → keep ours; both changed → agent merges inline.
 After any write, `theirs` overwrites `base` so the next sync's diff
-is correct. Custom skills (those NOT under `/workspace/self/ant/`)
+is correct. Custom skills (those NOT under `/opt/arizuko/ant/`)
 are never touched.
 
 `<group>/CLAUDE.md` is the **operator-owned overlay** and is never

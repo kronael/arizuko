@@ -30,23 +30,23 @@ specific question, run `/explore` on the relevant file (or `Read` it
 directly) — don't load the whole `self/` directory into context. The
 `explore` skill summarises what it finds and you act on the summary.
 
-| Question                                    | File                |
-| ------------------------------------------- | ------------------- |
-| Who am I, what's my tier, env vars          | `identity.md`       |
-| Where do I write things, persistence        | `storage.md`        |
-| Workspace mount table, `~/` vs `/workspace` | `workspace.md`      |
-| What MCP tools, mcpc usage                  | `mcp.md`            |
-| `<autocalls>` block fields                  | `autocalls.md`      |
-| `<system>` messages, origins, events        | `messages.md`       |
-| Topics: active, drift, observed, reset      | `topics.md`         |
-| Migration version, skill seeding, `/migrate`| `migration.md`      |
-| Web URL structure, route tokens, dashboard  | `web-routing.md`    |
-| Chat links + webhooks (issue/use/revoke)    | `chat-link.md`      |
-| Gateway-intercepted `/new`, `/stop`, ...    | `commands.md`       |
-| `uv`, `bun`, `go`, `cargo` rules            | `runtimes.md`       |
-| Adding skills, MCP servers, settings        | `extension.md`      |
+| Question                                       | File                |
+| ---------------------------------------------- | ------------------- |
+| Who am I, what's my tier, env vars             | `identity.md`       |
+| Where do I write things, persistence           | `storage.md`        |
+| Platform mount table, `~/` vs `/var/lib/...`   | `workspace.md`      |
+| What MCP tools, mcpc usage                     | `mcp.md`            |
+| `<autocalls>` block fields                     | `autocalls.md`      |
+| `<system>` messages, origins, events           | `messages.md`       |
+| Topics: active, drift, observed, reset         | `topics.md`         |
+| Migration version, skill seeding, `/migrate`   | `migration.md`      |
+| Web URL structure, route tokens, `/pub` vs `/priv` | `web-routing.md` |
+| Chat links + webhooks (issue/use/revoke)       | `chat-link.md`      |
+| Gateway-intercepted `/new`, `/stop`, ...       | `commands.md`       |
+| `uv`, `bun`, `go`, `cargo` rules               | `runtimes.md`       |
+| Adding skills, MCP servers, settings           | `extension.md`      |
 
-All paths under `/workspace/self/ant/skills/self/` (read-only canonical)
+All paths under `/opt/arizuko/ant/skills/self/` (read-only canonical)
 or `~/.claude/skills/self/` (your local copy).
 
 ## See also

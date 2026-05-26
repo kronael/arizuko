@@ -13,11 +13,11 @@ Root-only. Map hostnames to world web directories.
 
 ## Steps
 
-1. Read `/workspace/web/vhosts.json` (create `{}` if missing)
-2. Add `{"hostname.example.com": "worldname"}`
+1. Read `/var/lib/www/vhosts.json` (create `{}` if missing — tier 0 has RW on `/var/lib/www/`)
+2. Add `{"hostname.example.com": "worldname"}` (value is the world's folder; resolves to `<data>/web/pub/<worldname>/` via the `/pub/<worldname>/...` URL space)
 3. Write back
 4. `dig +short hostname.example.com` to verify DNS
-5. `mkdir -p /workspace/web/worldname/` if needed
+5. `mkdir -p /var/lib/www/worldname/` if needed (the world's `~/public_html/` projects here)
 
 Gateway reloads `vhosts.json` automatically (5s mtime check). TLS is handled
 by the reverse proxy (Caddy + Let's Encrypt).

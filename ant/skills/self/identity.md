@@ -18,7 +18,7 @@ echo $ARIZUKO_TIER           # rank
 ```bash
 echo "name: $ARIZUKO_ASSISTANT_NAME"
 echo "web:  ${WEB_HOST:-(not set)}"
-cat /workspace/web/.layout
+ls ~/public_html/ ~/private_html/ 2>/dev/null
 ls ~/.claude/skills/
 env | grep -E '(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)' | sed 's/=.*/=<set>/'
 cat ~/.claude/skills/self/MIGRATION_VERSION

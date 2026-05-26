@@ -13,7 +13,7 @@ user-invocable: true
 
 The agent's MCP tools (`send`, `send_voice`, `inspect_messages`, …) are
 reachable from any script in the container via the unix socket at
-`$ARIZUKO_MCP_SOCKET` (`/workspace/ipc/gated.sock`). Use `mcpc` (apify) as the
+`$ARIZUKO_MCP_SOCKET` (`/run/ipc/gated.sock`). Use `mcpc` (apify) as the
 wire-protocol client; pipe the socket through `socat`.
 
 Args: `key:=value` is JSON-typed (numbers, bools, raw JSON), `key=value` is

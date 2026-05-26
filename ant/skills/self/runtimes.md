@@ -4,4 +4,4 @@
 - **TypeScript/JS**: `bun` for scripts and packages (`bun run`, `bun add`). Node 22 available.
 - **Go**: `go run`, `go build`, `go install`.
 - **Rust**: `cargo run`, `cargo install` for tools.
-- **Web**: static sites go in `/workspace/web/pub/`.
+- **Web**: static sites go in `~/public_html/` (public, `/pub/<folder>/...`) or `~/private_html/` (JWT-gated, `/priv/<folder>/...`).

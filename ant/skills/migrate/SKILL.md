@@ -22,7 +22,7 @@ the release.
 ## How sync actually works
 
 Per file: `base = .claude/.merge-base/<path>`,
-`ours = .claude/<path>`, `theirs = /workspace/self/ant/<path>`.
+`ours = .claude/<path>`, `theirs = /opt/arizuko/ant/<path>`.
 Standard 3-way outcome table — see step (a). Operator changes survive
 upstream rewrites; direct conflicts resolve to upstream. After every
 write to `ours`, `base` is overwritten by `theirs` so the next sync's
@@ -31,8 +31,8 @@ out of seeding and merging.
 
 ## Container paths
 
-- `/workspace/self/` — app source (read-only), skills at `ant/skills/`
-- `/workspace/data/groups/` — all group directories (root only)
+- `/opt/arizuko/` — app source (read-only), skills at `ant/skills/`
+- `/var/lib/groups/` — all group directories (root only)
 - `/home/node/` — current group's home (`~`)
 
 ## Root-only
@@ -43,12 +43,12 @@ out of seeding and merging.
 
 ## a) Sync stock skills + CLAUDE.md (3-way merge)
 
-For each group, walk every file under `/workspace/self/ant/` that has
+For each group, walk every file under `/opt/arizuko/ant/` that has
 (or should have) a counterpart under `.claude/`. The merge base is
 the snapshot Go laid down at seed-time (or at the last successful
 merge): `.claude/.merge-base/<path>`.
 
-Custom skills — those NOT present under `/workspace/self/ant/skills/`
+Custom skills — those NOT present under `/opt/arizuko/ant/skills/`
 — are never touched. `<group>/CLAUDE.md` (operator overlay) is also
 never touched; only `<group>/.claude/CLAUDE.md` is merged.
 
@@ -57,7 +57,7 @@ For each candidate file:
 ```
 base   = $session/.claude/.merge-base/<path>
 ours   = $session/.claude/<path>
-theirs = /workspace/self/ant/<path>
+theirs = /opt/arizuko/ant/<path>
 ```
 
 Skip the whole skill dir if `$session/.claude/skills/<name>/.disabled`
@@ -92,10 +92,10 @@ shopt -s nullglob
 mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
-src_root=/workspace/self/ant
+src_root=/opt/arizuko/ant
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
   | while IFS= read -r folder; do
-  session="/workspace/data/groups/$folder"
+  session="/var/lib/groups/$folder"
   base_root="$session/.claude/.merge-base"
   ours_root="$session/.claude"
 
@@ -122,14 +122,14 @@ substitution and apply the outcomes table above.
 ## b) Run pending migrations
 
 Enumerate ALL groups via `refresh_groups` — including nested subgroups
-like `atlas/support`. The `/workspace/data/groups/*/` glob only matches
+like `atlas/support`. The `/var/lib/groups/*/` glob only matches
 one level; refresh_groups returns the full registered set.
 
 ```bash
-src=/workspace/self/ant/skills/self/migrations
+src=/opt/arizuko/ant/skills/self/migrations
 
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
-  session="/workspace/data/groups/$folder"
+  session="/var/lib/groups/$folder"
   skills_dir="$session/.claude/skills/self"
   group="$folder"
   current=$(cat "$skills_dir/MIGRATION_VERSION")
@@ -161,13 +161,13 @@ cat ~/.claude/CLAUDE.md
 ## d) Apply template overlays
 
 For each group with `~/.claude/skills/self/TEMPLATES`, apply named
-overlays from `/workspace/self/template/<name>/`.
+overlays from `/opt/arizuko/template/<name>/`.
 
 ```bash
-src_templates=/workspace/self/template
+src_templates=/opt/arizuko/template
 
 mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' | while read folder; do
-  session="/workspace/data/groups/$folder"
+  session="/var/lib/groups/$folder"
   self_dir="$session/.claude/skills/self"
   tfile="$self_dir/TEMPLATES"
   test -f "$tfile" || continue
@@ -229,14 +229,14 @@ https://github.com/kronael/arizuko/blob/main/CHANGELOG.md
 ```
 
 ```bash
-latest=$(awk '/^## \[v/{print $2; exit}' /workspace/self/CHANGELOG.md | tr -d '[]')
+latest=$(awk '/^## \[v/{print $2; exit}' /opt/arizuko/CHANGELOG.md | tr -d '[]')
 guard=~/.announced-version
 last=$(cat "$guard" 2>/dev/null || echo "")
 if [ "$latest" = "$last" ]; then echo "SKIP"; exit 0; fi
 echo "$latest" > "$guard"
 # First bullet under the > blockquote — the top user-facing change
 bullet=$(awk '/^## \[v/{n++} n==1 && /^> •/{sub(/^> • /,""); print; exit}' \
-  /workspace/self/CHANGELOG.md)
+  /opt/arizuko/CHANGELOG.md)
 printf '%s — %s\n\nhttps://github.com/kronael/arizuko/blob/main/CHANGELOG.md\n' "$latest" "$bullet"
 ```
 

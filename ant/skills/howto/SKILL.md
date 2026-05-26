@@ -2,7 +2,7 @@
 name: howto
 description: >
   Build and deploy the product-branded user-facing howto page under
-  `/workspace/web/pub/howto/`. Reads `~/BRANDING.md` for product name,
+  `~/public_html/howto/`. Reads `~/BRANDING.md` for product name,
   tagline, voice notes, accent colour, channels, and setup link. USE
   for "create howto", "generate docs", "set up getting started page",
   "show me my web", landing page, onboarding page. NOT for general web
@@ -57,8 +57,8 @@ otherwise render the template as-is. Do not invoke `/soul`.
 ## 2 — Read the content + style specs
 
 ```bash
-cat /workspace/self/ant/skills/web/template/pub/howto/CONTENT.md
-cat /workspace/self/ant/skills/web/template/pub/howto/STYLE.md
+cat /opt/arizuko/ant/skills/web/template/pub/howto/CONTENT.md
+cat /opt/arizuko/ant/skills/web/template/pub/howto/STYLE.md
 ```
 
 ## 3 — Pick a style
@@ -109,10 +109,9 @@ Substitutions in CONTENT.md still apply:
 ## 5 — Write and verify
 
 ```bash
-WEB_DIR="/workspace/web/pub"
-mkdir -p "$WEB_DIR/howto"
-# write HTML to $WEB_DIR/howto/index.html
-curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/pub/howto/"
+mkdir -p ~/public_html/howto
+# write HTML to ~/public_html/howto/index.html
+curl -sL -o /dev/null -w '%{http_code}' "https://$WEB_HOST/pub/$ARIZUKO_GROUP_FOLDER/howto/"
 ```
 
 Report URL, product name, chosen style axes.
@@ -120,8 +119,9 @@ Report URL, product name, chosen style axes.
 ## Rules
 
 - NEVER use a pre-written HTML template — always generate fresh
-- Output path is always `/workspace/web/pub/howto/index.html` — one
-  howto per deployment, matching the one primary product
+- Output path is always `~/public_html/howto/index.html` — one
+  howto per group (served at `/pub/<your-folder>/howto/`), matching
+  the one primary product this group represents
 - Footer MUST read: `powered by <a href="https://arizuko.example/arizuko">arizuko</a>`
 - NEVER attribute to Anthropic or Claude
 - BRANDING.md is operator-authored canonical truth — never edit it
