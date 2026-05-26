@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends: [I-tool-call-logging, ../6/F-audit-stream]
 ---
 

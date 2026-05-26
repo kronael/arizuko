@@ -280,11 +280,24 @@ full target surface is shipped. No new binaries; no new processes.
 - `gated/ipc/...` (or wherever the MCP host lives) — registers
   `auth.MCPTools` alongside its own tools.
 
+## Status (2026-05-26)
+
+`auth/` exists as a Go package with `Authorize`, `VerifyJWT`, HMAC sign/
+verify, `RequireSigned` / `StripUnsigned` middleware, OAuth handlers and
+account linking. The Target shape API names (`Mint`, `MintNarrower`,
+`VerifyHTTP`, `HasScope`, `MatchesAudience`, `Handlers`, `Mount`,
+`MCPTools`) are NOT yet exported under those names — the equivalent
+behaviour is reachable but via different entry points. `auth/web.go`,
+`auth/oauth.go`, `auth/link.go`, `auth/authorize.go`, `auth/identity.go`
+still import `core` / `store` / `theme`, so the package is not yet
+reusable outside arizuko. Phase 1 of the implementation list (extract
+arizuko-specific code into `arizuko/identity.go`) is outstanding.
+
 ## Open
 
-- **Where do account-linking records live by default?** SQLite at a
-  configured path. Options to point at postgres or share with another
-  store via `LinkStore` interface.
+configured path. Options to point at postgres or share with another
+store via `LinkStore` interface.
+
 - **`mint_token` over MCP — is the agent the bearer or just a
   proxy?** The agent holds its own token (its identity). When it
   calls `mint_token`, the library uses the agent's scope as the

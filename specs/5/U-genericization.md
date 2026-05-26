@@ -1,6 +1,12 @@
 ---
-status: draft
+status: partial
 ---
+
+> **2026-05-26.** `obs/` is the first daemon-adjacent library with zero
+> arizuko-internal imports. `audit/` imports `chanlib` for one field
+> shape; `resreg/` still imports `auth`, `audit`, `store`. `gated` has
+> not been split into `msgd` / `runnd` / channel registry. Treat this
+> spec as an in-progress audit, not a draft proposal.
 
 # Daemon genericization
 

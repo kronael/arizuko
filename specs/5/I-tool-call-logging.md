@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends: [5-uniform-mcp-rest, 4-openapi-discoverable]
 ---
 
