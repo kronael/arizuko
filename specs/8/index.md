@@ -10,18 +10,19 @@ out of the box.
 
 ## Infrastructure
 
-| Spec                                             | Status | Hook                                                                             |
-| ------------------------------------------------ | ------ | -------------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | draft  | Curated persona+skill templates; `--product` flag on `arizuko create`.           |
-| [P-product-templates.md](P-product-templates.md) | draft  | Template authoring conventions: persona, skills, seed files per product.         |
-| [chat-web-app.md](chat-web-app.md)               | draft  | Web chat UI surface; ant link + dashboard companion app.                         |
-| [2-support-skill.md](2-support-skill.md)         | draft  | `/support` orchestrator: primary-source citation + multi-turn case threading.    |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft  | pending_actions queue + /dash/review; holds MCP calls for operator review.       |
-| [5-authoring-product.md](5-authoring-product.md) | draft  | Authoring agent design reference (see product-creator.md).                       |
-| [6-web-routes.md](6-web-routes.md)               | draft  | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.        |
-| [7-ant-portability.md](7-ant-portability.md)     | draft  | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.  |
-| [1-git-channel.md](1-git-channel.md)             | draft  | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace. |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft  | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.    |
+| Spec                                               | Status | Hook                                                                                 |
+| -------------------------------------------------- | ------ | ------------------------------------------------------------------------------------ |
+| [R-products.md](R-products.md)                     | draft  | Curated persona+skill templates; `--product` flag on `arizuko create`.               |
+| [P-product-templates.md](P-product-templates.md)   | draft  | Template authoring conventions: persona, skills, seed files per product.             |
+| [chat-web-app.md](chat-web-app.md)                 | draft  | Web chat UI surface; ant link + dashboard companion app.                             |
+| [2-support-skill.md](2-support-skill.md)           | draft  | `/support` orchestrator: primary-source citation + multi-turn case threading.        |
+| [4-hitl-firewall.md](4-hitl-firewall.md)           | draft  | pending_actions queue + /dash/review; holds MCP calls for operator review.           |
+| [5-authoring-product.md](5-authoring-product.md)   | draft  | Authoring agent design reference (see product-creator.md).                           |
+| [6-web-routes.md](6-web-routes.md)                 | draft  | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.            |
+| [7-ant-portability.md](7-ant-portability.md)       | draft  | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.      |
+| [1-git-channel.md](1-git-channel.md)               | draft  | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.     |
+| [3-file-event-stream.md](3-file-event-stream.md)   | draft  | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.        |
+| [D-docs-refs-redesign.md](D-docs-refs-redesign.md) | draft  | `/pub/arizuko/reference/` redesign — dbt IA + content patterns over arizuko visuals. |
 
 Platform/API surface moved to [specs/6/](../6/) — products consume the
 control API; the API design ships before the products that depend on it.
