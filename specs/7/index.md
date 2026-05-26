@@ -109,6 +109,11 @@ Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
   carrier for cold-tier intent; flat resource namespace dispatched
   through resreg; supersedes the `agents.toml` placeholder in
   3/4. Status: draft.
+- [6-functions.md](6-functions.md) — lambda/function primitive:
+  agent-authored scripts on host, triggered transiently by webhook /
+  cron / function-chain / manual via `systemd-run --transient` under
+  per-folder cgroup slice; host-side `fnspd` spawner bridges
+  containerized gated to host systemd-user manager. Status: draft.
 
 ## Open questions (referenced from each spec)
 
