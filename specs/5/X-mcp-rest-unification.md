@@ -3,7 +3,7 @@ status: drafting
 depends: specs/5/5-uniform-mcp-rest.md
 ---
 
-# specs/7/1 — MCP + REST unification (finish what 6/5 started)
+# specs/5/X — MCP + REST unification (finish what 6/5 started)
 
 ## Why
 
@@ -66,7 +66,7 @@ during implementation):
 | deployments (NEW) | `list_deployments`, ...                                  | `/v1/deployments`              | new                         |
 
 Build the actual matrix during implementation; commit it as
-`specs/7/1-coverage.md` (or expand this spec inline) once
+`specs/5/X-coverage.md` (or expand this spec inline) once
 inventoried.
 
 ## Non-goals

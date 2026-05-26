@@ -1,6 +1,6 @@
 ---
 status: drafting
-depends: specs/7/1-mcp-rest-unification.md
+depends: specs/5/X-mcp-rest-unification.md
 ---
 
 # specs/7/2 — data model improvements (toward serialization-friendly entities)
