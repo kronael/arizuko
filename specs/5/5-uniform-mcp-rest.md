@@ -142,10 +142,10 @@ survives URL renames + handler-function renames.
 
 Both surfaces produce a `Caller` consumed identically.
 
-| Surface | Identity carrier                                                                                                  | Verifier                                  | Scope source                                                                      |
-| ------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
-| REST    | `Authorization: Bearer <jwt>` (OAuth session per [`2-proxyd-standalone.md` "Login flow"](2-proxyd-standalone.md)) | [`auth.VerifyHTTP`](../../auth/README.md) | `user_groups` ACL + grants at proxyd login                                        |
-| MCP     | Capability token at agent socket bind ([`ipc/README.md` "Capability token"](../../ipc/README.md))                 | `auth.VerifyToken`                        | Folder tier per [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md) |
+| Surface | Identity carrier                                                                                                    | Verifier                                  | Scope source                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
+| REST    | `Authorization: Bearer <jwt>` (OAuth session per [`35-proxyd-standalone.md` "Login flow"](35-proxyd-standalone.md)) | [`auth.VerifyHTTP`](../../auth/README.md) | `user_groups` ACL + grants at proxyd login                                        |
+| MCP     | Capability token at agent socket bind ([`ipc/README.md` "Capability token"](../../ipc/README.md))                   | `auth.VerifyToken`                        | Folder tier per [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md) |
 
 A platform token is a signed JWT (HS256, signed with `AUTH_SECRET`)
 carrying:
@@ -348,7 +348,7 @@ func RegisterResource(r Resource, mux *http.ServeMux, mcp *server.MCPServer) {
 Adapters are short shims that decode args + build `Caller` from the
 verified token, then call `r.Handler`. Each daemon's `main.go` calls
 `RegisterResource` per owned resource. Routing per daemon is proxyd's
-job ([`2-proxyd-standalone.md` "Per-daemon route declarations"](2-proxyd-standalone.md)).
+job ([`35-proxyd-standalone.md` "Per-daemon route declarations"](35-proxyd-standalone.md)).
 
 OpenAPI emerges from the same registry
 ([`4-openapi-discoverable.md`](4-openapi-discoverable.md)): walking
