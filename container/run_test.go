@@ -137,13 +137,13 @@ func TestRun_DockerArgAssembly(t *testing.T) {
 			t.Errorf("docker args missing %q:\n%s", want, cmd)
 		}
 	}
-	// Expect an IPC mount (/workspace/ipc) since resolver gives a path.
-	if !strings.Contains(cmd, "/workspace/ipc") {
-		t.Errorf("expected /workspace/ipc mount in args:\n%s", cmd)
+	// Expect an IPC mount (/run/ipc) since resolver gives a path.
+	if !strings.Contains(cmd, "/run/ipc") {
+		t.Errorf("expected /run/ipc mount in args:\n%s", cmd)
 	}
-	// Expect the workspace/self read-only mount to the HostAppDir.
-	if !strings.Contains(cmd, "/workspace/self:ro") {
-		t.Errorf("expected /workspace/self:ro mount:\n%s", cmd)
+	// Expect the /opt/arizuko read-only mount to the HostAppDir.
+	if !strings.Contains(cmd, "/opt/arizuko:ro") {
+		t.Errorf("expected /opt/arizuko:ro mount:\n%s", cmd)
 	}
 }
 

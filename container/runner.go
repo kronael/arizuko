@@ -499,7 +499,7 @@ func buildMounts(
 
 	m = append(m, volumeMount{
 		Host:      cfg.HostAppDir,
-		Container: "/workspace/self",
+		Container: "/opt/arizuko",
 		RO:        true,
 	})
 
@@ -511,7 +511,7 @@ func buildMounts(
 		os.MkdirAll(share, 0o755)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, share),
-			Container: "/workspace/share",
+			Container: "/var/lib/share",
 			RO:        !shareRw,
 		})
 	}
@@ -525,7 +525,7 @@ func buildMounts(
 		os.MkdirAll(groupfolder.IpcInputDir(ipcDir), 0o755)
 		m = append(m, volumeMount{
 			Host:      hp(cfg, ipcDir),
-			Container: "/workspace/ipc",
+			Container: "/run/ipc",
 		})
 	}
 
@@ -565,30 +565,41 @@ func buildMounts(
 		}
 	}
 
-	// specs/4/18-web-vhosts.md: tier 0 mounts the full web tree;
-	// tier 1 mounts the world subdir; tier 2 mounts only the group's own subdir;
-	// tier 3+ get nothing.
-	if fi, err := os.Stat(cfg.WebDir); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 2 {
-		var webHost string
-		switch {
-		case root:
-			webHost = cfg.WebDir
-		case tierOf(in.Folder, root) == 1:
-			webHost = filepath.Join(cfg.WebDir, world)
-		default: // tier 2
-			webHost = filepath.Join(cfg.WebDir, in.Folder)
-		}
-		os.MkdirAll(webHost, 0o755)
+	// specs/4/18-web-vhosts.md: tier 0-2 get RO access to the whole public
+	// web tree at /var/lib/www, plus per-group bind-mount slots for the
+	// writable web surfaces (~/public_html and ~/private_html). Tier 3+
+	// get no web surface.
+	pubHost := filepath.Join(cfg.WebDir, "pub")
+	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 2 {
 		m = append(m, volumeMount{
-			Host:      hp(cfg, webHost),
-			Container: "/workspace/web",
+			Host:      hp(cfg, pubHost),
+			Container: "/var/lib/www",
+			RO:        true,
+		})
+	}
+
+	if tierOf(in.Folder, root) <= 2 {
+		// ~/public_html: served at /pub/<folder>/ (no auth).
+		pubGroupHost := filepath.Join(cfg.WebDir, "pub", in.Folder)
+		os.MkdirAll(pubGroupHost, 0o755)
+		m = append(m, volumeMount{
+			Host:      hp(cfg, pubGroupHost),
+			Container: filepath.Join(containerHome, "public_html"),
+		})
+
+		// ~/private_html: served at /priv/<folder>/ (OAuth/JWT).
+		privGroupHost := filepath.Join(cfg.WebDir, "priv", in.Folder)
+		os.MkdirAll(privGroupHost, 0o755)
+		m = append(m, volumeMount{
+			Host:      hp(cfg, privGroupHost),
+			Container: filepath.Join(containerHome, "private_html"),
 		})
 	}
 
 	if root {
 		m = append(m, volumeMount{
 			Host:      hp(cfg, cfg.GroupsDir),
-			Container: "/workspace/data/groups",
+			Container: "/var/lib/groups",
 		})
 	}
 
@@ -697,13 +708,10 @@ func seedSettings(
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
-	// WEB_PREFIX must agree with the agent's mount + the URL that actually
-	// resolves to it. Tier 0 writes under /workspace/web/pub/ → served at
-	// /pub/<path>. Tier 1 writes under /workspace/web/ → served at
-	// <world>.$WEB_HOST/<path>. Tier 2 shares the world's web dir mount
-	// (same /workspace/web/) → writes to /workspace/web/<groupname>/ →
-	// served at <world>.$WEB_HOST/<groupname>/<path>; WEB_PREFIX=world.
-	// Tier 3+ get no mount and WEB_PREFIX="".
+	// WEB_PREFIX is a legacy hint kept for backward compatibility with older
+	// agent recipes. Tier 0-2 now write through ~/public_html/ (served at
+	// /pub/<folder>/) and ~/private_html/ (served at /priv/<folder>/, JWT).
+	// Tier 3+ get no web surface and WEB_PREFIX="". Spec: specs/4/18-web-vhosts.md.
 	tier := tierOf(in.Folder, root)
 	switch {
 	case root:
@@ -740,7 +748,7 @@ func seedSettings(
 	}
 	servers["arizuko"] = map[string]any{
 		"command": "socat",
-		"args":    []string{"STDIO", "UNIX-CONNECT:/workspace/ipc/gated.sock"},
+		"args":    []string{"STDIO", "UNIX-CONNECT:/run/ipc/gated.sock"},
 	}
 	settings["mcpServers"] = servers
 

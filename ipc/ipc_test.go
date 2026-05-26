@@ -209,8 +209,8 @@ func TestWorkspaceRel(t *testing.T) {
 	}{
 		{"/home/node/file.txt", "file.txt", false},
 		{"/home/node/tmp/out.pdf", "tmp/out.pdf", false},
-		{"/workspace/group/file.txt", "", true},               // no longer valid
-		{"/workspace/media/img.png", "", true},
+		{"/var/lib/www/file.txt", "", true},                   // not a workspace-rel path
+		{"/run/ipc/img.png", "", true},
 		{"/home/node", "", true},                              // exact prefix, no trailing slash
 		{"~/tmp/out.txt", "", true},
 		{"/tmp/file", "", true},

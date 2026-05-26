@@ -91,7 +91,7 @@ func TestBuildArgs(t *testing.T) {
 	}
 	mounts := []volumeMount{
 		{Host: "/h/group", Container: "/home/node"},
-		{Host: "/h/app", Container: "/workspace/self", RO: true},
+		{Host: "/h/app", Container: "/opt/arizuko", RO: true},
 	}
 
 	args := buildArgs(cfg, mounts, "test-container", EgressConfig{}, "", "")
@@ -106,7 +106,7 @@ func TestBuildArgs(t *testing.T) {
 	if !strings.Contains(joined, "-v /h/group:/home/node") {
 		t.Error("missing rw mount")
 	}
-	if !strings.Contains(joined, "/h/app:/workspace/self:ro") {
+	if !strings.Contains(joined, "/h/app:/opt/arizuko:ro") {
 		t.Error("missing ro mount")
 	}
 

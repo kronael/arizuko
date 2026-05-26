@@ -43,7 +43,7 @@ interface SDKUserMessage {
 type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string> };
 
 const HOME = '/home/node';
-const IPC_INPUT_DIR = '/workspace/ipc/input';
+const IPC_INPUT_DIR = '/run/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 const MAX_QUEUE = 100;
@@ -80,7 +80,7 @@ function injectMcpEnv(
   // Always include arizuko MCP (socat to gated socket).
   out.arizuko = {
     command: 'socat',
-    args: ['STDIO', 'UNIX-CONNECT:/workspace/ipc/gated.sock'],
+    args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'],
     env: definedSecrets,
   };
   return out;
@@ -451,13 +451,13 @@ async function runQuery(
 
   const extraDirs: string[] = [];
   const isRoot = !containerInput.groupFolder.includes('/');
-  if (!isRoot && fs.existsSync('/workspace/share')) extraDirs.push('/workspace/share');
+  if (!isRoot && fs.existsSync('/var/lib/share')) extraDirs.push('/var/lib/share');
   try {
-    for (const e of fs.readdirSync('/workspace/extra')) {
-      const p = path.join('/workspace/extra', e);
+    for (const e of fs.readdirSync('/mnt')) {
+      const p = path.join('/mnt', e);
       if (fs.statSync(p).isDirectory()) extraDirs.push(p);
     }
-  } catch { /* /workspace/extra absent */ }
+  } catch { /* /mnt absent */ }
 
   const agentMcpServers = loadAgentMcpServers();
 

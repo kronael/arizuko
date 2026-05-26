@@ -17,14 +17,14 @@ group isolation is enforced, and what the peer-uid check is for. See
 
 The real boundary is **per-group bind mount**. `container/runner.go
 buildMounts` mounts only the current group's `ipcDir` at
-`/workspace/ipc`:
+`/run/ipc`:
 
 ```go
 ipcDir, err := folders.IpcPath(in.Folder)
 if err == nil {
     m = append(m, volumeMount{
         Host:      hp(cfg, ipcDir),
-        Container: "/workspace/ipc",
+        Container: "/run/ipc",
     })
 }
 ```
@@ -93,7 +93,7 @@ the socket through a socat stdio bridge (`ant/src/index.ts`,
 ```json
 "arizuko": {
   "command": "socat",
-  "args": ["STDIO", "UNIX-CONNECT:/workspace/ipc/gated.sock"]
+  "args": ["STDIO", "UNIX-CONNECT:/run/ipc/gated.sock"]
 }
 ```
 

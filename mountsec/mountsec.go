@@ -138,7 +138,7 @@ func validateOne(m AdditionalMount, isRoot bool, al Allowlist) (ValidMount, bool
 
 	return ValidMount{
 		HostPath:      real,
-		ContainerPath: "/workspace/extra/" + cp,
+		ContainerPath: "/mnt/" + cp,
 		Readonly:      ro,
 	}, true, ""
 }

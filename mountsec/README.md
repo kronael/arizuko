@@ -8,7 +8,7 @@ Guards Docker mounts and MCP-tool-supplied paths. `ValidateAdditionalMounts`
 checks group-configured mounts against a caller-supplied `Allowlist`.
 `ValidateFilePath` resolves symlinks, rejects escapes, and blocks
 known-sensitive patterns (`.ssh`, `.gnupg`, `.env`, private keys).
-Container path for extra mounts: `/workspace/extra/<name>`.
+Container path for extra mounts: `/mnt/<name>`.
 
 ## Public API
 

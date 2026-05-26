@@ -39,7 +39,7 @@ func TestValidateAllowedMount(t *testing.T) {
 	if got[0].Readonly {
 		t.Fatal("should be read-write")
 	}
-	if got[0].ContainerPath != "/workspace/extra/mydata" {
+	if got[0].ContainerPath != "/mnt/mydata" {
 		t.Fatalf("unexpected container path: %s", got[0].ContainerPath)
 	}
 }
@@ -170,7 +170,7 @@ func TestValidateContainerPathDefault(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatal("expected 1 mount")
 	}
-	if got[0].ContainerPath != "/workspace/extra/mydir" {
+	if got[0].ContainerPath != "/mnt/mydir" {
 		t.Fatalf("expected default container path from basename, got %s", got[0].ContainerPath)
 	}
 }

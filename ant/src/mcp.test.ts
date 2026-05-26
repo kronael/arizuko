@@ -1,6 +1,6 @@
 // Tests submitTurn over a fake unix-socket JSON-RPC server. Skipped
-// when /workspace/ipc cannot be created (running locally outside the
-// container). Production socket path is /workspace/ipc/gated.sock; we
+// when /run/ipc cannot be created (running locally outside the
+// container). Production socket path is /run/ipc/gated.sock; we
 // can't easily redirect it without an env hook, so this test asserts
 // the wire format by intercepting at the system level.
 
