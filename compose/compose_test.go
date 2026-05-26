@@ -440,3 +440,80 @@ func TestRouterEnvPassthrough(t *testing.T) {
 		t.Error("gated missing API_PORT override pinning internal listen to 8080")
 	}
 }
+
+// services/ttsd.toml present → auto-enable TTS on gated. Operator opts in
+// by dropping the TOML; no second flag flip needed.
+func TestGenerateTTSAutoEnabled(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("API_PORT=8080\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
+image = "arizuko-ttsd:latest"
+entrypoint = ["ttsd"]
+[environment]
+TTSD_ADDR = ":8880"
+TTS_BACKEND_URL = "http://kokoro:8880"
+`), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/kokoro.toml"), []byte(`
+image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
+entrypoint = []
+`), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	gatedEnv, err := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(gatedEnv)
+	if !strings.Contains(s, "TTS_ENABLED=true") {
+		t.Errorf("expected TTS_ENABLED=true in gated env, got:\n%s", s)
+	}
+	if !strings.Contains(s, "TTS_BASE_URL=http://ttsd:8880") {
+		t.Errorf("expected TTS_BASE_URL=http://ttsd:8880 in gated env, got:\n%s", s)
+	}
+}
+
+// services/ttsd.toml absent → no TTS_* leak into gated env. Default stays off.
+func TestGenerateTTSOffByDefault(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("API_PORT=8080\n"), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	gatedEnv, err := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(gatedEnv), "TTS_ENABLED") {
+		t.Errorf("TTS_ENABLED should be absent when ttsd.toml missing, got:\n%s", string(gatedEnv))
+	}
+}
+
+// Explicit TTS_BASE_URL in .env (e.g. external Kokoro / OpenAI cloud) wins
+// over the auto-inject default — operator override path.
+func TestGenerateTTSExplicitOverridesAuto(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"API_PORT=8080\nTTS_BASE_URL=https://api.openai.com\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
+image = "arizuko-ttsd:latest"
+entrypoint = ["ttsd"]
+`), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	gatedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
+	s := string(gatedEnv)
+	if !strings.Contains(s, "TTS_BASE_URL=https://api.openai.com") {
+		t.Errorf("explicit TTS_BASE_URL should win, got:\n%s", s)
+	}
+	if strings.Contains(s, "TTS_BASE_URL=http://ttsd:8880") {
+		t.Errorf("auto default should not appear when override set, got:\n%s", s)
+	}
+}

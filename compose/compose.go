@@ -70,6 +70,7 @@ var daemonKeys = map[string][]string{
 		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
+		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
@@ -247,6 +248,16 @@ type svcWithCfg struct {
 	cfg  ServiceConfig
 }
 
+// hasService reports whether services contains an entry named name.
+func hasService(services []svcWithCfg, name string) bool {
+	for _, s := range services {
+		if s.name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func Generate(dataDir string) (string, error) {
 	env, _ := godotenv.Read(filepath.Join(dataDir, ".env"))
 	if env == nil {
@@ -306,10 +317,6 @@ func Generate(dataDir string) (string, error) {
 		}
 	}
 
-	// Per-daemon env files: non-fatal if it fails; log for triage.
-	if werr := writeEnvFiles(dataDir, env); werr != nil {
-		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
-	}
 	servicesDir := filepath.Join(dataDir, "services")
 
 	entries, err := os.ReadDir(servicesDir)
@@ -336,6 +343,25 @@ func Generate(dataDir string) (string, error) {
 		services = append(services, svcWithCfg{name, cfg})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
+
+	// services/ttsd.toml present → auto-enable TTS on gateway. Operator
+	// opted in by dropping the TOML; no second env-var flip required.
+	// Explicit .env values still win (e.g. external Kokoro / OpenAI cloud
+	// override TTS_BASE_URL).
+	if hasService(services, "ttsd") {
+		if _, set := env["TTS_ENABLED"]; !set {
+			env["TTS_ENABLED"] = "true"
+		}
+		if _, set := env["TTS_BASE_URL"]; !set {
+			env["TTS_BASE_URL"] = "http://ttsd:8880"
+		}
+	}
+
+	// Per-daemon env files: non-fatal if it fails; log for triage.
+	// Written after services scan so service-triggered env (TTS_*) lands.
+	if werr := writeEnvFiles(dataDir, env); werr != nil {
+		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
+	}
 
 	profile := envOr(env, "PROFILE", "full")
 	routes := collectProxydRoutes(services, env, profile)
