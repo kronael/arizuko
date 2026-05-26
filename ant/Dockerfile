@@ -166,7 +166,7 @@ RUN set -eux; ARCH=$(dpkg --print-architecture); \
 
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-ENV ARIZUKO_MCP_SOCKET=/workspace/ipc/gated.sock
+ENV ARIZUKO_MCP_SOCKET=/run/ipc/gated.sock
 
 RUN npm install -g bun agent-browser @anthropic-ai/claude-code @apify/mcpc @openai/codex \
     && bun install -g @biomejs/biome prettier svgo \
@@ -189,15 +189,17 @@ RUN npm install @anthropic-ai/claude-agent-sdk@latest
 COPY . ./
 COPY output-styles/ /home/node/.claude/output-styles/
 RUN npm run build && rm -rf dist
-RUN mkdir -p /workspace/extra /workspace/ipc/input
+RUN mkdir -p /mnt /run/ipc/input /var/lib/share /var/lib/www /var/lib/groups /opt/arizuko
 
 # Entrypoint is now a real file (was inline printf); easier to review/diff.
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Toolchain root-owned at 755 (was world-writable — agent code could swap cargo).
-# /home/node is 755 (was 777). Workspace is node-owned for runtime writes.
-RUN chown -R node:node /workspace /home/node \
+# /home/node is 755 (was 777). FHS mount points node-owned for runtime writes
+# (IPC dir gets the socket file at runtime; the per-group bind-mount fills the
+# others — owning the empty mount points is fine).
+RUN chown -R node:node /home/node /run/ipc /mnt \
     && chmod 755 /home/node \
     && chmod -R u=rwX,go=rX /usr/local/cargo /usr/local/rustup
 
