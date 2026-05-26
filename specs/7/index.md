@@ -69,9 +69,10 @@ are the platform thesis. Out of order they don't compose. Pre-ordered:
   discipline, not the runtime.
 - Not Kubernetes / multi-node. Single-host operator footprint stays.
 - Not a product registry (that's `specs/8/...` / future-phase 8 work).
-- Not the `agents.toml` declarative composer (that's drafted
-  separately under a Tier-A spec referenced from
-  `TODO.md`/positioning; sequenced AFTER this phase lands).
+- ~~Not the `agents.toml` declarative composer~~ — resolved
+  in [5-yaml-manifests.md](5-yaml-manifests.md): the carrier
+  format is YAML, not TOML, and lives in this phase. Product
+  composition / mixin semantics remain open (7/4 Q2).
 
 ## Sequencing
 
@@ -104,6 +105,10 @@ Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
   — open questions: how ingestion, curation, and eventing fit the
   agent-is-data + git-as-truth thesis. Status: open-questions; no
   mechanism proposed.
+- [5-yaml-manifests.md](5-yaml-manifests.md) — declarative YAML
+  carrier for cold-tier intent; flat resource namespace dispatched
+  through resreg; supersedes the `agents.toml` placeholder in
+  3/4. Status: draft.
 
 ## Open questions (referenced from each spec)
 
