@@ -249,3 +249,45 @@ table-driven function with two stat calls.
   drive an output-style split. `web.md` covers all web surfaces; no further split.
 - **Email direction split**: no split. `email.md` is one file, minimal,
   same convention as every other channel. Length/tone judgment is the LLM's.
+
+## Open: extending the per-turn envelope
+
+The decided substrate (output-style file + `<topic>` + `<pane-context>`)
+covers length-budget and scope. The shape of any FUTURE per-turn hint
+beyond that — engagement TTL, surface-cap numbers, reply-mode, recent
+activity — is parked here. Three framings sat on the table when the
+modality-envelope question was first opened (former spec 5/X):
+
+- **Framing A — one block, all hints**: `<modality
+surface="slack-channel-thread" topic="#deploy" engagement-ttl-left="540"
+pane-context="..." reply-mode="thread"/>`. Compact, single parse.
+  Risk: agent learns a new attribute per feature; no progressive disclosure.
+- **Framing B — composable children**: one sibling tag per concern
+  (`<surface>`, `<engagement>`, etc.). Easier to add/remove; each spec
+  owns its own tag. Risk: prompt sprawl. (Closest to today's shipped
+  shape.)
+- **Framing C — JSON `<context>` blob**: programmatically clean. Risk:
+  mixes JSON with XML in the rest of the prompt.
+
+Catalog of plausible future hints:
+
+| Hint                                 | Source        | Why agent wants it                  |
+| ------------------------------------ | ------------- | ----------------------------------- |
+| `topic`, `parent_topic`              | 5/F (shipped) | scope replies; thread conflation    |
+| `pane-context`                       | 6/D (shipped) | fetch related history pre-reply     |
+| `surface` (output-style file picker) | this spec     | length cap, tone, actions           |
+| `engagement` (ttl/state)             | 5/G           | knows when re-mention is needed     |
+| `reply-mode` (thread/top/new-thread) | 5/G           | guide outbound `thread_ts` decision |
+| `recent-activity` (rate, last seen)  | future        | pacing decisions                    |
+
+Decision criteria when a new hint earns inclusion:
+
+1. New hint lands in ONE place (single touch-point in `buildAgentPrompt`
+   - one rule line in ant CLAUDE.md), not five.
+2. Survives doubling hint count without becoming unreadable.
+3. Doesn't force the agent to learn new parsing (XML already in
+   `<message>`/`<reply-to>`/`<observed>`).
+4. Greppable from the agent side: "show me my modality" is one regex.
+
+Framing B (composable children) is the default direction unless hint
+count explodes, at which point A or C earn the cost.

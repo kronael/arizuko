@@ -20,7 +20,7 @@ Two orthogonal features on the topic primitive:
 
 No inserted history blocks. No special prompt injection at every
 turn. The agent learns what scope it's in from the per-turn
-`<topic>` envelope (spec 5/X's `<surface>` family).
+`<topic>` envelope (spec 5/Y's `<surface>` family).
 
 ## Fork — plain cp, nothing else
 
@@ -51,7 +51,7 @@ the child's history.
 ## How the agent knows what scope it's in
 
 Per-turn `<topic name="…" />` envelope, emitted by `buildAgentPrompt`
-on every prompt (spec 5/X's `<surface>` hint family). The agent
+on every prompt (spec 5/Y's `<surface>` hint family). The agent
 sees on each turn:
 
 ```xml
@@ -199,9 +199,9 @@ next trigger turn. The observer does not become source's active agent;
 it just gets a read-only ambient feed.
 
 **Distinction from `set_group_open`**: `set_group_open` exposes
-_already-observed_ (is_observed=1) messages to open siblings. It
+_already-observed_ (is*observed=1) messages to open siblings. It
 requires an `#observe` route on the source side to produce those rows.
-`observe_group` is directional and picks up source's _primary-delivered_
+`observe_group` is directional and picks up source's \_primary-delivered*
 (is_observed=0) messages — no route change needed on source.
 
 ### Implementation
