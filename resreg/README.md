@@ -13,7 +13,7 @@ Resources using it today:
   writes the audit row downstream).
 
 `ipc/ipc.go` migration is pending — a larger surgical pass tracked
-under [`specs/5/D-mcp-everywhere.md`](../specs/5/D-mcp-everywhere.md).
+under [`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md).
 
 ## Surface
 

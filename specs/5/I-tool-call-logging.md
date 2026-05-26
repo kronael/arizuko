@@ -1,7 +1,6 @@
 ---
 status: draft
-depends:
-  [5-uniform-mcp-rest, D-mcp-everywhere, V-platform-api, 4-openapi-discoverable]
+depends: [5-uniform-mcp-rest, 4-openapi-discoverable]
 ---
 
 # specs/5/I — per-tool-call logging
@@ -12,7 +11,7 @@ Both the platform surface (every MCP tool + every REST endpoint served by
 gateway, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
 Edit, Read, Write, Task, ...) produce a torrent of calls per turn. Today
 there is no uniform record — `resreg` emits a structured slog line per
-dispatch ([`5/D` Q7](D-mcp-everywhere.md)), `cli_audit` covers CLI writes
+dispatch (see `5/5-uniform-mcp-rest.md` audit emit contract), `cli_audit` covers CLI writes
 ([`6/F`](../6/F-audit-stream.md)), but agent-internal tool use is invisible
 to the operator and platform-side reads aren't logged at all. The result:
 no single place to answer "what did agent X do in turn Y", no replay
@@ -165,15 +164,12 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 ## Cross-references
 
 - [`5/5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) — the
-  `Caller`/`Resource`/`Action` shape this spec extends; the existing
-  audit log-line format that this spec turns into a DB row.
-- [`5/D-mcp-everywhere.md`](D-mcp-everywhere.md) — Q7 (audit emit
-  contract) is answered here.
+  `Caller`/`Resource`/`Action` shape this spec extends; the audit
+  emit contract; the federated `/v1/*` surfaces whose REST hits
+  this spec covers.
 - [`5/U-genericization.md`](U-genericization.md) — each daemon owns
   its `audit_log` table or shares the gated one; covered in Q3 of
   this spec when daemon-DB split lands.
-- [`5/V-platform-api.md`](V-platform-api.md) — the `/v1/*` surfaces
-  whose REST hits this spec covers.
 - [`5/4-openapi-discoverable.md`](4-openapi-discoverable.md) — the
   endpoint catalog this spec logs against.
 - [`6/F-audit-stream.md`](../6/F-audit-stream.md) — the DB-side

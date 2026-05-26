@@ -91,7 +91,7 @@ Handlers don't have to remember; they only run their work against
 writes it. The full contract is in
 [`../5/5` Execution context](../5/5-uniform-mcp-rest.md).
 Per-mutating-tool list is the same set as
-[`../5/D-mcp-everywhere.md`](../5/D-mcp-everywhere.md) "Resource
+[`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) "Resource
 declarations to add" — every state-changing endpoint there.
 
 Read-only tools (`inspect_*`, `list_*`, `get_*`, REST GETs) do **not**

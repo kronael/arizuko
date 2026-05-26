@@ -266,18 +266,158 @@ flow produces one session JWT. No second login for "the MCP side";
 MCP is the agent's surface, the agent is a different principal
 (`sub: "agent:<folder>"`, not `user:<sub>`).
 
+## Inventory — today's writes
+
+Every store write below is a candidate for `resreg` exposure. Columns:
+**Today** = where it's invoked from; **MCP** = is there an existing
+MCP tool; **REST** = is there an existing endpoint.
+
+| Operation                           | Store call                                                     | Today                           | MCP                                                          | REST          |
+| ----------------------------------- | -------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------ | ------------- |
+| Group create                        | `PutGroup` (`store/groups.go:20`)                              | onbod/SetupGroup, CLI           | `register_group`                                             | —             |
+| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                           | CLI                             | —                                                            | —             |
+| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)       | CLI, agent MCP, dashd           | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —             |
+| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                        | CLI (`arizuko grant`)           | —                                                            | —             |
+| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                             | agent MCP                       | `set_grants`                                                 | —             |
+| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)             | dashd (`/dash/me/secrets`), CLI | —                                                            | dashd-private |
+| Invite create / revoke              | `CreateInvite`/`RevokeInvite` (`store/invites.go`)             | CLI, onbod                      | —                                                            | onbod         |
+| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`) | CLI                             | —                                                            | —             |
+| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)    | CLI                             | —                                                            | —             |
+| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)      | crackbox register, CLI          | partial (register)                                           | —             |
+| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)            | agent MCP                       | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —             |
+| Scheduled tasks                     | `schedule_task` family                                         | agent MCP                       | `schedule_task`+                                             | —             |
+| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)           | CLI                             | —                                                            | —             |
+| ACL rows (per 4/9)                  | (`acl` table writes)                                           | n/a (new)                       | —                                                            | —             |
+
+Columns with `—` are the gap. Most operator concepts are either
+CLI-only with direct store calls (`cmd/arizuko/*.go`) or MCP-only with
+no REST sibling. The shape is bimodal; the principle above is to make
+it uniform.
+
+### Resource declarations to add
+
+For each row above without a `resreg.Resource`, the declaration shape
+is a small struct literal. Catalog of new resources:
+
+| Resource          | Actions                                                                         | Owning daemon | Scope predicates                                                |
+| ----------------- | ------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------- |
+| `groups`          | list/get/create/update/delete                                                   | gated         | `admin` at scope ⊇ folder; `*` operator                         |
+| `acl`             | list/get/create/delete                                                          | gated         | `admin` at scope ⊇ row.scope; `*` operator                      |
+| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved) | gated         | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
+| `invites`         | list/get/create/revoke                                                          | onbod         | `admin` at scope ⊇ targetGlob                                   |
+| `identities`      | list/get/create/link/unlink                                                     | gated         | self for own sub; `*` for cross-user link                       |
+| `gates`           | list/get/put/delete/enable                                                      | onbod         | `*` operator                                                    |
+| `network_rules`   | list/get/create/delete                                                          | gated         | folder-`admin` at scope                                         |
+| `cost_caps`       | list/get/set                                                                    | gated         | `*` operator; self-read for own user                            |
+| `scheduled_tasks` | (already partial — finish symmetry)                                             | timed         | folder-`admin` at scope                                         |
+| `web_routes`      | (already MCP — add REST mirror)                                                 | webd          | folder-`admin` at scope                                         |
+
+New action = one struct literal addition + one handler function. The
+handler is the only behavior; everything else is registration. Authz
+delegates to `auth.Authorize`; for store-backed resources the adapter
+threads a `*sql.Tx` in `Execution` so the mutation + audit row commit
+as a unit.
+
+### CLI evolution — `cmd/arizuko/*.go`
+
+Today: `arizuko grant`, `arizuko invite`, `arizuko group add`, etc.
+call `store.*` directly. The CLI binary opens `messages.db` and
+writes rows. Bypasses every authorization concern and audit trail.
+
+Target: each command becomes a thin client of the local MCP socket
+(`/srv/data/arizuko_<inst>/ipc/root/socket`). The socket already
+exists for `arizuko chat`. **Lean: unix-socket-as-capability** —
+the socket is unix-domain, owned by the operator UID; presence on
+the socket proves operator capability. Implies an ACL row
+`(folder:operator_cli, '*', '**')` seeded at `arizuko create`. The
+OAuth path remains available for remote CLI use later (call `/v1/*`
+over HTTPS instead of MCP over the local socket).
+
+### dashd evolution
+
+Today: dashd is the operator web UI. Read paths query the shared DB
+directly; the few write paths (`/dash/me/secrets`) call
+`store.SetSecret` directly.
+
+Target: dashd's mutating handlers are thin shims over `resreg`
+endpoints. Reads stay direct queries to the DB (cheap, read-only,
+no audit need) or migrate to `GET /v1/<resource>` symmetrically.
+Writes via registry; reads direct for dashd's own UI. The `/v1/*`
+REST surface is for external consumers; dashd is internal.
+
+## Anti-patterns — what should NOT go via MCP
+
+Some operations look like state changes but should not be exposed as
+MCP tools. Each has the same shape: hot path, high-volume internal
+event, or stream rather than CRUD verb.
+
+- **Inbound message ingestion.** The gateway poll loop
+  (`gateway/gateway.go:502+`) writes `messages` rows per inbound.
+  Per-message hot-path; pushing it through `resreg` would force a
+  capability check and audit log per inbound. Not in scope. The agent
+  can `inject_message` for synthetic sends — that IS an MCP tool
+  (audited, low-volume).
+- **Cost-log writes** (`store/cost_log.go:20`). Every Claude API call
+  emits a row. Per-call, not per-operator-action. Stays as a direct
+  store write from `gateway` and `timed`.
+- **Agent cursor advancement.** Internal bookkeeping, not user-facing.
+- **Streaming surfaces.** Slink message stream, agent live output —
+  not CRUD/RPC. SSE / WebSocket sits next to `resreg`, not inside it.
+- **Auth session creation** (`store/auth.go:119`). The session is
+  minted by `auth.Mint`, persisted by the auth library. Substrate
+  every other tool consumes, not a user-tool itself.
+- **Migrations.** Schema changes are file-driven (`store/migrations/`)
+  and run by `gated` at startup. Not a resource.
+
+The rule: if it's user-initiated, audit-worthy, and fits an
+allow/deny answer, it belongs in `resreg`. If it's a high-rate
+side effect of normal operation, it does not.
+
+## Auth shape for management operations
+
+Under unified ACL (`specs/4/9-acl-unified.md`):
+
+- **Operator human** — `(google:114operator, '*', '**')`. One row.
+  All resources, all actions, everywhere.
+- **Folder admin** — `(google:114alice, 'admin', 'atlas/**')`. Can
+  manage routes/grants/secrets under `atlas/`, no further.
+- **Operator agent** — `(folder:atlas, 'admin', 'atlas/**')`. The
+  agent at the world root can administer its own subtree (delegate
+  routes, set child grants). Same authority shape as the human
+  folder admin, different principal namespace.
+- **Leaf agent** — no `admin` rows; only `mcp:<tool>` rows derived
+  from tier defaults. Same as today.
+
+`auth.Authorize` is the only check. resreg's per-resource `Authz`
+callback derives `(scope, params)` from the call and delegates —
+there is no parallel predicate machinery. The
+`<resource>:<verb>[:own_group]` shorthand is the operator-token-minting
+affordance over the same ACL rows.
+
+## Resource ownership across daemons
+
+`groups` is gated's; `invites` is onbod's; `web_routes` is webd's.
+Each registers its own resources. The MCP socket terminates in gated,
+so MCP calls to `invites.*` must forward to onbod over HTTP. Pattern
+(shipped 2026-05-25): the forwarder is a `Resource{Store: nil}` whose
+`Handler` does an HTTP call downstream; the adapter skips the
+tx/audit dance, and the destination daemon writes the audit row.
+`webd/routes_mcp.go` is the canonical example.
+
 ## Phased rollout
 
 | Phase | Deliverable                                                                                                                                                                                          |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `ScopePred` types in `auth/` (alongside `auth.Mint` per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
-| B     | Migrate `grants` end-to-end: both `/v1/grants` and `grants.add`/`grants.update`/`grants.remove` MCP tools call the same handler.                                                                     |
-| C     | Migrate `routes`, `scheduled_tasks`, `invites` one at a time; each migration deletes the hand-written tool in `ipc/ipc.go` and the direct DB call.                                                   |
-| D     | Deprecate hand-written MCP tools that lack a REST mirror (or vice versa). Each unmatched tool becomes a registry entry or is removed.                                                                |
-| E     | `arizuko <resource> <action>` CLI becomes a thin REST client over the operator session.                                                                                                              |
+| B     | High-priority resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core; the agent-facing tools already exist.                                                             |
+| C     | Backfill missing REST mirrors for existing agent MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                      |
+| D     | Migrate `routes`, `scheduled_tasks` one at a time; each migration deletes the hand-written tool in `ipc/ipc.go` and the direct DB call.                                                              |
+| E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                      |
+| F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                             |
+| G     | Deprecate hand-written tools in `ipc/ipc.go` that have a registry equivalent; delete after one release.                                                                                              |
 
-Phase A unblocks
-[`R-platform-api.md` Phase 2 (gated `/v1/*`)](R-platform-api.md).
+Each phase is independent. Stopping at C still leaves the system in
+a saner state (REST parity); E+F are the structural wins.
 
 ## Acceptance
 
