@@ -10,6 +10,36 @@ import (
 	"time"
 )
 
+// Generic primitives (Phase A of specs/5/U-genericization.md). These are
+// the platform vocabulary; arizuko-domain names below are Go aliases of
+// these — same underlying type, different documentation intent. Aliases
+// (not new types) so call sites migrate locally without flag days.
+//
+// TenantID identifies an isolated workspace. arizuko's Folder is a
+// TenantID with path-structured semantics; routerd, agent-runnerd, and
+// any future non-arizuko consumer see only the opaque shape.
+type TenantID = string
+
+// SubjectID identifies the conversation/thread/post target. arizuko's
+// ChatJID (struct in core/jid.go) is a typed SubjectID with platform-
+// prefix semantics; the string form `<platform>:<rest>` IS a SubjectID.
+// Generic consumers treat the wire string as opaque.
+//
+// Note: this is the wire-string form. core.ChatJID (jid.go) is the
+// validated typed wrapper. Phase A migration uses SubjectID at code
+// boundaries that don't need the typed wrapper (e.g. chanlib's plain
+// string fields, IPC payloads).
+type SubjectID = string
+
+// Scope is the capability list replacing the legacy tier int (see
+// "Capability-vs-tier perf" in specs/5/U-genericization.md).
+type Scope = []string
+
+// Folder is the arizuko-domain alias of TenantID — a path-structured
+// tenant identifier. Aliasing means a daemon that types a parameter
+// `Folder` and a daemon that types it `TenantID` are interchangeable.
+type Folder = TenantID
+
 type Message struct {
 	ID            string
 	ChatJID       string
