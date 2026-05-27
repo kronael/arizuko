@@ -670,3 +670,88 @@ func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 	}
 	return target == folder || strings.HasPrefix(target, folder+"/")
 }
+
+// FoundMessage is one row of FindMessages output. Content is the
+// snippet returned by FTS5's `snippet()` (matched fragment with
+// «»-highlighting around the hit), not the full message body.
+// Rank is BM25 — lower is a better match.
+type FoundMessage struct {
+	ChatJID      string    `json:"chat_jid"`
+	Sender       string    `json:"sender"`
+	Timestamp    time.Time `json:"timestamp"`
+	IsFromMe     bool      `json:"is_from_me"`
+	IsBotMessage bool      `json:"is_bot_message"`
+	Content      string    `json:"content"`
+	Rank         float64   `json:"rank"`
+}
+
+// FindMessages runs an FTS5 MATCH against messages_fts and returns the
+// best hits, joined back to messages for metadata. `query` is bound as
+// a parameter — FTS5 parses it as its own syntax (phrase/AND/NOT/prefix),
+// no SQL escape needed. Malformed query returns SQLITE_ERROR which we
+// surface to the caller. ACL filtering is the caller's job.
+//
+// `scope` is polymorphic: a string containing ':' is matched as a
+// chat_jid; otherwise it's a folder subtree (group_folder = scope OR
+// group_folder LIKE scope || '/%'). `sender` is exact match. `since` is
+// an RFC3339 timestamp lower bound (inclusive). Spec 5/C.
+func (s *Store) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	var scopeJID, scopeFolder any
+	if scope != "" {
+		if strings.Contains(scope, ":") {
+			scopeJID = scope
+		} else {
+			scopeFolder = scope
+		}
+	}
+	var senderArg any
+	if sender != "" {
+		senderArg = sender
+	}
+	var sinceArg any
+	if since != "" {
+		sinceArg = since
+	}
+	rows, err := s.db.Query(
+		`SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
+		        snippet(messages_fts, 0, '«', '»', '…', 32) AS content,
+		        bm25(messages_fts) AS rank
+		 FROM messages_fts f
+		 JOIN messages m ON m.rowid = f.rowid
+		 WHERE messages_fts MATCH ?
+		   AND (? IS NULL OR m.chat_jid = ?)
+		   AND (? IS NULL OR m.group_folder = ? OR m.group_folder LIKE ? || '/%')
+		   AND (? IS NULL OR m.sender = ?)
+		   AND (? IS NULL OR m.timestamp >= ?)
+		 ORDER BY rank, m.timestamp DESC
+		 LIMIT ?`,
+		query,
+		scopeJID, scopeJID,
+		scopeFolder, scopeFolder, scopeFolder,
+		senderArg, senderArg,
+		sinceArg, sinceArg,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FoundMessage
+	for rows.Next() {
+		var f FoundMessage
+		var ts string
+		var fromMe, botMsg int
+		if err := rows.Scan(&f.ChatJID, &f.Sender, &ts,
+			&fromMe, &botMsg, &f.Content, &f.Rank); err != nil {
+			return nil, err
+		}
+		f.IsFromMe = fromMe != 0
+		f.IsBotMessage = botMsg != 0
+		f.Timestamp, _ = time.Parse(time.RFC3339Nano, ts)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
