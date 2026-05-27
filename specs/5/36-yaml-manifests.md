@@ -279,6 +279,129 @@ Without `RowType` the "one schema" claim is fictional: each transport
 would carry its own struct and drift silently. With it, drift is a
 compile error.
 
+### Schema-driven CRUD: minimize the per-resource code
+
+Goal: adding a new manifest-addressable resource is a single Go file
+with a struct, a table name, and a `Register` call. Everything else
+— SELECT, INSERT, DELETE, YAML parse/serialize, JSON parse/serialize,
+REST handlers, MCP tools, export, plan — falls out of one set of
+struct tags.
+
+**Tagged struct as the contract:**
+
+```go
+package routes
+
+type Row struct {
+    Seq    int    `db:"seq"    yaml:"seq"    json:"seq"`
+    Match  string `db:"match"  yaml:"match"  json:"match"`
+    Target string `db:"target" yaml:"target" json:"target"`
+}
+
+func init() {
+    resreg.Register(resreg.Resource{
+        Name:    "routes",
+        Table:   "routes",
+        RowType: reflect.TypeOf(Row{}),
+        Scope:   resreg.GroupScope("Target"), // field that holds the folder
+    })
+}
+```
+
+That ~15-line file gives us, mechanically:
+
+| Surface                 | Mechanism                                                                                                   | LOC added per resource |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `SELECT *`              | reflect over `db:` tags → build column list, scan into struct                                               | 0                      |
+| `INSERT`                | reflect over `db:` tags → build placeholder list, bind values                                               | 0                      |
+| `DELETE WHERE` scope    | reflect over `Scope` field name → `DELETE WHERE <col> = ?`                                                  | 0                      |
+| YAML parse              | `yaml.Unmarshal(bytes, reflect.New(RowType))`                                                               | 0                      |
+| YAML emit               | `yaml.Marshal(rows)` over `[]Row`                                                                           | 0                      |
+| JSON in/out             | same, with `json:` tags                                                                                     | 0                      |
+| REST handler            | one generic handler reads `Resource.Name` from URL, decodes JSON into RowType, calls insert/delete          | 0                      |
+| MCP tool                | one generic tool generator produces `<name>.create` / `.delete` from `Resource.Name`, args = RowType fields | 0                      |
+| `arizuko export <name>` | `SELECT * FROM <Table>` → emit YAML                                                                         | 0                      |
+| `arizuko plan`          | diff parsed manifest rows vs `SELECT *` results by PK                                                       | 0                      |
+
+The generic core is **one engine, written once**:
+
+```go
+// resreg/engine.go — sketch, ~200 LOC total
+
+func (r *Resource) ScanAll(db *sql.DB) (any, error) { /* reflect SELECT * */ }
+func (r *Resource) Insert(tx *sql.Tx, row any) error { /* reflect INSERT */ }
+func (r *Resource) DeleteScope(tx *sql.Tx, scope string) error { /* reflect DELETE */ }
+func (r *Resource) ParseYAML(data []byte) (any, error)  { /* yaml.Unmarshal */ }
+func (r *Resource) EmitYAML(rows any) ([]byte, error)   { /* yaml.Marshal */ }
+```
+
+Apply tool becomes ~80 lines total:
+
+```go
+for _, r := range resreg.All() {
+    rows, _ := r.ParseYAML(manifest[r.Name])
+    r.DeleteScope(tx, scope)
+    for _, row := range rows { r.Insert(tx, row) }
+}
+```
+
+Export tool becomes ~30 lines: iterate resources, scan, marshal.
+
+**Per-resource cost ceiling:** ~80 LOC for the struct, the
+`Register` call, and any non-trivial validation hook. Resources
+that need custom logic (FK checks, derived fields, encryption) add
+hooks via optional `resreg.Resource.Validate` / `OnInsert` callbacks.
+
+### How this compares to other systems
+
+| System              | Schema source       | Generates                              | Mechanism          |
+| ------------------- | ------------------- | -------------------------------------- | ------------------ |
+| GORM (Go)           | struct tags         | SQL CRUD                               | reflection         |
+| sqlc (Go)           | hand-written `.sql` | typed Go funcs                         | codegen            |
+| Ent (Facebook)      | schema DSL in Go    | SQL + GraphQL + REST                   | codegen            |
+| Hasura / PostgREST  | live DB schema      | REST + GraphQL                         | live introspection |
+| Django models       | Python class        | migrations + ORM + admin UI            | metaclasses        |
+| kubectl + CRDs      | OpenAPI schema      | apply/get/delete CLI + REST validation | live registry      |
+| Terraform providers | provider schema DSL | HCL parser + state + plan/apply        | codegen + registry |
+| etcd                | flat KV, protobufs  | Put/Range/Watch (no per-resource code) | uniform protocol   |
+
+arizuko's resreg lands between **Hasura** (live introspection from
+DB schema) and **kubectl + CRD** (registry of declarative types).
+The trade-off:
+
+- **Live DB introspection** (Hasura-style): zero per-resource code,
+  but every column rename or DEFAULT change leaks through the API.
+  Schema migrations become breaking changes for clients.
+- **Static struct + reflection** (what 5/36 picks): one source file
+  per resource, struct fields freeze the API contract independent
+  of column names. Migration `ALTER TABLE foo RENAME COLUMN x TO y`
+  is invisible to clients as long as the struct tag stays `db:"y"`.
+
+The static-struct approach matches Go's idioms (reflect, struct
+tags), needs no codegen step, and gives compile-time errors when
+fields drift. Reflection cost is one-time at process start
+(`reflect.TypeOf` is cached); steady-state queries use prepared
+statements with the column list precomputed.
+
+### What does NOT come for free
+
+The schema-driven engine handles **shape**, not **semantics**.
+Per-resource Go is still needed when:
+
+- **Validation beyond types.** "Folder must exist" is not a struct
+  tag; the resource's `Validate(row, tx)` callback runs in-tx.
+- **Derived fields.** `created_at` set to `now()`; `expires_at`
+  parsed from RFC3339; cost caps clamped to 0 ≤ N ≤ 1e9.
+- **Encryption.** Secret blobs flow through `enc/dec` hooks, not
+  raw struct fields.
+- **Cross-row constraints.** Unique within scope, FK lookups.
+- **Cleanup on delete.** Removing a group should not implicitly
+  cascade message history — purge is a separate verb.
+
+These live as small, optional hook methods on the resource type.
+The point is that the hooks are the **only** per-resource code;
+the bulk (SELECT/INSERT/parse/emit) stays in the engine.
+
 ## Optimistic locking (`config_version`)
 
 `config_meta` is a single-row config-class table holding a monotonically
