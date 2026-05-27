@@ -531,6 +531,47 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 	return nil
 }
 
+func (b *bot) Pin(req chanlib.PinRequest) error {
+	chatID, err := parseChatID(req.ChatJID)
+	if err != nil {
+		return fmt.Errorf("telegram pin: %w", err)
+	}
+	msgID, err := strconv.Atoi(req.TargetID)
+	if err != nil {
+		return fmt.Errorf("telegram pin: invalid target_id: %w", err)
+	}
+	_, err = b.do("pinChatMessage", tgbotapi.Params{
+		"chat_id":    strconv.FormatInt(chatID, 10),
+		"message_id": strconv.Itoa(msgID),
+	})
+	if err != nil {
+		return fmt.Errorf("telegram pin: %w", err)
+	}
+	return nil
+}
+
+func (b *bot) Unpin(req chanlib.UnpinRequest) error {
+	chatID, err := parseChatID(req.ChatJID)
+	if err != nil {
+		return fmt.Errorf("telegram unpin: %w", err)
+	}
+	params := tgbotapi.Params{"chat_id": strconv.FormatInt(chatID, 10)}
+	endpoint := "unpinChatMessage"
+	if req.All {
+		endpoint = "unpinAllChatMessages"
+	} else {
+		msgID, err := strconv.Atoi(req.TargetID)
+		if err != nil {
+			return fmt.Errorf("telegram unpin: invalid target_id: %w", err)
+		}
+		params["message_id"] = strconv.Itoa(msgID)
+	}
+	if _, err := b.do(endpoint, params); err != nil {
+		return fmt.Errorf("telegram unpin: %w", err)
+	}
+	return nil
+}
+
 func (b *bot) FetchHistory(_ chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
 	return chanlib.HistoryResponse{
 		Source:   "unsupported",
