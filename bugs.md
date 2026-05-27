@@ -599,3 +599,25 @@ Keep `httputil.ReverseProxy` instances in a `sync.Map` keyed by
 backend URL only (not by route config) — backend URLs are stable;
 route rows are not. That preserves connection-pool reuse without
 coupling proxy lifetime to route config.
+
+## Agent asks "which group are you?" instead of reading configured identity (2026-05-27)
+
+**Scope**: `ant/` agent prompt / skill system — group identity at runtime.
+
+**Observed**: agent replied "Can't access /workspace/web… which group
+are you?" — asking the user for its own group identity rather than
+reading it from configuration.
+
+**Problem**: violates CLAUDE.md rule "identity is configured, never
+derived." The agent's group folder, instance name, and workspace path
+are injected at container start via env vars / PERSONA.md. The agent
+must read those, never ask the user and never reverse-engineer from
+filesystem paths.
+
+**Fix path**: audit `ant/` system prompt and skill CLAUDE.md to
+confirm that `ARIZUKO_GROUP`, `ARIZUKO_INSTANCE`, and the group
+folder are explicitly available to the agent at turn start. If any
+of those vars are missing from the container env or not surfaced in
+the prompt, add them to the compose template and system prompt. The
+agent should surface its identity in the first line of any confused
+response ("I am atlas on krons, I cannot access X") — never ask.
