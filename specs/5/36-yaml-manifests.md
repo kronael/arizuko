@@ -320,6 +320,13 @@ atlas:
       name: openai
 ```
 
+**`product`** is a type tag (`assistant`, `oracle`, …) stored on the
+group row. It labels what kind of agent the group runs. It does
+**not** trigger re-seeding of group directory files on apply — the
+prototype copy (skills, PERSONA.md, .claude/) happens once at group
+creation via `container.SetupGroup`. Changing `product` in the
+manifest only updates the DB column; it does not overlay files.
+
 ## Two-table-class model
 
 One physical SQLite file (`messages.db`). On Postgres it would be
