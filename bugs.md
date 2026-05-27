@@ -579,3 +579,23 @@ LOCAL.md still points at
 `~/app/tools/assistants/claude-template/global/skills/`, which
 doesn't exist on this host — the actual canonical is
 `~/app/tools/skills/oracle/`. LOCAL.md needs a refresh.
+
+## proxyd: in-memory route cache violates no-cache discipline (2026-05-27)
+
+**Scope**: `proxyd/resource.go` (`routesResource`, `RWMutex`),
+`proxyd/main.go` (`loadInitialRoutes`, per-route `httputil.ReverseProxy`
+instances).
+
+**Problem**: proxyd caches `proxyd_routes` rows in memory and only
+updates the cache via its own resreg handler. A direct DB write (e.g.
+from `arizuko apply`) bypasses the handler and leaves the cache stale.
+Architectural rule: all daemons share one SQLite file on one host;
+no in-memory config cache is needed or correct. DB reads are
+microseconds — cheaper than cache invalidation complexity.
+
+**Fix path**: remove `routesResource` mutex + snapshot pattern. Read
+`proxyd_routes` from DB on each request (one indexed query by path).
+Keep `httputil.ReverseProxy` instances in a `sync.Map` keyed by
+backend URL only (not by route config) — backend URLs are stable;
+route rows are not. That preserves connection-pool reuse without
+coupling proxy lifetime to route config.

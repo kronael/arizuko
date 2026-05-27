@@ -170,12 +170,17 @@ chat_reply_state  pane_sessions
 5. No new table goes into the config class without a corresponding
    entry in the resource catalog and apply support. A table that
    isn't manifest-addressable belongs in the runtime class.
+6. **No daemon may cache config-table rows in memory.** All daemons
+   share one SQLite file on one host; an indexed DB read costs
+   microseconds and is cheaper than any cache invalidation scheme.
+   In-memory config caches are bugs — they create stale-read windows
+   that make apply semantics undefined.
 
 **Reload atomicity:** `BEGIN; DELETE config tables; INSERT from
-YAML; COMMIT`. SQLite WAL gives readers snapshot isolation during
-the transaction — they see the old config until commit, then
-instantly see the new config. No bloat: freed pages go to the
-freelist and are reused by the next INSERT cycle.
+YAML; COMMIT`. All daemons see new config on their next DB read —
+no signals, no reload endpoints, no cache invalidation. SQLite WAL
+gives readers snapshot isolation during the transaction. No bloat:
+freed pages go to the freelist and are reused by the next INSERT cycle.
 
 **Operator-generated config** (onboarding groups, ad-hoc grants,
 dynamically issued route tokens) lives in runtime tables directly
