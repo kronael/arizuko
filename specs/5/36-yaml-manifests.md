@@ -183,8 +183,7 @@ network_rules:
     target: api.anthropic.com
 
 invites:
-  - op: ensure
-    target_glob: 'krons/'
+  - target_glob: 'krons/'
     max_uses: 5
     expires_at: '2027-01-01T00:00:00Z'
 ```
@@ -227,23 +226,27 @@ Protocol per mutation:
 3. serialize merged state → write to manifest/.atlas.yaml
 4. BEGIN tx
 5.   write row to DB
-6.   rename(manifest/.atlas.yaml, manifest/atlas.yaml)  ← atomic
-7. COMMIT
-   on step 6 failure: ROLLBACK, delete manifest/.atlas.yaml
+6. COMMIT
+7.   rename(manifest/.atlas.yaml, manifest/atlas.yaml)  ← atomic
+   on COMMIT failure: ROLLBACK, delete manifest/.atlas.yaml
+   on rename failure: manifest/.atlas.yaml is the orphan recovery (see below)
 ```
 
-`rename(2)` precedes commit. Invariant: **YAML is never behind DB.**
-If the process dies between rename and commit, YAML is ahead — apply
-on next startup reconciles forward. DB being ahead of YAML cannot happen.
+Rename is **post-commit**. If the process dies between COMMIT and
+rename, `manifest/.atlas.yaml` survives as an orphan. On next
+startup: orphan detected → rename it → YAML caught up. DB is briefly
+ahead but always recoverable. Pre-commit crash: ROLLBACK, delete
+orphan, `atlas.yaml` unchanged.
 
 No background goroutines. Sync is on the handler's critical path.
 
 ## Optimistic locking (`config_version`)
 
 `config_meta` is a single-row config-class table holding a monotonically
-increasing integer: `config_version`. Every apply increments it on commit.
+increasing integer: `config_version`. Every apply and every MCP mutation
+increments it on commit.
 
-**Export** stamps the current version into the manifest header:
+**Export** stamps the current DB version into the manifest header:
 
 ```yaml
 config_version: 42
@@ -251,15 +254,15 @@ config_version: 42
 
 **Apply** checks the DB version before writing:
 
-- DB version == manifest version → proceed, increment on commit.
-- DB version != manifest version → reject: "config changed since export;
-  re-export or use --force to override."
+- DB version == manifest `config_version` → proceed; increment to N+1
+  on commit.
+- DB version != manifest `config_version` → reject: "config changed
+  since export; re-export or use --force to override."
 
-This surfaces conflicts when two operators export + edit simultaneously.
-`--force` skips the check and writes unconditionally.
-
-MCP mutations increment `config_version` on each commit (same mechanism).
-The version is a logical clock, not a timestamp.
+A manifest with no `config_version` field is rejected in strict mode.
+`--force` skips the check and writes unconditionally (last-writer-wins).
+This is the CAS (compare-and-swap) pattern: the manifest declares what
+version it was built from; apply atomically advances it by one.
 
 ## Startup apply + reload
 
@@ -324,12 +327,30 @@ atlas:
       key: openai
 ```
 
-**`product`** is a type tag (`assistant`, `oracle`, …) stored on the
-group row. It labels what kind of agent the group runs. It does
-**not** trigger re-seeding of group directory files on apply — the
-prototype copy (skills, PERSONA.md, .claude/) happens once at group
-creation via `container.SetupGroup`. Changing `product` in the
-manifest only updates the DB column; it does not overlay files.
+**Group fields** — all optional except the folder key itself:
+
+| Field                     | Type   | Notes                                                               |
+| ------------------------- | ------ | ------------------------------------------------------------------- |
+| `product`                 | string | Type tag: `assistant`, `oracle`, … Default: `assistant`             |
+| `model`                   | string | Override model for this group. Inherits instance default if omitted |
+| `open`                    | bool   | Public group (visible to all users). Default: `true`                |
+| `observe_window_messages` | int    | Max messages in observe-mode context window                         |
+| `observe_window_chars`    | int    | Max chars in observe-mode context window                            |
+| `cost_cap_cents_per_day`  | int    | Spend cap. Default: 0 (unlimited)                                   |
+
+`container_config` is not manifest-addressable — it is written by the
+container runner and treated as infra state.
+
+**`product`** does **not** trigger re-seeding of group directory files
+on apply — the prototype copy (skills, PERSONA.md, `.claude/`) happens
+once at group creation via `container.SetupGroup`. Changing `product`
+in the manifest only updates the DB column.
+
+**New groups via YAML.** When apply encounters a group key not yet in
+the DB, it calls `container.SetupGroup(cfg, folder, "")` before
+inserting the row — idempotent (`MkdirAll` is safe to re-run). This
+is the only supported way to create groups; `mkdir` directly is
+forbidden (per CLAUDE.md).
 
 ## Two-table-class model
 
@@ -347,9 +368,8 @@ groups  acl  acl_membership  routes  web_routes
 scheduled_tasks  network_rules  proxyd_routes  onboarding_gates  secrets
 ```
 
-`invites` is manifest-addressable via op-based apply (see Operational
-resources) but not rebuilt — its rows survive apply cycles.
-`route_tokens` is runtime-only — system-generated, not in YAML.
+`invites` and `route_tokens` use state-based apply (see Operational
+resources) — not rebuilt, rows survive apply cycles.
 
 **Runtime tables** — system-generated record, append-only, never
 touched by apply/reload.
@@ -399,20 +419,20 @@ manifest.
 Built from `store/migrations/*.sql`. Each row is a candidate for
 resreg + manifest. Hot-tier tables are deliberately excluded.
 
-| Resource           | Apply mode | Owning daemon        | What it carries                                                       |
-| ------------------ | ---------- | -------------------- | --------------------------------------------------------------------- |
-| `groups`           | rebuild    | gated                | folder registration + product + model                                 |
-| `acl`              | rebuild    | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                 |
-| `acl_membership`   | rebuild    | gated                | group membership for `group:` principals                              |
-| `routes`           | rebuild    | gated                | message routing table                                                 |
-| `web_routes`       | rebuild    | gated                | web-channel route bindings (webd JIDs)                                |
-| `scheduled_tasks`  | rebuild    | gated (timed reader) | cron entries                                                          |
-| `secrets`          | rebuild    | gated                | metadata only — blob set out-of-band                                  |
-| `network_rules`    | rebuild    | gated                | crackbox egress allowlist                                             |
-| `proxyd_routes`    | rebuild    | proxyd               | reverse-proxy route table                                             |
-| `onboarding_gates` | rebuild    | onbod                | per-instance onboarding policy                                        |
-| `invites`          | op-based   | onbod                | invitation tokens (system-generated token; see Operational resources) |
-| `route_tokens`     | —          | gated                | webhook tokens — runtime-only, not manifest-addressable               |
+| Resource           | Apply mode  | Owning daemon        | What it carries                                                       |
+| ------------------ | ----------- | -------------------- | --------------------------------------------------------------------- |
+| `groups`           | rebuild     | gated                | folder registration + product + model                                 |
+| `acl`              | rebuild     | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                 |
+| `acl_membership`   | rebuild     | gated                | group membership for `group:` principals                              |
+| `routes`           | rebuild     | gated                | message routing table                                                 |
+| `web_routes`       | rebuild     | gated                | web-channel route bindings (webd JIDs)                                |
+| `scheduled_tasks`  | rebuild     | gated (timed reader) | cron entries                                                          |
+| `secrets`          | rebuild     | gated                | metadata only — blob set out-of-band                                  |
+| `network_rules`    | rebuild     | gated                | crackbox egress allowlist                                             |
+| `proxyd_routes`    | rebuild     | proxyd               | reverse-proxy route table                                             |
+| `onboarding_gates` | rebuild     | onbod                | per-instance onboarding policy                                        |
+| `invites`          | state-based | onbod                | invitation tokens (system-generated token; see Operational resources) |
+| `route_tokens`     | state-based | gated                | webhook tokens (system-generated hash; see Operational resources)     |
 
 Hot-tier tables (`messages`, `chats`, `audit_log`, `cost_log`,
 `cli_audit`, `ipc_audit`, `task_run_logs`, `turn_results`,
@@ -502,55 +522,54 @@ Idempotency: applying the same manifest twice rebuilds the
 same DB twice. Second run produces identical state. Safe to
 re-run after any failure.
 
-## Operational resources: op-based apply
+## Operational resources: state-based apply
 
-Some resources have **system-generated PKs** (invite `token`,
-route `token_hash`) and must survive apply cycles — a full
+Some resources have **system-generated PKs** (`invites.token`,
+`route_tokens.token_hash`) that must survive apply cycles — a full
 rebuild would wipe live invite URLs and webhook tokens.
 
-These resources use **op-based apply** instead of DROP+INSERT.
-Each row in the manifest carries an explicit `op:` field:
+These resources use **state-based apply** instead of DROP+INSERT,
+following the Ansible/Puppet `state:` convention:
 
 ```yaml
 invites:
-  - op: ensure
-    target_glob: krons/
+  - target_glob: krons/
     max_uses: 5
     expires_at: '2027-01-01T00:00:00Z'
-  - op: revoke
-    target_glob: old/
+    # state: present  ← default, omit if present
+
+  - target_glob: old/
+    state: absent
 ```
 
-- **`ensure`** — idempotent create. Matches on natural key
-  (`target_glob` + `expires_at`). No-op if a live row already
-  matches; creates a new token otherwise.
-- **`revoke`** — delete by glob. Removes all live rows whose
-  `target_glob` matches the pattern.
+- **`state: present`** (default) — idempotent create-or-update.
+  Matches on natural key (`target_glob` for invites; `jid +
+owner_folder` for route_tokens). No-op if unchanged; creates a
+  new system-generated token if no match; updates fields if match
+  found with different values.
+- **`state: absent`** — delete all live rows matching the natural
+  key. No-op if already gone.
 
-The table is never truncated. Apply touches only rows referenced
-by explicit ops.
+The table is never truncated. Apply only touches rows listed in
+the manifest. Rows not mentioned are left alone.
 
-**Export + reimport safety.** `arizuko export` emits all live
-operational rows as `op: ensure` entries and stamps an
-`exported_at` timestamp on the manifest:
+`route_tokens` follow the same pattern:
 
 ```yaml
-exported_at: '2026-05-27T15:00:00Z'
-
-invites:
-  - op: ensure
-    target_glob: krons/
-    max_uses: 5
-    expires_at: '2027-01-01T00:00:00Z'
+route_tokens:
+  - jid: web:atlas/hook
+    owner_folder: atlas
+  - jid: web:old/hook
+    owner_folder: old
+    state: absent
 ```
 
-On re-import, apply checks: for each `op: ensure` scope, are
-there any live rows with `created_at > exported_at`? If yes,
-**reject** — a row was created after the export and would be
-silently ignored. The operator must re-export or use `--force`
-to override. This makes the export→edit→reimport cycle safe:
-nothing created after the export is lost without an explicit
-signal.
+**Export safety.** `arizuko export` emits all live operational rows
+as `state: present` entries under the manifest's `config_version`.
+On re-import, the CAS check (see Optimistic locking) catches any
+row created after the export: if the DB version advanced since
+export, apply rejects. `--force` to override. `config_version` is
+sufficient — no separate `exported_at` timestamp needed.
 
 ## Splitting + composition
 
@@ -669,10 +688,12 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    String form is simpler; structured form enables validation at
    parse time.
 
-7. **`route_tokens` runtime-only confirmed.** Token hash is
-   system-generated and opaque; no YAML shape exists. Removed
-   from manifest surface. Operator manages via `arizuko token`
-   CLI or MCP.
+7. **`route_tokens` natural key.** Apply matches on `(jid,
+owner_folder)`. If no live row matches → create with
+   system-generated `token_hash`. If match → no-op (or update
+   if other fields differ). `state: absent` revokes. The actual
+   token value is only obtainable via `arizuko get route_tokens`
+   after creation.
 
 ## Acceptance
 
