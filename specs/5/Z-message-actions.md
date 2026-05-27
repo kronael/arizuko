@@ -96,7 +96,9 @@ action `pin`/`unpin`, resource `<jid>/<targetID>`.
   `"delete"` cap.
 - `slakd`, `teled`, `discd` declare `"pin": true` and serve
   `POST /pin` + `POST /unpin`.
-- `mastd`, `bskyd`, `reditd`, `emaid` embed `NoPinSupport`.
+- `mastd`, `bskyd`, `reditd` get pin defaults via existing `NoSocial`
+  embed (which now includes `Pin`/`Unpin`). `emaid`, `linkd` embed
+  `NoPinSupport` directly.
 - `slakd.Pin` / `slakd.Unpin` round-trip against `slackMock`
   (`pins.add`, `pins.remove`, `pins.list`).
 - `make build && make lint && go test ./... -short` green.
