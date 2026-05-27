@@ -175,6 +175,7 @@ type StoreFns struct {
 	ListACL             func(principal string) []core.ACLRow
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
+	FindMessages        func(query, scope, sender, since string, limit int) ([]FoundMessage, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
 	ErroredChats        func(folder string, isRoot bool) []ErroredChat
 	TaskRunLogs         func(taskID string, limit int) []TaskRunLog
@@ -214,6 +215,20 @@ type StoreFns struct {
 
 	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
+}
+
+// FoundMessage mirrors store.FoundMessage for the ipc layer
+// (ipc must not import store). One hit from `find_messages`.
+// Content is the FTS5 snippet (matched fragment with «»-highlight),
+// not the full message body. Rank is BM25 — lower is better.
+type FoundMessage struct {
+	ChatJID      string    `json:"chat_jid"`
+	Sender       string    `json:"sender"`
+	Timestamp    time.Time `json:"timestamp"`
+	IsFromMe     bool      `json:"is_from_me"`
+	IsBotMessage bool      `json:"is_bot_message"`
+	Content      string    `json:"content"`
+	Rank         float64   `json:"rank"`
 }
 
 // WebRoute mirrors store.WebRoute for the ipc layer.
@@ -2214,6 +2229,76 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
+	}
+
+	if db.FindMessages != nil {
+		srv.AddTool(mcp.NewTool("find_messages",
+			mcp.WithDescription("Full-text search over local messages.db (SQLite FTS5). `query` accepts FTS5 syntax: bare token, \"exact phrase\", `a OR b`, `a NOT b`, `prefix*`, `NEAR(a b, 5)`. Optional `scope` narrows to one chat_jid (contains ':') or a folder subtree (no ':'); `sender` exact-matches the sender column; `since` is an RFC3339 lower bound. Returns up to `limit` hits (default 20, max 200) ordered by BM25 rank. Each row carries chat_jid, sender, timestamp, content snippet (with «»-highlight) and rank. Use to find a past message by content. Not for whole-chat scroll (inspect_messages), single-thread slices (get_thread), or platform-truth fallback (fetch_history)."),
+			mcp.WithString("query", mcp.Required(),
+				mcp.Description("FTS5 query — bare token, phrase, OR/NOT, prefix*, NEAR(...).")),
+			mcp.WithString("scope",
+				mcp.Description("Optional: chat_jid (contains ':') or folder subtree (no ':').")),
+			mcp.WithString("sender",
+				mcp.Description("Optional exact sender match.")),
+			mcp.WithString("since",
+				mcp.Description("Optional RFC3339 timestamp lower bound.")),
+			mcp.WithNumber("limit",
+				mcp.Description("Max rows to return (default 20, max 200).")),
+		), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			query := strings.TrimSpace(req.GetString("query", ""))
+			if query == "" {
+				return toolErr("query required")
+			}
+			scope := strings.TrimSpace(req.GetString("scope", ""))
+			sender := strings.TrimSpace(req.GetString("sender", ""))
+			since := strings.TrimSpace(req.GetString("since", ""))
+			limitVal := req.GetInt("limit", 20)
+			if limitVal <= 0 || limitVal > 200 {
+				limitVal = 20
+			}
+			hits, err := db.FindMessages(query, scope, sender, since, limitVal)
+			if err != nil {
+				return toolErr("find_messages: " + err.Error())
+			}
+			// Post-fetch ACL: drop rows whose chat_jid isn't routed to caller's
+			// folder. Tier-0 (operator) bypasses. JIDRoutedToFolder is the same
+			// gate inspect_messages uses (spec 5/C).
+			filtered := hits[:0]
+			if identity.Tier > 0 && db.JIDRoutedToFolder != nil {
+				for _, h := range hits {
+					if db.JIDRoutedToFolder(h.ChatJID, folder) {
+						filtered = append(filtered, h)
+					}
+				}
+			} else {
+				filtered = hits
+			}
+			actor := callerSub
+			if actor == "" {
+				actor = "agent:" + folder
+			}
+			audit.Emit(ctx, audit.Event{
+				Category: audit.CategoryAccess,
+				Action:   "find_messages",
+				Actor:    actor,
+				ActorSub: callerSub,
+				Surface:  audit.SurfaceMCP,
+				Folder:   folder,
+				ParamsSummary: map[string]any{
+					"query":  query,
+					"scope":  scope,
+					"sender": sender,
+					"since":  since,
+					"limit":  limitVal,
+					"result_count": len(filtered),
+				},
+			})
+			return toolJSON(map[string]any{
+				"messages": filtered,
+				"count":    len(filtered),
+				"source":   "local-db",
+			})
+		})
 	}
 
 	if db.MessagesByThread != nil {
