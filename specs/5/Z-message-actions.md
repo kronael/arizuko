@@ -6,136 +6,103 @@ relates-to: [5/5-uniform-mcp-rest]
 
 # specs/5/Z — message actions: edit, delete, pin, unpin
 
-## Problem
+`edit` and `delete` already exist as MCP tools. `edit` is cap-guarded in
+`chanreg/httpchan.go`; `delete` is not. Pin/unpin don't exist. Agents see
+their own message IDs in the conversation XML context; no retrieval
+primitive needed.
 
-Agents can send messages but cannot touch them afterward. Three gaps:
+## MCP tools
 
-1. **Correction flow.** Agent posts a wrong number; the only recourse is a
-   follow-up disclaimer. Edit-in-place is cleaner and reduces noise.
+| Tool            | Args                             | Returns | Tier | Notes                           |
+| --------------- | -------------------------------- | ------- | ---- | ------------------------------- |
+| `edit`          | `chatJid`, `targetId`, `content` | `ok`    | 0–2  | Existing. Cap-guarded.          |
+| `delete`        | `chatJid`, `targetId`            | `ok`    | 0–2  | Existing. Add cap guard.        |
+| `pin_message`   | `chatJid`, `targetId`            | `ok`    | 0–2  | New. Cap `pin`.                 |
+| `unpin_message` | `chatJid`, `targetId`            | `ok`    | 0–2  | New. Cap `pin`.                 |
+| `unpin_all`     | `chatJid`                        | `ok`    | 0–2  | New. Cap `pin`. Slack/Telegram. |
 
-2. **Cleanup.** Agents that scaffold temporary scaffolding messages (task
-   started, uploading…) cannot remove them. Delete lets them clean up.
+All four follow the existing `regSocial` pattern (grant check, authorize,
+JID-owner check, slog, dispatch). On 501 the agent receives a structured
+`UnsupportedError{tool, platform, hint}`.
 
-3. **Status board.** A team wants one pinned message in a Slack channel that
-   shows live deployment status. Today the agent spams a new message on each
-   state change. Pin + edit-in-place gives a single live surface without
-   thread noise.
+## BotHandler additions (`chanlib/handler.go`)
 
-`edit` and `delete` already exist as MCP tools backed by `chanlib.BotHandler`
-verbs. They are undocumented and unguarded by capability checks. Pin/unpin
-don't exist at all.
+```go
+type PinRequest   struct { ChatJID, TargetID string }
+type UnpinRequest struct { ChatJID, TargetID string; All bool }
 
-The agent already receives message IDs for its own sent messages in the
-conversation XML context — no new tool needed to retrieve them. For the
-status-board pattern, the agent writes the ID to its workspace file once and
-reads it back on subsequent turns.
-
-## The primitive
-
-### MCP tools
-
-| Tool            | Args                  | Returns | Tier | Notes                                 |
-| --------------- | --------------------- | ------- | ---- | ------------------------------------- |
-| `pin_message`   | `chatJid`, `targetId` | —       | 0–2  | Pin a message by platform ID          |
-| `unpin_message` | `chatJid`, `targetId` | —       | 0–2  | Unpin a specific message              |
-| `unpin_all`     | `chatJid`             | —       | 0–2  | Clear all pins in a chat (Slack only) |
-
-`edit` and `delete` already exist in `ipc/ipc.go` — they need capability
-guards (`chanreg` `HasCap("edit")` / `HasCap("delete")`).
-
-### Own vs other-author scope
-
-`edit` and `delete` default to **own-message only**. The handler
-verifies `m.is_from_me` (or equivalent: the message's `sender` matches
-the caller's agent identity) before calling the platform's edit/delete
-verb. Cross-author deletion requires a distinct explicit grant.
-
-**Two grants, not one tool:**
-
-| Grant                 | Default for tier | What it allows                                      |
-| --------------------- | ---------------- | --------------------------------------------------- |
-| `messages:edit:own`   | tier 0-2         | Edit messages where `is_from_me = 1`                |
-| `messages:edit:any`   | none (operator)  | Edit any message (admin/moderation; rare)           |
-| `messages:delete:own` | tier 0-2         | Delete own messages                                 |
-| `messages:delete:any` | none (operator)  | Delete any message — distinct grant, never implicit |
-
-The MCP tool surface is unchanged — one `edit`, one `delete`. The
-handler dispatches by ACL: caller has `:any` → no author check;
-caller has `:own` → enforce `is_from_me`. No-grant → error.
-
-Adapter-level platform constraints (Slack lets agent edit own forever;
-Telegram 48h; WhatsApp ~15min) still apply on top. The grant decides
-WHO can call; the platform decides WHEN.
-
-Audit row carries `target_is_own=true|false` so cross-author
-mutations are queryable.
-
-### BotHandler additions
-
-`chanlib.BotHandler` gets two new verbs:
-
-```
-Pin(req PinRequest) error       // PinRequest{ChatJID, TargetID}
-Unpin(req UnpinRequest) error   // UnpinRequest{ChatJID, TargetID, All bool}
+// In BotHandler:
+Pin(req PinRequest) error
+Unpin(req UnpinRequest) error
 ```
 
-Adapters that don't support pin embed `NoPinSupport` (returns
-`chanlib.ErrUnsupported`), mapped to a `UnsupportedError` with a hint so the
-agent can fall back gracefully.
+`NoPinSupport` mixin returns `ErrUnsupported` for both. Adapters that
+lack pin embed it. `NewAdapterMux` registers `POST /pin` + `POST /unpin`.
 
-`httpchan.HTTPChannel` in `chanreg/httpchan.go` proxies both verbs to
-`POST /pin` and `POST /unpin` on the adapter, same pattern as existing verbs.
+## HTTPChannel additions (`chanreg/httpchan.go`)
+
+```go
+func (h *HTTPChannel) Pin(ctx, jid, targetID string) error
+func (h *HTTPChannel) Unpin(ctx, jid, targetID string, all bool) error
+```
+
+Both gate on `HasCap("pin")`. Existing `Delete` gets `HasCap("delete")`
+guard. Same `postVerb` pattern as other social verbs.
+
+## GatedFns additions (`ipc/ipc.go`)
+
+```go
+Pin   func(jid, targetID string) error
+Unpin func(jid, targetID string, all bool) error
+```
+
+Gateway wires `g.pinOnJID` / `g.unpinOnJID` (mirrors `editOnJID`).
+
+## core.Socializer additions
+
+Extend with `Pin(ctx, jid, targetID) error` and
+`Unpin(ctx, jid, targetID string, all bool) error`. `chanreg.HTTPChannel`
+implements both.
 
 ## Platform coverage
 
-| Verb   | slakd                     | teled           | discd         | whapd                   | emaid |
-| ------ | ------------------------- | --------------- | ------------- | ----------------------- | ----- |
-| edit   | ✓ own msgs, no time limit | ✓ own msgs ≤48h | ✓ own msgs    | ✓ recent only (~15 min) | ✗     |
-| delete | ✓ own                     | ✓ own           | ✓ own         | ✓                       | ✗     |
-| pin    | ✓ channel pin             | ✓ channel pin   | ✓ channel pin | ✗                       | ✗     |
-| unpin  | ✓                         | ✓               | ✓             | ✗                       | ✗     |
+| Verb      | slakd | teled  | discd | mastd | bskyd | reditd | whapd  | emaid |
+| --------- | ----- | ------ | ----- | ----- | ----- | ------ | ------ | ----- |
+| edit      | ✓     | ✓ ≤48h | ✓     | ✓     | ✗     | ✓      | ✓ ~15m | ✗     |
+| delete    | ✓ own | ✓ own  | ✓ own | ✓     | ✓     | ✓      | ✓      | ✗     |
+| pin/unpin | ✓     | ✓      | ✓     | ✗     | ✗     | ✗      | ✗      | ✗     |
+| unpin_all | ✓     | ✓      | ✗     | ✗     | ✗     | ✗      | ✗      | ✗     |
 
-WhatsApp edit window is platform-enforced (~15 min); adapters surface this as
-`ErrUnsupported` with `Hint: "message too old"` after the window closes.
-Email has no mutable-message primitive; `edit` and `delete` always return
-`ErrUnsupported`.
+- Slack: `pins.add`, `pins.remove`; unpin-all iterates `pins.list`.
+- Discord: `ChannelMessagePin`, `ChannelMessageUnpin`; unpin-all returns
+  `UnsupportedError` (no native bulk).
+- Telegram: `pinChatMessage`, `unpinChatMessage`, `unpinAllChatMessages`.
+- Mastodon/Bluesky/Reddit/Email: Go adapters embed `NoPinSupport`.
+- WhatsApp (whapd, TypeScript): no `/pin` route; `HasCap("pin")` is false.
+- Adapter cap maps: slakd/teled/discd add `"pin": true` and `"delete": true`
+  (slakd already has `"delete": true`).
 
-## Status-board pattern
+## ACL / audit
 
-The status-board is not a new primitive — it's a composition of existing ones:
+`pin_message`, `unpin_message`, `unpin_all` are new actions in
+`grants/grantslib`. Default tier 0-2. Audit category `social`,
+action `pin`/`unpin`, resource `<jid>/<targetID>`.
 
-1. Agent calls `send(chatJid, "Deploying v1.2.3…")` — the sent message ID
-   appears in the next turn's XML context. Agent writes it to a workspace
-   file for durable cross-turn recall.
-2. On next state change, agent calls `edit(chatJid, <stored_id>, "Deploy complete ✓")`.
-3. Agent calls `pin_message(chatJid, <stored_id>)` once, on first send.
+## Acceptance
 
-The agent is responsible for persisting the message ID across turns (workspace
-file). The platform holds the canonical live state.
+- Three new MCP tools registered; `tools/list` shows them when an
+  adapter advertising `"pin": true` is connected.
+- `delete` MCP call returns `UnsupportedError` for adapters without
+  `"delete"` cap.
+- `slakd`, `teled`, `discd` declare `"pin": true` and serve
+  `POST /pin` + `POST /unpin`.
+- `mastd`, `bskyd`, `reditd`, `emaid` embed `NoPinSupport`.
+- `slakd.Pin` / `slakd.Unpin` round-trip against `slackMock`
+  (`pins.add`, `pins.remove`, `pins.list`).
+- `make build && make lint && go test ./... -short` green.
 
-## Code surface
+## Out of scope
 
-| File                         | Change                                                                                                 | ~LOC     |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------ | -------- |
-| `chanlib/handler.go`         | Add `PinRequest`, `UnpinRequest`, `Pin`, `Unpin` to `BotHandler`; add `NoPinSupport` mixin             | +30      |
-| `chanreg/httpchan.go`        | Implement `Pin`, `Unpin` on `HTTPChannel`; add `HasCap("pin")` guard                                   | +25      |
-| `ipc/ipc.go`                 | Add `pin_message`, `unpin_message`, `unpin_all` tools; add `HasCap` guards to existing `edit`/`delete` | +50      |
-| `ipc/gated.go` (or inline)   | Wire `Pin`/`Unpin` into `GatedFns` struct                                                              | +10      |
-| `slakd/`, `teled/`, `discd/` | Implement `Pin`/`Unpin` HTTP handlers (`POST /pin`, `POST /unpin`)                                     | +30 each |
-| `whapd/`, `emaid/`           | Embed `NoPinSupport`; `emaid` embeds `NoEditDelete`                                                    | +5 each  |
-| `ant/skills/self/`           | Migration + MIGRATION_VERSION bump; document new tools                                                 | +15      |
-
-Total: ~200 LOC across adapters + plumbing.
-
-## What this is NOT
-
-- **Message history search.** `get_history` / `get_thread` already cover
-  retrieval. This spec adds mutation, not lookup.
-- **Bulk moderation.** No "delete all messages from user X". Single-message
-  scope only.
-- **Reaction management.** `like` / `dislike` are separate verbs, already
-  shipped. This spec doesn't touch them.
-- **Scheduled edits.** `timed` handles scheduling. An agent that wants a
-  timed edit schedules a task; no new primitive needed.
-- **Cross-platform message ID mapping.** IDs are opaque platform strings;
-  the adapter owns the mapping. No normalization layer.
+Bulk moderation, scheduled edits, cross-platform ID normalization,
+status-board scaffolding (composition of existing primitives — agent
+persists the message ID in its workspace).
