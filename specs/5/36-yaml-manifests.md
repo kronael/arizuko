@@ -1254,17 +1254,49 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
 
 ## Acceptance
 
-- `arizuko apply foo.yaml` round-trips through resreg: dry-run
-  via `plan` shows diff; apply mutates state + writes audit
-  rows; second apply is a no-op.
-- Per-row error reporting; class-gated skipping on failure.
-- `arizuko get <resource>` emits a YAML fragment that
-  re-applies to a no-op against the same instance (round-trip
-  honesty).
-- Secret blobs never appear in YAML, plan output, or error
+**Implementation must be a unified framework using standard Go idioms
+— `reflect`, struct tags, `database/sql`, `gopkg.in/yaml.v3`,
+`encoding/json`. No DSLs, no codegen, no third-party ORMs.**
+
+Functional:
+
+- `arizuko apply foo.yaml` round-trips through resreg: dry-run via
+  `plan` shows diff; apply mutates state + writes one audit row;
+  second apply is a no-op.
+- `arizuko export` produces byte-identical output across two
+  consecutive runs if the DB is unchanged (canonical ordering).
+- `arizuko get <resource>` emits a YAML fragment that re-applies
+  to a no-op (round-trip honesty).
+- Secret blobs never appear in YAML, `plan` output, or error
   messages.
-- `make test -short` passes; integration tests cover the apply
-  tool + at least one resource per active daemon.
+- All 10 declarative resources go through the engine — no
+  bypass code paths remain after the migration.
+
+Testability:
+
+- **Engine unit tests** in `resreg/engine_test.go` cover scan/insert/
+  delete/parse/emit against an in-memory SQLite, **without any
+  arizuko-specific resource**. The engine is testable in isolation
+  using a synthetic `TestResource` struct.
+- **Per-resource unit tests** in each `<pkg>/resource_test.go` cover
+  the resource's struct + hooks against the same in-memory pattern.
+  Each resource testable independently.
+- **E2E tests** in `cmd/arizuko/apply_test.go` exercise the full
+  apply lifecycle (parse → CAS → DELETE+INSERT → COMMIT → SetupGroup)
+  against a real tempfile SQLite + tempdir manifest, for every
+  resource.
+- `make test -short` covers engine + per-resource. `make test`
+  covers the e2e suite. `make smoke` includes a post-deploy
+  `arizuko export | apply -` round-trip against a live instance.
+
+No-cache audit:
+
+- `proxyd/resource.go:routesResource` mutex+snapshot pattern removed;
+  proxyd queries DB per request.
+- `gateway/*.go` `s.AllRoutes()` callers audited; any cached results
+  held across requests are eliminated.
+- Acceptance test asserts `grep -r "sync.RWMutex" proxyd/` returns
+  nothing related to config caching.
 
 ## Pointers
 
