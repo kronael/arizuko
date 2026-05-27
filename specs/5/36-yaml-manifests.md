@@ -47,56 +47,121 @@ remain open — 7/5 gives them a place to land later, not an answer.
 
 ## Manifest directory layout
 
-One file per resource kind. `arizuko apply` reads the directory and
-merges all files. Per-resource files let mutations rewrite only the
-affected file and give git per-resource change history.
+`manifest/` is a flat directory of YAML files for one deployment.
+Files are **per-group by convention** but use identical schema — any
+file may contain any resource kinds. `arizuko apply manifest/` reads
+all `*.yaml` files, merges resource lists by key, and applies the
+union in one transaction. Files compose additively; duplicate primary
+keys across files are a parse-time error.
 
 ```
 manifest/
-  groups.yaml
-  acl.yaml
-  routes.yaml
-  route_tokens.yaml
-  proxyd_routes.yaml
-  scheduled_tasks.yaml
-  secrets.yaml          # metadata only, no blobs
-  ...
+  _instance.yaml     ← instance-global config (proxyd_routes,
+  atlas.yaml         ← all config owned by the atlas group
+  krons.yaml         ← all config owned by the krons group
+  shared.yaml        ← cross-group ACL or routes (optional)
 ```
 
-In-flight files use a dot-prefix (hidden, gitignored):
+Underscore-prefixed files (`_instance.yaml`) hold config that has no
+group folder (proxyd routes, onboarding policy, network rules).
+Regular files are named after the group folder they primarily describe.
+
+**Document schema** — same keys in every file, merged at apply time:
+
+```yaml
+# atlas.yaml — config for the atlas group
+
+groups:
+  - folder: atlas
+    product: assistant
+    model: claude-opus-4-7
+    persona_ref: ./atlas/PERSONA.md
+    memory_ref: ./atlas/MEMORY.md
+
+acl:
+  - principal: user:abc123
+    action: tasks:write
+    scope: atlas/
+    effect: allow
+
+routes:
+  - match: telegram:user/atlas-bot
+    target_folder: atlas
+    seq: 100
+
+route_tokens:
+  - name: atlas-webhook
+    target_folder: atlas
+
+scheduled_tasks:
+  - target_jid: telegram:user/abc123
+    prompt: /compact-memories episodes day
+    cron: '0 2 * * *'
+    context_mode: isolated
+
+secrets:
+  - scope: folder:atlas
+    name: slack
+```
+
+```yaml
+# _instance.yaml — instance-global config
+
+proxyd_routes:
+  - path: /api/atlas
+    backend: http://atlasd:8080
+    auth: jwt
+    gated_by: atlas:read
+
+onboarding_gates:
+  - gate: invite-only
+    enabled: true
+    limit_per_day: 10
+```
+
+In-flight files use a dot-prefix — hidden, never at rest:
 
 ```
-manifest/.groups.yaml   # only present during a mutation, never at rest
+manifest/.atlas.yaml   ← only during a mutation, deleted or renamed immediately
 ```
 
-`.gitignore` entry: `manifest/.*`. On startup, delete any `manifest/.*`
-orphans — they are evidence of a crash between rename and commit (see
-Mutation sync below).
+`.gitignore` entry: `manifest/.*`. Startup sweep: delete any `manifest/.*`
+orphans — they are crash evidence (see Mutation sync).
 
 ## Mutation sync
 
-Every resreg config mutation (MCP or CLI) keeps the manifest directory
-synchronized with the DB in the same request, before returning to the
-caller. Protocol:
+Every resreg config mutation (MCP or CLI) rewrites the owning group's
+manifest file synchronously, before returning to the caller.
+
+**Home-file rule** — the file a row belongs to is determined by its
+group folder field (no DB tracking column needed):
+
+| Resource                                                  | Home-file key                 | Home file                 |
+| --------------------------------------------------------- | ----------------------------- | ------------------------- |
+| `groups`                                                  | `folder`                      | `manifest/<folder>.yaml`  |
+| `acl`, `acl_membership`                                   | folder extracted from `scope` | `manifest/<folder>.yaml`  |
+| `routes`, `route_tokens`, `web_routes`, `scheduled_tasks` | `target_folder`               | `manifest/<folder>.yaml`  |
+| `secrets`                                                 | folder extracted from `scope` | `manifest/<folder>.yaml`  |
+| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (instance-global)           | `manifest/_instance.yaml` |
+
+Protocol per mutation:
 
 ```
-1. serialize new resource rows → write to manifest/.groups.yaml
-2. BEGIN tx
-3.   write rows to DB
-4.   rename(manifest/.groups.yaml, manifest/groups.yaml)  ← atomic
-5. COMMIT
-   on step 4 failure: ROLLBACK, delete manifest/.groups.yaml
+1. determine home file: manifest/atlas.yaml
+2. read current home file → merge in the new/updated/deleted row
+3. serialize merged state → write to manifest/.atlas.yaml
+4. BEGIN tx
+5.   write row to DB
+6.   rename(manifest/.atlas.yaml, manifest/atlas.yaml)  ← atomic
+7. COMMIT
+   on step 6 failure: ROLLBACK, delete manifest/.atlas.yaml
 ```
 
-`rename(2)` is atomic on POSIX local filesystems. It precedes the
-commit so the invariant holds: **YAML is never behind DB.** If the
-process dies between rename (step 4) and commit (step 5), YAML is
-ahead of DB — `arizuko apply` on next startup reconciles forward.
-DB being ahead of YAML cannot happen.
+`rename(2)` precedes commit. Invariant: **YAML is never behind DB.**
+If the process dies between rename and commit, YAML is ahead — apply
+on next startup reconciles forward. DB being ahead of YAML cannot happen.
 
-Caller receives a success response only after both DB commit and
-rename succeed. No background goroutines; the sync is part of the
-handler's critical path.
+No background goroutines. Sync is on the handler's critical path.
 
 ## Resource-name = resreg.Resource.Name (not table name)
 
