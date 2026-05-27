@@ -54,15 +54,14 @@ func Open(dir string) (*Store, error) {
 }
 
 func OpenMem() (*Store, error) {
-	db, err := sql.Open("sqlite", ":memory:")
+	// `:memory:` SQLite is per-connection; database/sql can pool a second
+	// connection that sees an empty DB. `cache=shared` makes the in-memory
+	// DB shared across connections in the same process. File-backed Open()
+	// doesn't have this constraint.
+	db, err := sql.Open("sqlite", "file::memory:?cache=shared")
 	if err != nil {
 		return nil, err
 	}
-	// `:memory:` SQLite is per-connection. database/sql's pool can give a
-	// fresh connection that sees an empty in-memory DB. Pin to one
-	// connection so tests see consistent state across helper calls.
-	// File-backed Open() does not have this constraint.
-	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		db.Close()
