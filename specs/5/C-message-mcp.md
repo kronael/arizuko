@@ -12,7 +12,8 @@ Agent-side tools to query message history.
 
 ### Fetch by location (shipped 2026-05-01)
 
-- `get_history(chat_jid, limit, before)` — paginated chat scroll.
+- `inspect_messages(chat_jid, limit, before)` — paginated chat scroll.
+  Replaces deprecated `get_history` alias.
 - `get_thread(chat_jid, topic, limit, before)` — narrow to one
   (chat_jid, topic) slice (Telegram forum topics, web-chat topics).
 - `fetch_history(chat_jid, limit, before)` — platform-truth fallback.
@@ -35,8 +36,9 @@ find_messages(
   {
     chat_jid: string,
     sender:   string,
-    time:     string,                // RFC3339
-    role:     "user" | "agent" | "system",
+    timestamp: string,               // RFC3339 — matches the `messages.timestamp` column
+    is_from_me: bool,                // true = user, false = inbound from platform
+    is_bot_message: bool,            // bot/system origin
     content:  string,                // snippet around the match, ~500 chars
     rank:     number                 // BM25 score (lower = better match)
   }, ...
@@ -58,56 +60,65 @@ Standard FTS5 syntax — operators see the same query language SQLite
 documents. No second DSL invented.
 
 **Storage:** a virtual table `messages_fts` shadows `messages` on
-`content`, kept in sync by triggers. Bootstrap migration:
+`content`, kept in sync by triggers. **Important:** `messages.id` is
+`TEXT PRIMARY KEY` (UUID-shaped); FTS5 requires an INTEGER rowid for
+external-content shadowing. Use SQLite's implicit `rowid` (every
+non-WITHOUT-ROWID table has one alongside the TEXT PK) — DO NOT
+attempt to use `id` as the FTS rowid.
 
 ```sql
 CREATE VIRTUAL TABLE messages_fts USING fts5(
   content,
   content='messages',
-  content_rowid='id',
+  -- content_rowid defaults to 'rowid' (the implicit INTEGER) — explicit:
+  content_rowid='rowid',
   tokenize='unicode61 remove_diacritics 2'
 );
 
 -- Populate from existing rows on first migration.
 INSERT INTO messages_fts(rowid, content)
-  SELECT id, content FROM messages;
+  SELECT rowid, content FROM messages;
 
 -- Keep in sync.
 CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages BEGIN
-  INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, content)
-    VALUES('delete', old.id, old.content);
-  INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+    VALUES('delete', old.rowid, old.content);
+  INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, content)
-    VALUES('delete', old.id, old.content);
+    VALUES('delete', old.rowid, old.content);
 END;
 ```
 
 `tokenize='unicode61 remove_diacritics 2'` — handles non-ASCII
 content (Czech, Spanish, Japanese, ...) without surprises.
 
-**Implementation query:**
+**Implementation query** (real column names verified against migrations
+0001 + 0005):
 
 ```sql
-SELECT m.chat_jid, m.sender, m.time, m.role,
+SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
        snippet(messages_fts, 0, '«', '»', '…', 32) AS content,
        bm25(messages_fts) AS rank
 FROM messages_fts f
-JOIN messages m ON m.id = f.rowid
+JOIN messages m ON m.rowid = f.rowid
 WHERE messages_fts MATCH :query
-  AND (:scope IS NULL OR m.chat_jid = :scope OR m.folder = :scope OR m.folder LIKE :scope || '/%')
+  AND (:scope IS NULL OR m.chat_jid = :scope OR m.group_folder = :scope OR m.group_folder LIKE :scope || '/%')
   AND (:sender IS NULL OR m.sender = :sender)
-  AND (:since IS NULL OR m.time >= :since)
-ORDER BY rank, m.time DESC
+  AND (:since IS NULL OR m.timestamp >= :since)
+ORDER BY rank, m.timestamp DESC
 LIMIT :limit;
 ```
 
-`snippet()` returns the matched fragment with FTS5's built-in
-highlighting (`«match»…surrounding…`). No app-side truncation logic.
+Columns: `messages.timestamp` (not `time`), `messages.group_folder` (not
+`folder`), JOIN on `m.rowid = f.rowid` (since `m.id` is TEXT, not the
+FTS rowid). `snippet()` returns the matched fragment with FTS5's
+built-in highlighting (`«match»…surrounding…`). No app-side truncation
+logic.
 
 **`scope` polymorphism:** chat_jid contains `:` (e.g. `web:atlas`,
 `telegram:user/123`); folder paths don't (e.g. `atlas/eng`). Disambiguate
@@ -132,23 +143,28 @@ the caller as `400 invalid query`.
 
 ## ACL
 
-Same gate as `get_history`: caller must have `messages:read` on the
-matched `scope`. The query above already filters by `m.chat_jid` and
-`m.folder` — ACL enforces an extra `WHERE` clause from `acl.Authorize`
-to restrict to the caller's allowed folder subtree. Cross-folder
-results the caller can't see are excluded at the SQL level (one query,
-one WHERE — not fetch-then-filter).
+Same gate as `inspect_messages`: post-fetch filter via
+`db.JIDRoutedToFolder(chat_jid, caller.folder)` per result row.
+`auth.Authorize` today is a yes/no gate, not a WHERE-clause generator
+— don't claim subtree filtering at the SQL level. Pattern matches
+`ipc/ipc.go` (~line 2235) for `inspect_messages`. N+1 calls per
+result, but indexed and cheap; for default `limit=20` and max `200`,
+total overhead is sub-millisecond.
+
+Future work: introduce `acl.AllowedFolderSubtree(caller) []string`
+helper and push the filter into the SQL `WHERE` clause. Not v1.
 
 ## Audit
 
 One audit row per call (per spec 5/I). Fields:
 
 - `action = "find_messages"`
-- `params_summary` = `{query_hash, scope, sender, since, limit}` — the
-  raw query string is hashed (sha256, first 8 bytes hex). Audit can
-  group calls by hash without storing the search content. This matches
-  how other read-tools log per 5/I (params recorded as summary, raw
-  args not echoed).
+- `params_summary` = the standard JSON dump per `audit/log.go` — raw
+  query stored as-is, key-name redaction applies only to keys matching
+  `pass|token|secret` (no special redaction for the search query).
+  Search queries are user input, not secrets; the existing audit
+  policy handles them correctly. **Do not invent a sha256 hash
+  redaction policy here** — would diverge from every other audit row.
 - `result_count` = number of rows returned
 
 ## Open questions
