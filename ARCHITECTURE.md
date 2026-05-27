@@ -181,6 +181,18 @@ proxyd or compose.go edits.
   `GITHUB_ALLOWED_ORG`), Discord, Telegram widget; shared
   `createOAuthSession` path in `auth/oauth.go`
 
+## Discoverability
+
+Every HTTP-serving daemon mounts `GET /openapi.json` returning an
+OpenAPI 3.1 doc generated from `resreg.Resource.RowType` reflection.
+One walk over the registry produces `components.schemas` (struct field
+→ property name via `json:` tag, Go kind → JSON Schema type) and
+`paths./v1/<name>` (list / create / update / delete). Public — no auth
+gate. Cached for the process lifetime; reflection is one-time at first
+hit. Drift between handler + doc is structurally impossible because
+both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
+§"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
+
 ## Channel Protocol
 
 Channels are external processes registering via HTTP. Both sides are HTTP

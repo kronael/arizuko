@@ -490,6 +490,55 @@ The "free" claim is true for the strict-subset resources (`routes`,
 `acl`, `acl_membership`, `web_routes`, `proxyd_routes`,
 `onboarding_gates`, `network_rules`) and ~70% true for the rest.
 
+## OpenAPI emission
+
+The same reflection that drives SQL/YAML/JSON also emits an OpenAPI 3.1
+document for every daemon — no `huma`, no `swag`, no codegen. Subsumes
+[`5/4-openapi-discoverable.md`](4-openapi-discoverable.md): one engine,
+one walk over the registry, one JSON blob served at `/openapi.json`.
+
+```go
+// resreg/openapi.go
+func OpenAPI(daemon, baseURL string, resources []string) ([]byte, error)
+func OpenAPIHandler(daemon string, resources []string) http.HandlerFunc
+```
+
+For each `Resource` with `RowType != nil`:
+
+- `components.schemas.<Name>` reflected from struct fields (`json:` tag
+  → property name; Go kind → JSON Schema type; `omitempty` → exclude
+  from `required`).
+- `paths./v1/<name>` GET (list) + POST (create); `paths./v1/<name>/{pk}`
+  PATCH (update) + DELETE. Composite PKs collapse to one URL parameter;
+  the parameter description flags the encoding (URL-encode separators).
+- Standard error responses (400/401/403/404/409/500) defined once in
+  `components.responses` and `$ref`-d from every operation so per-path
+  JSON stays small.
+- One `servers[]` entry from `baseURL`. Title `arizuko <daemon> API`,
+  version `v1`.
+
+Reflection runs once per process; `OpenAPIHandler` caches the JSON for
+the lifetime of the daemon and serves byte-copies. **Endpoint is
+public** — schemas describe API surface, not data, so external tooling
+(SDK generators, dashboards) can introspect without credentials. Mount
+BEFORE auth middleware.
+
+Per-daemon ownership:
+
+| Daemon | Owned resources                                                                          |
+| ------ | ---------------------------------------------------------------------------------------- |
+| gated  | groups, acl, acl_membership, routes, web_routes, scheduled_tasks, secrets, network_rules |
+| proxyd | proxyd_routes                                                                            |
+| onbod  | onboarding_gates                                                                         |
+| webd   | — (forwards `routes` to proxyd; doc is informational)                                    |
+| dashd  | — (HTMX operator UI; CRUD lives in gated)                                                |
+| timed  | — (reads scheduled_tasks; gated owns the table)                                          |
+
+Daemons with no owned resources still emit `/openapi.json` so the
+aggregator page (`/pub/arizuko/reference/openapi.html`) can list every
+daemon uniformly. Drift between handler and doc is structurally
+impossible: both read the same struct.
+
 ## Optimistic locking (`config_version`)
 
 `config_meta` is a single-row config-class table holding a monotonically
@@ -1303,6 +1352,10 @@ Functional:
   messages.
 - All 10 declarative resources go through the engine — no
   bypass code paths remain after the migration.
+- Every HTTP-serving daemon (gated, proxyd, onbod, webd, dashd, timed)
+  exposes `GET /openapi.json` returning a valid OpenAPI 3.1 doc for its
+  owned resources. The document is engine-generated, public, cached for
+  the process lifetime. Subsumes spec `5/4-openapi-discoverable.md`.
 
 Testability:
 

@@ -107,6 +107,20 @@ A minimal deployment runs only core + one channel adapter; a maxed-out
 deployment runs all of them. Add new integrations via the extension
 points in `EXTENDING.md`; the core evolves as a unit.
 
+### Discoverability
+
+Every HTTP-serving daemon mounts `GET /openapi.json` returning an
+OpenAPI 3.1 doc for the resources it owns. The doc is engine-generated
+from `resreg.Resource.RowType` reflection — no `huma`, no `swag`, no
+hand-rolled JSON, no codegen step. Endpoint is public; mount before
+auth middleware. Drift between handler and doc is structurally
+impossible because both read the same struct.
+
+Aggregator landing: `/pub/arizuko/reference/openapi.html` lists every
+daemon's `/openapi.json` URL with a one-line description. Spec:
+[`specs/5/36-yaml-manifests.md`](specs/5/36-yaml-manifests.md)
+§"OpenAPI emission" (subsumes `specs/5/4-openapi-discoverable.md`).
+
 ## Docs layout
 
 Root UPPERCASE files: `README.md`, `ARCHITECTURE.md`, `SECURITY.md`,

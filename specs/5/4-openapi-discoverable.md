@@ -1,8 +1,16 @@
 ---
-status: draft
+status: superseded
+superseded-by: specs/5/36-yaml-manifests.md
 ---
 
 # Discoverable OpenAPI for every daemon
+
+> **Superseded by [`5/36-yaml-manifests.md`](36-yaml-manifests.md)
+> §"OpenAPI emission" (2026-05-27).** The resreg engine that ships in
+> 5/36 already carries `RowType` reflection for SQL/YAML/JSON CRUD; the
+> same walk emits OpenAPI 3.1 for free. No `huma`, no `swag`, no
+> codegen, no per-daemon `openapi.go` boilerplate. Kept in-tree for
+> historical context; do not implement.
 
 **Current state (2026-05-13):** 0 daemons implement this. No
 `/openapi.json` handler is registered anywhere in the codebase
