@@ -37,6 +37,8 @@ type BotHandler interface {
 	Repost(req RepostRequest) (string, error)
 	Dislike(req DislikeRequest) error
 	Edit(req EditRequest) error
+	Pin(req PinRequest) error
+	Unpin(req UnpinRequest) error
 }
 
 type PostRequest struct {
@@ -84,6 +86,18 @@ type EditRequest struct {
 	Content  string `json:"content"`
 }
 
+type PinRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id"`
+}
+
+// UnpinRequest unpins one message (TargetID set) or all pins (All=true).
+type UnpinRequest struct {
+	ChatJID  string `json:"chat_jid"`
+	TargetID string `json:"target_id,omitempty"`
+	All      bool   `json:"all,omitempty"`
+}
+
 // ErrUnsupported marks a social action not implemented on this platform (maps to 501).
 var ErrUnsupported = errors.New("unsupported")
 
@@ -123,6 +137,16 @@ func (NoSocial) Quote(QuoteRequest) (string, error)     { return "", ErrUnsuppor
 func (NoSocial) Repost(RepostRequest) (string, error)   { return "", ErrUnsupported }
 func (NoSocial) Dislike(DislikeRequest) error           { return ErrUnsupported }
 func (NoSocial) Edit(EditRequest) error                 { return ErrUnsupported }
+func (NoSocial) Pin(PinRequest) error                   { return ErrUnsupported }
+func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported }
+
+// NoPinSupport is a mixin for adapters whose platform lacks message
+// pinning. Embed alongside the BotHandler implementation when the
+// adapter implements other social verbs but not pin/unpin.
+type NoPinSupport struct{}
+
+func (NoPinSupport) Pin(PinRequest) error     { return ErrUnsupported }
+func (NoPinSupport) Unpin(UnpinRequest) error { return ErrUnsupported }
 
 // HistoryRequest is the query for platform-side history fetch.
 // Source on the response is one of "platform", "platform-capped", "cache-only", "unsupported".
@@ -179,6 +203,8 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 	mux.HandleFunc("POST /repost", Auth(secret, handleRepost(bot)))
 	mux.HandleFunc("POST /dislike", Auth(secret, handleDislike(bot)))
 	mux.HandleFunc("POST /edit", Auth(secret, handleEdit(bot)))
+	mux.HandleFunc("POST /pin", Auth(secret, handlePin(bot)))
+	mux.HandleFunc("POST /unpin", Auth(secret, handleUnpin(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
 		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
@@ -469,6 +495,34 @@ func handleEdit(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		writeBotResult(w, "", bot.Edit(req))
+	}
+}
+
+func handlePin(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req PinRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" || req.TargetID == "" {
+			WriteErr(w, 400, "chat_jid and target_id required")
+			return
+		}
+		writeBotResult(w, "", bot.Pin(req))
+	}
+}
+
+func handleUnpin(bot BotHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxAdapterJSONBody)
+		var req UnpinRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ChatJID == "" {
+			WriteErr(w, 400, "chat_jid required")
+			return
+		}
+		if !req.All && req.TargetID == "" {
+			WriteErr(w, 400, "target_id required (or set all=true)")
+			return
+		}
+		writeBotResult(w, "", bot.Unpin(req))
 	}
 }
 

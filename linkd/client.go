@@ -23,6 +23,7 @@ import (
 type linkClient struct {
 	chanlib.NoFileSender
 	chanlib.NoVoiceSender
+	chanlib.NoPinSupport
 	cfg       config
 	http      *http.Client
 	mu        sync.Mutex

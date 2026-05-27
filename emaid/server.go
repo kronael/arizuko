@@ -19,6 +19,8 @@ import (
 const historyLimitMax = 50
 
 type server struct {
+	chanlib.NoPinSupport
+
 	cfg           config
 	db            *sql.DB
 	reg           *attRegistry

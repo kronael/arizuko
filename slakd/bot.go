@@ -43,6 +43,7 @@ type paneStore interface {
 
 type bot struct {
 	chanlib.NoVoiceSender
+	chanlib.NoPinSupport
 
 	cfg   config
 	api   string
