@@ -36,7 +36,7 @@ type productManifest struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token|apply|export> ...")
 		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
@@ -53,6 +53,8 @@ func main() {
 		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
 		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
 		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily N | show <folder|user> <name|sub>")
+		fmt.Println("  apply    <instance> <manifest.yaml> [--force]")
+		fmt.Println("  export   <instance> [output.yaml]")
 		os.Exit(1)
 	}
 
@@ -73,6 +75,8 @@ func main() {
 		"user-secret": cmdUserSecret,
 		"budget":      cmdBudget,
 		"token":       cmdToken,
+		"apply":       cmdApply,  // spec 5/36
+		"export":      cmdExport, // spec 5/36
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
