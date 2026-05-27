@@ -183,7 +183,8 @@ network_rules:
     target: api.anthropic.com
 
 invites:
-  - target_glob: 'krons/'
+  - op: ensure
+    target_glob: 'krons/'
     max_uses: 5
     expires_at: '2027-01-01T00:00:00Z'
 ```
@@ -342,10 +343,13 @@ what may touch them.
 every startup/reload. YAML is truth; the DB is a queryable index.
 
 ```
-groups  acl  acl_membership  routes  route_tokens  web_routes
-scheduled_tasks  network_rules  proxyd_routes
-invites  onboarding_gates  secrets
+groups  acl  acl_membership  routes  web_routes
+scheduled_tasks  network_rules  proxyd_routes  onboarding_gates  secrets
 ```
+
+`invites` is manifest-addressable via op-based apply (see Operational
+resources) but not rebuilt — its rows survive apply cycles.
+`route_tokens` is runtime-only — system-generated, not in YAML.
 
 **Runtime tables** — system-generated record, append-only, never
 touched by apply/reload.
@@ -395,20 +399,20 @@ manifest.
 Built from `store/migrations/*.sql`. Each row is a candidate for
 resreg + manifest. Hot-tier tables are deliberately excluded.
 
-| Resource           | Owning daemon        | What it carries                                                                  |
-| ------------------ | -------------------- | -------------------------------------------------------------------------------- |
-| `groups`           | gated                | folder registration + product + model                                            |
-| `acl`              | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md) )                           |
-| `acl_membership`   | gated                | group membership for `group:` principals                                         |
-| `routes`           | gated                | message routing table                                                            |
-| `route_tokens`     | gated                | external caller → folder bindings ([`W-webhook-routes.md`](W-webhook-routes.md)) |
-| `web_routes`       | gated                | web-channel route bindings (webd JIDs)                                           |
-| `scheduled_tasks`  | gated (timed reader) | cron entries                                                                     |
-| `secrets`          | gated                | metadata only — blob set out-of-band                                             |
-| `network_rules`    | gated                | crackbox egress allowlist                                                        |
-| `proxyd_routes`    | proxyd               | reverse-proxy route table                                                        |
-| `invites`          | onbod                | invitation tokens                                                                |
-| `onboarding_gates` | onbod                | per-instance onboarding policy                                                   |
+| Resource           | Apply mode | Owning daemon        | What it carries                                                       |
+| ------------------ | ---------- | -------------------- | --------------------------------------------------------------------- |
+| `groups`           | rebuild    | gated                | folder registration + product + model                                 |
+| `acl`              | rebuild    | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                 |
+| `acl_membership`   | rebuild    | gated                | group membership for `group:` principals                              |
+| `routes`           | rebuild    | gated                | message routing table                                                 |
+| `web_routes`       | rebuild    | gated                | web-channel route bindings (webd JIDs)                                |
+| `scheduled_tasks`  | rebuild    | gated (timed reader) | cron entries                                                          |
+| `secrets`          | rebuild    | gated                | metadata only — blob set out-of-band                                  |
+| `network_rules`    | rebuild    | gated                | crackbox egress allowlist                                             |
+| `proxyd_routes`    | rebuild    | proxyd               | reverse-proxy route table                                             |
+| `onboarding_gates` | rebuild    | onbod                | per-instance onboarding policy                                        |
+| `invites`          | op-based   | onbod                | invitation tokens (system-generated token; see Operational resources) |
+| `route_tokens`     | —          | gated                | webhook tokens — runtime-only, not manifest-addressable               |
 
 Hot-tier tables (`messages`, `chats`, `audit_log`, `cost_log`,
 `cli_audit`, `ipc_audit`, `task_run_logs`, `turn_results`,
@@ -497,6 +501,56 @@ config DB continues serving.
 Idempotency: applying the same manifest twice rebuilds the
 same DB twice. Second run produces identical state. Safe to
 re-run after any failure.
+
+## Operational resources: op-based apply
+
+Some resources have **system-generated PKs** (invite `token`,
+route `token_hash`) and must survive apply cycles — a full
+rebuild would wipe live invite URLs and webhook tokens.
+
+These resources use **op-based apply** instead of DROP+INSERT.
+Each row in the manifest carries an explicit `op:` field:
+
+```yaml
+invites:
+  - op: ensure
+    target_glob: krons/
+    max_uses: 5
+    expires_at: '2027-01-01T00:00:00Z'
+  - op: revoke
+    target_glob: old/
+```
+
+- **`ensure`** — idempotent create. Matches on natural key
+  (`target_glob` + `expires_at`). No-op if a live row already
+  matches; creates a new token otherwise.
+- **`revoke`** — delete by glob. Removes all live rows whose
+  `target_glob` matches the pattern.
+
+The table is never truncated. Apply touches only rows referenced
+by explicit ops.
+
+**Export + reimport safety.** `arizuko export` emits all live
+operational rows as `op: ensure` entries and stamps an
+`exported_at` timestamp on the manifest:
+
+```yaml
+exported_at: '2026-05-27T15:00:00Z'
+
+invites:
+  - op: ensure
+    target_glob: krons/
+    max_uses: 5
+    expires_at: '2027-01-01T00:00:00Z'
+```
+
+On re-import, apply checks: for each `op: ensure` scope, are
+there any live rows with `created_at > exported_at`? If yes,
+**reject** — a row was created after the export and would be
+silently ignored. The operator must re-export or use `--force`
+to override. This makes the export→edit→reimport cycle safe:
+nothing created after the export is lost without an explicit
+signal.
 
 ## Splitting + composition
 
@@ -615,12 +669,10 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    String form is simpler; structured form enables validation at
    parse time.
 
-7. **`invites` and `route_tokens` class membership.** Both have
-   auto-generated PKs (`token`, `token_hash`) and operator-issued
-   state that should survive apply. Full-rebuild wipes them.
-   Likely these belong in the runtime class, not config. Defer
-   to implementation — remove from the config table list if the
-   apply tool cannot round-trip them without destroying live tokens.
+7. **`route_tokens` runtime-only confirmed.** Token hash is
+   system-generated and opaque; no YAML shape exists. Removed
+   from manifest surface. Operator manages via `arizuko token`
+   CLI or MCP.
 
 ## Acceptance
 
