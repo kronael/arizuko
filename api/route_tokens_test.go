@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
@@ -70,6 +71,11 @@ func TestRouteTokens_CreateListRevoke(t *testing.T) {
 	srv, _, st := setup(t)
 	wireFakeRouteTokens(t, srv, st)
 	h := srv.Handler()
+	// 0069 added FK route_tokens.owner_folder → groups.folder. Seed the
+	// group before minting tokens against it.
+	if err := st.PutGroup(core.Group{Folder: "acme"}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create chat.
 	w := httptest.NewRecorder()
