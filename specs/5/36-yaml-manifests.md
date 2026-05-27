@@ -13,8 +13,10 @@ without specifying the file shape. This spec resolves it.
 
 `agents.toml` was always provisional. This spec replaces it with a
 YAML manifest format that **carries cold-tier intent** for an
-instance: ACL, routes, secrets metadata, scheduled tasks, invites,
+instance: ACL, routes, secrets metadata, scheduled tasks,
 proxyd routes, web routes, network rules, group registration.
+Tokens (`invites`, `route_tokens`) are imperative-only in v1; see
+"Tokens are not in v1 manifests."
 
 The mechanism is direct: one CLI verb (`arizuko apply`) parses YAML,
 validates each row, and rebuilds all config tables in one SQLite
@@ -181,11 +183,6 @@ network_rules:
     target: anthropic.com
   - folder: ''
     target: api.anthropic.com
-
-invites:
-  - target_glob: 'krons/'
-    max_uses: 5
-    expires_at: '2027-01-01T00:00:00Z'
 ```
 
 In-flight files use a dot-prefix — hidden, never at rest:
@@ -205,18 +202,17 @@ manifest file synchronously, before returning to the caller.
 **Home-file rule** — the file a row belongs to is determined by its
 group folder field (no DB tracking column needed):
 
-| Resource                                                                 | Home-file key                       | Home file                |
-| ------------------------------------------------------------------------ | ----------------------------------- | ------------------------ |
-| group config fields                                                      | the namespace key itself            | `manifest/<folder>.yaml` |
-| `acl`                                                                    | folder extracted from `scope`       | `manifest/<folder>.yaml` |
-| `acl_membership`                                                         | containing group key in document    | `manifest/<folder>.yaml` |
-| `routes`                                                                 | `target`                            | `manifest/<folder>.yaml` |
-| `route_tokens`                                                           | `owner_folder`                      | `manifest/<folder>.yaml` |
-| `web_routes`                                                             | `folder`                            | `manifest/<folder>.yaml` |
-| `scheduled_tasks`                                                        | `chat_jid` (is the folder)          | `manifest/<folder>.yaml` |
-| `secrets`                                                                | `scope_id` when `scope_kind=folder` | `manifest/<folder>.yaml` |
-| `network_rules` (group-scoped)                                           | `folder`                            | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules` (global), `invites` | — (base)                            | `manifest/base.yaml`     |
+| Resource                                                      | Home-file key                       | Home file                |
+| ------------------------------------------------------------- | ----------------------------------- | ------------------------ |
+| group config fields                                           | the namespace key itself            | `manifest/<folder>.yaml` |
+| `acl`                                                         | folder extracted from `scope`       | `manifest/<folder>.yaml` |
+| `acl_membership`                                              | containing group key in document    | `manifest/<folder>.yaml` |
+| `routes`                                                      | `target`                            | `manifest/<folder>.yaml` |
+| `web_routes`                                                  | `folder`                            | `manifest/<folder>.yaml` |
+| `scheduled_tasks`                                             | `chat_jid` (is the folder)          | `manifest/<folder>.yaml` |
+| `secrets`                                                     | `scope_id` when `scope_kind=folder` | `manifest/<folder>.yaml` |
+| `network_rules` (group-scoped)                                | `folder`                            | `manifest/<folder>.yaml` |
+| `proxyd_routes`, `onboarding_gates`, `network_rules` (global) | — (base)                            | `manifest/base.yaml`     |
 
 Protocol per mutation:
 
@@ -297,13 +293,10 @@ config_version: 42
 A manifest with no `config_version` field is rejected in strict mode.
 `--force` skips the check and writes unconditionally (last-writer-wins).
 
-**Why CAS matters even with state-based apply:** for state-based
-resources (`invites`, `route_tokens`), apply only touches rows named
-in the manifest. MCP can add unnamed rows (or rows with names the
-manifest doesn't list) that apply will not touch or even mention.
-Without CAS, the operator could re-apply a stale manifest and never
-learn that the DB has rows they didn't declare. CAS forces a re-export,
-surfacing the drift.
+**Why CAS:** without it, two operators can both export at v42, both
+edit, both apply with stale-but-superseded manifests, and the second
+silently overwrites the first. The version forces a re-export step
+that surfaces the conflict.
 
 The pattern is identical to etcd's `revision`, S3's `If-Match` ETag, and
 Kubernetes's `metadata.resourceVersion` — except simpler because we only
@@ -337,8 +330,8 @@ layer, no aliases, no internal table names in the manifest surface.
 A manifest is a YAML document where **group folder paths are
 top-level keys**. Group config fields and owned resources nest
 flat beneath the group key. Instance-global resources
-(`proxyd_routes`, `onboarding_gates`, `network_rules`, `invites`)
-appear as top-level resource-kind keys with no group wrapper.
+(`proxyd_routes`, `onboarding_gates`, `network_rules`) appear as
+top-level resource-kind keys with no group wrapper.
 
 There are **no daemon section keys** (`gated:` / `proxyd:` / …).
 The apply tool resolves each resource name to its owning daemon at
@@ -413,8 +406,8 @@ groups  acl  acl_membership  routes  web_routes
 scheduled_tasks  network_rules  proxyd_routes  onboarding_gates  secrets
 ```
 
-`invites` and `route_tokens` use state-based apply (see Operational
-resources) — not rebuilt, rows survive apply cycles.
+`invites` and `route_tokens` are not manifest-addressable in v1 —
+CLI/MCP only. See "Tokens are not in v1 manifests."
 
 **Runtime tables** — system-generated record, append-only, never
 touched by apply/reload.
@@ -464,20 +457,20 @@ manifest.
 Built from `store/migrations/*.sql`. Each row is a candidate for
 resreg + manifest. Hot-tier tables are deliberately excluded.
 
-| Resource           | Apply mode  | Owning daemon        | What it carries                                                       |
-| ------------------ | ----------- | -------------------- | --------------------------------------------------------------------- |
-| `groups`           | rebuild     | gated                | folder registration + product + model                                 |
-| `acl`              | rebuild     | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                 |
-| `acl_membership`   | rebuild     | gated                | group membership for `group:` principals                              |
-| `routes`           | rebuild     | gated                | message routing table                                                 |
-| `web_routes`       | rebuild     | gated                | web-channel route bindings (webd JIDs)                                |
-| `scheduled_tasks`  | rebuild     | gated (timed reader) | cron entries                                                          |
-| `secrets`          | rebuild     | gated                | metadata only — blob set out-of-band                                  |
-| `network_rules`    | rebuild     | gated                | crackbox egress allowlist                                             |
-| `proxyd_routes`    | rebuild     | proxyd               | reverse-proxy route table                                             |
-| `onboarding_gates` | rebuild     | onbod                | per-instance onboarding policy                                        |
-| `invites`          | state-based | onbod                | invitation tokens (system-generated token; see Operational resources) |
-| `route_tokens`     | state-based | gated                | webhook tokens (system-generated hash; see Operational resources)     |
+| Resource           | Apply mode | Owning daemon        | What it carries                                                         |
+| ------------------ | ---------- | -------------------- | ----------------------------------------------------------------------- |
+| `groups`           | rebuild    | gated                | folder registration + product + model                                   |
+| `acl`              | rebuild    | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                   |
+| `acl_membership`   | rebuild    | gated                | group membership for `group:` principals                                |
+| `routes`           | rebuild    | gated                | message routing table                                                   |
+| `web_routes`       | rebuild    | gated                | web-channel route bindings (webd JIDs)                                  |
+| `scheduled_tasks`  | rebuild    | gated (timed reader) | cron entries                                                            |
+| `secrets`          | rebuild    | gated                | metadata only — blob set out-of-band                                    |
+| `network_rules`    | rebuild    | gated                | crackbox egress allowlist                                               |
+| `proxyd_routes`    | rebuild    | proxyd               | reverse-proxy route table                                               |
+| `onboarding_gates` | rebuild    | onbod                | per-instance onboarding policy                                          |
+| `invites`          | —          | onbod                | not in v1 manifests — CLI/MCP only (see Tokens are not in v1 manifests) |
+| `route_tokens`     | —          | gated                | not in v1 manifests — CLI/MCP only                                      |
 
 Hot-tier tables (`messages`, `chats`, `audit_log`, `cost_log`,
 `cli_audit`, `ipc_audit`, `task_run_logs`, `turn_results`,
@@ -567,156 +560,35 @@ Idempotency: applying the same manifest twice rebuilds the
 same DB twice. Second run produces identical state. Safe to
 re-run after any failure.
 
-## Operational resources: state-based apply
+## Tokens are not in v1 manifests
 
-Some resources have **system-generated secrets as PK** (`invites.token`,
-`route_tokens.token_hash`) — the PK is opaque, secret, and must
-survive apply cycles. A full rebuild would wipe live invite URLs and
-webhook tokens.
+Resources with **system-generated secrets as PK** (`invites.token`,
+`route_tokens.token_hash`) are deliberately **excluded from v1
+manifests**. A full rebuild would wipe live tokens; an upsert protocol
+that preserves them requires either (a) putting secret values in YAML
+or (b) a per-resource "name" indirection layer — both reintroduce
+complexity disproportionate to the use case.
 
-These resources use **state-based apply** with an operator-authored
-**`name:` field** as the natural key. The system-generated secret stays
-in the DB and is never in YAML.
+For v1, tokens are managed imperatively only:
 
-```yaml
-invites:
-  - name: launch # operator-chosen identifier
-    target_glob: krons/
-    max_uses: 5
-    expires_at: '2027-01-01T00:00:00Z'
-    # state: present  ← default, omitted
+- `arizuko invite issue <target_glob> [--max-uses N] [--expires <ts>]`
+- `arizuko invite list`
+- `arizuko invite revoke <token>`
+- Same surface for `route_tokens` via `arizuko token …`.
+- MCP tools: `invites.create`, `invites.revoke`, etc.
 
-  - name: beta # parallel invite, different identity
-    target_glob: krons/
-    max_uses: 10
+Imperative mutations still bump `config_version` and audit-log, so
+operators can detect drift between manifest and live state, but
+tokens themselves never appear in `manifest/`.
 
-  - name: old-pilot
-    state: absent
-```
+**Future work:** full-state round-trip for token-bearing resources.
+The simplest path is "export emits live tokens; YAML for tokens is
+operator-local, never git-committed." Deferred until concrete demand
+appears — most operators do not need git-tracked token state.
 
-### Schema addition
-
-The `invites` and `route_tokens` tables gain a `name TEXT NOT NULL`
-column with a `UNIQUE (name)` constraint (or `UNIQUE (owner_folder, name)`
-scoped per group for route_tokens). Schema migration:
-
-```sql
-ALTER TABLE invites ADD COLUMN name TEXT NOT NULL DEFAULT '';
-CREATE UNIQUE INDEX invites_name ON invites(name) WHERE name != '';
-```
-
-Pre-existing rows get `name=''` and become non-manifest-addressable
-until renamed via `arizuko invite rename <token> <name>`.
-
-### Verbs
-
-Two states only. Update is implicit.
-
-- **`state: present`** (default; field omitted) — ensure a row with
-  this `name` exists. Field semantics below.
-- **`state: absent`** — delete the row with this `name`. No-op if
-  none.
-
-### `state: present` semantics
-
-Matching is on the natural key (`name`). Three outcomes:
-
-| Live DB row with this `name`? | Non-key fields match manifest? | Apply does                                           |
-| ----------------------------- | ------------------------------ | ---------------------------------------------------- |
-| no                            | —                              | INSERT with system-generated token + manifest fields |
-| yes                           | yes                            | no-op                                                |
-| yes                           | no                             | UPDATE non-key fields in place; token unchanged      |
-
-The token is **never regenerated** by `present`. Once issued, it
-stays valid for the row's lifetime. Operators rotate tokens by
-`state: absent` (which deletes the row + invalidates the token)
-followed by a new `state: present` entry with the same or new `name`.
-
-### `state: present` is state-declarative, not "create"
-
-The verb says **"this state must exist"**, not "create this row." It
-is silently a no-op when state already matches and silently an
-UPDATE when fields differ. This is the Ansible/Puppet convention.
-Operators expecting `INSERT` semantics will be surprised the first
-time; `plan` output makes the matching behavior visible:
-
-```
-$ arizuko plan
-invites:
-  ~ launch     (matched live row; fields match, no-op)
-  ~ beta       (matched live row; max_uses 5→10, update)
-  + new-thing  (no live row, create with new token)
-  - old-pilot  (matched live row, delete)
-```
-
-### Multiple parallel rows
-
-Operators can declare arbitrary parallel rows by giving them distinct
-`name:` values:
-
-```yaml
-invites:
-  - name: launch-q1
-    target_glob: krons/
-    max_uses: 100
-  - name: launch-q2
-    target_glob: krons/
-    max_uses: 50
-  - name: beta-private
-    target_glob: krons/private/
-    max_uses: 5
-```
-
-Three live invite tokens, three URLs, three independent expiries.
-The `(target_glob)` value is no longer the matching key — `name` is.
-
-### MCP/CLI-issued rows without `name`
-
-MCP `invites.create` can be called by agents (or operators) without
-a `name:` — it creates a row with `name=''`. Such rows are **not
-manifest-addressable**: apply cannot match them by name, cannot
-delete them, cannot update them. They live and die outside the
-manifest.
-
-This is the price of agent-issued tokens: agents don't need a
-declarative identity, so they don't get one. If the operator wants
-to bring an MCP-issued row under manifest control, they run
-`arizuko invite rename <token> <name>` and add it to YAML.
-
-### Why no automatic name from natural key?
-
-For `invites`, `target_glob` is not unique (intentionally — see
-"multiple parallel rows" above). Auto-deriving `name` from
-`target_glob` would either collapse parallel rows or require
-synthetic disambiguation (`krons/-1`, `krons/-2`), both worse than
-asking the operator to name them.
-
-### Routes are not state-based
-
-`routes`, `acl`, `web_routes`, `scheduled_tasks`, `secrets`,
-`network_rules`, `proxyd_routes`, `onboarding_gates`, `groups` are
-**rebuild** resources — their PKs are operator-authored. On apply,
-the table is `DELETE`d in scope and rebuilt from the manifest. No
-`state:` field. Rows not in the manifest are gone.
-
-This is the right model for routes/grants/tasks: the manifest is
-authoritative, drift is not legitimate. iptables-save uses the same
-pattern — the file IS the firewall, no per-rule lifecycle.
-
-### Why not `add` / `del` / `mod`?
-
-Explicit imperative verbs were considered and rejected:
-
-- `add` collides with state semantics: is it "create another row"
-  or "ensure one exists"? `state: present` is unambiguous.
-- `del` is just `state: absent`, one fewer concept.
-- `mod` is reachable via `present` + new field values. Adding it
-  would force apply to distinguish "create" from "update" intent
-  when neither matters to the result.
-
-The state-based model is the lowest-concept point that still
-captures all cases. No verbs to memorize, no order-dependence, no
-operations that fail in a partially-applied state.
+The rest of this section described a state-based apply protocol with
+operator-authored `name:` identifiers. That protocol is removed; see
+git history if reviving it.
 
 ## Splitting + composition
 
@@ -733,7 +605,7 @@ bar.yaml…` reads all files, merges, plans, dispatches as one
 
 Secret blobs **never** appear in:
 
-1. Manifest YAML — only metadata (scope, name).
+1. Manifest YAML — only metadata (`scope_kind`, `scope_id`, `key`).
 2. Markdown sidecars — prose files are content-hashed but never
    carry blob material.
 3. `arizuko plan` diff output — secret rows show only metadata
@@ -826,12 +698,11 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    editor" tab? Out of scope for 7/5; tracked as future dashd
    work.
 
-6. **MCP-issued rows reconciliation.** For state-based resources,
-   MCP can create rows with `name=''`, which are not
-   manifest-addressable. `arizuko invite rename` moves them under
-   manifest control. Is this enough, or should `apply` warn when
-   the DB has unnamed rows that the manifest doesn't acknowledge?
-   Lean: warn in `plan` output, never block apply.
+6. **Token round-trip (deferred).** Full-state export+reimport for
+   `invites` and `route_tokens` requires either secret values in
+   YAML (operator-local files, never git) or a per-row identifier
+   layer. v1 ships without this; tokens stay imperative. Revisit
+   when concrete demand appears.
 
 ## Acceptance
 
