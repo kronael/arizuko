@@ -15,8 +15,24 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
+
+// gatedOwnedResources lists the resources gated owns per spec 5/36
+// resource catalog. Used to filter the daemon's /openapi.json so
+// each daemon advertises only its own surface.
+var gatedOwnedResources = []string{
+	"groups",
+	"acl",
+	"acl_membership",
+	"routes",
+	"web_routes",
+	"scheduled_tasks",
+	"secrets",
+	"network_rules",
+}
 
 // Request body caps. /v1/messages is larger to accommodate inline base64
 // attachments (whapd); other endpoints take small JSON.
@@ -77,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/tools", requireAuth(s.handleListTools))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /ready", s.handleHealth)
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("gated", gatedOwnedResources))
 	return mux
 }
 
