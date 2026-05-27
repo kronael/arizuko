@@ -43,7 +43,6 @@ type paneStore interface {
 
 type bot struct {
 	chanlib.NoVoiceSender
-	chanlib.NoPinSupport
 
 	cfg   config
 	api   string
@@ -961,6 +960,95 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 	}
 	if !resp.OK {
 		return fmt.Errorf("slack edit: %s", resp.Error)
+	}
+	return nil
+}
+
+// Pin attaches a message to a channel via pins.add. Slack pins are
+// channel-wide (no message-level pin); the action affects what the UI
+// shows in the pins drawer.
+func (b *bot) Pin(req chanlib.PinRequest) error {
+	parts, err := parseJID(req.ChatJID)
+	if err != nil {
+		return err
+	}
+	form := url.Values{}
+	form.Set("channel", parts.ID)
+	form.Set("timestamp", req.TargetID)
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := b.postForm(context.Background(), "/pins.add", form, &resp); err != nil {
+		return fmt.Errorf("slack pin: %w", err)
+	}
+	if !resp.OK && resp.Error != "already_pinned" {
+		return fmt.Errorf("slack pin: %s", resp.Error)
+	}
+	return nil
+}
+
+func (b *bot) Unpin(req chanlib.UnpinRequest) error {
+	parts, err := parseJID(req.ChatJID)
+	if err != nil {
+		return err
+	}
+	if req.All {
+		return b.unpinAll(parts.ID)
+	}
+	form := url.Values{}
+	form.Set("channel", parts.ID)
+	form.Set("timestamp", req.TargetID)
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := b.postForm(context.Background(), "/pins.remove", form, &resp); err != nil {
+		return fmt.Errorf("slack unpin: %w", err)
+	}
+	if !resp.OK && resp.Error != "no_pin" {
+		return fmt.Errorf("slack unpin: %s", resp.Error)
+	}
+	return nil
+}
+
+// unpinAll iterates pins.list and removes each. Slack has no bulk
+// primitive; the cost is one list + N removes.
+func (b *bot) unpinAll(channelID string) error {
+	form := url.Values{}
+	form.Set("channel", channelID)
+	var listResp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Items []struct {
+			Message struct {
+				TS string `json:"ts"`
+			} `json:"message"`
+		} `json:"items"`
+	}
+	if err := b.postForm(context.Background(), "/pins.list", form, &listResp); err != nil {
+		return fmt.Errorf("slack unpin_all list: %w", err)
+	}
+	if !listResp.OK {
+		return fmt.Errorf("slack unpin_all list: %s", listResp.Error)
+	}
+	for _, it := range listResp.Items {
+		if it.Message.TS == "" {
+			continue
+		}
+		rmForm := url.Values{}
+		rmForm.Set("channel", channelID)
+		rmForm.Set("timestamp", it.Message.TS)
+		var rmResp struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if err := b.postForm(context.Background(), "/pins.remove", rmForm, &rmResp); err != nil {
+			return fmt.Errorf("slack unpin_all remove: %w", err)
+		}
+		if !rmResp.OK && rmResp.Error != "no_pin" {
+			return fmt.Errorf("slack unpin_all remove: %s", rmResp.Error)
+		}
 	}
 	return nil
 }
