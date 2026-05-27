@@ -91,10 +91,15 @@ Per-turn agent output flows back over the same socket via the
 the container is discarded.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
-`inspect_tasks`, `inspect_session`, `inspect_identity`. Tier 0 sees
-all instances;
-tier ≥1 is scoped to its folder subtree. Replaces ad-hoc
-`Bash sqlite3 …` audits.
+`inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.
+Tier 0 sees all instances; tier ≥1 is scoped to its folder subtree.
+Replaces ad-hoc `Bash sqlite3 …` audits.
+
+`find_messages` is FTS5-backed full-text search (spec 5/C): bare
+tokens, `"exact phrase"`, `a OR b`, `a NOT b`, `prefix*`,
+`NEAR(a b, 5)`. Optional `scope` (chat_jid or folder subtree), `sender`,
+`since` (RFC3339), `limit` (default 20, max 200). ACL gate is
+post-fetch `JIDRoutedToFolder` per row.
 
 ## Public API
 

@@ -242,7 +242,9 @@ tier ≤ 2 — do not refuse.
 Use the read-only `inspect_*` family (`inspect_messages`,
 `inspect_routing`, `inspect_tasks`, `inspect_session`) instead of
 shelling out to `sqlite3`/`journalctl`. Tier ≥1 is scoped to its own
-folder.
+folder. For content search (find a message by what was said) use
+`find_messages` — FTS5 over the local DB, supports phrase / OR / NOT /
+prefix syntax with optional scope (chat_jid or folder subtree).
 
 # Environment
 
