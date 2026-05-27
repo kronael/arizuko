@@ -41,9 +41,34 @@ reads it back on subsequent turns.
 | `unpin_all`     | `chatJid`             | —       | 0–2  | Clear all pins in a chat (Slack only) |
 
 `edit` and `delete` already exist in `ipc/ipc.go` — they need capability
-guards (`chanreg` `HasCap("edit")` / `HasCap("delete")`) and clearer
-descriptions that distinguish agent-authored-only scope from social
-delete-any-message.
+guards (`chanreg` `HasCap("edit")` / `HasCap("delete")`).
+
+### Own vs other-author scope
+
+`edit` and `delete` default to **own-message only**. The handler
+verifies `m.is_from_me` (or equivalent: the message's `sender` matches
+the caller's agent identity) before calling the platform's edit/delete
+verb. Cross-author deletion requires a distinct explicit grant.
+
+**Two grants, not one tool:**
+
+| Grant                 | Default for tier | What it allows                                      |
+| --------------------- | ---------------- | --------------------------------------------------- |
+| `messages:edit:own`   | tier 0-2         | Edit messages where `is_from_me = 1`                |
+| `messages:edit:any`   | none (operator)  | Edit any message (admin/moderation; rare)           |
+| `messages:delete:own` | tier 0-2         | Delete own messages                                 |
+| `messages:delete:any` | none (operator)  | Delete any message — distinct grant, never implicit |
+
+The MCP tool surface is unchanged — one `edit`, one `delete`. The
+handler dispatches by ACL: caller has `:any` → no author check;
+caller has `:own` → enforce `is_from_me`. No-grant → error.
+
+Adapter-level platform constraints (Slack lets agent edit own forever;
+Telegram 48h; WhatsApp ~15min) still apply on top. The grant decides
+WHO can call; the platform decides WHEN.
+
+Audit row carries `target_is_own=true|false` so cross-author
+mutations are queryable.
 
 ### BotHandler additions
 
