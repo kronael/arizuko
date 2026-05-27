@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -150,6 +151,26 @@ type Resource struct {
 	Authz     func(c Caller, action Action, args Args) (scope string, params map[string]string, err error)
 	Handler   Handler
 	Store     *store.Store
+
+	// Schema half (spec 5/36). All optional. Resources that set
+	// RowType+Table are "engine-managed" and get generic CRUD via
+	// engine.go. Resources without RowType are forwarders or custom-
+	// shape — still valid, just not engine-driven.
+	RowType     reflect.Type // canonical row struct (zero-value)
+	Table       string       // physical SQL table
+	PKFields    []string     // Go field names making up the natural PK
+	Scope       ScopeSpec    // DeleteScope filter; zero = no per-scope op
+	Hooks       Hooks        // optional semantics callbacks
+	BumpVersion bool         // unused in v1 (Apply bumps once per tx); kept for future per-resource opt-out
+
+	// SkipApplyRebuild causes Apply to skip DELETE+INSERT for this resource.
+	// Set true for resources whose tables hold operator data that the engine
+	// can read (ScanAll for export) but must not rebuild from manifest —
+	// e.g. `secrets`, whose enc_value blob is set imperatively. Resources
+	// in this state still appear in Export output (metadata only).
+	SkipApplyRebuild bool
+
+	meta *resourceMeta // populated by Register; reflection-derived
 }
 
 // HandlerError carries the HTTP status / MCP error code a handler wants
