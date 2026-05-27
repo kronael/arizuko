@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; openapi</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    .card { border: 1px solid var(--border, rgba(127,127,127,0.2)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; }
+    .card h2 { margin: 0 0 0.3em; font-size: 1.1em; }
+    .card p { margin: 0.2em 0; }
+    .card code { font-size: 0.95em; }
+    .dim { color: var(--dim, #888); font-size: 0.9em; }
+    table { border-collapse: collapse; margin: 0.8em 0; }
+    th, td { padding: 0.3em 0.6em; border-bottom: 1px solid var(--border, rgba(127,127,127,0.2)); text-align: left; vertical-align: top; }
+    th { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>openapi</h1>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; openapi</p>
+
+    <p class="lede">Every HTTP-serving daemon exposes its API at <code>GET /openapi.json</code>. The document is generated from <code>resreg.Resource.RowType</code> reflection &mdash; one walk over the registry produces <code>components/schemas</code> from struct fields and <code>paths./v1/&lt;name&gt;</code> for the four CRUD verbs. Drift between handler and doc is structurally impossible because both read the same struct.</p>
+
+    <h2>What you get</h2>
+    <p>OpenAPI 3.1 JSON. Public &mdash; no auth gate. Cached for the process lifetime; reflection runs once per daemon. Paste a URL into any conformant tool (Swagger UI, Redoc, Stoplight Elements, an SDK generator) and the daemon's surface is browsable, callable, and codegen-ready.</p>
+
+    <h2>Endpoints by daemon</h2>
+
+    <table>
+      <thead>
+        <tr><th>Daemon</th><th>URL</th><th>Owned resources</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>gated</code></td>
+          <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://gated:8080/openapi.json</code> intra-container</td>
+          <td>groups, acl, acl_membership, routes, web_routes, scheduled_tasks, secrets, network_rules</td>
+        </tr>
+        <tr>
+          <td><code>proxyd</code></td>
+          <td><code>http://proxyd:8080/openapi.json</code></td>
+          <td>proxyd_routes</td>
+        </tr>
+        <tr>
+          <td><code>onbod</code></td>
+          <td><code>http://onbod:8080/openapi.json</code></td>
+          <td>onboarding_gates</td>
+        </tr>
+        <tr>
+          <td><code>webd</code></td>
+          <td><code>http://webd:8080/openapi.json</code></td>
+          <td><span class="dim">none &mdash; forwards <code>routes</code> CRUD to proxyd; doc is informational</span></td>
+        </tr>
+        <tr>
+          <td><code>dashd</code></td>
+          <td><code>http://dashd:8080/openapi.json</code></td>
+          <td><span class="dim">none &mdash; HTMX operator UI; cold-tier CRUD lives in gated</span></td>
+        </tr>
+        <tr>
+          <td><code>timed</code></td>
+          <td><code>http://timed:8080/openapi.json</code></td>
+          <td><span class="dim">none &mdash; reads <code>scheduled_tasks</code>; gated owns the table</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
+
+    <h2>How it works</h2>
+
+    <p>Each cold-tier resource is one Go struct with <code>db:</code>, <code>json:</code>, and <code>yaml:</code> tags &mdash; see <a href="../components/gated.html">gated</a> for the registry. <code>resreg.OpenAPI(daemon, baseURL, resources)</code> walks the registered resources and emits:</p>
+
+    <ul>
+      <li>One <code>components.schemas.&lt;Name&gt;</code> per <code>RowType</code>. Property name from the <code>json:</code> tag; type inferred from the Go kind (<code>string</code>, <code>integer</code>, <code>boolean</code>, array, object). <code>omitempty</code> removes the field from <code>required</code>.</li>
+      <li>Four operations per resource: <code>GET /v1/&lt;name&gt;</code> (list), <code>POST /v1/&lt;name&gt;</code> (create), <code>PATCH /v1/&lt;name&gt;/{pk}</code> (update), <code>DELETE /v1/&lt;name&gt;/{pk}</code> (delete). Composite PKs collapse to one URL parameter; the description flags the encoding so clients know to URL-encode separators.</li>
+      <li>Standard error responses (400, 401, 403, 404, 409, 500) defined once in <code>components.responses</code> and <code>$ref</code>-d from every operation.</li>
+      <li>One <code>servers[]</code> entry from <code>baseURL</code>.</li>
+    </ul>
+
+    <p>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/36-yaml-manifests.md"><code>specs/5/36-yaml-manifests.md</code></a> &sect;"OpenAPI emission". Subsumes <a href="https://github.com/kronael/arizuko/blob/main/specs/5/4-openapi-discoverable.md"><code>specs/5/4-openapi-discoverable.md</code></a>.</p>
+
+    <h2>Browsing the spec</h2>
+
+    <p>The JSON is a regular text file &mdash; <code>curl</code> + <code>jq</code> works fine for most lookups:</p>
+
+    <pre><code>curl -s https://&lt;host&gt;/openapi.json | jq '.paths | keys'
+curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</code></pre>
+
+    <p>For an interactive renderer, point Swagger UI or Redoc at the URL. Neither is bundled with arizuko; pick the tool your operator workflow already uses.</p>
+
+    <h2>SDK generation</h2>
+
+    <p>Any OpenAPI 3.1 codegen tool (<code>openapi-generator</code>, <code>swagger-codegen</code>, <code>oapi-codegen</code>) can consume the spec to produce a typed client. Run the generator against the live daemon's URL or save the JSON and run offline. Re-run on every release &mdash; the spec moves with the struct, so clients stay current by re-generating.</p>
+
+    <h2>Caveats</h2>
+
+    <ul>
+      <li>The endpoint advertises the <em>shape</em> of the surface, not whether a given caller has permission to use it. Authorization happens in <code>auth.Authorize</code> per <a href="grants.html">grants</a>; the OpenAPI doc doesn't reflect per-caller scope.</li>
+      <li>Descriptions are minimal in v1 &mdash; types and paths are correct, but the prose is sparse. Iterate as needed.</li>
+      <li>Composite-PK URL parameters collapse to one segment; the description explains the encoding. If your client library can't handle this, fall back to <code>POST</code> with a body that names the PK fields.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
