@@ -48,23 +48,24 @@ remain open — 7/5 gives them a place to land later, not an answer.
 ## Manifest directory layout
 
 `manifest/` is a flat directory of YAML files for one deployment.
-Files are **per-group by convention** but use identical schema — any
-file may contain any resource kinds. `arizuko apply manifest/` reads
-all `*.yaml` files, merges resource lists by key, and applies the
-union in one transaction. Files compose additively; duplicate primary
-keys across files are a parse-time error.
+**File names are informational only** — the content determines what
+config is in a file, not the name. Any file may contain any resource
+kinds. `arizuko apply manifest/` reads all `*.yaml` files, merges
+resource lists by key, and applies the union in one transaction.
+Files compose additively; duplicate primary keys across files are a
+parse-time error.
 
 ```
 manifest/
-  _base.yaml     ← base config (proxyd_routes,
-  atlas.yaml         ← all config owned by the atlas group
-  krons.yaml         ← all config owned by the krons group
-  shared.yaml        ← cross-group ACL or routes (optional)
+  base.yaml     ← instance-global config (proxyd_routes, onboarding_gates, ...)
+  atlas.yaml    ← config for the atlas group
+  krons.yaml    ← config for the krons group
+  shared.yaml   ← cross-group ACL or routes (optional, any name)
 ```
 
-Underscore-prefixed files (`_base.yaml`) hold config that has no
-group folder (proxyd routes, onboarding policy, network rules).
-Regular files are named after the group folder they primarily describe.
+These names are conventions, not constraints. An operator can use a
+single `everything.yaml` or split arbitrarily. The apply tool does
+not interpret file names.
 
 **Document schema** — same keys in every file, merged at apply time:
 
@@ -105,7 +106,7 @@ secrets:
 ```
 
 ```yaml
-# _base.yaml — base config
+# base.yaml — base config
 
 proxyd_routes:
   - path: /api/atlas
@@ -142,7 +143,7 @@ group folder field (no DB tracking column needed):
 | `acl`, `acl_membership`                                   | folder extracted from `scope` | `manifest/<folder>.yaml` |
 | `routes`, `route_tokens`, `web_routes`, `scheduled_tasks` | `target_folder`               | `manifest/<folder>.yaml` |
 | `secrets`                                                 | folder extracted from `scope` | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (base)                      | `manifest/_base.yaml`    |
+| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (base)                      | `manifest/base.yaml`     |
 
 Protocol per mutation:
 
