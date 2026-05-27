@@ -240,11 +240,46 @@ orphan, `atlas.yaml` unchanged.
 
 No background goroutines. Sync is on the handler's critical path.
 
+## Three transports, one row schema
+
+REST, MCP, and YAML are three transports over the **same row schema**.
+The schema is defined once in Go by `resreg.Resource` and reused by all
+three. Drift between transports is structurally impossible — they share
+one handler.
+
+|             | REST                            | MCP                           | YAML                              |
+| ----------- | ------------------------------- | ----------------------------- | --------------------------------- |
+| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | `state: present/absent`           |
+| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
+| Row fields  | request body                    | tool args                     | row map                           |
+| Batching    | one row per call                | one row per call              | many rows, one tx                 |
+| CAS version | —                               | —                             | `config_version:` manifest header |
+
+Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
+and version are transport envelopes — owned by the transport, not the
+resource.
+
+The apply tool parses YAML → unwraps the envelope (`state:`, nesting,
+`config_version:`) → calls the same handler that REST POST and MCP
+`create` call. One handler, three callers.
+
 ## Optimistic locking (`config_version`)
 
 `config_meta` is a single-row config-class table holding a monotonically
-increasing integer: `config_version`. Every apply and every MCP mutation
-increments it on commit.
+increasing integer: `config_version`. **Every** mutation increments it
+on commit — apply, MCP, REST, direct DB writes. There is no untracked
+write path.
+
+**Only YAML apply uses CAS**; MCP and REST do not carry the version.
+They write directly and bump the counter on commit. This asymmetry is
+deliberate:
+
+- MCP/REST mutations are single-row, atomic, read-and-write in one call.
+  There is no stale snapshot to defend. Adding CAS to them would force
+  agents into useless retry loops without preventing any real bug.
+- YAML apply IS the stale-snapshot pattern: export at T, edit for
+  minutes-to-hours, apply at T+N. Between T and T+N, MCP/REST may have
+  bumped the counter. Apply needs CAS to surface that drift.
 
 **Export** stamps the current DB version into the manifest header:
 
@@ -261,8 +296,18 @@ config_version: 42
 
 A manifest with no `config_version` field is rejected in strict mode.
 `--force` skips the check and writes unconditionally (last-writer-wins).
-This is the CAS (compare-and-swap) pattern: the manifest declares what
-version it was built from; apply atomically advances it by one.
+
+**Why CAS matters even with state-based apply:** for state-based
+resources (`invites`, `route_tokens`), apply only touches rows named
+in the manifest. MCP can add unnamed rows (or rows with names the
+manifest doesn't list) that apply will not touch or even mention.
+Without CAS, the operator could re-apply a stale manifest and never
+learn that the DB has rows they didn't declare. CAS forces a re-export,
+surfacing the drift.
+
+The pattern is identical to etcd's `revision`, S3's `If-Match` ETag, and
+Kubernetes's `metadata.resourceVersion` — except simpler because we only
+need it on the bulk-apply path.
 
 ## Startup apply + reload
 
@@ -524,52 +569,154 @@ re-run after any failure.
 
 ## Operational resources: state-based apply
 
-Some resources have **system-generated PKs** (`invites.token`,
-`route_tokens.token_hash`) that must survive apply cycles — a full
-rebuild would wipe live invite URLs and webhook tokens.
+Some resources have **system-generated secrets as PK** (`invites.token`,
+`route_tokens.token_hash`) — the PK is opaque, secret, and must
+survive apply cycles. A full rebuild would wipe live invite URLs and
+webhook tokens.
 
-These resources use **state-based apply** instead of DROP+INSERT,
-following the Ansible/Puppet `state:` convention:
+These resources use **state-based apply** with an operator-authored
+**`name:` field** as the natural key. The system-generated secret stays
+in the DB and is never in YAML.
 
 ```yaml
 invites:
-  - target_glob: krons/
+  - name: launch # operator-chosen identifier
+    target_glob: krons/
     max_uses: 5
     expires_at: '2027-01-01T00:00:00Z'
-    # state: present  ← default, omit if present
+    # state: present  ← default, omitted
 
-  - target_glob: old/
+  - name: beta # parallel invite, different identity
+    target_glob: krons/
+    max_uses: 10
+
+  - name: old-pilot
     state: absent
 ```
 
-- **`state: present`** (default) — idempotent create-or-update.
-  Matches on natural key (`target_glob` for invites; `jid +
-owner_folder` for route_tokens). No-op if unchanged; creates a
-  new system-generated token if no match; updates fields if match
-  found with different values.
-- **`state: absent`** — delete all live rows matching the natural
-  key. No-op if already gone.
+### Schema addition
 
-The table is never truncated. Apply only touches rows listed in
-the manifest. Rows not mentioned are left alone.
+The `invites` and `route_tokens` tables gain a `name TEXT NOT NULL`
+column with a `UNIQUE (name)` constraint (or `UNIQUE (owner_folder, name)`
+scoped per group for route_tokens). Schema migration:
 
-`route_tokens` follow the same pattern:
+```sql
+ALTER TABLE invites ADD COLUMN name TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX invites_name ON invites(name) WHERE name != '';
+```
+
+Pre-existing rows get `name=''` and become non-manifest-addressable
+until renamed via `arizuko invite rename <token> <name>`.
+
+### Verbs
+
+Two states only. Update is implicit.
+
+- **`state: present`** (default; field omitted) — ensure a row with
+  this `name` exists. Field semantics below.
+- **`state: absent`** — delete the row with this `name`. No-op if
+  none.
+
+### `state: present` semantics
+
+Matching is on the natural key (`name`). Three outcomes:
+
+| Live DB row with this `name`? | Non-key fields match manifest? | Apply does                                           |
+| ----------------------------- | ------------------------------ | ---------------------------------------------------- |
+| no                            | —                              | INSERT with system-generated token + manifest fields |
+| yes                           | yes                            | no-op                                                |
+| yes                           | no                             | UPDATE non-key fields in place; token unchanged      |
+
+The token is **never regenerated** by `present`. Once issued, it
+stays valid for the row's lifetime. Operators rotate tokens by
+`state: absent` (which deletes the row + invalidates the token)
+followed by a new `state: present` entry with the same or new `name`.
+
+### `state: present` is state-declarative, not "create"
+
+The verb says **"this state must exist"**, not "create this row." It
+is silently a no-op when state already matches and silently an
+UPDATE when fields differ. This is the Ansible/Puppet convention.
+Operators expecting `INSERT` semantics will be surprised the first
+time; `plan` output makes the matching behavior visible:
+
+```
+$ arizuko plan
+invites:
+  ~ launch     (matched live row; fields match, no-op)
+  ~ beta       (matched live row; max_uses 5→10, update)
+  + new-thing  (no live row, create with new token)
+  - old-pilot  (matched live row, delete)
+```
+
+### Multiple parallel rows
+
+Operators can declare arbitrary parallel rows by giving them distinct
+`name:` values:
 
 ```yaml
-route_tokens:
-  - jid: web:atlas/hook
-    owner_folder: atlas
-  - jid: web:old/hook
-    owner_folder: old
-    state: absent
+invites:
+  - name: launch-q1
+    target_glob: krons/
+    max_uses: 100
+  - name: launch-q2
+    target_glob: krons/
+    max_uses: 50
+  - name: beta-private
+    target_glob: krons/private/
+    max_uses: 5
 ```
 
-**Export safety.** `arizuko export` emits all live operational rows
-as `state: present` entries under the manifest's `config_version`.
-On re-import, the CAS check (see Optimistic locking) catches any
-row created after the export: if the DB version advanced since
-export, apply rejects. `--force` to override. `config_version` is
-sufficient — no separate `exported_at` timestamp needed.
+Three live invite tokens, three URLs, three independent expiries.
+The `(target_glob)` value is no longer the matching key — `name` is.
+
+### MCP/CLI-issued rows without `name`
+
+MCP `invites.create` can be called by agents (or operators) without
+a `name:` — it creates a row with `name=''`. Such rows are **not
+manifest-addressable**: apply cannot match them by name, cannot
+delete them, cannot update them. They live and die outside the
+manifest.
+
+This is the price of agent-issued tokens: agents don't need a
+declarative identity, so they don't get one. If the operator wants
+to bring an MCP-issued row under manifest control, they run
+`arizuko invite rename <token> <name>` and add it to YAML.
+
+### Why no automatic name from natural key?
+
+For `invites`, `target_glob` is not unique (intentionally — see
+"multiple parallel rows" above). Auto-deriving `name` from
+`target_glob` would either collapse parallel rows or require
+synthetic disambiguation (`krons/-1`, `krons/-2`), both worse than
+asking the operator to name them.
+
+### Routes are not state-based
+
+`routes`, `acl`, `web_routes`, `scheduled_tasks`, `secrets`,
+`network_rules`, `proxyd_routes`, `onboarding_gates`, `groups` are
+**rebuild** resources — their PKs are operator-authored. On apply,
+the table is `DELETE`d in scope and rebuilt from the manifest. No
+`state:` field. Rows not in the manifest are gone.
+
+This is the right model for routes/grants/tasks: the manifest is
+authoritative, drift is not legitimate. iptables-save uses the same
+pattern — the file IS the firewall, no per-rule lifecycle.
+
+### Why not `add` / `del` / `mod`?
+
+Explicit imperative verbs were considered and rejected:
+
+- `add` collides with state semantics: is it "create another row"
+  or "ensure one exists"? `state: present` is unambiguous.
+- `del` is just `state: absent`, one fewer concept.
+- `mod` is reachable via `present` + new field values. Adding it
+  would force apply to distinguish "create" from "update" intent
+  when neither matters to the result.
+
+The state-based model is the lowest-concept point that still
+captures all cases. No verbs to memorize, no order-dependence, no
+operations that fail in a partially-applied state.
 
 ## Splitting + composition
 
@@ -679,21 +826,12 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    editor" tab? Out of scope for 7/5; tracked as future dashd
    work.
 
-6. **JID fields as structured objects.** `chat_jid` and `match`
-   values in `scheduled_tasks` and `routes` are currently opaque
-   strings (`platform:kind/id`, `room=glob verb=glob`). Structured
-   YAML objects would be more readable and less error-prone. Open:
-   decide whether to expose the string form (current core.JID
-   wire format) or a parsed `{platform, kind, id}` shape in v1.
-   String form is simpler; structured form enables validation at
-   parse time.
-
-7. **`route_tokens` natural key.** Apply matches on `(jid,
-owner_folder)`. If no live row matches → create with
-   system-generated `token_hash`. If match → no-op (or update
-   if other fields differ). `state: absent` revokes. The actual
-   token value is only obtainable via `arizuko get route_tokens`
-   after creation.
+6. **MCP-issued rows reconciliation.** For state-based resources,
+   MCP can create rows with `name=''`, which are not
+   manifest-addressable. `arizuko invite rename` moves them under
+   manifest control. Is this enough, or should `apply` warn when
+   the DB has unnamed rows that the manifest doesn't acknowledge?
+   Lean: warn in `plan` output, never block apply.
 
 ## Acceptance
 
