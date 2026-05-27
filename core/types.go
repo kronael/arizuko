@@ -211,6 +211,8 @@ type Socializer interface {
 	Repost(ctx context.Context, jid, sourceMsgID string) (string, error)
 	Dislike(ctx context.Context, jid, targetID string) error
 	Edit(ctx context.Context, jid, targetID, content string) error
+	Pin(ctx context.Context, jid, targetID string) error
+	Unpin(ctx context.Context, jid, targetID string, all bool) error
 }
 
 // Suggester is the optional channel capability for staging

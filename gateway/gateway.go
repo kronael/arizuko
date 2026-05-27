@@ -215,6 +215,8 @@ func (g *Gateway) Run(ctx context.Context) error {
 		Repost:       g.repostToJID,
 		Dislike:      g.dislikeOnJID,
 		Edit:         g.editOnJID,
+		Pin:          g.pinOnJID,
+		Unpin:        g.unpinOnJID,
 		ClearSession: g.clearSession,
 		ForkTopic:    g.forkTopic,
 		GroupsDir:    g.cfg.GroupsDir,
@@ -289,6 +291,25 @@ func (g *Gateway) Run(ctx context.Context) error {
 		CurrentTriggerSender:  g.currentTriggerSender,
 		MessagesBefore:      g.store.MessagesBefore,
 		MessagesByThread:    g.store.MessagesByThread,
+		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
+			rows, err := g.store.FindMessages(q, scope, sender, since, limit)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]ipc.FoundMessage, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.FoundMessage{
+					ChatJID:      r.ChatJID,
+					Sender:       r.Sender,
+					Timestamp:    r.Timestamp,
+					IsFromMe:     r.IsFromMe,
+					IsBotMessage: r.IsBotMessage,
+					Content:      r.Content,
+					Rank:         r.Rank,
+				}
+			}
+			return out, nil
+		},
 		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
 		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
 			rows := g.store.ErroredChats(folder, isRoot)
@@ -1497,6 +1518,18 @@ func (g *Gateway) dislikeOnJID(jid, targetID string) error {
 func (g *Gateway) editOnJID(jid, targetID, content string) error {
 	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
 		return s.Edit(ctx, jid, targetID, content)
+	})
+}
+
+func (g *Gateway) pinOnJID(jid, targetID string) error {
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Pin(ctx, jid, targetID)
+	})
+}
+
+func (g *Gateway) unpinOnJID(jid, targetID string, all bool) error {
+	return socialDo(g, jid, func(s core.Socializer, ctx context.Context) error {
+		return s.Unpin(ctx, jid, targetID, all)
 	})
 }
 

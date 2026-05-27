@@ -313,7 +313,33 @@ func (h *HTTPChannel) Like(ctx context.Context, jid, targetID, reaction string) 
 }
 
 func (h *HTTPChannel) Delete(ctx context.Context, jid, targetID string) error {
+	if !h.entry.HasCap("delete") {
+		return chanlib.Unsupported("delete", h.entry.Name, "adapter does not advertise capability")
+	}
 	_, err := h.postVerb(ctx, "delete", "/delete", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID}))
+	return err
+}
+
+func (h *HTTPChannel) Pin(ctx context.Context, jid, targetID string) error {
+	if !h.entry.HasCap("pin") {
+		return chanlib.Unsupported("pin", h.entry.Name, "adapter does not advertise capability")
+	}
+	_, err := h.postVerb(ctx, "pin", "/pin", makeBody(map[string]string{"chat_jid": jid, "target_id": targetID}))
+	return err
+}
+
+func (h *HTTPChannel) Unpin(ctx context.Context, jid, targetID string, all bool) error {
+	if !h.entry.HasCap("pin") {
+		return chanlib.Unsupported("unpin", h.entry.Name, "adapter does not advertise capability")
+	}
+	body := map[string]any{"chat_jid": jid}
+	if all {
+		body["all"] = true
+	} else {
+		body["target_id"] = targetID
+	}
+	b, _ := json.Marshal(body)
+	_, err := h.postVerb(ctx, "unpin", "/unpin", b)
 	return err
 }
 
