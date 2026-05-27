@@ -85,10 +85,8 @@ atlas:
       parent: group:editors
 
   routes:
-    - jid: telegram:user/1234567890
-      seq: 100
-      type: match
-      match: ''
+    - seq: 0
+      match: 'room=1234567890'
       target: atlas
 
   web_routes:
@@ -99,14 +97,15 @@ atlas:
   scheduled_tasks:
     - id: atlas-compact
       owner: system
-      chat_jid: telegram:user/1234567890
+      chat_jid: 'web:atlas'
       prompt: '/compact-memories episodes day'
       cron: '0 2 * * *'
       status: active
 
   secrets:
-    - scope: folder:atlas
-      name: openai
+    - scope_kind: folder
+      scope_id: atlas
+      key: openai
 
   network_rules:
     - folder: atlas
@@ -148,7 +147,7 @@ krons:
   scheduled_tasks:
     - id: oncall-digest
       owner: system
-      chat_jid: 'krons/eng/sre/oncall'
+      chat_jid: 'web:krons/eng/sre/oncall'
       prompt: '/digest last 24h'
       cron: '0 8 * * *'
       status: active
@@ -206,17 +205,18 @@ manifest file synchronously, before returning to the caller.
 **Home-file rule** — the file a row belongs to is determined by its
 group folder field (no DB tracking column needed):
 
-| Resource                                                                 | Home-file key                    | Home file                |
-| ------------------------------------------------------------------------ | -------------------------------- | ------------------------ |
-| group config fields                                                      | the namespace key itself         | `manifest/<folder>.yaml` |
-| `acl`, `acl_membership`                                                  | folder extracted from `scope`    | `manifest/<folder>.yaml` |
-| `routes`                                                                 | `target`                         | `manifest/<folder>.yaml` |
-| `route_tokens`                                                           | `owner_folder`                   | `manifest/<folder>.yaml` |
-| `web_routes`                                                             | `folder`                         | `manifest/<folder>.yaml` |
-| `scheduled_tasks`                                                        | folder extracted from `chat_jid` | `manifest/<folder>.yaml` |
-| `secrets`                                                                | folder extracted from `scope`    | `manifest/<folder>.yaml` |
-| `network_rules` (group-scoped)                                           | `folder`                         | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules` (global), `invites` | — (base)                         | `manifest/base.yaml`     |
+| Resource                                                                 | Home-file key                       | Home file                |
+| ------------------------------------------------------------------------ | ----------------------------------- | ------------------------ |
+| group config fields                                                      | the namespace key itself            | `manifest/<folder>.yaml` |
+| `acl`                                                                    | folder extracted from `scope`       | `manifest/<folder>.yaml` |
+| `acl_membership`                                                         | containing group key in document    | `manifest/<folder>.yaml` |
+| `routes`                                                                 | `target`                            | `manifest/<folder>.yaml` |
+| `route_tokens`                                                           | `owner_folder`                      | `manifest/<folder>.yaml` |
+| `web_routes`                                                             | `folder`                            | `manifest/<folder>.yaml` |
+| `scheduled_tasks`                                                        | folder extracted from `chat_jid`    | `manifest/<folder>.yaml` |
+| `secrets`                                                                | `scope_id` when `scope_kind=folder` | `manifest/<folder>.yaml` |
+| `network_rules` (group-scoped)                                           | `folder`                            | `manifest/<folder>.yaml` |
+| `proxyd_routes`, `onboarding_gates`, `network_rules` (global), `invites` | — (base)                            | `manifest/base.yaml`     |
 
 Protocol per mutation:
 
@@ -311,13 +311,16 @@ Folder paths with `/` must be quoted in YAML:
 ```
 
 Secrets metadata only — blobs set via `arizuko secret set
-<scope>/<name> <value>`, never in YAML:
+<scope_kind>/<scope_id>/<key> <value>`, never in YAML.
+Schema: `(scope_kind, scope_id, key)` where `scope_kind` is `folder`
+or `user`:
 
 ```yaml
 atlas:
   secrets:
-    - scope: folder:atlas
-      name: openai
+    - scope_kind: folder
+      scope_id: atlas
+      key: openai
 ```
 
 **`product`** is a type tag (`assistant`, `oracle`, …) stored on the
@@ -602,6 +605,27 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    of cold-tier state today. Should it gain a "manifest
    editor" tab? Out of scope for 7/5; tracked as future dashd
    work.
+
+6. **JID fields as structured objects.** `chat_jid` and `match`
+   values in `scheduled_tasks` and `routes` are currently opaque
+   strings (`platform:kind/id`, `room=glob verb=glob`). Structured
+   YAML objects would be more readable and less error-prone. Open:
+   decide whether to expose the string form (current core.JID
+   wire format) or a parsed `{platform, kind, id}` shape in v1.
+   String form is simpler; structured form enables validation at
+   parse time.
+
+7. **`seq` on routes.** All current routes are inserted with
+   `seq=0`; ordering falls back to `id ASC`. Seq may be removed
+   when/if match specificity (longer match string = higher
+   priority) replaces explicit ordering.
+
+8. **`invites` and `route_tokens` class membership.** Both have
+   auto-generated PKs (`token`, `token_hash`) and operator-issued
+   state that should survive apply. Full-rebuild wipes them.
+   Likely these belong in the runtime class, not config. Defer
+   to implementation — remove from the config table list if the
+   apply tool cannot round-trip them without destroying live tokens.
 
 ## Acceptance
 
