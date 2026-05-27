@@ -1037,23 +1037,43 @@ Two consecutive `arizuko export` invocations must produce
 byte-identical YAML if the DB has not changed. Without this, file
 hashing, git diffs, and "is anything different?" checks all break.
 
+## FK posture
+
+**FKs are ON globally.** `store/store.go` sets `PRAGMA foreign_keys=ON`
+per connection. Declared FKs are enforced.
+
+**Exactly one FK is declared in v1:** `task_run_logs(task_id) →
+scheduled_tasks(id) ON DELETE CASCADE` (migration 0011). It works as
+intended — deleting a scheduled task cascades its run logs.
+
+**All other cross-table references are intentionally string-typed,
+not FKs:**
+
+- `acl.principal` is polymorphic (`user:sub_xyz`, `group:eng`, `**`,
+  `service:authd`). No single table to point a FK at — the string IS
+  the canonical encoding.
+- `*.folder`, `*.chat_jid`, `*.jid`, `*.scope`, `*.target` are likewise
+  string-shaped values that may not have a backing row (wildcard ACL
+  scopes, expired session refs, intentionally stranded history).
+- Group removal MUST strand runtime history; a FK with CASCADE would
+  silently delete it (wrong), and RESTRICT would block the removal
+  (worse).
+
+This is a deliberate posture: declare a FK when intra-domain integrity
+matters and the ref is row-shaped; use strings for polymorphic /
+historical / cross-domain refs. The engine doesn't fight either.
+
 ## Dependency ordering
 
-Full rebuild inserts all rows in one transaction. Manifest row order
-does not matter because **arizuko enforces no FKs**: SQLite has FK
-enforcement off by default and the codebase only declares one
-constraint (`task_run_logs → scheduled_tasks ON DELETE CASCADE`,
-migration 0011), which doesn't interact with apply.
+Full rebuild inserts all rows of all config tables in one transaction.
+**Manifest row insertion order doesn't matter** because no FKs link
+config tables to each other (`task_run_logs` is runtime, not config).
 
-If a future migration adds enforced FKs between config tables, the
-apply tool must either:
-
-- Declare them `DEFERRABLE INITIALLY DEFERRED` at table-create time,
-  OR
-- Insert in topological order (parents before children).
-
-For v1, neither is needed. Row insertion order within the tx is
-arbitrary.
+If a future migration adds a config-to-config FK, the engine must
+either declare it `DEFERRABLE INITIALLY DEFERRED` at table-create
+time, or set `PRAGMA defer_foreign_keys=ON` at apply tx start (works
+without `DEFERRABLE` on schema; per-tx scope). For v1, neither is
+needed.
 
 ## Atomicity model
 
