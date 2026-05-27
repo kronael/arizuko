@@ -138,6 +138,44 @@ labels, permission-editor rows. The short constant is for switches
 and tables; the composed string is the operator-facing contract and
 survives URL renames + handler-function renames.
 
+### MCP tool-name partitioning
+
+MCP tools accumulate. Without a partitioning rule the catalog grows
+flat and per-turn enumeration cost grows linearly. Two rules:
+
+1. **Prefixes derive from the source file the tool is registered in,
+   not from invented marketing categories.** Source-of-truth files
+   today are `ipc/ipc.go`, `ipc/inspect.go`, `ipc/connector.go` (per-
+   channel registrations). The prefix is the file's domain, not a
+   re-grouped abstraction. Examples:
+
+   | Source file                | Current tools (no prefix today)                                                                                                                    | Prefix             |
+   | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+   | `ipc/inspect.go`           | `inspect_routing`, `inspect_tasks`, `inspect_session`                                                                                              | already `inspect_` |
+   | `ipc/connector.go` loop    | `send`, `reply`, `like`, `delete`, `post`, per-channel verbs                                                                                       | `chan.`            |
+   | `ipc/ipc.go` routes block  | `list_routes`, `set_routes`, `add_route`, `delete_route`                                                                                           | `routes.`          |
+   | `ipc/ipc.go` tasks block   | `schedule_task`, `list_tasks`                                                                                                                      | `tasks.`           |
+   | `ipc/ipc.go` group block   | `register_group`, `escalate_group`, `delegate_group`                                                                                               | `groups.`          |
+   | `ipc/ipc.go` tokens block  | `invite_create`, `issue_chat_link`, `issue_webhook`, `list_tokens`, `revoke_token`                                                                 | `tokens.`          |
+   | `ipc/ipc.go` web block     | `set_web_host`, `get_web_host`, `set_web_route`, `del_web_route`, `list_web_routes`                                                                | `web.`             |
+   | `ipc/ipc.go` session block | `fork_topic`, `engage`, `disengage`, `reset_session`, `inject_message`, `set_observe_window`, `set_group_open`, `observe_group`, `unobserve_group` | `session.`         |
+   | `ipc/ipc.go` panes block   | `pane_set_prompts`, `pane_set_title`                                                                                                               | `pane.`            |
+   | `ipc/ipc.go` cost block    | `log_external_cost`                                                                                                                                | `cost.`            |
+
+   The prefix matches what the engine in `5/36` already produces for
+   engine-managed resources (e.g. `routes.list`, `acl.create`).
+
+2. **Freeze growth of MCP tools per source file.** When a new
+   capability appears, the default home is a skill (per
+   `../6/A-hierarchical-skills.md`), not a new MCP tool. New MCP
+   tools land only when the capability is a stable primitive that
+   every agent needs (file I/O, container ops, inspect\_\*). Domain
+   workflows go into skills.
+
+Backwards compatibility: existing flat names (`send`, `reply`,
+`inspect_routing`, …) keep working as aliases for the prefixed names
+for one release. After that, only the prefixed forms are documented.
+
 ## Token / auth model
 
 Both surfaces produce a `Caller` consumed identically.
