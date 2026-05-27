@@ -255,9 +255,30 @@ Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport, not the
 resource.
 
-The apply tool parses YAML → unwraps the envelope (`state:`, nesting,
+The apply tool parses YAML → unwraps the envelope (nesting,
 `config_version:`) → calls the same handler that REST POST and MCP
 `create` call. One handler, three callers.
+
+### `RowType` on `resreg.Resource`
+
+`resreg.Resource` today is `{Name, Endpoints, MCPTools, Authz, Handler,
+Store}` — no field declares the row column set. v1 adds:
+
+```go
+type Resource struct {
+    // ... existing fields ...
+    RowType reflect.Type  // pointer to the canonical row Go struct
+}
+```
+
+The YAML parser, REST handlers, and MCP tools all decode into instances
+of `RowType`. Struct field tags (`yaml:"…" json:"…"`) define wire shape
+once per resource. Adding a column means editing the struct in one
+place; all three transports follow.
+
+Without `RowType` the "one schema" claim is fictional: each transport
+would carry its own struct and drift silently. With it, drift is a
+compile error.
 
 ## Optimistic locking (`config_version`)
 
@@ -302,15 +323,145 @@ The pattern is identical to etcd's `revision`, S3's `If-Match` ETag, and
 Kubernetes's `metadata.resourceVersion` — except simpler because we only
 need it on the bulk-apply path.
 
-## Startup apply + reload
+### CAS implementation
 
-On startup, `gated` runs `apply manifest/` against the live DB before
-opening its listen socket. This makes the first request always see the
-manifest's intent.
+Two mechanisms make the "every mutation bumps version" invariant real
+without auditing every callsite:
 
-On `SIGHUP`, `gated` re-runs `apply manifest/` in one transaction.
-All daemons see the new config on their next DB read — no signals to
-individual daemons, no reload endpoints.
+**(1) AFTER triggers per config table.** One migration adds:
+
+```sql
+CREATE TABLE config_meta (version INTEGER NOT NULL DEFAULT 0);
+INSERT INTO config_meta (version) VALUES (0);
+
+-- For each config table: groups, acl, acl_membership, routes,
+-- web_routes, scheduled_tasks, secrets, network_rules,
+-- proxyd_routes, onboarding_gates:
+CREATE TRIGGER <table>_bump_version
+AFTER INSERT ON <table>
+BEGIN UPDATE config_meta SET version = version + 1; END;
+-- similarly for AFTER UPDATE and AFTER DELETE.
+```
+
+Every row mutation, from any callsite, bumps the counter. SQLite
+triggers are tx-bound; if the tx rolls back, the bump rolls back too.
+
+**(2) `BEGIN IMMEDIATE` for race-free CAS.** Apply must acquire the
+RESERVED lock at tx start to serialize concurrent applies:
+
+```
+BEGIN IMMEDIATE;
+  SELECT version FROM config_meta;
+  -- compare to manifest config_version
+  -- if mismatch (and not --force): ROLLBACK; reject
+  DELETE FROM <config tables> WHERE folder IN (<manifest scope>);
+  INSERT INTO <config tables> (...);
+  -- triggers fire per row, version reaches N + (rows touched)
+COMMIT;
+```
+
+Without `BEGIN IMMEDIATE`, two concurrent applies could both see
+version 42, both pass the CAS check, both commit, and the second's
+DELETE+INSERT would wipe rows the first just wrote (visibility under
+WAL is snapshot-isolated but writes serialize). `IMMEDIATE` forces
+the second tx to wait for the first to commit, then it sees the
+bumped version and rejects.
+
+Per-row counting on bulk apply means `config_version` advances by N
+(number of rows) per apply, not by 1. This is fine — the invariant
+is monotonicity, not consecutive integers. Operators never read the
+counter for arithmetic; they only compare equality.
+
+## Startup sequence
+
+Order is load-bearing. `gated` does these in sequence before opening
+its listen socket:
+
+```
+1. Orphan recovery — scan manifest/ for `.<name>.yaml` files.
+   For each orphan:
+     - mtime(orphan) > mtime(<name>.yaml) OR <name>.yaml missing
+       → promote: rename(orphan, <name>.yaml)
+     - else → discard: delete orphan
+2. Apply manifest/ — run `arizuko apply manifest/` in one tx
+   (BEGIN IMMEDIATE; CAS check; DELETE + INSERT; COMMIT).
+3. New-group filesystem prep — for each group folder in DB
+   without an on-disk dir, call `container.SetupGroup(folder)`.
+4. Open listen socket.
+```
+
+**Why orphan recovery first.** Mutation sync does rename POST-commit
+(see Mutation sync). If the process died between COMMIT and rename,
+the DB is one mutation ahead of `<name>.yaml`. Promoting the orphan
+catches the YAML up before apply reads it. Apply-first would commit
+the stale YAML state, undoing the just-committed mutation when the
+orphan is later promoted.
+
+**Why filesystem prep last.** SetupGroup is best-effort and idempotent
+(`MkdirAll`). It writes prototype skills and chowns directories. Doing
+it inside the DB tx would intermix file I/O with the apply commit; doing
+it post-commit means the DB is authoritative and a partial filesystem
+state can be retried via `arizuko repair` (idempotent re-run of step 3).
+
+On `SIGHUP`, gated re-runs steps 1–3 (no socket re-bind). All daemons
+see the new config on their next DB read — no signals to individual
+daemons, no reload endpoints. SQLite WAL snapshot isolation lets
+in-flight reads finish on the old config; subsequent reads see new.
+
+## Group directory lifecycle
+
+Group filesystem state (skills, `.claude/`, prototype) is **eventually
+consistent with the DB**, not transactional. The DB is authoritative.
+
+- `apply` writes group rows in the tx; SetupGroup runs after COMMIT.
+- If SetupGroup partially fails (disk full, permission error), the row
+  exists in the DB but the directory is incomplete. `arizuko repair`
+  re-runs SetupGroup for every group row without a complete directory.
+- Removing a group from the manifest deletes its row on next apply
+  (see Group removal semantics) but **does not delete the directory**.
+  Operators run `arizuko group purge <folder>` for full removal.
+
+This split is deliberate. Filesystem operations can't join a SQLite tx;
+trying to make them atomic with COMMIT either requires 2PC (overkill)
+or risks leaking orphan directories on row-insert failure. Letting the
+filesystem be the slower mirror keeps apply simple and recoverable.
+
+## Group removal semantics
+
+When apply removes a `groups` row, runtime data referencing that folder
+(messages, chats, audit_log, cost_log, …) **is not deleted**. The rows
+stay in their tables with the now-orphaned `folder` string.
+
+This is safe because arizuko uses **string references**, not declared
+foreign keys. The only declared FK between any pair of tables is
+`task_run_logs → scheduled_tasks` (ON DELETE CASCADE) — irrelevant
+here. Removing a group:
+
+- Frees the folder name for reuse.
+- Strands runtime history under the old name (no longer surfaced via
+  any group view).
+- Does not corrupt the schema (no FK violation).
+
+To fully erase a group:
+
+```
+arizuko group purge <folder>   # one command, several DELETEs + rmdir
+```
+
+This deletes runtime rows with `folder=<folder>`, drops the on-disk
+directory, and clears any auxiliary state. `purge` is intentionally
+imperative — it is destructive in a way YAML apply is not.
+
+**`plan` output warns on group removal:**
+
+```
+$ arizuko plan
+groups:
+  - atlas    (REMOVE: 1247 message rows, 89 audit rows will be stranded;
+              use `arizuko group purge atlas` to delete)
+```
+
+Operators see the consequence before applying.
 
 ## Resource-name = resreg.Resource.Name (not table name)
 
@@ -384,11 +535,10 @@ on apply — the prototype copy (skills, PERSONA.md, `.claude/`) happens
 once at group creation via `container.SetupGroup`. Changing `product`
 in the manifest only updates the DB column.
 
-**New groups via YAML.** When apply encounters a group key not yet in
-the DB, it calls `container.SetupGroup(cfg, folder, "")` before
-inserting the row — idempotent (`MkdirAll` is safe to re-run). This
-is the only supported way to create groups; `mkdir` directly is
-forbidden (per CLAUDE.md).
+**New groups via YAML.** Apply inserts the group row in the tx;
+`container.SetupGroup` runs post-commit to seed the directory. See
+"Group directory lifecycle" for the full ordering and failure
+semantics. `mkdir` directly is forbidden (per CLAUDE.md).
 
 ## Two-table-class model
 
