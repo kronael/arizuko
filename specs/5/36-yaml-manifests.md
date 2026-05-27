@@ -14,25 +14,21 @@ without specifying the file shape. This spec resolves it.
 `agents.toml` was always provisional. This spec replaces it with a
 YAML manifest format that **carries cold-tier intent** for an
 instance: ACL, routes, secrets metadata, scheduled tasks, invites,
-proxyd routes, web routes, network rules, group registration —
-every cold table covered by `resreg.Resource` per
-[`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md). Prose
-artifacts (PERSONA.md, MEMORY.md, .diary/) stay as Markdown files,
-referenced from YAML by path; the YAML never inlines their bodies.
+proxyd routes, web routes, network rules, group registration.
 
-The mechanism is mechanical: one CLI verb (`arizuko apply`) parses
-YAML, validates each row against the live resreg registry, and
-dispatches REST calls. resreg's tx-bound audit fires per row. No
-new write path, no new auth gate, no daemon-side state machine.
+The mechanism is direct: one CLI verb (`arizuko apply`) parses YAML,
+validates each row, and rebuilds all config tables in one SQLite
+transaction. YAML is the source of truth; the DB is the queryable
+index. No REST dispatch, no daemon-side state machine — one tx,
+one file.
 
 ## What this spec is
 
-The **carrier format** for cold-tier configuration and the **apply
-loop** that drives it through resreg. It is intentionally narrow:
-this is the YAML shape and the dispatch rules, nothing more.
+The **carrier format** for cold-tier configuration and the **apply**
+mechanics (one SQLite tx, mutation sync, optimistic locking).
 Product composition, cross-product subscriptions, and ingestion
 semantics ([`7/4`](4-data-ingestion-curation-eventing.md) Q2 + Q5)
-remain open — 7/5 gives them a place to land later, not an answer.
+remain open — 5/36 gives them a place to land later, not an answer.
 
 ## Surface
 
@@ -67,57 +63,130 @@ These names are conventions, not constraints. An operator can use a
 single `everything.yaml` or split arbitrarily. The apply tool does
 not interpret file names.
 
-**Document schema** — same keys in every file, merged at apply time:
+**Document schema** — same keys in every file, merged at apply time.
+Group folder is the top-level key; group config fields and owned
+resources nest flat beneath it.
 
 ```yaml
 # atlas.yaml — config for the atlas group
 
-groups:
-  - folder: atlas
-    product: assistant
-    model: claude-opus-4-7
-    persona_ref: ./atlas/PERSONA.md
-    memory_ref: ./atlas/MEMORY.md
+atlas:
+  product: assistant
+  model: claude-opus-4-7
 
-acl:
-  - principal: user:abc123
-    action: tasks:write
-    scope: atlas/
-    effect: allow
+  acl:
+    - principal: user:sub_a1b2c3
+      action: 'tasks:*'
+      scope: atlas/
+      effect: allow
 
-routes:
-  - match: telegram:user/atlas-bot
-    target_folder: atlas
-    seq: 100
+  acl_membership:
+    - child: user:sub_a1b2c3
+      parent: group:editors
 
-route_tokens:
-  - name: atlas-webhook
-    target_folder: atlas
+  routes:
+    - jid: telegram:user/1234567890
+      seq: 100
+      type: match
+      match: ''
+      target: atlas
 
-scheduled_tasks:
-  - target_jid: telegram:user/abc123
-    prompt: /compact-memories episodes day
-    cron: '0 2 * * *'
-    context_mode: isolated
+  web_routes:
+    - path_prefix: /pub/atlas/
+      access: public
+      folder: atlas
 
-secrets:
-  - scope: folder:atlas
-    name: slack
+  scheduled_tasks:
+    - id: atlas-compact
+      owner: system
+      chat_jid: telegram:user/1234567890
+      prompt: '/compact-memories episodes day'
+      cron: '0 2 * * *'
+      status: active
+
+  secrets:
+    - scope: folder:atlas
+      name: openai
+
+  network_rules:
+    - folder: atlas
+      target: api.openai.com
 ```
 
 ```yaml
-# base.yaml — base config
+# krons.yaml — krons group plus nested children
+
+krons:
+  product: assistant
+  model: claude-opus-4-7
+
+  acl:
+    - principal: '**'
+      action: '*'
+      scope: krons/
+      effect: allow
+
+'krons/eng':
+  product: assistant
+
+  acl:
+    - principal: group:engineers
+      action: 'chat:*'
+      scope: krons/eng/
+      effect: allow
+
+  acl_membership:
+    - child: user:sub_alice
+      parent: group:engineers
+    - child: user:sub_bob
+      parent: group:engineers
+
+'krons/eng/sre/oncall':
+  product: assistant
+  model: claude-haiku-4-5
+
+  scheduled_tasks:
+    - id: oncall-digest
+      owner: system
+      chat_jid: 'krons/eng/sre/oncall'
+      prompt: '/digest last 24h'
+      cron: '0 8 * * *'
+      status: active
+```
+
+```yaml
+# base.yaml — instance-wide config (proxyd routes, gates, global rules)
 
 proxyd_routes:
-  - path: /api/atlas
-    backend: http://atlasd:8080
-    auth: jwt
-    gated_by: atlas:read
+  - path: /tele/
+    backend: http://teled:8080
+    auth: public
+    gated_by: TELEGRAM_TOKEN
+  - path: /whap/
+    backend: http://whapd:8080
+    auth: public
+    gated_by: WHATSAPP_TOKEN
+  - path: /slack/
+    backend: http://slakd:8080
+    auth: public
+    gated_by: SLACK_BOT_TOKEN
+    preserve_headers: ['X-Slack-Signature', 'X-Slack-Request-Timestamp']
 
 onboarding_gates:
   - gate: invite-only
-    enabled: true
     limit_per_day: 10
+    enabled: true
+
+network_rules:
+  - folder: ''
+    target: anthropic.com
+  - folder: ''
+    target: api.anthropic.com
+
+invites:
+  - target_glob: 'krons/'
+    max_uses: 5
+    expires_at: '2027-01-01T00:00:00Z'
 ```
 
 In-flight files use a dot-prefix — hidden, never at rest:
@@ -137,13 +206,17 @@ manifest file synchronously, before returning to the caller.
 **Home-file rule** — the file a row belongs to is determined by its
 group folder field (no DB tracking column needed):
 
-| Resource                                                  | Home-file key                 | Home file                |
-| --------------------------------------------------------- | ----------------------------- | ------------------------ |
-| `groups`                                                  | `folder`                      | `manifest/<folder>.yaml` |
-| `acl`, `acl_membership`                                   | folder extracted from `scope` | `manifest/<folder>.yaml` |
-| `routes`, `route_tokens`, `web_routes`, `scheduled_tasks` | `target_folder`               | `manifest/<folder>.yaml` |
-| `secrets`                                                 | folder extracted from `scope` | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (base)                      | `manifest/base.yaml`     |
+| Resource                                                                 | Home-file key                    | Home file                |
+| ------------------------------------------------------------------------ | -------------------------------- | ------------------------ |
+| group config fields                                                      | the namespace key itself         | `manifest/<folder>.yaml` |
+| `acl`, `acl_membership`                                                  | folder extracted from `scope`    | `manifest/<folder>.yaml` |
+| `routes`                                                                 | `target`                         | `manifest/<folder>.yaml` |
+| `route_tokens`                                                           | `owner_folder`                   | `manifest/<folder>.yaml` |
+| `web_routes`                                                             | `folder`                         | `manifest/<folder>.yaml` |
+| `scheduled_tasks`                                                        | folder extracted from `chat_jid` | `manifest/<folder>.yaml` |
+| `secrets`                                                                | folder extracted from `scope`    | `manifest/<folder>.yaml` |
+| `network_rules` (group-scoped)                                           | `folder`                         | `manifest/<folder>.yaml` |
+| `proxyd_routes`, `onboarding_gates`, `network_rules` (global), `invites` | — (base)                         | `manifest/base.yaml`     |
 
 Protocol per mutation:
 
@@ -164,6 +237,39 @@ on next startup reconciles forward. DB being ahead of YAML cannot happen.
 
 No background goroutines. Sync is on the handler's critical path.
 
+## Optimistic locking (`config_version`)
+
+`config_meta` is a single-row config-class table holding a monotonically
+increasing integer: `config_version`. Every apply increments it on commit.
+
+**Export** stamps the current version into the manifest header:
+
+```yaml
+config_version: 42
+```
+
+**Apply** checks the DB version before writing:
+
+- DB version == manifest version → proceed, increment on commit.
+- DB version != manifest version → reject: "config changed since export;
+  re-export or use --force to override."
+
+This surfaces conflicts when two operators export + edit simultaneously.
+`--force` skips the check and writes unconditionally.
+
+MCP mutations increment `config_version` on each commit (same mechanism).
+The version is a logical clock, not a timestamp.
+
+## Startup apply + reload
+
+On startup, `gated` runs `apply manifest/` against the live DB before
+opening its listen socket. This makes the first request always see the
+manifest's intent.
+
+On `SIGHUP`, `gated` re-runs `apply manifest/` in one transaction.
+All daemons see the new config on their next DB read — no signals to
+individual daemons, no reload endpoints.
+
 ## Resource-name = resreg.Resource.Name (not table name)
 
 The public manifest names map to **`resreg.Resource.Name`** — the
@@ -179,69 +285,40 @@ layer, no aliases, no internal table names in the manifest surface.
 
 ## Manifest shape
 
-A manifest is a YAML document with one top-level map keyed by
-**resource name**. Each resource maps to a list of rows; each row
-is the same JSON shape the resreg `create`/`update` REST adapter
-already accepts.
-
-```yaml
-# atlas.yaml — flat resource namespace, no daemon section keys.
-groups:
-  - folder: atlas
-    product: assistant
-    model: claude-opus-4-5
-    persona_ref: './atlas/PERSONA.md'
-    memory_ref: './atlas/MEMORY.md'
-
-acl:
-  - principal: 'user:abc123'
-    action: 'tasks:write'
-    scope: 'atlas/'
-    effect: 'allow'
-
-routes:
-  - match: 'telegram:user/atlas-bot'
-    target_folder: 'atlas'
-    seq: 100
-
-scheduled_tasks:
-  - target_jid: 'telegram:user/abc123'
-    prompt: '/compact-memories episodes day'
-    cron: '0 2 * * *'
-    context_mode: 'isolated'
-
-secrets:
-  # metadata only — blob set via `arizuko secret set atlas/slack <value>`
-  - scope: 'folder:atlas'
-    name: 'slack'
-
-proxyd_routes:
-  - path: '/api/atlas'
-    backend: 'http://atlasd:8080'
-    auth: 'jwt'
-    gated_by: 'atlas:read'
-
-web_routes:
-  - jid: 'web:atlas'
-    owner_folder: 'atlas'
-
-invites:
-  - target_glob: 'atlas/'
-    max_uses: 1
-    expires_at: '2026-06-01T00:00:00Z'
-```
+A manifest is a YAML document where **group folder paths are
+top-level keys**. Group config fields and owned resources nest
+flat beneath the group key. Instance-global resources
+(`proxyd_routes`, `onboarding_gates`, `network_rules`, `invites`)
+appear as top-level resource-kind keys with no group wrapper.
 
 There are **no daemon section keys** (`gated:` / `proxyd:` / …).
-The apply tool consults the live registry to resolve each resource
-name to its owning daemon at dispatch time. This keeps the
-operator contract clean of deploy-unit topology: if a future
-daemon split moves `proxyd_routes` ownership, manifests stay valid.
-The resource-name itself is the contract.
+The apply tool resolves each resource name to its owning daemon at
+dispatch time. If a future daemon split moves `proxyd_routes`
+ownership, manifests stay valid — the resource name is the contract.
 
-Where two resources happen to share a name across daemons (e.g.
-`routes` in `gated` and `proxyd_routes` in proxyd), the registry
-already disambiguates by the `Resource.Name` field — different
-names, no collision.
+Folder paths with `/` must be quoted in YAML:
+
+```yaml
+# quoted path key for nested group
+'corp/eng/sre/oncall':
+  product: assistant
+  model: claude-opus-4-7
+  acl:
+    - principal: group:sre
+      action: 'chat:*'
+      scope: corp/eng/sre/oncall/
+      effect: allow
+```
+
+Secrets metadata only — blobs set via `arizuko secret set
+<scope>/<name> <value>`, never in YAML:
+
+```yaml
+atlas:
+  secrets:
+    - scope: folder:atlas
+      name: openai
+```
 
 ## Two-table-class model
 
@@ -336,39 +413,26 @@ in-flight state, not intent.
 The rule is mechanical: **if it's a row, YAML. If it's a paragraph,
 Markdown.**
 
-- **YAML** carries table-shaped rows for cold-tier resources
-  listed above. Manifest apply mutates daemon state through
-  resreg.
+- **YAML** carries table-shaped rows for cold-tier resources listed
+  above. Manifest apply writes them to DB in one transaction.
 - **Markdown** carries prose: `PERSONA.md`, `MEMORY.md`,
   `.diary/YYYYMMDD.md`, `decisions/<sha>.md`, `skills/<name>/SKILL.md`,
-  `PRODUCT.md`. Markdown files are **referenced** from YAML by
-  relative path; their bodies are not ingested into resreg rows.
-- 7/3 already commits these files to git directly (per-turn
-  commit for `MEMORY.md` + `.diary/`; per-folder write for
-  `PERSONA.md` + `skills/`). 7/5 does not duplicate that path —
-  YAML carries the reference; the file lives where 7/3 says it
-  lives.
-- Apply validates that referenced files **exist** and records
-  their content hash in the row (`persona_sha256`,
-  `memory_sha256`). The hash is the bridge — if the operator
-  edits `PERSONA.md` without re-applying, drift detection
-  surfaces the mismatch.
+  `PRODUCT.md`. These files live in the group directory; they are
+  **not** manifest rows, not referenced from YAML, not content-hashed
+  in the DB. 7/3 manages their git lifecycle independently.
 
-This keeps the orthogonality 7/3 already drew: prose is a git
-file, not a row payload. Frontmatter on Markdown files carries
-the file's own metadata (status, depends), never row data
-back-doored from YAML.
+Orthogonality: YAML carries operator intent (who can do what,
+which routes exist, what tasks run). Markdown carries agent context
+(persona, memory, diary). Neither borrows from the other's domain.
 
 ## Apply lifecycle
 
 1. **Parse.** YAML → typed Go structs. Strict mode: unknown
    resource keys reject; unknown row fields reject. Any error
    here aborts before touching the DB.
-2. **Validate.** Each row is validated against the resource
-   schema in the binary (not a live registry fetch — the apply
-   tool and gated are co-versioned). Unknown fields reject.
-   Referenced files (`persona_ref`, `memory_ref`) must exist;
-   content hash recorded. Any error aborts before touching the DB.
+2. **Validate.** Each row is validated against the resource schema
+   in the binary (apply tool and gated are co-versioned). Unknown
+   fields reject. Any error aborts before touching the DB.
 3. **Plan.** Diff validated manifest rows against current config
    DB. Produce a human-readable delta: rows to add, rows to
    update, rows unchanged. Unchanged rows are noted but not
@@ -386,9 +450,7 @@ the corresponding manifest YAML fragment.
 the exact YAML shape that `apply` accepts — no extra fields, no
 omitted fields, no reordering of keys. Secret rows emit metadata
 only (`scope`, `name`); the `value`/`ciphertext` field is never
-present in `get` output regardless of caller scope. Markdown
-references emit the relative path and recorded content hash;
-the body is never inlined.
+present in `get` output regardless of caller scope.
 
 ## Dependency ordering
 
