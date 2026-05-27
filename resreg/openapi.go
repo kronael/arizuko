@@ -15,9 +15,11 @@ package resreg
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // OpenAPI walks the registry and emits an OpenAPI 3.1 JSON document.
@@ -378,4 +380,36 @@ func schemaName(resource string) string {
 // output reviewable as a regular text file.
 func marshalDeterministic(v any) ([]byte, error) {
 	return json.MarshalIndent(v, "", "  ")
+}
+
+// OpenAPIHandler returns an http.HandlerFunc serving the OpenAPI spec
+// for the given daemon + resources at relative baseURL "/". Lazy-builds
+// the JSON on first hit and caches it for the process lifetime;
+// reflection is one-time, steady-state requests are byte-copies.
+//
+// Endpoint is public per spec 5/36 §"OpenAPI emission" — schemas
+// describe API surface, not data. Mount BEFORE any auth middleware so
+// `/openapi.json` is reachable without credentials.
+func OpenAPIHandler(daemon string, resources []string) http.HandlerFunc {
+	var (
+		mu     sync.Mutex
+		cached []byte
+	)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		if cached == nil {
+			spec, err := OpenAPI(daemon, "/", resources)
+			if err != nil {
+				mu.Unlock()
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			cached = spec
+		}
+		body := cached
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(body)
+	}
 }
