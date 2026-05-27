@@ -494,6 +494,24 @@ func (b *bot) Edit(req chanlib.EditRequest) error {
 	return nil
 }
 
+func (b *bot) Pin(req chanlib.PinRequest) error {
+	if err := b.session.ChannelMessagePin(chanID(req.ChatJID), req.TargetID); err != nil {
+		return fmt.Errorf("discord pin: %w", err)
+	}
+	return nil
+}
+
+func (b *bot) Unpin(req chanlib.UnpinRequest) error {
+	if req.All {
+		return chanlib.Unsupported("unpin_all", "discord",
+			"Discord has no bulk-unpin primitive. Call `unpin_message(target_id=...)` per pinned message id (fetch via channel.messages.pins on the Discord side).")
+	}
+	if err := b.session.ChannelMessageUnpin(chanID(req.ChatJID), req.TargetID); err != nil {
+		return fmt.Errorf("discord unpin: %w", err)
+	}
+	return nil
+}
+
 // discordEpochMs is the Discord snowflake epoch (2015-01-01T00:00:00Z).
 const discordEpochMs = 1420070400000
 
