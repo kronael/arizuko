@@ -196,7 +196,7 @@ later, not as amendments here.
 - Framing journey: `.diary/20260523.md` (14:00 onward; three-lens
   synthesis at 15:00).
 - Original prompt: `.diary/20260525.md` (evening).
-- Adjacent platform specs: `specs/5/X-mcp-rest-unification.md`,
+- Adjacent platform specs: `specs/5/5-uniform-mcp-rest.md`,
   `specs/7/2-data-model.md`, `specs/7/3-git-as-truth.md`.
 - File-event-stream (in-container, narrow): `specs/8/3-file-event-stream.md`.
 - Retrieval-layer gap framing: `specs/8/8-company-brain.md`.

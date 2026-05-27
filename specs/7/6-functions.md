@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/6/F-audit-stream.md, specs/5/X-mcp-rest-unification.md, specs/7/3-git-as-truth.md, specs/5/36-yaml-manifests.md
+depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/6/F-audit-stream.md, specs/5/5-uniform-mcp-rest.md, specs/7/3-git-as-truth.md, specs/5/36-yaml-manifests.md
 ---
 
 # specs/7/6 — functions: agent-authored lambda primitive
@@ -527,7 +527,7 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   field schema; this spec fills in the `tool` values listed above.
 - [`../6/F-audit-stream.md`](../6/F-audit-stream.md) — audit_log
   table. New `tool` values only; no schema change.
-- [`../X-mcp-rest-unification.md`](1-mcp-rest-unification.md) — one
+- [`../5-uniform-mcp-rest.md`](1-mcp-rest-unification.md) — one
   resreg handler per resource; `functions` joins the unified surface.
 - [`../7/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
   row + script file are cold-tier state; per-turn commit picks them
