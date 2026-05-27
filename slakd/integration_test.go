@@ -31,6 +31,9 @@ type slackMock struct {
 	statuses   []map[string]string
 	titles     []map[string]string
 	prompts    []map[string]string
+	pinned     []map[string]string
+	unpinned   []map[string]string
+	pinList    []string // ts values returned by pins.list (test seeds this)
 
 	authUserID string
 	authTeamID string
@@ -177,6 +180,37 @@ func newSlackMock() *slackMock {
 			"title":      r.FormValue("title"),
 		})
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/pins.add", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.pinned = append(m.pinned, map[string]string{
+			"channel":   r.FormValue("channel"),
+			"timestamp": r.FormValue("timestamp"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/pins.remove", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		r.ParseForm()
+		m.unpinned = append(m.unpinned, map[string]string{
+			"channel":   r.FormValue("channel"),
+			"timestamp": r.FormValue("timestamp"),
+		})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/api/pins.list", func(w http.ResponseWriter, _ *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		items := make([]map[string]any, 0, len(m.pinList))
+		for _, ts := range m.pinList {
+			items = append(items, map[string]any{
+				"message": map[string]any{"ts": ts},
+			})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "items": items})
 	})
 	mux.HandleFunc("/api/assistant.threads.setSuggestedPrompts", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()

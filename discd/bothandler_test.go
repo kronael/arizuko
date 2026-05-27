@@ -22,6 +22,7 @@ func mockAllDiscordEndpoints(base string) func() {
 	oldTyping := discordgo.EndpointChannelTyping
 	oldMsg := discordgo.EndpointChannelMessage
 	oldMsgReaction := discordgo.EndpointMessageReaction
+	oldPin := discordgo.EndpointChannelMessagePin
 
 	discordgo.EndpointChannelMessages = func(cID string) string {
 		return base + "/channels/" + cID + "/messages"
@@ -35,11 +36,15 @@ func mockAllDiscordEndpoints(base string) func() {
 	discordgo.EndpointMessageReaction = func(cID, mID, eID, uID string) string {
 		return base + "/channels/" + cID + "/messages/" + mID + "/reactions/" + eID + "/" + uID
 	}
+	discordgo.EndpointChannelMessagePin = func(cID, mID string) string {
+		return base + "/channels/" + cID + "/pins/" + mID
+	}
 	return func() {
 		discordgo.EndpointChannelMessages = oldMsgs
 		discordgo.EndpointChannelTyping = oldTyping
 		discordgo.EndpointChannelMessage = oldMsg
 		discordgo.EndpointMessageReaction = oldMsgReaction
+		discordgo.EndpointChannelMessagePin = oldPin
 	}
 }
 
@@ -154,6 +159,48 @@ func TestBotHandler_Quote(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("quote body/ref not captured: %+v", rec.snapshot())
+	}
+}
+
+func TestBotHandler_Pin(t *testing.T) {
+	rec := &recorded{}
+	srv := newRecordingDiscordServer(t, rec)
+	defer srv.Close()
+	defer mockAllDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t)}
+	if err := b.Pin(chanlib.PinRequest{
+		ChatJID: "discord:ch-1", TargetID: "msg-99",
+	}); err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	assertPath(t, rec, "PUT", "/channels/ch-1/pins/msg-99")
+}
+
+func TestBotHandler_Unpin(t *testing.T) {
+	rec := &recorded{}
+	srv := newRecordingDiscordServer(t, rec)
+	defer srv.Close()
+	defer mockAllDiscordEndpoints(srv.URL)()
+
+	b := &bot{session: newTestSession(t)}
+	if err := b.Unpin(chanlib.UnpinRequest{
+		ChatJID: "discord:ch-1", TargetID: "msg-99",
+	}); err != nil {
+		t.Fatalf("Unpin: %v", err)
+	}
+	assertPath(t, rec, "DELETE", "/channels/ch-1/pins/msg-99")
+}
+
+func TestBotHandler_UnpinAll_Discord(t *testing.T) {
+	b := &bot{session: newTestSession(t)}
+	err := b.Unpin(chanlib.UnpinRequest{ChatJID: "discord:ch-1", All: true})
+	var ue *chanlib.UnsupportedError
+	if !errors.As(err, &ue) {
+		t.Fatalf("UnpinAll: want *UnsupportedError, got %v", err)
+	}
+	if ue.Tool != "unpin_all" || !strings.Contains(ue.Hint, "unpin_message") {
+		t.Errorf("hint missing unpin_message fallback: %q", ue.Hint)
 	}
 }
 
