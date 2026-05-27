@@ -235,6 +235,12 @@ orphan, `atlas.yaml` unchanged.
 
 No background goroutines. Sync is on the handler's critical path.
 
+**Same-filesystem assumption.** `rename(2)` is atomic only within
+one filesystem on Linux. The spec assumes `manifest/` and any
+in-flight `manifest/.*.yaml` live on the same mount. Bind-mounting
+`manifest/` from another filesystem breaks atomicity guarantees.
+Operators who do this are on their own.
+
 ## Three transports, one row schema
 
 REST, MCP, and YAML are three transports over the **same row schema**.
@@ -248,7 +254,7 @@ one handler.
 | Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
 | Row fields  | request body                    | tool args                     | row map                           |
 | Batching    | one row per call                | one row per call              | many rows, one tx                 |
-| CAS version | `If-Match: <n>` header          | `config_version: <n>` arg     | `config_version:` manifest header |
+| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header |
 
 Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport, not the
@@ -281,11 +287,20 @@ compile error.
 
 ### Schema-driven CRUD: minimize the per-resource code
 
-Goal: adding a new manifest-addressable resource is a single Go file
-with a struct, a table name, and a `Register` call. Everything else
-— SELECT, INSERT, DELETE, YAML parse/serialize, JSON parse/serialize,
-REST handlers, MCP tools, export, plan — falls out of one set of
-struct tags.
+Goal: adding a new manifest-addressable resource is a small Go file:
+a struct, table name, primary key declaration, a `Register` call, and
+optional hooks. The engine handles the **strict subset** of resources
+— scalar columns, no NULLs, single-column or declared-composite PK,
+RFC3339 timestamps. Resources outside that subset declare hooks; the
+engine still handles parse/emit/REST/MCP wiring.
+
+The codebase today has ad-hoc per-resource readers (`store/groups.go`
+has six different readers for one group row across `model`, `open`,
+`observe_window_*`, `cost_cap_*` — see issue tracker). The reflective
+engine **replaces** these scattered readers with one — this is a
+migration of existing code, not a greenfield addition. Drift between
+the engine's struct and the per-call-site readers is a known risk
+that the refactor closes.
 
 **Tagged struct as the contract:**
 
@@ -402,24 +417,94 @@ These live as small, optional hook methods on the resource type.
 The point is that the hooks are the **only** per-resource code;
 the bulk (SELECT/INSERT/parse/emit) stays in the engine.
 
+### Engine sketch — how export/import comes "for free"
+
+The engine relies on three Go primitives:
+
+1. **`reflect`** — read `db:` tags to build SQL column lists; iterate
+   struct fields to bind Scan/Exec arguments.
+2. **`gopkg.in/yaml.v3` + `encoding/json`** — already use struct tags.
+3. **`sql.Rows.Scan(scanTargets...)`** — accepts `[]any` of pointers,
+   which reflection produces from the struct fields.
+
+```go
+// Export ALL resources to one YAML stream — ~10 lines.
+func Export(db *sql.DB, out io.Writer) error {
+    manifest := map[string]any{
+        "config_version": readVersion(db),
+    }
+    for _, r := range registry.All() {
+        rows, err := r.ScanAll(db)
+        if err != nil { return err }
+        manifest[r.Name] = rows
+    }
+    return yaml.NewEncoder(out).Encode(manifest)
+}
+
+// Generic SELECT via reflection over `db:` tags.
+func (r *Resource) ScanAll(db *sql.DB) (any, error) {
+    cols := r.columnList()                 // cached at registration
+    sql := "SELECT " + strings.Join(cols, ",") + " FROM " + r.Table
+    rows, _ := db.Query(sql)
+    defer rows.Close()
+    slice := reflect.MakeSlice(reflect.SliceOf(r.RowType), 0, 16)
+    for rows.Next() {
+        row := reflect.New(r.RowType).Elem()
+        targets := r.scanTargets(row)      // field addrs via reflect
+        rows.Scan(targets...)
+        slice = reflect.Append(slice, row)
+    }
+    return slice.Interface(), nil
+}
+
+// Apply: same machinery, reversed. ~15 LOC of new code.
+func Apply(db *sql.DB, manifest map[string]any) error {
+    tx, _ := db.BeginImmediate()
+    defer tx.Rollback()
+    if !casCheck(tx, manifest["config_version"]) {
+        return ErrVersionMismatch
+    }
+    for _, r := range registry.All() {
+        rows := r.parseRows(manifest[r.Name])   // YAML → []Row
+        r.DeleteScope(tx, scope)
+        r.InsertAll(tx, rows)                    // INSERT generated
+    }
+    tx.Exec("UPDATE config_meta SET version = version + 1")
+    return tx.Commit()
+}
+```
+
+**What's actually free per resource:** export/import, REST GET/POST
+generic handlers, MCP tool registration (generated from `Resource.Name`
+plus the struct fields), YAML round-trip, JSON in/out. Net per-resource
+LOC for a simple resource (e.g., `routes`): ~30 LOC for the struct
+declaration + register call.
+
+**Honest accounting for complex resources:** `groups` adds ~50 LOC for
+the JSON-blob `container_config` hook and nullable `model` field;
+`secrets` adds ~50 LOC for the encrypt/decrypt hook on `enc_value`;
+`scheduled_tasks` adds ~10 LOC for RFC3339 time format. Total
+per-resource ceiling: ~150 LOC. Engine core: ~300-500 LOC.
+
+The "free" claim is true for the strict-subset resources (`routes`,
+`acl`, `acl_membership`, `web_routes`, `proxyd_routes`,
+`onboarding_gates`, `network_rules`) and ~70% true for the rest.
+
 ## Optimistic locking (`config_version`)
 
 `config_meta` is a single-row config-class table holding a monotonically
-increasing integer: `config_version`. **Every** mutation increments it
-on commit — apply, MCP, REST, direct DB writes. There is no untracked
-write path.
+increasing integer: `config_version`. **One bump per apply transaction**,
+not per row.
 
-**All three transports require CAS.** YAML carries `config_version:`
-in the manifest header; REST sends `If-Match: <n>`; MCP tools take a
-`config_version` arg. Mismatch → reject. The asymmetry tried in
-earlier drafts (YAML only) is dropped — uniform CAS is simpler to
-implement, simpler to reason about, and forces every writer to commit
-to a base version.
+**CAS applies only to YAML apply.** MCP and REST mutations do not carry
+the version. They are single-row, write-and-read in one call, serialized
+by `BEGIN IMMEDIATE`. There is no stale snapshot for an MCP agent to
+defend; an `If-Match` style header would force useless refetch loops
+that don't prevent any real bug.
 
-Cost for MCP agents: one extra arg on every mutation tool, plus a
-read-before-write step (call `get` to fetch current version, then
-`create` with that version). This is a small tax that prevents
-silent overwrites across all writer types.
+YAML apply IS the stale-snapshot pattern: export at T, edit for minutes
+or hours, apply at T+N. Between T and T+N, MCP/REST may have committed
+changes. Apply needs CAS to surface that drift.
 
 **Export** stamps the current DB version into the manifest header:
 
@@ -429,18 +514,19 @@ config_version: 42
 
 **Apply** checks the DB version before writing:
 
-- DB version == manifest `config_version` → proceed; increment to N+1
-  on commit.
+- DB version == manifest `config_version` → proceed; advance to N+1 on
+  commit.
 - DB version != manifest `config_version` → reject: "config changed
   since export; re-export or use --force to override."
 
 A manifest with no `config_version` field is rejected in strict mode.
-`--force` skips the check and writes unconditionally (last-writer-wins).
+`--force` skips the check and writes unconditionally (last-writer-wins;
+still advances the counter).
 
 **Why CAS:** without it, two operators can both export at v42, both
 edit, both apply with stale-but-superseded manifests, and the second
-silently overwrites the first. The version forces a re-export step
-that surfaces the conflict.
+silently overwrites the first. The version forces a re-export step that
+surfaces the conflict.
 
 The pattern is identical to etcd's `revision`, S3's `If-Match` ETag, and
 Kubernetes's `metadata.resourceVersion` — except simpler because we only
@@ -448,40 +534,68 @@ need it on the bulk-apply path.
 
 ### CAS implementation
 
-Two mechanisms make the "every mutation bumps version" invariant real
-without auditing every callsite:
-
-**(1) AFTER triggers per config table.** One migration adds:
+**(1) Version table + bootstrap migration.**
 
 ```sql
 CREATE TABLE config_meta (version INTEGER NOT NULL DEFAULT 0);
-INSERT INTO config_meta (version) VALUES (0);
-
--- For each config table: groups, acl, acl_membership, routes,
--- web_routes, scheduled_tasks, secrets, network_rules,
--- proxyd_routes, onboarding_gates:
-CREATE TRIGGER <table>_bump_version
-AFTER INSERT ON <table>
-BEGIN UPDATE config_meta SET version = version + 1; END;
--- similarly for AFTER UPDATE and AFTER DELETE.
+-- Bootstrap: count existing config rows so v1 is non-zero on instances
+-- with pre-existing state. First export then sees a real version;
+-- without back-fill, every fresh-install operator would need --force
+-- on first apply against a populated DB.
+INSERT INTO config_meta (version)
+  SELECT
+    (SELECT COUNT(*) FROM groups)            +
+    (SELECT COUNT(*) FROM acl)               +
+    (SELECT COUNT(*) FROM acl_membership)    +
+    (SELECT COUNT(*) FROM routes)            +
+    (SELECT COUNT(*) FROM web_routes)        +
+    (SELECT COUNT(*) FROM scheduled_tasks)   +
+    (SELECT COUNT(*) FROM network_rules)    +
+    (SELECT COUNT(*) FROM proxyd_routes)     +
+    (SELECT COUNT(*) FROM onboarding_gates);
 ```
 
-Every row mutation, from any callsite, bumps the counter. SQLite
-triggers are tx-bound; if the tx rolls back, the bump rolls back too.
+`secrets` is **excluded** from the version-tracked set. Routine
+out-of-band blob rotation (`arizuko secret set …`) must not invalidate
+every operator's pending manifest apply. Secret metadata (the
+`(scope_kind, scope_id, key)` triple) is rebuilt from YAML on apply
+along with the other config tables; the encrypted blob is set
+imperatively and doesn't touch `config_version`.
 
-**(2) `BEGIN IMMEDIATE` for race-free CAS.** Apply must acquire the
-RESERVED lock at tx start to serialize concurrent applies:
+**(2) Version bumps once per writer tx, not per row.** The bump is at
+the writer's COMMIT site, not in AFTER triggers. Apply does:
 
 ```
 BEGIN IMMEDIATE;
   SELECT version FROM config_meta;
   -- compare to manifest config_version
   -- if mismatch (and not --force): ROLLBACK; reject
+  -- (re-read manifest files INSIDE the tx — see Mutation sync race)
   DELETE FROM <config tables> WHERE folder IN (<manifest scope>);
   INSERT INTO <config tables> (...);
-  -- triggers fire per row, version reaches N + (rows touched)
+  UPDATE config_meta SET version = version + 1;   -- single bump
 COMMIT;
 ```
+
+MCP/REST single-row mutations bump similarly inside their tx:
+`BEGIN IMMEDIATE; ... write row(s) ...; UPDATE config_meta SET version
+= version + 1; COMMIT;`.
+
+Per-row triggers were considered and rejected: bulk apply of N rows
+would advance the version by N, breaking equality CAS (manifest at 42,
+DB at 642 after one apply, but the operator who exported at 642 cannot
+distinguish "1 apply ago" from "642 mutations ago"). One bump per
+writer tx keeps the counter human-meaningful.
+
+**(3) Apply emits ONE audit row per apply, not N.** The audit-log row
+summarizes: actor, manifest digest, rows added/updated/deleted per
+resource, final config_version. Per-row audit would multiply log volume
+by row count for every operator edit.
+
+**(4) `BEGIN IMMEDIATE` for race-free serialization.** Acquires the
+RESERVED lock at tx start so concurrent applies, concurrent MCP
+mutations, and apply-vs-MCP all serialize cleanly. WAL readers stay
+unaffected.
 
 Without `BEGIN IMMEDIATE`, two concurrent applies could both see
 version 42, both pass the CAS check, both commit, and the second's
@@ -501,15 +615,39 @@ Order is load-bearing. `gated` does these in sequence before opening
 its listen socket:
 
 ```
-1. Orphan recovery — scan manifest/ for `.<name>.yaml` files.
+1. Orphan recovery — scan manifest/ matching the exact pattern
+   `\.[A-Za-z0-9_/-]+\.yaml$` (literal dot prefix + name + .yaml).
+   Vim swapfiles (`*.swp`), editor backups (`*~`), and tempfiles
+   from `sed -i` or other writers do NOT match and are ignored.
    For each orphan:
-     - mtime(orphan) > mtime(<name>.yaml) OR <name>.yaml missing
-       → promote: rename(orphan, <name>.yaml)
-     - else → discard: delete orphan
-2. Apply manifest/ — run `arizuko apply manifest/` in one tx
-   (BEGIN IMMEDIATE; CAS check; DELETE + INSERT; COMMIT).
-3. New-group filesystem prep — for each group folder in DB
-   without an on-disk dir, call `container.SetupGroup(folder)`.
+     - canonical `<name>.yaml` missing → promote: rename(orphan, canonical).
+     - canonical exists AND mtime(orphan) > mtime(canonical) AND
+       content(orphan) != content(canonical) → AMBIGUOUS. Bail with
+       fatal: operator must reconcile manually (compare files, delete
+       one, restart). Do NOT auto-promote — orphan might be from a
+       crashed MCP mutation that the operator already integrated by
+       hand into the canonical file.
+     - canonical exists AND content(orphan) == content(canonical) →
+       safe duplicate, delete orphan.
+     - canonical mtime ≥ orphan mtime → orphan superseded, delete it.
+
+2. Apply manifest/ — run `arizuko apply manifest/`. Lifecycle:
+     a. BEGIN IMMEDIATE.
+     b. SELECT config_version; compare to manifest header.
+     c. Re-read manifest files INSIDE the tx (after BEGIN IMMEDIATE
+        holds the RESERVED lock — see "Mutation sync race" below).
+     d. DELETE config tables in scope; INSERT validated rows.
+     e. UPDATE config_meta SET version = version + 1.
+     f. COMMIT.
+
+3. New-group filesystem prep — for each group folder in DB without
+   a complete on-disk dir, call container.SetupGroup(folder).
+   **This step is fatal-on-failure.** If a group row exists in the
+   DB but SetupGroup cannot create the directory (disk full, perm
+   error), gated exits with a fatal error and does NOT open the
+   listen socket. The operator runs `arizuko repair` (idempotent
+   re-run of step 3) then restarts.
+
 4. Open listen socket.
 ```
 
@@ -520,16 +658,38 @@ catches the YAML up before apply reads it. Apply-first would commit
 the stale YAML state, undoing the just-committed mutation when the
 orphan is later promoted.
 
-**Why filesystem prep last.** SetupGroup is best-effort and idempotent
-(`MkdirAll`). It writes prototype skills and chowns directories. Doing
-it inside the DB tx would intermix file I/O with the apply commit; doing
-it post-commit means the DB is authoritative and a partial filesystem
-state can be retried via `arizuko repair` (idempotent re-run of step 3).
+**Why filesystem prep fatal-on-failure.** A group row in the DB
+without an on-disk dir means inbound messages routing to that group
+would `docker run` against a missing path and exit 125. The cost
+of bailing at startup is high (operator has to intervene); the cost
+of opening the socket with broken groups is higher (silent message
+drop). The bail is the right tradeoff.
 
-On `SIGHUP`, gated re-runs steps 1–3 (no socket re-bind). All daemons
-see the new config on their next DB read — no signals to individual
-daemons, no reload endpoints. SQLite WAL snapshot isolation lets
-in-flight reads finish on the old config; subsequent reads see new.
+`arizuko repair` is the operator escape hatch: it re-runs step 3 in
+isolation against the live DB. Safe to invoke at any time.
+
+On `SIGHUP`, gated re-runs steps 1–3 (no socket re-bind). SIGHUP
+during an in-flight apply is **queued via `BEGIN IMMEDIATE`** — the
+second tx blocks on the first's COMMIT, then sees the bumped version
+and proceeds. SIGHUP does not interrupt anything mid-tx.
+
+### Mutation sync race (parse-inside-tx)
+
+The naive sequence "parse files outside the tx, then BEGIN IMMEDIATE"
+has a race: between parse (t=0) and BEGIN (t=1), an MCP mutation can
+rewrite a manifest file and commit its DB write. Apply now holds a
+stale in-memory snapshot AND passes the CAS equality check (both
+mutation and apply saw the same version pre-write). Apply's
+DELETE+INSERT then silently overwrites the MCP mutation's row.
+
+Fix: **parse twice**. First parse outside the tx (for validation and
+version extraction); second parse inside the tx AFTER acquiring
+RESERVED lock, comparing against `config_version`. If files changed
+between the two parses (different SHA256), reject apply with "manifest
+files changed during apply; retry."
+
+This costs one extra parse but kills the race deterministically. No
+OS-level file locks needed.
 
 ## Group directory lifecycle
 
@@ -551,37 +711,64 @@ filesystem be the slower mirror keeps apply simple and recoverable.
 
 ## Group removal semantics
 
-When apply removes a `groups` row, runtime data referencing that folder
-(messages, chats, audit_log, cost_log, …) **is not deleted**. The rows
-stay in their tables with the now-orphaned `folder` string.
+When apply removes a `groups` row, **active routing state is
+cleared in the same tx**; runtime history is not.
 
-This is safe because arizuko uses **string references**, not declared
-foreign keys. The only declared FK between any pair of tables is
-`task_run_logs → scheduled_tasks` (ON DELETE CASCADE) — irrelevant
-here. Removing a group:
+**Active routing side-channels cleared automatically:**
 
-- Frees the folder name for reuse.
-- Strands runtime history under the old name (no longer surfaced via
-  any group view).
-- Does not corrupt the schema (no FK violation).
+These tables hold _live_ references that would silently misroute if
+left dangling. Apply clears them inside the `groups` DELETE tx:
 
-To fully erase a group:
+- `chats.sticky_group` — set to NULL where it points to the removed
+  folder. Otherwise sticky-routing keeps targeting a dead group.
+- `chat_reply_state.engaged_folder` — cleared. Otherwise reply
+  routing fires into the void.
+- `group_watchers` — DELETE rows where `observer` OR `source` is the
+  removed folder. Observe-mode UIs no longer surface stranded refs.
+- `router_state` — clear any cached pointers (if present) for the
+  folder.
+
+These are runtime tables (not config), but the rule applies: removing
+a group from the manifest implies the operator wants the group _gone
+from active routing_, even if history persists.
+
+**Runtime history is left intact:**
+
+- `messages.chat_jid` / `messages.folder`
+- `audit_log.folder`
+- `cost_log.folder`
+- `secret_use_log.folder`
+- `task_run_logs` (cascades from scheduled_tasks)
+
+These keep the orphaned `folder` string. They become inaccessible via
+group views but stay queryable for forensics or migration.
+
+The split is principled: **active state = cleared on removal; history
+= preserved**.
+
+Arizuko's broader posture is FK-light. The only declared FK between
+any pair of tables is `task_run_logs → scheduled_tasks` (ON DELETE
+CASCADE). All other cross-table references are unenforced strings.
+Removing a group does not corrupt the schema; it only requires the
+active-state cleanup above.
+
+To fully erase a group (history included):
 
 ```
-arizuko group purge <folder>   # one command, several DELETEs + rmdir
+arizuko group purge <folder>   # config DELETE + history DELETE + rmdir
 ```
 
-This deletes runtime rows with `folder=<folder>`, drops the on-disk
-directory, and clears any auxiliary state. `purge` is intentionally
-imperative — it is destructive in a way YAML apply is not.
+`purge` is intentionally imperative — it is destructive in a way YAML
+apply is not.
 
 **`plan` output warns on group removal:**
 
 ```
 $ arizuko plan
 groups:
-  - atlas    (REMOVE: 1247 message rows, 89 audit rows will be stranded;
-              use `arizuko group purge atlas` to delete)
+  - atlas    (REMOVE: clears 3 sticky_group + 1 engaged_folder + 2 watchers;
+              strands 1247 message rows, 89 audit rows.
+              `arizuko group purge atlas` to delete history.)
 ```
 
 Operators see the consequence before applying.
@@ -725,6 +912,24 @@ chat_reply_state  pane_sessions
    In-memory config caches are bugs — they create stale-read windows
    that make apply semantics undefined.
 
+   **This rule is normative, not aspirational.** Implementing 5/36
+   includes an audit pass that removes every existing in-memory
+   config cache. Known offenders to fix:
+   - `proxyd/resource.go:routesResource` — caches `proxyd_routes`
+     under `sync.RWMutex` (logged in `bugs.md`).
+   - `gateway/*.go` — `s.AllRoutes()` callers that hold results
+     across requests must be re-checked.
+   - `dashd/*.go` — any cached config lookups for UI rendering.
+
+   Resource-handle objects MAY hold one cache: `sync.Map[backendURL]
+*httputil.ReverseProxy` for proxy connection reuse. This caches
+   _connections_, not config rows; the row that picked the URL is
+   re-read per request.
+
+   Acceptance criterion: no successful 5/36 implementation can leave
+   `routesResource`-style caches in place. The audit is part of the
+   ship checklist.
+
 **Reload atomicity:** `BEGIN; DELETE config tables; INSERT from
 YAML; COMMIT`. All daemons see new config on their next DB read —
 no signals, no reload endpoints, no cache invalidation. SQLite WAL
@@ -742,20 +947,30 @@ manifest.
 Built from `store/migrations/*.sql`. Each row is a candidate for
 resreg + manifest. Hot-tier tables are deliberately excluded.
 
-| Resource           | Apply mode | Owning daemon        | What it carries                                                         |
-| ------------------ | ---------- | -------------------- | ----------------------------------------------------------------------- |
-| `groups`           | rebuild    | gated                | folder registration + product + model                                   |
-| `acl`              | rebuild    | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                   |
-| `acl_membership`   | rebuild    | gated                | group membership for `group:` principals                                |
-| `routes`           | rebuild    | gated                | message routing table                                                   |
-| `web_routes`       | rebuild    | gated                | web-channel route bindings (webd JIDs)                                  |
-| `scheduled_tasks`  | rebuild    | gated (timed reader) | cron entries                                                            |
-| `secrets`          | rebuild    | gated                | metadata only — blob set out-of-band                                    |
-| `network_rules`    | rebuild    | gated                | crackbox egress allowlist                                               |
-| `proxyd_routes`    | rebuild    | proxyd               | reverse-proxy route table                                               |
-| `onboarding_gates` | rebuild    | onbod                | per-instance onboarding policy                                          |
-| `invites`          | —          | onbod                | not in v1 manifests — CLI/MCP only (see Tokens are not in v1 manifests) |
-| `route_tokens`     | —          | gated                | not in v1 manifests — CLI/MCP only                                      |
+| Resource           | Apply mode | PK (natural key)                                        | Owning daemon        |
+| ------------------ | ---------- | ------------------------------------------------------- | -------------------- |
+| `groups`           | rebuild    | `folder`                                                | gated                |
+| `acl`              | rebuild    | `(principal, action, scope, params, predicate, effect)` | gated                |
+| `acl_membership`   | rebuild    | `(child, parent)`                                       | gated                |
+| `routes`           | rebuild    | `(seq, match, target)`                                  | gated                |
+| `web_routes`       | rebuild    | `path_prefix`                                           | gated                |
+| `scheduled_tasks`  | rebuild    | `id`                                                    | gated (timed reader) |
+| `secrets`          | rebuild    | `(scope_kind, scope_id, key)`                           | gated                |
+| `network_rules`    | rebuild    | `(folder, target)`                                      | gated                |
+| `proxyd_routes`    | rebuild    | `path`                                                  | proxyd               |
+| `onboarding_gates` | rebuild    | `gate`                                                  | onbod                |
+| `invites`          | —          | n/a — CLI/MCP only (see Tokens are not in v1 manifests) | onbod                |
+| `route_tokens`     | —          | n/a — CLI/MCP only                                      | gated                |
+
+**PK declaration is load-bearing.** Each resource's Go struct tags
+the PK fields (`pk:"true"` for single-column; multiple fields tagged
+for composite). The reflective engine uses the PK to deduplicate
+across files (see Splitting + composition) and to scope DELETE
+during rebuild.
+
+Resources marked `—` are imperative-only in v1. They have system-
+generated PKs (`token`, `token_hash`) that v1 declines to round-trip
+through YAML (see Tokens are not in v1 manifests).
 
 Hot-tier tables (`messages`, `chats`, `audit_log`, `cost_log`,
 `cli_audit`, `ipc_audit`, `task_run_logs`, `turn_results`,
@@ -800,22 +1015,45 @@ which routes exist, what tasks run). Markdown carries agent context
 5. **Report.** Print the plan delta + `ok` or the error that
    caused rollback.
 
-`arizuko get <resource>` queries the live config DB and emits
-the corresponding manifest YAML fragment.
+`arizuko get <resource>` queries the live config DB and emits the
+corresponding manifest YAML fragment.
 
-**`get` round-trip rules.** `arizuko get <resource>` MUST emit
-the exact YAML shape that `apply` accepts — no extra fields, no
-omitted fields, no reordering of keys. Secret rows emit metadata
-only (`scope`, `name`); the `value`/`ciphertext` field is never
+**`get` round-trip rules.** `arizuko get <resource>` MUST emit the
+exact YAML shape that `apply` accepts — no extra fields, no omitted
+fields, no reordering of keys. Secret rows emit metadata only
+(`scope_kind`, `scope_id`, `key`); the `enc_value` blob is never
 present in `get` output regardless of caller scope.
+
+**Canonical key order is mandatory.** Go's `map[string]…` iteration
+is non-deterministic; the engine MUST sort keys before YAML emission:
+
+- Top-level: `config_version` first, then group folders
+  (lexicographic), then global resource keys (lexicographic).
+- Within a group: resource keys in catalog order.
+- Within a resource list: rows sorted by PK (composite PKs sorted
+  lexicographically by their concatenated string form).
+
+Two consecutive `arizuko export` invocations must produce
+byte-identical YAML if the DB has not changed. Without this, file
+hashing, git diffs, and "is anything different?" checks all break.
 
 ## Dependency ordering
 
-Full rebuild inserts all rows in one transaction. Foreign-key
-constraints are deferred until commit, so manifest row order
-doesn't matter — all parent rows (groups) and child rows
-(grants, routes) land together atomically. No class ordering
-needed; the transaction handles it.
+Full rebuild inserts all rows in one transaction. Manifest row order
+does not matter because **arizuko enforces no FKs**: SQLite has FK
+enforcement off by default and the codebase only declares one
+constraint (`task_run_logs → scheduled_tasks ON DELETE CASCADE`,
+migration 0011), which doesn't interact with apply.
+
+If a future migration adds enforced FKs between config tables, the
+apply tool must either:
+
+- Declare them `DEFERRABLE INITIALLY DEFERRED` at table-create time,
+  OR
+- Insert in topological order (parents before children).
+
+For v1, neither is needed. Row insertion order within the tx is
+arbitrary.
 
 ## Atomicity model
 
@@ -896,14 +1134,26 @@ because most operators do not need git-tracked token state; v2 adds
 
 ## Splitting + composition
 
-- One manifest = one YAML file. `arizuko apply foo.yaml
-bar.yaml…` reads all files, merges, plans, dispatches as one
-  run.
-- Files compose **additively per resource** — two files
-  contributing `routes: [...]` are unioned.
-- Duplicate primary keys across files (or within one file) is
-  a **parse-time error**. No "last wins" merge.
+- `arizuko apply foo.yaml bar.yaml…` reads all files, merges, plans,
+  applies as one run. `arizuko apply manifest/` reads every `*.yaml`
+  in the directory the same way.
+- Files compose **additively per resource** — two files contributing
+  `routes: [...]` produce a union of rows.
+- **Duplicate PK handling.** The PK for each resource is declared
+  (see Resource catalog). Composition rules per PK:
+  - Same PK, identical payload across files → silently deduplicated.
+    `atlas.yaml` and `shared.yaml` may both declare
+    `(user:alice, group:engineers)` in `acl_membership` without error.
+  - Same PK, differing payload across files → parse-time error with
+    location info: `"acl_membership PK (user:alice, group:engineers)
+declared with conflicting fields in atlas.yaml:42 and
+shared.yaml:17"`.
+  - Same PK twice in one file → parse-time error regardless of
+    payload (always a bug).
 - No `include:` directives. Flat composition only.
+- Order of file reads is deterministic (lexicographic by filename) so
+  error messages are reproducible. But the resulting merged set is
+  order-independent: composition is associative.
 
 ## Secret safety
 
