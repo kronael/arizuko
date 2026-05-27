@@ -692,9 +692,11 @@ type FoundMessage struct {
 // surface to the caller. ACL filtering is the caller's job.
 //
 // `scope` is polymorphic: a string containing ':' is matched as a
-// chat_jid; otherwise it's a folder subtree (group_folder = scope OR
-// group_folder LIKE scope || '/%'). `sender` is exact match. `since` is
-// an RFC3339 timestamp lower bound (inclusive). Spec 5/C.
+// chat_jid; otherwise it's a folder subtree on `routed_to` (= scope OR
+// LIKE scope || '/%'). Spec 5/C names this `group_folder`, but that
+// column was dropped in migration 0023 — `routed_to` is its successor
+// as the per-message folder attribution. `sender` is exact match;
+// `since` is an RFC3339 timestamp lower bound (inclusive).
 func (s *Store) FindMessages(query, scope, sender, since string, limit int) ([]FoundMessage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 20
@@ -723,7 +725,7 @@ func (s *Store) FindMessages(query, scope, sender, since string, limit int) ([]F
 		 JOIN messages m ON m.rowid = f.rowid
 		 WHERE messages_fts MATCH ?
 		   AND (? IS NULL OR m.chat_jid = ?)
-		   AND (? IS NULL OR m.group_folder = ? OR m.group_folder LIKE ? || '/%')
+		   AND (? IS NULL OR m.routed_to = ? OR m.routed_to LIKE ? || '/%')
 		   AND (? IS NULL OR m.sender = ?)
 		   AND (? IS NULL OR m.timestamp >= ?)
 		 ORDER BY rank, m.timestamp DESC

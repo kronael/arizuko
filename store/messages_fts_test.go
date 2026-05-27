@@ -80,7 +80,7 @@ func TestMessagesFTS_QuerySyntax(t *testing.T) {
 		{"single token", "budget", 2},
 		{"phrase match", `"budget meeting"`, 1},
 		{"OR operator", "budget OR plan", 3},
-		{"AND NOT", "budget AND NOT meeting", 1},
+		{"NOT operator", "budget NOT meeting", 1},
 		{"prefix wildcard", "budg*", 3}, // budget(×2) + budgeting
 	}
 	for _, c := range cases {
@@ -126,10 +126,10 @@ func TestMessagesFTS_Diacritics(t *testing.T) {
 }
 
 // TestMessagesFTS_Filters confirms scope (chat_jid vs folder), sender,
-// since combine correctly. group_folder is set on insert via PutMessage
-// path? No — we set it through a side-channel UPDATE for test isolation,
-// because PutMessage doesn't bind group_folder (that's the gateway's
-// post-route fill-in).
+// since combine correctly. Folder-scoped queries match `routed_to`
+// (the per-message attribution column — spec 5/C names it
+// `group_folder` but that was dropped in 0023). We set routed_to via
+// the core.Message field so PutMessage binds it directly.
 func TestMessagesFTS_Filters(t *testing.T) {
 	s, err := OpenMem()
 	if err != nil {
@@ -149,12 +149,9 @@ func TestMessagesFTS_Filters(t *testing.T) {
 	}
 	for _, r := range rows {
 		if err := s.PutMessage(core.Message{
-			ID: r.id, ChatJID: r.jid, Sender: r.sender, Content: r.content, Timestamp: r.ts,
+			ID: r.id, ChatJID: r.jid, Sender: r.sender, Content: r.content,
+			Timestamp: r.ts, RoutedTo: r.folder,
 		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.Exec(`UPDATE messages SET group_folder = ? WHERE id = ?`,
-			r.folder, r.id); err != nil {
 			t.Fatal(err)
 		}
 	}
