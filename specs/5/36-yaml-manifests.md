@@ -1042,38 +1042,50 @@ hashing, git diffs, and "is anything different?" checks all break.
 **FKs are ON globally.** `store/store.go` sets `PRAGMA foreign_keys=ON`
 per connection. Declared FKs are enforced.
 
-**Exactly one FK is declared in v1:** `task_run_logs(task_id) →
-scheduled_tasks(id) ON DELETE CASCADE` (migration 0011). It works as
-intended — deleting a scheduled task cascades its run logs.
+**Three FKs are declared in v1:**
 
-**All other cross-table references are intentionally string-typed,
-not FKs:**
+| FK                                             | Migration | ON DELETE | Rationale                                                                                                                                         |
+| ---------------------------------------------- | --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_run_logs(task_id) → scheduled_tasks(id)` | 0011      | CASCADE   | runtime → config; run history evaporates with the task definition.                                                                                |
+| `web_routes(folder) → groups(folder)`          | 0068      | CASCADE   | config → config; URL pinning to a removed group must die with the group.                                                                          |
+| `route_tokens(owner_folder) → groups(folder)`  | 0069      | CASCADE   | runtime → config; webhook tokens minted by a removed group become unroutable; CASCADE deletes them silently (correct — the URL would 404 anyway). |
 
-- `acl.principal` is polymorphic (`user:sub_xyz`, `group:eng`, `**`,
-  `service:authd`). No single table to point a FK at — the string IS
-  the canonical encoding.
-- `*.folder`, `*.chat_jid`, `*.jid`, `*.scope`, `*.target` are likewise
-  string-shaped values that may not have a backing row (wildcard ACL
-  scopes, expired session refs, intentionally stranded history).
-- Group removal MUST strand runtime history; a FK with CASCADE would
-  silently delete it (wrong), and RESTRICT would block the removal
-  (worse).
+**Posture rule:** declare a FK when (a) the reference is row-shaped
+(single target table, not polymorphic) and (b) on parent delete, the
+runtime expects either silent CASCADE of the children or explicit
+RESTRICT — never silent dangling. Every other cross-table reference
+in the schema is intentionally string-typed:
 
-This is a deliberate posture: declare a FK when intra-domain integrity
-matters and the ref is row-shaped; use strings for polymorphic /
-historical / cross-domain refs. The engine doesn't fight either.
+| Reference                                                                                    | Why string, not FK                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `acl.principal`, `acl.scope`, `acl_membership.{child,parent}`                                | Polymorphic encodings (`user:sub_xyz`, `group:eng`, `**`, `service:authd`). No single target table. The string IS the canonical form.                                                                               |
+| `secrets.scope_id`                                                                           | Polymorphic by `scope_kind` column (`folder` \| `user`).                                                                                                                                                            |
+| `network_rules.folder`                                                                       | Empty-folder rows (`folder=''`) carry instance-global rules (migration 0037 seed). A FK to `groups.folder` would reject these legitimate rows. SQLite has no `FOREIGN KEY ... WHERE` predicate to exclude them.     |
+| `routes.target`                                                                              | Carries a `#observe` fragment in some rows (migration 0054). Not column-equal to any folder.                                                                                                                        |
+| `scheduled_tasks.chat_jid`                                                                   | Polymorphic: folder OR typed JID (`web:`, `hook:`, `telegram:`, …).                                                                                                                                                 |
+| `messages.{chat_jid,folder}`, `audit_log.folder`, `cost_log.folder`, `secret_use_log.folder` | Runtime history. Group removal MUST strand these rows for forensics; CASCADE deletes them silently (wrong), RESTRICT blocks legitimate removals (worse). `arizuko group purge` is the separate verb.                |
+| `chats.sticky_group`, `chat_reply_state.engaged_folder`, `group_watchers.{observer,source}`  | Active routing state. Spec mandates explicit clearing in the apply tx (see Group removal semantics) so the cleanup is auditable and ordered — a silent SET NULL / CASCADE would bypass the engine's audit emission. |
+| `proxyd_routes.path`, `onboarding_gates.gate`                                                | No cross-table reference to declare.                                                                                                                                                                                |
 
 ## Dependency ordering
 
 Full rebuild inserts all rows of all config tables in one transaction.
-**Manifest row insertion order doesn't matter** because no FKs link
-config tables to each other (`task_run_logs` is runtime, not config).
+**Insertion order matters** with the v1 FKs: `groups` rows must be
+inserted before `web_routes` and `route_tokens` rows that reference
+them. The apply engine inserts in resource-catalog order, which
+already places `groups` first.
 
-If a future migration adds a config-to-config FK, the engine must
-either declare it `DEFERRABLE INITIALLY DEFERRED` at table-create
-time, or set `PRAGMA defer_foreign_keys=ON` at apply tx start (works
-without `DEFERRABLE` on schema; per-tx scope). For v1, neither is
-needed.
+For DELETE-before-INSERT (state-replacement) within a scope, the order
+is reversed: children before parents. The two new FKs declare
+`ON DELETE CASCADE`, so `DELETE FROM groups WHERE folder = ?` removes
+the children automatically — explicit per-table DELETEs are also safe
+(idempotent: rows already gone, no error).
+
+If a future migration adds a config-to-config FK whose order is harder
+to topologically sort (cycles, multi-step dependencies), set
+`PRAGMA defer_foreign_keys=ON` at apply tx start — checks defer to
+COMMIT, validated as a whole. For v1, neither cycle nor multi-step
+dependency exists.
 
 ## Atomicity model
 
