@@ -56,13 +56,13 @@ keys across files are a parse-time error.
 
 ```
 manifest/
-  _instance.yaml     ← instance-global config (proxyd_routes,
+  _base.yaml     ← base config (proxyd_routes,
   atlas.yaml         ← all config owned by the atlas group
   krons.yaml         ← all config owned by the krons group
   shared.yaml        ← cross-group ACL or routes (optional)
 ```
 
-Underscore-prefixed files (`_instance.yaml`) hold config that has no
+Underscore-prefixed files (`_base.yaml`) hold config that has no
 group folder (proxyd routes, onboarding policy, network rules).
 Regular files are named after the group folder they primarily describe.
 
@@ -105,7 +105,7 @@ secrets:
 ```
 
 ```yaml
-# _instance.yaml — instance-global config
+# _base.yaml — base config
 
 proxyd_routes:
   - path: /api/atlas
@@ -136,13 +136,13 @@ manifest file synchronously, before returning to the caller.
 **Home-file rule** — the file a row belongs to is determined by its
 group folder field (no DB tracking column needed):
 
-| Resource                                                  | Home-file key                 | Home file                 |
-| --------------------------------------------------------- | ----------------------------- | ------------------------- |
-| `groups`                                                  | `folder`                      | `manifest/<folder>.yaml`  |
-| `acl`, `acl_membership`                                   | folder extracted from `scope` | `manifest/<folder>.yaml`  |
-| `routes`, `route_tokens`, `web_routes`, `scheduled_tasks` | `target_folder`               | `manifest/<folder>.yaml`  |
-| `secrets`                                                 | folder extracted from `scope` | `manifest/<folder>.yaml`  |
-| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (instance-global)           | `manifest/_instance.yaml` |
+| Resource                                                  | Home-file key                 | Home file                |
+| --------------------------------------------------------- | ----------------------------- | ------------------------ |
+| `groups`                                                  | `folder`                      | `manifest/<folder>.yaml` |
+| `acl`, `acl_membership`                                   | folder extracted from `scope` | `manifest/<folder>.yaml` |
+| `routes`, `route_tokens`, `web_routes`, `scheduled_tasks` | `target_folder`               | `manifest/<folder>.yaml` |
+| `secrets`                                                 | folder extracted from `scope` | `manifest/<folder>.yaml` |
+| `proxyd_routes`, `onboarding_gates`, `network_rules`      | — (base)                      | `manifest/_base.yaml`    |
 
 Protocol per mutation:
 
