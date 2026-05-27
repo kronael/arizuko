@@ -1173,6 +1173,42 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 	})
 
+	regSocial(socialAct{
+		name: "pin_message",
+		desc: "Pin a message to a chat/channel (Slack pins.add, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Not for editing content (`edit`) or amplifying on a feed (`repost`/`quote`). Mastodon/Bluesky/Reddit/Email/WhatsApp return unsupported.",
+		args: []string{"chatJid", "targetId"},
+		call: func(a map[string]string) (string, error) {
+			if gated.Pin == nil {
+				return "", errors.New("pin not configured")
+			}
+			return "", gated.Pin(a["chatJid"], a["targetId"])
+		},
+	})
+
+	regSocial(socialAct{
+		name: "unpin_message",
+		desc: "Remove the pin on a specific message (Slack pins.remove, Discord channel unpin, Telegram unpinChatMessage). Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (use `unpin_all` on Slack/Telegram) or deleting the message itself (`delete`).",
+		args: []string{"chatJid", "targetId"},
+		call: func(a map[string]string) (string, error) {
+			if gated.Unpin == nil {
+				return "", errors.New("unpin not configured")
+			}
+			return "", gated.Unpin(a["chatJid"], a["targetId"], false)
+		},
+	})
+
+	regSocial(socialAct{
+		name: "unpin_all",
+		desc: "Clear every pin in a chat/channel (Slack: iterates pins.list+pins.remove; Telegram: unpinAllChatMessages). Use when wholesale resetting a channel's pinned set. Discord has no bulk primitive — call `unpin_message` per id. Not for removing one pin (`unpin_message`).",
+		args: []string{"chatJid"},
+		call: func(a map[string]string) (string, error) {
+			if gated.Unpin == nil {
+				return "", errors.New("unpin not configured")
+			}
+			return "", gated.Unpin(a["chatJid"], "", true)
+		},
+	})
+
 	// pane_set_prompts / pane_set_title — Slack assistant pane (spec 6/D).
 	// Both stage values on the owning adapter; the adapter fires the
 	// assistant.threads.* call after the next outbound into the pane.
