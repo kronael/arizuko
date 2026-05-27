@@ -128,47 +128,60 @@ Where two resources happen to share a name across daemons (e.g.
 already disambiguates by the `Resource.Name` field — different
 names, no collision.
 
-## Two-database model
+## Two-table-class model
 
-arizuko's data separates cleanly into two concerns with different
-durability requirements:
+One physical SQLite file (`messages.db`). On Postgres it would be
+two schemas (`config.*`, `runtime.*`); on SQLite it is
+**documentation discipline** — no naming prefixes, no separate
+files, just a clear rule about which tables each class owns and
+what may touch them.
 
-**Config DB** (transitory) — groups, grants, routes, route tokens,
-skills, adapter config, scheduled tasks, network rules, web routes,
-proxyd routes, invite policy. This is operator-authored intent.
-YAML manifests are the source of truth. On startup, gated parses
-the instance manifest and builds this DB from scratch in a single
-SQLite transaction. On reload, it rebuilds and atomically swaps.
-The DB can be deleted at any time — restarting gated reconstructs
-it fully from YAML. No migration history needed; the YAML is the
-migration.
+**Config tables** — operator-authored intent, rebuilt from YAML on
+every startup/reload. YAML is truth; the DB is a queryable index.
 
-**Runtime DB** (persistent, append-only) — messages, chats, turns,
-audit rows, cost log, sessions, task run logs, identity codes. This
-is system-generated record. YAML never touches it. It cannot be
-reconstructed from manifests; it is the record of what happened.
+```
+groups  acl  acl_membership  routes  route_tokens  web_routes
+scheduled_tasks  network_rules  proxyd_routes
+invites  onboarding_gates  secrets
+```
 
-This split is what makes YAML-as-truth viable without the drift
-and rollback problems of reconciliation:
+**Runtime tables** — system-generated record, append-only, never
+touched by apply/reload.
 
-- **Atomic apply** is trivial: building the config DB is a full
-  `BEGIN; DELETE; INSERT ...; COMMIT` in one transaction. Partial
-  state is impossible. No per-row error handling, no class-gated
-  skipping complexity — the whole manifest succeeds or the DB is
-  unchanged.
-- **Reload is safe**: parse new YAML into a temp DB, validate,
-  then swap. Old DB serves queries until the swap completes.
-- **No drift**: the DB is always derived from YAML. Nothing can
-  mutate the config DB independently of the YAML files.
+```
+messages  chats  topics  turns  turn_results
+audit_log  cost_log  cli_audit  ipc_audit  secret_use_log
+auth_sessions  session_log  task_run_logs  identity_codes
+system_messages  router_state  group_watchers
+chat_reply_state  pane_sessions
+```
 
-**Consequence for operator-generated config**: groups created via
-onboarding (`onbod/SetupGroup`), ad-hoc grants from `arizuko grant
-add`, dynamically issued route tokens — these are NOT in YAML.
-They live in the runtime DB. The split is: **operator-authored
-config** → YAML → config DB. **System-generated or user-generated
-config** → runtime DB directly. `arizuko export` can snapshot
-runtime config rows into YAML for an operator who wants to
-"freeze" them into the static manifest.
+**Rules that must be upheld:**
+
+1. `apply`/reload only writes to config tables. It never touches
+   runtime tables.
+2. Runtime tables are never DELETE'd in bulk — only by explicit
+   retention/purge commands.
+3. Config tables have no migration history — the YAML is the
+   migration. Runtime tables have full migration history in
+   `store/migrations/`.
+4. Cross-class JOINs are allowed and expected (dashd, reporting).
+   The split is a write-discipline boundary, not a query boundary.
+5. No new table goes into the config class without a corresponding
+   entry in the resource catalog and apply support. A table that
+   isn't manifest-addressable belongs in the runtime class.
+
+**Reload atomicity:** `BEGIN; DELETE config tables; INSERT from
+YAML; COMMIT`. SQLite WAL gives readers snapshot isolation during
+the transaction — they see the old config until commit, then
+instantly see the new config. No bloat: freed pages go to the
+freelist and are reused by the next INSERT cycle.
+
+**Operator-generated config** (onboarding groups, ad-hoc grants,
+dynamically issued route tokens) lives in runtime tables directly
+— it is not in YAML. `arizuko export` snapshots these rows into
+YAML for an operator who wants to promote them into the static
+manifest.
 
 ## Resource catalog (v1)
 
