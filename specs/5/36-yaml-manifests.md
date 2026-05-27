@@ -97,7 +97,7 @@ atlas:
   scheduled_tasks:
     - id: atlas-compact
       owner: system
-      chat_jid: 'web:atlas'
+      chat_jid: atlas
       prompt: '/compact-memories episodes day'
       cron: '0 2 * * *'
       status: active
@@ -147,7 +147,7 @@ krons:
   scheduled_tasks:
     - id: oncall-digest
       owner: system
-      chat_jid: 'web:krons/eng/sre/oncall'
+      chat_jid: krons/eng/sre/oncall
       prompt: '/digest last 24h'
       cron: '0 8 * * *'
       status: active
@@ -213,7 +213,7 @@ group folder field (no DB tracking column needed):
 | `routes`                                                                 | `target`                            | `manifest/<folder>.yaml` |
 | `route_tokens`                                                           | `owner_folder`                      | `manifest/<folder>.yaml` |
 | `web_routes`                                                             | `folder`                            | `manifest/<folder>.yaml` |
-| `scheduled_tasks`                                                        | folder extracted from `chat_jid`    | `manifest/<folder>.yaml` |
+| `scheduled_tasks`                                                        | `chat_jid` (is the folder)          | `manifest/<folder>.yaml` |
 | `secrets`                                                                | `scope_id` when `scope_kind=folder` | `manifest/<folder>.yaml` |
 | `network_rules` (group-scoped)                                           | `folder`                            | `manifest/<folder>.yaml` |
 | `proxyd_routes`, `onboarding_gates`, `network_rules` (global), `invites` | — (base)                            | `manifest/base.yaml`     |
@@ -615,12 +615,7 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    String form is simpler; structured form enables validation at
    parse time.
 
-7. **`seq` on routes.** All current routes are inserted with
-   `seq=0`; ordering falls back to `id ASC`. Seq may be removed
-   when/if match specificity (longer match string = higher
-   priority) replaces explicit ordering.
-
-8. **`invites` and `route_tokens` class membership.** Both have
+7. **`invites` and `route_tokens` class membership.** Both have
    auto-generated PKs (`token`, `token_hash`) and operator-issued
    state that should survive apply. Full-rebuild wipes them.
    Likely these belong in the runtime class, not config. Defer
