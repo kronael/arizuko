@@ -44,6 +44,8 @@ type GatedFns struct {
 	Repost              func(jid, sourceMsgID string) (string, error)
 	Dislike             func(jid, targetID string) error
 	Edit                func(jid, targetID, content string) error
+	Pin                 func(jid, targetID string) error
+	Unpin               func(jid, targetID string, all bool) error
 	ClearSession        func(folder string)
 	ForkTopic           func(folder, parent, child string, force bool) error
 	InjectMessage       func(jid, content, sender, senderName string) (string, error)
