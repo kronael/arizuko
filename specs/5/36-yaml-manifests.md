@@ -3,7 +3,7 @@ status: draft
 depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md, specs/7/3-git-as-truth.md
 ---
 
-# specs/7/5 — YAML manifests: declarative carrier for cold-tier intent
+# specs/5/36 — YAML manifests: declarative carrier for cold-tier intent
 
 ## Why
 
@@ -16,7 +16,7 @@ YAML manifest format that **carries cold-tier intent** for an
 instance: ACL, routes, secrets metadata, scheduled tasks, invites,
 proxyd routes, web routes, network rules, group registration —
 every cold table covered by `resreg.Resource` per
-[`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md). Prose
+[`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md). Prose
 artifacts (PERSONA.md, MEMORY.md, .diary/) stay as Markdown files,
 referenced from YAML by path; the YAML never inlines their bodies.
 
@@ -128,25 +128,67 @@ Where two resources happen to share a name across daemons (e.g.
 already disambiguates by the `Resource.Name` field — different
 names, no collision.
 
+## Two-database model
+
+arizuko's data separates cleanly into two concerns with different
+durability requirements:
+
+**Config DB** (transitory) — groups, grants, routes, route tokens,
+skills, adapter config, scheduled tasks, network rules, web routes,
+proxyd routes, invite policy. This is operator-authored intent.
+YAML manifests are the source of truth. On startup, gated parses
+the instance manifest and builds this DB from scratch in a single
+SQLite transaction. On reload, it rebuilds and atomically swaps.
+The DB can be deleted at any time — restarting gated reconstructs
+it fully from YAML. No migration history needed; the YAML is the
+migration.
+
+**Runtime DB** (persistent, append-only) — messages, chats, turns,
+audit rows, cost log, sessions, task run logs, identity codes. This
+is system-generated record. YAML never touches it. It cannot be
+reconstructed from manifests; it is the record of what happened.
+
+This split is what makes YAML-as-truth viable without the drift
+and rollback problems of reconciliation:
+
+- **Atomic apply** is trivial: building the config DB is a full
+  `BEGIN; DELETE; INSERT ...; COMMIT` in one transaction. Partial
+  state is impossible. No per-row error handling, no class-gated
+  skipping complexity — the whole manifest succeeds or the DB is
+  unchanged.
+- **Reload is safe**: parse new YAML into a temp DB, validate,
+  then swap. Old DB serves queries until the swap completes.
+- **No drift**: the DB is always derived from YAML. Nothing can
+  mutate the config DB independently of the YAML files.
+
+**Consequence for operator-generated config**: groups created via
+onboarding (`onbod/SetupGroup`), ad-hoc grants from `arizuko grant
+add`, dynamically issued route tokens — these are NOT in YAML.
+They live in the runtime DB. The split is: **operator-authored
+config** → YAML → config DB. **System-generated or user-generated
+config** → runtime DB directly. `arizuko export` can snapshot
+runtime config rows into YAML for an operator who wants to
+"freeze" them into the static manifest.
+
 ## Resource catalog (v1)
 
 Built from `store/migrations/*.sql`. Each row is a candidate for
 resreg + manifest. Hot-tier tables are deliberately excluded.
 
-| Resource           | Owning daemon        | What it carries                                                          |
-| ------------------ | -------------------- | ------------------------------------------------------------------------ |
-| `groups`           | gated                | folder registration + product + model                                    |
-| `acl`              | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md))                    |
-| `acl_membership`   | gated                | group membership for `group:` principals                                 |
-| `routes`           | gated                | message routing table                                                    |
-| `route_tokens`     | gated                | external caller → folder bindings ([`../5/W`](../5/W-webhook-routes.md)) |
-| `web_routes`       | gated                | web-channel route bindings (webd JIDs)                                   |
-| `scheduled_tasks`  | gated (timed reader) | cron entries                                                             |
-| `secrets`          | gated                | metadata only — blob set out-of-band                                     |
-| `network_rules`    | gated                | crackbox egress allowlist                                                |
-| `proxyd_routes`    | proxyd               | reverse-proxy route table                                                |
-| `invites`          | onbod                | invitation tokens                                                        |
-| `onboarding_gates` | onbod                | per-instance onboarding policy                                           |
+| Resource           | Owning daemon        | What it carries                                                                  |
+| ------------------ | -------------------- | -------------------------------------------------------------------------------- |
+| `groups`           | gated                | folder registration + product + model                                            |
+| `acl`              | gated                | unified ACL rules ([`../4/9`](../4/9-acl-unified.md) )                           |
+| `acl_membership`   | gated                | group membership for `group:` principals                                         |
+| `routes`           | gated                | message routing table                                                            |
+| `route_tokens`     | gated                | external caller → folder bindings ([`W-webhook-routes.md`](W-webhook-routes.md)) |
+| `web_routes`       | gated                | web-channel route bindings (webd JIDs)                                           |
+| `scheduled_tasks`  | gated (timed reader) | cron entries                                                                     |
+| `secrets`          | gated                | metadata only — blob set out-of-band                                             |
+| `network_rules`    | gated                | crackbox egress allowlist                                                        |
+| `proxyd_routes`    | proxyd               | reverse-proxy route table                                                        |
+| `invites`          | onbod                | invitation tokens                                                                |
+| `onboarding_gates` | onbod                | per-instance onboarding policy                                                   |
 
 Hot-tier tables (`messages`, `chats`, `audit_log`, `cost_log`,
 `cli_audit`, `ipc_audit`, `task_run_logs`, `turn_results`,
@@ -187,34 +229,25 @@ back-doored from YAML.
 ## Apply lifecycle
 
 1. **Parse.** YAML → typed Go structs. Strict mode: unknown
-   resource keys reject; unknown row fields reject. Same posture
-   as the REST adapter's `DisallowUnknownFields`.
-2. **Resolve registry.** Apply tool fetches each daemon's
-   resource list via `GET /v1/_resources` (registry endpoint —
-   delivered with resreg). Live fetch, not static — strict, not
-   magical. Version mismatch between manifest and daemon is an
-   explicit error.
-3. **Validate.** Each row JSON round-trips through the live
-   schema for `(resource, create)`. Decode failure = row rejected
-   with the daemon's own error message.
-4. **Plan.** Compute `(resource, action, row)` execution list.
-   Action selection by primary key:
-   - PK absent in live state → `create`
-   - PK present and row differs → `update`
-   - PK present in live state but absent from manifest → **left
-     alone**. Deletion requires explicit `--prune` flag.
-5. **Order.** Sort the execution list by **dependency class**
-   (see below). Within a class, rows execute in manifest order.
-6. **Dispatch.** Per row: POST/PATCH/DELETE to the owning
-   daemon's resreg endpoint. resreg's tx-bound audit fires per
-   call.
-7. **Report.** Print per-row result. On any error, dependent
-   classes that haven't started are **skipped** (not "best-effort
-   continue"); the operator resolves and re-applies.
+   resource keys reject; unknown row fields reject. Any error
+   here aborts before touching the DB.
+2. **Validate.** Each row is validated against the resource
+   schema in the binary (not a live registry fetch — the apply
+   tool and gated are co-versioned). Unknown fields reject.
+   Referenced files (`persona_ref`, `memory_ref`) must exist;
+   content hash recorded. Any error aborts before touching the DB.
+3. **Plan.** Diff validated manifest rows against current config
+   DB. Produce a human-readable delta: rows to add, rows to
+   update, rows unchanged. Unchanged rows are noted but not
+   re-inserted. `arizuko plan` stops here (non-mutating).
+4. **Apply.** Open a single SQLite transaction on the config DB.
+   Delete all manifest-owned rows. Insert all validated rows from
+   the manifest. Commit. On any error: rollback; old DB unchanged.
+5. **Report.** Print the plan delta + `ok` or the error that
+   caused rollback.
 
-`arizuko plan` runs steps 1-5 and prints the execution list
-without dispatching. `arizuko get` queries live state and emits
-the corresponding manifest fragment.
+`arizuko get <resource>` queries the live config DB and emits
+the corresponding manifest YAML fragment.
 
 **`get` round-trip rules.** `arizuko get <resource>` MUST emit
 the exact YAML shape that `apply` accepts — no extra fields, no
@@ -224,50 +257,41 @@ present in `get` output regardless of caller scope. Markdown
 references emit the relative path and recorded content hash;
 the body is never inlined.
 
-## Dependency classes
+## Dependency ordering
 
-Best-effort apply without ordering creates orphans (`routes`
-target a `folder` that hasn't been created yet, `acl` rules
-reference principals that don't exist, etc). The plan resolves
-this without a full DAG by **classing** resources:
-
-| Class | Resources                                                                                                                  |
-| ----- | -------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `groups`                                                                                                                   |
-| 2     | `secrets` (metadata), `acl`, `acl_membership`                                                                              |
-| 3     | `routes`, `route_tokens`, `web_routes`, `proxyd_routes`, `scheduled_tasks`, `network_rules`, `invites`, `onboarding_gates` |
-
-Class 1 → Class 2 → Class 3. Within a class, manifest order.
-If any row in class N fails, classes N+1+ are **skipped for that
-apply run**. The operator re-applies after fixing the failed
-row.
-
-This is enough structure to prevent orphans for v1 without a
-DAG resolver. Cross-class dependencies that don't fit (a
-`scheduled_task` whose `target_jid` depends on an `invite`
-landing first) require a second apply run — acceptable for v1.
+Full rebuild inserts all rows in one transaction. Foreign-key
+constraints are deferred until commit, so manifest row order
+doesn't matter — all parent rows (groups) and child rows
+(grants, routes) land together atomically. No class ordering
+needed; the transaction handles it.
 
 ## Atomicity model
 
-**Per-row atomicity via resreg, not cross-row.** Each resreg
-call is one SQL tx with one `audit_log` row. Cross-row +
-cross-daemon coordination is **best-effort with per-row
-reporting + class-gated skipping**. No 2PC, no global
-rollback.
+**Fully atomic via full rebuild.** Because the config DB is
+transitory and YAML is truth, apply is not an upsert loop — it
+is a `BEGIN; DROP + INSERT all rows; COMMIT`. The whole manifest
+applies or nothing does. No per-row error accumulation, no
+class-gated skipping, no partial state.
 
-Justification:
+This is the key reason SQL is the right substrate for config:
 
-- 2PC requires a coordinator and crash-safe protocol we don't
-  have across daemon process boundaries.
-- resreg already guarantees "the audit row is the mutation"
-  per call.
-- Idempotent primary-key dedup makes re-apply safe.
-- Class-gated skipping prevents orphan dependents.
-- Same posture as `kubectl apply` — operator carries the diff,
-  re-runs to convergence.
+- A document store has no cross-document transaction — you'd
+  need 2PC or accept partial apply.
+- A file-per-resource approach (plain YAML-as-files with no DB)
+  has no atomic swap — a crash mid-write leaves torn state.
+- SQLite gives `BEGIN/COMMIT` for free. Full rebuild in one
+  transaction is cheaper to implement and reason about than any
+  reconciliation loop.
 
-Idempotency: applying the same manifest twice → first run
-mutates, second run reports `ok unchanged` for every row.
+On validation failure (unknown resource key, bad row shape,
+missing referenced file), the transaction is never opened —
+the error is returned before any mutation. On runtime DB
+failure mid-insert, the transaction rolls back and the old
+config DB continues serving.
+
+Idempotency: applying the same manifest twice rebuilds the
+same DB twice. Second run produces identical state. Safe to
+re-run after any failure.
 
 ## Splitting + composition
 
@@ -309,21 +333,21 @@ boundary `kubectl` draws between spec and status.
 
 ## Cross-refs
 
-- [`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) —
+- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
   resreg defines the per-resource handler + REST + MCP surface
   the apply tool talks to.
-- [`../7/2-data-model.md`](2-data-model.md) — the cold/warm/hot
+- [`../7/2-data-model.md`](../7/2-data-model.md) — the cold/warm/hot
   tier boundary; this spec touches cold tier only.
-- [`../7/3-git-as-truth.md`](3-git-as-truth.md) — `agents.toml`
+- [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) — `agents.toml`
   references in 7/3 are superseded by YAML manifests as
   specified here. The git tree carries `<product>.yaml` +
   Markdown sidecars; the gateway commits them as 7/3 describes.
-- [`../7/4-data-ingestion-curation-eventing.md`](4-data-ingestion-curation-eventing.md)
+- [`../7/4-data-ingestion-curation-eventing.md`](../7/4-data-ingestion-curation-eventing.md)
   — Q2 (product manifest extends to ingestion?) and Q5
-  (cross-product eventing) remain open. 7/5 gives them a place
+  (cross-product eventing) remain open. 5/36 gives them a place
   to land (extend the resource catalog when those questions
   resolve), not a closed answer.
-- [`../5/32-tenant-self-service.md`](../5/32-tenant-self-service.md)
+- [`32-tenant-self-service.md`](32-tenant-self-service.md)
   — Phase C secret layering composes with the `secrets` resource
   here.
 

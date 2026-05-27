@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/6/F-audit-stream.md, specs/5/X-mcp-rest-unification.md, specs/7/3-git-as-truth.md, specs/7/5-yaml-manifests.md
+depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/6/F-audit-stream.md, specs/5/X-mcp-rest-unification.md, specs/7/3-git-as-truth.md, specs/5/36-yaml-manifests.md
 ---
 
 # specs/7/6 — functions: agent-authored lambda primitive
@@ -48,7 +48,7 @@ plane around it.
 ## The shape
 
 `functions` is a top-level YAML manifest key per
-[`7/5`](5-yaml-manifests.md)'s flat resource namespace, dispatched
+[`5/36`](../5/36-yaml-manifests.md)'s flat resource namespace, dispatched
 through resreg owned by `gated`.
 
 ```yaml
@@ -456,7 +456,7 @@ shallow enough to surface accidents fast.
    `functions:*` under `admin`.
 7. **Adds `functions` resreg.Resource** in gated, dependency class 3
    alongside `route_tokens`, `scheduled_tasks` per
-   [`7/5`](5-yaml-manifests.md).
+   [`5/36`](../5/36-yaml-manifests.md).
 
 No new HTTP-facing daemon. No new socket beyond fnspd's local one.
 
@@ -533,9 +533,8 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   row + script file are cold-tier state; per-turn commit picks them
   up; cold-tier integrity contract above implements the hashing
   discipline.
-- [`../7/5-yaml-manifests.md`](5-yaml-manifests.md) — `functions` as
-  top-level resource key, dependency class 3, `state: absent`
-  semantics.
+- [`../5/36-yaml-manifests.md`](../5/36-yaml-manifests.md) — `functions` as
+  top-level resource key; `state: absent` semantics.
 - [`../5/35-proxyd-standalone.md`](../5/35-proxyd-standalone.md) — no
   functions-specific proxyd route; webd serves `/hook/<token>` for
   both kinds.
