@@ -105,9 +105,8 @@ atlas:
       status: active
 
   secrets:
-    - scope_kind: folder
-      scope_id: atlas
-      key: openai
+    - key: openai
+    - key: anthropic
 
   network_rules:
     - folder: atlas
@@ -202,17 +201,17 @@ manifest file synchronously, before returning to the caller.
 **Home-file rule** — the file a row belongs to is determined by its
 group folder field (no DB tracking column needed):
 
-| Resource                                                      | Home-file key                       | Home file                |
-| ------------------------------------------------------------- | ----------------------------------- | ------------------------ |
-| group config fields                                           | the namespace key itself            | `manifest/<folder>.yaml` |
-| `acl`                                                         | folder extracted from `scope`       | `manifest/<folder>.yaml` |
-| `acl_membership`                                              | containing group key in document    | `manifest/<folder>.yaml` |
-| `routes`                                                      | `target`                            | `manifest/<folder>.yaml` |
-| `web_routes`                                                  | `folder`                            | `manifest/<folder>.yaml` |
-| `scheduled_tasks`                                             | `chat_jid` (is the folder)          | `manifest/<folder>.yaml` |
-| `secrets`                                                     | `scope_id` when `scope_kind=folder` | `manifest/<folder>.yaml` |
-| `network_rules` (group-scoped)                                | `folder`                            | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules` (global) | — (base)                            | `manifest/base.yaml`     |
+| Resource                                                      | Home-file key                                                  | Home file                |
+| ------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------ |
+| group config fields                                           | the namespace key itself                                       | `manifest/<folder>.yaml` |
+| `acl`                                                         | folder extracted from `scope`                                  | `manifest/<folder>.yaml` |
+| `acl_membership`                                              | containing group key in document                               | `manifest/<folder>.yaml` |
+| `routes`                                                      | `target`                                                       | `manifest/<folder>.yaml` |
+| `web_routes`                                                  | `folder`                                                       | `manifest/<folder>.yaml` |
+| `scheduled_tasks`                                             | `chat_jid` (is the folder)                                     | `manifest/<folder>.yaml` |
+| `secrets`                                                     | containing group key (folder-scoped) or explicit `user:` field | `manifest/<folder>.yaml` |
+| `network_rules` (group-scoped)                                | `folder`                                                       | `manifest/<folder>.yaml` |
+| `proxyd_routes`, `onboarding_gates`, `network_rules` (global) | — (base)                                                       | `manifest/base.yaml`     |
 
 Protocol per mutation:
 
@@ -245,11 +244,11 @@ one handler.
 
 |             | REST                            | MCP                           | YAML                              |
 | ----------- | ------------------------------- | ----------------------------- | --------------------------------- |
-| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | `state: present/absent`           |
+| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DROP + INSERT (rebuild per scope) |
 | Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
 | Row fields  | request body                    | tool args                     | row map                           |
 | Batching    | one row per call                | one row per call              | many rows, one tx                 |
-| CAS version | —                               | —                             | `config_version:` manifest header |
+| CAS version | `If-Match: <n>` header          | `config_version: <n>` arg     | `config_version:` manifest header |
 
 Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport, not the
@@ -287,16 +286,17 @@ increasing integer: `config_version`. **Every** mutation increments it
 on commit — apply, MCP, REST, direct DB writes. There is no untracked
 write path.
 
-**Only YAML apply uses CAS**; MCP and REST do not carry the version.
-They write directly and bump the counter on commit. This asymmetry is
-deliberate:
+**All three transports require CAS.** YAML carries `config_version:`
+in the manifest header; REST sends `If-Match: <n>`; MCP tools take a
+`config_version` arg. Mismatch → reject. The asymmetry tried in
+earlier drafts (YAML only) is dropped — uniform CAS is simpler to
+implement, simpler to reason about, and forces every writer to commit
+to a base version.
 
-- MCP/REST mutations are single-row, atomic, read-and-write in one call.
-  There is no stale snapshot to defend. Adding CAS to them would force
-  agents into useless retry loops without preventing any real bug.
-- YAML apply IS the stale-snapshot pattern: export at T, edit for
-  minutes-to-hours, apply at T+N. Between T and T+N, MCP/REST may have
-  bumped the counter. Apply needs CAS to surface that drift.
+Cost for MCP agents: one extra arg on every mutation tool, plus a
+read-before-write step (call `get` to fetch current version, then
+`create` with that version). This is a small tax that prevents
+silent overwrites across all writer types.
 
 **Export** stamps the current DB version into the manifest header:
 
@@ -504,17 +504,29 @@ Folder paths with `/` must be quoted in YAML:
 ```
 
 Secrets metadata only — blobs set via `arizuko secret set
-<scope_kind>/<scope_id>/<key> <value>`, never in YAML.
-Schema: `(scope_kind, scope_id, key)` where `scope_kind` is `folder`
-or `user`:
+folder:<folder>/<key> <value>`, never in YAML. DB schema is
+`(scope_kind, scope_id, key)`. In YAML:
 
-```yaml
-atlas:
-  secrets:
-    - scope_kind: folder
-      scope_id: atlas
-      key: openai
-```
+- Folder-scoped (default) — folder is inferred from group nesting;
+  only `key:` is declared.
+  ```yaml
+  atlas:
+    secrets:
+      - key: openai
+      - key: anthropic
+  ```
+- User-scoped — explicit `user:` field for the sub.
+  ```yaml
+  atlas:
+    secrets:
+      - user: sub_a1b2c3
+        key: github_token
+  ```
+
+The parser maps these to DB rows: `(folder, atlas, openai)` and
+`(user, sub_a1b2c3, github_token)`. No new serialization format is
+invented — the implicit-from-nesting rule mirrors how `acl` and
+`scheduled_tasks` already work under a group key.
 
 **Group fields** — all optional except the folder key itself:
 
@@ -731,14 +743,33 @@ Imperative mutations still bump `config_version` and audit-log, so
 operators can detect drift between manifest and live state, but
 tokens themselves never appear in `manifest/`.
 
-**Future work:** full-state round-trip for token-bearing resources.
-The simplest path is "export emits live tokens; YAML for tokens is
-operator-local, never git-committed." Deferred until concrete demand
-appears — most operators do not need git-tracked token state.
+**Future work — v2 encrypted token export.** When demand surfaces, the
+mechanism is:
 
-The rest of this section described a state-based apply protocol with
-operator-authored `name:` identifiers. That protocol is removed; see
-git history if reviving it.
+1. Operator supplies an encryption key (file path or env var):
+   `arizuko export invites --key /op/secrets/manifest.key > invites.yaml`
+2. Export emits rows with tokens encrypted under that key:
+   ```yaml
+   invites:
+     - token: 'enc:AES-GCM:<base64-ciphertext>'
+       target_glob: krons/
+       max_uses: 5
+       expires_at: '2027-01-01T00:00:00Z'
+   ```
+3. Apply decrypts with the same key:
+   `arizuko apply invites.yaml --key /op/secrets/manifest.key`
+4. Tokens are PKs — upsert is straightforward (INSERT or UPDATE by token).
+   No `name:` indirection, no `state:` field, same atomic rebuild as
+   declarative resources.
+
+The encryption key is operator-local, never committed. The YAML file
+itself can live in git (ciphertext is opaque) or stay out of git
+(operator preference). Re-applying without the key fails fast; the
+ciphertext is useless without it.
+
+This deferral is mechanical, not architectural. v1 ships without it
+because most operators do not need git-tracked token state; v2 adds
+~150 LOC (AES-GCM crypto + the export/apply paths) when needed.
 
 ## Splitting + composition
 
@@ -847,12 +878,6 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    of cold-tier state today. Should it gain a "manifest
    editor" tab? Out of scope for 7/5; tracked as future dashd
    work.
-
-6. **Token round-trip (deferred).** Full-state export+reimport for
-   `invites` and `route_tokens` requires either secret values in
-   YAML (operator-local files, never git) or a per-row identifier
-   layer. v1 ships without this; tokens stay imperative. Revisit
-   when concrete demand appears.
 
 ## Acceptance
 
