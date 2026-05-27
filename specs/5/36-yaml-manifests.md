@@ -36,18 +36,67 @@ remain open — 7/5 gives them a place to land later, not an answer.
 
 ## Surface
 
-Three verbs, mirroring `kubectl`:
+- `arizuko apply <file>…` — read manifest dir or file(s), validate,
+  rebuild config tables in one SQLite tx, report diff.
+- `arizuko plan <file>…` — same but non-mutating; prints diff vs
+  live state, no writes.
+- `arizuko get <resource>[/<name>]` — dump live DB state as a YAML
+  fragment for the named resource.
+- `arizuko export` — dump all config tables as a manifest dir
+  (`manifest/`), one file per resource kind.
 
-- `arizuko apply <file>…` — read manifest(s), validate, dispatch
-  per-row resreg calls, report results.
-- `arizuko plan <file>…` — same as apply but **non-mutating**;
-  prints the diff vs live state. No daemon-side writes, no audit
-  rows.
-- `arizuko get <resource>[/<name>]` — dump live state as a manifest
-  fragment; pairs with `plan` for round-trip honesty.
+## Manifest directory layout
 
-Each verb is a thin REST client over the operator's OAuth session.
-No daemon-side coordinator. No new tables.
+One file per resource kind. `arizuko apply` reads the directory and
+merges all files. Per-resource files let mutations rewrite only the
+affected file and give git per-resource change history.
+
+```
+manifest/
+  groups.yaml
+  acl.yaml
+  routes.yaml
+  route_tokens.yaml
+  proxyd_routes.yaml
+  scheduled_tasks.yaml
+  secrets.yaml          # metadata only, no blobs
+  ...
+```
+
+In-flight files use a dot-prefix (hidden, gitignored):
+
+```
+manifest/.groups.yaml   # only present during a mutation, never at rest
+```
+
+`.gitignore` entry: `manifest/.*`. On startup, delete any `manifest/.*`
+orphans — they are evidence of a crash between rename and commit (see
+Mutation sync below).
+
+## Mutation sync
+
+Every resreg config mutation (MCP or CLI) keeps the manifest directory
+synchronized with the DB in the same request, before returning to the
+caller. Protocol:
+
+```
+1. serialize new resource rows → write to manifest/.groups.yaml
+2. BEGIN tx
+3.   write rows to DB
+4.   rename(manifest/.groups.yaml, manifest/groups.yaml)  ← atomic
+5. COMMIT
+   on step 4 failure: ROLLBACK, delete manifest/.groups.yaml
+```
+
+`rename(2)` is atomic on POSIX local filesystems. It precedes the
+commit so the invariant holds: **YAML is never behind DB.** If the
+process dies between rename (step 4) and commit (step 5), YAML is
+ahead of DB — `arizuko apply` on next startup reconciles forward.
+DB being ahead of YAML cannot happen.
+
+Caller receives a success response only after both DB commit and
+rename succeed. No background goroutines; the sync is part of the
+handler's critical path.
 
 ## Resource-name = resreg.Resource.Name (not table name)
 
