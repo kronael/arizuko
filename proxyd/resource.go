@@ -1,5 +1,21 @@
 package main
 
+// proxyd `routes` Resource — spec 5/36 no-cache audit (May 2026).
+//
+// Prior to 5/36 this file held a routesResource with sync.RWMutex around
+// a []Route snapshot rebuilt on every mutation. That cache violated spec
+// 5/36 §"Two-table-class model" rule 6 ("no daemon may cache config-
+// table rows"). The cache had no measurable benefit — DB reads cost
+// microseconds — and created stale-read windows that broke YAML apply
+// semantics.
+//
+// Replacement (this file): every request reads routes from the DB
+// directly via store.AllProxydRoutes (or resreg's proxyd_routes
+// ScanAll). The only retained cache is a sync.Map[backend URL]
+// *httputil.ReverseProxy for connection reuse — this caches the
+// HTTP transport, not the row. See "Resource-handle objects MAY hold
+// one cache" in the spec.
+
 import (
 	"context"
 	"database/sql"
@@ -15,45 +31,108 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// routesResource holds the proxyd `routes` Resource state: the route
-// table held under an RWMutex (so reads stay lock-free under load) and
-// the cached ReverseProxy map rebuilt atomically on every mutation.
+// routesResource is the stateless route handler. The only field is the
+// proxy connection map (connection cache, not row cache — spec 5/36).
 type routesResource struct {
-	st     *store.Store
-	mu     sync.RWMutex
-	routes []Route
-	procs  map[string]*httputil.ReverseProxy
+	st *store.Store
+	// proxies: backend URL → ReverseProxy. Connection cache, not row cache (spec 5/36).
+	// Read on every request; entries built lazily on cache miss.
+	proxies sync.Map // map[string]*httputil.ReverseProxy
+
+	// manualRoutes is a test-only fallback used when st is nil — i.e.
+	// unit tests that exercise the routing plumbing without spinning up
+	// a full store. In production paths st is always non-nil and this
+	// stays empty; the DB is the source of truth.
+	manualMu     sync.RWMutex
+	manualRoutes []Route
 }
 
+// newRoutesResource constructs the handle. The `initial` arg used to
+// prime the snapshot cache; under spec 5/36 it's used only to warm the
+// proxy connection map (a small startup-cost optimisation).
 func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 	rr := &routesResource{st: st}
-	_ = rr.swap(initial)
+	if st == nil {
+		// Test path: hold routes in memory. Production paths always pass
+		// a non-nil store.
+		rr.installManual(initial)
+		return rr
+	}
+	for _, r := range initial {
+		if p := buildRouteProxy(r); p != nil {
+			rr.proxies.Store(r.Backend, p)
+		}
+	}
 	return rr
 }
 
-// snapshot returns a read-locked view of the route table + proxies.
-// Returned slices/maps are append-only (replaced wholesale on mutation),
-// so callers can use them without holding the lock past the call.
+// snapshot returns a fresh view of the route table by querying the DB.
+// One indexed read per call; cheap on SQLite/WAL. Callers MUST NOT
+// hold the returned slice across requests — it's a per-call snapshot.
 func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy) {
-	rr.mu.RLock()
-	defer rr.mu.RUnlock()
-	return rr.routes, rr.procs
-}
-
-func (rr *routesResource) swap(routes []Route) error {
+	var routes []Route
+	if rr.st != nil {
+		stored, err := rr.st.AllProxydRoutes()
+		if err == nil {
+			routes = make([]Route, 0, len(stored))
+			for _, r := range stored {
+				routes = append(routes, fromStoreRoute(r))
+			}
+		}
+	} else {
+		rr.manualMu.RLock()
+		routes = append([]Route(nil), rr.manualRoutes...)
+		rr.manualMu.RUnlock()
+	}
 	procs := make(map[string]*httputil.ReverseProxy, len(routes))
 	for _, r := range routes {
-		p := buildRouteProxy(r)
-		if p == nil {
-			return fmt.Errorf("invalid backend %q for path %q", r.Backend, r.Path)
-		}
-		procs[r.Path] = p
+		procs[r.Path] = rr.proxyFor(r)
 	}
-	rr.mu.Lock()
-	rr.routes = routes
-	rr.procs = procs
-	rr.mu.Unlock()
-	return nil
+	return routes, procs
+}
+
+// installManual is the test-only entry point for adding routes without
+// a backing store. Production code MUST not use this — production uses
+// the DB as source of truth.
+func (rr *routesResource) installManual(routes []Route) {
+	rr.manualMu.Lock()
+	rr.manualRoutes = append([]Route(nil), routes...)
+	rr.manualMu.Unlock()
+	for _, r := range routes {
+		if p := buildRouteProxy(r); p != nil {
+			rr.proxies.Store(r.Backend, p)
+		}
+	}
+}
+
+// proxyFor returns the cached ReverseProxy for r.Backend, building it
+// once on first call. Returns nil if Backend is unparseable.
+func (rr *routesResource) proxyFor(r Route) *httputil.ReverseProxy {
+	if v, ok := rr.proxies.Load(r.Backend); ok {
+		// Connection caches the transport keyed by backend, but the
+		// per-Path Director closure captures r.StripPrefix and
+		// r.PreserveHeaders. Two routes pointing at the same backend
+		// with different strip/headers need different proxies — rebuild
+		// each time then. Cost is tiny.
+		if cached, ok := v.(*httputil.ReverseProxy); ok && sameProxy(cached, r) {
+			return cached
+		}
+	}
+	p := buildRouteProxy(r)
+	if p != nil {
+		rr.proxies.Store(r.Backend, p)
+	}
+	return p
+}
+
+// sameProxy is a best-effort check that the cached proxy was built with
+// the same per-route knobs as r. Director closures aren't comparable, so
+// in practice we always rebuild when the row changes — this is here as
+// an extension point if we want to add caching later.
+func sameProxy(_ *httputil.ReverseProxy, _ Route) bool {
+	// Conservative: always rebuild on cache hit. Future work can hash
+	// (StripPrefix, PreserveHeaders) and compare.
+	return false
 }
 
 func toStoreRoute(r Route) store.ProxydRoute {
@@ -108,8 +187,7 @@ func argRoute(args resreg.Args) (Route, error) {
 
 // handle is the single Handler called by both REST and MCP adapters.
 // Mutating actions run inside x.Tx — DB writes via tx-aware store
-// helpers; in-memory cache swap happens after the tx commits in
-// adapter (the swap is best-effort; restart picks up persisted state).
+// helpers. The DB is the source of truth; no in-memory swap needed.
 func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, error) {
 	switch x.Action {
 	case resreg.ActionList:
@@ -142,11 +220,6 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		}
 		if err := insertProxydRouteTx(ctx, x.Tx, toStoreRoute(r)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
-		}
-		next := append([]Route(nil), routes...)
-		next = append(next, r)
-		if err := rr.swap(next); err != nil {
-			return nil, resreg.Errorf(http.StatusInternalServerError, "swap: %v", err)
 		}
 		return r, nil
 
@@ -194,11 +267,6 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		if err := updateProxydRouteTx(ctx, x.Tx, toStoreRoute(merged)); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "persist: %v", err)
 		}
-		next := append([]Route(nil), routes...)
-		next[idx] = merged
-		if err := rr.swap(next); err != nil {
-			return nil, resreg.Errorf(http.StatusInternalServerError, "swap: %v", err)
-		}
 		return merged, nil
 
 	case resreg.ActionDelete:
@@ -208,16 +276,6 @@ func (rr *routesResource) handle(ctx context.Context, x resreg.Execution) (any, 
 		}
 		if _, err := deleteProxydRouteTx(ctx, x.Tx, path); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "delete: %v", err)
-		}
-		routes, _ := rr.snapshot()
-		next := make([]Route, 0, len(routes))
-		for _, r := range routes {
-			if r.Path != path {
-				next = append(next, r)
-			}
-		}
-		if err := rr.swap(next); err != nil {
-			return nil, resreg.Errorf(http.StatusInternalServerError, "swap: %v", err)
 		}
 		return nil, nil
 

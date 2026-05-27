@@ -1317,13 +1317,14 @@ func TestProxydVhostRootPreservesTrailingSlash(t *testing.T) {
 // end-to-end via server.route.
 
 // installRoute is a tiny helper for tests that wires one TOML route into
-// the server's route table.
+// the server's route table. Test-only: uses the manual fallback path
+// (st nil); production reads from the DB per request (spec 5/36).
 func installRoute(s *server, r Route) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)
 	}
 	cur, _ := s.rr.snapshot()
-	_ = s.rr.swap(append(append([]Route(nil), cur...), r))
+	s.rr.installManual(append(append([]Route(nil), cur...), r))
 }
 
 func TestProxyd_TOMLRoute_HandlesSlackPrefix(t *testing.T) {

@@ -87,9 +87,9 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 		t.Fatalf("POST status = %d body=%s", w.Code, w.Body.String())
 	}
 
-	// in-memory cache must be visible immediately
-	if len(rr.routes) != 1 || rr.routes[0].Path != "/slack/" {
-		t.Errorf("rr.routes = %+v", rr.routes)
+	// route must be visible immediately via the DB-backed snapshot
+	if cur, _ := rr.snapshot(); len(cur) != 1 || cur[0].Path != "/slack/" {
+		t.Errorf("rr.snapshot() = %+v", cur)
 	}
 
 	// list
@@ -120,8 +120,9 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("PATCH = %d body=%s", w.Code, w.Body.String())
 	}
-	if got := rr.routes[0].Backend; got != "http://slakd2:8080" {
-		t.Errorf("backend after patch = %q", got)
+	cur, _ := rr.snapshot()
+	if len(cur) == 0 || cur[0].Backend != "http://slakd2:8080" {
+		t.Errorf("backend after patch = %+v", cur)
 	}
 
 	// delete
@@ -129,8 +130,8 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d", w.Code)
 	}
-	if len(rr.routes) != 0 {
-		t.Errorf("rr.routes after delete = %+v", rr.routes)
+	if cur, _ := rr.snapshot(); len(cur) != 0 {
+		t.Errorf("rr.snapshot() after delete = %+v", cur)
 	}
 
 	// delete is idempotent
@@ -247,8 +248,8 @@ func TestRoutesResource_Durable(t *testing.T) {
 		fresh = append(fresh, fromStoreRoute(r))
 	}
 	rr2 := newRoutesResource(st, fresh)
-	if len(rr2.routes) != 1 || rr2.routes[0].Backend != "http://api:8080" {
-		t.Errorf("rehydrated = %+v", rr2.routes)
+	if cur, _ := rr2.snapshot(); len(cur) != 1 || cur[0].Backend != "http://api:8080" {
+		t.Errorf("rehydrated = %+v", cur)
 	}
 }
 
