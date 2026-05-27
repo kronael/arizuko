@@ -29,6 +29,7 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -393,6 +394,7 @@ func (s *server) handler(cfg *core.Config, aud *audit.Audit) http.Handler {
 	mux := http.NewServeMux()
 	auth.RegisterRoutes(mux, s.st, cfg)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	mux.HandleFunc("/", s.route)
 	return logging(mux, aud)
 }

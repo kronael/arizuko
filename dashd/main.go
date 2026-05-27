@@ -22,6 +22,8 @@ import (
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 	"github.com/kronael/arizuko/theme"
 	_ "modernc.org/sqlite"
@@ -153,6 +155,10 @@ type dash struct {
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", d.handleHealth)
+	// dashd serves the HTMX operator UI; no cold-tier resources are
+	// owned here (routes/groups CRUD happens via gated). The doc
+	// advertises the static health endpoint plus a future /v1/* surface.
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("dashd", []string{}))
 	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
 	mux.HandleFunc("GET /dash/", d.handlePortal)
 	mux.HandleFunc("GET /dash/status/", d.handleStatus)

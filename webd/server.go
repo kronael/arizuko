@@ -14,6 +14,8 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -58,6 +60,10 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.channelSecret, s.handleTyping))
 	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
+	// webd hosts the chat widget + MCP forwarder; routes resource is
+	// forwarded to proxyd, no owned cold-tier resources. Doc lists the
+	// public surface only.
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("webd", []string{}))
 
 	// Route tokens (spec 5/W). Two URL prefixes share one set of
 	// handlers; kind metadata is for the agent, not a URL gate. Both

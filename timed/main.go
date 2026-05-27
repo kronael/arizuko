@@ -15,6 +15,8 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/robfig/cron/v3"
 	_ "modernc.org/sqlite"
 )
@@ -73,6 +75,9 @@ func main() {
 			}
 			_, _ = w.Write([]byte("ok"))
 		})
+		// timed reads scheduled_tasks but gated owns the table; the doc
+		// is informational so external tooling can discover the daemon.
+		mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", []string{}))
 		if err := http.ListenAndServe(":8080", mux); err != nil {
 			slog.Error("health server", "err", err)
 		}
