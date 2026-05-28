@@ -274,48 +274,6 @@ The `reply` MCP fallback at `ipc/ipc.go` read `GetLastReplyID(jid, "")`
 `activeTopic(db, folder)`. `send` is intentionally top-level (fresh
 message) — unchanged. Test: `TestServeMCP_Reply_ThreadsViaActiveTopic`.
 
-## Discord thread voice/file leak to parent channel (2026-05-25) — DEFERRED
-
-Carryover from the thread fetch_history fix (commit `098996c`). Voice/
-file replies from inside a thread land in the **parent channel**. Two
-distinct holes:
-
-1. **Voice** — `SendVoice(jid, audioPath, caption)` carries no thread/
-   reply param at all (`core.Channel` + `chanlib.BotHandler`).
-2. **File** — `SendFile` carries `replyTo`, but (a) the MCP `send_file`
-   handler doesn't fall back to the active topic when `replyToId` is
-   omitted, and (b) `discd.SendFile(jid,path,name,caption,_)` IGNORES
-   `replyTo` entirely (uses `chanID(jid)` = parent channel, with no
-   `ThreadID` override like its `Send` at bot.go:312). slakd threads
-   files via `reply_to`→`thread_ts`; discord does not.
-
-Deferred: a clean fix requires a `threadID` param across the
-`core.Channel` (`SendFile`/`SendVoice`) AND `chanlib.BotHandler`
-interfaces, threaded through every adapter (slakd, discd, teled, mastd,
-reditd, linkd, bskyd, emaid + `NoFileSender`/`NoVoiceSender`/
-`LocalChannel` + test mocks), the HTTP wire (`HTTPChannel.uploadMultipart`
-must add a `thread_id` multipart field; `chanlib.handleSendFile/
-handleSendVoice` must read it), and `ipc.GatedFns.SendVoice`/
-`SendDocument` + `gateway.sendVoice`/`sendDocument`. Blast radius is
-cross-adapter signature churn — explicitly out of scope for the
-thread-routing pass that fixed bug 1.
-
-Precise fix plan (when prioritized):
-- `core.Channel`: `SendFile(jid,path,name,caption,replyTo,threadID)`,
-  `SendVoice(jid,audioPath,caption,threadID)`.
-- `chanlib.BotHandler`: same two signatures; `handleSendFile`/
-  `handleSendVoice` read `thread_id` form field; `uploadMultipart`
-  writes it.
-- Each adapter: when `threadID != ""`, override the target channel/
-  message-reference exactly as `Send` does (discd: `chID = threadID`).
-- `ipc`: `GatedFns.SendVoice`/`SendDocument` gain `threadID`; the
-  `send_file`/`send_voice` MCP handlers default it to
-  `activeTopic(db, folder)` when `replyToId` is omitted (same pattern as
-  the bug-1 `reply` fix); gateway `sendVoice`/`sendDocument` pass it to
-  the channel.
-- Test: extend `ipc` reply test family — `send_file` with no `replyToId`
-  inside a thread resolves the topic; a fake channel asserts ThreadID.
-
 ## whapd_krons session-401 restart loop (2026-05-25, ops)
 
 `arizuko_whapd_krons` is in a restart loop every ~60s. Pattern: WHATSAPP
