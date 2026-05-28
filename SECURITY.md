@@ -50,13 +50,16 @@ structurally. The agent runs with `bypassPermissions` inside its own
 container by design — the boundary is the mount set and the network
 namespace, not what the agent decides to do with its shell.
 
-Per-turn (or per-spawn) container freshness solves a different
-problem: a compromised turn affecting the next turn in the **same**
-group. arizuko's group containers are long-lived precisely because
-the conversation state, diary, skills, and session jsonl live in
-`/home/node/` and need to persist across turns. Per-turn isolation
-would destroy that context; per-group isolation is what makes the
-cross-tenant threat go away.
+Per-turn freshness solves a different problem: a compromised turn
+affecting the next turn in the **same** group. The container is
+already per-turn fresh — each turn runs a `docker run --rm` container
+that reads one turn from stdin and exits, so no compromised process
+survives. What persists across turns is the group folder
+(`/home/node/`: conversation state, diary, skills, session jsonl),
+re-loaded each turn. That persisted state — not a long-lived process —
+is the same-group cross-turn surface; stronger per-turn isolation (a
+KVM micro-VM) is the opt-in posture for it. Per-group isolation is what
+makes the cross-tenant threat go away.
 
 ## Boundaries
 
