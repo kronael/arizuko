@@ -223,6 +223,41 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "id": "&lt;platformId&gt;"}</code>.</p>
 
+    <h3 id="pin_message"><code>pin_message</code></h3>
+    <p>Pin a message to a chat/channel (Slack <code>pins.add</code>, Discord channel pin, Telegram pinned message). Use to mark a live status surface (deploy progress, standup link) or anchor a reference. Targets any message in the chat &mdash; not author-scoped like <code>edit</code>/<code>delete</code>. Mastodon, Bluesky, Reddit, email, WhatsApp return unsupported.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1209"><code>ipc/ipc.go:1209</code></a> &middot; Grant action: <code>pin_message(jid=...)</code></p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat the message lives in.</td></tr>
+        <tr><td class="name">targetId</td><td class="type">string</td><td class="req req-y">yes</td><td>Platform id of the message to pin.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
+
+    <h3 id="unpin_message"><code>unpin_message</code></h3>
+    <p>Remove the pin on a specific message (Slack <code>pins.remove</code>, Discord channel unpin, Telegram <code>unpinChatMessage</code>). Use to retire a status surface or rotate the pinned reference. Not for clearing every pin (<code>unpin_all</code>) or deleting the message (<code>delete</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1221"><code>ipc/ipc.go:1221</code></a> &middot; Grant action: <code>unpin_message(jid=...)</code></p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat the message lives in.</td></tr>
+        <tr><td class="name">targetId</td><td class="type">string</td><td class="req req-y">yes</td><td>Platform id of the message to unpin.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
+
+    <h3 id="unpin_all"><code>unpin_all</code></h3>
+    <p>Clear every pin in a chat/channel (Slack iterates <code>pins.list</code> + <code>pins.remove</code>; Telegram <code>unpinAllChatMessages</code>). Use when wholesale resetting a channel's pinned set. Discord has no bulk primitive &mdash; call <code>unpin_message</code> per id.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1233"><code>ipc/ipc.go:1233</code></a> &middot; Grant action: <code>unpin_all(jid=...)</code></p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">chatJid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat whose pins to clear.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
+
     <h2 id="history">history &amp; inspection</h2>
 
     <h3 id="fetch_history"><code>fetch_history</code></h3>
@@ -277,6 +312,21 @@
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source:"local-db"}</code>.</p>
+
+    <h3 id="find_messages"><code>find_messages</code></h3>
+    <p>Full-text search over local <code>messages.db</code> using SQLite FTS5. <code>query</code> takes FTS5 syntax &mdash; a bare token, a <code>"quoted phrase"</code>, <code>a OR b</code>, <code>a NOT b</code>, <code>prefix*</code>, or <code>NEAR(a b, 5)</code>. Use to find a past message by what it said. Not for whole-chat scroll (<code>inspect_messages</code>), single-thread slices (<code>get_thread</code>), or platform-truth fallback (<code>fetch_history</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2309"><code>ipc/ipc.go:2309</code></a> &middot; Registered only when <code>db.FindMessages != nil</code>. Tier &gt; 0 callers see only rows whose <code>chat_jid</code> is routed to their folder (post-fetch ACL via <code>db.JIDRoutedToFolder</code>); tier 0 bypasses. Backed by the <code>messages_fts</code> shadow table (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql"><code>migration 0070</code></a>).</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">query</td><td class="type">string</td><td class="req req-y">yes</td><td>FTS5 query &mdash; token, phrase, <code>OR</code>/<code>NOT</code>, <code>prefix*</code>, <code>NEAR(...)</code>. Malformed syntax surfaces the SQLite error.</td></tr>
+        <tr><td class="name">scope</td><td class="type">string</td><td class="req req-n">no</td><td>One <code>chat_jid</code> (contains <code>:</code>) or a folder subtree (no <code>:</code>; matches <code>routed_to</code> and its children).</td></tr>
+        <tr><td class="name">sender</td><td class="type">string</td><td class="req req-n">no</td><td>Exact match on the <code>sender</code> column.</td></tr>
+        <tr><td class="name">since</td><td class="type">string</td><td class="req req-n">no</td><td>RFC3339 lower bound (inclusive) on timestamp.</td></tr>
+        <tr><td class="name">limit</td><td class="type">number</td><td class="req req-n">no</td><td>Max rows; default 20, clamped to <code>(0, 200]</code>.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, source:"local-db"}</code>. Each row carries <code>chat_jid</code>, <code>sender</code>, <code>timestamp</code>, <code>content</code> (a <code>snippet()</code> fragment with <code>&laquo;&raquo;</code> around the hit, not the full body), and <code>rank</code> (BM25 &mdash; lower is a better match). Ordered by rank, then newest first.</p>
 
     <h3 id="inspect_routing"><code>inspect_routing</code></h3>
     <p>Return routes visible to this group plus the errored-chat aggregate; pass <code>jid</code> to also resolve that JID to its folder. Use when a message isn't reaching the expected group, or to triage delivery failures.</p>
@@ -719,7 +769,8 @@
       <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>list_acl</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 1), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
       <li><strong>Spec 6/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 9/11) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
-      <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
+      <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
+      <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. See <a href="openapi.html">OpenAPI</a> and the <a href="../components/gated.html">gated</a> registry.</li>
       <li><strong>tier1FixedActions has one stale name.</strong> <code>tier1FixedActions</code> lists <code>get_routes</code> but the registered tool is <code>list_routes</code>; at tier 1 the default rules don't grant it without explicit override. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L154"><code>grants/grants.go:154</code></a>.</li>
     </ul>
 

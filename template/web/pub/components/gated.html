@@ -59,6 +59,16 @@
 
     <p>Hard deps: a writable data dir, Docker (for the container runner), and <code>$CONTAINER_IMAGE</code> built and present locally.</p>
 
+    <h2>Cold-tier resources</h2>
+    <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that single struct the engine serves four surfaces that cannot drift, because they all read the same fields:</p>
+    <ul>
+      <li>REST CRUD at <code>/v1/&lt;name&gt;</code> &mdash; list, create, update, delete.</li>
+      <li>MCP resources for agents.</li>
+      <li>A YAML document for <code>arizuko export</code> / <code>arizuko apply</code>.</li>
+      <li>An OpenAPI 3.1 schema at <a href="../reference/openapi.html"><code>/openapi.json</code></a>.</li>
+    </ul>
+    <p>Declared foreign keys keep the rows honest: deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code>, so URL routes pinned to a removed group go with it. See <a href="../reference/openapi.html">reference/openapi</a> for the per-daemon endpoints and <a href="../reference/cli.html#manifest">reference/cli</a> for the manifest commands.</p>
+
     <h2>Standalone usage</h2>
     <p>Yes. gated is a plain Go binary that needs a data dir and an env file. The arizuko CLI generates a compose file that runs gated next to its adapters, but the daemon does not require compose.</p>
 

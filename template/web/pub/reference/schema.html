@@ -161,6 +161,19 @@
     </div>
 
     <div class="tablecard">
+      <h3><code>messages_fts</code> <span class="dim">FTS5 shadow</span></h3>
+      <p>An FTS5 virtual table over <code>messages.content</code>, kept in sync by triggers. Backs the <a href="mcp.html#find_messages"><code>find_messages</code></a> MCP tool. <code>messages.id</code> is TEXT, so the shadow keys on the implicit INTEGER <code>rowid</code> SQLite gives the table. Tokenizer is <code>unicode61 remove_diacritics 2</code> &mdash; Czech, Spanish, Japanese match without surprises (Czech "úroveň" matches "uroven").</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>null</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>content</code></td><td>FTS5</td><td></td><td></td><td>indexed copy of <code>messages.content</code></td></tr>
+        <tr><td><code>rowid</code></td><td>INTEGER</td><td></td><td></td><td><code>content_rowid='rowid'</code> &mdash; joins back to <code>messages.rowid</code></td></tr>
+      </table>
+      <p class="meta"><strong>Sync:</strong> triggers <code>messages_fts_ai</code> (insert), <code>messages_fts_au</code> (update), <code>messages_fts_ad</code> (delete) mirror every change. Queried via <code>messages_fts MATCH ?</code> with <code>bm25()</code> rank and <code>snippet()</code> highlight.</p>
+      <p class="meta"><strong>Readers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L700"><code>store/messages.go:700</code></a> (FindMessages).</p>
+      <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0070-messages-fts.sql">0070</a>.</p>
+    </div>
+
+    <div class="tablecard">
       <h3><code>sessions</code></h3>
       <p>The active Claude Code session ID per <code>(folder, topic)</code>. Used to resume an existing conversation in the in-container agent.</p>
       <table>

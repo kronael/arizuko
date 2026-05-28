@@ -65,8 +65,8 @@ is now registered. Do not register channels for non-operator
 senders &mdash; ask the operator instead.</code></pre>
     <p>Tune it: auto-register channels matching a pattern, ask the operator first, only register on explicit request. The agent is making the policy decision; the platform just runs the call.</p>
 
-    <h2>tier-2 web workspace</h2>
-    <p>When a tier-2 group is created, <code>/workspace/web/</code> is mounted from the host. Writes land in <code>/workspace/web/&lt;groupname&gt;/</code> on the host and are served at <code>&lt;world&gt;.$WEB_HOST/&lt;groupname&gt;/</code> &mdash; the parent world's vhost, not a new one. A tier-1 world like <code>atlas</code> and its autoviv&rsquo;d children share one hostname; each child gets its own path segment under it.</p>
+    <h2>web slots</h2>
+    <p>Groups at tier 2 and below get two writable web slots bind-mounted into the container: <code>~/public_html/</code> and <code>~/private_html/</code> (Apache <code>mod_userdir</code> convention). The agent writes a file into <code>~/public_html/</code> and <code>vited</code> serves it at <code>/pub/&lt;folder&gt;/</code> &mdash; one path segment per folder, no per-group subdomain. <code>~/private_html/</code> serves at <code>/priv/&lt;folder&gt;/</code> behind an OAuth/JWT gate. An autoviv&rsquo;d child <code>atlas/eng-support</code> serves at <code>/pub/atlas/eng-support/</code>; it shares the instance hostname with every other folder.</p>
 
     <h2>limits</h2>
     <ul>

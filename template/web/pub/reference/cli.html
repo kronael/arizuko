@@ -40,6 +40,7 @@
       <h2>Index</h2>
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
+        <li><a href="#manifest">Config manifests</a> &mdash; <code>apply</code>, <code>export</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
@@ -88,6 +89,29 @@ arizuko create launch --product strategy</code></pre>
     <pre><code>arizuko pair krons whapd
 arizuko pair krons mastd login --instance mas.to</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L699"><code>cmd/arizuko/main.go:699</code></a></p>
+
+    <h2 id="manifest" class="group-h2">Config manifests</h2>
+    <p>The cold-tier config of an instance &mdash; groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks, network rules, onboarding gates, proxyd routes &mdash; reads and writes as one YAML document. The same <code>resreg</code> engine that serves these resources over REST, MCP, and <a href="openapi.html"><code>/openapi.json</code></a> also drives <code>export</code> and <code>apply</code>, so the YAML shape matches the schema exactly. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/36-yaml-manifests.md"><code>specs/5/36-yaml-manifests.md</code></a>.</p>
+
+    <h3 id="export"><span class="sig">arizuko export &lt;instance&gt; [output.yaml]</span></h3>
+    <p>Dump the instance's cold-tier resources as one YAML document. Keys sort deterministically &mdash; <code>config_version</code> first, then resources by name &mdash; so re-exporting an unchanged store yields byte-identical output, which makes the file diffable in git. Writes to the named file if given; otherwise to stdout (the byte-count line goes to stderr so a redirect captures only YAML).</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko export krons > krons-config.yaml
+arizuko export krons krons-config.yaml</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L69"><code>cmd/arizuko/apply.go:69</code></a></p>
+
+    <h3 id="apply"><span class="sig">arizuko apply &lt;instance&gt; &lt;manifest.yaml&gt; [--force]</span></h3>
+    <p>Replace the instance's cold-tier resources with the manifest's. For each resource named in the file, the engine runs <code>DELETE FROM &lt;table&gt;</code> then re-inserts the manifest rows &mdash; all in one transaction. A resource absent from the manifest is left untouched; a resource present but empty is cleared. The manifest's <code>config_version</code> must match the store's, or <code>apply</code> exits 2 and tells you to re-export and re-apply &mdash; this is the guard against overwriting a change made since you exported. Validation runs before the DB is touched, so a malformed file changes nothing. On success the <code>config_version</code> bumps by one.</p>
+    <table>
+      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
+      <tr><td><code>--force</code></td><td>bool</td><td><code>false</code></td><td>Skip the <code>config_version</code> match check and apply anyway. The version still advances. Use when you intend to overwrite concurrent edits.</td></tr>
+    </table>
+    <p><strong>State touched:</strong> rewrites every table named in the manifest, in one transaction. Deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code> (declared FKs, migrations 0068/0069) &mdash; the URL routes pinned to a removed group go with it.</p>
+    <pre><code>arizuko export krons > krons.yaml
+# edit krons.yaml
+arizuko apply krons krons.yaml
+arizuko apply krons krons.yaml --force</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L29"><code>cmd/arizuko/apply.go:29</code></a></p>
 
     <h2 id="chat" class="group-h2">Operator chat &amp; messaging</h2>
 

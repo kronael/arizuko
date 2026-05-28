@@ -56,7 +56,7 @@
       <li><strong>Tune the context window if needed.</strong> The trigger turn folds the trailing <code>OBSERVE_WINDOW_MESSAGES</code> (default 10) / <code>OBSERVE_WINDOW_CHARS</code> (default 4000) of observed history into the prompt. For busy ingest channels, raise either at the instance level or per-route via <code>routes.observe_window_messages</code> / <code>routes.observe_window_chars</code>.</li>
     </ol>
 
-    <h2>worked example: Telegram talks, WhatsApp listens</h2>
+    <h2 id="mention-only">worked example: Telegram talks, WhatsApp listens</h2>
     <pre><code>seq  match                                       target
 10   platform=telegram chat=user/5229089286      rhias/nemo
 20   platform=whatsapp room=420735544891@…       rhias/nemo#observe</code></pre>
