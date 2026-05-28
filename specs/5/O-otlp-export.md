@@ -116,5 +116,5 @@ rides as an attribute. Trace views are collector-side reconstructions
   exported by this spec.
 - [`../6/F-audit-stream.md`](../6/F-audit-stream.md) — audit_log table
   (NOT exported).
-- [`../5-uniform-mcp-rest.md`](../5-uniform-mcp-rest.md) —
+- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
   the unified handler that emits the slog records.

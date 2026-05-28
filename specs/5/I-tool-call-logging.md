@@ -175,7 +175,7 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 - [`6/F-audit-stream.md`](../6/F-audit-stream.md) — the DB-side
   partner; defines the `audit_log` table that this spec gives the
   field schema.
-- [`5-uniform-mcp-rest.md`](../5-uniform-mcp-rest.md) —
+- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
   the "exactly one audit row per state transition" acceptance
   criterion.
 - [`7/3-git-as-truth.md`](../7/3-git-as-truth.md) — turn-end sidecars
