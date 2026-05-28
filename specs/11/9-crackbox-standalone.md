@@ -166,7 +166,7 @@ IP itself:
 
 Listed for visibility, deferred:
 
-- Secret handling (now spec [10/11](11-crackbox-secrets.md), tool-level
+- Secret handling (now spec [`6/Y`](../6/Y-secret-broker.md), tool-level
   broker — no proxy involvement).
 - KVM/qemu sandbox host (now lives in [10/a](../11/12-crackbox-sandboxing.md))
 - MCP tools (`request_network`, `list_network_rules`).

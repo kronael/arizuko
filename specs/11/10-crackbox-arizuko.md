@@ -122,7 +122,7 @@ of docker container) but not the observable user experience.
 
 ## Out of scope
 
-- Secret resolution (owned by [10/11](11-crackbox-secrets.md) tool-level
+- Secret resolution (owned by [`6/Y`](../6/Y-secret-broker.md) tool-level
   broker; egred never sees secrets in either model).
 - MCP tools (`request_network`, `list_network_rules`) — CLI only.
 - Per-user network rules (per-folder only).

@@ -174,7 +174,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    shape for per-user tokens in a multi-user channel — the container
    spawns once and serves multiple callers.
 
-   Spec covering this: **`specs/11/11-crackbox-secrets.md`** (tool-level
+   Spec covering this: **`specs/6/Y-secret-broker.md`** (tool-level
    broker). The broker resolves per-call:
    - `/dash/me/secrets` UI for users to paste tokens.
    - At tool-call time, MCP handlers in `gated` resolve
@@ -201,7 +201,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
      socket, and asks the root agent to call a `set_folder_secret`
      MCP tool — **except that tool doesn't exist either**.
    - Cleanest no-code path: defer secret-setting to the
-     forthcoming `specs/11/11-crackbox-secrets.md` dashboard UX. For now, document the
+     forthcoming `specs/6/Y-secret-broker.md` dashboard UX. For now, document the
      direct-SQLite pattern (with a small Go helper at
      `cmd/arizuko-secret/` — but that IS a new binary, so out of
      scope here).
@@ -212,7 +212,7 @@ sudo sqlite3 /srv/data/arizuko_acme/store/messages.db \
    tool API keys go into the same `.env` for v0 of the product.
    Folder-scoped secrets (true `secrets` table) require either:
    (a) `specs/10/14-plugins.md` (operator UX via `arizuko plugin`),
-   or (b) `specs/11/11-crackbox-secrets.md` (dashboard
+   or (b) `specs/6/Y-secret-broker.md` (dashboard
    `/dash/me/secrets`). Both are
    out of scope here.
 
@@ -250,7 +250,7 @@ The operator can verify the template is correctly installed with:
 If 1–6 pass, the product template is mechanically correct. (7)
 verifies the secret integration path that the page promises for
 _channel-scoped_ keys; per-user secrets require
-`specs/11/11-crackbox-secrets.md`.
+`specs/6/Y-secret-broker.md`.
 
 ## Open
 

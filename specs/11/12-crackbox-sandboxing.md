@@ -143,7 +143,7 @@ adaptation, not to redesign or rewrite. Files to port:
 - `internal/vm/proxy.go` — already ported into `crackbox/pkg/proxy/`
   during the v0.31.0 egred extraction
 - `internal/vm/secrets.go` — secrets injection at proxy (planned for
-  [6/11](../6/11-crackbox-secrets.md))
+  [`6/Y`](../6/Y-secret-broker.md))
 
 The acceptance test for the port: same Go code, new package paths.
 Diff against the prototype should be ~import-path renames + small
@@ -220,7 +220,7 @@ downstream specs or deferred to later passes:
   Auto-spawn of a local egred subprocess is deferred to `pkg/run/`
   orchestration (separate follow-up).
 - **Secrets injection** — runtime secret delivery via egred at egress.
-  Specified in [6/11](11-crackbox-secrets.md); not yet implemented.
+  Specified in [`6/Y`](../6/Y-secret-broker.md); not yet implemented.
 - **`gated` Docker→KVM backend switch** — `gated` currently uses the
   Docker backend. Switching to `crackbox/pkg/host/` as its backend
   is tracked under [8/c — sandd](c-sandd.md) (phase 8).
