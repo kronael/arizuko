@@ -444,9 +444,8 @@ var ErrVersionMismatch = errors.New("config_version mismatch")
 // `force` skips the CAS check; the version still advances.
 //
 // `manifestRows` maps Resource.Name → []RowType slice. Missing keys
-// = empty (table will be wiped). Resources with BumpVersion=false
-// (secrets) are still rebuilt; their writes simply don't count toward
-// config_version.
+// = empty (table will be wiped). Resources with SkipApplyRebuild
+// (secrets) are not wiped/rebuilt; the version still bumps once per tx.
 func Apply(ctx context.Context, db *sql.DB, manifestVersion int64, force bool, manifestRows map[string]any) (int64, error) {
 	// Take a write lock immediately. modernc.org/sqlite serializes
 	// concurrent writers via SQLite's RESERVED lock; doing a `_dummy`

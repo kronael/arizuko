@@ -34,7 +34,6 @@ func init() {
 		RowType:          reflect.TypeOf(SecretsRow{}),
 		PKFields:         []string{"ScopeKind", "ScopeID", "Key"},
 		Scope:            resreg.ScopeSpec{Field: "ScopeID"},
-		BumpVersion:      false, // per spec §"CAS implementation": exempt from config_version
-		SkipApplyRebuild: true,  // enc_value blobs are set imperatively, never via apply
+		SkipApplyRebuild: true, // enc_value blobs are set imperatively, never via apply
 	})
 }

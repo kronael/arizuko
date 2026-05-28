@@ -708,10 +708,9 @@ func seedSettings(
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
-	// WEB_PREFIX is a legacy hint kept for backward compatibility with older
-	// agent recipes. Tier 0-2 now write through ~/public_html/ (served at
-	// /pub/<folder>/) and ~/private_html/ (served at /priv/<folder>/, JWT).
-	// Tier 3+ get no web surface and WEB_PREFIX="". Spec: specs/5/V-web-vhosts.md.
+	// WEB_PREFIX tells the agent its publishing surface: "pub" for root
+	// (served at /pub/<folder>/), the world subdomain for tier 1-2, "" for
+	// tier 3+ (no web mount). Spec: specs/5/V-web-vhosts.md.
 	tier := tierOf(in.Folder, root)
 	switch {
 	case root:

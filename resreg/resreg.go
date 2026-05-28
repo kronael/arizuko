@@ -156,12 +156,11 @@ type Resource struct {
 	// RowType+Table are "engine-managed" and get generic CRUD via
 	// engine.go. Resources without RowType are forwarders or custom-
 	// shape — still valid, just not engine-driven.
-	RowType     reflect.Type // canonical row struct (zero-value)
-	Table       string       // physical SQL table
-	PKFields    []string     // Go field names making up the natural PK
-	Scope       ScopeSpec    // DeleteScope filter; zero = no per-scope op
-	Hooks       Hooks        // optional semantics callbacks
-	BumpVersion bool         // unused in v1 (Apply bumps once per tx); kept for future per-resource opt-out
+	RowType  reflect.Type // canonical row struct (zero-value)
+	Table    string       // physical SQL table
+	PKFields []string     // Go field names making up the natural PK
+	Scope    ScopeSpec    // DeleteScope filter; zero = no per-scope op
+	Hooks    Hooks        // optional semantics callbacks
 
 	// SkipApplyRebuild causes Apply to skip DELETE+INSERT for this resource.
 	// Set true for resources whose tables hold operator data that the engine

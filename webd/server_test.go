@@ -43,11 +43,6 @@ func signChatHeaders(token, folder string) map[string]string {
 	}
 }
 
-// signSlinkHeaders is an alias kept for test compatibility during transition.
-func signSlinkHeaders(token, folder string) map[string]string {
-	return signChatHeaders(token, folder)
-}
-
 // mockRouter is a minimal fake of the router API used by webd.
 type mockRouter struct {
 	mu       sync.Mutex
