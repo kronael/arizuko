@@ -26,6 +26,17 @@ general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
   Email is the universal medium for attachments; this is a future
   enhancement, not a wrong-dispatch bug.
 
+## Adapter cap maps — drift
+
+- 2026-05-28 (reditd, low): `reditd/client.go` implements a working
+  `Delete()` (own posts/comments via Reddit API), but `reditd/main.go`'s
+  `Caps` map omits `"delete": true`. `chanreg.HTTPChannel.Delete` gates
+  on `HasCap("delete")`, so the `delete` MCP verb returns
+  `UnsupportedError` for reddit despite the impl existing. Fix: add
+  `"delete": true` to reditd's cap map + a `delete` round-trip test.
+  Spec 5/Z coverage table marks reditd `delete ✗` to match shipped
+  behavior. Behavior change → not a refine-pass edit.
+
 ## Host-tool capabilities — drift
 
 - 2026-05-03: `ant/skills/ship/SKILL.md` promises a `ship` CLI that
