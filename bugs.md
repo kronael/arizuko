@@ -5,18 +5,6 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
-## store TestRouteToken_* FK constraint failures (2026-05-28, low, pre-existing)
-
-`go test ./store/... -run TestRouteToken` fails on three cases
-(`InsertLookup`/`List`/`Revoke`) with `FOREIGN KEY constraint failed
-(787)`. Reproduces on clean HEAD (689fa413) — NOT introduced by the
-thread-routing fix. Test fixtures insert route_tokens rows without
-seeding the parent row the FK references; surfaced after the
-`[fix] store: enforce FK via DSN on all pooled connections` commit made
-the previously-inert constraint live. Fix path: seed the referenced
-parent (group/identity) row in the test setup before inserting the
-token. Triage only — not touched by this pass.
-
 ## Typed-JID docs/spec drift (2026-05-28, low)
 
 `core/jid.go` (typed `JID`/`ChatJID`/`UserJID` structs + `ParseJID`/
@@ -730,7 +718,6 @@ response ("I am atlas on krons, I cannot access X") — never ask.
 
 Read-only correctness sweep over this week's `[5/36]`/`[5/C]`/`[5/Z]`/`[ant]`/`[fks]`/`[fix]` commits. Ranked high→low.
 
-- 2026-05-28 (store/FK, medium-high): ON DELETE CASCADE FKs added in migrations 0068/0069 (`web_routes.folder`, `route_tokens.owner_folder` → `groups.folder`) will NOT reliably fire. `PRAGMA foreign_keys=ON` is set once via `db.Exec` on a single pooled connection (`store/store.go:44`), but the DSN (`store/store.go:35`) sets only `busy_timeout`. `database/sql` pools multiple connections and modernc.org/sqlite defaults `foreign_keys=OFF` per connection, so a group delete on a connection that never ran line 44 leaves orphaned routes/tokens — defeating the entire point of 0068/0069. Fix: move the pragma into the DSN: `...?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)` so every pooled connection enforces it. (Also re-check every other `store.Open`-style daemon that relies on the new CASCADE.)
 - 2026-05-28 (resreg/engine groups, medium): `GroupsRow` BeforeInsert comment (`resreg/resources/groups.go:53-54`) claims `open` defaults to 1, but no code sets it — the dangling `if r.ContainerConfig == ""` block is about ContainerConfig, not open. A hand-authored manifest omitting `open` inserts Go zero `open=0`, silently closing every group's sibling visibility (DB column DEFAULT is 1). Export→apply round-trips are safe (`yaml:"open"` has no omitempty so the value is always emitted), but hand-written YAML or any future omit path closes groups. Fix: add `if open not explicitly set → 1` — but Go zero-value can't distinguish "absent" from "0"; model `Open` as `*int` or `*bool` in the row, or drop the misleading comment and document open=0-on-omit as intended.
 - 2026-05-28 (proxyd, medium): `snapshot()` swallows the DB error from `AllProxydRoutes()` (`proxyd/resource.go:75-81`, `if err == nil`). On any transient DB error every request silently 404s with no log — invisible outage. Fix: log the error (slog) and/or surface 502 instead of an empty route table.
 - 2026-05-28 (proxyd, low/perf): each matched request runs the route snapshot twice — `s.routes()` (main.go:546/538) then `s.proxies()` inside `dispatchRoute` (main.go:568) — and each `snapshot()` rebuilds a fresh `httputil.ReverseProxy` for EVERY route (`proxyFor`→`sameProxy` always returns false, resource.go:132-135). So 2× full `AllProxydRoutes` scan + 2× rebuild-all-proxies per request, and the "connection cache" never reuses connections (transport rebuilt every hit). Functionally correct, but defeats pooling on the hottest path. Fix: snapshot once per request; key proxies by backend URL and actually reuse (the already-logged 2026-05-27 entry sketches this).
@@ -739,4 +726,4 @@ Read-only correctness sweep over this week's `[5/36]`/`[5/C]`/`[5/Z]`/`[ant]`/`[
 
 Verified NOT bugs (do not re-flag): find_messages tier-0 ACL bypass is correct — tier 0 is highest privilege (root), `identity.Tier > 0` filtering matches `inspect_messages` (ipc.go:2232) and spec 5/C "tier-0 bypasses ACL"; `filtered := hits[:0]` in-place compaction is the safe Go idiom. FTS5 triggers (0070) use the standard external-content delete-then-insert pattern; `query` is bound, no injection. SDK 0.3.153 `alwaysLoad` is a real McpStdioServerConfig field (sdk.d.ts:1136) matching the code comment; `ant` typechecks clean (`bunx tsc --noEmit` exit 0). `GroupsRow` covers all 10 live `groups` columns (the dropped `slink_token` from mig 0059 is correctly absent — no apply data-loss). proxyd_routes `preserve_headers`/`gated_by` are NOT NULL DEFAULT in schema (mig 0050) so the non-COALESCE shadow-column scan can't hit NULL. 0068/0069 table rebuilds drop no indexes that aren't recreated (0069 recreates `route_tokens_jid`; web_routes had only a PK).
 
-Counts: 0 high, 4 medium (1 medium-high), 2 low.
+Counts: 0 high, 3 medium, 2 low. (FK-DSN medium-high resolved — fix `7113c490`.)
