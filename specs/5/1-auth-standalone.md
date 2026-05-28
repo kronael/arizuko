@@ -1,14 +1,20 @@
 ---
-status: draft
+status: partial
 ---
 
-> **2026-05-28.** Resolved design. `authd` daemon + `auth/` library is
-> the chosen shape; the earlier "library-only, no daemon" framing is
-> dropped — it can't host revocation. **Not yet implemented in code**:
-> `auth/` is a library today (`middleware.go` `RequireSigned` /
-> `StripUnsigned`, plus arizuko-domain handlers); there is no `authd`
-> binary and no `auth.db`. This spec describes the decided target, not a
-> proposal to debate. Build order in § One-shot migration plan.
+> **2026-05-28.** Resolved design; partial against code. **Shipped**: the
+> `auth/` capability library — `jwt.go` (mint/verify), `oauth.go` +
+> `google_test.go` (OAuth/Google), `acl.go` + `authorize.go` + `policy.go`
+> (ACL/scopes), `identity.go` + `link.go` (identity + account-linking),
+> `hmac.go` (HMAC signing), `middleware.go` (`RequireSigned` /
+> `StripUnsigned`), all with `*_test.go`. **Not built**: the `authd`
+> daemon — no `authd/` binary, no `auth.db`. This spec is the **target**:
+> extract authd's authority functions (mint, OAuth, revocation, JWKs
+> publishing) into a daemon while `auth/` stays the offline-verify
+> library. Migration ties to [U-genericization.md](U-genericization.md)
+> Phase C / the HMAC-retirement one-shot cut. Build order in § One-shot
+> migration plan. The earlier "library-only, no daemon" framing is
+> dropped — it can't host revocation.
 
 # authd daemon + auth/ library
 
@@ -39,9 +45,8 @@ A pure library can't:
 - **Revoke.** Revocation needs a central authority because verifiers
   are distributed. A library-only design relies on short TTLs —
   workable for ephemeral agents, fragile for long sessions and stolen
-  tokens. This is the killer unlock: without authd, leaked JWTs are
-  valid until TTL; with authd, ops retract any token immediately and
-  every verifier picks it up on its next revocation-list refresh.
+  tokens. authd lets ops retract any token immediately; every verifier
+  picks it up on its next revocation-list refresh.
 - **Centralize OAuth.** The dance with Google/GitHub/OIDC needs HTTP
   endpoints, pending state, and one callback URL registered with the
   provider. Per-daemon OAuth means N callback URLs, N copies of client

@@ -145,10 +145,12 @@ authd/
 ├── db.go              ← owns auth.db, runs migrations
 └── api/
     └── v1/
-        ├── types.go   ← MintRequest, MintResponse, Claims,
-        │                RevokeRequest, JWKsResponse, …
+        ├── types.go   ← wire shapes (…)
         └── client.go  ← thin HTTP wrapper around the API
 ```
+
+See [1-auth-standalone.md](1-auth-standalone.md) for authd's actual
+`api/v1` types.
 
 Contract rules:
 
@@ -500,9 +502,9 @@ Capability-scope strings need a JWT-verify + scope-match per check.
 | Tier int compare (legacy)                              | ~1 ns          |
 
 Per-request cost is already dominated by SQLite hits (10–100 µs) and
-disk/network; a ~10 µs auth check is invisible. ECDSA verify (~100 µs)
-is the right pick post-authd, with authd publishing JWKs and daemons
-caching the public key; HMAC stays through the extraction window.
+disk/network; a ~10 µs auth check is invisible. JWT-verify mechanics
+(HMAC vs ECDSA, JWKs publishing, the post-authd cut) belong to
+[1-auth-standalone.md](1-auth-standalone.md) § _Offline JWT verify_.
 
 Decision: **capability scopes replace `tier` everywhere.** The perf
 delta is real but a non-issue at our throughput.
