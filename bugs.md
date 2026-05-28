@@ -5,6 +5,36 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## Typed-JID docs/spec drift (2026-05-28, low)
+
+`core/jid.go` (typed `JID`/`ChatJID`/`UserJID` structs + `ParseJID`/
+`MatchJID`) was deleted in a `[scrub]` pass — shipped per
+`specs/5/S-jid-format.md` but never adopted; production uses string
+`core.JidPlatform`/`core.JidRoom` (types.go) and `path.Match` directly,
+and `specs/5/U-genericization.md` (partial) moves `ChatJID` toward a
+string alias. Stale references remain and now describe code that no
+longer exists:
+- `template/web/pub/concepts/jid.html:45` — claims "`core.ChatJID` and
+  `core.UserJID` are different types... the compiler refuses [a swap]".
+  Was already false (prod funcs take `string`); now also dangling.
+- `template/web/pub/reference/jid.html` — deep-links to `core/jid.go`
+  line numbers (#L28/#L73/#L252) for `ParseJID`/`validateKind`/`MatchJID`.
+- `specs/5/index.md:59` + `specs/5/S-jid-format.md` (status:shipped) —
+  describe typed structs as the implementation.
+- `specs/6/00-finalise-plan.md:82` lists `core/jid.go` in a file set.
+Fix path: rewrite the two web-doc pages to describe the string JID +
+`JidPlatform`/`JidRoom` reality, reconcile S-jid-format with the
+genericization direction, drop the file-list entry. Operator-facing
+docs + spec reconciliation = separate concern from the code scrub.
+
+## STORE_DIR env-var doc drift (2026-05-28, low)
+
+`template/web/pub/components/gated.html` documents a `STORE_DIR` env
+var ("gated opens `$STORE_DIR/messages.db`") that gated never reads.
+gated derives the store dir from `DATA_DIR`
+(`core/config.go:164` → `filepath.Join(root, "store")`). Fix path:
+update the doc to reference `DATA_DIR`, or drop the `STORE_DIR` mention.
+
 ## SendFile gaps (platforms with native media but no implementation)
 
 - **mastd**: `NoFileSender` returns `errSendFile`. Mastodon has the v2
@@ -231,6 +261,23 @@ Operator-data fix landed for atlas/strengths
 (`/srv/data/arizuko_marinade/groups/atlas/strengths/CLAUDE.md` —
 explicit override disabling the tier-2 recipe). Platform fix queued
 for triage.
+
+## Explicit MCP `reply` posts to channel root inside a thread (2026-05-28, medium)
+
+Found during atlas thread-reply verification. The agent's normal turn
+answer (Path A: `submit_turn` → `putAndDeliver(replyTo=trigger.ID,
+threadID=topic)`) threads correctly on Slack (`thread_ts =
+cmp.Or(ThreadID, ReplyTo)`) and Discord (`MessageReference`). But when
+the agent calls the `reply` MCP tool with no `replyToId` from inside a
+thread, the fallback at `ipc/ipc.go:900` reads `GetLastReplyID(jid, "")`
+— hardcoded empty topic — while the gateway seeded the last-reply under
+`(jid, thread_ts)` (topic ≠ ""). The lookup misses → `replyToId=""` →
+the reply posts to the **channel root**, not the thread. Fix path: plumb
+the active topic into the `reply`/`send` MCP fallback (read
+`GetLastReplyID(jid, topic)`), OR ant/CLAUDE.md guidance to pass
+`replyToId=<platform_id>` explicitly for in-thread replies (platform_id
+is already in the inbound message XML). Same root cause family as the
+voice/file leak below.
 
 ## Discord thread voice/file leak to parent channel (2026-05-25)
 
