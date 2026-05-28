@@ -141,11 +141,33 @@ at the tools; the tools don't need the skill to be callable.
 
 ## Open questions
 
-1. **SDK `defer_loading` plumbing.** Does the Claude Agent SDK expose
-   `defer_loading` per MCP server or per tool? If only per-tool, does
-   arizuko enumerate connector tools at mount time to mark them? Check
-   the SDK version `ant/` pins. Blocker for the whole spec — verify
-   first.
+1. **SDK `defer_loading` plumbing — VERIFIED, it's the blocker.**
+   `ant/` pins `@anthropic-ai/claude-agent-sdk ^0.2.34`. Findings:
+   - The SDK internally maps `tool.deferLoading → defer_loading: true`
+     on the API tool def (`cli.js`), and Claude Code uses it for its
+     own built-ins (that's why `ToolSearch` works for Claude Code's
+     deferred tools).
+   - BUT the typed config at 0.2.34 exposes **no knob** to mark MCP
+     server tools deferred. `McpServerConfig` (stdio/SSE/HTTP) has no
+     defer field; `allowedTools`/`disallowedTools` are allowlists only.
+   - So at the pinned version arizuko **cannot** defer its connector
+     tools through the SDK. `ToolSearch` in `allowedTools`
+     (`ant/src/index.ts:488`) allowlists the tool but doesn't give
+     arizuko control over which MCP tools defer.
+   - Latest SDK is `0.3.153` (major bump from 0.2.x). May expose the
+     knob; needs an upgrade + breaking-change audit to confirm.
+
+   **Two paths to native tool-search:**
+   (a) **Upgrade the SDK** to a version exposing per-server/per-tool
+   defer config → then it's mostly config (mark platform tools
+   deferred, keep messaging eager).
+   (b) **Self-implement** tool-search inside arizuko's own MCP server
+   (gated socket): expose a `search_tools` tool + a deferred
+   catalog the server manages internally. Doesn't depend on SDK
+   defer support, but is real work.
+   Decide (a) vs (b) before any implementation. (a) is preferred if
+   the upgrade is clean.
+
 2. **Search quality over arizuko's own tools.** Today arizuko's ~40
    core MCP tools load eagerly. Should the rarely-used management tools
    (`set_web_route`, `set_observe_window`, …) also defer behind search,
