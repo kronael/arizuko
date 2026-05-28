@@ -414,6 +414,29 @@ func TestFireHonorsTimezone(t *testing.T) {
 	}
 }
 
+// A next_run stored with a non-UTC offset (e.g. "+09:00") must still fire
+// when it is genuinely in the past. A raw string compare against the UTC
+// now-string mis-orders these ("2026...+09:00" sorts above "2026...Z"); only
+// datetime() normalization gets it right.
+func TestFireDueNonUTCOffset(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One hour ago, formatted in Tokyo zone -> "...+09:00".
+	pastTokyo := time.Now().Add(-time.Hour).In(tokyo).Format(time.RFC3339)
+	insertTask(t, db, "off1", "c1", "due-offset", "active", pastTokyo, nil)
+
+	fire(db, "UTC")
+
+	if n := countMessages(t, db); n != 1 {
+		t.Fatalf("expected 1 message for past +09:00 next_run, got %d", n)
+	}
+}
+
 func TestFireUpdatesNextRunOnInterval(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)

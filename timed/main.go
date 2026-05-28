@@ -112,9 +112,11 @@ func fire(db *sql.DB, tz string) {
 	now := time.Now()
 
 	// Atomic claim: mark due tasks as 'firing' so concurrent polls skip them.
+	// datetime() normalizes RFC3339 offsets to UTC; a raw string compare would
+	// mis-order next_run written in a non-UTC zone (e.g. "...+09:00" vs "...Z").
 	if _, err := db.Exec(
 		`UPDATE scheduled_tasks SET status = 'firing'
-		 WHERE status = 'active' AND next_run <= ?`,
+		 WHERE status = 'active' AND datetime(next_run) <= datetime(?)`,
 		now.Format(time.RFC3339)); err != nil {
 		slog.Error("claim due tasks", "err", err)
 		return
