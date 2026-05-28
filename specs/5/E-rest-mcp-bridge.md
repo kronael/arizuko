@@ -1,5 +1,5 @@
 ---
-status: blocked
+status: partial
 depends: [6/A-hierarchical-skills, 5/N-oauth-services]
 relates-to: [5/5-uniform-mcp-rest]
 ---
@@ -8,36 +8,44 @@ relates-to: [5/5-uniform-mcp-rest]
 
 Thin spec. The progressive-tool-disclosure _principle_ (eager
 messaging, deferred platform tools, Tool Search Tool, cache rationale)
-and the skills-vs-tools division now live in
+and the skills-vs-tools division live in
 [`../6/A-hierarchical-skills.md`](../6/A-hierarchical-skills.md)
 §"Tools side: deferred disclosure". This spec owns only the two things
-6/A doesn't: the **SDK enablement blocker** and the **no-MCP-server
-REST fallback**.
+6/A doesn't: the **SDK enablement** (now shipped) and the
+**no-MCP-server REST fallback** (still future).
 
-## Enablement blocker (the real gate)
+## Enablement — SHIPPED (path (a), SDK upgrade)
 
-Marking MCP connector tools `defer_loading: true` requires SDK support
-arizuko didn't have at `@anthropic-ai/claude-agent-sdk@0.2.34`:
+The blocker (0.2.34 had no knob to defer MCP-server tools) is resolved
+by upgrading `@anthropic-ai/claude-agent-sdk` to **0.3.153**.
 
-- SDK internally maps `tool.deferLoading → defer_loading: true`
-  (`cli.js`) and Claude Code uses it for its own built-ins (why
-  `ToolSearch` works for the agent — `ant/src/index.ts:488`).
-- But 0.2.34's typed config exposed **no knob** to defer MCP _server_
-  tools: `McpServerConfig` has no defer field; `allowedTools` is an
-  allowlist only.
+**The mechanism is per-MCP-server `alwaysLoad?: boolean`**
+(`sdk.d.ts`, on `McpStdioServerConfig`/SSE/HTTP/SDK):
 
-**Two paths:**
+- `alwaysLoad: true` → all that server's tools stay eager
+  (`defer_loading: false`).
+- Omit it → the server's tools default to deferred behind the Tool
+  Search Tool (active because `ToolSearch` is in `allowedTools`,
+  `ant/src/index.ts`).
+- Per-tool `alwaysLoad` exists for **SDK-defined** tools only; for
+  external/stdio MCP servers the granularity is **per-server**.
 
-- **(a) SDK upgrade** to 0.3.x (latest 0.3.153) — if it exposes a
-  per-server / per-tool defer config, the split is mostly config.
-  **In progress** (SDK upgrade + defer wiring). Update this section
-  with the actual 0.3.x mechanism once confirmed.
-- **(b) Self-implement** `search_tools` inside arizuko's own MCP
-  server (gated socket): expose a search tool + an internally-managed
-  deferred catalog. Doesn't depend on SDK defer support.
+**Wired** (`ant/src/mcp-servers.ts`):
 
-Path (a) is preferred if the upgrade is clean. Resolve before any
-non-SDK implementation.
+- `arizuko` server (socat → gated socket) → `alwaysLoad: true`. Core
+  messaging (`send`/`reply`/`inspect_*`/`send_file`) stays eager.
+- Third-party connector servers (from `settings.json`) → no
+  `alwaysLoad`, so they sit behind Tool Search.
+
+**Remaining limitation (the only open item):** gated serves core +
+management + `connectors.toml` tools through ONE `arizuko` server.
+Because `alwaysLoad` is per-server, gated's management +
+`connectors.toml` tools ride eagerly with core. Deferring _those_
+(while keeping core eager) needs a **gated-side server split** — e.g.
+gated exposes `arizuko-core` (alwaysLoad) and `arizuko-mgmt`
+(deferred). Go-side work; do it only if the management surface grows
+enough to matter. For third-party connectors (the Slack-200-tools
+case), the split already works today.
 
 ## No-MCP-server REST fallback
 
