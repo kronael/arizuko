@@ -469,6 +469,12 @@ in message content as:
 - `delete` — retract a post **you created** (platform enforces authorship;
   user messages will error — do not retry). Use `platform_id=` as `targetId`,
   same as `like`.
+- `edit` — rewrite a message **you created** in place (corrections, live
+  status). `platform_id=` as `targetId`. Platform windows apply (Telegram
+  ≤48h, WhatsApp ~15m); past the window the adapter returns `ErrUnsupported`.
+- `pin_message` / `unpin_message` — pin/unpin a message in the channel
+  (Slack/Telegram/Discord). `unpin_all` clears all pins (Slack/Telegram only).
+  Adapters without pin support return `ErrUnsupported` — do not retry.
 - Reddit and some adapters return `ErrUnsupported` for likes — do not retry.
 - Slack `like` returning an error usually means `reactions:write` scope is
   missing on the bot token — log to ~/issues.md, do not loop-retry, do not

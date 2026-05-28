@@ -37,6 +37,13 @@ general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
   Spec 5/Z coverage table marks reditd `delete ✗` to match shipped
   behavior. Behavior change → not a refine-pass edit.
 
+- 2026-05-28 (grants, low): pin verbs (`pin_message`/`unpin_message`/
+  `unpin_all`) are absent from `grants/grants.go` `platformActions`, so
+  only tier-0 (`*`) holds them by default; tier-1/2 need an explicit
+  grant. If pin should be a tier-1/2 default (like send/reply), add the
+  three verbs to `platformActions`. Product decision, not a bug —
+  flagged by the 5/Z refine pass; 5/Z spec documents the shipped behavior.
+
 ## Host-tool capabilities — drift
 
 - 2026-05-03: `ant/skills/ship/SKILL.md` promises a `ship` CLI that
