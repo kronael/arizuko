@@ -152,9 +152,29 @@ A connector's _tools_ are deferred MCP tools found via search; its
 _usage guidance_ is a skill found via resolve. The skill may point at
 tools; the tools don't need the skill to be callable.
 
-Enablement (the SDK knob to mark MCP tools deferred) and the
-no-MCP-server REST fallback are tracked in
-[`../5/E-rest-mcp-bridge.md`](../5/E-rest-mcp-bridge.md).
+### Enablement (shipped)
+
+The SDK knob to defer MCP tools is **per-MCP-server `alwaysLoad?:
+boolean`** (`@anthropic-ai/claude-agent-sdk` 0.3.153). `alwaysLoad:
+true` keeps a server's tools eager; omit it and the server's tools
+defer behind the Tool Search Tool. Wired in `ant/src/mcp-servers.ts`:
+the `arizuko` server (core messaging) is `alwaysLoad: true`;
+third-party connector servers default to deferred.
+
+Limitation: `alwaysLoad` is per-server, and gated serves core +
+management + `connectors.toml` tools through one `arizuko` server — so
+gated's management tools ride eagerly with core. Deferring those needs
+a gated-side server split (`arizuko-core` + `arizuko-mgmt`), Go-side,
+only if the management surface grows enough to matter. Third-party
+connectors (the Slack-200-tools case) already defer correctly.
+
+**No-MCP-server case:** for an external service that publishes a REST
+API but no MCP server, auto-generate deferred MCP tools from its
+OpenAPI spec — `openapi2mcp` (Go library) + a curation/scope-annotation
+layer. Belongs in the future `mcpfw` orthogonal component (see
+[`../5/A-orthogonal-components.md`](../5/A-orthogonal-components.md)).
+Research: `.ship/research-openapi-mcp.md`. For services that DO ship an
+MCP server (most), mount it via `ipc/connector.go` — built.
 
 ## Acceptance
 
