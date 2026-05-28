@@ -154,10 +154,11 @@ See [1-auth-standalone.md](1-auth-standalone.md) for authd's actual
 
 Contract rules:
 
-- `<daemon>/api/v1/` has **zero behavior, zero state, zero
-  arizuko-internal imports beyond `types/`**. Pure data types plus a
-  thin HTTP client. Versionable; `v2/` lives next to `v1/` when the
-  shape breaks.
+- `<daemon>/api/v1/` is the **published-contract package: wire types +
+  a thin client** (the client is a thin HTTP wrapper — zero behavior,
+  no business logic — so it carries no state beyond a base URL). **Zero
+  arizuko-internal imports beyond `types/`.** Versionable; `v2/` lives
+  next to `v1/` when the shape breaks.
 - **Other daemons import `<daemon>/api/v1/` freely.** This is the
   canonical wire-contract publishing convention; the orthogonality grep
   allows `<daemon>/api/v1/` paths.
@@ -173,7 +174,10 @@ Contract rules:
 
 This pattern lands gradually: do it for a daemon when its API
 stabilises, not big-bang. First instance: `authd/api/v1/`
-([1-auth-standalone.md](1-auth-standalone.md)).
+([1-auth-standalone.md](1-auth-standalone.md)). Cadence: gradual
+**across** daemons (adopt `api/v1/` when each daemon's API stabilises);
+one-shot **within** each daemon's cutover (no dual-API period — per §
+NO BACKWARD COMPATIBILITY).
 
 ## Database ownership rule
 
@@ -232,17 +236,9 @@ end is one commit.
 
 ## HMAC retirement (foreshadows authd)
 
-Today proxyd signs identity headers with `PROXYD_HMAC_SECRET` and
-adapters bear `CHANNEL_SECRET` to gateway. Both go away when `authd`
-lands ([1-auth-standalone.md](1-auth-standalone.md)):
-
-- `PROXYD_HMAC_SECRET` retires. Each daemon verifies JWTs directly via
-  the `auth/` library against authd's published JWKs.
-- `CHANNEL_SECRET` retires. Channel adapters receive authd-minted
-  service JWTs at boot; gateway verifies them like any other token.
-
-Part of the same one-shot cut: bring up authd, switch every daemon's
-verifier, delete both env vars in the same release. Detail in
+`PROXYD_HMAC_SECRET` and `CHANNEL_SECRET` both retire in the authd
+cutover — a genericization milestone. Per-mechanism detail (what each
+secret does today, what replaces it) lives in
 [1-auth-standalone.md](1-auth-standalone.md) § _HMAC retirement plan_.
 
 ## What's coupled today (audit)

@@ -8,10 +8,15 @@ status: partial
 > (ACL/scopes), `identity.go` + `link.go` (identity + account-linking),
 > `hmac.go` (HMAC signing), `middleware.go` (`RequireSigned` /
 > `StripUnsigned`), all with `*_test.go`. **Not built**: the `authd`
-> daemon — no `authd/` binary, no `auth.db`. This spec is the **target**:
-> extract authd's authority functions (mint, OAuth, revocation, JWKs
-> publishing) into a daemon while `auth/` stays the offline-verify
-> library. Migration ties to [U-genericization.md](U-genericization.md)
+> daemon — no `authd/` binary, no `auth.db`. Today verification is
+> HMAC-based: `auth.VerifyJWT` checks the JWT against `AUTH_SECRET`, and
+> the `RequireSigned` / `StripUnsigned` middleware checks proxyd's
+> `X-User-*` header signature against `PROXYD_HMAC_SECRET`. The
+> JWKs-based offline `Verifier` is **new work**, added at cutover
+> (§ One-shot migration plan, Step 3). This spec is the
+> **target**: extract authd's authority functions (mint, OAuth,
+> revocation, JWKs publishing) into a daemon while `auth/` becomes the
+> offline-verify library. Migration ties to [U-genericization.md](U-genericization.md)
 > Phase C / the HMAC-retirement one-shot cut. Build order in § One-shot
 > migration plan. The earlier "library-only, no daemon" framing is
 > dropped — it can't host revocation.
@@ -34,9 +39,10 @@ every backend depending on authd's uptime is a fault-domain explosion.
 
 This is the **first instance of the published-contract pattern** from
 [U-genericization.md](U-genericization.md) § _Per-service
-`<daemon>/api/v1/`_: `authd/api/v1/` is the types-only sub-package that
-external code (including `auth/`) imports; internal `authd/handler.go`,
-`authd/db.go` stay off-limits to other daemons.
+`<daemon>/api/v1/`_: `authd/api/v1/` is the published-contract package —
+wire types + a thin client — that external code (including `auth/`)
+imports; internal `authd/handler.go`, `authd/db.go` stay off-limits to
+other daemons.
 
 ## Why daemon AND library
 
@@ -67,10 +73,11 @@ A pure daemon can't:
 
 Layered together: authd is the **authority** (central state, single
 signer); `auth/` is the **verifier** (distributed, offline, fast). The
-seam is **public-key distribution** — authd publishes its verification
-key at `/v1/keys`; `auth/` fetches and caches it, then verifies
-locally with zero network IO. The N-daemon system pays one network hop
-per JWKs refresh per daemon (~1h), not one per request.
+seam is **published verification material** — authd publishes its JWKs
+at `/v1/keys` and its revocation feed at `/v1/revocations`; `auth/`
+fetches and caches both, then verifies locally with zero network IO.
+The N-daemon system pays one network hop per JWKs refresh (~1h) plus
+one per revocation poll (~30s) per daemon, not one per request.
 
 ## Kerberos-inspired, not Kerberos
 
@@ -95,15 +102,15 @@ bearer shape. The protocol of the day, not the protocol of 1988.
 
 ### Operations
 
-| Operation                                   | Today                                        | After authd                                                           |
-| ------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
-| OAuth dance with Google/GitHub              | proxyd hosts `/auth/login`, `/auth/callback` | authd hosts them; proxyd 302s to authd.                               |
-| Mint JWT for authenticated user             | proxyd signs locally with `AUTH_SECRET`      | authd is sole signer; private key in `auth.db`.                       |
-| Verify JWT on every web request             | each daemon HMAC-verifies via `AUTH_SECRET`  | each daemon offline-verifies via authd's public key (cached locally). |
-| Mint service-to-service token               | shared `CHANNEL_SECRET` bearer               | authd issues per-service JWTs at adapter boot.                        |
-| Revoke a token before TTL                   | impossible (bearer-valid until TTL)          | authd revocation list; verifiers check it on every verify (cached).   |
-| Link OAuth providers to one account         | gated's `account_links` table                | authd owns `account_links`; gated reads via `authd/api/v1/accounts`.  |
-| Sign service identity for cross-daemon HTTP | `PROXYD_HMAC_SECRET` over `X-User-*` headers | authd-minted JWT in `Authorization: Bearer`.                          |
+| Operation                                   | Today                                                                                                                            | After authd                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| OAuth dance with Google/GitHub              | proxyd hosts `/auth/login`, `/auth/callback`                                                                                     | authd hosts them; proxyd 302s to authd.                                       |
+| Mint JWT for authenticated user             | proxyd signs locally with `AUTH_SECRET`                                                                                          | authd is sole signer; private key in `auth.db`.                               |
+| Verify JWT on every web request             | proxyd verifies the JWT (`AUTH_SECRET`); downstream daemons trust proxyd's HMAC-signed `X-User-*` headers (`PROXYD_HMAC_SECRET`) | each daemon offline-verifies the JWT via authd's public key (cached locally). |
+| Mint service-to-service token               | shared `CHANNEL_SECRET` bearer                                                                                                   | authd issues per-service JWTs at adapter boot.                                |
+| Revoke a token before TTL                   | impossible (bearer-valid until TTL)                                                                                              | authd revocation list; verifiers check it on every verify (cached).           |
+| Link OAuth providers to one account         | gated's `auth_users.linked_to_sub` (in `messages.db`)                                                                            | authd owns `account_links`; gated reads via `authd/api/v1/accounts`.          |
+| Sign service identity for cross-daemon HTTP | `PROXYD_HMAC_SECRET` over `X-User-*` headers                                                                                     | authd-minted JWT in `Authorization: Bearer`.                                  |
 
 ### `auth.db` schema
 
@@ -183,11 +190,11 @@ old key retires once every token signed by it has expired.
 ### `authd/api/v1/` published contract
 
 Per the per-service convention in
-[U-genericization.md](U-genericization.md), authd publishes its wire
-shapes in `authd/api/v1/types.go` + `authd/api/v1/client.go`. The
-package has zero behavior, zero arizuko-internal imports beyond
-`types/`, and is imported freely by other daemons and the `auth/`
-library.
+[U-genericization.md](U-genericization.md), authd publishes its
+contract in `authd/api/v1/types.go` (wire types) + `authd/api/v1/client.go`
+(a thin HTTP wrapper, no business logic). The package has zero
+arizuko-internal imports beyond `types/`, and is imported freely by
+other daemons and the `auth/` library.
 
 ```go
 package v1
@@ -246,6 +253,21 @@ type ListRequest struct {
     Audience string        `json:"aud,omitempty"`
 }
 
+// TokenListResponse is what `/v1/tokens` GET returns: active (non-revoked,
+// non-expired) tokens for the operator's query.
+type TokenListResponse struct {
+    Tokens     []TokenInfo `json:"tokens"`
+    NextCursor string      `json:"next,omitempty"`
+}
+
+type TokenInfo struct {
+    JTI      string        `json:"jti"`
+    Sub      types.UserSub `json:"sub"`
+    Scope    []types.Scope `json:"scope"`
+    Audience string        `json:"aud,omitempty"`
+    Expires  int64         `json:"exp"`
+}
+
 // JWKsResponse publishes verification keys. Daemons cache; rotate via
 // the kid header in the JWT.
 type JWKsResponse struct {
@@ -264,12 +286,12 @@ type JWK struct {
     E   string `json:"e,omitempty"`
 }
 
-// RevocationListResponse is the snapshot daemons fetch on cache
-// refresh. Pagination + delta endpoints exist for large lists.
+// RevocationListResponse is the full revocation snapshot daemons fetch
+// on cache refresh. v1 is a full-snapshot poll (no cursor/delta — see
+// § Revocation scaling); authd's GC keeps the list bounded.
 type RevocationListResponse struct {
-    Revoked    []string `json:"revoked"`    // JTIs
-    AsOf       int64    `json:"as_of"`
-    NextCursor string   `json:"next,omitempty"`
+    Revoked []string `json:"revoked"`    // JTIs
+    AsOf    int64    `json:"as_of"`
 }
 ```
 
@@ -282,7 +304,8 @@ func NewClient(baseURL string) *Client
 func (c *Client) Mint(ctx context.Context, req MintRequest) (MintResponse, error)
 func (c *Client) MintNarrower(ctx context.Context, req MintNarrowerRequest) (MintResponse, error)
 func (c *Client) Revoke(ctx context.Context, req RevokeRequest) error
-func (c *Client) List(ctx context.Context, req ListRequest) (RevocationListResponse, error)
+func (c *Client) List(ctx context.Context, req ListRequest) (TokenListResponse, error)
+func (c *Client) Revocations(ctx context.Context) (RevocationListResponse, error)
 func (c *Client) JWKs(ctx context.Context) (JWKsResponse, error)
 ```
 
@@ -322,6 +345,12 @@ The library every daemon imports. Per
 (depends on Layer 0 — `types/` for IDs and `authd/api/v1/` for shared
 shapes).
 
+Shipped today: HMAC JWT verify (`VerifyJWT` against `AUTH_SECRET`), the
+`X-User-*` header-sig middleware (`PROXYD_HMAC_SECRET`), OAuth handlers,
+and ACL/scope checks. The JWKs-offline `Verifier` below is **added at
+cutover** (§ One-shot migration plan, Step 3) — it replaces both HMAC
+paths, it does not exist yet.
+
 ### Surface
 
 ```go
@@ -339,7 +368,9 @@ import (
 // list. One per daemon; goroutine-safe.
 type Verifier interface {
     // Verify parses, signature-checks, expiry-checks, and revocation-
-    // checks a token. Pure-offline once warm; returns Claims on success.
+    // checks a token. Offline on the steady-state hot path; the only
+    // network fallback is a one-shot JWKs refresh on an unknown kid.
+    // Returns Claims on success.
     Verify(ctx context.Context, token string) (*v1.Claims, error)
 
     // RefreshJWKs / RefreshRevocations force a reload. Called
@@ -388,10 +419,20 @@ Cache refresh:
   for at most one poll interval; operators run the poll faster if
   subsecond revocation matters.
 
-Both refresh in the background; verify never blocks on a network call.
-If a refresh fails, the verifier serves stale data and surfaces the
-staleness in `obs/` metrics — existing tokens stay valid even if authd
-is down; only new mints fail.
+Both refresh in the background; on the steady-state hot path verify
+never blocks on a network call. The one exception is step 2 above —
+an unknown `kid` triggers a single synchronous JWKs refresh, after
+which verify is offline again. If a background refresh fails, the
+verifier serves stale data and surfaces the staleness in `obs/` metrics
+— existing tokens stay valid even if authd is down; only new mints fail.
+
+**Revocation scaling (v1).** Each poll fetches the **full revocation
+snapshot** (`RevocationListResponse`, no cursor/delta). authd keeps the
+list bounded by GC: a cron purges revocations older than `max_token_ttl`
+— a token past its TTL fails the expiry check anyway, so its revocation
+row is dead weight. Full-snapshot poll over a GC-bounded list is the
+whole v1 mechanism. Cursor/delta endpoints are post-v1, added only if a
+deployment's live-revocation count outgrows a single snapshot.
 
 ### Mountable middleware
 
@@ -526,9 +567,9 @@ SMOKE_INSTANCE=krons` passes post-deploy.
   key needs a faster pull or a push. Lean: a short-TTL `keys-changed`
   flag in the revocation-list response; daemons pull JWKs eagerly when
   set.
-- **Revocation list GC.** Cron in authd purges revocations older than
-  `max_token_ttl`; rows past TTL fail expiry-check anyway. (Same item
-  noted in [U-genericization.md](U-genericization.md).)
+- **Revocation list GC cadence.** The rule is locked (§ Revocation
+  scaling); the cron interval + `max_token_ttl` default are an ops knob.
+  (Same item noted in [U-genericization.md](U-genericization.md).)
 - **Service-account provisioning UX.** Adapters get service JWTs at
   boot via compose-generation: an env var carries a one-shot bootstrap
   token the adapter trades for a long-lived service JWT on first start.
@@ -583,18 +624,10 @@ SMOKE_INSTANCE=krons` passes post-deploy.
 
 ## Blueprint takeaway
 
-The pattern this spec lands on, reusable for future extractions:
-
-1. Decide whether the component needs an authority (centralized state,
-   signing, OAuth host). If yes — make it a daemon.
-2. Decide whether every consumer needs offline access (no network hop
-   per request). If yes — pair the daemon with a library that operates
-   against cached state.
-3. Publish the daemon's wire contract under `<daemon>/api/v1/` so
-   others call it without reaching into internals.
-4. The daemon is the only writer to its own state; every reader
-   (including the library) consumes via `api/v1/` or cached public-key
-   material.
-
-Auth fits this — authority for identity, offline verify everywhere.
-`timed`, `routerd`, `agent-runnerd` fit the same shape when extracted.
+This is the reusable extraction shape: authority-daemon (sole writer +
+signer) paired with an offline library (cached verify), wire contract
+published under `<daemon>/api/v1/` — the same shape `timed`, `routerd`,
+and `agent-runnerd` follow when extracted. Decision logic is in § _Why
+daemon AND library_; the contract rules in
+[U-genericization.md](U-genericization.md) § _Per-service
+`<daemon>/api/v1/`_.
