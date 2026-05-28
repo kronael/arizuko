@@ -12,6 +12,26 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **web_routes redirect serving on `/pub`** — proxyd now honours
+  agent-registered `web_routes` rows on the `/pub/*` path (after the
+  global `PUB_REDIRECT_URL`, before the vited proxy). Longest matching
+  `path_prefix` wins: `redirect` → 302 prefix-rewrite
+  (`redirect_to` + suffix, query preserved), `deny` → 403, `auth` →
+  JWT gate then proxy, public/no-match → proxy as before. proxyd reads
+  the table per-request via `store.AllWebRoutes` (no row cache, spec
+  5/36). The `set_web_route` MCP tool now rejects a `redirect` whose
+  `redirect_to` leaves the caller's own slot (`/pub/<folder>/...` or
+  `/priv/<folder>/...`) — closes an open-redirect / cross-folder
+  impersonation gap. So an agent can publish a clean top-level URL
+  (`/pub/guides/*` → `/pub/atlas/guides/*`) without write access
+  outside its slot.
+
+---
+
 ## [v0.46.0] — 2026-05-28
 
 > arizuko v0.46.0 — full-text search, message actions, config-as-YAML, OpenAPI

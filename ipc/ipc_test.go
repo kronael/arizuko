@@ -927,6 +927,61 @@ func callRaw(t *testing.T, sock, name string, args map[string]any) string {
 	return string(resp)
 }
 
+// set_web_route with access=redirect must reject a redirect_to that
+// points outside the caller's own /pub/<folder>/ or /priv/<folder>/
+// slot — open-redirect / cross-folder impersonation guard.
+func TestServeMCP_SetWebRoute_SelfSlotConstraint(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	var persisted [][4]string
+	db := StoreFns{
+		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {
+			persisted = append(persisted, [4]string{pathPrefix, access, redirectTo, folder})
+			return nil
+		},
+	}
+	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	cases := []struct {
+		name       string
+		redirectTo string
+		wantErr    bool
+	}{
+		{"other folder slot", "/pub/other/guides/x.html", true},
+		{"external url", "https://evil.example/x", true},
+		{"bare folder no slash", "/pub/atlasX/x.html", true}, // prefix-not-slot
+		{"own pub slot", "/pub/atlas/guides/x.html", false},
+		{"own priv slot", "/priv/atlas/notes/x.html", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw := callRaw(t, sock, "set_web_route", map[string]any{
+				"path":        "/pub/guides/",
+				"access":      "redirect",
+				"redirect_to": c.redirectTo,
+			})
+			isErr := strings.Contains(raw, `"isError":true`)
+			if isErr != c.wantErr {
+				t.Fatalf("redirect_to=%q: isError=%v want %v (resp %s)",
+					c.redirectTo, isErr, c.wantErr, raw)
+			}
+		})
+	}
+	// Only the two valid cases reached the store.
+	if len(persisted) != 2 {
+		t.Fatalf("SetWebRoute called %d times, want 2 (only self-slot redirects persist)", len(persisted))
+	}
+	for _, p := range persisted {
+		if !strings.HasPrefix(p[2], "/pub/atlas/") && !strings.HasPrefix(p[2], "/priv/atlas/") {
+			t.Errorf("persisted redirect_to %q escaped self-slot", p[2])
+		}
+	}
+}
+
 func TestRouteTokens_IssueTierMatrix(t *testing.T) {
 	var issued []string
 	gated := GatedFns{

@@ -98,6 +98,26 @@ func (s *Store) ListWebRoutes(folder string) []WebRoute {
 	return out
 }
 
+func (s *Store) AllWebRoutes() ([]WebRoute, error) {
+	rows, err := s.db.Query(
+		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at
+		 FROM web_routes ORDER BY path_prefix`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WebRoute
+	for rows.Next() {
+		wr, err := scanWebRoute(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wr)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) MatchWebRoute(urlPath string) (WebRoute, bool) {
 	row := s.db.QueryRow(
 		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at

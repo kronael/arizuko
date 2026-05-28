@@ -324,6 +324,91 @@ func TestProxydPubPathNoAuth(t *testing.T) {
 	}
 }
 
+// web_routes redirect: a {/pub/guides/, redirect, /pub/atlas/guides/}
+// row rewrites the prefix and 302s into atlas's own slot, preserving
+// the suffix + query.
+func TestProxydPubWebRouteRedirect(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	s.rr.installManualWeb([]store.WebRoute{
+		{PathPrefix: "/pub/guides/", Access: "redirect", RedirectTo: "/pub/atlas/guides/", Folder: "atlas"},
+	})
+
+	req := httptest.NewRequest("GET", "/pub/guides/x.html?v=1", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/pub/atlas/guides/x.html?v=1" {
+		t.Errorf("location = %q, want /pub/atlas/guides/x.html?v=1", loc)
+	}
+	if w.Header().Get("X-Upstream") == "hit" {
+		t.Error("upstream reached — redirect should short-circuit the proxy")
+	}
+}
+
+// web_routes deny: a deny row returns 403, never proxies.
+func TestProxydPubWebRouteDeny(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	s.rr.installManualWeb([]store.WebRoute{
+		{PathPrefix: "/pub/secret/", Access: "deny", Folder: "atlas"},
+	})
+
+	req := httptest.NewRequest("GET", "/pub/secret/x.html", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+	if w.Header().Get("X-Upstream") == "hit" {
+		t.Error("upstream reached — deny should short-circuit the proxy")
+	}
+}
+
+// web_routes longest-prefix wins: a more specific deny under a broader
+// redirect takes precedence.
+func TestProxydPubWebRouteLongestPrefix(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	s.rr.installManualWeb([]store.WebRoute{
+		{PathPrefix: "/pub/g/", Access: "redirect", RedirectTo: "/pub/atlas/g/", Folder: "atlas"},
+		{PathPrefix: "/pub/g/secret/", Access: "deny", Folder: "atlas"},
+	})
+
+	req := httptest.NewRequest("GET", "/pub/g/secret/x.html", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (longest prefix = deny)", w.Code)
+	}
+}
+
+// No matching web_route → falls through to the vited proxy (existing
+// behaviour preserved).
+func TestProxydPubWebRouteNoMatchProxies(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	s.rr.installManualWeb([]store.WebRoute{
+		{PathPrefix: "/pub/guides/", Access: "redirect", RedirectTo: "/pub/atlas/guides/", Folder: "atlas"},
+	})
+
+	req := httptest.NewRequest("GET", "/pub/other/x.html", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (no match → proxy)", w.Code)
+	}
+	if w.Header().Get("X-Upstream") != "hit" {
+		t.Error("upstream not reached for non-matching path")
+	}
+}
+
 // /priv/* requires a JWT — anonymous callers bounce to /auth/login.
 // Spec 5/V: web/priv/ is a JWT-gated parallel tree to web/pub/.
 func TestProxydPrivPathRequiresAuth(t *testing.T) {

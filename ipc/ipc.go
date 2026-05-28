@@ -2540,7 +2540,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	granted("set_web_route",
 		"Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. "+
 			"`path` must start with `/`. `access` is one of public|auth|deny|redirect. "+
-			"When access=redirect, `redirect_to` (URL) is required. Route is scoped to this folder.",
+			"When access=redirect, `redirect_to` is required and must point into this folder's own "+
+			"slot (/pub/<folder>/... or /priv/<folder>/...) — no external URLs or other folders. "+
+			"Route is scoped to this folder.",
 		[]mcp.ToolOption{
 			mcp.WithString("path", mcp.Required()),
 			mcp.WithString("access", mcp.Required()),
@@ -2561,8 +2563,19 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("access must be one of: public, auth, deny, redirect")
 			}
 			redirectTo := req.GetString("redirect_to", "")
-			if access == "redirect" && redirectTo == "" {
-				return toolErr("redirect_to required when access=redirect")
+			if access == "redirect" {
+				if redirectTo == "" {
+					return toolErr("redirect_to required when access=redirect")
+				}
+				// Self-slot constraint: redirect_to must point into this
+				// folder's own /pub/<folder>/ or /priv/<folder>/ slot. No
+				// external URLs, no other folders' slots — prevents
+				// open-redirect and cross-folder impersonation.
+				if !strings.HasPrefix(redirectTo, "/pub/"+folder+"/") &&
+					!strings.HasPrefix(redirectTo, "/priv/"+folder+"/") {
+					return toolErr("redirect_to must point into this folder's own slot: /pub/" +
+						folder + "/... or /priv/" + folder + "/...")
+				}
 			}
 			if err := db.SetWebRoute(p, access, redirectTo, folder); err != nil {
 				emitSys("set_web_route", folder, callerSub,

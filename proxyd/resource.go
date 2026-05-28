@@ -43,8 +43,9 @@ type routesResource struct {
 	// unit tests that exercise the routing plumbing without spinning up
 	// a full store. In production paths st is always non-nil and this
 	// stays empty; the DB is the source of truth.
-	manualMu     sync.RWMutex
-	manualRoutes []Route
+	manualMu        sync.RWMutex
+	manualRoutes    []Route
+	manualWebRoutes []store.WebRoute
 }
 
 // newRoutesResource constructs the handle. The `initial` arg used to
@@ -89,6 +90,30 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 		procs[r.Path] = rr.proxyFor(r)
 	}
 	return routes, procs
+}
+
+// webSnapshot returns a fresh view of the web_routes table by querying
+// the DB. Like snapshot(), one indexed read per call (no row cache, spec
+// 5/36). The test path reads from manualWebRoutes when st is nil.
+func (rr *routesResource) webSnapshot() []store.WebRoute {
+	if rr.st != nil {
+		stored, err := rr.st.AllWebRoutes()
+		if err == nil {
+			return stored
+		}
+		return nil
+	}
+	rr.manualMu.RLock()
+	defer rr.manualMu.RUnlock()
+	return append([]store.WebRoute(nil), rr.manualWebRoutes...)
+}
+
+// installManualWeb is the test-only entry point for seeding web_routes
+// without a backing store. Production uses the DB as source of truth.
+func (rr *routesResource) installManualWeb(routes []store.WebRoute) {
+	rr.manualMu.Lock()
+	rr.manualWebRoutes = append([]store.WebRoute(nil), routes...)
+	rr.manualMu.Unlock()
 }
 
 // installManual is the test-only entry point for adding routes without

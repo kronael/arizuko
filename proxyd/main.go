@@ -202,6 +202,32 @@ func (s *server) proxies() map[string]*httputil.ReverseProxy {
 	return p
 }
 
+// webRoutes is a per-request snapshot of the web_routes table (no row
+// cache, spec 5/36). Agents register rows via the set_web_route MCP
+// tool; proxyd honours them on the /pub/* path.
+func (s *server) webRoutes() []store.WebRoute {
+	if s.rr == nil {
+		return nil
+	}
+	return s.rr.webSnapshot()
+}
+
+// matchWebRoute returns the web_route whose path_prefix is the longest
+// prefix of urlPath. Ties cannot occur — path_prefix is the PK, so at
+// most one row has a given prefix. Returns false when nothing matches.
+func matchWebRoute(routes []store.WebRoute, urlPath string) (store.WebRoute, bool) {
+	var best store.WebRoute
+	found := false
+	for _, wr := range routes {
+		if strings.HasPrefix(urlPath, wr.PathPrefix) &&
+			(!found || len(wr.PathPrefix) > len(best.PathPrefix)) {
+			best = wr
+			found = true
+		}
+	}
+	return best, found
+}
+
 // pubRedirect probes a configured public-docs URL and caches whether
 // it's reachable. When reachable, /pub/* is served as an HTTP 302 to
 // that URL; when not, the caller falls back to the local viteProxy.
@@ -516,6 +542,26 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 			}
 			http.Redirect(w, r, s.pubRedir.url+rest, http.StatusFound)
 			return
+		}
+		// Agent-registered web_routes: longest matching prefix wins.
+		// redirect → 302 with prefix-rewrite into the agent's own slot;
+		// deny → 403; auth → gate then proxy; public/no-match → proxy.
+		if wr, ok := matchWebRoute(s.webRoutes(), r.URL.Path); ok {
+			switch wr.Access {
+			case "redirect":
+				loc := wr.RedirectTo + strings.TrimPrefix(r.URL.Path, wr.PathPrefix)
+				if r.URL.RawQuery != "" {
+					loc += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, loc, http.StatusFound)
+				return
+			case "deny":
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			case "auth":
+				s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+				return
+			}
 		}
 		s.viteProxy.ServeHTTP(w, r)
 		return
