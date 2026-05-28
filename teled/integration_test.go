@@ -33,6 +33,9 @@ type tgMock struct {
 	actionHits int32
 	// force an error on the next sendMessage call (for 400 fallback)
 	failMarkdownOnce int32
+	// fail the HTML send (400) once for any chunk whose text contains this
+	// substring; the plain-text retry of that chunk succeeds.
+	failHTMLSubstr string
 }
 
 func newTGMock() *tgMock {
@@ -58,6 +61,13 @@ func newTGMock() *tgMock {
 		case "sendMessage":
 			if atomic.LoadInt32(&m.failMarkdownOnce) == 1 && r.Form.Get("parse_mode") == "HTML" {
 				atomic.StoreInt32(&m.failMarkdownOnce, 0)
+				writeTGErr(w, 400, "bad entity")
+				return
+			}
+			m.mu.Lock()
+			failSub := m.failHTMLSubstr
+			m.mu.Unlock()
+			if failSub != "" && r.Form.Get("parse_mode") == "HTML" && strings.Contains(r.Form.Get("text"), failSub) {
 				writeTGErr(w, 400, "bad entity")
 				return
 			}
@@ -257,6 +267,35 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 				t.Errorf("ext %s want %q got %v", tc.ext, tc.method, m.fileMethods)
 			}
 		})
+	}
+}
+
+// A multi-chunk message where one chunk's HTML send fails 400 must retry
+// only that chunk as plain text — not re-send the whole message, which used
+// to duplicate every chunk that already landed.
+func TestBotSend_MultiChunkHTMLFallbackNoDup(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	// Two chunks: first 4096 runes "a", then "MARK tail". Fail HTML only on
+	// the chunk carrying the marker.
+	m.mu.Lock()
+	m.failHTMLSubstr = "MARK"
+	m.mu.Unlock()
+
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+
+	content := strings.Repeat("a", 4096) + "MARK tail"
+	if _, err := b.Send(chanlib.SendRequest{ChatJID: "telegram:123", Content: content}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Exactly 2 successful sends: chunk0 (HTML) + chunk1 (plain fallback).
+	// The pre-fix whole-message fallback produced 3 (chunk0 HTML + both
+	// chunks plain), duplicating chunk0.
+	if len(m.lastSent) != 2 {
+		t.Fatalf("want 2 sends (no duplicate), got %d: %+v", len(m.lastSent), m.lastSent)
 	}
 }
 

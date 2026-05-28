@@ -322,8 +322,12 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		}
 	}
 	var firstID string
-	for _, c := range chanlib.Chunk(mdToHTML(req.Content), 4096) {
-		m := tgbotapi.NewMessage(id, c)
+	// Chunk the plain source so HTML and plain-fallback share the same
+	// boundaries: a chunk that fails HTML parsing (400, e.g. a tag split
+	// across the 4096 limit) retries as plain text on its own — never
+	// re-sending earlier chunks that already landed (which duplicated them).
+	for _, p := range chanlib.Chunk(req.Content, 4096) {
+		m := tgbotapi.NewMessage(id, mdToHTML(p))
 		m.ParseMode = "HTML"
 		if replyMsgID != 0 {
 			m.ReplyToMessageID = replyMsgID
@@ -336,22 +340,15 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		if err != nil {
 			var tgErr *tgbotapi.Error
 			if errors.As(err, &tgErr) && tgErr.Code == 400 {
-				for _, p := range chanlib.Chunk(req.Content, 4096) {
-					pm := tgbotapi.NewMessage(id, p)
-					if msgThreadID != 0 {
-						pm.MessageThreadID = msgThreadID
-					}
-					s2, e2 := b.api.Send(pm)
-					if e2 != nil {
-						return "", fmt.Errorf("telegram send: %w", e2)
-					}
-					if firstID == "" {
-						firstID = strconv.Itoa(s2.MessageID)
-					}
+				pm := tgbotapi.NewMessage(id, p)
+				if msgThreadID != 0 {
+					pm.MessageThreadID = msgThreadID
 				}
-				return firstID, nil
+				sent, err = b.api.Send(pm)
 			}
-			return "", fmt.Errorf("telegram send: %w", err)
+			if err != nil {
+				return "", fmt.Errorf("telegram send: %w", err)
+			}
 		}
 		if firstID == "" {
 			firstID = strconv.Itoa(sent.MessageID)
