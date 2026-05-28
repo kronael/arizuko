@@ -451,13 +451,28 @@ func TestAuthorizeOutboundSubtree(t *testing.T) {
 	}
 	// Other outbound verbs follow same rule.
 	for _, tool := range []string{"send_file", "reply", "post", "like", "dislike",
-		"delete", "edit", "forward", "quote", "repost"} {
+		"delete", "edit", "forward", "quote", "repost",
+		"pin_message", "unpin_message", "unpin_all",
+		"pane_set_prompts", "pane_set_title"} {
 		if err := AuthorizeStructural(happy, tool, AuthzTarget{TargetFolder: "rhias"}); err == nil {
 			t.Errorf("%s cross-world must deny", tool)
 		}
 		if err := AuthorizeStructural(rhias, tool, AuthzTarget{TargetFolder: "rhias/x"}); err != nil {
 			t.Errorf("%s within subtree must allow: %v", tool, err)
 		}
+	}
+}
+
+func TestAuthorizeInspectTasks(t *testing.T) {
+	id := Resolve("w/a")
+	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/a"}); err != nil {
+		t.Fatalf("inspect own task should allow: %v", err)
+	}
+	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/a/b"}); err != nil {
+		t.Fatalf("inspect descendant task should allow: %v", err)
+	}
+	if err := AuthorizeStructural(id, "inspect_tasks", AuthzTarget{TaskOwner: "w/x"}); err == nil {
+		t.Fatal("inspect non-descendant task should deny")
 	}
 }
 
