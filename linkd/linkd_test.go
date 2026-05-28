@@ -190,6 +190,66 @@ func TestPostCommentOutbound(t *testing.T) {
 	}
 }
 
+// TestPostComment401Retry verifies that after a 401 refresh, the retried
+// request still carries the full body (the original reader is drained by the
+// first attempt; do() must buffer and replay it).
+func TestPostComment401Retry(t *testing.T) {
+	var oauth *httptest.Server
+	oauth = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"new-at","expires_in":3600}`))
+	}))
+	defer oauth.Close()
+
+	var bodies []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"comment-1"}`))
+	}))
+	defer api.Close()
+
+	tmp := t.TempDir()
+	lc := &linkClient{
+		cfg:       config{APIBase: api.URL, OAuthBase: oauth.URL, ClientID: "c", ClientSecret: "s"},
+		http:      api.Client(),
+		token:     "old-tok",
+		refresh:   "rt",
+		meURN:     "urn:li:person:me",
+		seen:      map[string]bool{},
+		stateFile: tmp + "/s.json",
+	}
+	id, err := lc.Send(chanlib.SendRequest{
+		ChatJID: "linkedin:urn:li:activity:999",
+		Content: "hello there",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if id != "comment-1" {
+		t.Errorf("id = %q", id)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("expected 2 requests (401 + retry), got %d", len(bodies))
+	}
+	if bodies[1] == "" {
+		t.Fatal("retried request body is empty; body was not replayed after 401")
+	}
+	var retried map[string]any
+	if err := json.Unmarshal([]byte(bodies[1]), &retried); err != nil {
+		t.Fatalf("retry body not valid json: %q", bodies[1])
+	}
+	msg, _ := retried["message"].(map[string]any)
+	if msg["text"] != "hello there" {
+		t.Errorf("retry text = %v, want 'hello there'", msg["text"])
+	}
+}
+
 func TestSendRefusesPublishByDefault(t *testing.T) {
 	lc := &linkClient{
 		cfg:   config{AutoPublish: false},

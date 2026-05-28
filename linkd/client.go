@@ -242,26 +242,47 @@ func (lc *linkClient) fetchMe() error {
 
 func (lc *linkClient) do(method, path string, params map[string]string, body io.Reader) (*http.Response, error) {
 	full := lc.cfg.APIBase + path
-	req, err := http.NewRequest(method, full, body)
+	// Buffer the body so the 401-retry can replay it. Reusing the original
+	// reader sends an empty payload on retry (the first request drains it).
+	var bodyBytes []byte
+	if body != nil {
+		b, err := io.ReadAll(body)
+		if err != nil {
+			return nil, err
+		}
+		bodyBytes = b
+	}
+	build := func() (*http.Request, error) {
+		var r io.Reader
+		if bodyBytes != nil {
+			r = strings.NewReader(string(bodyBytes))
+		}
+		req, err := http.NewRequest(method, full, r)
+		if err != nil {
+			return nil, err
+		}
+		if len(params) > 0 {
+			q := req.URL.Query()
+			for k, v := range params {
+				q.Set(k, v)
+			}
+			req.URL.RawQuery = q.Encode()
+		}
+		req.Header.Set("User-Agent", chanlib.UserAgent)
+		req.Header.Set("X-Restli-Protocol-Version", "2.0.0")
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, nil
+	}
+
+	req, err := build()
 	if err != nil {
 		return nil, err
 	}
-	if len(params) > 0 {
-		q := req.URL.Query()
-		for k, v := range params {
-			q.Set(k, v)
-		}
-		req.URL.RawQuery = q.Encode()
-	}
 	lc.mu.Lock()
-	tok := lc.token
+	req.Header.Set("Authorization", "Bearer "+lc.token)
 	lc.mu.Unlock()
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("User-Agent", chanlib.UserAgent)
-	req.Header.Set("X-Restli-Protocol-Version", "2.0.0")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	resp, err := chanlib.DoWithRetry(lc.http, req)
 	if err != nil {
 		return nil, err
@@ -272,19 +293,13 @@ func (lc *linkClient) do(method, path string, params map[string]string, body io.
 		if rerr := lc.refreshAccessToken(); rerr != nil {
 			return nil, fmt.Errorf("refresh on 401: %w", rerr)
 		}
-		req2, _ := http.NewRequest(method, full, body)
-		if len(params) > 0 {
-			q := req2.URL.Query()
-			for k, v := range params {
-				q.Set(k, v)
-			}
-			req2.URL.RawQuery = q.Encode()
+		req2, err := build()
+		if err != nil {
+			return nil, err
 		}
 		lc.mu.Lock()
 		req2.Header.Set("Authorization", "Bearer "+lc.token)
 		lc.mu.Unlock()
-		req2.Header.Set("User-Agent", chanlib.UserAgent)
-		req2.Header.Set("X-Restli-Protocol-Version", "2.0.0")
 		return chanlib.DoWithRetry(lc.http, req2)
 	}
 	return resp, nil
