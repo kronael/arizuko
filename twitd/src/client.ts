@@ -33,7 +33,7 @@ export class RouterClient {
       {
         name,
         url: listenURL,
-        jid_prefixes: ['x:'],
+        jid_prefixes: ['twitter:'],
         capabilities: {
           send_text: true,
           send_file: true,
