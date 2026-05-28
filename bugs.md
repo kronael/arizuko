@@ -5,6 +5,18 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## store TestRouteToken_* FK constraint failures (2026-05-28, low, pre-existing)
+
+`go test ./store/... -run TestRouteToken` fails on three cases
+(`InsertLookup`/`List`/`Revoke`) with `FOREIGN KEY constraint failed
+(787)`. Reproduces on clean HEAD (689fa413) — NOT introduced by the
+thread-routing fix. Test fixtures insert route_tokens rows without
+seeding the parent row the FK references; surfaced after the
+`[fix] store: enforce FK via DSN on all pooled connections` commit made
+the previously-inert constraint live. Fix path: seed the referenced
+parent (group/identity) row in the test setup before inserting the
+token. Triage only — not touched by this pass.
+
 ## Typed-JID docs/spec drift (2026-05-28, low)
 
 `core/jid.go` (typed `JID`/`ChatJID`/`UserJID` structs + `ParseJID`/
@@ -262,32 +274,59 @@ Operator-data fix landed for atlas/strengths
 explicit override disabling the tier-2 recipe). Platform fix queued
 for triage.
 
-## Explicit MCP `reply` posts to channel root inside a thread (2026-05-28, medium)
+## FIXED 2026-05-28 — Explicit MCP `reply` posts to channel root inside a thread
 
-Found during atlas thread-reply verification. The agent's normal turn
-answer (Path A: `submit_turn` → `putAndDeliver(replyTo=trigger.ID,
-threadID=topic)`) threads correctly on Slack (`thread_ts =
-cmp.Or(ThreadID, ReplyTo)`) and Discord (`MessageReference`). But when
-the agent calls the `reply` MCP tool with no `replyToId` from inside a
-thread, the fallback at `ipc/ipc.go:900` reads `GetLastReplyID(jid, "")`
-— hardcoded empty topic — while the gateway seeded the last-reply under
-`(jid, thread_ts)` (topic ≠ ""). The lookup misses → `replyToId=""` →
-the reply posts to the **channel root**, not the thread. Fix path: plumb
-the active topic into the `reply`/`send` MCP fallback (read
-`GetLastReplyID(jid, topic)`), OR ant/CLAUDE.md guidance to pass
-`replyToId=<platform_id>` explicitly for in-thread replies (platform_id
-is already in the inbound message XML). Same root cause family as the
-voice/file leak below.
+The `reply` MCP fallback at `ipc/ipc.go` read `GetLastReplyID(jid, "")`
+— hardcoded empty topic — while the gateway seeds the last-reply under
+`(jid, thread_ts)`. Fix: gateway exposes the active turn's topic via
+`StoreFns.CurrentTopic` (mirrors `CurrentTriggerSender`; set/cleared by
+`setCurrentTurn`/`clearCurrentTurn` in both `processSenderBatch` and
+`processWebTopics`). The reply fallback + `recordOutbound` now key
+`GetLastReplyID`/`SetLastReply`/`BumpEngagement` under
+`activeTopic(db, folder)`. `send` is intentionally top-level (fresh
+message) — unchanged. Test: `TestServeMCP_Reply_ThreadsViaActiveTopic`.
 
-## Discord thread voice/file leak to parent channel (2026-05-25)
+## Discord thread voice/file leak to parent channel (2026-05-25) — DEFERRED
 
-Carryover from the thread fetch_history fix (commit `098996c`, see
-`.diary/20260525.md`): `SendVoice` and `SendFile` signatures in
-`chanlib.BotHandler` don't carry a `topic` field, so voice/file replies
-from within a Discord thread land in the **parent channel**, not the
-thread. Text replies via `Send` route correctly via
-`SendRequest.ThreadID`. Low priority — voice/file in discord threads is
-rare; needs a signature extension across all adapters when addressed.
+Carryover from the thread fetch_history fix (commit `098996c`). Voice/
+file replies from inside a thread land in the **parent channel**. Two
+distinct holes:
+
+1. **Voice** — `SendVoice(jid, audioPath, caption)` carries no thread/
+   reply param at all (`core.Channel` + `chanlib.BotHandler`).
+2. **File** — `SendFile` carries `replyTo`, but (a) the MCP `send_file`
+   handler doesn't fall back to the active topic when `replyToId` is
+   omitted, and (b) `discd.SendFile(jid,path,name,caption,_)` IGNORES
+   `replyTo` entirely (uses `chanID(jid)` = parent channel, with no
+   `ThreadID` override like its `Send` at bot.go:312). slakd threads
+   files via `reply_to`→`thread_ts`; discord does not.
+
+Deferred: a clean fix requires a `threadID` param across the
+`core.Channel` (`SendFile`/`SendVoice`) AND `chanlib.BotHandler`
+interfaces, threaded through every adapter (slakd, discd, teled, mastd,
+reditd, linkd, bskyd, emaid + `NoFileSender`/`NoVoiceSender`/
+`LocalChannel` + test mocks), the HTTP wire (`HTTPChannel.uploadMultipart`
+must add a `thread_id` multipart field; `chanlib.handleSendFile/
+handleSendVoice` must read it), and `ipc.GatedFns.SendVoice`/
+`SendDocument` + `gateway.sendVoice`/`sendDocument`. Blast radius is
+cross-adapter signature churn — explicitly out of scope for the
+thread-routing pass that fixed bug 1.
+
+Precise fix plan (when prioritized):
+- `core.Channel`: `SendFile(jid,path,name,caption,replyTo,threadID)`,
+  `SendVoice(jid,audioPath,caption,threadID)`.
+- `chanlib.BotHandler`: same two signatures; `handleSendFile`/
+  `handleSendVoice` read `thread_id` form field; `uploadMultipart`
+  writes it.
+- Each adapter: when `threadID != ""`, override the target channel/
+  message-reference exactly as `Send` does (discd: `chID = threadID`).
+- `ipc`: `GatedFns.SendVoice`/`SendDocument` gain `threadID`; the
+  `send_file`/`send_voice` MCP handlers default it to
+  `activeTopic(db, folder)` when `replyToId` is omitted (same pattern as
+  the bug-1 `reply` fix); gateway `sendVoice`/`sendDocument` pass it to
+  the channel.
+- Test: extend `ipc` reply test family — `send_file` with no `replyToId`
+  inside a thread resolves the topic; a fake channel asserts ThreadID.
 
 ## whapd_krons session-401 restart loop (2026-05-25, ops)
 

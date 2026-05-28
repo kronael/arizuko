@@ -202,6 +202,13 @@ type StoreFns struct {
 	// gateway-side bump sites.
 	CurrentTriggerSender func(folder string) string
 
+	// CurrentTopic returns the effective topic of the active turn for
+	// `folder`, or "" if none. The reply/send fallback reads it so an
+	// explicit reply with no replyToId resolves GetLastReplyID under the
+	// active topic (the key the gateway seeds via SetLastReply), threading
+	// in-thread replies instead of posting to the channel root.
+	CurrentTopic func(folder string) string
+
 	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
 	// (oracle/codex/openai). Spec 5/34.
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
@@ -489,9 +496,23 @@ func numArg(args map[string]any, key string) (int, bool) {
 	return int(f), true
 }
 
+// activeTopic returns the effective topic of the turn currently running
+// for folder, or "" when unknown. Used by the reply fallback to seed
+// GetLastReplyID under the same (jid, topic) key the gateway wrote.
+func activeTopic(db StoreFns, folder string) string {
+	if db.CurrentTopic == nil {
+		return ""
+	}
+	return db.CurrentTopic(folder)
+}
+
 func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder string) {
+	// Key last-reply + engagement under the active turn's topic — same
+	// key the gateway seeds (SetLastReply at turn start). "" would chain
+	// the next in-thread reply off the wrong (root) key.
+	topic := activeTopic(db, folder)
 	if platformID != "" && db.SetLastReply != nil {
-		_ = db.SetLastReply(jid, "", platformID, folder)
+		_ = db.SetLastReply(jid, topic, platformID, folder)
 	}
 	// Spec 5/G — engagement bump shares ONE policy across the three
 	// write sites (gateway steered echo, gateway output callback, MCP
@@ -505,7 +526,7 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			triggerSender = db.CurrentTriggerSender(folder)
 		}
 		if !strings.HasPrefix(triggerSender, "timed-") {
-			_ = db.BumpEngagement(jid, "", folder, time.Now().Add(gated.EngagementTTL))
+			_ = db.BumpEngagement(jid, topic, folder, time.Now().Add(gated.EngagementTTL))
 		}
 	}
 	if db.PutMessage != nil {
@@ -519,6 +540,7 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			BotMsg:    true,
 			ReplyToID: platformID,
 			RoutedTo:  jid,
+			Topic:     topic,
 			Status:    core.MessageStatusSent,
 		})
 	}
@@ -897,7 +919,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			text := req.GetString("text", "")
 			replyToID := req.GetString("replyToId", "")
 			if replyToID == "" && db.GetLastReplyID != nil {
-				replyToID = db.GetLastReplyID(jid, "")
+				// Resolve under the active turn's topic — the same key the
+				// gateway seeds via SetLastReply. "" would miss the seed for
+				// in-thread turns (topic = thread_ts) and post to root.
+				replyToID = db.GetLastReplyID(jid, activeTopic(db, folder))
 			}
 			platformID, err := gated.SendReply(jid, text, replyToID)
 			if err != nil {
@@ -1678,7 +1703,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			parent := folder[:idx]
 			var replyTo string
 			if db.GetLastReplyID != nil {
-				replyTo = db.GetLastReplyID(chatJid, "")
+				// Active-topic key so an escalation from inside a thread
+				// embeds the thread's reply-id (parent's reply-back threads),
+				// not the channel-root id. Same fix family as the reply
+				// fallback. "" would miss the gateway's (jid, topic) seed.
+				replyTo = db.GetLastReplyID(chatJid, activeTopic(db, folder))
 			}
 			slog.Info("escalating to parent", "sourceGroup", folder, "parent", parent, "depth", depth, "replyTo", replyTo)
 			wrapped := fmt.Sprintf("<escalation_origin folder=%q jid=%q reply_to=%q/>\n%s", folder, chatJid, replyTo, prompt)

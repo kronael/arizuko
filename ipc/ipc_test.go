@@ -733,6 +733,81 @@ func TestRecordOutbound_TimedSkipsEngagement(t *testing.T) {
 	}
 }
 
+// Bug 1 — an explicit `reply` with no replyToId from inside a thread must
+// resolve GetLastReplyID under the ACTIVE turn topic (the key the gateway
+// seeded), not "". Empty topic misses the seed and posts to channel root.
+func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	const wantTopic = "1716900000.001" // thread_ts
+	const seededID = "thread-root-id"
+
+	var lastReplyTopic, sentReplyTo string
+	db := StoreFns{
+		// Last-reply was seeded by the gateway under (jid, wantTopic).
+		GetLastReplyID: func(jid, topic string) string {
+			lastReplyTopic = topic
+			if topic == wantTopic {
+				return seededID
+			}
+			return "" // empty-topic lookup misses → would post to root
+		},
+		// The active turn for "world" is running in wantTopic.
+		CurrentTopic: func(folder string) string {
+			if folder == "world" {
+				return wantTopic
+			}
+			return ""
+		},
+		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
+		PutMessage:          func(m core.Message) error { return nil },
+		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
+	}
+	gated := GatedFns{
+		SendReply: func(jid, text, rid string) (string, error) {
+			sentReplyTo = rid
+			return "new-id", nil
+		},
+	}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	// reply returns plain "ok" text (not JSON), so callTool's payload
+	// unmarshal can't be used — invoke over the socket directly.
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	reqBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "reply", "arguments": map[string]any{
+			"chatJid": "slack:C123",
+			"text":    "the full answer",
+			// no replyToId — exercise the fallback
+		}},
+	})
+	c.Write(append(reqBody, '\n'))
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := bufio.NewReader(c).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(resp), "\"isError\":true") {
+		t.Fatalf("reply returned error: %s", resp)
+	}
+	if lastReplyTopic != wantTopic {
+		t.Fatalf("GetLastReplyID topic = %q, want %q (empty topic = the bug)", lastReplyTopic, wantTopic)
+	}
+	if sentReplyTo != seededID {
+		t.Fatalf("SendReply replyTo = %q, want %q (threads instead of posting to root)", sentReplyTo, seededID)
+	}
+}
+
 func TestRouteTokens_IssueTierMatrix(t *testing.T) {
 	var issued []string
 	gated := GatedFns{

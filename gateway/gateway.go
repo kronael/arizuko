@@ -63,6 +63,14 @@ type Gateway struct {
 	// the same folder are serialized at the queue layer.
 	currentTrigger map[string]string
 
+	// currentTopic maps folder → effective topic of the active turn.
+	// Read by the MCP reply/send fallback so an explicit reply with no
+	// replyToId resolves GetLastReplyID under the active topic (the same
+	// key the gateway seeds via SetLastReply) instead of "" — otherwise
+	// in-thread replies post to the channel root. Set/cleared alongside
+	// currentTrigger.
+	currentTopic map[string]string
+
 	// turnsMu guards inFlightTurns. Each entry is the active run for a
 	// folder; submit_turn over MCP looks itself up here and invokes the
 	// per-run callback (text delivery + session capture).
@@ -93,6 +101,7 @@ func New(cfg *core.Config, s *store.Store) *Gateway {
 		runner:        container.DockerRunner{},
 		steeredTs:      make(map[string]time.Time),
 		currentTrigger: make(map[string]string),
+		currentTopic:   make(map[string]string),
 		inFlightTurns:  make(map[string]*turnState),
 		folders: &groupfolder.Resolver{
 			GroupsDir: cfg.GroupsDir,
@@ -146,26 +155,35 @@ func (g *Gateway) resolveOrEngaged(chatJid string, last core.Message) (core.Grou
 	return g.store.GroupByFolder(folder)
 }
 
-// setCurrentTrigger records the per-turn trigger sender for `folder` so
-// MCP recordOutbound can honour the timed-* engagement skip without
-// plumbing per-call context through MCP. clearCurrentTrigger drops the
-// entry when the turn completes.
-func (g *Gateway) setCurrentTrigger(folder, sender string) {
+// setCurrentTurn records the per-turn trigger sender and effective topic
+// for `folder` so MCP recordOutbound (engagement skip) and the reply/send
+// fallback (active-topic GetLastReplyID) can read them without plumbing
+// per-call context through the MCP socket. clearCurrentTurn drops both
+// when the turn completes.
+func (g *Gateway) setCurrentTurn(folder, sender, topic string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.currentTrigger[folder] = sender
+	g.currentTopic[folder] = topic
 }
 
-func (g *Gateway) clearCurrentTrigger(folder string) {
+func (g *Gateway) clearCurrentTurn(folder string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.currentTrigger, folder)
+	delete(g.currentTopic, folder)
 }
 
 func (g *Gateway) currentTriggerSender(folder string) string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.currentTrigger[folder]
+}
+
+func (g *Gateway) currentTurnTopic(folder string) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.currentTopic[folder]
 }
 
 func (g *Gateway) AddChannel(ch core.Channel) {
@@ -289,6 +307,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		SetEngagement:         g.store.SetEngagement,
 		EngagedFolder:         g.store.EngagedFolder,
 		CurrentTriggerSender:  g.currentTriggerSender,
+		CurrentTopic:          g.currentTurnTopic,
 		MessagesBefore:      g.store.MessagesBefore,
 		MessagesByThread:    g.store.MessagesByThread,
 		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
@@ -859,9 +878,11 @@ func (g *Gateway) processSenderBatch(
 	_ = g.store.SetLastReply(chatJid, topic, last.ID, group.Folder)
 	onOutput, hadOutput := g.makeOutputCallback(deliverCh, deliverTo, topic, last.ID, group.Folder, last.Sender)
 	// Spec 5/G — expose trigger sender to MCP recordOutbound so the
-	// timed-* skip works for agent-side send/reply/post too.
-	g.setCurrentTrigger(group.Folder, last.Sender)
-	defer g.clearCurrentTrigger(group.Folder)
+	// timed-* skip works for agent-side send/reply/post too. topic lets
+	// the MCP reply/send fallback resolve GetLastReplyID under the active
+	// topic (threads in-thread replies instead of posting to root).
+	g.setCurrentTurn(group.Folder, last.Sender, topic)
+	defer g.clearCurrentTurn(group.Folder)
 	out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 		onOutput, isolated, topic, last.ID, len(msgs))
 
@@ -933,8 +954,10 @@ func (g *Gateway) processWebTopics(
 
 		_ = g.store.SetLastReply(chatJid, effectiveTopic, last.ID, group.Folder)
 		onOutput, hadOutput := g.makeOutputCallback(ch, chatJid, effectiveTopic, last.ID, group.Folder, last.Sender)
+		g.setCurrentTurn(group.Folder, last.Sender, effectiveTopic)
 		out := g.runAgentWithOpts(group, prompt, chatJid, last.Sender,
 			onOutput, false, effectiveTopic, last.ID, len(topicMsgs))
+		g.clearCurrentTurn(group.Folder)
 
 		if ch != nil {
 			ch.Typing(chatJid, false)
