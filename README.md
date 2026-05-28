@@ -41,7 +41,7 @@ A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md
 
 Agents coordinate through the same message bus they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by writing rows to `messages.db` and calling `EnqueueMessageCheck`. No separate coordination bus.
 
-State lives entirely in one SQLite database. Containers are stateless — they mount the group folder, run, and exit.
+Shared state lives in one SQLite database (messages, routing, grants); per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: one spawns per turn, mounts the group folder, runs, and exits.
 
 ## Direction
 

@@ -311,24 +311,26 @@ and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Container Lifecycle
 
-One container per group, long-lived across turns. The group folder
-mounts at `/home/node/` so conversation state, diary, skills, and the
-Claude Code session jsonl persist between invocations. Per-group web
-slots (`~/public_html`, `~/private_html`) bind-mount into the unified
-`<data>/web/{pub,priv}/<folder>/` trees — writes appear at both the
-agent's home path and the URL-serving path. Sibling groups
-get their own containers on their own networks with their own DB
-views — the cross-tenant boundary is the container, not the turn.
-Threat model + isolated axes in `SECURITY.md` § Model.
+One ephemeral container per turn (`docker run --rm`), always bound to
+the same per-group folder, network, and DB view. The container runs one
+turn from stdin and exits; the group folder mounts at `/home/node/` so
+conversation state, diary, skills, and the Claude Code session jsonl
+persist between turns — context accumulates per-group because each run
+resumes the session jsonl, not because the process is long-lived.
+Per-group web slots (`~/public_html`, `~/private_html`) bind-mount into
+the unified `<data>/web/{pub,priv}/<folder>/` trees — writes appear at
+both the agent's home path and the URL-serving path. Sibling groups get
+their own containers on their own networks with their own DB views — the
+cross-tenant boundary is the group (folder + network + DB view), not the
+turn. Threat model + isolated axes in `SECURITY.md` § Model.
 
-**Why one container per group matters for context.** Each container is
-one agent with one context window. Sales, SRE, and recruiting all run
-separate containers — they don't share a context. Mixing unrelated
-concerns in a single context causes the model to blend them: wrong
-answers, hallucinated references, noise from irrelevant history. The
-container boundary is the context boundary: each group gets a clean,
-persistent, focused context that accumulates only the conversations
-relevant to it.
+**Why per-group context isolation matters.** Each group is one agent
+with one accumulating context window (carried in its session jsonl).
+Sales, SRE, and recruiting never share a context. Mixing unrelated
+concerns in one context causes the model to blend them: wrong answers,
+hallucinated references, noise from irrelevant history. The group
+boundary is the context boundary: each group keeps a clean, persistent,
+focused context that accumulates only the conversations relevant to it.
 
 1. `container.EnsureRunning()` — verify docker
 2. `container.CleanupOrphans()` — stop stale `arizuko-*`
