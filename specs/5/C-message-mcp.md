@@ -20,7 +20,7 @@ Agent-side tools to query message history.
 
 Source: `ipc/ipc.go` + `webd/mcp.go`. Used by `recall-messages` skill.
 
-### Find by content (extension, draft)
+### Find by content (extension, shipped 2026-05-27)
 
 One tool. **SQLite FTS5** under the hood — tokenized, ranked,
 phrase + boolean operators.
@@ -97,8 +97,8 @@ END;
 `tokenize='unicode61 remove_diacritics 2'` — handles non-ASCII
 content (Czech, Spanish, Japanese, ...) without surprises.
 
-**Implementation query** (real column names verified against migrations
-0001 + 0005):
+**Implementation query** (real column names verified against
+`store/messages.go`):
 
 ```sql
 SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
@@ -107,18 +107,19 @@ SELECT m.chat_jid, m.sender, m.timestamp, m.is_from_me, m.is_bot_message,
 FROM messages_fts f
 JOIN messages m ON m.rowid = f.rowid
 WHERE messages_fts MATCH :query
-  AND (:scope IS NULL OR m.chat_jid = :scope OR m.group_folder = :scope OR m.group_folder LIKE :scope || '/%')
+  AND (:scope IS NULL OR m.chat_jid = :scope OR m.routed_to = :scope OR m.routed_to LIKE :scope || '/%')
   AND (:sender IS NULL OR m.sender = :sender)
   AND (:since IS NULL OR m.timestamp >= :since)
 ORDER BY rank, m.timestamp DESC
 LIMIT :limit;
 ```
 
-Columns: `messages.timestamp` (not `time`), `messages.group_folder` (not
-`folder`), JOIN on `m.rowid = f.rowid` (since `m.id` is TEXT, not the
-FTS rowid). `snippet()` returns the matched fragment with FTS5's
-built-in highlighting (`«match»…surrounding…`). No app-side truncation
-logic.
+Columns: `messages.timestamp` (not `time`), `messages.routed_to` —
+the per-message folder attribution (added in migration 0015; the older
+`group_folder` was dropped in 0023 as write-only dead weight). JOIN on
+`m.rowid = f.rowid` (since `m.id` is TEXT, not the FTS rowid).
+`snippet()` returns the matched fragment with FTS5's built-in
+highlighting (`«match»…surrounding…`). No app-side truncation logic.
 
 **`scope` polymorphism:** chat_jid contains `:` (e.g. `web:atlas`,
 `telegram:user/123`); folder paths don't (e.g. `atlas/eng`). Disambiguate
@@ -144,12 +145,12 @@ the caller as `400 invalid query`.
 ## ACL
 
 Same gate as `inspect_messages`: post-fetch filter via
-`db.JIDRoutedToFolder(chat_jid, caller.folder)` per result row.
-`auth.Authorize` today is a yes/no gate, not a WHERE-clause generator
-— don't claim subtree filtering at the SQL level. Pattern matches
-`ipc/ipc.go` (~line 2235) for `inspect_messages`. N+1 calls per
-result, but indexed and cheap; for default `limit=20` and max `200`,
-total overhead is sub-millisecond.
+`db.JIDRoutedToFolder(chat_jid, caller.folder)` per result row, with
+tier-0 (operator) bypassing. `auth.Authorize` today is a yes/no gate,
+not a WHERE-clause generator — don't claim subtree filtering at the SQL
+level. Pattern matches the `inspect_messages` handler in `ipc/ipc.go`.
+N+1 calls per result, but indexed and cheap; for default `limit=20` and
+max `200`, total overhead is sub-millisecond.
 
 Future work: introduce `acl.AllowedFolderSubtree(caller) []string`
 helper and push the filter into the SQL `WHERE` clause. Not v1.
@@ -182,8 +183,9 @@ messages_fts(messages_fts) VALUES('rebuild')` may be needed.
 
 ## Pointers
 
-- `store/messages.go` — `ListMessages`, `GetMessages` (existing readers).
-- `store/migrations/NNNN-messages-fts.sql` — new migration adding the
+- `store/messages.go` — `FindMessages` (FTS reader), `ListMessages`,
+  `GetMessages` (existing readers).
+- `store/migrations/0070-messages-fts.sql` — migration adding the
   virtual table + triggers.
 - `ipc/ipc.go` — where `find_messages` registers.
 - SQLite FTS5 reference: <https://sqlite.org/fts5.html>
