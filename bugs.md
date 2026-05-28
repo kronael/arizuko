@@ -99,6 +99,24 @@ update the doc to reference `DATA_DIR`, or drop the `STORE_DIR` mention.
   trusted/untrusted verb signal. Likely acceptable (Verb is informational on
   replayed history; classifyRaw would require re-fetching raw bytes), but a
   divergence from the "one renderer" intent the file comments claim.
+- 2026-05-28 (linkd, low): `linkd/client.go:deliverComment` marks
+  `seen[key]=true` (line 437) BEFORE `router.SendMessage` (line 479). If the
+  router POST fails transiently, the comment is already deduped and the next
+  poll skips it — inbound silently lost. Contrast reditd, which advances its
+  cursor only after successful delivery, and emaid, which marks IMAP \Seen
+  only after delivery. Reorder so the seen-mark happens after SendMessage
+  succeeds (keeping the own-comment/empty-text skips before the mark). Note
+  `TestDeliverComment` asserts seen-after-call with an up router, so the test
+  would still pass; add a router-failure case alongside the reorder.
+
+- 2026-05-28 (twitd, FIXED): `twitd/src/client.ts:36` registered
+  `jid_prefixes: ['x:']` while every inbound/outbound JID uses `twitter:`
+  (main.ts inbound `chat_jid:'twitter:home'`, server.ts /health
+  `['twitter:']`, verbs.ts `parseJid` strips `^twitter:`). The router's
+  inbound handler rejects messages where `!entry.Owns(chat_jid)`
+  (api/api.go:257), so EVERY mention twitd delivered would 400 with "jid
+  prefix mismatch"; outbound prefix-fallback routing (`ForJID`) also never
+  matched. Fixed to `['twitter:']`. All 42 twitd bun tests pass.
 
 ## Host-tool capabilities — drift
 
