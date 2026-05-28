@@ -12,10 +12,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.46.0] — 2026-05-28
 
-<!-- Shipped on main, awaiting release tag (gated on user testing). No
-     `>` announce blockquote until tagged. -->
+> arizuko v0.46.0 — full-text search, message actions, config-as-YAML, OpenAPI
+>
+> Agents can now search the whole message history, pin/edit/delete messages, and the entire cold-tier config is one reflective engine you export and apply as YAML with an auto-generated OpenAPI doc.
+>
+> • `find_messages` — FTS5 full-text search over messages (phrases, OR/NOT, prefix, NEAR; bm25-ranked + snippet)
+> • Message actions — pin / unpin / edit / delete, native per platform
+> • resreg engine + YAML manifests — one struct → SQL + REST + MCP + OpenAPI + YAML; `arizuko export`/`apply` round-trip the cold tier
+> • `GET /openapi.json` on every daemon — engine-generated, no codegen
+> • SDK 0.3.153 + tool deferral — connector tools load on demand, not every turn
+> • Fixes — replies/voice/files thread correctly (`reply` is now the default response tool); FK CASCADE actually enforced
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
@@ -72,6 +82,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **In-thread replies** — explicit `reply`/`send`/`escalate` and
   voice/file replies now thread to the originating chat thread (via the
   active turn topic) instead of leaking to the parent channel.
+- **`reply` is the default response tool** — sharpened the `send`/`reply`
+  MCP tool descriptions so agents thread their answers by default
+  (`reply`); `send` is reserved for explicit fresh top-level messages.
+  Fixes agents posting answers to the channel root instead of the thread.
 
 ---
 
