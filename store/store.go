@@ -32,16 +32,17 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	dsn := filepath.Join(dir, "messages.db") + "?_pragma=busy_timeout(5000)"
+	// foreign_keys must ride the DSN: modernc.org/sqlite defaults FK
+	// enforcement OFF per-connection, and database/sql pools many
+	// connections — a one-shot PRAGMA only covers one of them, so
+	// ON DELETE CASCADE (migrations 0068/0069) would silently no-op on
+	// the others. DSN pragmas apply to every pooled connection.
+	dsn := filepath.Join(dir, "messages.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func OpenMem() (*Store, error) {
 	// connection that sees an empty DB. `cache=shared` makes the in-memory
 	// DB shared across connections in the same process. File-backed Open()
 	// doesn't have this constraint.
-	db, err := sql.Open("sqlite", "file::memory:?cache=shared")
+	db, err := sql.Open("sqlite", "file::memory:?cache=shared&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
 	}

@@ -8,9 +8,10 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// FK tests use file-backed Open() (not OpenMem) because OpenMem does not
-// set PRAGMA foreign_keys=ON. Production paths run with FK enforcement
-// via store.Open; these tests mirror that.
+// FK enforcement rides the DSN (`_pragma=foreign_keys(on)`) so every
+// pooled connection has it on — both Open() and OpenMem(). Drop that DSN
+// pragma and the CASCADE assertions below go red, which is the regression
+// guard: a one-shot `PRAGMA foreign_keys=ON` only covers one connection.
 
 func openFKStore(t *testing.T) *Store {
 	t.Helper()
