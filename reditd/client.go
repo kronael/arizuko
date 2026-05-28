@@ -321,7 +321,11 @@ func (rc *redditClient) pollSource(key, path string, router *chanlib.RouterClien
 	children := l.Data.Children
 	for i := len(children) - 1; i >= 0; i-- {
 		t := children[i]
-		rc.handleThing(t, key, router)
+		if err := rc.handleThing(t, key, router); err != nil {
+			// Stop advancing on the first delivery failure so the next poll
+			// re-fetches from the last delivered item instead of skipping it.
+			return
+		}
 		rc.cursors[key] = t.Data.Name
 		rc.saveCursors()
 	}
@@ -373,7 +377,7 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 	}, true
 }
 
-func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) {
+func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterClient) error {
 	// chat_jid is the conversation context: subreddit for poller-sourced
 	// items, the author's user JID for inbox/DM-sourced items.
 	jid := "reddit:user/" + t.Data.Author
@@ -382,13 +386,14 @@ func (rc *redditClient) handleThing(t thing, key string, router *chanlib.RouterC
 	}
 	msg, ok := rc.thingToMsg(t, jid)
 	if !ok {
-		return
+		return nil
 	}
 	if err := router.SendMessage(msg); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
-		return
+		return err
 	}
 	rc.lastInboundAt.Store(time.Now().Unix())
+	return nil
 }
 
 // FetchHistory pulls a subreddit listing (newest-first). JID shape
