@@ -460,7 +460,10 @@ in message content as:
 
 - `post` — new top-level post (mastodon toot, bluesky post, discord
   channel message). Broadcast content, not replies or DMs.
-- `reply` — threaded reply to a specific message. `send` — top-level or DM.
+- `reply` — THE DEFAULT for responding; threads under the conversation
+  you're answering (omit `replyToId`). `send` — ONLY for an explicit fresh
+  top-level message that is NOT a reply (proactive notification, or a
+  different chat), never the normal answer.
 - `like` — add a reaction to a message by id. `targetId` must be the
   platform-native message id. Use the `platform_id=` attribute from the
   message XML — it is present on all adapters and holds the native id

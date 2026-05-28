@@ -869,7 +869,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			})
 	}
 
-	registerRaw("send", "Deliver a new top-level message to a chat. Use for the normal reply to the user's last message or for a proactive notification. Not for threaded replies to a specific earlier message (`reply`) or file delivery (`send_file` — its caption replaces this call). Slack channels: use for 1-sentence headlines only (≤200 chars), then call `reply` immediately with full detail.",
+	registerRaw("send", "A fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that — a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use `reply`, which threads. Not for threaded replies (`reply`) or file delivery (`send_file` — its caption replaces this call).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -897,7 +897,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolOK()
 		})
 
-	registerRaw("reply", "Deliver a message threaded to a specific earlier message (quote/reply UI on the platform). Use when disambiguating which message you're answering in an active chat, or when replyToId is known. Defaults to the last outbound reply id if omitted. Not for fresh top-level messages (`send`). On Slack: use immediately after `send` to post the full-length answer in a thread — don't wait for the user to follow up.",
+	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message threaded to the conversation you're answering (quote/reply UI on the platform; on Slack it lands in the thread, not the channel root). Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message that is NOT a reply.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
