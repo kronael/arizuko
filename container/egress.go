@@ -40,7 +40,7 @@ type EgressConfig struct {
 }
 
 func (e EgressConfig) active() bool {
-	return e.AdminURL != "" && e.NetworkPrefix != "" && e.CrackboxContainer != ""
+	return e.AdminURL != "" && e.NetworkPrefix != "" && e.CrackboxContainer != "" && e.AllowlistFn != nil
 }
 
 // PickIP returns a random host address inside the supplied /24 subnet.

@@ -249,12 +249,41 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	stdin.Close()
 
+	var timedOut atomic.Bool
+	var stopOnce sync.Once
+	stopContainer := func(reason string) {
+		stopOnce.Do(func() {
+			timedOut.Store(true)
+			slog.Info("container stopping",
+				"reason", reason, "group", in.Folder, "container", containerName)
+			stop := exec.Command(
+				Bin, StopContainerArgs(containerName)...)
+			if err := stop.Run(); err != nil {
+				slog.Warn("graceful stop failed, killing container",
+					"group", in.Folder, "container", containerName, "err", err)
+				// docker kill, not cmd.Process.Kill() — the latter only kills the CLI client.
+				if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
+					slog.Warn("docker kill failed, forcing removal",
+						"group", in.Folder, "container", containerName, "err", kerr)
+					exec.Command(Bin, "rm", "-f", containerName).Run()
+				}
+			}
+		})
+	}
+
+	// Idle timer + resetIdle are created before the stderr goroutine that
+	// reads resetIdle — the var is written exactly once, prior to any
+	// concurrent read, so no synchronization on the func value is needed.
+	idleTimer := time.AfterFunc(cfg.IdleTimeout, func() {
+		stopContainer("idle timeout")
+	})
+	resetIdle := func() { idleTimer.Reset(cfg.IdleTimeout) }
+
 	var stderrBuf strings.Builder
 	var stderrMu sync.Mutex
 	// Declared early so the stderr goroutine can reach it.
 	var idleResets atomic.Int32
 	const maxIdleResets = 240 // 60s * 240 = 4h max via idle resets
-	resetIdle := func() {}
 	go func() {
 		sc := bufio.NewScanner(stderr)
 		sc.Buffer(make([]byte, 64*1024), maxOutputSize)
@@ -288,27 +317,6 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		cfgTimeout = grace
 	}
 
-	var timedOut atomic.Bool
-	var stopOnce sync.Once
-	stopContainer := func(reason string) {
-		stopOnce.Do(func() {
-			timedOut.Store(true)
-			slog.Info("container stopping",
-				"reason", reason, "group", in.Folder, "container", containerName)
-			stop := exec.Command(
-				Bin, StopContainerArgs(containerName)...)
-			if err := stop.Run(); err != nil {
-				slog.Warn("graceful stop failed, killing container",
-					"group", in.Folder, "container", containerName, "err", err)
-				// docker kill, not cmd.Process.Kill() — the latter only kills the CLI client.
-				if kerr := exec.Command(Bin, "kill", containerName).Run(); kerr != nil {
-					slog.Warn("docker kill failed, forcing removal",
-						"group", in.Folder, "container", containerName, "err", kerr)
-					exec.Command(Bin, "rm", "-f", containerName).Run()
-				}
-			}
-		})
-	}
 	deadline := time.AfterFunc(cfgTimeout, func() {
 		stopContainer("hard deadline")
 	})
@@ -341,13 +349,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		})
 	}
 
-	timer := time.AfterFunc(cfg.IdleTimeout, func() {
-		stopContainer("idle timeout")
-	})
-	resetIdle = func() { timer.Reset(cfg.IdleTimeout) }
-
 	exitErr := cmd.Wait()
-	timer.Stop()
+	idleTimer.Stop()
 	deadline.Stop()
 	if softDeadline != nil {
 		softDeadline.Stop()
