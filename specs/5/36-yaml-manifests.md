@@ -30,7 +30,7 @@ one file.
 The **carrier format** for cold-tier configuration and the **apply**
 mechanics (one SQLite tx, mutation sync, optimistic locking).
 Product composition, cross-product subscriptions, and ingestion
-semantics ([`7/4`](4-data-ingestion-curation-eventing.md) Q2 + Q5)
+semantics ([`7/4`](../7/4-data-ingestion-curation-eventing.md) Q2 + Q5)
 remain open — 5/36 gives them a place to land later, not an answer.
 
 ## Surface
@@ -1299,7 +1299,7 @@ Setting a blob is a separate command — `arizuko secret set
 <scope>/<name> <value>` — that POSTs to a dedicated endpoint
 gated to operator only. Manifests describe metadata; secrets
 flow through their own channel. Trust boundary unchanged from
-[`7/2 ## secrets`](2-data-model.md#secrets).
+[`7/2 ## secrets`](../7/2-data-model.md#secrets).
 
 ## Status is not in the manifest
 

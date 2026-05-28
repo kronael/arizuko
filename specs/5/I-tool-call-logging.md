@@ -170,7 +170,7 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 - [`5/U-genericization.md`](U-genericization.md) — each daemon owns
   its `audit_log` table or shares the gated one; covered in Q3 of
   this spec when daemon-DB split lands.
-- [`5/4-openapi-discoverable.md`](4-openapi-discoverable.md) — the
+- [`5/36-yaml-manifests.md` §OpenAPI emission](36-yaml-manifests.md#openapi-emission) — the
   endpoint catalog this spec logs against.
 - [`6/F-audit-stream.md`](../6/F-audit-stream.md) — the DB-side
   partner; defines the `audit_log` table that this spec gives the

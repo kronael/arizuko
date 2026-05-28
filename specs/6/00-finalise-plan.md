@@ -10,7 +10,7 @@ can be marked ready. This is meta-work: writing only, no implementation.
 
 ## 2026-05-13 update — new constraint added
 
-[`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) was added as a sibling
+[`5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) was added as a sibling
 principle to `R-platform-api.md`: every operator action accessible via
 both REST (OAuth-gated) AND MCP (tier-gated) over a single handler.
 Drops a registry of `Resource{Endpoints, MCPTools, Policy, Handler}`

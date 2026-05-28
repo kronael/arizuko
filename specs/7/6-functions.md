@@ -353,7 +353,7 @@ chain.
 | Delete          | `functions.delete` | `DELETE /v1/functions/{name}`      |
 | Invoke (manual) | `functions.invoke` | `POST /v1/functions/{name}:invoke` |
 
-One hand-rolled resreg handler per [`7/1`](1-mcp-rest-unification.md).
+One hand-rolled resreg handler per [`5/5`](../5/5-uniform-mcp-rest.md).
 `state: absent` row in a YAML manifest deletes. Group delete
 cascades.
 
@@ -527,7 +527,7 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   field schema; this spec fills in the `tool` values listed above.
 - [`../6/F-audit-stream.md`](../6/F-audit-stream.md) — audit_log
   table. New `tool` values only; no schema change.
-- [`../5-uniform-mcp-rest.md`](1-mcp-rest-unification.md) — one
+- [`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — one
   resreg handler per resource; `functions` joins the unified surface.
 - [`../7/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
   row + script file are cold-tier state; per-turn commit picks them

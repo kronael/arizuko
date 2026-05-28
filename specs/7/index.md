@@ -94,8 +94,6 @@ Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
 
 ## Specs in this phase
 
-- [1-mcp-rest-unification.md](1-mcp-rest-unification.md) — close the
-  MCP+REST handler gap.
 - [2-data-model.md](2-data-model.md) — entity sharpening,
   serialization-friendly shapes.
 - [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
