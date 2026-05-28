@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [6/Y-secret-broker, 11/14-surrogate-oauth]
+depends: [Y-secret-broker, 11/14-surrogate-oauth]
 relates-to: [4/9-acl-unified]
 ---
 
@@ -34,7 +34,7 @@ key)` already holds tokens. [`11/14`](../11/14-surrogate-oauth.md)
   identity-only (`exchangeGoogle` discards refresh/expiry,
   `auth/oauth.go:269`); 11/14's `auth/surrogate.go` is the unbuilt
   token-persisting half.
-- **Broker** — [`6/Y`](../6/Y-secret-broker.md): M2–M6 shipped (schema,
+- **Broker** — [`6/Y`](Y-secret-broker.md): M2–M6 shipped (schema,
   dashd UI, CLI, spawn-env, connector spawner). **M0/M1 unshipped** —
   `ipc/ipc.go:845` passes `nil` secrets to `CallConnectorTool`; the
   broker middleware that resolves `user∥folder` secrets and passes
@@ -83,7 +83,7 @@ by 6/Y, 11/14, and 4/9. This spec does not duplicate them.
 
 ## Pointers
 
-- [`6/Y-secret-broker.md`](../6/Y-secret-broker.md) — the broker; ship M0/M1.
+- [`6/Y-secret-broker.md`](Y-secret-broker.md) — the broker; ship M0/M1.
 - [`11/14-surrogate-oauth.md`](../11/14-surrogate-oauth.md) — the OAuth token writer.
 - `ipc/connector.go` — the dispatch path (mounted MCP server).
 - `gateway/connectors.go` — `connectors.toml` loader.
