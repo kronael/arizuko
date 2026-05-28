@@ -1,5 +1,5 @@
 // MCP server assembly for the agent query. Pure functions over config —
-// no SDK runtime — so the eager/deferred split is unit-testable. Spec 5/E.
+// no SDK runtime — so the eager/deferred split is unit-testable. Spec 6/A.
 
 import fs from 'fs';
 
@@ -9,7 +9,7 @@ export type McpServerConfig = {
   env?: Record<string, string>;
   // alwaysLoad: true keeps every tool from this server eager (defer_loading:
   // false on the API). Omit it and the SDK defers the server's tools behind
-  // the Tool Search Tool. Spec 5/E.
+  // the Tool Search Tool. Spec 6/A.
   alwaysLoad?: boolean;
 };
 

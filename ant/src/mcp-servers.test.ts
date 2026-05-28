@@ -1,4 +1,4 @@
-// Asserts the eager/deferred MCP-tool split (spec 5/E): arizuko core tools
+// Asserts the eager/deferred MCP-tool split (spec 6/A): arizuko core tools
 // stay eager (alwaysLoad), third-party connector servers default to deferred.
 
 import { test, expect } from 'bun:test';

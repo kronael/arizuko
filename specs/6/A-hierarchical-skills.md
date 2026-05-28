@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [../5/5-uniform-mcp-rest.md]
+depends: [5/5-uniform-mcp-rest]
 ---
 
 # specs/6/A — hierarchical skills + self-skill
