@@ -5,6 +5,17 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## container/ipc bug-hunt sweep (2026-05-28)
+
+Read-only correctness pass over `container/` + `ipc/`. Items below are UNSURE-whether-bug (logged, not fixed per triage protocol). Verified-not-bugs at the end.
+
+- [ipc] ipc.go:1108-1116 (regSocial) + 1150/1167/1180 — `forward`, `quote`, `repost` (idOut=true, create new platform content with an id) do NOT call `recordOutbound`, so no `messages` row, no `SetLastReply`, no engagement bump. `post` (line 1065) and `send`/`reply`/`send_voice` all DO record. Likely intentional (feed amplification ≠ conversation reply) but the asymmetry vs `post` looks like an oversight. If feed actions should appear in the store/threading, route them through recordOutbound.
+- [ipc] ipc.go:1024 (post desc) + 1133 (delete desc) — descriptions say "Tier 0-2 only" but `regSocial`/`post` apply NO tier gate; `authorizeOutbound` (auth/policy.go:128) only checks subtree, not tier. A tier-3 agent with the grant and JID ownership can call `post`/`delete`. Either the desc is stale or a tier check is missing. Same desc-vs-enforcement gap for `list_acl` ("Tier 0-2 only" at ipc.go:2045 but AuthorizeStructural denies tier 2). Safe direction (deny) for list_acl; post/delete is the permissive direction — verify intent.
+- [container] egress.go:42,98 — `EgressConfig.active()` checks AdminURL/NetworkPrefix/CrackboxContainer but NOT `AllowlistFn`; `registerEgress` calls `cfg.AllowlistFn(id)` unconditionally (line 98). Current sole caller (gateway.go:1290) always sets it to `store.ResolveAllowlist`, so unreachable today, but a future active-config with nil AllowlistFn panics. Latent.
+- [container] runner.go:257,267,347 — `resetIdle` func var is read by the stderr goroutine (line 267) and reassigned by the main goroutine (line 347) with no synchronization → data race on the func value (would trip `-race`). Pre-existing. Early resets (before line 347) are also silently dropped, but harmless (idle timer not created until line 344). `timer.Reset` itself is concurrency-safe.
+
+Verified NOT bugs (do not re-flag): `get_thread` oldest=`msgs[len-1]` (ipc.go:2411) is correct — `MessagesByThread` returns DESC (newest first), while `inspect_messages`/`fetch_history` use `msgs[0]` because `MessagesBefore` reverses to ASC (store/messages.go:646). Connector `nil` secrets at ipc.go:868 is intentional ("broker removed", connector_test.go:151). `find_messages` `hits[:0]` in-place compaction is the safe Go idiom. `hp()` prefix check (runner.go:658) can't hit the sibling-prefix escape because all callers pass `ProjectRoot + "/" + subdir`. `inject_message` passing a jid as TargetFolder (ipc.go:1601) is harmless — that AuthorizeStructural case ignores TargetFolder.
+
 ## Typed-JID docs/spec drift (2026-05-28, low)
 
 `core/jid.go` (typed `JID`/`ChatJID`/`UserJID` structs + `ParseJID`/
