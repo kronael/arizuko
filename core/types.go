@@ -10,29 +10,11 @@ import (
 	"time"
 )
 
-// Generic primitives (Phase A of specs/5/U-genericization.md). These are
-// the platform vocabulary; arizuko-domain names below are Go aliases of
-// these — same underlying type, different documentation intent. Aliases
-// (not new types) so call sites migrate locally without flag days.
-//
-// TenantID identifies an isolated workspace. arizuko's Folder is a
-// TenantID with path-structured semantics; routerd, agent-runnerd, and
-// any future non-arizuko consumer see only the opaque shape.
-type TenantID = string
-
-// SubjectID identifies the conversation/thread/post target. The wire
-// form `<platform>:<rest>` IS a SubjectID; generic consumers treat the
-// string as opaque. JidPlatform/JidRoom split it when needed.
-type SubjectID = string
-
-// Scope is the capability list replacing the legacy tier int (see
-// "Capability-vs-tier perf" in specs/5/U-genericization.md).
-type Scope = []string
-
-// Folder is the arizuko-domain alias of TenantID — a path-structured
-// tenant identifier. Aliasing means a daemon that types a parameter
-// `Folder` and a daemon that types it `TenantID` are interchangeable.
-type Folder = TenantID
+// Cross-boundary identity types live in the top-level types/ package
+// (types.UserSub / Folder / Tier / Scope) — see
+// specs/5/U-genericization.md. The earlier core/types.go stopgap aliases
+// were never adopted (call sites use plain string/int), so they retired
+// when types/ landed.
 
 type Message struct {
 	ID            string

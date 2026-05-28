@@ -37,34 +37,6 @@ func TestParseRouteTarget(t *testing.T) {
 	}
 }
 
-
-// TestPhaseAAliases proves the generic-vs-domain aliases share identity
-// (specs/5/U-genericization.md Phase A). A function declared with TenantID
-// accepts a Folder argument and vice-versa — Go's type-alias rule is what
-// makes the migration recipe local.
-func TestPhaseAAliases(t *testing.T) {
-	acceptTenant := func(id TenantID) string { return id }
-	acceptFolder := func(f Folder) string { return f }
-	acceptSubject := func(s SubjectID) string { return s }
-	acceptScope := func(sc Scope) int { return len(sc) }
-
-	var f Folder = "atlas/oncall"
-	if acceptTenant(f) != "atlas/oncall" {
-		t.Fatal("TenantID should accept Folder value")
-	}
-	var tid TenantID = "atlas/oncall"
-	if acceptFolder(tid) != "atlas/oncall" {
-		t.Fatal("Folder should accept TenantID value")
-	}
-	var sid SubjectID = "web:user/x"
-	if acceptSubject(sid) != "web:user/x" {
-		t.Fatal("SubjectID should accept string")
-	}
-	if acceptScope(Scope{"messages.read", "secrets.set"}) != 2 {
-		t.Fatal("Scope should be a []string")
-	}
-}
-
 func TestGenHexToken(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 64; i++ {

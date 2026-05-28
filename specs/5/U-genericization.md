@@ -11,10 +11,11 @@ status: partial
 > cross-daemon access goes through each daemon's `api/v1/` HTTP+MCP
 > surface. The `SubjectID` alias and a new `arizuko/` package are
 > **rejected** in favour of `types/`. **Partial against code**: the
-> Phase A stopgap (`core/types.go` aliases — `TenantID`, `SubjectID`,
-> `Scope`, `Folder`) is live; the target `types/` package, `authd`, and
-> the gated split are not yet implemented. Treat this as the
-> design-direction record + in-progress audit, not a proposal to debate.
+> `types/` package has LANDED (`types/identity.go`: `UserSub`, `Folder`,
+> `Tier`, `Scope`); the never-adopted `core/types.go` stopgap aliases were
+> removed. Still not implemented: per-daemon migration of cross-boundary
+> signatures onto `types.*`, `authd`, and the gated split. Treat this as
+> the design-direction record + in-progress audit, not a proposal to debate.
 
 # Daemon genericization
 
@@ -126,13 +127,17 @@ Rules for `types/`:
   evaluation) stays in `core/` or in the daemon that owns the
   semantics. `types/` is the boundary, not the implementation.
 
-**Phase A stopgap, live today**: `core/types.go` ships the aliases
-`TenantID`, `SubjectID`, `Scope`, and `Folder = TenantID` so call sites
-migrate locally without a flag day. The target is `types.UserSub`,
-`types.Folder`, `types.Scope` as the public IDs that cross daemon
-boundaries; `core/` keeps the domain-rich versions for in-process use.
-The aliases retire when the `types/` package lands and daemons import it
-directly.
+**Status — `types/` landed (Phase A foundation).** `types/identity.go`
+ships `UserSub`, `Folder`, `Tier`, `Scope` as distinct named types, zero
+arizuko-internal imports. The earlier `core/types.go` stopgap aliases
+(`TenantID`, `SubjectID`, `Scope`, `Folder = TenantID`) were never
+adopted — call sites use plain `string`/`int` — so they were removed when
+`types/` landed rather than bridged. `core/` keeps the domain-rich types
+for in-process use. **Remaining Phase A work (incremental, per-daemon):**
+migrate cross-boundary signatures (`folder string`, `tier int`, …) to
+`types.Folder` / `types.UserSub` / `types.Scope` as each daemon's
+`api/v1/` package is built — there is no live alias bridge, so each move
+is a real type change at that boundary.
 
 ## Per-service `<daemon>/api/v1/` contract pattern
 
@@ -560,12 +565,12 @@ internal package imports beyond `types/` and other daemons' `api/v1/`"
 1. **Audit** — done in this spec (see § _What's coupled today_). The
    per-daemon table is the work order.
 2. **Phase A — naming + `types/` extraction (per-component).** Land
-   `types/` at the module root with the ID types; migrate each daemon's
-   cross-boundary signatures to `types.Folder` / `types.UserSub` /
-   `types.Scope`. **Skip per-daemon when the daemon doesn't import
-   `core/store` at all** (the four "already there" daemons). The
-   `core/types.go` aliases are the live stopgap until `types/` lands.
-   One commit per daemon.
+   `types/` at the module root with the ID types — **DONE**
+   (`types/identity.go`); migrate each daemon's cross-boundary signatures
+   to `types.Folder` / `types.UserSub` / `types.Scope`. **Skip per-daemon
+   when the daemon doesn't import `core/store` at all** (the four "already
+   there" daemons). No alias bridge exists, so each signature move is a
+   real type change at that boundary. One commit per daemon.
 3. **Phase B — semantic decoupling.** Per-case (slakd PaneSession,
    gateway folder dependencies, onbod tier→scope). Design-per-daemon;
    one-shot per release.
@@ -586,7 +591,8 @@ internal package imports beyond `types/` and other daemons' `api/v1/`"
 - **DAG layering**: libraries layer 0–2; daemons layer 3; downward
   imports only; cross-library imports inside a layer fine. Locked.
 - **`types/`**: top-level shared-IDs package; pure types, no behavior.
-  `core/types.go` aliases are the live Phase A stopgap. Locked.
+  Landed (`types/identity.go`: `UserSub`/`Folder`/`Tier`/`Scope`); the
+  never-adopted `core/types.go` stopgap aliases were removed. Locked.
 - **`<daemon>/api/v1/` pattern**: every daemon publishes a contract
   sub-package importable by others; orthogonality grep allows it.
   Locked.
@@ -610,10 +616,10 @@ revert`; no dual API periods. Locked (CLAUDE.md + user directive).
 
 ## Code pointers
 
-- `types/identity.go` (new) — shared IDs.
-- `core/types.go` — current shared types + Phase A aliases; loses the
-  cross-boundary IDs to `types/`, keeps domain-rich versions for
-  in-process use.
+- `types/identity.go` — the shared cross-boundary IDs (`UserSub`,
+  `Folder`, `Tier`, `Scope`). Landed.
+- `core/types.go` — domain-rich in-process types; the cross-boundary IDs
+  now live in `types/` (the unused stopgap aliases were removed).
 - `auth/identity.go`, `auth/acl.go`, `grants/` — rule/identity
   evaluation; refactor target: operate on `types.Scope`, not
   `core.Folder` / `core.Tier`.
