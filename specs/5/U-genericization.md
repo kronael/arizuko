@@ -321,11 +321,11 @@ the same release.
 
 `gated` is the headline split:
 
-| New daemon      | Owns                                                             | Serves `/v1/`                            | Hosts MCP tools                                                                         | What stays out             |
-| --------------- | ---------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
-| `routerd`       | `tenants`, `rules`, `events` tables (own DB)                     | `tenants`, `rules`, `events`, `subjects` | routing-control tools (`set_routes`, `match_subject`, `tenant.create`)                  | no agent, no chat, no tier |
-| `agent-runnerd` | container lifecycle, per-spawn state (own DB)                    | `spawns`, `spawn_logs`                   | agent-host tools (`spawn`, `kill`, `stream_output`)                                     | no routing logic           |
-| `mcp-hostd`     | per-tenant MCP socket, capability-token minting, tool federation | `mcp_tokens`                             | aggregates other daemons' MCP tools (`fetch`, `send_reply`, ...) — federated, not local | no domain state            |
+| New daemon      | Owns                                                                                                                                                       | Serves `/v1/`                            | Hosts MCP tools                                                                         | What stays out             |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
+| `routerd`       | `tenants`, `rules`, `events` tables (own DB)                                                                                                               | `tenants`, `rules`, `events`, `subjects` | routing-control tools (`set_routes`, `match_subject`, `tenant.create`)                  | no agent, no chat, no tier |
+| `agent-runnerd` | container lifecycle, per-spawn state (own DB)                                                                                                              | `spawns`, `spawn_logs`                   | agent-host tools (`spawn`, `kill`, `stream_output`)                                     | no routing logic           |
+| `mcp-hostd`     | per-tenant MCP socket, capability-token brokering (downscoped tokens signed by `authd`, see [1-auth-standalone.md](1-auth-standalone.md)), tool federation | `mcp_tokens`                             | aggregates other daemons' MCP tools (`fetch`, `send_reply`, ...) — federated, not local | no domain state            |
 
 `authd` is the fourth gated-split product, specified in its own
 [1-auth-standalone.md](1-auth-standalone.md); cataloged here only as
