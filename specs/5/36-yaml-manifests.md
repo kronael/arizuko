@@ -1,55 +1,63 @@
 ---
-status: partial
-shipped: resreg engine + OpenAPI 3.1 emission + CAS (config_meta) + single-file `apply`/`export` + 3 FKs + no-cache audit (2026-05-27). Drafted-unshipped: mutation sync, orphan recovery, startup apply, SIGHUP reload, `plan`/`get`/`repair`, manifest-dir composition, group-removal active-state clearing, `--prune`/`state: absent`.
-depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md, specs/7/3-git-as-truth.md
+status: draft
+depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md
 ---
 
-# specs/5/36 — YAML manifests: declarative carrier for cold-tier intent
+# specs/5/36 — YAML manifests: transport dump/import for cold-tier config
+
+> **Status note.** The SQLite DB is authoritative. YAML manifests are a
+> transport dump/import — `pg_dump` / `pg_restore` for the cold tier — not
+> a continuously-synced source of truth. An earlier draft auto-synced the DB
+> back to YAML after every mutation (git-as-truth), with startup-apply,
+> orphan-recovery, and SIGHUP-reload to keep them in lockstep. **All of that
+> is removed**, not pending. `specs/7/3-git-as-truth.md`'s notion of
+> cold-tier-config as a continuously-synced source of truth is superseded by
+> this reframing; export-to-git as a _dump you can commit_ is fine (7/3
+> itself is unedited — read its `agents.toml` references through this lens).
 
 ## Why
 
-7/2 sharpens the cold/warm/hot tier boundary; 7/3 puts cold-tier
-config in git; both leave a placeholder string — `agents.toml` —
-without specifying the file shape. This spec resolves it.
+7/2 sharpens the cold/warm/hot tier boundary but leaves a placeholder
+string — `agents.toml` — without specifying the file shape. This spec
+resolves it.
 
 `agents.toml` was always provisional. This spec replaces it with a
-YAML manifest format that **carries cold-tier intent** for an
+YAML manifest format that **carries cold-tier config** for an
 instance: ACL, routes, secrets metadata, scheduled tasks,
 proxyd routes, web routes, network rules, group registration.
 Tokens (`invites`, `route_tokens`) are imperative-only in v1; see
 "Tokens are not in v1 manifests."
 
-The mechanism is direct: one CLI verb (`arizuko apply`) parses YAML,
-validates each row, and rebuilds all config tables in one SQLite
-transaction. YAML is the source of truth; the DB is the queryable
-index. No REST dispatch, no daemon-side state machine — one tx,
-one file.
+**The DB is authoritative; YAML is a transport dump/import.** The mental
+model is `pg_dump` / `pg_restore`: `arizuko export` writes a point-in-time
+dump of the cold-tier tables to YAML (backup / transport / migration /
+review); `arizuko apply file.yaml` restores the cold tier from a dump,
+rebuilding all config tables in one SQLite transaction. The YAML is never
+live — it changes only when you explicitly `export` again. Runtime
+mutations (MCP/REST row ops) change the DB, not the YAML. There is no
+continuous DB→YAML sync, no startup-apply, no file-watch/reload loop.
+"Drift" is a non-concept: a dump never claims to be live, exactly like a
+SQL dump.
 
 ## What this spec is
 
-The **carrier format** for cold-tier configuration and the **apply**
-mechanics (one SQLite tx, mutation sync, optimistic locking).
+The **dump/import format** for cold-tier configuration and the **apply**
+mechanics (one SQLite tx, optimistic locking on restore).
 Product composition, cross-product subscriptions, and ingestion
-semantics ([`7/4`](../7/4-data-ingestion-curation-eventing.md) Q2 + Q5)
+semantics ([`7/4`](4-data-ingestion-curation-eventing.md) Q2 + Q5)
 remain open — 5/36 gives them a place to land later, not an answer.
 
 ## Surface
 
-Shipped today: `arizuko apply <instance> <file>` (single file) and
-`arizuko export <instance> [out]` (single document to stdout/file).
-The rest of this surface (`plan`, `get`, manifest-dir composition) is
-drafted, not yet wired.
-
-- `arizuko apply <instance> <file> [--force]` — read one manifest
-  file, validate, rebuild config tables in one SQLite tx (CAS-checked).
-  **Shipped.** Manifest-dir + multi-file merge is drafted (see
-  Splitting + composition).
-- `arizuko export <instance> [out]` — dump all config tables as one
-  deterministic YAML document. **Shipped** as a single document; the
-  one-file-per-resource-kind directory form is drafted.
-- `arizuko plan <file>…` — non-mutating diff vs live state. **Drafted.**
-- `arizuko get <resource>[/<name>]` — dump a single resource's live
-  state as a YAML fragment. **Drafted.**
+- `arizuko export` — **dump** all cold-tier config tables to YAML
+  (`manifest/`, one file per resource kind). Point-in-time; not synced.
+- `arizuko apply <file>…` — **restore** the cold tier from a dump: read
+  manifest dir or file(s), validate, rebuild config tables in one SQLite
+  tx, report diff.
+- `arizuko get <resource>[/<name>]` — dump live DB state as a YAML
+  fragment for the named resource (a scoped `export`).
+- `arizuko plan <file>…` — non-mutating; prints diff vs live state, no
+  writes. _(Under review given the dump/import model — see open questions.)_
 
 ## Manifest directory layout
 
@@ -192,66 +200,16 @@ network_rules:
     target: api.anthropic.com
 ```
 
-In-flight files use a dot-prefix — hidden, never at rest:
+## Mutation sync — rejected
 
-```
-manifest/.atlas.yaml   ← only during a mutation, deleted or renamed immediately
-```
-
-`.gitignore` entry: `manifest/.*`. Startup sweep: delete any `manifest/.*`
-orphans — they are crash evidence (see Mutation sync).
-
-## Mutation sync
-
-> **Drafted, not shipped.** The shipped path is single-file
-> `apply`/`export`; mutations do not yet write manifest files back.
-> This section is the design for the file-backed sync.
-
-Every resreg config mutation (MCP or CLI) rewrites the owning group's
-manifest file synchronously, before returning to the caller.
-
-**Home-file rule** — the file a row belongs to is determined by its
-group folder field (no DB tracking column needed):
-
-| Resource                                                      | Home-file key                                                  | Home file                |
-| ------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------ |
-| group config fields                                           | the namespace key itself                                       | `manifest/<folder>.yaml` |
-| `acl`                                                         | folder extracted from `scope`                                  | `manifest/<folder>.yaml` |
-| `acl_membership`                                              | containing group key in document                               | `manifest/<folder>.yaml` |
-| `routes`                                                      | `target`                                                       | `manifest/<folder>.yaml` |
-| `web_routes`                                                  | `folder`                                                       | `manifest/<folder>.yaml` |
-| `scheduled_tasks`                                             | `chat_jid` (is the folder)                                     | `manifest/<folder>.yaml` |
-| `secrets`                                                     | containing group key (folder-scoped) or explicit `user:` field | `manifest/<folder>.yaml` |
-| `network_rules` (group-scoped)                                | `folder`                                                       | `manifest/<folder>.yaml` |
-| `proxyd_routes`, `onboarding_gates`, `network_rules` (global) | — (base)                                                       | `manifest/base.yaml`     |
-
-Protocol per mutation:
-
-```
-1. determine home file: manifest/atlas.yaml
-2. read current home file → merge in the new/updated/deleted row
-3. serialize merged state → write to manifest/.atlas.yaml
-4. BEGIN tx
-5.   write row to DB
-6. COMMIT
-7.   rename(manifest/.atlas.yaml, manifest/atlas.yaml)  ← atomic
-   on COMMIT failure: ROLLBACK, delete manifest/.atlas.yaml
-   on rename failure: manifest/.atlas.yaml is the orphan recovery (see below)
-```
-
-Rename is **post-commit**. If the process dies between COMMIT and
-rename, `manifest/.atlas.yaml` survives as an orphan. On next
-startup: orphan detected → rename it → YAML caught up. DB is briefly
-ahead but always recoverable. Pre-commit crash: ROLLBACK, delete
-orphan, `atlas.yaml` unchanged.
-
-No background goroutines. Sync is on the handler's critical path.
-
-**Same-filesystem assumption.** `rename(2)` is atomic only within
-one filesystem on Linux. The spec assumes `manifest/` and any
-in-flight `manifest/.*.yaml` live on the same mount. Bind-mounting
-`manifest/` from another filesystem breaks atomicity guarantees.
-Operators who do this are on their own.
+An earlier draft auto-synced the DB back to YAML after every mutation
+(git-as-truth): each MCP/CLI config write rewrote the owning group's
+manifest file synchronously, with a dot-prefixed in-flight file and a
+post-commit `rename(2)` for atomicity. **That is rejected.** YAML is
+export/import only — it changes when you `export`, not when a row mutates.
+Runtime mutations land in the DB; the dump goes stale until the next
+`export`, exactly like `pg_dump` output. No home-file routing table, no
+in-flight dot-files, no `.gitignore manifest/.*` sweep.
 
 ## Three transports, one row schema
 
@@ -260,13 +218,13 @@ The schema is defined once in Go by `resreg.Resource` and reused by all
 three. Drift between transports is structurally impossible — they share
 one handler.
 
-|             | REST                            | MCP                           | YAML                               |
-| ----------- | ------------------------------- | ----------------------------- | ---------------------------------- |
-| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DELETE all + INSERT (full rebuild) |
-| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)           |
-| Row fields  | request body                    | tool args                     | row map                            |
-| Batching    | one row per call                | one row per call              | many rows, one tx                  |
-| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header  |
+|             | REST                            | MCP                           | YAML                              |
+| ----------- | ------------------------------- | ----------------------------- | --------------------------------- |
+| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DROP + INSERT (rebuild per scope) |
+| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
+| Row fields  | request body                    | tool args                     | row map                           |
+| Batching    | one row per call                | one row per call              | many rows, one tx                 |
+| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header |
 
 Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport, not the
@@ -430,17 +388,6 @@ The point is that the hooks are the **only** per-resource code;
 the bulk (SELECT/INSERT/parse/emit) stays in the engine.
 
 ### Engine sketch — how export/import comes "for free"
-
-The code blocks below are **illustrative**, not the shipped signatures.
-As shipped (`resreg/engine.go`): `Export(db)` returns a `map[string]any`
-that `EmitYAML` renders deterministically; `Apply(ctx, db,
-manifestVersion, force, manifestRows)` runs the full rebuild —
-`DeleteAll` (not per-scope) on every registered table, then `InsertAll`.
-There is no `BeginImmediate`/`casCheck` helper: Apply opens a normal
-`BeginTx`, then issues a no-op `UPDATE config_meta SET version =
-version` to upgrade the implicit tx to a write lock before the CAS
-`SELECT`. Resources with `SkipApplyRebuild` (e.g. `secrets`) are
-skipped by the rebuild loop.
 
 The engine relies on three Go primitives:
 
@@ -629,15 +576,10 @@ INSERT INTO config_meta (version)
 
 `secrets` is **excluded** from the version-tracked set. Routine
 out-of-band blob rotation (`arizuko secret set …`) must not invalidate
-every operator's pending manifest apply. As shipped, the `secrets`
-resource sets `SkipApplyRebuild` — apply does **not** DELETE+INSERT its
-rows; secret metadata is export-only (the `(scope_kind, scope_id, key)`
-triple appears in `arizuko export`), and the encrypted blob is set
-imperatively via `arizuko secret set` without touching `config_version`.
-Rebuilding the metadata triple from YAML on apply (so a manifest can
-declare secret shape before the blob lands) is drafted; the
-`enc_value BLOB NOT NULL` constraint makes that path require a
-preserve-across-rebuild subquery, deferred to a later refinement.
+every operator's pending manifest apply. Secret metadata (the
+`(scope_kind, scope_id, key)` triple) is rebuilt from YAML on apply
+along with the other config tables; the encrypted blob is set
+imperatively and doesn't touch `config_version`.
 
 **(2) Version bumps once per writer tx, not per row.** The bump is at
 the writer's COMMIT site, not in AFTER triggers. Apply does:
@@ -647,7 +589,6 @@ BEGIN IMMEDIATE;
   SELECT version FROM config_meta;
   -- compare to manifest config_version
   -- if mismatch (and not --force): ROLLBACK; reject
-  -- (re-read manifest files INSIDE the tx — see Mutation sync race)
   DELETE FROM <config tables> WHERE folder IN (<manifest scope>);
   INSERT INTO <config tables> (...);
   UPDATE config_meta SET version = version + 1;   -- single bump
@@ -686,92 +627,28 @@ Per-row counting on bulk apply means `config_version` advances by N
 is monotonicity, not consecutive integers. Operators never read the
 counter for arithmetic; they only compare equality.
 
-## Startup sequence
+## Startup-apply / orphan-recovery / SIGHUP-reload — rejected
 
-> **Drafted, not shipped.** `gated` does not yet run orphan recovery,
-> startup apply, or SIGHUP reload. This is the design for the
-> file-backed reload loop; the shipped path applies manifests only via
-> the explicit `arizuko apply` CLI verb.
+The earlier git-as-truth draft made `gated` run `arizuko apply manifest/`
+at startup (and on `SIGHUP`), preceded by an orphan-recovery sweep that
+promoted crashed mutation-sync dot-files. **All of this is removed.** The
+DB is authoritative; there is nothing to re-apply from YAML at startup,
+no orphans to recover (no mutation sync writes dot-files), and no reload
+loop. `apply` runs only when an operator explicitly invokes it.
 
-Order is load-bearing. `gated` does these in sequence before opening
-its listen socket:
+## New-group filesystem prep (post-restore)
 
-```
-1. Orphan recovery — scan manifest/ matching the exact pattern
-   `\.[A-Za-z0-9_/-]+\.yaml$` (literal dot prefix + name + .yaml).
-   Vim swapfiles (`*.swp`), editor backups (`*~`), and tempfiles
-   from `sed -i` or other writers do NOT match and are ignored.
-   For each orphan:
-     - canonical `<name>.yaml` missing → promote: rename(orphan, canonical).
-     - canonical exists AND mtime(orphan) > mtime(canonical) AND
-       content(orphan) != content(canonical) → AMBIGUOUS. Bail with
-       fatal: operator must reconcile manually (compare files, delete
-       one, restart). Do NOT auto-promote — orphan might be from a
-       crashed MCP mutation that the operator already integrated by
-       hand into the canonical file.
-     - canonical exists AND content(orphan) == content(canonical) →
-       safe duplicate, delete orphan.
-     - canonical mtime ≥ orphan mtime → orphan superseded, delete it.
+`apply` is a restore: after the config tx commits, each group row may
+reference an on-disk directory that does not yet exist. For every group
+folder in the DB without a complete on-disk dir, `apply` calls
+`container.SetupGroup(folder)` post-commit. A group row without its dir
+means inbound messages routing there would `docker run` against a missing
+path and exit 125, so a failed `SetupGroup` (disk full, perm error) is
+surfaced as an apply error, not swallowed.
 
-2. Apply manifest/ — run `arizuko apply manifest/`. Lifecycle:
-     a. BEGIN IMMEDIATE.
-     b. SELECT config_version; compare to manifest header.
-     c. Re-read manifest files INSIDE the tx (after BEGIN IMMEDIATE
-        holds the RESERVED lock — see "Mutation sync race" below).
-     d. DELETE config tables in scope; INSERT validated rows.
-     e. UPDATE config_meta SET version = version + 1.
-     f. COMMIT.
-
-3. New-group filesystem prep — for each group folder in DB without
-   a complete on-disk dir, call container.SetupGroup(folder).
-   **This step is fatal-on-failure.** If a group row exists in the
-   DB but SetupGroup cannot create the directory (disk full, perm
-   error), gated exits with a fatal error and does NOT open the
-   listen socket. The operator runs `arizuko repair` (idempotent
-   re-run of step 3) then restarts.
-
-4. Open listen socket.
-```
-
-**Why orphan recovery first.** Mutation sync does rename POST-commit
-(see Mutation sync). If the process died between COMMIT and rename,
-the DB is one mutation ahead of `<name>.yaml`. Promoting the orphan
-catches the YAML up before apply reads it. Apply-first would commit
-the stale YAML state, undoing the just-committed mutation when the
-orphan is later promoted.
-
-**Why filesystem prep fatal-on-failure.** A group row in the DB
-without an on-disk dir means inbound messages routing to that group
-would `docker run` against a missing path and exit 125. The cost
-of bailing at startup is high (operator has to intervene); the cost
-of opening the socket with broken groups is higher (silent message
-drop). The bail is the right tradeoff.
-
-`arizuko repair` is the operator escape hatch: it re-runs step 3 in
-isolation against the live DB. Safe to invoke at any time.
-
-On `SIGHUP`, gated re-runs steps 1–3 (no socket re-bind). SIGHUP
-during an in-flight apply is **queued via `BEGIN IMMEDIATE`** — the
-second tx blocks on the first's COMMIT, then sees the bumped version
-and proceeds. SIGHUP does not interrupt anything mid-tx.
-
-### Mutation sync race (parse-inside-tx)
-
-The naive sequence "parse files outside the tx, then BEGIN IMMEDIATE"
-has a race: between parse (t=0) and BEGIN (t=1), an MCP mutation can
-rewrite a manifest file and commit its DB write. Apply now holds a
-stale in-memory snapshot AND passes the CAS equality check (both
-mutation and apply saw the same version pre-write). Apply's
-DELETE+INSERT then silently overwrites the MCP mutation's row.
-
-Fix: **parse twice**. First parse outside the tx (for validation and
-version extraction); second parse inside the tx AFTER acquiring
-RESERVED lock, comparing against `config_version`. If files changed
-between the two parses (different SHA256), reject apply with "manifest
-files changed during apply; retry."
-
-This costs one extra parse but kills the race deterministically. No
-OS-level file locks needed.
+`arizuko repair` is the operator escape hatch: it re-runs the
+filesystem-prep step in isolation against the live DB (idempotent). Safe
+to invoke at any time.
 
 ## Group directory lifecycle
 
@@ -792,13 +669,6 @@ or risks leaking orphan directories on row-insert failure. Letting the
 filesystem be the slower mirror keeps apply simple and recoverable.
 
 ## Group removal semantics
-
-> **Partially shipped.** The two config-config FKs (0068, 0069)
-> CASCADE-delete `web_routes` + `route_tokens` on group removal. The
-> active-routing-state clearing below (`sticky_group`,
-> `engaged_folder`, `group_watchers`, `router_state`) is **drafted**:
-> shipped `DeleteGroup` is a plain `DELETE FROM groups` and relies on
-> the FK CASCADEs only.
 
 When apply removes a `groups` row, **active routing state is
 cleared in the same tx**; runtime history is not.
@@ -872,9 +742,8 @@ split, or merged without touching manifest files.
 
 Per the same spec, the canonical operator-facing string for every
 action is `<resource>.<action>` (e.g. `routes.create`,
-`grants.update`). This spec uses that exact vocabulary — no second
-naming layer, no aliases, no internal table names in the manifest
-surface.
+`grants.update`). 7/5 uses that exact vocabulary — no second naming
+layer, no aliases, no internal table names in the manifest surface.
 
 ## Manifest shape
 
@@ -960,8 +829,9 @@ two schemas (`config.*`, `runtime.*`); on SQLite it is
 files, just a clear rule about which tables each class owns and
 what may touch them.
 
-**Config tables** — operator-authored intent, rebuilt from YAML on
-every startup/reload. YAML is truth; the DB is a queryable index.
+**Config tables** — operator-authored cold-tier config. The DB is
+authoritative; `apply` rebuilds these tables from a YAML dump only when an
+operator runs a restore. Not rebuilt at startup or on reload.
 
 ```
 groups  acl  acl_membership  routes  web_routes
@@ -972,7 +842,7 @@ scheduled_tasks  network_rules  proxyd_routes  onboarding_gates  secrets
 CLI/MCP only. See "Tokens are not in v1 manifests."
 
 **Runtime tables** — system-generated record, append-only, never
-touched by apply/reload.
+touched by `apply`.
 
 ```
 messages  chats  topics  turns  turn_results
@@ -984,13 +854,14 @@ chat_reply_state  pane_sessions
 
 **Rules that must be upheld:**
 
-1. `apply`/reload only writes to config tables. It never touches
-   runtime tables.
+1. `apply` only writes to config tables. It never touches runtime
+   tables.
 2. Runtime tables are never DELETE'd in bulk — only by explicit
    retention/purge commands.
-3. Config tables have no migration history — the YAML is the
-   migration. Runtime tables have full migration history in
-   `store/migrations/`.
+3. Both classes have full migration history in `store/migrations/`;
+   the DB schema is authoritative for both. (The YAML dump carries
+   config-table _rows_, not schema — restoring an old dump into a newer
+   schema is the operator's concern, same as `pg_restore`.)
 4. Cross-class JOINs are allowed and expected (dashd, reporting).
    The split is a write-discipline boundary, not a query boundary.
 5. No new table goes into the config class without a corresponding
@@ -1020,7 +891,7 @@ chat_reply_state  pane_sessions
    `routesResource`-style caches in place. The audit is part of the
    ship checklist.
 
-**Reload atomicity:** `BEGIN; DELETE config tables; INSERT from
+**Restore atomicity:** `BEGIN; DELETE config tables; INSERT from
 YAML; COMMIT`. All daemons see new config on their next DB read —
 no signals, no reload endpoints, no cache invalidation. SQLite WAL
 gives readers snapshot isolation during the transaction. No bloat:
@@ -1099,6 +970,8 @@ which routes exist, what tasks run). Markdown carries agent context
    DB. Produce a human-readable delta: rows to add, rows to
    update, rows unchanged. Unchanged rows are noted but not
    re-inserted. `arizuko plan` stops here (non-mutating).
+   _(`plan` is under review given the dump/import model — see open
+   questions.)_
 4. **Apply.** Open a single SQLite transaction on the config DB.
    Delete all manifest-owned rows. Insert all validated rows from
    the manifest. Commit. On any error: rollback; old DB unchanged.
@@ -1256,9 +1129,8 @@ because most operators do not need git-tracked token state; v2 adds
 
 ## Splitting + composition
 
-> **Drafted, not shipped.** Shipped `apply` takes exactly one file.
-> Multi-file / directory merge + duplicate-PK reconciliation is the
-> design below.
+_(Multi-file / manifest-dir composition is under review given the
+dump/import model — see open questions.)_
 
 - `arizuko apply foo.yaml bar.yaml…` reads all files, merges, plans,
   applies as one run. `arizuko apply manifest/` reads every `*.yaml`
@@ -1299,12 +1171,12 @@ Setting a blob is a separate command — `arizuko secret set
 <scope>/<name> <value>` — that POSTs to a dedicated endpoint
 gated to operator only. Manifests describe metadata; secrets
 flow through their own channel. Trust boundary unchanged from
-[`7/2 ## secrets`](../7/2-data-model.md#secrets).
+[`7/2 ## secrets`](2-data-model.md#secrets).
 
 ## Status is not in the manifest
 
-Manifests are **intent**. Live state lives in the daemon's
-SQLite cache and is reported by `arizuko get`. Manifests never
+A dump carries cold-tier config rows only. Live state lives in the
+authoritative DB and is read by `arizuko get`. Dumps never
 carry `status:` / `applied_at:` / `last_error:` blocks; same
 boundary `kubectl` draws between spec and status.
 
@@ -1315,10 +1187,13 @@ boundary `kubectl` draws between spec and status.
   the apply tool talks to.
 - [`../7/2-data-model.md`](../7/2-data-model.md) — the cold/warm/hot
   tier boundary; this spec touches cold tier only.
-- [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) — `agents.toml`
-  references in 7/3 are superseded by YAML manifests as
-  specified here. The git tree carries `<product>.yaml` +
-  Markdown sidecars; the gateway commits them as 7/3 describes.
+- [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) — **reframed, not
+  adopted.** Its `agents.toml` placeholder is replaced by the YAML dump
+  format here, but its core premise — cold-tier config as a
+  _continuously-synced source of truth in git_ — is **rejected**. YAML
+  is an export/import dump, not a live mirror. Committing an `export`
+  dump to git (a snapshot you can diff and review) is fine; 7/3 itself
+  is unedited, so read its sync language through this lens.
 - [`../7/4-data-ingestion-curation-eventing.md`](../7/4-data-ingestion-curation-eventing.md)
   — Q2 (product manifest extends to ingestion?) and Q5
   (cross-product eventing) remain open. 5/36 gives them a place
@@ -1330,11 +1205,10 @@ boundary `kubectl` draws between spec and status.
 
 ## Non-goals
 
-- No live reload / file watcher (v2 work).
+- No live reload / file watcher.
+- No DB→YAML sync. Dumps go stale; re-`export` to refresh.
 - No DAG dependency resolution beyond the three-class
   ordering above.
-- No drift remediation (`plan` shows drift; operator
-  re-applies).
 - No web UI for editing manifests.
 - No multi-instance apply (one instance per CLI run).
 - No transactional cross-daemon rollback.
@@ -1352,14 +1226,14 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    custom shape. JSON Schema is verbose but tool-friendly.
    Decide at implementation time.
 
-2. **`--prune` ownership boundary.** Additive multi-file
-   composition + `--prune` is a foot-gun: a rerun with a
-   subset of files would delete rows the missing files own.
-   v1 leaves `--prune` deliberately unimplemented; deletion is
-   explicit per-row via `state: absent` (a row whose only
-   meaning is "delete this PK if present"). Spec for a
-   ownership-aware `--prune` (per-label / per-source-file)
-   lands separately if real demand surfaces.
+2. **`--prune` ownership boundary, `state: absent`, and multi-file
+   composition** are all **under review given the dump/import model.**
+   A full restore already replaces the cold tier wholesale, so per-row
+   `state: absent` deletion, ownership-aware `--prune`, and additive
+   multi-file merge may be redundant or reshaped. The user is deciding
+   these separately; this pass leaves them as drafted. (Original draft:
+   `--prune` unimplemented in v1; deletion explicit per-row via
+   `state: absent`, a row meaning "delete this PK if present".)
 
 3. **Cross-class dependencies.** A `scheduled_task` referencing
    an `invite` that lands later requires two apply runs in v1.
@@ -1367,14 +1241,15 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    v2? Lean: wait for a real user collision before adding
    complexity.
 
-4. **Resource catalog evolution.** As resreg coverage grows, new
-   resources become manifest-addressable. The mechanism is uniform —
-   add a `resreg.Resource` and it's automatically in
-   `GET /v1/_resources`. No amendment to this spec needed.
+4. **Resource catalog evolution.** As resreg coverage grows
+   (per `7/1`'s migration matrix), new resources become
+   manifest-addressable. The mechanism is uniform — add a
+   `resreg.Resource` and it's automatically in
+   `GET /v1/_resources`. No 7/5 amendment needed.
 
 5. **dashd as a manifest editor.** dashd ships read-only views
    of cold-tier state today. Should it gain a "manifest
-   editor" tab? Out of scope here; tracked as future dashd
+   editor" tab? Out of scope for 7/5; tracked as future dashd
    work.
 
 ## Acceptance
@@ -1429,16 +1304,9 @@ No-cache audit:
 
 ## Pointers
 
-- Schema engine: `resreg/engine.go` (RowType reflection, Hooks,
-  `Apply`/`Export`/`ParseYAML`/`EmitYAML`), `resreg/openapi.go`
-  (OpenAPI 3.1 emission), `resreg/README.md`.
-- Resource structs: `resreg/resources/*.go` (one file per cold-tier
-  resource).
-- CLI: `cmd/arizuko/apply.go` (`apply`/`export`).
-- CAS + FKs: `store/migrations/0067-config-meta.sql`, `0068-*`,
-  `0069-*`; FK contract pinned in `store/fk_test.go`.
-- Tests: `resreg/engine_test.go` (engine in isolation),
-  `resreg/resources/resources_test.go` (per-resource),
-  `cmd/arizuko/apply_test.go` (e2e apply lifecycle).
-- resreg adapter half (REST + MCP): `resreg/resreg.go`;
-  adopters `proxyd/resource.go`, `webd/routes_mcp.go`.
+- Plan: [`.ship/plan-7-5-yaml-manifests.md`](../../.ship/plan-7-5-yaml-manifests.md)
+- Oracle critique: [`.ship/oracle-7-5-round1.md`](../../.ship/oracle-7-5-round1.md)
+- resreg implementation: `resreg/resreg.go`,
+  `resreg/README.md`
+- First two resreg adopters: `proxyd/resource.go`,
+  `webd/routes_mcp.go`
