@@ -1,227 +1,186 @@
 ---
 status: draft
-depends: [../4/9-acl-unified]
-relates-to: [6-middleware-pipeline, ../6/D-slack-agent-pane]
+depends: [4/9-acl-unified, 6/A-hierarchical-skills]
+relates-to: [5/5-uniform-mcp-rest, 5/N-oauth-services, 5/6-middleware-pipeline]
 ---
 
-# specs/5/E — REST ↔ MCP bridge
+# specs/5/E — external capabilities: progressive tool disclosure
 
-## Open framings
+## The problem
 
-Three competing framings sit on the table; none are crisp yet:
+An agent should be able to use external platforms (Slack ~200 methods,
+GitHub, Linear, Notion, …) and arizuko-core tools without drowning in
+tool definitions. Two hard constraints, both measured:
 
-1. **MCP everywhere** — make MCP the single intra-cluster protocol;
-   every adapter is an MCP server; gated multiplexes.
-2. **MCP router + N platform daemons** — gated routes MCP calls,
-   each platform gets a Go daemon that wraps its API and enforces
-   auth.
-3. **REST ↔ MCP mapping layer** — keep REST as the wire format for
-   anything REST-shaped (which is most platform APIs); generate
-   MCP tool catalogs from REST descriptors; auth gates at the
-   mapping layer.
+1. **Tool defs ride the request prefix on every turn.** The Anthropic
+   Messages API is stateless: the `tools` array is sent with every
+   call, positioned before the system prompt and messages. 1000 tools
+   = 1000 defs sent every turn. Prompt caching makes re-sending cheap
+   (~10% on cache hit) but does NOT reduce context-window usage or
+   attention dilution — the model still reasons over all 1000.
 
-Framing (3) is the simplest if it works, because REST is the
-existing reality and MCP is a wrapper. Writing this down before
-committing.
+2. **Mutating the tools array nukes the cache.** `tools` is first in
+   the prefix; changing it per turn invalidates the cache from `tools`
+   onward (system prompt + messages re-billed at full price). So
+   "agent enables/disables tools per turn" is the single most
+   expensive option.
 
-## The problem we're trying to solve
+## The native answer already exists
 
-Slack's API has ~200 methods (channels, threads, files, reactions,
-search, canvas, huddles, AI search, ...). Today `slakd` exposes a
-narrow `Send / SendFile / Like / Edit / Delete / Quote / Repost`
-interface — replicates ~10 of Slack's methods. For an agent to use
-the rest, we either:
+Anthropic ships the **Tool Search Tool** (`platform.claude.com/docs/
+en/agents-and-tools/tool-use/tool-search-tool`): tools marked
+`defer_loading: true` are NOT in the eager `tools` array. The model
+sees only the Tool Search Tool + non-deferred tools. When it needs a
+capability, it searches; matching tool schemas expand into context as
+**tool results in the message stream** — append-only, cache-friendly,
+not a mutation of the `tools` prefix. Once a schema appears in a
+search result, the model calls it as a native typed tool.
 
-- Reimplement Slack methods in slakd one by one (today's path; doesn't
-  scale; reinvents the platform SDK)
-- Give the agent direct API access (no authorization; security hole)
-- **Wrap the platform API as authorized tools the agent can call
-  via MCP** (the design question this spec opens)
+Measured: 85% token reduction; Opus 4.5 tool-selection accuracy 79.5%
+→ 88.1% with it enabled.
 
-Same pattern wanted for X, GitHub, Linear, Notion, etc.
+**arizuko's agent already has it.** `ant/src/index.ts:488` lists
+`ToolSearch` in `allowedTools`. The mechanism is present; what's
+missing is marking connector/MCP tools `defer_loading: true` so they
+stop loading eagerly.
 
-## Why MCP at all when REST exists
+This is the same shape as `resolve` for skills — an explore tool the
+model drives to find what it needs — but native, for tools, and
+maintained by Anthropic.
 
-arizuko is an agent-first platform. The primary consumer of every
-surface is an agent, and agents speak MCP — tool discovery,
-invocation, structured arguments and results. MCP isn't a wrapper
-the agent edge happens to need; it's the protocol that matches the
-shape of how the platform is used. REST is the protocol of
-external services we have to interop with.
+## Why this beats the REST-catalog bridge
 
-Designing the platform's internal contracts around MCP means:
+The original 5/E posited a `bridged` daemon: a REST-request catalog
+(URL template + scope extractor + auth header per upstream), exposing
+one MCP server whose tools dispatch to REST. That's framing (3) of the
+old three-framings debate. The Tool Search Tool obsoletes most of it:
 
-- Every operator action is a tool an agent can discover and call.
-  No "dashboard does X but MCP can only do Y" drift.
-- Tool catalogs are the canonical API surface. Documentation is
-  catalog metadata, not separate prose.
-- The agent isn't a special client; it's the canonical client.
-  Human operators consume the same surface through dashd or CLI,
-  which become thin MCP clients.
+- **Dispatch already ships for MCP upstreams.** `ipc/connector.go`
+  mounts a third-party MCP server as a stdio subprocess, proxies
+  `tools/call`, injects secrets, scrubs results, gates via
+  `auth.Authorize("mcp:"+name)`. Most platforms (Slack, GitHub,
+  Linear, Notion) ship MCP servers. For them, no REST catalog is
+  needed — mount the server, mark its tools deferred.
+- **Disclosure is native.** No hand-rolled skill-catalog-per-connector,
+  no generic `connector_call(opaque_json)` dispatch tool. The model
+  searches, gets typed MCP tools, calls them the way it's tuned to.
 
-That reframes the question. The choice isn't "MCP or REST inside
-the cluster", it's "everything is MCP, and REST is what we use to
-reach external platforms that don't speak it." The REST↔MCP
-bridge is the impedance match at the boundary, not the choice
-of internal protocol.
+The REST catalog survives only as the **fallback for upstreams with no
+MCP server** — a pure REST API arizuko wants to expose. Then a thin
+catalog (URL template + scope + auth) wraps it as deferred MCP tools.
+Rare path, not the main one.
 
-The three framings collapse to one decision: where does the bridge
-live?
+## REST+skills vs MCP+search — the contrast
 
-| Framing                                  | Bridge location               | Cost                          |
-| ---------------------------------------- | ----------------------------- | ----------------------------- |
-| (1) MCP everywhere via hand-written MCPs | One MCP server per platform   | N server implementations      |
-| (2) MCP router + N platform daemons      | In the platform daemon        | N auth-gate implementations   |
-| (3) REST↔MCP mapping layer               | One bridge daemon, N catalogs | One runtime + N catalog files |
+The user's framing: "MCP and REST with progressive skills is the same
+thing, just a different implementation." Correct. Both are progressive
+disclosure over a hierarchy. They differ in discovery layer + dispatch:
 
-(3) is cheaper if the catalog format is expressive enough; (1) is
-cleaner if hand-writing MCPs is faster than maintaining a catalog
-DSL. Spec 5/H, 6/A, the existing `resreg` registry, and the
-agent's current MCP surface all point at the same answer: MCP is
-the canonical platform protocol, the bridge handles the few
-boundaries where REST shows up.
+|                  | REST + skills                                        | MCP + Tool Search                                 |
+| ---------------- | ---------------------------------------------------- | ------------------------------------------------- |
+| Discovery        | `resolve` (arizuko skill hierarchy + Haiku classify) | Tool Search Tool (Anthropic-native)               |
+| What's disclosed | skill body (prose: how-to, args as docs)             | tool schema (typed, callable)                     |
+| Dispatch         | generic `connector_call(name, tool, args)` meta-tool | native MCP `tools/call`                           |
+| Eager surface    | 1 dispatch tool                                      | Tool Search Tool + core                           |
+| Cache            | catalog enters via message stream (skill content)    | schemas enter via search results (message stream) |
+| Model fit        | constructs args from docs                            | native typed tool-use (tuned for it)              |
+| Maintained by    | arizuko                                              | Anthropic                                         |
 
-## The REST ↔ MCP bridge sketch
+Both keep the `tools` prefix flat and frozen; both put the variable
+catalog in the message stream (cache-friendly). The decisive
+difference: **the model is tuned to call MCP tools natively.** A typed
+tool the model invokes directly beats a generic dispatch tool fed
+opaque JSON it built from prose docs. And Anthropic maintains the
+search mechanism + improves model accuracy against it.
 
-One daemon — call it `bridged` (or fold into gated) — that:
+**Verdict:** when the upstream is (or can be) an MCP server, use
+MCP + Tool Search (`defer_loading`). It is the better-fitting,
+lower-maintenance, cache-equivalent answer.
 
-1. **Loads a catalog** of platform tool definitions per upstream.
-   Each definition declares:
-   - The MCP tool name (`slack:chat.postMessage`)
-   - The REST request shape (URL template, method, body schema)
-   - The auth header (token from folder secrets)
-   - The scope extractor: a JSON-path or expression that pulls the
-     authorization scope from the arguments (e.g. `args.channel`
-     → `slack:T<workspace>/channel/<id>`)
-   - The action string for `auth.Authorize` (e.g. `slack:chat.write`)
+## Division of labor: skills vs tools
 
-2. **Exposes one MCP server** to the agent. Tool catalog is the
-   union of all loaded upstreams plus arizuko-core tools.
+Skills (6/A) and the Tool Search Tool are complementary, not
+competing — they disclose different content:
 
-3. **On every `tools/call`**:
-   - Extract scope from args via the declared expression
-   - Call `auth.Authorize(caller_folder, action, scope, args)`
-   - If allowed: render the REST request from the template, send it,
-     return the response payload as the MCP tool result
-   - If denied: return MCP error without touching the upstream
+- **Tool Search Tool** discloses **tools** — discrete callable
+  functions (`slack.chat_postMessage`, `github.create_issue`). Native,
+  typed, one call.
+- **Skills** (`resolve` + 6/A) disclose **knowledge + workflows** —
+  "how to run a deploy", multi-step recipes, prose guidance, persona,
+  the rules around using a set of tools. Not a single tool call.
 
-4. **Catalog source** — open question. Three candidates:
-   - Hand-written TOML/YAML per platform (operator authors it)
-   - OpenAPI spec import (Slack and GitHub publish OpenAPI;
-     auto-generate tool definitions)
-   - Off-the-shelf MCP servers used as catalog source (parse their
-     tool list, hijack the dispatch). Less work but less control.
+A connector's _tools_ are deferred MCP tools found via search. A
+connector's _usage guidance_ (when to use which tool, gotchas,
+multi-step patterns) is a skill found via resolve. The skill can point
+at the tools; the tools don't need the skill to be callable.
 
-### Example catalog entry
+## Requirements
 
-```toml
-[[tool]]
-name        = "slack:chat.postMessage"
-action      = "slack:chat.write"
-scope       = "slack:{{ .workspace }}/channel/{{ .channel }}"
-method      = "POST"
-url         = "https://slack.com/api/chat.postMessage"
-auth_header = "Bearer ${SLACK_BOT_TOKEN}"
-content_type = "application/json"
-body_schema = "schemas/slack/chat.postMessage.json"
-```
+1. **Mark connector + non-core MCP tools `defer_loading: true`.** Core
+   agent tools (`send`, `reply`, `inspect_*`, file I/O) stay eager —
+   they're used every turn, small in number. Connector tools (mounted
+   via `ipc/connector.go`) and any large MCP surface defer. Verify the
+   Claude Agent SDK plumbs `defer_loading` per-tool or per-MCP-server;
+   `ant/src/index.ts` is the wiring site (`mcpServers` +
+   `allowedTools`).
+2. **Eager surface stays small + static.** Tool Search Tool + core
+   tools + the one-or-two always-needed connector tools. Never grows
+   with connector count. Cache prefix never invalidated by tool churn.
+3. **Per-folder connector visibility.** Which connectors mount for a
+   folder is operator config (`connectors.toml` + per-folder enable).
+   `auth.Authorize("mcp:"+name)` gates each call. Visibility (which
+   tools the search can even surface) is upstream of ACL (which scopes
+   a visible tool may hit). Same split the old 5/E named.
+4. **REST-only fallback catalog.** For an upstream with no MCP server:
+   a thin catalog (URL template, scope extractor, auth header) wraps
+   it as deferred MCP tools dispatched by a small bridge. Build only
+   when a wanted upstream genuinely lacks a server.
+5. **Inbound stays edge adapters.** Push events (Slack events, GitHub
+   webhooks) remain HTTP-webhook adapters (slakd/discd/…). This spec
+   is outbound capability only.
 
-The schema file defines the MCP tool's input shape; the bridge
-validates incoming args against it, renders the URL/body, calls.
+## Open questions
 
-## What survives across framings (1), (2), (3)
-
-These are stable regardless of which framing we pick:
-
-- **`auth.Authorize` is the single gate.** No new auth machinery.
-- **Action namespace**: `<upstream>:<verb>` (`slack:chat.write`,
-  `x:tweet`, `github:issues.create`). Free string today; just a
-  vocabulary convention.
-- **Scope strings extend the existing JID-shaped scopes.** Same
-  glob matching the ACL already does.
-- **slakd's outbound code becomes optional** once any of the three
-  framings ship. Adapter outbound is duplicative with platform
-  bridges/MCP servers.
-- **Inbound stays HTTP webhook + signature verification** in the
-  edge adapters (slakd, discd, etc.). MCP isn't a good fit for
-  push-event ingestion regardless of framing.
-
-## What's still unclear
-
-- **Does the bridge live in gated or as a separate daemon?**
-  Gated already does MCP server + auth gating; adding REST dispatch
-  is a small extension. But "gated does everything" is the failure
-  mode the platform/genericization specs (6/R) explicitly want to
-  break out of. Probably new daemon `bridged` with gated as one of
-  its consumers.
-- **Streaming responses.** Some REST APIs stream (Slack's
-  `chat.startStream`); MCP's response model is request/response.
-  Either skip streaming endpoints in v1, or invent an MCP
-  notification convention for partial results.
-- **Cost / rate limits.** Each upstream has its own rate limit
-  budget. Bridge owns the budget — or upstream errors flow through
-  unchanged and the agent retries? Probably the former; bridge is
-  the single throughput chokepoint per upstream.
-- **OpenAPI auto-import quality.** Slack's OpenAPI is incomplete;
-  some endpoints aren't described. Hand-written catalog entries are
-  the floor; OpenAPI is a nice-to-have generator.
-- **Tool surface curation.** Slack has ~200 methods. Exposing all
-  of them to every agent is wrong. Per-folder enable list lets the
-  operator pick (e.g. `atlas` folder gets `chat.write +
-search.messages + files.upload`; nothing else). Same shape as
-  per-folder ACL but inverted — declares what tools are even
-  _visible_ before ACL gates which scopes they can hit.
-- **Secret injection.** Bridge needs the bot token per workspace.
-  Probably reads from folder secrets (the existing folder-scoped
-  secrets table); operator binds `slack_bot_token` to a folder
-  subtree, bridge picks it up at call time.
-- **Outbound only?** Bridge handles agent→platform calls. Edge
-  adapters handle platform→arizuko. Does anything need bidirectional?
-  Possibly events the agent subscribes to actively (e.g. "notify me
-  if a new message lands in #incidents"). MCP has notifications;
-  bridge could pass them through. Open.
-
-## Migration path (rough)
-
-1. Build the bridge as a new daemon with one upstream catalog: arizuko-core
-   (existing tools, declared as bridge entries). Compare against today's
-   gated MCP behavior; should be identical. Proves the model.
-2. Add `slack` upstream with a hand-written catalog of ~10 tools matching
-   slakd's current outbound surface (postMessage, files.upload, reactions.add,
-   search.messages, etc.). Bridge alongside slakd. Folder operators choose
-   per-route which to use.
-3. Add `x` and `github` upstreams. By this point hand-writing catalogs is
-   either bearable or auto-generation is needed.
-4. Slakd outbound deprecated. Eventually deleted.
-5. Edge adapters (slakd, discd, ...) stay as inbound-only daemons.
+1. **SDK `defer_loading` plumbing.** Does the Claude Agent SDK expose
+   `defer_loading` per MCP server or per tool? If only per-tool, does
+   arizuko enumerate connector tools at mount time to mark them? Check
+   the SDK version `ant/` pins. Blocker for the whole spec — verify
+   first.
+2. **Search quality over arizuko's own tools.** Today arizuko's ~40
+   core MCP tools load eagerly. Should the rarely-used management tools
+   (`set_web_route`, `set_observe_window`, …) also defer behind search,
+   leaving only the per-turn essentials eager? Likely yes — same
+   mechanism, applies to arizuko-core too, not just connectors.
+3. **Hosted vs local MCP servers.** `connector.go` mounts local stdio
+   servers. Hosted-remote MCP (Linear's `mcp.linear.app/mcp`) needs a
+   proxy mode + the upstream's OAuth/DCR. Inherited from 5/N; the
+   dispatch differs (HTTP proxy vs subprocess), the disclosure
+   (defer_loading + search) is identical.
+4. **Cold-start search cost.** First time the agent needs Slack, it
+   pays one search round-trip before the tool is callable. Acceptable
+   vs eager-loading 200 Slack tools every turn forever. Confirm the
+   latency is a non-issue in practice.
 
 ## What this is NOT
 
-- NOT a rewrite of the agent's MCP socket. Agent sees the same
-  tool-catalog API.
-- NOT an HTTP→MCP shim for arbitrary external APIs. The bridge
-  is scoped to platforms arizuko explicitly supports, with operator-
-  authored catalogs.
-- NOT a replacement for slakd/discd/etc. Edge adapters keep their
-  inbound role. Only outbound is touched.
-- NOT a generic MCP gateway (mcp-proxy, etc.). We need auth and
-  per-folder scoping that generic proxies don't enforce.
+- NOT a rewrite of the agent MCP socket. Same `tools/call` surface;
+  some tools are deferred instead of eager.
+- NOT a generic MCP gateway. arizuko gates every call via
+  `auth.Authorize` + per-folder visibility; generic proxies don't.
+- NOT a replacement for skills. Skills disclose knowledge/workflows;
+  Tool Search discloses tools. Both progressive, different content.
+- NOT inbound. Edge adapters keep platform→arizuko ingestion.
 
-## Open: framings (1) vs (2) vs (3)
+## Pointers
 
-The MCP-everywhere framing (1) is intellectually clean but
-expensive (write MCP servers per platform). The N-daemons
-framing (2) duplicates auth logic per daemon. Framing (3) — the
-REST/MCP bridge — keeps the platform SDKs out of arizuko's code
-entirely. Probably the right answer, but the catalog-authoring
-cost is real and not yet measured.
-
-Decision criterion: how many tool definitions would slakd's
-existing outbound surface need? Count is ~12 (Send, SendFile,
-SendVoice, Like, Dislike, Edit, Delete, Quote, Repost, Forward,
-Post, Typing → setStatus). If those 12 fit in <300 LOC of catalog
-TOML + ~200 LOC bridge runtime, framing (3) wins on size. If the
-catalog grows unwieldy, fall back to framing (1).
-
-Concrete next step: prototype the bridge with 3 tools, measure.
-Don't draft the full spec until that's done.
+- `ant/src/index.ts:483-497` — `allowedTools` (has `ToolSearch`) +
+  `mcpServers` wiring. Where `defer_loading` gets set.
+- `ipc/connector.go` — third-party MCP server dispatch (built).
+- [`6/A-hierarchical-skills.md`](../6/A-hierarchical-skills.md) — the
+  skills-side progressive disclosure (knowledge, not tools).
+- [`5/N-oauth-services.md`](N-oauth-services.md) — external services;
+  uses this spec's disclosure + connector dispatch.
+- Anthropic Tool Search Tool:
+  <https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool>
+- Anthropic advanced tool use:
+  <https://www.anthropic.com/engineering/advanced-tool-use>
