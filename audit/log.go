@@ -88,13 +88,6 @@ func Init(db *sql.DB, instance string) {
 	logMu.Unlock()
 }
 
-// IsInitialised returns true after Init has been called with a non-nil db.
-func IsInitialised() bool {
-	logMu.RLock()
-	defer logMu.RUnlock()
-	return logDB != nil
-}
-
 // Emit inserts one row using the package-level *sql.DB. Returns the
 // inserted ID. Non-fatal: any error is logged as slog warn + dropped,
 // but Init having not been called is silent (returns 0).

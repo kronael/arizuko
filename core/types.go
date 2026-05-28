@@ -20,15 +20,9 @@ import (
 // any future non-arizuko consumer see only the opaque shape.
 type TenantID = string
 
-// SubjectID identifies the conversation/thread/post target. arizuko's
-// ChatJID (struct in core/jid.go) is a typed SubjectID with platform-
-// prefix semantics; the string form `<platform>:<rest>` IS a SubjectID.
-// Generic consumers treat the wire string as opaque.
-//
-// Note: this is the wire-string form. core.ChatJID (jid.go) is the
-// validated typed wrapper. Phase A migration uses SubjectID at code
-// boundaries that don't need the typed wrapper (e.g. chanlib's plain
-// string fields, IPC payloads).
+// SubjectID identifies the conversation/thread/post target. The wire
+// form `<platform>:<rest>` IS a SubjectID; generic consumers treat the
+// string as opaque. JidPlatform/JidRoom split it when needed.
 type SubjectID = string
 
 // Scope is the capability list replacing the legacy tier int (see
