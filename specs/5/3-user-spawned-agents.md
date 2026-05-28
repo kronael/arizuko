@@ -38,11 +38,14 @@ same MCP socket model. The new surface is the _creation_ gate.
 - **Approval queue.** Default: every `POST /v1/agents` lands in
   `admissions` (onbod), operator approves. `USER_SPAWNED_AUTO_APPROVE=true`
   skips for closed-friend instances.
-- **Capability scope.** The token minted at creation
-  (per 5/5 §Token model) carries
-  `folder=agents/<user_sub>/<agent_name>`, `tier=user-spawned`, and
-  scopes `messages:{read,send}` + `tasks:read`. No `grants:write`,
-  no `routes:write` outside the subtree.
+- **Capability scope.** The token minted by central `authd` at creation
+  (per 5/5 §Token model, which consumes authd-issued tokens) carries
+  `folder=agents/<user_sub>/<agent_name>` and the capability scopes
+  `messages:{read,send}` + `tasks:read` (plus a `user_spawned` marker
+  scope if a deployment wants to single these tenants out). There is no
+  `tier` — authorization is scope-match
+  ([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
+  No `grants:write`, no `routes:write` outside the subtree.
 - **Skill allowlist.** Definition's `skills` is intersected with
   `USER_SPAWNED_ALLOWED_SKILLS` (default: `diary`, `facts`,
   `recall-memories`, `web`). The agent cannot opt itself into
@@ -137,13 +140,13 @@ ships, `container.SetupGroup` + gateway do the job.
 
 ## Touches
 
-| Daemon                                   | Change                                                                                 |
-| ---------------------------------------- | -------------------------------------------------------------------------------------- |
-| `gated`                                  | `/v1/agents` routes; tables `user_agents`, `user_agent_versions`; `groups.created_by`. |
-| `agent-runnerd` / `container.SetupGroup` | Accept definition body as alternative to product folder.                               |
-| `onbod`                                  | Reuse admissions queue for approvals when not auto-approving.                          |
-| `auth`                                   | New tier `user-spawned`; scope-set definition.                                         |
-| `dashd`                                  | Operator UI for approval queue + tenant list.                                          |
+| Daemon                                   | Change                                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `gated`                                  | `/v1/agents` routes; tables `user_agents`, `user_agent_versions`; `groups.created_by`.    |
+| `agent-runnerd` / `container.SetupGroup` | Accept definition body as alternative to product folder.                                  |
+| `onbod`                                  | Reuse admissions queue for approvals when not auto-approving.                             |
+| `authd`                                  | Mints the creation token (sole signer); defines the user-spawned scope-set (no new tier). |
+| `dashd`                                  | Operator UI for approval queue + tenant list.                                             |
 
 Migration: `store/migrations/NNN-user-agents.sql`.
 

@@ -5,16 +5,24 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 
 # Uniform REST + MCP per resource
 
+> **Canonical principle + federation.** Closed across all resources in
+> [`../5-uniform-mcp-rest.md`](../5-uniform-mcp-rest.md) —
+> the phase 7 spec carries the coverage matrix, per-resource handler
+> pattern, audit contract, and acceptance criteria.
+
 **Every operator action accessible via both REST (outside, OAuth-gated)
-AND MCP (inside, tier-gated), wrapped over a single handler.** One
+AND MCP (inside, scope-gated), wrapped over a single handler.** One
 resource, one handler, two faces. Auth is the only thing that differs.
 
-This spec defines the federated `/v1/*` surface and token model AND
-makes explicit that the MCP tool surface is the same registry viewed
-through a different auth lens — never a second hand-written tree.
-Per-daemon ownership: each daemon owns its tables and serves its own
-`/v1/*`; cross-daemon MCP calls become HTTP forwards over signed
-capability tokens. No new daemon for auth.
+This spec defines the federated `/v1/*` surface and how tokens are
+consumed AND makes explicit that the MCP tool surface is the same
+registry viewed through a different auth lens — never a second
+hand-written tree. Per-daemon ownership: each daemon owns its tables and
+serves its own `/v1/*`; cross-daemon MCP calls become HTTP forwards over
+capability tokens. Tokens are minted by the central `authd` daemon (the
+sole signer, per [`1-auth-standalone.md`](1-auth-standalone.md)); every
+daemon here **consumes + offline-verifies** authd-issued tokens, none
+mint their own.
 
 ## Why
 
@@ -26,8 +34,9 @@ Today's surface is split asymmetrically:
   ([`ipc/README.md` "Tool surface"](../../ipc/README.md)), each a
   hand-written wrapper over `gated`/`store` calls.
 - Authorization lives in [`auth/policy.go:14-96`](../../auth/policy.go),
-  a hand-maintained switch over tool names; tiers are gates, not scopes.
-  proxyd injects identity headers via
+  a hand-maintained switch over tool names; gating is by capability
+  scope (tier is dropped — [`U-genericization.md`](U-genericization.md)
+  "Capability-vs-tier"). proxyd injects identity headers via
   [`proxyd/main.go:590-604`](../../proxyd/main.go); the agent never
   carries a token.
 
@@ -41,7 +50,7 @@ which surface gets a feature is accidental, not principled.
 2. **Two faces, declared next to the resource.** A `Resource` declares
    its REST endpoints AND its MCP tools; one registration wires both.
 3. **`Caller` is surface-agnostic.** Builds on
-   [`auth.Identity{Sub, Scope, Folder, Tier}`](../../auth/README.md);
+   [`auth.Identity{Sub, Scope, Folder}`](../../auth/README.md);
    handlers read `Caller`, not `*http.Request` or `mcp.ToolRequest`.
 4. **Policy is declarative.** A `ScopePred` per action lives next to
    the resource; handler dispatches by action, policy is checked first.
@@ -53,7 +62,7 @@ type Caller struct {
     Sub    string
     Name   string
     Folder string
-    Tier   int
+    Scope  []types.Scope      // capability list; authz is scope-match (no tier)
     Claims map[string]string  // JWT claims for ACL row predicates
 }
 
@@ -182,13 +191,15 @@ rationale lives in
 
 Both surfaces produce a `Caller` consumed identically.
 
-| Surface | Identity carrier                                                                                                    | Verifier                                  | Scope source                                                                      |
-| ------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
-| REST    | `Authorization: Bearer <jwt>` (OAuth session per [`35-proxyd-standalone.md` "Login flow"](35-proxyd-standalone.md)) | [`auth.VerifyHTTP`](../../auth/README.md) | `user_groups` ACL + grants at proxyd login                                        |
-| MCP     | Capability token at agent socket bind ([`ipc/README.md` "Capability token"](../../ipc/README.md))                   | `auth.VerifyToken`                        | Folder tier per [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md) |
+| Surface | Identity carrier                                                                                                    | Verifier                                  | Scope source                                          |
+| ------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| REST    | `Authorization: Bearer <jwt>` (OAuth session per [`35-proxyd-standalone.md` "Login flow"](35-proxyd-standalone.md)) | [`auth.VerifyHTTP`](../../auth/README.md) | `user_groups` ACL + grants snapshot at authd issuance |
+| MCP     | Capability token at agent socket bind ([`ipc/README.md` "Capability token"](../../ipc/README.md))                   | `auth.VerifyToken`                        | grants snapshot for `(folder)` at authd issuance      |
 
-A platform token is a signed JWT (HS256, signed with `AUTH_SECRET`)
-carrying:
+A platform token is an ES256 JWT signed by `authd` — the **sole signer**
+([`1-auth-standalone.md`](1-auth-standalone.md)). Daemons verify offline
+against `authd`'s public JWKs (`/v1/keys`); none hold the signing key.
+Token body:
 
 ```json
 {
@@ -197,81 +208,86 @@ carrying:
   "folder": "atlas/main",
   "iat": 1735000000,
   "exp": 1735003600,
-  "iss": "proxyd" | "mcp-host" | "onbod"
+  "iss": "authd"
 }
 ```
 
 `folder` scopes the token to a subtree. `atlas/main` token can operate
 on `atlas/main/*` resources but not on `rhias/*`. Root tokens omit
-`folder` (or set `folder: "*"`). `tier` is derived from `folder` by
-the verifier (`auth.Resolve(folder).Tier = min(strings.Count(folder,
-"/"), 3)`) and not transmitted in the JWT — carrying a derived value
-across mint sites invites drift.
+`folder` (or set `folder: "*"`). There is no `tier` — authorization is
+scope-match over `scope` ([`U-genericization.md`](U-genericization.md)
+"Capability-vs-tier"); folder bounds the subtree, scopes bound the verbs.
 
 Scopes are minted from grant rules at issuance time (snapshot), so
 revoking grants requires token expiry or an explicit revocation list.
 Short TTLs are the default; revocation lists deferred until needed.
 
-**Shared minting.** Every issuer (proxyd, MCP host, onbod, dashd)
-produces scopes through one function:
+**One signer, many triggers.** `authd` derives the scope set from grants
+through one function and signs the token:
 
 ```go
-func MintScopes(identity Identity, store GrantStore, narrow Narrow) []string
+// Inside authd — the only place that signs.
+func (a *Authd) mintScopes(identity Identity, store GrantStore, narrow Narrow) []string
 ```
 
-`Narrow` is an issuer-specific parameter (e.g. onbod passes an
-invite-restricted subset, dashd passes a long-lived key's declared
-scope-list). One renderer, many sinks; drift across issuers lives in
-`Narrow`, not in the scope-from-grants logic.
+`Narrow` parameterizes the _trigger context_ (e.g. onbod invite passes an
+invite-restricted subset; a dashd-created API key passes its declared
+scope-list). One renderer, one signer; drift lives in `Narrow`, not in
+the scope-from-grants logic.
 
-### Issuance sites
+### Issuance triggers (all mint through authd)
 
-| Issuer                                       | Triggers on                         | Token shape                                                               | Verifier                    |
-| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- | --------------------------- |
-| **proxyd**                                   | OAuth login (existing)              | user session, scopes from grants                                          | Every backend daemon        |
-| **MCP host** (currently `ipc/` inside gated) | Agent container spawn / socket bind | agent capability, folder-scoped                                           | Every daemon agent talks to |
-| **onbod**                                    | Invite redemption / admission       | initial user session, narrow scope; **same `auth/` lib, same JWT format** | Every backend daemon        |
-| **dashd**                                    | API key creation (operator action)  | long-lived, narrow scope                                                  | Every backend daemon        |
+Other daemons do not sign; they call `authd /v1/tokens` with the trigger
+context and receive a signed token, or delegate the user-facing flow to
+`authd` directly.
 
-The MCP host mints the agent token at container spawn, embedding
-`(folder, tier, grants snapshot)`. The token is passed into the
+| Trigger surface                             | Triggers on                         | Token shape                        | How                                            |
+| ------------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------- |
+| **proxyd**                                  | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)          |
+| **MCP host** (`ipc/` in gated; `mcp-hostd`) | Agent container spawn / socket bind | agent capability, folder-scoped    | requests token from `authd` at spawn           |
+| **onbod**                                   | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow |
+| **dashd**                                   | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow    |
+
+The MCP host obtains the agent token from `authd` at container spawn,
+embedding `(folder, grants snapshot)`. The token is passed into the
 container as an env var or via the MCP socket handshake. Agents use it
 for any HTTP call to a sibling daemon's `/v1/*`.
 
-`auth/Verify(token) → Identity{sub, scope, folder, tier}` lives in the
-shared `auth/` library. Every daemon imports it. No daemon implements
-its own verification.
+`auth.Verify(token, jwks) → Identity{sub, scope, folder}` lives in the
+shared `auth/` library. Every daemon imports it and verifies offline. No
+daemon implements its own verification, and no daemon signs.
 
 Per-request auth at every `/v1/*` endpoint:
 
 ```go
-ident, err := auth.VerifyHTTP(r)        // signature + exp + iss
+ident, err := auth.VerifyHTTP(r, jwks)  // ES256 sig + exp + iss against cached JWKs
 if !auth.HasScope(ident, "tasks", "write") { return 403 }
 if !auth.MatchesFolder(ident, taskFolder) { return 403 }
 // proceed
 ```
 
-**No new daemon for auth.** A future `authd` is one refactor away if
-centralized revocation/audit becomes load-bearing — until then,
-distributed minting fits the existing topology.
+**Central signer, distributed verify.** `authd` is a new daemon and the
+single source of mint, revocation, and audit; every other daemon is a
+consumer. See [`1-auth-standalone.md`](1-auth-standalone.md) for the
+crypto (ES256 + JWKs) and the standalone-first sequencing.
 
 ## Daemon ownership of `/v1/*`
 
 Each daemon owns its tables and serves the matching API. No
 cross-daemon reaches into another's storage.
 
-| Daemon     | Owns                                                 | Serves                                                                                   |
-| ---------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **gated**  | groups, routes, sessions, channels, messages, grants | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
-| **timed**  | scheduled_tasks, task_run_logs                       | `/v1/tasks`                                                                              |
-| **webd**   | web_routes, vhosts, slink tokens                     | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
-| **onbod**  | invites, admissions, auth_users                      | `/v1/invites`, `/v1/users`                                                               |
-| **proxyd** | OAuth state, session-token issuance                  | `/auth/*` (existing); becomes a token issuer surface                                     |
-| **dashd**  | nothing — aggregator UI calling the above            | HTML/HTMX over `/v1/*` of others                                                         |
+| Daemon     | Owns                                                     | Serves                                                                                   |
+| ---------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **gated**  | groups, routes, sessions, channels, messages, grants     | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
+| **timed**  | scheduled_tasks, task_run_logs                           | `/v1/tasks`                                                                              |
+| **webd**   | web_routes, vhosts, slink tokens                         | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
+| **onbod**  | invites, admissions, auth_users                          | `/v1/invites`, `/v1/users`                                                               |
+| **proxyd** | OAuth state (enforcement point; delegates mint to authd) | `/auth/*` (existing); login delegates to authd, which mints                              |
+| **dashd**  | nothing — aggregator UI calling the above                | HTML/HTMX over `/v1/*` of others                                                         |
 
 `grants` lives with gated for now (gated already runs migrations and
 has the broadest schema authority). If a future split puts grants
-elsewhere, the issuance flow doesn't change — issuers query the grants
+elsewhere, the issuance flow doesn't change — `authd` queries the grants
 owner at mint time.
 
 **proxyd routes** are not in the ownership table: they're declared
@@ -346,23 +362,23 @@ machinery; the ACL row table is the single source of truth.
 
 ## Per-resource access matrix
 
-| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                           | Backing tables                                                    |
-| ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- |
-| `grants`            | operator | operator | agent + user     | agent + user                                                | `grants` (gated)                                                  |
-| `routes`            | operator | operator | —                | —                                                           | `routes` (gated)                                                  |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`6/Y`](../6/Y-secret-broker.md)) | `secrets` (gated)                                                 |
-| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                | `scheduled_tasks` (timed)                                         |
-| `chats`             | operator | operator | agent + user     | — (operator-only)                                           | `messages` (gated)                                                |
-| `group_folders`     | operator | operator | —                | —                                                           | `groups` (gated)                                                  |
-| `egress_allowlist`  | operator | operator | —                | agent                                                       | crackbox register ([`specs/11/10`](../11/10-crackbox-arizuko.md)) |
-| `user_groups` (ACL) | operator | operator | —                | —                                                           | `user_groups` (gated)                                             |
-| `invites`           | operator | operator | agent (tier ≤ 1) | agent (tier ≤ 1)                                            | `invites` (onbod)                                                 |
+| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                        | Backing tables                                                    |
+| ------------------- | -------- | -------- | ---------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `grants`            | operator | operator | agent + user     | agent + user                                                             | `grants` (gated)                                                  |
+| `routes`            | operator | operator | —                | —                                                                        | `routes` (gated)                                                  |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/11/11`](../11/11-crackbox-secrets.md)) | `secrets` (gated)                                                 |
+| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                             | `scheduled_tasks` (timed)                                         |
+| `chats`             | operator | operator | agent + user     | — (operator-only)                                                        | `messages` (gated)                                                |
+| `group_folders`     | operator | operator | —                | —                                                                        | `groups` (gated)                                                  |
+| `egress_allowlist`  | operator | operator | —                | agent                                                                    | crackbox register ([`specs/11/10`](../11/10-crackbox-arizuko.md)) |
+| `user_groups` (ACL) | operator | operator | —                | —                                                                        | `user_groups` (gated)                                             |
+| `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                               | `invites` (onbod)                                                 |
 
 Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
 both axes — the agent can't reach into its own ACL or topology; that's
 the trust boundary. `secrets:write:own_group` is user-via-dashboard
 only; the agent never reads or rotates secrets (invariant in
-[`6/Y`](../6/Y-secret-broker.md); the broker resolves
+[`specs/11/11`](../11/11-crackbox-secrets.md); the broker resolves
 folder/user secrets inside the tool handler on the host, the container
 never sees them). `egress_allowlist:write:own_group` lets the
 agent add a host to its own allowlist (today's crackbox register
@@ -391,7 +407,7 @@ verified token, then call `r.Handler`. Each daemon's `main.go` calls
 job ([`35-proxyd-standalone.md` "Per-daemon route declarations"](35-proxyd-standalone.md)).
 
 OpenAPI emerges from the same registry
-([`36-yaml-manifests.md` §OpenAPI emission](36-yaml-manifests.md#openapi-emission)): walking
+([`4-openapi-discoverable.md`](4-openapi-discoverable.md)): walking
 `r.Endpoints` produces the spec; MCP `tools/list` walks `r.MCPTools`.
 Drift is structurally impossible.
 
@@ -535,8 +551,8 @@ event, or stream rather than CRUD verb.
 - **Streaming surfaces.** Slink message stream, agent live output —
   not CRUD/RPC. SSE / WebSocket sits next to `resreg`, not inside it.
 - **Auth session creation** (`store/auth.go:119`). The session is
-  minted by `auth.Mint`, persisted by the auth library. Substrate
-  every other tool consumes, not a user-tool itself.
+  minted by `authd` (the sole signer), verified by the `auth/` library.
+  Substrate every other tool consumes, not a user-tool itself.
 - **Migrations.** Schema changes are file-driven (`store/migrations/`)
   and run by `gated` at startup. Not a resource.
 
@@ -557,7 +573,7 @@ Under unified ACL (`specs/4/9-acl-unified.md`):
   routes, set child grants). Same authority shape as the human
   folder admin, different principal namespace.
 - **Leaf agent** — no `admin` rows; only `mcp:<tool>` rows derived
-  from tier defaults. Same as today.
+  from its capability-scope defaults. Same as today.
 
 `auth.Authorize` is the only check. resreg's per-resource `Authz`
 callback derives `(scope, params)` from the call and delegates —
@@ -577,15 +593,15 @@ tx/audit dance, and the destination daemon writes the audit row.
 
 ## Phased rollout
 
-| Phase | Deliverable                                                                                                                                                                                          |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `ScopePred` types in `auth/` (alongside `auth.Mint` per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
-| B     | High-priority resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core; the agent-facing tools already exist.                                                             |
-| C     | Backfill missing REST mirrors for existing agent MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                      |
-| D     | Migrate `routes`, `scheduled_tasks` one at a time; each migration deletes the hand-written tool in `ipc/ipc.go` and the direct DB call.                                                              |
-| E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                      |
-| F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                             |
-| G     | Deprecate hand-written tools in `ipc/ipc.go` that have a registry equivalent; delete after one release.                                                                                              |
+| Phase | Deliverable                                                                                                                                                                                                                     |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `ScopePred` types in `auth/` (alongside `auth.VerifyHTTP` against authd's JWKs per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
+| B     | High-priority resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core; the agent-facing tools already exist.                                                                                        |
+| C     | Backfill missing REST mirrors for existing agent MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                                                 |
+| D     | Migrate `routes`, `scheduled_tasks` one at a time; each migration deletes the hand-written tool in `ipc/ipc.go` and the direct DB call.                                                                                         |
+| E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                                                 |
+| F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                                                        |
+| G     | Deprecate hand-written tools in `ipc/ipc.go` that have a registry equivalent; delete after one release.                                                                                                                         |
 
 Each phase is independent. Stopping at C still leaves the system in
 a saner state (REST parity); E+F are the structural wins.
@@ -700,10 +716,11 @@ slog telemetry only — no audit row. Field schema:
 ## Reconciliations
 
 - **vs [`specs/3/5-tool-authorization.md`](../3/5-tool-authorization.md)**:
-  the tier × action matrix becomes the scope minter — at socket bind,
-  `(folder, tier)` → set of `<resource>:<verb>[:own_group]` scopes.
-  Tier model authors which scopes get minted; this spec authors how
-  scopes are checked.
+  that spec's per-action matrix becomes the scope minter — at issuance,
+  `folder` + grant rules → set of `<resource>:<verb>[:own_group]`
+  scopes. The matrix authors which scopes `authd` mints; this spec
+  authors how scopes are checked. No `tier` participates
+  ([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
   9-case per-tool switch. After Phase G it is **deleted** — not thinned.
   The per-action `ScopePred` in the registry is the only authorization
@@ -732,9 +749,12 @@ slog telemetry only — no audit row. Field schema:
   this.
 - **dashd hosting decision.** Keep dashd as Go HTML server, or fold
   HTML rendering into webd? Lean: keep.
-- **`authd` daemon.** Adding it later is one refactor (move minting
-  out of proxyd/onbod/MCP-host into a shared service). Triggered by:
-  centralized revocation list, audit log, OIDC delegation.
+- **Token TTL refresh against authd.** `authd` is the decided central
+  signer ([`1-auth-standalone.md`](1-auth-standalone.md)), extracted
+  standalone first. Open here is only the refresh ergonomics —
+  centralized revocation list + audit live in `authd`; the question is
+  whether long turns re-fetch a token from `authd` mid-run or accept
+  rare expiry.
 - **Streaming endpoints.** SSE on REST and MCP notifications on the
   agent side. Today they diverge. Defer; not CRUD-shaped.
 - **Pagination shape.** MCP tools return arrays today; REST uses
@@ -744,23 +764,24 @@ slog telemetry only — no audit row. Field schema:
 
 - `auth/` ([`README.md`](../../auth/README.md)) — gains `Caller`,
   `Resource`, `Endpoint`, `MCPTool`, `ScopePred`, `RegisterResource`,
-  `Mint`, `VerifyHTTP`, `HasScope`, `MatchesFolder` per Phase A. The
-  single source of truth for token format.
+  `VerifyHTTP`, `FetchKeys`, `HasScope`, `MatchesFolder` per Phase A.
+  The verify-side single source of truth for token format; minting
+  lives in `authd` ([`1-auth-standalone.md`](1-auth-standalone.md)).
 - [`auth/policy.go:14-96`](../../auth/policy.go) — current `Authorize`
   switch; Phase G replaces with registry lookup.
 - [`ipc/ipc.go:32-120`](../../ipc/ipc.go) — `GatedFns`/`StoreFns` plus
   per-tool registrations; resource-action tools migrate to
-  `RegisterResource`, shrinking the file. MCP host gains agent-token
-  minter and HTTP-forward client for cross-daemon tools.
+  `RegisterResource`, shrinking the file. MCP host gains an authd
+  token-request client (not a local minter) and an HTTP-forward client
+  for cross-daemon tools.
 - [`proxyd/main.go:590-634`](../../proxyd/main.go) — signed-identity
-  header path; the `Caller` builder for REST. Existing OAuth + JWT
-  extends issuance to carry scopes derived from grants.
+  header path; the `Caller` builder for REST. OAuth login delegates to
+  `authd`, which mints the scope-carrying token; proxyd verifies.
 - [`gated/`](../../gated/), [`timed/`](../../timed/),
   [`onbod/`](../../onbod/), [`webd/`](../../webd/) — each gains a
   small `v1.go` for its owned resources; calls `RegisterResource` per
   owned resource.
 - [`dashd/`](../../dashd/) — replaces direct `store.*` calls with
   `/v1/*` HTTP calls using the operator's session token.
-- `core/grants.go` — stays as the rule evaluator; called only at
-  issuance sites (proxyd, MCP host, dashd) to compute scopes from
-  rules.
+- `core/grants.go` — stays as the rule evaluator; called by `authd`
+  at mint time to compute scopes from rules.

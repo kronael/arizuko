@@ -246,6 +246,12 @@ cutover — a genericization milestone. Per-mechanism detail (what each
 secret does today, what replaces it) lives in
 [1-auth-standalone.md](1-auth-standalone.md) § _HMAC retirement plan_.
 
+**Sequencing (decided).** `authd` is extracted **standalone first**, in
+its own release — it proves the `<daemon>/api/v1/` + `types/` pattern and
+becomes the sole token signer (ES256, publishes JWKs). The rest of the
+gated split (`routerd` / `agent-runnerd` / `mcp-hostd`) is a **later
+release**, not the same cutover. See [1-auth-standalone.md](1-auth-standalone.md).
+
 ## What's coupled today (audit)
 
 Snapshot of `import "github.com/kronael/arizuko/<pkg>"` per daemon
@@ -498,13 +504,16 @@ Capability-scope strings need a JWT-verify + scope-match per check.
 
 | Step                                                   | Cost (typical) |
 | ------------------------------------------------------ | -------------- |
-| HMAC-SHA256 verify of a short JWT                      | ~5–10 µs       |
+| ES256 verify of a short JWT against cached JWKs        | ~50–100 µs     |
 | Scope-list match (`slices.Contains` over ~5–10 scopes) | sub-µs         |
 | Tier int compare (legacy)                              | ~1 ns          |
 
 Per-request cost is already dominated by SQLite hits (10–100 µs) and
-disk/network; a ~10 µs auth check is invisible. JWT-verify mechanics
-(HMAC vs ECDSA, JWKs publishing, the post-authd cut) belong to
+disk/network; an ES256 verify is the same order of magnitude — invisible
+at our throughput. Crypto is **ES256 (asymmetric) from launch**, not
+symmetric: `authd` holds the signing key, every other daemon offline-
+verifies against cached JWKs. No "HMAC now, ECDSA later" hedge. Verify
+mechanics + JWKs publishing belong to
 [1-auth-standalone.md](1-auth-standalone.md) § _Offline JWT verify_.
 
 Decision: **capability scopes replace `tier` everywhere.** The perf
@@ -530,19 +539,19 @@ Surface here; deep-spec on demand. None blocking.
 
 One contract test per daemon, in `tests/standalone/<daemon>_test.go`:
 
-| Daemon              | Standalone-ready test                                                                                                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `davd`              | Boots with `WEBDAV_ROOT=/tmp/data WEBDAV_PORT=8090`; serves PROPFIND; no `arizuko/*` imports in the binary's go-list output.                                                          |
-| `ttsd`              | Boots with `TTS_BACKEND_URL=http://kokoro:8880`; forwards `/v1/audio/speech`; no arizuko imports.                                                                                     |
-| `proxyd`            | Boots with a one-route TOML pointing at a stub backend; OAuth login round-trips against one provider; no `core.Folder` import in the binary.                                          |
-| `timed`             | Boots with `DB_PATH=/tmp/timed.db`; schedules and fires one task on a generic webhook URL; `chat_jid` replaced with `types.Folder` end-to-end.                                        |
-| `authd` (planned)   | Boots with `DB_PATH=/tmp/authd.db`; mints a JWT for a stub OAuth callback; another daemon offline-verifies via the `auth/` library.                                                   |
-| `routerd` (planned) | Boots with `DB_PATH=/tmp/routerd.db`; accepts an event POST, matches via a rule, returns the matched tenant.                                                                          |
-| `auth/`             | Library imported by a sample standalone binary that verifies a JWT against a stub JWKs endpoint; no `arizuko/*` peer imports beyond `types/` and `authd/api/v1/`.                     |
-| Channel adapters    | Boot against a stub `chanreg` HTTP endpoint; emit an inbound event with `types.Folder` set; no `core.Folder` import.                                                                  |
-| `onbod`             | Boots with a generic invite flow (no `folder` in the token); creates a `tenant` row.                                                                                                  |
-| `webd`              | (Honest:) **not standalone-ready** — UI baked against arizuko chat shapes. Acceptance: passes the static-import check (no `core.Folder`), accepts arizuko-domain bindings via config. |
-| `dashd`             | (Same as webd:) UI not reusable; acceptance is the static-import check + arizuko bindings via config.                                                                                 |
+| Daemon            | Standalone-ready test                                                                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `davd`            | Boots with `WEBDAV_ROOT=/tmp/data WEBDAV_PORT=8090`; serves PROPFIND; no `arizuko/*` imports in the binary's go-list output.                                                                                 |
+| `ttsd`            | Boots with `TTS_BACKEND_URL=http://kokoro:8880`; forwards `/v1/audio/speech`; no arizuko imports.                                                                                                            |
+| `proxyd`          | Boots with a one-route TOML pointing at a stub backend; OAuth login round-trips against one provider; no `core.Folder` import in the binary.                                                                 |
+| `timed`           | Boots with `DB_PATH=/tmp/timed.db`; schedules and fires one task on a generic webhook URL; `chat_jid` replaced with `types.Folder` end-to-end.                                                               |
+| `authd` (first)   | Boots standalone with `DB_PATH=/tmp/authd.db`; generates an ES256 keypair; mints a JWT for a stub OAuth callback; serves public JWKs at `/v1/keys`; another daemon offline-verifies via the `auth/` library. |
+| `routerd` (later) | Boots with `DB_PATH=/tmp/routerd.db`; accepts an event POST, matches via a rule, returns the matched tenant.                                                                                                 |
+| `auth/`           | Verify-only library (no signing key) imported by a sample standalone binary that verifies an ES256 JWT against `authd`'s JWKs endpoint; no `arizuko/*` peer imports beyond `types/` and `authd/api/v1/`.     |
+| Channel adapters  | Boot against a stub `chanreg` HTTP endpoint; emit an inbound event with `types.Folder` set; no `core.Folder` import.                                                                                         |
+| `onbod`           | Boots with a generic invite flow (no `folder` in the token); creates a `tenant` row.                                                                                                                         |
+| `webd`            | (Honest:) **not standalone-ready** — UI baked against arizuko chat shapes. Acceptance: passes the static-import check (no `core.Folder`), accepts arizuko-domain bindings via config.                        |
+| `dashd`           | (Same as webd:) UI not reusable; acceptance is the static-import check + arizuko bindings via config.                                                                                                        |
 
 Standalone-ready ≠ reusable for other workloads in every case — `webd`
 and `dashd` are arizuko-UI by definition. The bar for them is "no

@@ -2,632 +2,373 @@
 status: partial
 ---
 
-> **2026-05-28.** Resolved design; partial against code. **Shipped**: the
-> `auth/` capability library — `jwt.go` (mint/verify), `oauth.go` +
-> `google_test.go` (OAuth/Google), `acl.go` + `authorize.go` + `policy.go`
-> (ACL/scopes), `identity.go` + `link.go` (identity + account-linking),
-> `hmac.go` (HMAC signing), `middleware.go` (`RequireSigned` /
-> `StripUnsigned`), all with `*_test.go`. **Not built**: the `authd`
-> daemon — no `authd/` binary, no `auth.db`. Today verification is
-> HMAC-based: `auth.VerifyJWT` checks the JWT against `AUTH_SECRET`, and
-> the `RequireSigned` / `StripUnsigned` middleware checks proxyd's
-> `X-User-*` header signature against `PROXYD_HMAC_SECRET`. The
-> JWKs-based offline `Verifier` is **new work**, added at cutover
-> (§ One-shot migration plan, Step 3). This spec is the
-> **target**: extract authd's authority functions (mint, OAuth,
-> revocation, JWKs publishing) into a daemon while `auth/` becomes the
-> offline-verify library. Migration ties to [U-genericization.md](U-genericization.md)
-> Phase C / the HMAC-retirement one-shot cut. Build order in § One-shot
-> migration plan. The earlier "library-only, no daemon" framing is
-> dropped — it can't host revocation.
+# auth: central authority daemon + offline-verify library
 
-# authd daemon + auth/ library
+**Decided.** Token authority is centralized in a single `authd`
+daemon — the **sole signer**. `authd` mints and revokes every token,
+holds the signing key, and publishes public JWKs at `/v1/keys`. Every
+other daemon **offline-verifies** tokens against cached JWKs using the
+`auth/` library; no daemon mints its own tokens. Distributed /
+self-minting is rejected.
 
-`authd` is **the place where identity is created, verified, and
-retracted**: a daemon that owns `auth.db`, hosts the OAuth flow, signs
-JWTs, holds the revocation list, owns account linking, and publishes
-verification keys (JWKs) at `/v1/keys`. It is **paired with** the
-`auth/` library that every other daemon imports for **offline** JWT
-verification, scope checks, and mountable middleware.
+The split is two artifacts:
 
-The split is deliberate. **Daemon for authority, library for
-verification.** Identity authority must live in one process —
-otherwise revocation is impossible, the OAuth flow is duplicated, and
-the JWT signing key is sprayed across daemons. Verification must live
-in every process — a network hop per request is unacceptable, and
-every backend depending on authd's uptime is a fault-domain explosion.
+- **`authd`** — the daemon. Owns the private signing key, the OAuth
+  login flow, token issuance, revocation, and JWKs publication. The
+  one process that can sign.
+- **`auth/`** — the library. Offline verification, scope-check,
+  JWKs-cache refresh, mountable middleware, and MCP tool handlers.
+  Every daemon imports it; none of them sign.
 
-This is the **first instance of the published-contract pattern** from
-[U-genericization.md](U-genericization.md) § _Per-service
-`<daemon>/api/v1/`_: `authd/api/v1/` is the published-contract package —
-wire types + a thin client — that external code (including `auth/`)
-imports; internal `authd/handler.go`, `authd/db.go` stay off-limits to
-other daemons.
+This is **extracted standalone first** — `authd` is the first piece of
+the gated split, shipped on its own, proving the `<daemon>/api/v1/` +
+`types/` pattern before `routerd`/`agent-runnerd`/`mcp-hostd` follow in
+a later release (sequencing: [`U-genericization.md`](U-genericization.md)
+"gated split").
 
-## Why daemon AND library
+## Why a central signer
 
-A pure library can't:
+A single signer is the load-bearing decision; everything else follows:
 
-- **Revoke.** Revocation needs a central authority because verifiers
-  are distributed. A library-only design relies on short TTLs —
-  workable for ephemeral agents, fragile for long sessions and stolen
-  tokens. authd lets ops retract any token immediately; every verifier
-  picks it up on its next revocation-list refresh.
-- **Centralize OAuth.** The dance with Google/GitHub/OIDC needs HTTP
-  endpoints, pending state, and one callback URL registered with the
-  provider. Per-daemon OAuth means N callback URLs, N copies of client
-  secrets, N pending-state stores.
-- **Own account linking.** "Same user, two providers → one account" is
-  a database write. A library can read the link table via interface,
-  but the writer must be one process.
+- **One key, one issuer.** Only `authd` holds the ES256 private key.
+  Compromise surface and rotation are confined to one process; no
+  daemon can forge a token because none can sign.
+- **Offline verification, no hot-path hop.** Verification is a pure
+  function over `(token, JWKs)`. Daemons cache `authd`'s public JWKs
+  and verify in-process — no network call per request. `authd` being
+  briefly down does not stop verification of already-issued tokens.
+- **Centralized revocation + audit.** The single issuer is the single
+  place to revoke and to record issuance — impossible to colocate
+  cleanly when every daemon mints its own.
 
-A pure daemon can't:
+Verification stays a library function so it has zero network cost;
+_signing_ is the daemon's exclusive job.
 
-- **Verify cheaply.** Every JWT verify becoming a round trip to authd
-  is untenable for hot paths (every signed request, every MCP call).
-  Distributed offline verification is the whole point of JWTs (~µs
-  local vs ~ms network).
-- **Mount on existing muxes.** Daemons need `RequireSigned`
-  middleware, `whoami` / `mint_token` MCP tools, and scope predicates
-  registered locally without a runtime dependency on authd.
+## Today's `auth/`
 
-Layered together: authd is the **authority** (central state, single
-signer); `auth/` is the **verifier** (distributed, offline, fast). The
-seam is **published verification material** — authd publishes its JWKs
-at `/v1/keys` and its revocation feed at `/v1/revocations`; `auth/`
-fetches and caches both, then verifies locally with zero network IO.
-The N-daemon system pays one network hop per JWKs refresh (~1h) plus
-one per revocation poll (~30s) per daemon, not one per request.
-
-## Kerberos-inspired, not Kerberos
-
-The pattern is borrowed from Kerberos: a central authority (KDC) mints
-tickets that distributed services verify offline. We borrow the
-**architecture**:
-
-- Central authority for state operations (mint, revoke, OAuth).
-- Offline-verifiable tickets (Kerberos signs with service-shared keys;
-  we sign JWTs with authd's private key, verified against its
-  published public key).
-- Centrally-handled key rotation.
-
-We don't borrow the **protocol**. KRB5 is the wrong shape for arizuko:
-browsers don't speak it, SPNEGO/Negotiate is enterprise-desktop-coupled
-and a config nightmare, and keytabs/realm-sync pay off only in AD
-shops. **OAuth + JWT is what consumers already use** — Google, GitHub,
-every OIDC provider speaks OAuth code-flow; JWTs are the standard
-bearer shape. The protocol of the day, not the protocol of 1988.
-
-## `authd` daemon
-
-### Operations
-
-| Operation                                   | Today                                                                                                                            | After authd                                                                   |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| OAuth dance with Google/GitHub              | proxyd hosts `/auth/login`, `/auth/callback`                                                                                     | authd hosts them; proxyd 302s to authd.                                       |
-| Mint JWT for authenticated user             | proxyd signs locally with `AUTH_SECRET`                                                                                          | authd is sole signer; private key in `auth.db`.                               |
-| Verify JWT on every web request             | proxyd verifies the JWT (`AUTH_SECRET`); downstream daemons trust proxyd's HMAC-signed `X-User-*` headers (`PROXYD_HMAC_SECRET`) | each daemon offline-verifies the JWT via authd's public key (cached locally). |
-| Mint service-to-service token               | shared `CHANNEL_SECRET` bearer                                                                                                   | authd issues per-service JWTs at adapter boot.                                |
-| Revoke a token before TTL                   | impossible (bearer-valid until TTL)                                                                                              | authd revocation list; verifiers check it on every verify (cached).           |
-| Link OAuth providers to one account         | gated's `auth_users.linked_to_sub` (in `messages.db`)                                                                            | authd owns `account_links`; gated reads via `authd/api/v1/accounts`.          |
-| Sign service identity for cross-daemon HTTP | `PROXYD_HMAC_SECRET` over `X-User-*` headers                                                                                     | authd-minted JWT in `Authorization: Bearer`.                                  |
-
-### `auth.db` schema
-
-authd owns its own SQLite file. Migrations live in `authd/migrations/`.
-Per [U-genericization.md](U-genericization.md) § _Database ownership
-rule_, no other daemon touches this file; cross-daemon reads go through
-`authd/api/v1/`.
-
-```sql
--- Identity records.
-CREATE TABLE users (
-    sub        TEXT PRIMARY KEY,    -- arizuko-side stable sub
-    created_at INTEGER NOT NULL,
-    name       TEXT,
-    email      TEXT
-);
-
--- Active sessions (web cookies, etc). Optional persistence.
-CREATE TABLE sessions (
-    id         TEXT PRIMARY KEY,
-    sub        TEXT NOT NULL,
-    issued_at  INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    user_agent TEXT
-);
-
--- Issued tokens (for revocation lookup; not the JWT itself).
-CREATE TABLE tokens (
-    jti        TEXT PRIMARY KEY,    -- JWT id claim
-    sub        TEXT NOT NULL,
-    scope      TEXT NOT NULL,
-    audience   TEXT,
-    issued_at  INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-
--- Revocation list. Verifiers cache + check.
-CREATE TABLE revocations (
-    jti        TEXT PRIMARY KEY,
-    revoked_at INTEGER NOT NULL,
-    reason     TEXT
-);
-
--- OAuth pending state (login → callback handoff).
-CREATE TABLE oauth_states (
-    state      TEXT PRIMARY KEY,
-    provider   TEXT NOT NULL,
-    return_to  TEXT,
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL    -- short TTL (~10min)
-);
-
--- Provider linking: one arizuko sub, multiple provider identities.
-CREATE TABLE account_links (
-    provider     TEXT NOT NULL,
-    provider_sub TEXT NOT NULL,
-    sub          TEXT NOT NULL,    -- arizuko sub
-    linked_at    INTEGER NOT NULL,
-    PRIMARY KEY (provider, provider_sub)
-);
-
--- Signing keys (rotation support; kid in JWT header selects key).
-CREATE TABLE keys (
-    kid          TEXT PRIMARY KEY,
-    alg          TEXT NOT NULL,    -- "ES256" / "RS256" / "HS256"
-    public_pem   TEXT,             -- null for HMAC
-    private_pem  TEXT NOT NULL,    -- secret (HMAC) or private key (ECDSA/RSA)
-    created_at   INTEGER NOT NULL,
-    activated_at INTEGER,
-    retired_at   INTEGER
-);
+```
+auth/
+  hmac.go             generic — HMAC sign/verify of identity headers
+  jwt.go              generic — JWT structure (planned mint API)
+  oauth.go            generic — OAuth provider abstraction
+  middleware.go       generic — RequireSigned / StripUnsigned guards
+  web.go              generic — login/callback/logout HTTP handlers
+  routes.go           generic — provider route registration
+  link.go             generic — multi-provider account linking
+  collide.go          generic — handles two providers landing on same user
+  ───
+  acl.go              arizuko — folder/scope ACL evaluator
+  policy.go           arizuko — policy composition for arizuko grants
+  identity.go         arizuko — identity model with folder field
 ```
 
-`keys` supports rotation: a new key lands, `/v1/keys` exposes both, the
-old key retires once every token signed by it has expired.
+`acl.go`, `policy.go`, `identity.go` move out (see Target shape).
+The rest stays.
 
-### `authd/api/v1/` published contract
+## Target shape
 
-Per the per-service convention in
-[U-genericization.md](U-genericization.md), authd publishes its
-contract in `authd/api/v1/types.go` (wire types) + `authd/api/v1/client.go`
-(a thin HTTP wrapper, no business logic). The package has zero
-arizuko-internal imports beyond `types/`, and is imported freely by
-other daemons and the `auth/` library.
+A single Go module exposing four surfaces:
+
+### 1. Verification primitives (library — every daemon)
 
 ```go
-package v1
+// Verify any incoming token against cached JWKs. Pure function, no IO
+// once the JWKs cache is warm. ES256: the verifier picks the public
+// key by `kid` from the token header.
+func VerifyHTTP(r *http.Request, jwks *KeySet) (Identity, error)
+func VerifyToken(token string, jwks *KeySet) (Identity, error)
 
-import (
-    "time"
+// Scope check primitives. Authorization is scope-match; there is no
+// tier.
+func HasScope(ident Identity, resource, verb string) bool
+func MatchesAudience(ident Identity, aud string) bool
 
-    "github.com/kronael/arizuko/types"
-)
+// JWKs cache: fetches authd's public keys from /v1/keys and refreshes
+// on `kid` miss or TTL. Verification never needs the private key.
+type KeySet struct{ /* kid → ed/ecdsa public key */ }
+func FetchKeys(authdURL string) (*KeySet, error)
+```
 
-// Claims is the full claim set on every authd-issued JWT.
+### 2. Mint primitives (authd only — the sole signer)
+
+Minting lives **only** in `authd`, which holds the ES256 private key.
+No other daemon links a signing path; the library exposes mint as the
+internal building block `authd` uses, never a key-taking function other
+daemons can call:
+
+```go
+// Inside authd. Signs with the ES256 private key authd holds.
+func (a *Authd) Mint(claims Claims, ttl time.Duration) (string, error)
+
+// Downscope: mint a narrower token from an existing one. Backs the
+// `mint_token` MCP tool, which authd serves (or which forwards to
+// authd). Errors if requested scope is broader than the parent's.
+func (a *Authd) MintNarrower(parent Identity, claims Claims, ttl time.Duration) (string, error)
+```
+
+`Claims` and `Identity` carry only generic fields:
+
+```go
 type Claims struct {
-    Sub      types.UserSub  `json:"sub"`
-    Scope    []types.Scope  `json:"scope"`
-    Audience string         `json:"aud,omitempty"`
-    Issuer   string         `json:"iss"`               // "authd"
-    JTI      string         `json:"jti"`               // for revocation
-    IssuedAt int64          `json:"iat"`
-    Expires  int64          `json:"exp"`
-    Extra    map[string]any `json:"x,omitempty"`       // app-specific opaque
+    Sub      string                 // subject (user, agent, key)
+    Scope    []string               // capability list ("tasks:write", ...)
+    Audience string                 // optional, multi-app deployments
+    Extra    map[string]string      // app-specific opaque fields
+    TTL      time.Duration
+    Issuer   string                 // always "authd" — the sole signer
 }
 
-// MintRequest issues a new token.
-type MintRequest struct {
-    Sub      types.UserSub  `json:"sub"`
-    Scope    []types.Scope  `json:"scope"`
-    Audience string         `json:"aud,omitempty"`
-    TTL      time.Duration  `json:"ttl"`
-    Extra    map[string]any `json:"x,omitempty"`
-}
-
-type MintResponse struct {
-    Token   string `json:"token"`     // signed JWT
-    JTI     string `json:"jti"`
-    Expires int64  `json:"exp"`
-}
-
-// MintNarrowerRequest downscopes an existing token. Server validates
-// the requested scope is a strict subset of the parent's scope.
-type MintNarrowerRequest struct {
-    ParentToken string         `json:"parent"`
-    Scope       []types.Scope  `json:"scope"`
-    TTL         time.Duration  `json:"ttl"`
-    Extra       map[string]any `json:"x,omitempty"`
-}
-
-// RevokeRequest retracts a token by JTI before its TTL.
-type RevokeRequest struct {
-    JTI    string `json:"jti"`
-    Reason string `json:"reason,omitempty"`
-}
-
-// ListRequest enumerates active tokens for an operator.
-type ListRequest struct {
-    Sub      types.UserSub `json:"sub,omitempty"`
-    Audience string        `json:"aud,omitempty"`
-}
-
-// TokenListResponse is what `/v1/tokens` GET returns: active (non-revoked,
-// non-expired) tokens for the operator's query.
-type TokenListResponse struct {
-    Tokens     []TokenInfo `json:"tokens"`
-    NextCursor string      `json:"next,omitempty"`
-}
-
-type TokenInfo struct {
-    JTI      string        `json:"jti"`
-    Sub      types.UserSub `json:"sub"`
-    Scope    []types.Scope `json:"scope"`
-    Audience string        `json:"aud,omitempty"`
-    Expires  int64         `json:"exp"`
-}
-
-// JWKsResponse publishes verification keys. Daemons cache; rotate via
-// the kid header in the JWT.
-type JWKsResponse struct {
-    Keys []JWK `json:"keys"`
-}
-
-type JWK struct {
-    Kid string `json:"kid"`
-    Alg string `json:"alg"`
-    Kty string `json:"kty"`   // "EC" / "RSA" / "oct"
-    Use string `json:"use"`   // "sig"
-    Crv string `json:"crv,omitempty"`   // ECDSA
-    X   string `json:"x,omitempty"`
-    Y   string `json:"y,omitempty"`
-    N   string `json:"n,omitempty"`     // RSA
-    E   string `json:"e,omitempty"`
-}
-
-// RevocationListResponse is the full revocation snapshot daemons fetch
-// on cache refresh. v1 is a full-snapshot poll (no cursor/delta — see
-// § Revocation scaling); authd's GC keeps the list bounded.
-type RevocationListResponse struct {
-    Revoked []string `json:"revoked"`    // JTIs
-    AsOf    int64    `json:"as_of"`
+type Identity struct {
+    Sub      string
+    Scope    []string
+    Audience string
+    Extra    map[string]string      // includes "folder" for arizuko
+    Issuer   string
+    Expires  time.Time
 }
 ```
+
+Authorization is scope-based: `Identity.Scope` is the capability list,
+checked with `HasScope`. There is no `tier` field (decision: scopes
+replace tier everywhere — [`U-genericization.md`](U-genericization.md)
+"Capability-vs-tier"). Folder and other arizuko concepts move into
+`Extra`; the library doesn't know what those keys mean. Arizuko-specific
+helpers live in `arizuko/identity.go` outside `auth/`.
+
+### 3. OAuth flow handlers (mountable)
+
+OAuth needs HTTP endpoints (`login`, `callback`, `logout`, `me`).
+Those are exported as handlers any daemon can mount on its own mux:
 
 ```go
-// authd/api/v1/client.go — thin HTTP wrapper, no state beyond baseURL.
-type Client struct{ baseURL string; hc *http.Client }
-
-func NewClient(baseURL string) *Client
-
-func (c *Client) Mint(ctx context.Context, req MintRequest) (MintResponse, error)
-func (c *Client) MintNarrower(ctx context.Context, req MintNarrowerRequest) (MintResponse, error)
-func (c *Client) Revoke(ctx context.Context, req RevokeRequest) error
-func (c *Client) List(ctx context.Context, req ListRequest) (TokenListResponse, error)
-func (c *Client) Revocations(ctx context.Context) (RevocationListResponse, error)
-func (c *Client) JWKs(ctx context.Context) (JWKsResponse, error)
-```
-
-The contract is frozen at `v1`; `v2/` lives next to it when the shape
-breaks.
-
-HTTP surface, all under `/v1/` (auth ops) and `/auth/` (browser flow):
-
-| Endpoint              | Method | Scope required          | Body                  |
-| --------------------- | ------ | ----------------------- | --------------------- |
-| `/v1/tokens`          | POST   | `authd:mint`            | `MintRequest`         |
-| `/v1/tokens/narrower` | POST   | (parent token)          | `MintNarrowerRequest` |
-| `/v1/tokens/{jti}`    | DELETE | `authd:revoke`          | `RevokeRequest`       |
-| `/v1/tokens`          | GET    | `authd:admin`           | `ListRequest` (query) |
-| `/v1/keys`            | GET    | none (public)           | —                     |
-| `/v1/revocations`     | GET    | none (cached by verifs) | —                     |
-| `/v1/accounts/{sub}`  | GET    | `authd:read`            | —                     |
-| `/v1/links`           | POST   | (session)               | link request          |
-| `/auth/login`         | GET    | none                    | provider redirect     |
-| `/auth/callback`      | GET    | none                    | OAuth code exchange   |
-| `/auth/logout`        | POST   | (session)               | clears cookie         |
-| `/auth/me`            | GET    | (session)               | identity              |
-
-Mutating `/v1/*` endpoints accept `X-Idempotency-Key`; every endpoint
-propagates `X-Turn-Id` if set (both per
-[U-genericization.md](U-genericization.md) § _Open detail-level
-items_).
-
-OAuth handlers move from today's `auth/oauth.go` to `authd/oauth.go`
-verbatim — same provider list, same redirect-URI shape. The change is
-only ownership: proxyd no longer mounts them; authd does.
-
-## `auth/` library
-
-The library every daemon imports. Per
-[U-genericization.md](U-genericization.md)'s DAG it sits at Layer 1
-(depends on Layer 0 — `types/` for IDs and `authd/api/v1/` for shared
-shapes).
-
-Shipped today: HMAC JWT verify (`VerifyJWT` against `AUTH_SECRET`), the
-`X-User-*` header-sig middleware (`PROXYD_HMAC_SECRET`), OAuth handlers,
-and ACL/scope checks. The JWKs-offline `Verifier` below is **added at
-cutover** (§ One-shot migration plan, Step 3) — it replaces both HMAC
-paths, it does not exist yet.
-
-### Surface
-
-```go
-package auth
-
-import (
-    "context"
-    "net/http"
-
-    "github.com/kronael/arizuko/authd/api/v1"
-    "github.com/kronael/arizuko/types"
-)
-
-// Verifier verifies tokens offline using cached JWKs + revocation
-// list. One per daemon; goroutine-safe.
-type Verifier interface {
-    // Verify parses, signature-checks, expiry-checks, and revocation-
-    // checks a token. Offline on the steady-state hot path; the only
-    // network fallback is a one-shot JWKs refresh on an unknown kid.
-    // Returns Claims on success.
-    Verify(ctx context.Context, token string) (*v1.Claims, error)
-
-    // RefreshJWKs / RefreshRevocations force a reload. Called
-    // automatically on the refresh interval; exposed for tests + ops.
-    RefreshJWKs(ctx context.Context) error
-    RefreshRevocations(ctx context.Context) error
+// Provider configuration.
+type Provider struct {
+    ID, Type, ClientID, ClientSecret, DiscoveryURL string
+    // ...
 }
 
-// NewVerifier constructs a Verifier pointed at an authd instance.
-func NewVerifier(authdURL string, opts ...Option) Verifier
+// Returns a set of HTTP handlers ready to mount.
+func Handlers(providers []Provider, key []byte, opts ...Option) AuthHandlers
 
-// Scope-check primitives. Pure functions.
-func HasScope(c *v1.Claims, scope types.Scope) bool
-func MatchesAudience(c *v1.Claims, aud string) bool
+type AuthHandlers struct {
+    Login    http.HandlerFunc   // GET /auth/login
+    Callback http.HandlerFunc   // GET /auth/callback
+    Logout   http.HandlerFunc   // POST /auth/logout
+    Me       http.HandlerFunc   // GET /auth/me
+}
 
-// Mountable middleware. RequireSigned rejects requests without a valid
-// bearer (401), attaching *v1.Claims to the request context.
-// StripUnsigned attaches Claims if present + valid, otherwise strips
-// the Authorization header (no rejection) — for mixed public/private
-// routes.
-func RequireSigned(v Verifier) func(http.Handler) http.Handler
-func StripUnsigned(v Verifier) func(http.Handler) http.Handler
-
-// ClaimsFromContext retrieves the Claims attached by the middleware.
-func ClaimsFromContext(ctx context.Context) (*v1.Claims, bool)
+// Convenience: mount all four on a mux at the standard paths.
+func Mount(mux *http.ServeMux, providers []Provider, key []byte, opts ...Option)
 ```
 
-### Offline JWT verify
+`authd` mounts these — it owns the OAuth login flow and is where the
+session JWT is minted (only the signer can issue one). proxyd delegates
+login to `authd` ([`35-proxyd-standalone.md`](35-proxyd-standalone.md)
+"Login flow"); it enforces, it does not sign. The handlers stay in the
+library so `authd` (and standalone non-arizuko deployments of it) mount
+the same code.
 
-The library caches authd's JWKs at startup and refreshes every ~1h
-(configurable). On every `Verify`:
+Pending-state for OAuth (the short-lived `state` cookie/token between
+`/auth/login` and `/auth/callback`) lives in-process with whichever
+daemon mounted the handlers. Defaults to in-memory; pluggable
+`StateStore` interface for ops needing redis or shared state.
 
-1. Parse JWT header → extract `kid`.
-2. Look up `kid` in cached JWKs. If missing, force-refresh once; if
-   still missing, reject.
-3. Signature-check against the public key.
-4. Check `exp` + `nbf`.
-5. Check `jti` against the cached revocation list. If listed, reject.
-6. Return Claims.
+Account-linking records (one user, multiple providers) are stored
+via a pluggable `LinkStore` interface. Default: SQLite at a
+configured path. Daemons that don't care about linking pass nil.
 
-Cache refresh:
+### 4. MCP tool handlers (mountable)
 
-- JWKs: pull every `JWKS_REFRESH_INTERVAL` (default 1h).
-- Revocations: pull every `REVOCATION_REFRESH_INTERVAL` (default 30s) —
-  the trade-off between staleness and load. A revoked token verifies
-  for at most one poll interval; operators run the poll faster if
-  subsecond revocation matters.
-
-Both refresh in the background; on the steady-state hot path verify
-never blocks on a network call. The one exception is step 2 above —
-an unknown `kid` triggers a single synchronous JWKs refresh, after
-which verify is offline again. If a background refresh fails, the
-verifier serves stale data and surfaces the staleness in `obs/` metrics
-— existing tokens stay valid even if authd is down; only new mints fail.
-
-**Revocation scaling (v1).** Each poll fetches the **full revocation
-snapshot** (`RevocationListResponse`, no cursor/delta). authd keeps the
-list bounded by GC: a cron purges revocations older than `max_token_ttl`
-— a token past its TTL fails the expiry check anyway, so its revocation
-row is dead weight. Full-snapshot poll over a GC-bounded list is the
-whole v1 mechanism. Cursor/delta endpoints are post-v1, added only if a
-deployment's live-revocation count outgrows a single snapshot.
-
-### Mountable middleware
-
-Every daemon that gates requests imports `auth` and wraps its mux:
+MCP tools for agents that need to introspect or mint sub-tokens:
 
 ```go
-v := auth.NewVerifier(os.Getenv("AUTHD_URL"))
-mux := http.NewServeMux()
-mux.Handle("/v1/", auth.RequireSigned(v)(myHandler))
-mux.Handle("/public/", auth.StripUnsigned(v)(myHandler))
+// Returns MCP tool definitions ready to register with any MCP server.
+// Read-only tools (whoami, verify_token, list_providers) run in-process
+// against cached JWKs. mint_token forwards to authd over HTTP — the
+// host never signs.
+func MCPTools(authdURL string, jwks *KeySet) []MCPTool
+
+// MCPTool is a small struct: name, description, schema, handler.
+// Hosting daemon iterates and registers each with its server.
 ```
 
-Three lines per daemon for full authz: no HMAC env var, no
-shared-secret coordination — only `AUTHD_URL` plus the JWKs trust
-chain.
+| Tool             | Purpose                                        | Scope required            |
+| ---------------- | ---------------------------------------------- | ------------------------- |
+| `whoami`         | Return the caller's own Identity               | none                      |
+| `mint_token`     | Mint a token narrower than caller's own scope  | (downscope-only enforced) |
+| `verify_token`   | Introspect a token (does it parse, what scope) | any valid token           |
+| `list_providers` | List configured OAuth providers                | none                      |
 
-### MCP tool handlers
+`mint_token` enforces downscope-only via `authd.MintNarrower`: the
+agent can only issue tokens with a strict subset of its own scope, and
+the actual signing happens in `authd`. This is the primitive that makes
+agent → sub-agent delegation safe without admin in the loop.
 
-`auth.MCPTools(v Verifier, c *v1.Client) []MCPTool` returns the
-agent-side tool definitions. The hosting daemon (today gated's ipc
-subsystem; tomorrow `mcp-hostd`) iterates and registers each with its
-MCP server.
+The MCP host (gated's ipc subsystem today; `mcp-hostd` after the split)
+mounts these alongside its existing tools. Read-only auth tools resolve
+in-process against cached JWKs, no hop; `mint_token` forwards to `authd`
+because only the signer can issue.
 
-| Tool             | Purpose                                                     | Scope required            |
-| ---------------- | ----------------------------------------------------------- | ------------------------- |
-| `whoami`         | Return the caller's own Claims                              | none                      |
-| `mint_token`     | Mint a token narrower than caller's own scope (calls authd) | (downscope-only enforced) |
-| `verify_token`   | Introspect a token (parses? what scope? revoked?)           | any valid token           |
-| `revoke_token`   | Revoke a token by JTI (calls authd)                         | `authd:revoke`            |
-| `list_providers` | List configured OAuth providers                             | none                      |
+## Mounting pattern
 
-`whoami` and `verify_token` are local (offline). `mint_token` and
-`revoke_token` delegate to authd. `mint_token` enforces downscope-only
-server-side via `/v1/tokens/narrower`: authd validates the parent
-token's scope and rejects any minted scope broader than the parent's.
-The client-side tool is a thin wrapper, never the enforcement point.
+A backend daemon verifies tokens — it does not sign. It caches `authd`'s
+public JWKs and uses the library's middleware + MCP tools:
 
-## proxyd's evolved role
+```go
+import "github.com/kronael/arizuko/auth"
 
-After authd lands, proxyd **shrinks** to HTTP proxy + vhost routing +
-rate-limit + auth middleware:
+func main() {
+    jwks, _ := auth.FetchKeys(os.Getenv("AUTHD_URL")) // public keys only
 
-| Today                                            | After authd                                                |
-| ------------------------------------------------ | ---------------------------------------------------------- |
-| Hosts `/auth/login` + `/auth/callback`           | 302s to `authd/auth/login` with return-to; no OAuth logic. |
-| Signs JWTs locally with `AUTH_SECRET`            | Holds no signing key; authd is the sole signer.            |
-| Verifies JWTs via shared `AUTH_SECRET`           | Uses `auth/`; offline-verifies via authd's JWKs.           |
-| Signs identity headers with `PROXYD_HMAC_SECRET` | **Deleted**. Backends verify the JWT directly via `auth/`. |
+    // Verify-on-request middleware on the HTTP mux.
+    mux := http.NewServeMux()
+    mux.Handle("/v1/", auth.RequireSigned(jwks, handler))
 
-[35-proxyd-standalone.md](35-proxyd-standalone.md) locks `[auth].mode =
-"library"` for its v1 with `"remote"` (call authd) as the future hook.
-Post-authd, `"remote"` becomes the default and `"library"` retires —
-see that spec § _Decisions_. The four `folder` references in
-`proxyd/main.go` retire in the same release per
-[U-genericization.md](U-genericization.md)'s proxyd row.
+    // MCP tools on the MCP server (if this daemon hosts one). mint_token
+    // forwards to authd; read-only tools verify in-process.
+    for _, tool := range auth.MCPTools(os.Getenv("AUTHD_URL"), jwks) {
+        mcpServer.RegisterTool(tool)
+    }
 
-## HMAC retirement plan
+    // ... daemon's own routes and tools ...
 
-Two HMAC mechanisms retire in the authd release, both deleted in the
-same commit that brings authd up (per § One-shot migration plan).
+    http.ListenAndServe(":8080", mux)
+}
+```
 
-**`PROXYD_HMAC_SECRET`** (proxyd → backend identity headers). Today
-proxyd signs `X-User-Sub` / `X-User-Name` / `X-User-Groups` with
-`PROXYD_HMAC_SECRET` and attaches `X-User-Sig`; backends verify via
-`auth/middleware.go`. After authd, backends receive the original JWT in
-`Authorization: Bearer` (proxyd passes it through) and offline-verify
-via `auth/` against authd's JWKs. The `X-User-*` headers retire; daemons
-read from `auth.ClaimsFromContext(ctx)`.
+Backends carry the public JWKs and verify offline; the only daemon that
+holds the private key and mounts `auth.Mount` (the OAuth login + mint
+surface) is `authd`.
 
-**`CHANNEL_SECRET`** (adapter → gateway bearer). Today every channel
-adapter sends a shared `CHANNEL_SECRET` bearer; gated checks string
-equality. After authd, each adapter is provisioned at boot (via
-compose-generation) with an authd-minted **service JWT** carrying
-scopes like `gateway:write`, `audience: gateway`. Gated verifies via
-`auth/`. Distinct adapters carry distinct subs; gated can rate-limit or
-revoke per-adapter; rotating one adapter's credentials doesn't affect
-others.
+## Where each role lives, after this lands
 
-## One-shot migration plan (NO BACKWARD COMPATIBILITY)
-
-Per CLAUDE.md § _Minimality and orthogonality_ and the directive in
-[U-genericization.md](U-genericization.md) § _NO BACKWARD
-COMPATIBILITY_, the cutover is **one-shot**: no dual-API period, no
-parallel codepaths, no compatibility layer. Recovery is `git revert`,
-not a fallback path.
-
-Build order — each step lands as its own commit; the cutover
-(steps 4–6) ships as one release:
-
-1. **Build `authd/api/v1/` + `auth.db` schema.** Types, client stub,
-   migrations. Compiles; no behavior yet.
-2. **Implement `authd`.** Handlers, OAuth flow (moved from
-   `auth/oauth.go`), JWT signing (HMAC initially; ECDSA via `kid`
-   rotation post-launch), revocation list, `/v1/keys`, account-links.
-   Run alongside proxyd in a test deployment; not yet wired in prod.
-3. **Implement `auth/` verify.** Offline `Verify` with JWKs + revocation
-   caches, `authd/api/v1/` client, `RequireSigned` / `StripUnsigned`
-   rewired against the `Verifier` (drops the HMAC path), context helpers.
-4. **Cut every daemon over to `auth/` for verify.** Same commit deletes
-   each daemon's per-daemon JWT-verification helper; every daemon points
-   at `AUTHD_URL`.
-5. **Delete proxyd's OAuth handlers + HMAC signing.** Same commit:
-   `/auth/login` becomes a 302 to authd; proxyd verifies via `auth/`;
-   `PROXYD_HMAC_SECRET` + the `X-User-Sig` computation delete.
-6. **Delete `CHANNEL_SECRET`.** Same commit: adapters receive
-   authd-minted service JWTs at boot; gated verifies via `auth/`.
-7. **Ship as one release.** Migration broadcast via the migrate skill
-   (CLAUDE.md § _Shipping changes_).
-
-Test gate before tagging: `make test-e2e` green (every daemon's
-protected endpoints work with authd-minted tokens) and `make smoke
-SMOKE_INSTANCE=krons` passes post-deploy.
+| Role                                  | Where                                                        |
+| ------------------------------------- | ------------------------------------------------------------ |
+| Verify a token                        | Any daemon — `auth.VerifyHTTP` against cached JWKs, no hop   |
+| Mint a token from claims              | `authd` only — the sole signer                               |
+| Downscope an existing token           | `authd.MintNarrower` (MCP `mint_token` forwards to it)       |
+| Publish public JWKs                   | `authd` at `/v1/keys`                                        |
+| OAuth login + callback                | `authd` (mounts `auth.Handlers`); proxyd delegates           |
+| MCP tools (`whoami`, `mint_token`, …) | gated's ipc subsystem / `mcp-hostd` (mounts `auth.MCPTools`) |
+| Account-linking storage               | Pluggable; default SQLite via `LinkStore` (in `authd`)       |
+| Pending OAuth state                   | Pluggable; default in-memory via `StateStore` (in `authd`)   |
 
 ## What this spec is not
 
-- **Not "auth as a library only"** — that prior framing can't host
-  revocation. The library still exists; the daemon now exists too.
-- **Not centralized verification.** Daemons verify offline against
-  cached JWKs. authd is the authority, not the synchronous verifier.
-- **Not full OIDC conformance.** The login flow is OAuth
-  code-exchange → JWT issuance — enough for arizuko + most deployments.
-- **Not multi-key per audience.** Audience is a routing field, not a
-  key separator; one signing key (with `kid` rotation) covers all
-  audiences.
-- **Not a service mesh.** JWTs travel in `Authorization: Bearer`; no
-  mTLS, no service discovery.
-- **Not a staged migration.** The cutover is one release.
+- Not distributed minting. `authd` is the sole signer; no daemon
+  self-mints. Backends only verify.
+- Not symmetric crypto. ES256 (asymmetric) from launch — `authd`
+  holds the private key, daemons hold only public JWKs. No HMAC
+  shared-secret token path.
+- Not full OIDC conformance. Login flow is JWT-issuing OAuth code
+  exchange — enough for arizuko + most deployments.
+- Not multi-key per audience for _verification routing_. `kid`
+  selects the signing key for rotation; audience is for routing, not
+  key separation.
+
+## Implementation phases
+
+`authd` is extracted **standalone first**, before the rest of the gated
+split. It proves the `<daemon>/api/v1/` + `types/` pattern that
+`routerd`/`agent-runnerd`/`mcp-hostd` adopt in a **later release**
+(sequencing: [`U-genericization.md`](U-genericization.md) "gated split").
+
+1. **Extract arizuko-specific code.** Move `acl.go`, `policy.go`,
+   `identity.go` (folder fields; tier dropped) out of `auth/` into a new
+   `arizuko/identity.go`. `auth/` left with only generic primitives.
+   Pure refactor.
+
+2. **Stand up `authd` with ES256.** Generate an ES256 keypair; `authd`
+   holds the private key and serves `/v1/keys` (public JWKs, keyed by
+   `kid`). Implement `Mint` + `MintNarrower` inside `authd`. Migrate
+   proxyd's local JWT-mint to delegate to `authd /v1/tokens`.
+
+3. **Refactor OAuth handlers as mountable; mount in `authd`.**
+   `auth.Handlers` / `auth.Mount` registers the four routes; `authd`
+   mounts them. Pluggable `StateStore` and `LinkStore` interfaces with
+   default implementations.
+
+4. **Offline verification everywhere.** Backends call `auth.FetchKeys`
+   and verify against cached JWKs (no signing key on backends). MCP
+   `mint_token` forwards to `authd`; gated's ipc subsystem
+   (`mcp-hostd` after the split) mounts the read-only tools locally.
+
+5. **Document for non-arizuko deployment.** `authd/README.md` +
+   `auth/README.md` cover standalone `authd` + "verify with the library"
+   usage. Examples for OAuth providers (Google/GitHub/OIDC), account
+   linking, MCP integration.
+
+After step 2 `authd` is the sole signer and JWKs are live. After step 4
+every backend verifies offline. The rest of the gated split follows in a
+later release.
+
+## Code pointers
+
+- `auth/hmac.go`, `auth/jwt.go`, `auth/oauth.go`, `auth/middleware.go`,
+  `auth/web.go`, `auth/routes.go`, `auth/link.go`, `auth/collide.go` —
+  keep, generic.
+- `auth/acl.go`, `auth/policy.go`, `auth/identity.go` — move out
+  to `arizuko/identity.go` (or similar).
+- `auth/mcp.go` (new) — MCP tool definitions returned by `MCPTools`.
+- `auth/store.go` (new) — `StateStore` and `LinkStore` interfaces +
+  default implementations.
+- `auth/jwks.go` (new) — `KeySet`, `FetchKeys`, ES256 verify-by-`kid`.
+- `arizuko/identity.go` (new) — folder helpers reading from
+  `Identity.Extra` (no tier).
+- `authd/` (new daemon) — holds the ES256 private key, mounts
+  `auth.Mount` for OAuth, serves `/v1/keys` (JWKs) and `/v1/tokens`
+  (mint). The sole signer.
+- `proxyd/main.go` — delegates login to `authd`; verifies via
+  `auth.FetchKeys`; no local mint.
+- `gated/ipc/...` (or `mcp-hostd` after the split) — registers
+  `auth.MCPTools`; `mint_token` forwards to `authd`.
+
+## Status (2026-05-26)
+
+`auth/` exists as a Go package with `Authorize`, `VerifyJWT`,
+`RequireSigned` / `StripUnsigned` middleware, OAuth handlers and account
+linking. It currently verifies HS256 (shared `AUTH_SECRET`) — the launch
+target is ES256 with JWKs, and `authd` does not yet exist as a daemon.
+The Target shape API names (`Mint`, `MintNarrower`, `VerifyHTTP`,
+`HasScope`, `MatchesAudience`, `Handlers`, `Mount`, `MCPTools`,
+`FetchKeys`) are NOT yet exported under those names. `auth/web.go`,
+`auth/oauth.go`, `auth/link.go`, `auth/authorize.go`, `auth/identity.go`
+still import `core` / `store` / `theme`, so the package is not yet
+reusable outside arizuko. Phase 1 (extract arizuko-specific code) and
+Phase 2 (stand up `authd` + ES256) are outstanding — hence `partial`.
 
 ## Open
 
-- **JWKs emergency rotation.** Daemons cache JWKs ~1h. A compromised
-  key needs a faster pull or a push. Lean: a short-TTL `keys-changed`
-  flag in the revocation-list response; daemons pull JWKs eagerly when
-  set.
-- **Revocation list GC cadence.** The rule is locked (§ Revocation
-  scaling); the cron interval + `max_token_ttl` default are an ops knob.
-  (Same item noted in [U-genericization.md](U-genericization.md).)
-- **Service-account provisioning UX.** Adapters get service JWTs at
-  boot via compose-generation: an env var carries a one-shot bootstrap
-  token the adapter trades for a long-lived service JWT on first start.
-  Detail per-adapter.
-- **`mint_token` over MCP — agent as bearer.** The agent holds its own
-  token. On `mint_token`, authd uses that token as the parent for
-  downscope; the minted token returns to the agent, which decides who
-  to hand it to (typically a sub-agent it spawns).
-- **Wildcard scopes.** `*:*` allows everything, `tasks:*` any task
-  verb. Match logic lives in `HasScope`; namespace-wildcards only for
-  now, richer matching later.
-- **Multi-instance authd.** v1 is single-instance. Horizontal scale is
-  post-v1 (shared `auth.db` or active-passive failover).
-
-## Implementation pointers
-
-- `authd/` (new) — daemon binary: `main.go`, `handler.go`,
-  `oauth.go` (moved from `auth/oauth.go`), `link.go`, `db.go`,
-  `migrations/`.
-- `authd/api/v1/` (new) — published contract: `types.go` + `client.go`.
-- `auth/verify.go` (new) — `Verifier`, JWKs cache, revocation cache,
-  offline `Verify`.
-- `auth/middleware.go` — existing `RequireSigned` / `StripUnsigned`
-  rewired against `Verifier` (drops the HMAC path).
-- `auth/mcp.go` (new) — `MCPTools` returning the agent-side tools.
-- `auth/acl.go`, `auth/policy.go`, `auth/identity.go` —
-  arizuko-domain ACL evaluation; not part of authd. Stay in `auth/`
-  (or move to `grants/`) but consume `types.Scope`, not
-  `core.Folder` / `core.Tier`.
-- `proxyd/main.go` — OAuth handlers + HMAC delete; uses
-  `auth.NewVerifier` like every other daemon.
-- `gated/middleware.go` — `CHANNEL_SECRET` string-equality check
-  deletes; uses `auth.RequireSigned`.
-- `compose/compose.go` — service-JWT provisioning for adapters;
-  `AUTHD_URL` injection.
-
-## Cross-references
-
-- [U-genericization.md](U-genericization.md) — naming, DAG layering,
-  `types/`, `<daemon>/api/v1/`, DB-ownership, NO BACKWARD COMPATIBILITY.
-  authd is the first instance of the published-contract pattern.
-- [35-proxyd-standalone.md](35-proxyd-standalone.md) — the consumer
-  that switches from local mint to authd-client mint; `[auth].mode`.
-- [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) — the federated
-  control API that consumes authd-minted tokens + scope vocabulary.
-- [N-oauth-services.md](N-oauth-services.md),
-  [`11/14-surrogate-oauth.md`](../11/14-surrogate-oauth.md) —
-  third-party OAuth (Gmail / GitHub / …) flows through this same
-  pattern, with authd as the host.
-- [A-orthogonal-components.md](A-orthogonal-components.md) — the
-  import-graph discipline `authd/api/v1/` enforces.
+- **`LinkStore` backing.** SQLite at a configured path by default;
+  options to point at postgres or share with another store via the
+  `LinkStore` interface.
+- **`mint_token` over MCP — is the agent the bearer or just a
+  proxy?** The agent holds its own token (its identity). When it
+  calls `mint_token`, `authd` uses the agent's scope as the parent for
+  downscope and signs the narrower token. The minted token returns to
+  the agent; the agent decides who to give it to (typically a
+  sub-agent it spawns).
+- **Wildcard scopes.** `*:*` allows everything. `tasks:*` allows any
+  task verb. Match logic lives in `HasScope`; spec'd here as exact
+  - namespace wildcards only. More complex matching later.
+- **OAuth state cookie vs JWT.** Today the `state` parameter is a
+  cookie. Library form keeps that; daemons can override via
+  `StateStore`.
 
 ## Blueprint takeaway
 
-This is the reusable extraction shape: authority-daemon (sole writer +
-signer) paired with an offline library (cached verify), wire contract
-published under `<daemon>/api/v1/` — the same shape `timed`, `routerd`,
-and `agent-runnerd` follow when extracted. Decision logic is in § _Why
-daemon AND library_; the contract rules in
-[U-genericization.md](U-genericization.md) § _Per-service
-`<daemon>/api/v1/`_.
+The pattern this spec lands on — **central authority, distributed
+verification**:
+
+1. The thing that **signs** is a single daemon (`authd`). One private
+   key, one issuer, one place to revoke and audit. Anything that mints
+   trust is a singleton, never replicated across consumers.
+2. The thing that **verifies** is a library every daemon imports.
+   Verification is a pure function over `(token, public JWKs)` — no
+   network hop, no fault dependency on `authd` being up.
+3. `authd` publishes its public keys (JWKs at `/v1/keys`); consumers
+   cache them and verify offline; `kid` drives rotation.
+
+This is the first piece of the gated split and the blueprint for the
+`<daemon>/api/v1/` + `types/` pattern the rest of the split adopts
+later ([`U-genericization.md`](U-genericization.md) "gated split").
