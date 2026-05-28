@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { submitTurn } from './mcp.js';
+import { loadAgentMcpServers, injectMcpEnv } from './mcp-servers.js';
 import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
 
 interface ContainerInput {
@@ -40,8 +41,6 @@ interface SDKUserMessage {
   session_id: string;
 }
 
-type McpServerConfig = { command: string; args?: string[]; env?: Record<string, string> };
-
 const HOME = '/home/node';
 const IPC_INPUT_DIR = '/run/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
@@ -51,40 +50,6 @@ const MAX_STDIN_BYTES = 1024 * 1024;
 const QUERY_TIMEOUT_MS = 15 * 60_000;
 
 const PROGRESS_INTERVAL_MS = 15 * 60_000;
-
-function loadAgentMcpServers(): Record<string, McpServerConfig> {
-  try {
-    const s = JSON.parse(fs.readFileSync(`${HOME}/.claude/settings.json`, 'utf-8'));
-    const servers = s.mcpServers;
-    if (!servers || typeof servers !== 'object') return {};
-    delete servers.arizuko;
-    return servers;
-  } catch {
-    return {};
-  }
-}
-
-// Inject secrets into each MCP server's env so spawned MCP processes inherit them.
-function injectMcpEnv(
-  servers: Record<string, McpServerConfig>,
-  secrets: Record<string, string | undefined>,
-): Record<string, McpServerConfig> {
-  const definedSecrets: Record<string, string> = {};
-  for (const [k, v] of Object.entries(secrets)) {
-    if (v !== undefined) definedSecrets[k] = v;
-  }
-  const out: Record<string, McpServerConfig> = {};
-  for (const [name, cfg] of Object.entries(servers)) {
-    out[name] = { ...cfg, env: { ...cfg.env, ...definedSecrets } };
-  }
-  // Always include arizuko MCP (socat to gated socket).
-  out.arizuko = {
-    command: 'socat',
-    args: ['STDIO', 'UNIX-CONNECT:/run/ipc/gated.sock'],
-    env: definedSecrets,
-  };
-  return out;
-}
 
 function buildSystemPrompt(ci: ContainerInput):
     string | { type: 'preset'; preset: 'claude_code' } {
@@ -459,7 +424,7 @@ async function runQuery(
     }
   } catch { /* /mnt absent */ }
 
-  const agentMcpServers = loadAgentMcpServers();
+  const agentMcpServers = loadAgentMcpServers(HOME);
 
   const abortController = new AbortController();
   const timeoutTimer = setTimeout(() => {
