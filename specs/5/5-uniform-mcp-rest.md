@@ -176,6 +176,13 @@ Backwards compatibility: existing flat names (`send`, `reply`,
 `inspect_routing`, …) keep working as aliases for the prefixed names
 for one release. After that, only the prefixed forms are documented.
 
+Beyond freezing growth: most tools should not load eagerly at all.
+Core messaging/inspect stay eager; connector + management tools defer
+behind the Tool Search Tool. The eager/deferred split + cache
+rationale lives in
+[`../6/A-hierarchical-skills.md`](../6/A-hierarchical-skills.md)
+§"Tools side: deferred disclosure".
+
 ## Token / auth model
 
 Both surfaces produce a `Caller` consumed identically.

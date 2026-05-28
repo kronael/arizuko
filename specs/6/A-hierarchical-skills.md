@@ -108,6 +108,54 @@ category prefix) remain enumerable. The catalog falls back to flat
 discovery for any skill that isn't under a recognized category.
 Operators don't lose the ability to add ad-hoc skills.
 
+## Tools side: deferred disclosure
+
+Skills are the _knowledge_ half of progressive disclosure. **Tools**
+are the other half, and they have the same context-pollution problem
+for the same reason — measured against the Anthropic API:
+
+- Tool defs ride the **request prefix on every turn** (stateless
+  Messages API). 1000 tool defs = 1000 sent every turn; prompt caching
+  makes re-sending cheap (~10% on hit) but does NOT reduce
+  context-window usage or attention dilution.
+- **Mutating the `tools` array nukes the cache** from `tools` onward
+  (system prompt + messages re-billed). So "enable/disable tools per
+  turn" is the most expensive option.
+
+The fix is Anthropic's native **Tool Search Tool**: tools marked
+`defer_loading: true` leave the eager `tools` array; the model sees
+only the Tool Search Tool + non-deferred tools, searches when it needs
+a capability, and matching schemas expand as **message-stream tool
+results** (append-only, cache-friendly) callable as native typed
+tools. Measured: 85% token reduction; Opus 4.5 selection 79.5%→88.1%.
+
+**The split for arizuko:**
+
+- **Eager** (loaded every turn): core messaging + read — `send`,
+  `reply`, `send_file`, `inspect_*` — plus Claude Code built-ins and
+  `ToolSearch` itself.
+- **Deferred** (`defer_loading: true`, found via search): connector
+  tools (mounted via `ipc/connector.go`), rarely-used management tools
+  (routes/web/tokens/group lifecycle).
+
+### Skills vs tools — division of labor
+
+The Tool Search Tool and the skill hierarchy are complementary, not
+competing — they disclose different content:
+
+- **Tool Search** discloses **tools** — discrete typed callable
+  functions (`slack.chat_postMessage`). Native MCP, one call.
+- **Skills** (`resolve` + this spec) disclose **knowledge + workflows**
+  — how-tos, multi-step recipes, the rules around a tool set.
+
+A connector's _tools_ are deferred MCP tools found via search; its
+_usage guidance_ is a skill found via resolve. The skill may point at
+tools; the tools don't need the skill to be callable.
+
+Enablement (the SDK knob to mark MCP tools deferred) and the
+no-MCP-server REST fallback are tracked in
+[`../5/E-rest-mcp-bridge.md`](../5/E-rest-mcp-bridge.md).
+
 ## Acceptance
 
 - `resolve` per-turn token cost drops from O(N) to O(log N) where N
