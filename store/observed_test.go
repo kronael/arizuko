@@ -278,3 +278,43 @@ func TestObservedSince_WatchedSources(t *testing.T) {
 		t.Fatalf("after unwatch: got %d msgs, want 0", len(got))
 	}
 }
+
+// Regression: with a watched source AND a non-empty cursor, the UNION-branch
+// arg order was misaligned (cursor bound to the watched IN-list, folder bound
+// to timestamp>?) so watched-source messages vanished. Cursor below the
+// message timestamp must still surface it.
+func TestObservedSince_WatchedSourcesWithCursor(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	for _, f := range []string{"root", "child"} {
+		if err := s.PutGroup(core.Group{Folder: f, AddedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC()
+	if err := s.PutMessage(core.Message{
+		ID: "c-1", ChatJID: "telegram:1", Sender: "u", Name: "u",
+		Content: "child-msg", Timestamp: now,
+		Verb: "message", Source: "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE messages SET routed_to = 'child', is_observed = 0 WHERE id = 'c-1'`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddGroupWatcher("root", "child"); err != nil {
+		t.Fatal(err)
+	}
+
+	cursor := now.Add(-time.Minute).Format(time.RFC3339Nano)
+	got := s.ObservedSince("root", cursor, 10, 4000)
+	if len(got) != 1 || got[0].ID != "c-1" {
+		t.Fatalf("watched + cursor: got %+v, want [c-1]", got)
+	}
+}

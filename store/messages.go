@@ -401,11 +401,17 @@ func (s *Store) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []co
 	var q string
 	if len(watched) > 0 {
 		watchedPH := "?" + strings.Repeat(",?", len(watched)-1)
+		// Arg order must match placeholder order: observed folders, then the
+		// first SELECT's cursor, then watched folders, then the second
+		// SELECT's cursor, then LIMIT.
+		if cursor != "" {
+			args = append(args, cursor)
+		}
 		for _, f := range watched {
 			args = append(args, f)
 		}
 		if cursor != "" {
-			args = append(args, cursor, cursor)
+			args = append(args, cursor)
 		}
 		args = append(args, maxMsgs)
 		q = `SELECT ` + msgCols + ` FROM messages
