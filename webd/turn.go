@@ -170,7 +170,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			ev, payload := splitSSEFrame(msg)
-			if ev == "message" {
+			if ev == "message" || ev == "round_done" {
 				var p struct {
 					TurnID string `json:"turn_id"`
 				}
