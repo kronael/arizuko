@@ -2,11 +2,25 @@ package store
 
 import (
 	"testing"
+
+	"github.com/kronael/arizuko/core"
 )
+
+// seedFolder creates the parent group a route token's owner_folder
+// references (FK route_tokens.owner_folder → groups.folder, migration
+// 0069). Production always has the group before its tokens (onbod
+// creates the group first).
+func seedFolder(t *testing.T, s *Store, folder string) {
+	t.Helper()
+	if err := s.PutGroup(core.Group{Folder: folder}); err != nil {
+		t.Fatalf("PutGroup(%q): %v", folder, err)
+	}
+}
 
 func TestRouteToken_InsertLookup(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
+	seedFolder(t, s, "acme")
 
 	raw := GenRouteToken()
 	if err := s.InsertRouteToken(raw, RouteToken{
@@ -54,6 +68,8 @@ func TestRouteToken_List(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
+	seedFolder(t, s, "acme")
+	seedFolder(t, s, "other")
 	mustInsert := func(jid, owner string) {
 		if err := s.InsertRouteToken(GenRouteToken(), RouteToken{JID: jid, OwnerFolder: owner}); err != nil {
 			t.Fatal(err)
@@ -76,6 +92,7 @@ func TestRouteToken_List(t *testing.T) {
 func TestRouteToken_Revoke(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
+	seedFolder(t, s, "acme")
 
 	raw := GenRouteToken()
 	if err := s.InsertRouteToken(raw, RouteToken{JID: "web:acme", OwnerFolder: "acme"}); err != nil {
