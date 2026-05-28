@@ -4,7 +4,7 @@ depends: [Y-secret-broker, 11/14-surrogate-oauth]
 relates-to: [4/9-acl-unified]
 ---
 
-# specs/5/N — third-party OAuth services as agent capabilities
+# specs/6/N — third-party OAuth services as agent capabilities
 
 ## What this is
 
@@ -21,7 +21,7 @@ Verified against code (2026-05-28):
   a stdio subprocess, renders `{secret:KEY}` env from the secrets
   table, proxies `tools/call`, scrubs secret values from results, gates
   via `auth.Authorize("mcp:"+name)`. Loaded from `connectors.toml`
-  (`gateway/connectors.go`). This is the "REST↔MCP bridge" 5/N
+  (`gateway/connectors.go`). This is the "REST↔MCP bridge" this spec
   originally posited as undesigned — it is the **mounted-MCP-server**
   shape and it is built.
 - **Secret storage** — the `secrets` table `(scope_kind, scope_id,
@@ -77,7 +77,7 @@ Two decisions not covered by 6/Y or 11/14:
    off-the-shelf; hand-write only when the server is absent, abandoned,
    or scope-creeping.
 
-Everything else 5/N previously discussed (token storage shapes,
+Everything else this spec previously discussed (token storage shapes,
 agent-GSuite vision, the OAuth lifecycle, ACL scope grammar) is owned
 by 6/Y, 11/14, and 4/9. This spec does not duplicate them.
 
