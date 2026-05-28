@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -74,11 +75,15 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 	var routes []Route
 	if rr.st != nil {
 		stored, err := rr.st.AllProxydRoutes()
-		if err == nil {
-			routes = make([]Route, 0, len(stored))
-			for _, r := range stored {
-				routes = append(routes, fromStoreRoute(r))
-			}
+		if err != nil {
+			// No row cache to fall back to (spec 5/36); surface the error
+			// so a transient DB fault is a visible outage, not silent 404s.
+			slog.Error("proxyd: read proxyd_routes", "err", err)
+			return nil, nil
+		}
+		routes = make([]Route, 0, len(stored))
+		for _, r := range stored {
+			routes = append(routes, fromStoreRoute(r))
 		}
 	} else {
 		rr.manualMu.RLock()
@@ -98,10 +103,11 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 func (rr *routesResource) webSnapshot() []store.WebRoute {
 	if rr.st != nil {
 		stored, err := rr.st.AllWebRoutes()
-		if err == nil {
-			return stored
+		if err != nil {
+			slog.Error("proxyd: read web_routes", "err", err)
+			return nil
 		}
-		return nil
+		return stored
 	}
 	rr.manualMu.RLock()
 	defer rr.manualMu.RUnlock()
