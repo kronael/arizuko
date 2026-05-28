@@ -357,7 +357,7 @@ func TestSendFile(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", ""); err != nil {
+	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if atomic.LoadInt32(&hitCount) != 1 {
@@ -370,9 +370,38 @@ func TestSendFile(t *testing.T) {
 	}
 }
 
+// A SendFile with threadID set must POST into the thread channel, not the
+// parent — mirrors Send's chID override (was the parent-channel leak).
+func TestSendFile_ThreadOverridesChannel(t *testing.T) {
+	var gotPath string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotPath = r.URL.Path
+		mu.Unlock()
+		w.Write([]byte(`{"id":"f1"}`))
+	}))
+	defer srv.Close()
+	defer mockDiscordEndpoints(srv.URL)()
+
+	tmpDir := t.TempDir()
+	path := tmpDir + "/hello.txt"
+	os_WriteFile(t, path, []byte("hi"))
+
+	b := &bot{session: newTestSession(t)}
+	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "thread-99"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if gotPath != "/channels/thread-99/messages" {
+		t.Errorf("posted to %q, want /channels/thread-99/messages (file leaked to parent)", gotPath)
+	}
+}
+
 func TestSendFile_OpenFails(t *testing.T) {
 	b := &bot{session: newTestSession(t)}
-	err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "")
+	err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "", "")
 	if err == nil {
 		t.Fatal("expected open error")
 	}

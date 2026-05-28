@@ -361,11 +361,12 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _ string) error {
+func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
 	}
+	tid := threadMsgID(threadID)
 	f := tgbotapi.FilePath(path)
 	ext := strings.ToLower(filepath.Ext(name))
 	if ext == "" {
@@ -376,24 +377,29 @@ func (b *bot) SendFile(jid, path, name, caption, _ string) error {
 	case ".png", ".jpg", ".jpeg", ".webp":
 		p := tgbotapi.NewPhoto(id, f)
 		p.Caption = caption
+		p.MessageThreadID = tid
 		m = p
 	case ".mp4", ".mov", ".webm":
 		v := tgbotapi.NewVideo(id, f)
 		v.Caption = caption
+		v.MessageThreadID = tid
 		m = v
 	case ".gif":
 		a := tgbotapi.NewAnimation(id, f)
 		a.Caption = caption
+		a.MessageThreadID = tid
 		m = a
 	case ".mp3", ".m4a", ".flac", ".ogg":
 		// .ogg goes here as music attachment; voice notes use SendVoice
 		// (separate MCP tool / endpoint with sendVoice/ptt semantics).
 		a := tgbotapi.NewAudio(id, f)
 		a.Caption = caption
+		a.MessageThreadID = tid
 		m = a
 	default:
 		d := tgbotapi.NewDocument(id, f)
 		d.Caption = caption
+		d.MessageThreadID = tid
 		m = d
 	}
 	if _, err := b.api.Send(m); err != nil {
@@ -402,13 +408,26 @@ func (b *bot) SendFile(jid, path, name, caption, _ string) error {
 	return nil
 }
 
-func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
+// threadMsgID parses a Telegram forum-topic id; 0 means no thread.
+func threadMsgID(threadID string) int {
+	if threadID == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(threadID)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return "", err
 	}
 	v := tgbotapi.NewVoice(id, tgbotapi.FilePath(audioPath))
 	v.Caption = caption
+	v.MessageThreadID = threadMsgID(threadID)
 	sent, err := b.api.Send(v)
 	if err != nil {
 		return "", fmt.Errorf("telegram sendvoice: %w", err)

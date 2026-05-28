@@ -19,7 +19,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 	switch tool {
 	case "list_tasks":
 		return nil
-	case "send", "send_file", "reply", "post", "like", "dislike",
+	case "send", "send_file", "send_voice", "reply", "post", "like", "dislike",
 		"delete", "edit", "forward", "quote", "repost":
 		return authorizeOutbound(id, tool, target)
 	case "reset_session", "fork_topic":

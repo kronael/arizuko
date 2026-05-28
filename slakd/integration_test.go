@@ -156,6 +156,7 @@ func newSlackMock() *slackMock {
 			"channel_id":      r.FormValue("channel_id"),
 			"initial_comment": r.FormValue("initial_comment"),
 			"files":           r.FormValue("files"),
+			"thread_ts":       r.FormValue("thread_ts"),
 		})
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
@@ -695,7 +696,8 @@ func TestOutbound_SendFile(t *testing.T) {
 	path := dir + "/hello.png"
 	writeFile(t, path, []byte("PNGDATA"))
 
-	if err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", ""); err != nil {
+	// threadID set → file must complete into that thread_ts (was the leak).
+	if err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", "1716900000.001"); err != nil {
 		t.Fatal(err)
 	}
 	mock.mu.Lock()
@@ -705,6 +707,9 @@ func TestOutbound_SendFile(t *testing.T) {
 	}
 	if mock.completed[0]["initial_comment"] != "caption" {
 		t.Errorf("caption = %q", mock.completed[0]["initial_comment"])
+	}
+	if mock.completed[0]["thread_ts"] != "1716900000.001" {
+		t.Errorf("thread_ts = %q, want 1716900000.001 (file leaked to channel root)", mock.completed[0]["thread_ts"])
 	}
 }
 

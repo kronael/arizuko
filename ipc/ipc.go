@@ -34,8 +34,8 @@ import (
 type GatedFns struct {
 	SendMessage         func(jid, text string) (string, error)
 	SendReply           func(jid, text, replyToId string) (string, error)
-	SendDocument        func(jid, path, filename, caption, replyTo string) error
-	SendVoice           func(jid, text, voice, folder string) (string, error)
+	SendDocument        func(jid, path, filename, caption, replyTo, threadID string) error
+	SendVoice           func(jid, text, voice, folder, threadID string) (string, error)
 	Post                func(jid, content string, mediaPaths []string) (string, error)
 	Like                func(jid, targetID, reaction string) error
 	Delete              func(jid, targetID string) error
@@ -562,7 +562,7 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		return fmt.Errorf("send_file not configured")
 	}
 	for _, f := range files {
-		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo); err != nil {
+		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID); err != nil {
 			return err
 		}
 		recordOutbound(gated, db, jid, text, "", folder)
@@ -574,6 +574,7 @@ type internalSendFile struct {
 	LocalPath string
 	Filename  string
 	ReplyTo   string
+	ThreadID  string
 }
 
 func validHostname(h string) bool {
@@ -955,6 +956,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			name := req.GetString("filename", "")
 			caption := req.GetString("caption", "")
 			replyToID := req.GetString("replyToId", "")
+			// Fall back to the active turn's topic so a file sent inside a
+			// thread lands in that thread, not the channel root. Same key
+			// the gateway seeds via SetLastReply (mirrors the `reply` fix).
+			threadID := activeTopic(db, folder)
 			rel, err := workspaceRel(fp)
 			if err != nil {
 				return toolErr(err.Error())
@@ -966,7 +971,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			slog.Info("send_file", "folder", folder, "jid", jid, "path", localPath)
 			if err := internalSend(gated, db, folder, jid, caption,
-				[]internalSendFile{{LocalPath: localPath, Filename: name, ReplyTo: replyToID}},
+				[]internalSendFile{{LocalPath: localPath, Filename: name, ReplyTo: replyToID, ThreadID: threadID}},
 			); err != nil {
 				return toolErr(err.Error())
 			}
@@ -1006,7 +1011,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				snippet = snippet[:60]
 			}
 			slog.Info("send_voice", "folder", folder, "jid", jid, "voice", voice, "text", snippet)
-			platformID, err := gated.SendVoice(jid, text, voice, folder)
+			// Thread the voice reply to the active turn's topic so it lands
+			// in the originating thread, not the channel root (bug-1 mirror).
+			platformID, err := gated.SendVoice(jid, text, voice, folder, activeTopic(db, folder))
 			if err != nil {
 				return toolMaybeUnsupported(err)
 			}

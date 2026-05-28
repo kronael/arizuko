@@ -123,15 +123,15 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo string) error {
-	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo)
+func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID string) error {
+	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID)
 }
 
-func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo string) error {
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID string) error {
 	if !h.entry.HasCap("send_file") {
 		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo)
+	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID)
 	if err == nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
@@ -139,19 +139,19 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 		}
 		err = fmt.Errorf("status %d", resp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo})
+	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID})
 	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendVoice(jid, audioPath, caption string) (string, error) {
-	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption)
+func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+	return h.SendVoiceCtx(context.Background(), jid, audioPath, caption, threadID)
 }
 
-func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption string) (string, error) {
+func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption, threadID string) (string, error) {
 	if !h.entry.HasCap("send_voice") {
 		return "", chanlib.Unsupported("send_voice", h.entry.Name, "adapter does not advertise voice capability")
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "")
+	resp, err := h.uploadMultipart(ctx, "/send-voice", jid, audioPath, filepath.Base(audioPath), caption, "", threadID)
 	if err != nil {
 		return "", fmt.Errorf("channel %s send-voice: %w", h.entry.Name, err)
 	}
@@ -170,7 +170,7 @@ func (h *HTTPChannel) SendVoiceCtx(ctx context.Context, jid, audioPath, caption 
 }
 
 // uploadMultipart builds a multipart body and POSTs to endpoint.
-func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo string) (*http.Response, error) {
+func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, name, caption, replyTo, threadID string) (*http.Response, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	w.WriteField("chat_jid", jid)
@@ -180,6 +180,9 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 	}
 	if replyTo != "" {
 		w.WriteField("reply_to", replyTo)
+	}
+	if threadID != "" {
+		w.WriteField("thread_id", threadID)
 	}
 	formName := name
 	if formName == "" {
@@ -432,7 +435,7 @@ func (h *HTTPChannel) DrainOutbox() {
 	for _, m := range q {
 		var err error
 		if m.IsFile {
-			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo)
+			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
 		} else {
 			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
 		}

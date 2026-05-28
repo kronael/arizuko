@@ -18,7 +18,7 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-func (g *Gateway) sendVoice(jid, text, voice, folder string) (string, error) {
+func (g *Gateway) sendVoice(jid, text, voice, folder, threadID string) (string, error) {
 	if !g.canSendToJID(jid) {
 		return "", nil
 	}
@@ -40,7 +40,7 @@ func (g *Gateway) sendVoice(jid, text, voice, folder string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("synthesize: %w", err)
 	}
-	return ch.SendVoice(jid, audioPath, "")
+	return ch.SendVoice(jid, audioPath, "", threadID)
 }
 
 func (g *Gateway) resolveVoice(arg, folder string) string {

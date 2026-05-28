@@ -401,7 +401,7 @@ func (bc *bskyClient) Typing(string, bool) {}
 // blobs in app.bsky.feed.post embeds (no native video/audio/document);
 // non-image extensions return a structured Unsupported teaching the
 // agent to send a link in the post text instead.
-func (bc *bskyClient) SendFile(_, path, name, caption, _ string) error {
+func (bc *bskyClient) SendFile(_, path, name, caption, _, _ string) error {
 	ext := strings.ToLower(filepath.Ext(name))
 	if ext == "" {
 		ext = strings.ToLower(filepath.Ext(path))

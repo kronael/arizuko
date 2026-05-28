@@ -1446,12 +1446,12 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 	return ch.Send(jid, text, replyTo, threadID, "")
 }
 
-func (g *Gateway) sendDocument(jid, path, name, caption, replyTo string) error {
+func (g *Gateway) sendDocument(jid, path, name, caption, replyTo, threadID string) error {
 	ch := g.findChannelForJID(jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendFile(jid, path, name, caption, replyTo)
+	return ch.SendFile(jid, path, name, caption, replyTo, threadID)
 }
 
 func (g *Gateway) channelSocial(jid string) (core.Socializer, error) {

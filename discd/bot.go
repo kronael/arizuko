@@ -349,8 +349,11 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 // (.ogg/.opus) play with a built-in player, which is the closest
 // equivalent. The agent picks send_voice when the persona is voice-first
 // or the inbound was voice; we deliver a clickable audio bubble.
-func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
+func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
 	chID := chanID(jid)
+	if threadID != "" {
+		chID = threadID
+	}
 	f, err := os.Open(audioPath)
 	if err != nil {
 		return "", fmt.Errorf("discord open voice: %w", err)
@@ -370,8 +373,11 @@ func (b *bot) SendVoice(jid, audioPath, caption string) (string, error) {
 	return "", nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _ string) error {
+func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 	chID := chanID(jid)
+	if threadID != "" {
+		chID = threadID
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("discord open file: %w", err)

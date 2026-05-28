@@ -28,7 +28,7 @@ func (b *stubBot) Send(req chanlib.SendRequest) (string, error) {
 	return "", nil
 }
 
-func (b *stubBot) SendFile(jid, _, name, _, _ string) error {
+func (b *stubBot) SendFile(jid, _, name, _, _, _ string) error {
 	b.files = append(b.files, stubFile{jid, name})
 	return nil
 }

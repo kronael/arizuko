@@ -72,7 +72,7 @@ type SentMsg struct {
 
 // SentFile records a SendFile call.
 type SentFile struct {
-	JID, Path, Name, Caption string
+	JID, Path, Name, Caption, ThreadID string
 }
 
 // ReactionCall records a Like call.
@@ -138,29 +138,29 @@ func (f *FakeChannel) Send(jid, text, replyTo, threadID, turnID string) (string,
 	return fmt.Sprintf("fake-%d", len(f.SentMessages)), nil
 }
 
-func (f *FakeChannel) SendFile(jid, path, name, caption, _ string) error {
+func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
 		return f.SendErr
 	}
-	f.SentFiles = append(f.SentFiles, SentFile{jid, path, name, caption})
+	f.SentFiles = append(f.SentFiles, SentFile{jid, path, name, caption, threadID})
 	return nil
 }
 
 // VoiceCall records a SendVoice invocation; SentVoices is the table
 // integration tests inspect to assert voice routing.
 type VoiceCall struct {
-	JID, Path, Caption string
+	JID, Path, Caption, ThreadID string
 }
 
-func (f *FakeChannel) SendVoice(jid, path, caption string) (string, error) {
+func (f *FakeChannel) SendVoice(jid, path, caption, threadID string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
 		return "", f.SendErr
 	}
-	f.SentVoices = append(f.SentVoices, VoiceCall{jid, path, caption})
+	f.SentVoices = append(f.SentVoices, VoiceCall{jid, path, caption, threadID})
 	return fmt.Sprintf("voice-%d", len(f.SentVoices)), nil
 }
 

@@ -19,7 +19,7 @@ import (
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -36,7 +36,7 @@ func TestBuildMCPServer(t *testing.T) {
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -95,7 +95,7 @@ func TestRouteTargetWithin(t *testing.T) {
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:         func(jid, text string) (string, error) { return "", nil },
-		SendDocument:        func(jid, path, fn, caption, replyTo string) error { return nil },
+		SendDocument:        func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
 		ClearSession:        func(f string) {},
 		GetGroups:           func() map[string]core.Group { return nil },
 		EnqueueMessageCheck: func(jid string) {},
@@ -170,7 +170,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
 		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -188,7 +188,7 @@ func TestRefreshGroups(t *testing.T) {
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
@@ -806,6 +806,125 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 	if sentReplyTo != seededID {
 		t.Fatalf("SendReply replyTo = %q, want %q (threads instead of posting to root)", sentReplyTo, seededID)
 	}
+}
+
+// Bug 2 — a `send_file` with no explicit replyToId from inside a thread must
+// thread the upload to the ACTIVE turn topic, not leak to the channel root.
+func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	const wantTopic = "1716900000.001"
+	// send_file validates the path against GroupsDir/folder, so the file
+	// must exist on disk.
+	if err := os.MkdirAll(filepath.Join(dir, "world"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "world", "out.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var sentThreadID string
+	db := StoreFns{
+		CurrentTopic: func(folder string) string {
+			if folder == "world" {
+				return wantTopic
+			}
+			return ""
+		},
+		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
+		PutMessage:          func(m core.Message) error { return nil },
+		DefaultFolderForJID: func(jid string) string { return "world" },
+	}
+	gated := GatedFns{
+		GroupsDir: dir,
+		SendDocument: func(jid, path, name, caption, replyTo, threadID string) error {
+			sentThreadID = threadID
+			return nil
+		},
+	}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	resp := callRaw(t, sock, "send_file", map[string]any{
+		"chatJid":  "slack:C123",
+		"filepath": core.ContainerHome + "/out.txt",
+		// no replyToId — exercise the fallback
+	})
+	if strings.Contains(resp, "\"isError\":true") {
+		t.Fatalf("send_file returned error: %s", resp)
+	}
+	if sentThreadID != wantTopic {
+		t.Fatalf("SendDocument threadID = %q, want %q (empty = the parent-channel leak)", sentThreadID, wantTopic)
+	}
+}
+
+// Bug 2 — a `send_voice` from inside a thread must thread to the active topic.
+func TestServeMCP_SendVoice_ThreadsViaActiveTopic(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	const wantTopic = "1716900000.001"
+
+	var sentThreadID string
+	db := StoreFns{
+		CurrentTopic: func(folder string) string {
+			if folder == "world" {
+				return wantTopic
+			}
+			return ""
+		},
+		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
+		PutMessage:          func(m core.Message) error { return nil },
+		DefaultFolderForJID: func(jid string) string { return "world" },
+	}
+	gated := GatedFns{
+		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
+			sentThreadID = threadID
+			return "voice-id", nil
+		},
+	}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	resp := callRaw(t, sock, "send_voice", map[string]any{
+		"chatJid": "slack:C123",
+		"text":    "spoken answer",
+	})
+	if strings.Contains(resp, "\"isError\":true") {
+		t.Fatalf("send_voice returned error: %s", resp)
+	}
+	if sentThreadID != wantTopic {
+		t.Fatalf("SendVoice threadID = %q, want %q (empty = the parent-channel leak)", sentThreadID, wantTopic)
+	}
+}
+
+// callRaw invokes an MCP tool over the unix socket and returns the raw JSON
+// response line. Used for tools whose payload isn't JSON-decodable by callTool.
+func callRaw(t *testing.T, sock, name string, args map[string]any) string {
+	t.Helper()
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	reqBody, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": name, "arguments": args},
+	})
+	c.Write(append(reqBody, '\n'))
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	resp, err := bufio.NewReader(c).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	return string(resp)
 }
 
 func TestRouteTokens_IssueTierMatrix(t *testing.T) {

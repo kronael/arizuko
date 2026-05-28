@@ -42,11 +42,11 @@ func (c *LocalChannel) Owns(jid string) bool {
 	return ok
 }
 
-func (c *LocalChannel) SendFile(_, _, _, _, _ string) error {
+func (c *LocalChannel) SendFile(_, _, _, _, _, _ string) error {
 	return fmt.Errorf("local channel does not support file sending")
 }
 
-func (c *LocalChannel) SendVoice(_, _, _ string) (string, error) {
+func (c *LocalChannel) SendVoice(_, _, _, _ string) (string, error) {
 	return "", chanlib.ErrUnsupported
 }
 
