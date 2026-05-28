@@ -12,19 +12,14 @@ import (
 // safety", the blob never appears in YAML, plan output, or error
 // messages.
 //
-// Apply path: this resource's DELETE+INSERT cycle rebuilds the
-// metadata triples. Because the actual `enc_value` BLOB column is
-// NOT in this struct, the engine's INSERT statement omits it — and
-// SQLite's `enc_value BLOB NOT NULL` constraint makes apply REJECT
-// new triples that don't already have a blob. This is by design: an
-// operator declares the SHAPE in YAML, then sets the blob out-of-
-// band. New triples without a blob = error, caught by the schema.
-//
-// For now, apply preserves the blob across delete+insert by ALSO
-// emitting `enc_value` in INSERT as a SELECT subquery — but that's a
-// later refinement. v1 ships the metadata round-trip and excludes
-// secrets from the `config_meta` count (spec §"CAS implementation"),
-// so rotating secrets doesn't invalidate manifests.
+// Apply path: SkipApplyRebuild=true, so Apply never DELETE+INSERTs this
+// table. The resource is export-only — `arizuko export` emits the
+// metadata triples (the engine's SELECT omits the `enc_value` BLOB
+// because it's not in this struct), but apply leaves the rows untouched.
+// secrets is also excluded from the `config_meta` count (spec §"CAS
+// implementation"), so out-of-band blob rotation doesn't invalidate a
+// pending manifest apply. Rebuilding triples from YAML on apply (so a
+// manifest can declare secret shape before the blob lands) is drafted.
 type SecretsRow struct {
 	ScopeKind string `db:"scope_kind" yaml:"scope_kind" json:"scope_kind"`
 	ScopeID   string `db:"scope_id"   yaml:"scope_id"   json:"scope_id"`

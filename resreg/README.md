@@ -84,3 +84,83 @@ Table: [`specs/6/F-audit-stream.md`](../specs/6/F-audit-stream.md).
 
 `proxyd/resource.go` is the canonical store-backed example;
 `webd/routes_mcp.go` is the canonical forwarder example.
+
+## Schema engine (spec 5/36)
+
+The adapter half above ties a `Handler` to REST + MCP. The **engine
+half** (`engine.go`) adds schema-driven CRUD: a tagged Go struct
+declares the row shape once, and reflection over `db:`/`yaml:`/`json:`
+tags drives SQL, YAML, JSON, and OpenAPI without per-resource code.
+
+A resource opts in by setting `RowType` + `Table` + `PKFields` (+
+optional `Scope`, `Hooks`):
+
+```go
+type Row struct {
+    Seq    int    `db:"seq"    yaml:"seq"    json:"seq"`
+    Match  string `db:"match"  yaml:"match"  json:"match"`
+    Target string `db:"target" yaml:"target" json:"target"`
+}
+resreg.Register(resreg.Resource{
+    Name: "routes", Table: "routes",
+    RowType:  reflect.TypeOf(Row{}),
+    PKFields: []string{"Seq", "Match", "Target"},
+    Scope:    resreg.ScopeSpec{Field: "Target"},
+})
+```
+
+Cold-tier resource structs live one-per-file under
+[`resources/`](resources/); import the package for its registration
+side effects.
+
+Engine methods (all reflection-driven, column list cached at
+`Register`):
+
+- `ScanAll(db)` / `Scan(db, where, args…)` → `[]RowType`, ordered by PK.
+- `Insert` / `InsertAll(ctx, tx, rows)` — generated `INSERT`, runs
+  `Hooks.BeforeInsert` + `Hooks.ValidateRow` in-tx.
+- `DeleteScope(ctx, tx, scope)` / `DeleteAll(ctx, tx)`.
+- `ParseRows(node)` / `EmitRows(rows)` — YAML decode/encode, PK-sorted.
+
+Package-level apply/export:
+
+- `Apply(ctx, db, manifestVersion, force, manifestRows)` — one
+  `BeginTx`; a no-op `UPDATE config_meta` upgrades to a write lock,
+  then CAS-checks `config_version` against `manifestVersion` (unless
+  `force`), `DeleteAll` + `InsertAll` every registered table (skipping
+  `SkipApplyRebuild` resources), bumps the version, commits.
+- `Export(db)` → `map[string]any` keyed by resource name + the current
+  `config_version`; `EmitYAML` renders it deterministically.
+- `ParseYAML(data)` → `(rows-by-name, version, err)`.
+
+CLI wiring: `cmd/arizuko/apply.go` (`apply` single-file, `export`).
+
+### Hooks — semantics the engine can't deduce
+
+`Hooks` carry the per-resource escape hatches (`engine.go`):
+
+- `BeforeInsert` — default timestamps, JSON-encode blobs, derive fields.
+- `ValidateRow` — in-tx checks (e.g. `acl_membership` cycle detection).
+- `AfterScan` — decode on read (e.g. `proxyd_routes` JSON header array).
+- `ColumnOverride` — per-field `Read` SQL expression (`COALESCE(...)`)
+  - `Write` binder for nullable columns mapped to non-pointer Go fields.
+
+`SkipApplyRebuild` marks a resource export-only (e.g. `secrets`, whose
+`enc_value` blob is set imperatively); `BumpVersion=false` exempts it
+from the `config_version` count.
+
+## OpenAPI emission (spec 5/36)
+
+`openapi.go` walks the registry and emits an OpenAPI 3.1 document from
+the same `RowType` reflection — no `huma`, no `swag`, no codegen.
+
+- `OpenAPI(daemon, baseURL, resources)` → JSON bytes.
+- `OpenAPIHandler(daemon, resources)` → `http.HandlerFunc` that
+  lazy-builds + caches the doc for the process lifetime.
+
+Mount on each HTTP daemon **before** auth middleware (the endpoint is
+public — it describes API surface, not data). gated/proxyd/onbod own
+resources; webd/dashd/timed pass an empty resource list so the
+aggregator page (`/pub/arizuko/reference/openapi.html`) can list every
+daemon uniformly. Drift between handler and doc is impossible — both
+read the same struct.

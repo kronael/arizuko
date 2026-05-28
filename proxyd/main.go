@@ -175,7 +175,7 @@ func (v *vhosts) match(host string) (string, bool) {
 type server struct {
 	cfg       config
 	st        *store.Store
-	rr        *routesResource // route table + ReverseProxy map, RWMutex-guarded
+	rr        *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
 	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)

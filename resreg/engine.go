@@ -24,7 +24,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -679,13 +678,4 @@ func Lookup(name string) *Resource {
 // reset clears the registry. Test-only.
 func reset() {
 	registry = nil
-}
-
-// nilIfZeroTime returns nil for a zero time, else its RFC3339 string.
-// Helper for time-valued column hooks.
-func nilIfZeroTime(t time.Time) any {
-	if t.IsZero() {
-		return nil
-	}
-	return t.UTC().Format(time.RFC3339)
 }

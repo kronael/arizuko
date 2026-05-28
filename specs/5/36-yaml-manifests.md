@@ -1,5 +1,6 @@
 ---
-status: draft
+status: partial
+shipped: resreg engine + OpenAPI 3.1 emission + CAS (config_meta) + single-file `apply`/`export` + 3 FKs + no-cache audit (2026-05-27). Drafted-unshipped: mutation sync, orphan recovery, startup apply, SIGHUP reload, `plan`/`get`/`repair`, manifest-dir composition, group-removal active-state clearing, `--prune`/`state: absent`.
 depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md, specs/7/3-git-as-truth.md
 ---
 
@@ -34,14 +35,21 @@ remain open — 5/36 gives them a place to land later, not an answer.
 
 ## Surface
 
-- `arizuko apply <file>…` — read manifest dir or file(s), validate,
-  rebuild config tables in one SQLite tx, report diff.
-- `arizuko plan <file>…` — same but non-mutating; prints diff vs
-  live state, no writes.
-- `arizuko get <resource>[/<name>]` — dump live DB state as a YAML
-  fragment for the named resource.
-- `arizuko export` — dump all config tables as a manifest dir
-  (`manifest/`), one file per resource kind.
+Shipped today: `arizuko apply <instance> <file>` (single file) and
+`arizuko export <instance> [out]` (single document to stdout/file).
+The rest of this surface (`plan`, `get`, manifest-dir composition) is
+drafted, not yet wired.
+
+- `arizuko apply <instance> <file> [--force]` — read one manifest
+  file, validate, rebuild config tables in one SQLite tx (CAS-checked).
+  **Shipped.** Manifest-dir + multi-file merge is drafted (see
+  Splitting + composition).
+- `arizuko export <instance> [out]` — dump all config tables as one
+  deterministic YAML document. **Shipped** as a single document; the
+  one-file-per-resource-kind directory form is drafted.
+- `arizuko plan <file>…` — non-mutating diff vs live state. **Drafted.**
+- `arizuko get <resource>[/<name>]` — dump a single resource's live
+  state as a YAML fragment. **Drafted.**
 
 ## Manifest directory layout
 
@@ -195,6 +203,10 @@ orphans — they are crash evidence (see Mutation sync).
 
 ## Mutation sync
 
+> **Drafted, not shipped.** The shipped path is single-file
+> `apply`/`export`; mutations do not yet write manifest files back.
+> This section is the design for the file-backed sync.
+
 Every resreg config mutation (MCP or CLI) rewrites the owning group's
 manifest file synchronously, before returning to the caller.
 
@@ -248,13 +260,13 @@ The schema is defined once in Go by `resreg.Resource` and reused by all
 three. Drift between transports is structurally impossible — they share
 one handler.
 
-|             | REST                            | MCP                           | YAML                              |
-| ----------- | ------------------------------- | ----------------------------- | --------------------------------- |
-| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DROP + INSERT (rebuild per scope) |
-| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
-| Row fields  | request body                    | tool args                     | row map                           |
-| Batching    | one row per call                | one row per call              | many rows, one tx                 |
-| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header |
+|             | REST                            | MCP                           | YAML                               |
+| ----------- | ------------------------------- | ----------------------------- | ---------------------------------- |
+| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DELETE all + INSERT (full rebuild) |
+| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)           |
+| Row fields  | request body                    | tool args                     | row map                            |
+| Batching    | one row per call                | one row per call              | many rows, one tx                  |
+| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header  |
 
 Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport, not the
@@ -418,6 +430,17 @@ The point is that the hooks are the **only** per-resource code;
 the bulk (SELECT/INSERT/parse/emit) stays in the engine.
 
 ### Engine sketch — how export/import comes "for free"
+
+The code blocks below are **illustrative**, not the shipped signatures.
+As shipped (`resreg/engine.go`): `Export(db)` returns a `map[string]any`
+that `EmitYAML` renders deterministically; `Apply(ctx, db,
+manifestVersion, force, manifestRows)` runs the full rebuild —
+`DeleteAll` (not per-scope) on every registered table, then `InsertAll`.
+There is no `BeginImmediate`/`casCheck` helper: Apply opens a normal
+`BeginTx`, then issues a no-op `UPDATE config_meta SET version =
+version` to upgrade the implicit tx to a write lock before the CAS
+`SELECT`. Resources with `SkipApplyRebuild` (e.g. `secrets`) are
+skipped by the rebuild loop.
 
 The engine relies on three Go primitives:
 
@@ -606,10 +629,15 @@ INSERT INTO config_meta (version)
 
 `secrets` is **excluded** from the version-tracked set. Routine
 out-of-band blob rotation (`arizuko secret set …`) must not invalidate
-every operator's pending manifest apply. Secret metadata (the
-`(scope_kind, scope_id, key)` triple) is rebuilt from YAML on apply
-along with the other config tables; the encrypted blob is set
-imperatively and doesn't touch `config_version`.
+every operator's pending manifest apply. As shipped, the `secrets`
+resource sets `SkipApplyRebuild` — apply does **not** DELETE+INSERT its
+rows; secret metadata is export-only (the `(scope_kind, scope_id, key)`
+triple appears in `arizuko export`), and the encrypted blob is set
+imperatively via `arizuko secret set` without touching `config_version`.
+Rebuilding the metadata triple from YAML on apply (so a manifest can
+declare secret shape before the blob lands) is drafted; the
+`enc_value BLOB NOT NULL` constraint makes that path require a
+preserve-across-rebuild subquery, deferred to a later refinement.
 
 **(2) Version bumps once per writer tx, not per row.** The bump is at
 the writer's COMMIT site, not in AFTER triggers. Apply does:
@@ -659,6 +687,11 @@ is monotonicity, not consecutive integers. Operators never read the
 counter for arithmetic; they only compare equality.
 
 ## Startup sequence
+
+> **Drafted, not shipped.** `gated` does not yet run orphan recovery,
+> startup apply, or SIGHUP reload. This is the design for the
+> file-backed reload loop; the shipped path applies manifests only via
+> the explicit `arizuko apply` CLI verb.
 
 Order is load-bearing. `gated` does these in sequence before opening
 its listen socket:
@@ -760,6 +793,13 @@ filesystem be the slower mirror keeps apply simple and recoverable.
 
 ## Group removal semantics
 
+> **Partially shipped.** The two config-config FKs (0068, 0069)
+> CASCADE-delete `web_routes` + `route_tokens` on group removal. The
+> active-routing-state clearing below (`sticky_group`,
+> `engaged_folder`, `group_watchers`, `router_state`) is **drafted**:
+> shipped `DeleteGroup` is a plain `DELETE FROM groups` and relies on
+> the FK CASCADEs only.
+
 When apply removes a `groups` row, **active routing state is
 cleared in the same tx**; runtime history is not.
 
@@ -832,8 +872,9 @@ split, or merged without touching manifest files.
 
 Per the same spec, the canonical operator-facing string for every
 action is `<resource>.<action>` (e.g. `routes.create`,
-`grants.update`). 7/5 uses that exact vocabulary — no second naming
-layer, no aliases, no internal table names in the manifest surface.
+`grants.update`). This spec uses that exact vocabulary — no second
+naming layer, no aliases, no internal table names in the manifest
+surface.
 
 ## Manifest shape
 
@@ -1215,6 +1256,10 @@ because most operators do not need git-tracked token state; v2 adds
 
 ## Splitting + composition
 
+> **Drafted, not shipped.** Shipped `apply` takes exactly one file.
+> Multi-file / directory merge + duplicate-PK reconciliation is the
+> design below.
+
 - `arizuko apply foo.yaml bar.yaml…` reads all files, merges, plans,
   applies as one run. `arizuko apply manifest/` reads every `*.yaml`
   in the directory the same way.
@@ -1322,15 +1367,14 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    v2? Lean: wait for a real user collision before adding
    complexity.
 
-4. **Resource catalog evolution.** As resreg coverage grows
-   (per `7/1`'s migration matrix), new resources become
-   manifest-addressable. The mechanism is uniform — add a
-   `resreg.Resource` and it's automatically in
-   `GET /v1/_resources`. No 7/5 amendment needed.
+4. **Resource catalog evolution.** As resreg coverage grows, new
+   resources become manifest-addressable. The mechanism is uniform —
+   add a `resreg.Resource` and it's automatically in
+   `GET /v1/_resources`. No amendment to this spec needed.
 
 5. **dashd as a manifest editor.** dashd ships read-only views
    of cold-tier state today. Should it gain a "manifest
-   editor" tab? Out of scope for 7/5; tracked as future dashd
+   editor" tab? Out of scope here; tracked as future dashd
    work.
 
 ## Acceptance
@@ -1385,9 +1429,16 @@ No-cache audit:
 
 ## Pointers
 
-- Plan: [`.ship/plan-7-5-yaml-manifests.md`](../../.ship/plan-7-5-yaml-manifests.md)
-- Oracle critique: [`.ship/oracle-7-5-round1.md`](../../.ship/oracle-7-5-round1.md)
-- resreg implementation: `resreg/resreg.go`,
-  `resreg/README.md`
-- First two resreg adopters: `proxyd/resource.go`,
-  `webd/routes_mcp.go`
+- Schema engine: `resreg/engine.go` (RowType reflection, Hooks,
+  `Apply`/`Export`/`ParseYAML`/`EmitYAML`), `resreg/openapi.go`
+  (OpenAPI 3.1 emission), `resreg/README.md`.
+- Resource structs: `resreg/resources/*.go` (one file per cold-tier
+  resource).
+- CLI: `cmd/arizuko/apply.go` (`apply`/`export`).
+- CAS + FKs: `store/migrations/0067-config-meta.sql`, `0068-*`,
+  `0069-*`; FK contract pinned in `store/fk_test.go`.
+- Tests: `resreg/engine_test.go` (engine in isolation),
+  `resreg/resources/resources_test.go` (per-resource),
+  `cmd/arizuko/apply_test.go` (e2e apply lifecycle).
+- resreg adapter half (REST + MCP): `resreg/resreg.go`;
+  adopters `proxyd/resource.go`, `webd/routes_mcp.go`.
