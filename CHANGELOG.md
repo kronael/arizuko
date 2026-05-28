@@ -12,6 +12,69 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+<!-- Shipped on main, awaiting release tag (gated on user testing). No
+     `>` announce blockquote until tagged. -->
+
+### Added
+
+- **`find_messages` MCP tool** — FTS5 full-text message search (spec
+  5/C). Supports bare tokens, `"exact phrase"`, `a OR b`, `a NOT b`,
+  `prefix*`, `NEAR(a b, 5)`; optional `scope` (chat_jid or folder
+  subtree), `sender`, `since`, `limit` (default 20, max 200). bm25
+  ranking + snippet. ACL gate is post-fetch `JIDRoutedToFolder` per
+  row. `messages_fts` virtual table + sync triggers (migration 0070);
+  `store.FindMessages` reads via `routed_to`.
+- **Message actions: pin / unpin / edit / delete** — `pin_message`,
+  `unpin_message`, `unpin_all`, `edit`, `delete` MCP tools on
+  `chanlib.BotHandler` (spec 5/Z). Native per platform (Slack
+  pins.add/remove/list, Discord channel pin, Telegram
+  pin/unpinAll); adapters without a primitive return
+  `*UnsupportedError` with a hint. `delete`/`edit` are own-message by
+  default (platform enforces authorship); `:any` is a distinct grant.
+- **resreg reflective engine + YAML manifests** — one typed `Resource`
+  - `RowType` struct drives SQL CRUD, REST, MCP, OpenAPI, and YAML from
+    a single declaration (spec 5/36). 10 cold-tier resources registered
+    (`acl`, `acl_membership`, `groups`, `network_rules`,
+    `onboarding_gates`, `proxyd_routes`, `routes`, `scheduled_tasks`,
+    `secrets`, `web_routes`). `arizuko apply <inst> <manifest.yaml>` /
+    `arizuko export <inst>` CLI: state-based apply in one tx,
+    `config_version` compare-and-swap (`--force` bypasses), canonical
+    YAML export. Token resources (`invites`, `route_tokens`) parked out
+    of v1 — CLI/MCP only. `config_meta` migration 0067.
+- **OpenAPI emission** — engine-generated `GET /openapi.json` (OpenAPI
+  3.1) from `RowType` reflection, mounted on gated, timed, onbod, webd,
+  proxyd, dashd (spec 5/36, subsumes 5/4). No huma/swag/codegen; public
+  endpoint, cached per process. Aggregator landing at
+  `/pub/arizuko/reference/openapi.html`.
+
+### Changed
+
+- **Agent SDK 0.2.34 → 0.3.153 + tool deferral** — `ant/` runs
+  `@anthropic-ai/claude-agent-sdk` 0.3.153. Per-MCP-server `alwaysLoad`
+  in `ant/src/mcp-servers.ts`: the `arizuko` core server (send / reply
+  / inspect\_\* / send_file) stays eager; connector servers defer their
+  tools behind the Tool Search Tool so a large connector catalog no
+  longer floods every turn's context (spec 6/A § "Tools side: deferred
+  disclosure").
+
+### Fixed
+
+- **Foreign-key enforcement** — `foreign_keys` now rides the DSN
+  (`_pragma=foreign_keys(on)`) on both `store.Open` and `OpenMem`, so
+  every pooled `database/sql` connection enforces it (a one-shot
+  `db.Exec` only covered one connection, leaving the CASCADE FKs inert
+  on the rest). The FKs in migrations 0068 (`web_routes.folder` →
+  `groups.folder`) and 0069 (`route_tokens.owner_folder` →
+  `groups.folder`) are now actually enforced: orphan rows are rejected
+  and deleting a group cascades to its routes + tokens.
+- **In-thread replies** — explicit `reply`/`send`/`escalate` and
+  voice/file replies now thread to the originating chat thread (via the
+  active turn topic) instead of leaking to the parent channel.
+
+---
+
 ## [v0.45.11] — 2026-05-26
 
 > arizuko v0.45.11 — FHS mount paths + agent web slots (public_html, private_html)

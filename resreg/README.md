@@ -1,10 +1,33 @@
 # resreg
 
 Resource registry: one `Handler` per `(Resource, Action)`, wrapped by
-two auto-adapters so REST and MCP reach the same code. Spec:
-[`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md).
+auto-adapters so REST, MCP, OpenAPI, and YAML reach the same code from
+one typed `Resource` literal + `RowType` struct. Spec:
+[`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md) (the
+unified handler model) and
+[`specs/5/36-yaml-manifests.md`](../specs/5/36-yaml-manifests.md) (the
+reflective engine + manifests).
 
-Resources using it today:
+## Reflective engine (shipped)
+
+`engine.go` drives SELECT / INSERT / DELETE, YAML parse/emit, and
+OpenAPI schema generation off `Resource.RowType` reflection (struct
+field → column via `json:` tag). `resreg/resources/` declares one Go
+file per cold-tier resource — a `Row` struct plus an `init()` block
+calling `resreg.Register`. The 10 resources registered today: `acl`,
+`acl_membership`, `groups`, `network_rules`, `onboarding_gates`,
+`proxyd_routes`, `routes`, `scheduled_tasks`, `secrets`, `web_routes`.
+Token resources (`invites`, `route_tokens`) are parked out of v1
+manifests — CLI/MCP only.
+
+`arizuko apply <instance> <manifest.yaml>` and `arizuko export
+<instance>` (`cmd/arizuko/apply.go`) are the operator CLI over the
+engine: state-based apply (DELETE+INSERT in one tx), `config_version`
+compare-and-swap to reject stale manifests (`--force` bypasses),
+`export` dumps the store as one canonical-ordered YAML doc. Secrets
+are exempt from `BumpVersion` per spec.
+
+## Live REST/MCP resources
 
 - proxyd's runtime route table — `proxyd/resource.go` (store-backed,
   tx-bound audit).
@@ -12,8 +35,22 @@ Resources using it today:
   `webd/routes_mcp.go` (forwarder; `Resource.Store == nil`; proxyd
   writes the audit row downstream).
 
-`ipc/ipc.go` migration is pending — a larger surgical pass tracked
-under [`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md).
+`ipc/ipc.go` migration of the agent-facing tool surface is pending — a
+larger surgical pass tracked under
+[`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md).
+
+## OpenAPI emission
+
+`OpenAPI(daemon, baseURL, resources)` / `OpenAPIHandler(daemon,
+resources)` (`openapi.go`) walk the registry and emit an OpenAPI 3.1
+JSON doc off the same `RowType` reflection — struct field → schema
+property, resource → `/v1/<name>` list/create/update/delete paths. No
+`huma`, no `swag`, no codegen. Handler is public (mount before auth)
+and caches the blob for the process lifetime. Mounted at
+`/openapi.json` on `gated` (`api/api.go`), timed, onbod, webd, proxyd,
+dashd. Drift between handler and doc is impossible because both read
+the same struct. Aggregator landing:
+`/pub/arizuko/reference/openapi.html`.
 
 ## Surface
 
@@ -84,83 +121,3 @@ Table: [`specs/6/F-audit-stream.md`](../specs/6/F-audit-stream.md).
 
 `proxyd/resource.go` is the canonical store-backed example;
 `webd/routes_mcp.go` is the canonical forwarder example.
-
-## Schema engine (spec 5/36)
-
-The adapter half above ties a `Handler` to REST + MCP. The **engine
-half** (`engine.go`) adds schema-driven CRUD: a tagged Go struct
-declares the row shape once, and reflection over `db:`/`yaml:`/`json:`
-tags drives SQL, YAML, JSON, and OpenAPI without per-resource code.
-
-A resource opts in by setting `RowType` + `Table` + `PKFields` (+
-optional `Scope`, `Hooks`):
-
-```go
-type Row struct {
-    Seq    int    `db:"seq"    yaml:"seq"    json:"seq"`
-    Match  string `db:"match"  yaml:"match"  json:"match"`
-    Target string `db:"target" yaml:"target" json:"target"`
-}
-resreg.Register(resreg.Resource{
-    Name: "routes", Table: "routes",
-    RowType:  reflect.TypeOf(Row{}),
-    PKFields: []string{"Seq", "Match", "Target"},
-    Scope:    resreg.ScopeSpec{Field: "Target"},
-})
-```
-
-Cold-tier resource structs live one-per-file under
-[`resources/`](resources/); import the package for its registration
-side effects.
-
-Engine methods (all reflection-driven, column list cached at
-`Register`):
-
-- `ScanAll(db)` / `Scan(db, where, args…)` → `[]RowType`, ordered by PK.
-- `Insert` / `InsertAll(ctx, tx, rows)` — generated `INSERT`, runs
-  `Hooks.BeforeInsert` + `Hooks.ValidateRow` in-tx.
-- `DeleteScope(ctx, tx, scope)` / `DeleteAll(ctx, tx)`.
-- `ParseRows(node)` / `EmitRows(rows)` — YAML decode/encode, PK-sorted.
-
-Package-level apply/export:
-
-- `Apply(ctx, db, manifestVersion, force, manifestRows)` — one
-  `BeginTx`; a no-op `UPDATE config_meta` upgrades to a write lock,
-  then CAS-checks `config_version` against `manifestVersion` (unless
-  `force`), `DeleteAll` + `InsertAll` every registered table (skipping
-  `SkipApplyRebuild` resources), bumps the version, commits.
-- `Export(db)` → `map[string]any` keyed by resource name + the current
-  `config_version`; `EmitYAML` renders it deterministically.
-- `ParseYAML(data)` → `(rows-by-name, version, err)`.
-
-CLI wiring: `cmd/arizuko/apply.go` (`apply` single-file, `export`).
-
-### Hooks — semantics the engine can't deduce
-
-`Hooks` carry the per-resource escape hatches (`engine.go`):
-
-- `BeforeInsert` — default timestamps, JSON-encode blobs, derive fields.
-- `ValidateRow` — in-tx checks (e.g. `acl_membership` cycle detection).
-- `AfterScan` — decode on read (e.g. `proxyd_routes` JSON header array).
-- `ColumnOverride` — per-field `Read` SQL expression (`COALESCE(...)`)
-  - `Write` binder for nullable columns mapped to non-pointer Go fields.
-
-`SkipApplyRebuild` marks a resource export-only (e.g. `secrets`, whose
-`enc_value` blob is set imperatively); `BumpVersion=false` exempts it
-from the `config_version` count.
-
-## OpenAPI emission (spec 5/36)
-
-`openapi.go` walks the registry and emits an OpenAPI 3.1 document from
-the same `RowType` reflection — no `huma`, no `swag`, no codegen.
-
-- `OpenAPI(daemon, baseURL, resources)` → JSON bytes.
-- `OpenAPIHandler(daemon, resources)` → `http.HandlerFunc` that
-  lazy-builds + caches the doc for the process lifetime.
-
-Mount on each HTTP daemon **before** auth middleware (the endpoint is
-public — it describes API surface, not data). gated/proxyd/onbod own
-resources; webd/dashd/timed pass an empty resource list so the
-aggregator page (`/pub/arizuko/reference/openapi.html`) can list every
-daemon uniformly. Drift between handler and doc is impossible — both
-read the same struct.

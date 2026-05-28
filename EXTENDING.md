@@ -119,7 +119,7 @@ distinct tools.
 
 ## Verb support matrix
 
-The 12 outbound MCP verbs and their per-platform native support. An
+The 15 outbound MCP verbs and their per-platform native support. An
 empty cell means the adapter returns `*UnsupportedError` with a
 concrete hint.
 
@@ -137,6 +137,15 @@ concrete hint.
 | `repost`     |       |       | ✓     | ✓     |        |       |       |       |       | ✓     |
 | `dislike`    |       | ✓     |       |       | ✓      |       |       |       |       |       |
 | `edit`       | ✓     | ✓     | ✓     |       |        | ✓     |       |       | ✓     |       |
+| `pin`        | ✓     | ✓     |       |       |        | ✓     |       |       |       |       |
+| `unpin`      | ✓     | ✓     |       |       |        | ✓     |       |       |       |       |
+| `unpin_all`  |       | ✓     |       |       |        | ✓     |       |       |       |       |
+
+`delete` and `edit` are own-message by default — the platform enforces
+authorship; `:any` is a distinct grant (spec 5/Z). `pin`/`unpin` are
+the `pin_message`/`unpin_message` MCP tools; `unpin_all` clears every
+pin (Discord has no bulk primitive — call `unpin_message` per id).
+Adapters with no pin primitive embed `chanlib.NoPinSupport`.
 
 ## Adding web routes
 
@@ -281,6 +290,13 @@ Read-only MCP introspection family, registered in `ipc/inspect.go`:
 operations (those stay in `control_*`). Tier 0 sees all instances; tier
 ≥1 is scoped to its own folder subtree. Extend by adding a handler to
 `registerInspect` and wiring a fn into `ipc.StoreFns`.
+
+`find_messages` (registered in `ipc/ipc.go`, backed by
+`StoreFns.FindMessages` over the `messages_fts` FTS5 table) is the
+content-search complement: FTS5 query syntax (phrase / OR / NOT /
+prefix / NEAR), bm25 ranking, snippet, post-fetch `JIDRoutedToFolder`
+ACL gate. Use it to find a message by what was said; `inspect_messages`
+walks recent history by chat. Spec: `specs/5/C-message-mcp.md`.
 
 ## Adapter `/health` contract
 

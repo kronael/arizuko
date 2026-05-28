@@ -20,7 +20,7 @@
 - **Multi-channel orchestrator** — one agent across Slack + Discord + email + WhatsApp + web chat, same database
 - **Scheduler / cron-bot** — `timed` injects turns into the message bus on a schedule, no webhook needed
 - **Email or webhook agent** — `emaid` ingests IMAP with DMARC filtering; arbitrary callers POST to `/hook/<token>`
-- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite
+- **RAG over team docs** — mount your repo via WebDAV (`davd`) and let the agent grep, read, and cite; `find_messages` adds FTS5 full-text search over conversation history
 - **Multi-tenant agent platform** — one deployment, arbitrary folder depth; `corp/eng/sre` and `solo/inbox` run the same code
 
 ## Overview
@@ -150,8 +150,9 @@ Full threat model in [SECURITY.md](SECURITY.md).
 ## What's planned
 
 - Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
-- Message actions — agent-side edit, delete, pin ([spec](specs/5/Z-message-actions.md))
-- Platform API — federated `/v1/*` surface across daemons ([spec](specs/5/5-uniform-mcp-rest.md))
+- Capability-token auth — the `auth/` library is shipped (offline JWT verify, OAuth, ACL, middleware); per-tenant token minting + revocation and `PROXYD_HMAC_SECRET` / `CHANNEL_SECRET` retirement are the target ([spec](specs/5/1-auth-standalone.md))
+- Daemon genericization — `gated` split into `routerd` / `agent-runnerd` / `mcp-hostd`; capability scopes replace folder-depth tiers ([spec](specs/5/U-genericization.md))
+- Uniform MCP+REST across the cold tier — one hand-rolled handler per resource, both faces ([spec](specs/5/5-uniform-mcp-rest.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 
 ## Build & test

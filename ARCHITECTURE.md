@@ -193,6 +193,25 @@ hit. Drift between handler + doc is structurally impossible because
 both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 §"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
 
+## Roadmap: daemon genericization (not shipped)
+
+The package graph above is today's reality: one `gated` process wires
+core, with adapters and optional daemons around it. The direction
+([`specs/5/U-genericization.md`](specs/5/U-genericization.md), status
+`partial`) splits `gated` into `routerd` (tenants / rules / events),
+`agent-runnerd` (container lifecycle), `mcp-hostd` (per-tenant MCP
+socket + tool federation), and `authd` (the auth authority — OAuth
+host, JWT signer, revocation list, JWKs publisher;
+[`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md), status
+`partial`). `auth/` ships today as a Go library (offline JWT verify,
+OAuth, ACL, middleware) and stays the offline verifier; `authd` is the
+central authority it verifies against — `mcp-hostd` and other daemons
+call `authd` to mint/downscope tokens rather than minting themselves.
+The shared-secret HMAC (`PROXYD_HMAC_SECRET` / `CHANNEL_SECRET`) retires
+once `authd`-minted JWTs replace it; capability scopes replace the
+folder-depth `tier` int. None of the daemon split is built; treat it as
+the target shape, not current behavior.
+
 ## Channel Protocol
 
 Channels are external processes registering via HTTP. Both sides are HTTP
@@ -243,38 +262,46 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 
 ## SQLite Schema
 
-| Table              | Key columns                                                                                                                      |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                                                     |
-| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed                            |
-| `groups`           | folder (PK), name, container_config, parent, model (`slink_token` column dropped in migration 0059)                              |
-| `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md))    |
-| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                                 |
-| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)                                       |
-| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                                                |
-| `system_messages`  | id, group_id, origin, event, body                                                                                                |
-| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                                           |
-| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                                                             |
-| `router_state`     | key (PK), value                                                                                                                  |
-| `channels`         | name (PK), url, jid_prefixes, capabilities                                                                                       |
-| `auth_users`       | sub (unique), username (unique), hash, name                                                                                      |
-| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                                            |
-| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                                            |
-| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                                                      |
-| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder                                                                   |
-| `email_threads`    | thread_id (PK), chat_jid, subject                                                                                                |
-| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                                   |
-| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                                |
-| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                                              |
-| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted, v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)), created_at |
-| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                                                    |
-| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                                                  |
-| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                                           |
-| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                                                         |
-| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at                                            |
+| Table              | Key columns                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                                                                   |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed                                          |
+| `groups`           | folder (PK), name, container_config, parent, model (`slink_token` column dropped in migration 0059)                                            |
+| `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md))                  |
+| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                                               |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)                                                     |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                                                              |
+| `system_messages`  | id, group_id, origin, event, body                                                                                                              |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                                                         |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                                                                           |
+| `router_state`     | key (PK), value                                                                                                                                |
+| `channels`         | name (PK), url, jid_prefixes, capabilities                                                                                                     |
+| `auth_users`       | sub (unique), username (unique), hash, name                                                                                                    |
+| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                                                          |
+| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                                                          |
+| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                                                                    |
+| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder                                                                                 |
+| `email_threads`    | thread_id (PK), chat_jid, subject                                                                                                              |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                                                 |
+| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                                              |
+| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                                                            |
+| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted, v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)), created_at               |
+| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                                                                  |
+| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                                                                |
+| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                                                         |
+| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                                                                       |
+| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at (FK → `groups.folder` ON DELETE CASCADE, migration 0068) |
+| `config_meta`      | key (PK), value — holds `config_version` for resreg manifest CAS (migration 0067)                                                              |
+| `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (migration 0070)                   |
 
-WAL mode, 5s busy timeout, migrations via `db_utils.Migrate` (`migrations`
-table keyed by service+version).
+`route_tokens.owner_folder` also carries an FK → `groups.folder` ON
+DELETE CASCADE (migration 0069). WAL mode, 5s busy timeout, FK
+enforcement via the DSN pragma `_pragma=foreign_keys(on)` on both
+`store.Open` and `OpenMem` — it rides the DSN (not a one-shot
+`db.Exec`) so every pooled `database/sql` connection enforces it, or the
+CASCADE FKs would silently no-op on connections that never ran the
+pragma. Migrations via `db_utils.Migrate` (`migrations` table keyed by
+service+version).
 
 `messages.source` is the canonical adapter-of-record stamped by
 `api.handleMessage`; outbound reads `store.LatestSource(jid)`. All agent
@@ -594,15 +621,19 @@ lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See
 
 Action tools mutate state: messaging (`send`, `reply`, `send_file`,
 `forward`, `edit`), feed (`post`, `quote`, `repost`, `like`,
-`dislike`, `delete`), control (`schedule_task`, `register_group`,
-`set_routes`, …). Adapters lacking a native primitive return a
-typed `chanlib.UnsupportedError` whose hint redirects to a
-concrete alternative (e.g. `dislike` on emoji platforms hints
-`like(emoji='👎')`). Read-only introspection lives in the
+`dislike`, `delete`), message actions (`pin_message`, `unpin_message`,
+`unpin_all`, `edit`, `delete` — `delete`/`edit` are own-message by
+default, `:any` is a distinct grant; spec 5/Z), control
+(`schedule_task`, `register_group`, `set_routes`, …). Adapters lacking
+a native primitive return a typed `chanlib.UnsupportedError` whose hint
+redirects to a concrete alternative (e.g. `dislike` on emoji platforms
+hints `like(emoji='👎')`). Read-only introspection lives in the
 `inspect_*` family (`ipc/inspect.go`): `inspect_messages`,
-`inspect_routing`, `inspect_tasks`, `inspect_session`. Tier 0
-sees all instances; tier ≥1 is scoped to its own folder subtree.
-Full tool table in `ant/skills/self/SKILL.md`.
+`inspect_routing`, `inspect_tasks`, `inspect_session`,
+`inspect_identity`. `find_messages` is FTS5 full-text search over
+message content (bm25 ranking + snippet; phrase / OR / NOT / prefix /
+NEAR; spec 5/C). Tier 0 sees all instances; tier ≥1 is scoped to its
+own folder subtree. Full tool table in `ant/skills/self/SKILL.md`.
 
 ## Container mount layout (v0.45.11+)
 
