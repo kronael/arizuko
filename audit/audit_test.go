@@ -2,8 +2,12 @@ package audit
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -111,6 +115,37 @@ func TestRotation(t *testing.T) {
 	files, _ := filepath.Glob(path + ".*")
 	if len(files) < 1 {
 		t.Error("expected at least one rotated file")
+	}
+}
+
+func TestEmitWebFlushesWebhook(t *testing.T) {
+	var got int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&got, 1)
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	a := New(Config{
+		Enabled: true, DataDir: dir, Instance: "test",
+		MaxBytes: 10 * 1024 * 1024, RotateHours: 24,
+		WebhookURL: srv.URL,
+	})
+	// Backdate lastFlush so the first write crosses the 5s threshold and posts.
+	a.web.mu.Lock()
+	a.web.lastFlush = time.Now().Add(-time.Minute)
+	a.web.mu.Unlock()
+
+	a.EmitWeb(WebEvent{Method: "GET", Path: "/x", Status: 200})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&got) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&got) == 0 {
+		t.Fatal("EmitWeb did not flush the web webhook")
 	}
 }
 

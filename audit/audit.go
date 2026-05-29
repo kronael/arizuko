@@ -329,6 +329,9 @@ func (a *Audit) EmitWeb(e WebEvent) {
 	e.Stream = "web"
 	e.Instance = a.cfg.Instance
 	a.web.write(e)
+	a.web.mu.Lock()
+	a.web.flushWebhookLocked(false)
+	a.web.mu.Unlock()
 }
 
 // emitMessage appends one event to audit-messages.jl (internal, batched).
@@ -415,6 +418,9 @@ func (a *Audit) poll(ctx context.Context, db *sql.DB, cur *cursor) {
 			a.messages.mu.Lock()
 			a.messages.flushWebhookLocked(true)
 			a.messages.mu.Unlock()
+			a.system.mu.Lock()
+			a.system.flushWebhookLocked(true)
+			a.system.mu.Unlock()
 		}
 	}
 }
