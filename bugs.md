@@ -762,3 +762,33 @@ Read-only correctness pass over `whapd/` (TS), `mastd/`, `bskyd/`. No clean sing
 Verified NOT bugs (do not re-flag): mastd `stream` backoff (client.go:57-77) resets to 1s only after a successful `streamOnce` and uses exponential `min(backoff*2, 60s)` on error — no busy-loop; `streamOnce` returns nil only on `ctx.Done()`. mastd streaming `streaming.Store(true)` is set only after `StreamingWSUser` succeeds and deferred-false on return, so `/health` correctly reports disconnected during reconnect. bskyd `xrpc` 401 path refreshes-then-retries exactly once (no recursion/loop) and clears `authed` only when both refresh and create fail. bskyd `fetchNotifications` walks oldest→newest and `updateSeen`s per-item so unread items beyond the 25-window aren't bulk-dropped. whapd reconnect (main.ts:303-321) increments `reconnectAttempts`, caps at 10 then exits, resets to 0 only on `open` — correct exponential backoff. whapd reaction `react` key `fromMe:false` (server.ts:305) is correct (target message is the user's); `/delete` `fromMe:true` (server.ts:319) is correct (deleting own message). bskyd `FetchHistory` 5-page cap + `Before` client-side filter is bounded. mastd reblog `Content=string(n.Status.ID)` is an intentional repost-signal payload, not a strip-omission.
 
 - 2026-05-28 (audit, low): web/system webhook batches have no force-flush without a poll. `proxyd` constructs `audit.New(...)` and calls `EmitWeb` but never `StartPoll`; `EmitWeb` now flushes on-write via the 200-event/5s heuristic (matching `emitMessage`), so memory is bounded under sustained traffic and delivery lands within 5s while traffic continues. Residual: a fully-idle tail (<200 events, then no further web events) sits in the batch until the next `EmitWeb`. A periodic force-flush belongs in proxyd's run loop (out of audit bucket); not fixing here.
+
+## store/chanlib bug-hunt sweep — error-handling + boundary lens (2026-05-28)
+
+Read every non-test, non-migration file in `store/` + `chanlib/`. No genuine
+error-handling/boundary bug found to fix. The recently-fixed `ObservedSince`
+arg-order bug (commit fc417d49) has NO remaining siblings: every conditional
+arg-builder I checked aligns placeholders with args correctly — `FindMessages`
+(messages.go:706, 11 args/11 placeholders), `NewMessages` (messages.go:124),
+`GroupUsageBulk` (cost_log.go:119), `ResolveAllowlist` (network.go:92),
+`FolderSecretsResolved` (secrets.go:207). All `IN (?,...)` builders guard the
+empty-slice case. All error-returning row iterators check `rows.Err()`; the
+`[]T`-returning ones use the codebase's consistent skip-on-error pattern.
+`ConsumeInvite` RETURNING/ErrNoRows path is correct and fully covered.
+`receiveUpload` filename sanitization (handler.go:296) is sound on the Linux
+target. `DoWithRetry` body-rewind + 429/5xx exhaustion logic is correct.
+Logged (out of this lens — concurrency, not error/boundary):
+
+- 2026-05-28 (chanlib, medium): `RouterClient.token` is read unlocked in
+  `SendMessage` (chanlib.go:152) and `Deregister` (chanlib.go:129) while
+  `reregister`→`Register` writes it under `regMu` (chanlib.go:105-110). The
+  `regMu` mutex was added to guard the saved re-register params (regName/URL/
+  prefixes/caps) but the `token` field — the value those writes most need to
+  publish — is left outside the lock on the read side. Adapters call
+  `SendMessage` from multiple goroutines (emaid/imap.go:361, slakd/bot.go:370
+  & :415, bskyd/client.go:290), so a concurrent 401-triggered re-register
+  racing an in-flight `SendMessage` is a real data race on `token`. Matches
+  the class of race the recent commits (8b1bb420, edfc2894) were fixing
+  elsewhere. Fix path: read `token` under `regMu` in `SendMessage`/`Deregister`
+  (or make it atomic.Value). Left unfixed: outside the error-handling/boundary
+  lens of this sweep, and a synchronization change wants its own focused diff.
