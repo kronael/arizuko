@@ -271,10 +271,9 @@ func (q *GroupQueue) Shutdown() {
 }
 
 func (q *GroupQueue) runForGroup(groupJid string) {
-	slog.Debug("starting container for group", "groupJid", groupJid, "activeCount", q.activeCount)
-
 	q.mu.Lock()
 	fn := q.processMessages
+	slog.Debug("starting container for group", "groupJid", groupJid, "activeCount", q.activeCount)
 	q.mu.Unlock()
 
 	var success bool
