@@ -11,10 +11,8 @@ package main
 //
 // Replacement (this file): every request reads routes from the DB
 // directly via store.AllProxydRoutes (or resreg's proxyd_routes
-// ScanAll). The only retained cache is a sync.Map[backend URL]
-// *httputil.ReverseProxy for connection reuse — this caches the
-// HTTP transport, not the row. See "Resource-handle objects MAY hold
-// one cache" in the spec.
+// ScanAll) and builds a fresh ReverseProxy per route. No row cache;
+// the http.Transport pools backend connections on its own.
 
 import (
 	"context"
@@ -32,13 +30,9 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// routesResource is the stateless route handler. The only field is the
-// proxy connection map (connection cache, not row cache — spec 5/36).
+// routesResource is the stateless route handler.
 type routesResource struct {
 	st *store.Store
-	// proxies: backend URL → ReverseProxy. Connection cache, not row cache (spec 5/36).
-	// Read on every request; entries built lazily on cache miss.
-	proxies sync.Map // map[string]*httputil.ReverseProxy
 
 	// manualRoutes is a test-only fallback used when st is nil — i.e.
 	// unit tests that exercise the routing plumbing without spinning up
@@ -49,21 +43,15 @@ type routesResource struct {
 	manualWebRoutes []store.WebRoute
 }
 
-// newRoutesResource constructs the handle. The `initial` arg used to
-// prime the snapshot cache; under spec 5/36 it's used only to warm the
-// proxy connection map (a small startup-cost optimisation).
+// newRoutesResource constructs the handle. The `initial` arg seeds the
+// test-only manual route fallback when st is nil; production reads routes
+// from the DB per request (spec 5/36).
 func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 	rr := &routesResource{st: st}
 	if st == nil {
 		// Test path: hold routes in memory. Production paths always pass
 		// a non-nil store.
 		rr.installManual(initial)
-		return rr
-	}
-	for _, r := range initial {
-		if p := buildRouteProxy(r); p != nil {
-			rr.proxies.Store(r.Backend, p)
-		}
 	}
 	return rr
 }
@@ -90,9 +78,12 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 		routes = append([]Route(nil), rr.manualRoutes...)
 		rr.manualMu.RUnlock()
 	}
+	// Each Path gets a fresh proxy: the Director closure captures
+	// r.StripPrefix and r.PreserveHeaders. The http.Transport pools
+	// connections per backend host on its own.
 	procs := make(map[string]*httputil.ReverseProxy, len(routes))
 	for _, r := range routes {
-		procs[r.Path] = rr.proxyFor(r)
+		procs[r.Path] = buildRouteProxy(r)
 	}
 	return routes, procs
 }
@@ -129,41 +120,6 @@ func (rr *routesResource) installManual(routes []Route) {
 	rr.manualMu.Lock()
 	rr.manualRoutes = append([]Route(nil), routes...)
 	rr.manualMu.Unlock()
-	for _, r := range routes {
-		if p := buildRouteProxy(r); p != nil {
-			rr.proxies.Store(r.Backend, p)
-		}
-	}
-}
-
-// proxyFor returns the cached ReverseProxy for r.Backend, building it
-// once on first call. Returns nil if Backend is unparseable.
-func (rr *routesResource) proxyFor(r Route) *httputil.ReverseProxy {
-	if v, ok := rr.proxies.Load(r.Backend); ok {
-		// Connection caches the transport keyed by backend, but the
-		// per-Path Director closure captures r.StripPrefix and
-		// r.PreserveHeaders. Two routes pointing at the same backend
-		// with different strip/headers need different proxies — rebuild
-		// each time then. Cost is tiny.
-		if cached, ok := v.(*httputil.ReverseProxy); ok && sameProxy(cached, r) {
-			return cached
-		}
-	}
-	p := buildRouteProxy(r)
-	if p != nil {
-		rr.proxies.Store(r.Backend, p)
-	}
-	return p
-}
-
-// sameProxy is a best-effort check that the cached proxy was built with
-// the same per-route knobs as r. Director closures aren't comparable, so
-// in practice we always rebuild when the row changes — this is here as
-// an extension point if we want to add caching later.
-func sameProxy(_ *httputil.ReverseProxy, _ Route) bool {
-	// Conservative: always rebuild on cache hit. Future work can hash
-	// (StripPrefix, PreserveHeaders) and compare.
-	return false
 }
 
 func toStoreRoute(r Route) store.ProxydRoute {

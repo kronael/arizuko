@@ -43,7 +43,6 @@ type config struct {
 	core         *core.Config
 	dsn          string
 	secret       string
-	authSecret   string
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
@@ -153,7 +152,6 @@ func loadConfig() (config, error) {
 		core:         coreCfg,
 		dsn:          filepath.Join(coreCfg.ProjectRoot, "store", "messages.db"),
 		secret:       coreCfg.ChannelSecret,
-		authSecret:   coreCfg.AuthSecret,
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),
