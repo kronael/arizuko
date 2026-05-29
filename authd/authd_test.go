@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -292,8 +293,9 @@ func TestKeysEndpointServesJWKS(t *testing.T) {
 	ts := httptest.NewServer(srv.mux())
 	defer ts.Close()
 
-	// FetchKeys hits /v1/keys and a token from the active key verifies.
-	ks, err := auth.FetchKeys(ts.URL)
+	// FetchKeys (RemoteKeySet) hits /v1/keys and a token from the active key
+	// verifies through the network path.
+	ks, err := auth.FetchKeys(context.Background(), ts.URL)
 	if err != nil {
 		t.Fatalf("fetch keys: %v", err)
 	}

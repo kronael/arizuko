@@ -1,37 +1,44 @@
 package auth
 
 // JWKS publication + offline verification. authd serves PublicJWKS at
-// /v1/keys; every backend caches it via FetchKeys and verifies in-process with
-// VerifyToken — a pure function over (token, KeySet), no network hop per
-// request (specs/5/1 "offline verification, no hot-path hop").
+// /v1/keys; backends verify against it (specs/5/1 "offline verification, no
+// hot-path hop").
+//
+// Two verify paths, one VerifyToken entrypoint:
+//   - Backends (routd/runed/proxyd) call FetchKeys(authdURL) → a KeySet backed
+//     by go-oidc's RemoteKeySet, which fetches /v1/keys and handles caching,
+//     rotation, and refresh coalescing (no per-request hop, no kid-miss
+//     stampede). go-oidc, NOT IDTokenVerifier — we mint our own tokens, so we
+//     verify the signature here and check claims ourselves (subjectFromPayload).
+//   - authd itself and tests hold the public keys directly (NewKeySet); there
+//     is no network and no stampede, so that path verifies in-process with
+//     go-jose against an immutable key map.
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	jose "github.com/go-jose/go-jose/v4"
 )
 
 const tokenClockSkew = 30 * time.Second
 
-// KeySet caches authd's public JWKs, indexed by kid. Safe for concurrent use.
-// Refreshes from authdURL on a kid miss (rotation) or never if authdURL is "".
+// KeySet verifies authd-minted ES256 tokens. Exactly one path is active:
+// remote (RemoteKeySet over /v1/keys, for backends) or local (an immutable
+// public-key map, for authd-self and tests). Safe for concurrent use — remote
+// is internally synchronized; local is read-only after construction.
 type KeySet struct {
-	authdURL string
-	mu       sync.RWMutex
-	keys     map[string]*ecdsa.PublicKey
+	remote *oidc.RemoteKeySet
+	keys   map[string]*ecdsa.PublicKey
 }
 
-// NewKeySet builds a KeySet directly from public keys — used in-process by
-// authd (which already holds the keys) and by tests. authdURL is empty so it
-// never tries to refresh over the network.
+// NewKeySet builds a local KeySet from public keys — used in-process by authd
+// (which already holds the keys) and by tests. No network, no refresh.
 func NewKeySet(pub map[string]*ecdsa.PublicKey) *KeySet {
 	keys := make(map[string]*ecdsa.PublicKey, len(pub))
 	for k, v := range pub {
@@ -40,86 +47,54 @@ func NewKeySet(pub map[string]*ecdsa.PublicKey) *KeySet {
 	return &KeySet{keys: keys}
 }
 
-// FetchKeys fetches authd's public JWKs from authdURL+/v1/keys and returns a
-// KeySet that refreshes against the same URL on a kid miss.
-func FetchKeys(authdURL string) (*KeySet, error) {
-	ks := &KeySet{authdURL: strings.TrimRight(authdURL, "/"), keys: map[string]*ecdsa.PublicKey{}}
-	if err := ks.refresh(); err != nil {
-		return nil, err
-	}
-	return ks, nil
-}
-
-func (ks *KeySet) refresh() error {
-	if ks.authdURL == "" {
-		return errors.New("keyset has no authd URL to refresh from")
-	}
-	resp, err := httpClient.Get(ks.authdURL + "/v1/keys")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("fetch jwks: %s", resp.Status)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return err
-	}
-	var set jose.JSONWebKeySet
-	if err := json.Unmarshal(body, &set); err != nil {
-		return err
-	}
-	parsed := map[string]*ecdsa.PublicKey{}
-	for _, jwk := range set.Keys {
-		if pub, ok := jwk.Key.(*ecdsa.PublicKey); ok {
-			parsed[jwk.KeyID] = pub
-		}
-	}
-	ks.mu.Lock()
-	ks.keys = parsed
-	ks.mu.Unlock()
-	return nil
+// FetchKeys returns a KeySet backed by go-oidc's RemoteKeySet against
+// authdURL+/v1/keys. RemoteKeySet fetches lazily on first verify and owns
+// caching + rotation + refresh coalescing; a bad-kid flood cannot stampede
+// authd. ctx scopes the keyset's background HTTP for the daemon's lifetime.
+func FetchKeys(ctx context.Context, authdURL string) (*KeySet, error) {
+	url := strings.TrimRight(authdURL, "/") + "/v1/keys"
+	return &KeySet{remote: oidc.NewRemoteKeySet(ctx, url)}, nil
 }
 
 func (ks *KeySet) lookup(kid string) (*ecdsa.PublicKey, bool) {
-	ks.mu.RLock()
 	pub, ok := ks.keys[kid]
-	ks.mu.RUnlock()
-	if ok {
-		return pub, true
-	}
-	if ks.authdURL == "" {
-		return nil, false
-	}
-	if err := ks.refresh(); err != nil {
-		return nil, false
-	}
-	ks.mu.RLock()
-	pub, ok = ks.keys[kid]
-	ks.mu.RUnlock()
 	return pub, ok
 }
 
-// VerifyToken verifies a compact ES256 JWT against the cached public keys and
-// returns the Subject. Errors on bad signature, unknown kid, or expiry.
-func VerifyToken(token string, ks *KeySet) (Subject, error) {
+// verifyLocal checks the JWS signature against the in-memory key map with
+// go-jose, pinning ES256 (closes alg-confusion). Returns the payload.
+func (ks *KeySet) verifyLocal(token string) ([]byte, error) {
 	jws, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
-	if err != nil {
-		return Subject{}, ErrInvalidToken
+	if err != nil || len(jws.Signatures) != 1 {
+		return nil, ErrInvalidToken
 	}
-	if len(jws.Signatures) != 1 {
-		return Subject{}, ErrInvalidToken
-	}
-	kid := jws.Signatures[0].Header.KeyID
-	pub, ok := ks.lookup(kid)
+	pub, ok := ks.lookup(jws.Signatures[0].Header.KeyID)
 	if !ok {
-		return Subject{}, ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
-	payload, err := jws.Verify(pub)
+	return jws.Verify(pub)
+}
+
+// VerifyToken verifies a compact ES256 JWT and returns the Subject. The
+// signature is checked by the active path (RemoteKeySet or local go-jose);
+// claims (nbf/exp) are checked here — we never use IDTokenVerifier for
+// arizuko-minted tokens.
+func VerifyToken(token string, ks *KeySet) (Subject, error) {
+	var payload []byte
+	var err error
+	if ks.remote != nil {
+		payload, err = ks.remote.VerifySignature(context.Background(), token)
+	} else {
+		payload, err = ks.verifyLocal(token)
+	}
 	if err != nil {
 		return Subject{}, ErrInvalidToken
 	}
+	return subjectFromPayload(payload)
+}
+
+// subjectFromPayload parses verified claims and enforces the time window.
+func subjectFromPayload(payload []byte) (Subject, error) {
 	var c TokenClaims
 	if err := json.Unmarshal(payload, &c); err != nil {
 		return Subject{}, ErrInvalidToken
