@@ -198,14 +198,14 @@ both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 The package graph above is today's reality: one `gated` process wires
 core, with adapters and optional daemons around it. The direction
 ([`specs/5/U-genericization.md`](specs/5/U-genericization.md), status
-`partial`) splits `gated` into `routerd` (tenants / rules / events),
-`agent-runnerd` (container lifecycle), `mcp-hostd` (per-tenant MCP
+`partial`) splits `gated` into `routd` (tenants / rules / events),
+`runed` (container lifecycle), `mcpd` (per-tenant MCP
 socket + tool federation), and `authd` (the auth authority — OAuth
 host, JWT signer, revocation list, JWKs publisher;
 [`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md), status
 `partial`). `auth/` ships today as a Go library (offline JWT verify,
 OAuth, ACL, middleware) and stays the offline verifier; `authd` is the
-central authority it verifies against — `mcp-hostd` and other daemons
+central authority it verifies against — `mcpd` and other daemons
 call `authd` to mint/downscope tokens rather than minting themselves.
 The shared-secret HMAC (`PROXYD_HMAC_SECRET` / `CHANNEL_SECRET`) retires
 once `authd`-minted JWTs replace it; capability scopes replace the

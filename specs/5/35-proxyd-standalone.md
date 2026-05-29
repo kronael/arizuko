@@ -46,8 +46,7 @@ secret_env = "AUTH_SECRET"
 session_ttl = "24h"
 
 [auth]
-authd_url  = "http://authd:8080"   # or empty to use library mode
-mode       = "remote"              # "remote" calls authd, "library" mints in-process
+authd_url  = "http://authd:8080"   # the sole signer; proxyd verifies offline against its JWKs, never mints
 
 [[provider]]
 id           = "google"
@@ -80,9 +79,11 @@ token_param    = "token"               # path-segment token, not Bearer
 rate_limit     = "30/min/ip"
 ```
 
-`[auth]` configures whether proxyd uses `authd` over HTTP or the
-`auth/` library directly. `[[provider]]` is OAuth config per the
-auth spec. `[[route]]` is the actual reverse-proxy table.
+`[auth].authd_url` points at the sole signer ([`1-auth-standalone.md`](1-auth-standalone.md)).
+proxyd **never mints** — it verifies tokens offline via the `auth/`
+library against `authd`'s cached JWKs and delegates login + mint to
+`authd`. `[[provider]]` is OAuth config per the auth spec. `[[route]]`
+is the actual reverse-proxy table.
 
 ### 2. HTTP API for management
 
@@ -125,10 +126,10 @@ POST /auth/logout      → clear cookie
 GET /auth/me           → return identity
 ```
 
-If `[auth].mode = "remote"`, proxyd 302s to `authd_url/auth/login`
-with a return-to. If `mode = "library"`, proxyd handles the OAuth
-flow itself using the `auth/` library. Operators choose based on
-deployment shape.
+proxyd 302s to `authd_url/auth/login` with a return-to; `authd` runs the
+OAuth code exchange and mints the session JWT (it is the sole signer).
+proxyd sets the session cookie from what `authd` returns and verifies it
+offline thereafter. It never runs the mint itself.
 
 ### 5. MCP tool surface
 
@@ -151,14 +152,14 @@ implementation, two surfaces.
 
 ## What changes from today
 
-| Today                          | After                                                      |
-| ------------------------------ | ---------------------------------------------------------- |
-| Routes hardcoded in `main.go`  | Routes in TOML, hot-reloadable via `/v1/routes`            |
-| Mints JWTs locally             | Calls `auth.Mint` (library) or `authd /v1/tokens` (remote) |
-| 4 `folder` refs in `main.go`   | None — folder/tier handled at backend, proxyd is generic   |
-| No management API              | `/v1/routes`, `/v1/sessions`, MCP tools                    |
-| Slink, WebDAV, dashd hardcoded | All become `[[route]]` entries with the right auth mode    |
-| Bound to arizuko backends      | Drop in front of any backend stack                         |
+| Today                          | After                                                            |
+| ------------------------------ | ---------------------------------------------------------------- |
+| Routes hardcoded in `main.go`  | Routes in TOML, hot-reloadable via `/v1/routes`                  |
+| Mints JWTs locally             | Never mints; verifies offline vs JWKs, delegates mint to `authd` |
+| 4 `folder` refs in `main.go`   | None — folder/tier handled at backend, proxyd is generic         |
+| No management API              | `/v1/routes`, `/v1/sessions`, MCP tools                          |
+| Slink, WebDAV, dashd hardcoded | All become `[[route]]` entries with the right auth mode          |
+| Bound to arizuko backends      | Drop in front of any backend stack                               |
 
 ## What this spec is not
 
@@ -384,10 +385,13 @@ dash/webd/slink/dav surfaces unchanged.
 
 ## Decisions
 
-- **`[auth].mode`** locked to `library` for v1; `remote` (call `authd`)
-  is a future hook left in the TOML schema but not implemented. Matches
-  the bucket-index decision to defer `authd` (see `specs/6/index.md`
-  open Q3 and `1-auth-standalone.md`).
+- **No mint mode.** The earlier `[auth].mode = library|remote` toggle is
+  withdrawn: `authd` is the **sole signer** ([`1-auth-standalone.md`](1-auth-standalone.md)),
+  so proxyd only ever verifies offline against JWKs and delegates login +
+  mint to `authd`. There is no in-process-mint mode. Until `authd` ships
+  as a standalone daemon, proxyd's current local HS256 mint is a
+  **transitional** state, not a supported config — it is removed in the
+  same release `authd` lands, not kept as a "library mode."
 - **Boot config vs runtime mutation**: boot routes via TOML
   (`[[proxyd_route]]` per-daemon + `PROXYD_ROUTES_JSON`). Runtime
   changes via `/v1/routes` only; no file-watch / hot-reload of TOMLs.

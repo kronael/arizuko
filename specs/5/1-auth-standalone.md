@@ -22,7 +22,7 @@ The split is two artifacts:
 
 This is **extracted standalone first** — `authd` is the first piece of
 the gated split, shipped on its own, proving the `<daemon>/api/v1/` +
-`types/` pattern before `routerd`/`agent-runnerd`/`mcp-hostd` follow in
+`types/` pattern before `routd`/`runed`/`mcpd` follow in
 a later release (sequencing: [`U-genericization.md`](U-genericization.md)
 "gated split").
 
@@ -204,7 +204,7 @@ agent can only issue tokens with a strict subset of its own scope, and
 the actual signing happens in `authd`. This is the primitive that makes
 agent → sub-agent delegation safe without admin in the loop.
 
-The MCP host (gated's ipc subsystem today; `mcp-hostd` after the split)
+The MCP host (gated's ipc subsystem today; `mcpd` after the split)
 mounts these alongside its existing tools. Read-only auth tools resolve
 in-process against cached JWKs, no hop; `mint_token` forwards to `authd`
 because only the signer can issue.
@@ -240,18 +240,58 @@ Backends carry the public JWKs and verify offline; the only daemon that
 holds the private key and mounts `auth.Mount` (the OAuth login + mint
 surface) is `authd`.
 
+## Service identity — daemons authenticate to authd
+
+User tokens come from OAuth login; agent sub-tokens come from `mint_token`
+downscope. Daemon-initiated work — `timed` firing a scheduled task, `onbod`
+admitting from the queue, a cron sweep — has no user in the loop, yet still
+needs to call gated/router with an identity. That identity is a **service
+identity**.
+
+**Decided.** `authd` mints a **service JWT per daemon at boot**. Compose
+generation writes one bootstrap secret per daemon into that daemon's env
+(`AUTHD_SERVICE_KEY` — never shared between daemons). At startup the daemon
+exchanges it at `authd /v1/service-token` for a short-lived service JWT:
+
+- `sub = "service:<daemon>"` (e.g. `service:timed`), `scope` = the daemon's
+  declared service capabilities (`service:timed` → `messages:write`,
+  `tasks:read`), `iss = "authd"`, short TTL.
+- The `auth/` library refreshes it before expiry against the same
+  `AUTHD_SERVICE_KEY`, the way `KeySet` refreshes JWKs — no per-request hop.
+
+A daemon→daemon (or daemon→gated) call carries the service JWT in the same
+`Authorization: Bearer` slot a user request uses; the receiver verifies it
+offline against cached JWKs exactly like a user token. **A service identity
+is just an `Identity` whose `sub` is `service:*`** and whose scope is the
+daemon's capability grant — no second verification path, no second trust
+boundary.
+
+```go
+// Inside a daemon. Exchanges the bootstrap secret for a short-lived
+// service JWT and keeps it refreshed. The daemon presents the returned
+// token on daemon→daemon calls; it never holds a signing key.
+func ServiceToken(authdURL, bootstrapKey string) (*TokenSource, error)
+```
+
+Bootstrap secrets are the **only** symmetric secret left in the system, and
+each buys exactly one thing: a leaked `AUTHD_SERVICE_KEY` lets an attacker
+obtain that _one_ daemon's scoped service token — not sign arbitrary tokens,
+because only `authd` holds the private key. Rotate by reissuing the env
+secret and restarting the daemon.
+
 ## Where each role lives, after this lands
 
-| Role                                  | Where                                                        |
-| ------------------------------------- | ------------------------------------------------------------ |
-| Verify a token                        | Any daemon — `auth.VerifyHTTP` against cached JWKs, no hop   |
-| Mint a token from claims              | `authd` only — the sole signer                               |
-| Downscope an existing token           | `authd.MintNarrower` (MCP `mint_token` forwards to it)       |
-| Publish public JWKs                   | `authd` at `/v1/keys`                                        |
-| OAuth login + callback                | `authd` (mounts `auth.Handlers`); proxyd delegates           |
-| MCP tools (`whoami`, `mint_token`, …) | gated's ipc subsystem / `mcp-hostd` (mounts `auth.MCPTools`) |
-| Account-linking storage               | Pluggable; default SQLite via `LinkStore` (in `authd`)       |
-| Pending OAuth state                   | Pluggable; default in-memory via `StateStore` (in `authd`)   |
+| Role                                  | Where                                                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Verify a token                        | Any daemon — `auth.VerifyHTTP` against cached JWKs, no hop                                                |
+| Mint a token from claims              | `authd` only — the sole signer                                                                            |
+| Downscope an existing token           | `authd.MintNarrower` (MCP `mint_token` forwards to it)                                                    |
+| Publish public JWKs                   | `authd` at `/v1/keys`                                                                                     |
+| OAuth login + callback                | `authd` (mounts `auth.Handlers`); proxyd delegates                                                        |
+| MCP tools (`whoami`, `mint_token`, …) | gated's ipc subsystem / `mcpd` (mounts `auth.MCPTools`)                                                   |
+| Account-linking storage               | Pluggable; default SQLite via `LinkStore` (in `authd`)                                                    |
+| Pending OAuth state                   | Pluggable; default in-memory via `StateStore` (in `authd`)                                                |
+| Service identity (daemon→authd/gated) | `authd` mints a service JWT per daemon at boot from `AUTHD_SERVICE_KEY`; `auth.ServiceToken` refreshes it |
 
 ## What this spec is not
 
@@ -270,7 +310,7 @@ surface) is `authd`.
 
 `authd` is extracted **standalone first**, before the rest of the gated
 split. It proves the `<daemon>/api/v1/` + `types/` pattern that
-`routerd`/`agent-runnerd`/`mcp-hostd` adopt in a **later release**
+`routd`/`runed`/`mcpd` adopt in a **later release**
 (sequencing: [`U-genericization.md`](U-genericization.md) "gated split").
 
 1. **Extract arizuko-specific code.** Move `acl.go`, `policy.go`,
@@ -291,7 +331,7 @@ split. It proves the `<daemon>/api/v1/` + `types/` pattern that
 4. **Offline verification everywhere.** Backends call `auth.FetchKeys`
    and verify against cached JWKs (no signing key on backends). MCP
    `mint_token` forwards to `authd`; gated's ipc subsystem
-   (`mcp-hostd` after the split) mounts the read-only tools locally.
+   (`mcpd` after the split) mounts the read-only tools locally.
 
 5. **Document for non-arizuko deployment.** `authd/README.md` +
    `auth/README.md` cover standalone `authd` + "verify with the library"
@@ -320,7 +360,7 @@ later release.
   (mint). The sole signer.
 - `proxyd/main.go` — delegates login to `authd`; verifies via
   `auth.FetchKeys`; no local mint.
-- `gated/ipc/...` (or `mcp-hostd` after the split) — registers
+- `gated/ipc/...` (or `mcpd` after the split) — registers
   `auth.MCPTools`; `mint_token` forwards to `authd`.
 
 ## Status (2026-05-26)

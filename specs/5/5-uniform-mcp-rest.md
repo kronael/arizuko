@@ -241,12 +241,12 @@ Other daemons do not sign; they call `authd /v1/tokens` with the trigger
 context and receive a signed token, or delegate the user-facing flow to
 `authd` directly.
 
-| Trigger surface                             | Triggers on                         | Token shape                        | How                                            |
-| ------------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------- |
-| **proxyd**                                  | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)          |
-| **MCP host** (`ipc/` in gated; `mcp-hostd`) | Agent container spawn / socket bind | agent capability, folder-scoped    | requests token from `authd` at spawn           |
-| **onbod**                                   | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow |
-| **dashd**                                   | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow    |
+| Trigger surface                        | Triggers on                         | Token shape                        | How                                            |
+| -------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------- |
+| **proxyd**                             | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)          |
+| **MCP host** (`ipc/` in gated; `mcpd`) | Agent container spawn / socket bind | agent capability, folder-scoped    | requests token from `authd` at spawn           |
+| **onbod**                              | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow |
+| **dashd**                              | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow    |
 
 The MCP host obtains the agent token from `authd` at container spawn,
 embedding `(folder, grants snapshot)`. The token is passed into the

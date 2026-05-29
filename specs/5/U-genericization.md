@@ -49,6 +49,11 @@ Locked. Encoded once here so it stops being argued about:
   (`teled`, `whapd`, `slakd`, `discd`, `mastd`, `bskyd`, `reditd`,
   `emaid`, `twitd`, `linkd`). A daemon is a process, owns at most one
   DB, exposes REST and/or MCP.
+- **Short names: a ≤4-letter root + `d`** (`authd`, `gated`, `timed`,
+  `dashd`). New daemons follow this — the gated-split products are
+  `routd` (router), `runed` (agent runner), `mcpd` (MCP host), **not**
+  `routerd`/`agent-runnerd`/`mcp-hostd`. Keep the root recognisable but
+  short; the `d` is the daemon marker, not part of the word.
 - **Libraries** do not end in `d`: `auth`, `audit`, `obs`, `resreg`,
   `chanlib`, `grants`, `core`, `types`. Imported, never run.
 - **No nesting for shared things.** Top-level paths: `arizuko/audit`,
@@ -249,7 +254,7 @@ secret does today, what replaces it) lives in
 **Sequencing (decided).** `authd` is extracted **standalone first**, in
 its own release — it proves the `<daemon>/api/v1/` + `types/` pattern and
 becomes the sole token signer (ES256, publishes JWKs). The rest of the
-gated split (`routerd` / `agent-runnerd` / `mcp-hostd`) is a **later
+gated split (`routd` / `runed` / `mcpd`) is a **later
 release**, not the same cutover. See [1-auth-standalone.md](1-auth-standalone.md).
 
 ## What's coupled today (audit)
@@ -313,12 +318,12 @@ previously-proposed `core.TenantID` reverse alias plus an
 Naming work (Phase A) is mostly cosmetic. The real genericization is
 **semantic**: peeling arizuko-domain concepts out of generic primitives.
 
-| Daemon  | Semantic coupling                                                                            | Decoupling                                                                                                                                                  |
-| ------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `slakd` | Stores `PaneSession` for "agent pane in Slack" — a gateway concept leaking into the adapter. | Move pane lifecycle into gateway; adapter exposes a generic `pane/api/v1/` surface (open/close/post-as).                                                    |
-| `gated` | Hosts schema for every other daemon's tables; folder/tier/group baked into messages.         | Phase C split. Pull schema-authority into `routerd`'s own DB; agent-run state into `agent-runnerd`'s own DB; MCP host into `mcp-hostd` (or co-deploy with). |
-| `webd`  | UI-shaped query layer assumes folder/tier; chat widget arizuko-flavoured.                    | Acceptance is "imports `types.Folder`, not `core.Group`"; UI replacement is operator's job.                                                                 |
-| `onbod` | Invite + admission model uses arizuko-domain "tier".                                         | Replace `tier int` with `scope []string` per § _Capability vs tier_.                                                                                        |
+| Daemon  | Semantic coupling                                                                            | Decoupling                                                                                                                                   |
+| ------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slakd` | Stores `PaneSession` for "agent pane in Slack" — a gateway concept leaking into the adapter. | Move pane lifecycle into gateway; adapter exposes a generic `pane/api/v1/` surface (open/close/post-as).                                     |
+| `gated` | Hosts schema for every other daemon's tables; folder/tier/group baked into messages.         | Phase C split. Pull schema-authority into `routd`'s own DB; agent-run state into `runed`'s own DB; MCP host into `mcpd` (or co-deploy with). |
+| `webd`  | UI-shaped query layer assumes folder/tier; chat widget arizuko-flavoured.                    | Acceptance is "imports `types.Folder`, not `core.Group`"; UI replacement is operator's job.                                                  |
+| `onbod` | Invite + admission model uses arizuko-domain "tier".                                         | Replace `tier int` with `scope []string` per § _Capability vs tier_.                                                                         |
 
 Design-per-case; no one-size mechanic. Each lands as its own commit,
 the daemon's `api/v1/` shipping in the same release.
@@ -330,41 +335,52 @@ buy it standalone status, extract it. **One-shot per § NO BACKWARD
 COMPATIBILITY:** the extracted daemon ships, the old code deletes, in
 the same release.
 
-`gated` is the headline split:
+`gated` is the headline split. **Sequencing + mechanics (decided):**
+`authd` is carved out **first, in its own release** (it is the auth spine
+and proves the `<daemon>/api/v1/` + `types/` pattern —
+[1-auth-standalone.md](1-auth-standalone.md)). The remaining split —
+`routd` + `runed` + `mcpd` — is then a **single big-bang multi-DB
+cutover**, not one daemon per release: all three carve their tables into
+their own DBs in one coordinated migration, the monolithic `messages.db`
+schema-authority in `gated` is deleted, and there is **no backward-compat
+shim** and no shared-DB interim. The naming follows the 4-letter-root + `d`
+convention (`routd`, `runed`, `mcpd`; `authd` already conforms) — see
+§ _Naming convention_.
 
-| New daemon      | Owns                                                                                                                                                       | Serves `/v1/`                            | Hosts MCP tools                                                                         | What stays out             |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
-| `routerd`       | `tenants`, `rules`, `events` tables (own DB)                                                                                                               | `tenants`, `rules`, `events`, `subjects` | routing-control tools (`set_routes`, `match_subject`, `tenant.create`)                  | no agent, no chat, no tier |
-| `agent-runnerd` | container lifecycle, per-spawn state (own DB)                                                                                                              | `spawns`, `spawn_logs`                   | agent-host tools (`spawn`, `kill`, `stream_output`)                                     | no routing logic           |
-| `mcp-hostd`     | per-tenant MCP socket, capability-token brokering (downscoped tokens signed by `authd`, see [1-auth-standalone.md](1-auth-standalone.md)), tool federation | `mcp_tokens`                             | aggregates other daemons' MCP tools (`fetch`, `send_reply`, ...) — federated, not local | no domain state            |
+| New daemon | Owns                                                                                                                                                       | Serves `/v1/`                            | Hosts MCP tools                                                                         | What stays out             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------- |
+| `routd`    | `tenants`, `rules`, `events` tables (own DB)                                                                                                               | `tenants`, `rules`, `events`, `subjects` | routing-control tools (`set_routes`, `match_subject`, `tenant.create`)                  | no agent, no chat, no tier |
+| `runed`    | container lifecycle, per-spawn state (own DB)                                                                                                              | `spawns`, `spawn_logs`                   | agent-host tools (`spawn`, `kill`, `stream_output`)                                     | no routing logic           |
+| `mcpd`     | per-tenant MCP socket, capability-token brokering (downscoped tokens signed by `authd`, see [1-auth-standalone.md](1-auth-standalone.md)), tool federation | `mcp_tokens`                             | aggregates other daemons' MCP tools (`fetch`, `send_reply`, ...) — federated, not local | no domain state            |
 
-`authd` is the fourth gated-split product, specified in its own
-[1-auth-standalone.md](1-auth-standalone.md); cataloged here only as
-one of the extraction targets.
+`authd` is the **first** gated-split product (its own release, ahead of
+the big-bang cutover above), specified in its own
+[1-auth-standalone.md](1-auth-standalone.md); cataloged here only as the
+extraction target that goes first.
 
 After the split, arizuko-as-product is a composition:
 
-- **arizuko (full)** = `proxyd + authd + routerd + agent-runnerd + mcp-hostd + onbod + webd + dashd + timed + channel adapters`
-- **minimal-router** = `proxyd + authd + routerd`
-- **chatops-platform** = `proxyd + authd + routerd + <custom handlerd>` (subscribes to events, no AI)
+- **arizuko (full)** = `proxyd + authd + routd + runed + mcpd + onbod + webd + dashd + timed + channel adapters`
+- **minimal-router** = `proxyd + authd + routd`
+- **chatops-platform** = `proxyd + authd + routd + <custom handlerd>` (subscribes to events, no AI)
 
 Open at the time of split (decide during implementation, not here):
-does `mcp-hostd` ever ship as a separate process, or always co-deploy
-with `agent-runnerd`? Lean: always co-deploy; spec the boundary for
+does `mcpd` ever ship as a separate process, or always co-deploy
+with `runed`? Lean: always co-deploy; spec the boundary for
 clarity, ship as one binary.
 
 `ipc/`'s current tool surface partitions cleanly:
 
 - Routing-control (`set_routes`, `add_route`, `match_subject`, …) →
-  `routerd`.
-- Agent-host (`spawn`, container ops) → `agent-runnerd`.
+  `routd`.
+- Agent-host (`spawn`, container ops) → `runed`.
 - Send/reply/post/upload (the chanlib-adjacent fan-out) → a thin
-  federation in `mcp-hostd`; each call forwards to the right adapter
+  federation in `mcpd`; each call forwards to the right adapter
   daemon via that adapter's `/v1/*`.
 
 ## ContainerRuntime — pluggable sandbox backends
 
-`agent-runnerd` (Phase C) owns per-spawn lifecycle. Today
+`runed` (Phase C) owns per-spawn lifecycle. Today
 [`container/runner.go`](../../container/runner.go) does everything in
 one place: docker invocation, MCP socket, mounts, egress register,
 stdio plumbing, deadline timers. Splitting the _container-mechanics_
@@ -470,7 +486,7 @@ adapted to arizuko's spawn-per-turn shape):
    and reading `Handle.Stdout` yields the agent's response.
 
 A `FakeRuntime` lives next to the interface for tests of code that
-_uses_ a runtime (gateway, agent-runnerd) without spawning real
+_uses_ a runtime (gateway, runed) without spawning real
 containers.
 
 ### Migration path
@@ -492,7 +508,7 @@ One-shot per § NO BACKWARD COMPATIBILITY:
 
 - Live migration between backends mid-turn (one runtime owns the
   container start-to-kill).
-- Per-tenant runtime selection (one `agent-runnerd` = one runtime;
+- Per-tenant runtime selection (one `runed` = one runtime;
   mixed backends run multiple instances behind different routes).
 - Cross-backend state replication.
 - Warm-pool reuse across turns (a separate spec if/when it lands).
@@ -539,19 +555,19 @@ Surface here; deep-spec on demand. None blocking.
 
 One contract test per daemon, in `tests/standalone/<daemon>_test.go`:
 
-| Daemon            | Standalone-ready test                                                                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `davd`            | Boots with `WEBDAV_ROOT=/tmp/data WEBDAV_PORT=8090`; serves PROPFIND; no `arizuko/*` imports in the binary's go-list output.                                                                                 |
-| `ttsd`            | Boots with `TTS_BACKEND_URL=http://kokoro:8880`; forwards `/v1/audio/speech`; no arizuko imports.                                                                                                            |
-| `proxyd`          | Boots with a one-route TOML pointing at a stub backend; OAuth login round-trips against one provider; no `core.Folder` import in the binary.                                                                 |
-| `timed`           | Boots with `DB_PATH=/tmp/timed.db`; schedules and fires one task on a generic webhook URL; `chat_jid` replaced with `types.Folder` end-to-end.                                                               |
-| `authd` (first)   | Boots standalone with `DB_PATH=/tmp/authd.db`; generates an ES256 keypair; mints a JWT for a stub OAuth callback; serves public JWKs at `/v1/keys`; another daemon offline-verifies via the `auth/` library. |
-| `routerd` (later) | Boots with `DB_PATH=/tmp/routerd.db`; accepts an event POST, matches via a rule, returns the matched tenant.                                                                                                 |
-| `auth/`           | Verify-only library (no signing key) imported by a sample standalone binary that verifies an ES256 JWT against `authd`'s JWKs endpoint; no `arizuko/*` peer imports beyond `types/` and `authd/api/v1/`.     |
-| Channel adapters  | Boot against a stub `chanreg` HTTP endpoint; emit an inbound event with `types.Folder` set; no `core.Folder` import.                                                                                         |
-| `onbod`           | Boots with a generic invite flow (no `folder` in the token); creates a `tenant` row.                                                                                                                         |
-| `webd`            | (Honest:) **not standalone-ready** — UI baked against arizuko chat shapes. Acceptance: passes the static-import check (no `core.Folder`), accepts arizuko-domain bindings via config.                        |
-| `dashd`           | (Same as webd:) UI not reusable; acceptance is the static-import check + arizuko bindings via config.                                                                                                        |
+| Daemon           | Standalone-ready test                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `davd`           | Boots with `WEBDAV_ROOT=/tmp/data WEBDAV_PORT=8090`; serves PROPFIND; no `arizuko/*` imports in the binary's go-list output.                                                                                 |
+| `ttsd`           | Boots with `TTS_BACKEND_URL=http://kokoro:8880`; forwards `/v1/audio/speech`; no arizuko imports.                                                                                                            |
+| `proxyd`         | Boots with a one-route TOML pointing at a stub backend; OAuth login round-trips against one provider; no `core.Folder` import in the binary.                                                                 |
+| `timed`          | Boots with `DB_PATH=/tmp/timed.db`; schedules and fires one task on a generic webhook URL; `chat_jid` replaced with `types.Folder` end-to-end.                                                               |
+| `authd` (first)  | Boots standalone with `DB_PATH=/tmp/authd.db`; generates an ES256 keypair; mints a JWT for a stub OAuth callback; serves public JWKs at `/v1/keys`; another daemon offline-verifies via the `auth/` library. |
+| `routd` (later)  | Boots with `DB_PATH=/tmp/routd.db`; accepts an event POST, matches via a rule, returns the matched tenant.                                                                                                   |
+| `auth/`          | Verify-only library (no signing key) imported by a sample standalone binary that verifies an ES256 JWT against `authd`'s JWKs endpoint; no `arizuko/*` peer imports beyond `types/` and `authd/api/v1/`.     |
+| Channel adapters | Boot against a stub `chanreg` HTTP endpoint; emit an inbound event with `types.Folder` set; no `core.Folder` import.                                                                                         |
+| `onbod`          | Boots with a generic invite flow (no `folder` in the token); creates a `tenant` row.                                                                                                                         |
+| `webd`           | (Honest:) **not standalone-ready** — UI baked against arizuko chat shapes. Acceptance: passes the static-import check (no `core.Folder`), accepts arizuko-domain bindings via config.                        |
+| `dashd`          | (Same as webd:) UI not reusable; acceptance is the static-import check + arizuko bindings via config.                                                                                                        |
 
 Standalone-ready ≠ reusable for other workloads in every case — `webd`
 and `dashd` are arizuko-UI by definition. The bar for them is "no
@@ -583,8 +599,8 @@ internal package imports beyond `types/` and other daemons' `api/v1/`"
 3. **Phase B — semantic decoupling.** Per-case (slakd PaneSession,
    gateway folder dependencies, onbod tier→scope). Design-per-daemon;
    one-shot per release.
-4. **Phase C — extraction.** Gated split into routerd + agent-runnerd +
-   mcp-hostd; authd extracted per
+4. **Phase C — extraction.** Gated split into routd + runed +
+   mcpd; authd extracted per
    [1-auth-standalone.md](1-auth-standalone.md); HMAC retirement ships
    in the same release. One-shot per § NO BACKWARD COMPATIBILITY.
 5. **`<daemon>/api/v1/` rollout.** Gradual; do it for a daemon when its
@@ -616,9 +632,9 @@ revert`; no dual API periods. Locked (CLAUDE.md + user directive).
 - **Phase B.1 dropped**: shared `messages.db` stays until a daemon goes
   to its own DB; no hybrid "shared file, per-daemon prefix" step.
 - **gated split**: yes, after Phase B. Spec'd as four logical daemons
-  (`routerd`, `agent-runnerd`, `mcp-hostd`, `authd`); physically two to
+  (`routd`, `runed`, `mcpd`, `authd`); physically two to
   four binaries depending on co-deployment.
-- **Channel adapters as edge daemons**: yes — they connect to `routerd`
+- **Channel adapters as edge daemons**: yes — they connect to `routd`
   via `/v1/events`. The current chanreg-over-HTTP pattern is already
   that shape; what changes is the message type (generic, not
   `chanlib.InboundMsg`).
@@ -634,9 +650,9 @@ revert`; no dual API periods. Locked (CLAUDE.md + user directive).
   `core.Folder` / `core.Tier`.
 - `chanlib/chanlib.go` — the cleanest current "generic message"
   abstraction; `chanlib.InboundMsg` becomes the bridge between channel
-  adapters and `routerd`.
+  adapters and `routd`.
 - `gated/main.go` — entry point for the future split.
-- `container/runner.go` — the `agent-runnerd` core.
+- `container/runner.go` — the `runed` core.
 - [A-orthogonal-components.md](A-orthogonal-components.md) — the
   sibling-component discipline (zero internal-package imports), updated
   to permit `<daemon>/api/v1/` imports.

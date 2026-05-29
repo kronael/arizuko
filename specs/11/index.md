@@ -16,6 +16,8 @@ standalone shippable units usable outside arizuko.
 | [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md) | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing                                    |
 | [14-surrogate-oauth.md](14-surrogate-oauth.md)         | draft                | Surrogate OAuth dance + refresh wrapper — writer-side feed into 10/11's `secrets` table |
 | [15-crackbox-dns-filter.md](15-crackbox-dns-filter.md) | draft                | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host`; ANY refused              |
+| [16-messaging-gateway.md](16-messaging-gateway.md)     | draft                | Generic message router over opaque ids; `routd` adds folder/grant domain on top         |
+| [17-mcp-firewall.md](17-mcp-firewall.md)               | draft                | Transparent MCP proxy; deny-wins tool-call filter on flat ruleset; `mcpd` sits behind   |
 | [c-sandd.md](c-sandd.md)                               | draft                | Sandbox-spawn daemon; gated keeps spawn ownership for now                               |
 
 The orthogonal-components pattern (the discipline this phase's

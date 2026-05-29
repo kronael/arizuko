@@ -11,7 +11,7 @@ platform; the platform runs the tenants.
 
 Rides on [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) (federated `/v1/*` and
 capability tokens) and [U-genericization.md](U-genericization.md)
-(`tenant_id`, `agent-runnerd`). Shares its seeding code with
+(`tenant_id`, `runed`). Shares its seeding code with
 [../8/R-products.md](../8/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
 [`refs/openclaw-managed-agents/openapi/openapi.yaml`](../../refs/openclaw-managed-agents/openapi/openapi.yaml).
@@ -114,7 +114,7 @@ user --POST /v1/agents--> gated
   ├── queued: insert admissions row, return 202
   └── approved:
         ├── insert groups + user_agents + user_agent_versions
-        ├── agent-runnerd.SetupGroup(tenant_id, definition)
+        ├── runed.SetupGroup(tenant_id, definition)
         ├── register channel bindings via gated/v1/routes
         ├── mint slink/MCP token (5/5 §Token)
         └── return { agent, token, slink_url }
@@ -123,7 +123,7 @@ user --POST /v1/agents--> gated
 `arizuko create --product <name>` collapses to the same flow with
 `user_sub=operator`, `auto_approve=true`, definition sourced from
 `ant/examples/<name>/`. One code path; the menu is the operator's
-shortcut. `agent-runnerd` is per U-genericization Phase C; until that
+shortcut. `runed` is per U-genericization Phase C; until that
 ships, `container.SetupGroup` + gateway do the job.
 
 ## Out of scope
@@ -140,13 +140,13 @@ ships, `container.SetupGroup` + gateway do the job.
 
 ## Touches
 
-| Daemon                                   | Change                                                                                    |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `gated`                                  | `/v1/agents` routes; tables `user_agents`, `user_agent_versions`; `groups.created_by`.    |
-| `agent-runnerd` / `container.SetupGroup` | Accept definition body as alternative to product folder.                                  |
-| `onbod`                                  | Reuse admissions queue for approvals when not auto-approving.                             |
-| `authd`                                  | Mints the creation token (sole signer); defines the user-spawned scope-set (no new tier). |
-| `dashd`                                  | Operator UI for approval queue + tenant list.                                             |
+| Daemon                           | Change                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `gated`                          | `/v1/agents` routes; tables `user_agents`, `user_agent_versions`; `groups.created_by`.    |
+| `runed` / `container.SetupGroup` | Accept definition body as alternative to product folder.                                  |
+| `onbod`                          | Reuse admissions queue for approvals when not auto-approving.                             |
+| `authd`                          | Mints the creation token (sole signer); defines the user-spawned scope-set (no new tier). |
+| `dashd`                          | Operator UI for approval queue + tenant list.                                             |
 
 Migration: `store/migrations/NNN-user-agents.sql`.
 
