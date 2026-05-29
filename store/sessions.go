@@ -179,15 +179,28 @@ func (s *Store) FlushSysMsgs(folder string) string {
 	var b strings.Builder
 	for rows.Next() {
 		var origin, event, body string
-		rows.Scan(&origin, &event, &body)
+		if err := rows.Scan(&origin, &event, &body); err != nil {
+			rows.Close()
+			return ""
+		}
 		fmt.Fprintf(&b, "<system origin=%q event=%q>%s</system>\n", origin, event, body)
 	}
+	scanErr := rows.Err()
 	rows.Close()
-
-	if b.Len() > 0 {
-		tx.Exec(`DELETE FROM system_messages WHERE group_id = ?`, folder)
+	// Never delete rows we failed to render: leave them for the next flush.
+	if scanErr != nil {
+		return ""
 	}
-	tx.Commit()
+
+	if b.Len() == 0 {
+		return ""
+	}
+	if _, err := tx.Exec(`DELETE FROM system_messages WHERE group_id = ?`, folder); err != nil {
+		return ""
+	}
+	if err := tx.Commit(); err != nil {
+		return ""
+	}
 	return b.String()
 }
 
