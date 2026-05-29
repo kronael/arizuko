@@ -112,6 +112,14 @@ Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
   cron / function-chain / manual via `systemd-run --transient` under
   per-folder cgroup slice; host-side `fnspd` spawner bridges
   containerized gated to host systemd-user manager. Status: draft.
+- [7-configurable-autocalls.md](7-configurable-autocalls.md) —
+  operator-extensible `<autocalls>` block: a DB-backed, resreg-managed
+  resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
+  builtins. Two bounded kinds — `template` (pure, zero-I/O over
+  `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
+  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/31's
+  planned `unread`/`errors` entries; "agent is data" applied to what
+  the agent passively sees. Status: draft.
 
 ## Open questions (referenced from each spec)
 
