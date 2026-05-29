@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: [1-auth-standalone, 35-proxyd-standalone]
 ---
 
