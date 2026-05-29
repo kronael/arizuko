@@ -4,327 +4,309 @@ status: draft
 
 # Ant backend abstraction — Codex as second harness
 
-A `Backend` interface in ant lets the runtime drive different
-agentic harnesses underneath, with the MCP surface above unchanged.
-First implementation: the existing claude-CLI driver. Second
-implementation: OpenAI's Codex via `codex app-server` (JSON-RPC 2.0
-over stdio). Future candidates: `opencode.ai`, etc.
-
-Sibling to [../12/c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md)
-(the claude-specific runtime), which becomes the first
-implementation of this interface.
+A `Backend` interface inside the in-container agent (`ant/src/`) lets
+the runtime drive different agentic harnesses underneath. First
+implementation wraps the harness ant ships today (Claude Code via
+`@anthropic-ai/claude-agent-sdk`). Second implementation: OpenAI's
+Codex via `codex app-server` (JSON-RPC 2.0 over stdio). The MCP
+surface above the backend — the agent's `send`/`reply`/`inspect_*`
+tools and `submit_turn`, served on runed's per-tenant socket — does
+not change.
 
 ## Core principle: ant wraps harnesses, never is one
 
-Stated up front because it scopes everything below: **ant does not
-implement agent loops.** The agent loop — model calls, tool
-execution, multi-step reasoning, retries, prompt caching, session
-state, the whole "agentic" part — lives entirely in the external
-harness. Ant spawns the harness, speaks its wire protocol, and
-exposes the result over MCP.
+**ant does not implement agent loops.** Model calls, tool execution,
+multi-step reasoning, retries, prompt caching, session state — the
+whole agentic part — live in the external harness. ant spawns the
+harness, reads its event stream, and reports one turn result over
+`submit_turn`. The `Backend` is the seam between "ant's per-turn
+contract" and "one harness's wire protocol."
 
 Consequences:
 
-- No "API-direct" backend. Calling Anthropic / OpenAI APIs and
-  running our own loop is explicitly not a backend.
-- No vendor-neutral abstraction layer pretending to unify
-  disparate provider APIs. LiteLLM-shaped wrappers are a different
-  product.
-- A harness that doesn't have a clean wire protocol (TUI-only,
-  one-shot only, signal-driven interrupt) is not a candidate.
-- Anything that requires ant to grow features the harness already
-  has (skills, MCP-client, permission system, file tools) is out
-  of scope.
+- No "API-direct" backend. Calling Anthropic/OpenAI APIs and running
+  our own loop is not a backend.
+- No vendor-neutral layer unifying disparate provider APIs. LiteLLM
+  is a different product.
+- A harness with no clean wire protocol (TUI-only, one-shot only,
+  SIGINT-interrupt) is not a candidate.
+- A harness that lacks features ant relies on the harness for (skills,
+  MCP client, file tools, permission modes) is out of scope.
 
-The value ant adds is **wrapping and improving** existing harnesses
-into a coherent, MCP-fronted, folder-shaped, operator-managed
-system. The harnesses do the model work.
+## Where the seam sits
 
-## Why now (planned, not unshipped)
+The shipping runtime (`ant/src/index.ts`) does exactly four things the
+`Backend` abstracts:
 
-The claude driver works. Operationally there is no immediate
-requirement for a second harness. This spec stays `planned` until
-one of these triggers fires:
+1. **Spawn a session** — today `query({ prompt: stream, options })`
+   from the SDK, which spawns `claude --output-format stream-json
+--input-format stream-json`.
+2. **Feed user turns** — push text onto the `MessageStream`
+   async-iterable (initial prompt + IPC-steered mid-turn messages).
+3. **Consume the harness event stream** — the `for await` loop over
+   SDK messages: `system/init` (capture `session_id`), `assistant`
+   (track `uuid` for resume), `result` (the turn-terminating event
+   carrying text + `modelUsage`).
+4. **Report the turn** — on the `result` event, call `submitTurn(...)`
+   with `{turn_id, session_id, status, result, error, models}`
+   (`ant/src/mcp.ts`).
 
-1. **Vendor lock concern**: an arizuko deployment context where
-   OpenAI is required or preferred over Anthropic.
-2. **Capability gap**: a real workload claude handles poorly that
-   another harness handles well.
-3. **Reliability**: claude rate-limited or outage; need a fallback
-   per agent at the runtime level.
-
-When a trigger fires, this spec flips to `unshipped` and the
-implementation work begins. The pre-work — getting the `Backend`
-interface right, picking Codex over Open Interpreter — is captured
-here so it doesn't need to be redone.
-
-## Harness picked: Codex (`codex app-server`)
-
-Researched against Open Interpreter and `opencode.ai`. Summary
-from the oracle survey:
-
-| Axis               | Claude CLI (today) | Codex `app-server`                                                            | Open Interpreter                 |
-| ------------------ | ------------------ | ----------------------------------------------------------------------------- | -------------------------------- |
-| Wire shape         | NDJSON over stdio  | JSON-RPC 2.0 over stdio/unix/ws                                               | Python lib, optional FastAPI SSE |
-| Streaming          | message deltas     | `item/agentMessage/delta` events                                              | SSE chunks                       |
-| Multi-turn in proc | yes                | yes (`thread/start`, `turn/start`)                                            | yes in Python lib, no via CLI    |
-| Interrupt          | protocol message   | `turn/interrupt` RPC + `turn/steer` mid-turn nudges                           | SIGINT only                      |
-| Tool use           | structured         | structured `mcpToolCall`, `command/exec`, `fs/*`                              | code execution; loose            |
-| MCP                | client + server    | client (config in `~/.codex/config.toml`) + server (`codex_mcp_interface.md`) | not really                       |
-| Auth               | OAuth / API key    | ChatGPT OAuth or `OPENAI_API_KEY`                                             | LiteLLM-routed                   |
-| License            | proprietary        | Apache-2.0                                                                    | AGPL-3.0                         |
-| Last release       | active             | weekly through 2026                                                           | Oct 2024 (stalled)               |
-| Sandboxing         | permission modes   | sandbox policies + permission profiles + approval flow                        | trust-by-default                 |
-
-Codex wins on every operational axis: documented protocol, first-
-class interrupt, structured tool-use, MCP integration, active
-maintenance, permissive license, near-isomorphic loop shape.
-
-OI eliminated: stalled (18 months since last release), AGPL
-(licensing friction for distributed servers), no first-class CLI
-protocol, no documented interrupt.
-
-`opencode.ai` noted as a strong third candidate (MIT, claude-cli-
-shaped, HTTP+SSE server). If a third backend lands later, this is
-where to look.
+Everything else in `index.ts` — IPC drain, progress nudges, transcript
+archiving, secret sanitizing, MCP-server assembly, system-prompt build
+— is harness-agnostic and stays in the runtime, above the `Backend`.
 
 ## The `Backend` interface
 
-Lives in `ant/pkg/backend/`. Both `internal/claude/` and a future
-`internal/codex/` implement it.
+Lives in `ant/src/backend/`. `backend/claude.ts` wraps the current SDK
+path; `backend/codex.ts` drives `codex app-server`. The runtime
+(`index.ts`) selects one and consumes its event iterator.
 
-```go
-// Backend spawns and owns one harness subprocess per session.
-type Backend interface {
-    Spawn(ctx context.Context, cfg SessionConfig) (Driver, error)
-    Name() string         // "claude" | "codex" | …
-    Capabilities() Caps   // declares what's supported
+```ts
+// A Backend spawns one harness session and yields normalized events.
+export interface Backend {
+  name(): 'claude' | 'codex';
+  caps(): Caps;
+  // Spawn the harness for a session. The returned Session is live until
+  // close(). Throws if the harness binary is missing or fails to start.
+  spawn(cfg: SessionConfig): Promise<Session>;
 }
 
-// Driver drives one live session over the harness's wire protocol.
-type Driver interface {
-    Events() <-chan Event                       // streaming output
-    SendUserMessage(text string) error          // user turn
-    Interrupt(ctx context.Context) (Ack, error) // mid-turn stop
-    SetModel(ctx context.Context, model string) (Ack, error)
-    SetPermissionMode(ctx context.Context, mode string) (Ack, error)
-    Close() error
+// A live harness session. The runtime drives one turn at a time:
+// send() one user message, drain events() until an event with
+// final:true, repeat for steered follow-ups, then close().
+export interface Session {
+  events(): AsyncIterable<Event>; // normalized harness output
+  send(text: string): void; // push a user turn (initial + steering)
+  interrupt(): Promise<void>; // mid-turn stop (close sentinel today)
+  close(): void; // end session, kill subprocess
+  sessionId(): string | undefined; // harness session id, set after init
 }
 
-// Event is a normalized event from any harness.
-type Event struct {
-    Type    EventType // EvSystemInit, EvAssistant, EvToolUse, EvToolResult,
-                     // EvResult, EvRateLimit, EvKeepAlive
-    Raw     map[string]any // harness-native payload (preserved verbatim)
-    Text    string         // best-effort extracted text (helper)
-    Final   bool           // true on the turn-terminating event
+// Normalized event. type drives runtime behavior; raw is the
+// harness-native payload, preserved verbatim for logging.
+export interface Event {
+  type: 'init' | 'assistant' | 'tool' | 'result';
+  raw: unknown;
+  sessionId?: string; // set on 'init'
+  text?: string; // assistant/result text, best-effort
+  final: boolean; // true on the turn-terminating 'result'
+  status?: 'success' | 'error'; // set on 'result'
+  error?: string; // set on a failed 'result'
+  models?: Record<string, ModelUsage>; // set on 'result' (ant/src/mcp.ts)
 }
 
-// SessionConfig is the union of what any backend might accept.
-// Backends ignore fields they don't support; Capabilities() declares which.
-type SessionConfig struct {
-    Model          string
-    Cwd            string
-    SessionID      string
-    Resume         string
-    SystemPrompt   string
-    MCPConfig      string
-    PermissionMode string
-    AddDirs        []string
-    Env            []string
-    ExtraArgs      []string
+// What the runtime passes in. Mirrors the fields index.ts already
+// threads into query(). A backend ignores fields it can't honor;
+// caps() declares which.
+export interface SessionConfig {
+  cwd: string; // HOME = /home/node
+  model?: string; // ARIZUKO_MODEL
+  resume?: string; // prior harness session id
+  resumeAt?: string; // resume anchor (claude: assistant uuid)
+  systemPrompt?: string; // buildSystemPrompt() output
+  mcpServers: Record<string, McpServerConfig>; // injectMcpEnv() output
+  additionalDirs?: string[]; // extraDirs
+  env: Record<string, string | undefined>; // sdkEnv (secrets folded in)
 }
 
-// Capabilities is what a backend reports up front; the MCP layer
-// surfaces this to callers so they don't ask for things the backend
-// can't do.
-type Caps struct {
-    Streaming        bool
-    Interrupt        bool
-    MultiTurn        bool
-    SetModelLive     bool
-    PermissionPrompt bool
-    ToolUse          bool
-    SessionResume    bool
-    MCPClient        bool
+// What a backend reports up front. The runtime degrades gracefully on
+// false (e.g. no live interrupt → close+respawn).
+export interface Caps {
+  interrupt: boolean;
+  multiTurn: boolean; // steer mid-session without respawn
+  sessionResume: boolean;
+  mcpClient: boolean; // consumes mcpServers natively
+  modelUsage: boolean; // reports per-model token/cost on result
 }
 ```
 
-Both claude and codex check every box in `Caps` today. The
-interface is sized for them; backends with fewer capabilities are
-allowed but explicitly degrade.
+Both claude and codex satisfy every `caps()` field today. The
+interface is sized for them; weaker harnesses are allowed but report
+`false` and degrade — never silently faked.
 
-## Event normalization
+`spawn` of an unknown or unconfigured backend is an error, not a
+fallback to claude (see § Backend selection).
 
-Each backend produces a normalized stream of `Event` values. The
-`Raw` field preserves the harness-native payload so callers that
-care about full fidelity (thinking blocks, tool-use shapes, usage
-stats) get everything. The `Type` field is the union of categories
-both backends share.
+## Event normalization — the load-bearing part
 
-Mapping table:
+Each backend maps its native stream onto `Event`. The runtime is
+identical for both: it loops `for await (e of session.events())`,
+tracks `e.sessionId`, and on `e.final` calls `submitTurn(...)` built
+from the event's `status`/`text`/`error`/`models`. There is **no
+per-message streaming to the MCP layer** — `submit_turn` is the single
+end-of-turn report (`ant/src/index.ts` `deliverTurn`).
 
-| Normalized     | claude NDJSON                                    | codex JSON-RPC                                      |
-| -------------- | ------------------------------------------------ | --------------------------------------------------- | --------------- |
-| `EvSystemInit` | `{type:"system", subtype:"init", …}`             | `thread/started` + initial caps                     |
-| `EvAssistant`  | `{type:"assistant", message:{content:[…]}}`      | `item/agentMessage/delta`, `item/agentMessage/done` |
-| `EvToolUse`    | `{type:"assistant"}` w/ `tool_use` content block | `item/mcpToolCall` / `command/exec`                 |
-| `EvToolResult` | `{type:"user"}` w/ `tool_result` content block   | `item/toolResult`                                   |
-| `EvResult`     | `{type:"result", subtype:"success"               | "error", …}`                                        | `turn/finished` |
-| `EvRateLimit`  | `{type:"rate_limit_event", …}`                   | analog if present                                   |
-| `EvKeepAlive`  | `{type:"keep_alive"}`                            | analog if present                                   |
+claude maps trivially (it already produces these via the SDK):
 
-Backends emit normalized events into the same channel the MCP layer
-already reads (`Driver.Events()`). The MCP server's `session.send`
-tool emits each event in a `notifications/progress` payload — same
-pattern as today, just the `Raw` field changes shape per backend.
+| `Event`        | claude SDK message                                  | codex `app-server` JSON-RPC                            |
+| -------------- | --------------------------------------------------- | ------------------------------------------------------ |
+| `init`         | `system` subtype `init` → `session_id`              | `thread/started` → `threadId`                          |
+| `assistant`    | `assistant` (track `uuid`)                          | `item/agentMessage/delta` + `item/agentMessage/done`   |
+| `tool`         | `assistant` w/ `tool_use` / `user` w/ `tool_result` | `item/mcpToolCall`, `command/exec`, `item/toolResult`  |
+| `result` ok    | `result` subtype `success` → `result`, `modelUsage` | `turn/finished` → assembled text + `usage`             |
+| `result` error | `result` subtype `error_during_execution`           | `turn/failed` / JSON-RPC error on `turn/start`         |
+| `result` retry | `result` subtype `error_max_turns`                  | `turn/finished` w/ truncation reason (runtime retries) |
 
-## What the MCP layer doesn't change
+`raw` preserves the native payload (claude content blocks, codex
+items) so stderr logging keeps full fidelity. The runtime's existing
+`error_max_turns` retry and `error_during_execution`
+session-reset paths key off `status`/`raw`, unchanged.
 
-The MCP front (`internal/mcp/`) and its tool surface (`session.*`)
-do not change. From above, the caller can't tell which harness is
-running underneath — same `tools/call`, same progress
-notifications, same `Ack` shapes on `session.interrupt` /
-`session.set_model`.
+## Driving `codex app-server`
 
-Per-session backend choice is configured at `session.create` time:
+`backend/codex.ts` spawns `codex app-server` and speaks JSON-RPC 2.0
+over its stdio. Lifecycle per session:
 
-```jsonc
-{"name":"session.create",
- "arguments":{
-   "backend": "codex",            // new arg; default "claude"
-   "model":   "gpt-5",
-   "cwd":     "/workspace",
-   …
- }}
-```
+1. `spawn`: launch `codex app-server` (subprocess, like the SDK spawns
+   `claude`). Send the initialize/setup request carrying `cwd`,
+   `model`, `systemPrompt`, and the MCP server list. Start a thread
+   (`thread/start`); on `resume`, attach the prior `threadId`.
+2. `send(text)`: `turn/start` with the user text. Steered messages
+   mid-turn use `turn/steer`.
+3. `events()`: read JSON-RPC notifications off stdout, map each to an
+   `Event` per the table, emit `final:true` on `turn/finished`.
+4. `interrupt()`: `turn/interrupt` RPC.
+5. `close()`: end the thread, kill the subprocess.
 
-If `backend` is omitted, the server's default is used — set per ant
-process via `--default-backend=claude|codex` on the CLI. The mix
-within one ant process is allowed: groupA's session on claude,
-groupB's session on codex. The MCP socket serves them both.
+MCP wiring: codex consumes MCP servers from `~/.codex/config.toml` or
+the setup payload. `backend/codex.ts` renders `cfg.mcpServers` into
+that format on `spawn`. Because both harnesses are MCP **clients**, the
+agent's tool calls reach runed's socket identically — no schema
+translation in ant. A harness without MCP-client support would force a
+translation layer, i.e. the "ant becomes an agent loop" trap ruled out
+above; such a harness is not a candidate.
 
-## Tool-use bridging — the load-bearing part
+Auth: claude reads `~/.claude` credentials; codex reads
+`~/.codex/auth.json` or `OPENAI_API_KEY`. The backend maps the
+ant-level secret (already in `cfg.env`) into the harness's expected
+location on `spawn`.
 
-Both claude and codex support MCP. The claude driver already passes
-`--mcp-config` to point claude at MCP servers it should consume.
-Codex has the same — configured in `~/.codex/config.toml` or via
-the app-server's setup payload. The backend's `Spawn` receives
-the same `MCPConfig` path and is responsible for installing it
-into the harness's native format.
+## Backend selection
 
-Consequence: when an agent uses tools, the tool calls flow through
-the harness's MCP-client to the MCP servers arizuko exposes (the
-`gated.sock` socket). The backend doesn't need to translate tool
-schemas — both harnesses speak MCP natively.
+Infra toggle, env var (per CLAUDE.md: instance-wide infra in env, not
+DB). The runtime reads `ARIZUKO_BACKEND` (default `claude`) from the
+container env runed sets at spawn. Unknown value → fatal error at
+startup, never a silent fallback.
 
-This is the load-bearing reason a swap is feasible at all: both
-harnesses' MCP-client behavior makes them interoperable on the
-tool side. A harness without MCP-client support would need a
-schema translation layer in ant — and that translation layer is
-exactly the "ant becomes an agent loop" tar pit we ruled out.
+Per-folder backend choice (a folder declaring `backend:` in its
+manifest) is deferred — see open questions. Mixed backends across
+folders fall out for free once selection is per-spawn: runed sets
+`ARIZUKO_BACKEND` per container.
 
 ## Folder shape compatibility
 
-The ant-folder (PERSONA.md, CLAUDE.md, skills/, MCP.json, secrets/,
-workspace/) is claude-shaped today: skills are markdown with
-frontmatter and `claude` auto-loads them from `.claude/skills/`.
+The agent folder (PERSONA.md, CLAUDE.md, skills/, MCP.json, secrets/,
+workspace/) is claude-shaped: skills are markdown that Claude Code
+auto-loads from `.claude/skills/`. Codex does not auto-load
+arizuko-shaped skills. v1: the codex backend concatenates relevant
+`SKILL.md` bodies into `cfg.systemPrompt` (lossy — no on-demand
+activation — but mechanically simple). Reframing skills as MCP tools
+both harnesses consume is the higher-fidelity follow-up, taken only if
+the codex backend sees real use. The folder shape itself does not
+change.
 
-Codex does not natively auto-load arizuko-shaped skills. Two options:
+## v1 scope
 
-1. **Materialize skills into Codex's system prompt** at session
-   creation. The codex backend reads `skills/`, concatenates
-   relevant SKILL.md bodies into the system prompt, and uses
-   Codex's `SystemPrompt` field. Lossy (no per-tool injection,
-   no on-demand activation) but mechanically simple.
+Ships:
 
-2. **Skills as MCP tools**. Reframe each skill as an MCP server
-   ant exposes via the same `gated.sock` mechanism, with tool
-   names derived from skill frontmatter. Both claude and codex
-   consume them uniformly. Higher fidelity but more plumbing.
+- `ant/src/backend/` with `Backend`/`Session`/`Event`/`Caps`/
+  `SessionConfig`. `backend/claude.ts` wraps the current `query()`
+  path with zero behavior change; `index.ts` consumes it via the
+  interface.
+- `backend/codex.ts` driving `codex app-server`: spawn, single turn,
+  streaming `events()`, `turn/interrupt`, MCP wiring, tool-use
+  round-trip.
+- `ARIZUKO_BACKEND` selection; unknown value is fatal.
+- v1 skill handling for codex = system-prompt concatenation.
 
-v1 of this spec picks (1). (2) is a follow-up if the codex
-backend sees real use and the system-prompt approach hits limits.
+Deferred:
 
-The folder shape itself doesn't change. The skills are still
-claude-shaped markdown, edited the same way. The backend's job is
-to feed them to whichever harness it drives.
+- Per-folder `backend:` manifest hint.
+- Skills-as-MCP-tools for codex.
+- A third backend (`opencode.ai` is the candidate: MIT, claude-cli-
+  shaped, HTTP+SSE — lands without disturbing the interface).
+- Codex image variant (separate `ARG CODEX_VERSION` Dockerfile).
 
-## Open questions
+## Acceptance
 
-1. **Codex version pin**. Same pinning model as claude — `ARG
-CODEX_VERSION` in `ant/Dockerfile` (when the codex backend
-   image variant exists). app-server protocol is younger than
-   claude's NDJSON; field-level breakage between releases is more
-   likely.
-2. **`Caps` declarations for legacy harnesses**. If a third
-   backend with weaker capabilities arrives (e.g. signal-only
-   interrupt), how does the MCP layer represent the degraded
-   surface to callers? A `Caps` field already exists; verify the
-   spec's discovery story (`session.capabilities` MCP tool?
-   include in `session.create` response?).
-3. **`opencode.ai` as third backend** — capture as future-work
-   note. It's MIT, HTTP+SSE server, claude-cli-shaped. Could land
-   without disturbing the interface.
-4. **Per-session backend choice vs per-folder default**. A folder
-   could declare its preferred backend in a manifest field; the
-   `session.create` default falls back to the folder hint, then
-   to the process default. Specify when the folder layout (b-)
-   gets a `backend:` slot.
-5. **Cost / latency reporting**. Both harnesses report token usage
-   in their final events; the `Event` normalization should expose
-   this in a uniform field so MCP responses can include cost
-   without backend-specific code in the MCP layer.
-6. **Authentication injection**. claude reads from
-   `~/.claude/credentials`; codex reads from `~/.codex/auth.json`
-   or `OPENAI_API_KEY`. Backend's responsibility to map a
-   single ant-level secret into the harness's expected location.
-
-## Acceptance (when this spec flips to unshipped)
-
-- `ant/pkg/backend/` defines `Backend`, `Driver`, `Event`,
-  `Caps`, `SessionConfig`. Both `internal/claude/` and
-  `internal/codex/` implement it.
-- `ant --default-backend=codex /workspace --mcp` starts a session
-  that runs against Codex; the MCP `session.send` tool streams
-  progress; `session.interrupt` lands a `turn/interrupt` RPC.
-- A real-`codex` smoke suite under `ant/test/smoke/codex/` mirrors
-  the claude one: basic turn, streaming send, interrupt mid-stream,
-  tool-use round-trip via an MCP server. Costs real tokens; opt-in.
-- A mixed-backend session list — `session.create` once with
-  claude, once with codex, both alive in one ant process — works
-  end-to-end.
-- `Caps()` for both backends is verified to match the actual
-  capability surface (no false advertising).
-- Zero changes to the MCP front (`internal/mcp/`) beyond accepting
-  the new `backend` arg in `session.create`.
+- `backend/claude.ts` passes the existing `src/` test suite with no
+  runtime behavior change (the refactor is invisible above the seam).
+- With `ARIZUKO_BACKEND=codex`, a turn runs against codex; the agent's
+  `submit_turn` reports the same `{status, result, session_id, models}`
+  shape; `interrupt()` lands a `turn/interrupt`.
+- A real-codex smoke suite under `ant/test/smoke/codex/` mirrors the
+  claude one: basic turn, mid-turn steer, interrupt, tool-use
+  round-trip through an MCP server. Costs real tokens; opt-in.
+- `caps()` for both backends matches the actual surface (no false
+  advertising).
+- Zero change to runed's MCP socket, the agent's tool surface, or the
+  `submit_turn` payload shape.
 
 ## Out of scope
 
-- Implementing API-direct against any vendor. Ruled out by the
-  core principle.
-- LiteLLM-style multi-vendor wrappers as a backend. Different
-  product; if it ever lands, lives next to ant, not inside.
-- Harness translation layers (transforming claude's NDJSON shape
-  into codex's protocol or vice versa). Each backend natively
-  speaks one harness; no cross-translation.
-- Forking a harness to fix protocol gaps. If a harness doesn't
-  have what we need, we wait for upstream or pick a different
-  harness. Not maintaining a fork.
-- Backend-specific operator verbs in arizuko. The fleet ops in
-  [../8/7-ant-portability.md](../8/7-ant-portability.md) work
-  identically regardless of backend, because they operate on the
-  folder, not the harness.
+- API-direct against any vendor (ruled out by the core principle).
+- LiteLLM-style multi-vendor wrappers as a backend.
+- Cross-harness protocol translation (each backend speaks one
+  harness natively).
+- Forking a harness to fix protocol gaps — wait for upstream or pick
+  another harness.
+- Backend-specific operator verbs. Fleet ops
+  ([../8/7-ant-portability.md](../8/7-ant-portability.md)) operate on
+  the folder, not the harness, so they are backend-agnostic.
+
+## Why Codex (decision record)
+
+Surveyed against Open Interpreter and `opencode.ai`. Codex wins on
+every operational axis: documented JSON-RPC protocol, first-class
+`turn/interrupt` + `turn/steer`, structured tool-use, native
+MCP-client, Apache-2.0, active maintenance, and a loop shape
+near-isomorphic to claude's. Open Interpreter eliminated: stalled
+(last release Oct 2024), AGPL-3.0, no documented CLI protocol, no
+first-class interrupt. `opencode.ai` is the strong third candidate
+held for later.
+
+Two **economic** axes gate any harness past the operational bar — they
+decide whether running it at arizuko's turn volume is affordable, not
+whether it works:
+
+1. **Prompt caching.** Caching is the harness's job (§ Core principle).
+   A harness that re-sends the full context uncached every turn burns
+   tokens linearly with conversation depth; one that caches well is the
+   difference between viable and not. Codex caches natively; claude
+   does via the SDK.
+2. **Subscription-plan auth.** The harness must authenticate via a
+   login/plan (ChatGPT plan for codex's `~/.codex/auth.json`; the
+   Claude subscription for claude) — not only a per-token API key.
+   Plan-based billing is flat; per-token API billing scales with every
+   turn and is the expensive path at fleet volume.
+
+`opencode.ai` and any later candidate are held to both. A harness that
+clears the operational bar but caches poorly or is API-key-only is not
+adopted until that changes.
+
+## Open questions
+
+1. **Per-spawn vs per-folder selection.** Env-per-spawn ships in v1.
+   A folder-level `backend:` hint (resolved by runed, env still the
+   transport) is specified when the folder layout
+   ([../12/b-ant-standalone.md](../12/b-ant-standalone.md)) gains the
+   slot.
+2. **Codex protocol stability.** `app-server` is younger than claude's
+   stream-json; field-level breakage between releases is likely. Pin
+   `CODEX_VERSION` in the codex image variant when it exists.
 
 ## Relation to other specs
 
 - [../12/c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md) — the
-  claude-specific runtime that becomes the first `Backend`
-  implementation.
+  planned Go runtime rewrite. If it lands, the `Backend` seam ports
+  to Go unchanged in shape (this spec defines the seam, not the
+  language).
 - [../12/b-ant-standalone.md](../12/b-ant-standalone.md) — folder
-  shape; this spec adds an optional `backend:` hint.
-- [../12/d-ant-image-cutover.md](../12/d-ant-image-cutover.md) —
-  image build; a Codex variant follows the same pattern (`ARG
-CODEX_VERSION`, similar Dockerfile).
-- [../8/7-ant-portability.md](../8/7-ant-portability.md) — fleet
-  ops; lockfile and verbs are backend-agnostic.
+  shape; this spec adds an optional `backend:` hint (deferred).
+- [../12/d-ant-image-cutover.md](../12/d-ant-image-cutover.md) — image
+  build; a codex variant follows the same pattern.
+- [P-runed.md](P-runed.md) — owns the per-tenant MCP socket and the
+  `submit_turn` → `POST /v1/turns/{turn_id}/result` forward. The
+  backend sits below all of it.
+- [../8/7-ant-portability.md](../8/7-ant-portability.md) — fleet ops;
+  backend-agnostic.
