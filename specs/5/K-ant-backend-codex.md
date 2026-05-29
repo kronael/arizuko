@@ -13,6 +13,19 @@ surface above the backend — the agent's `send`/`reply`/`inspect_*`
 tools and `submit_turn`, served on runed's per-tenant socket — does
 not change.
 
+Two seams make the agent layer replaceable, and each documents itself:
+
+- **Outer — the _ant protocol_.** runed's MCP socket (the agent's tool
+  surface + the `submit_turn` method). It is a wire protocol, so it is
+  self-documenting by default via MCP `tools/list`; anything "antish"
+  that speaks it can replace ant wholesale. Defined in `specs/12`
+  (standalone + reusable), not redefined here.
+- **Inner — the `Backend`.** This spec. An in-process TypeScript
+  interface, not a wire protocol — its self-documentation is the type.
+  It swaps the harness (claude / codex) under a fixed ant.
+
+This spec owns the inner seam only.
+
 ## Core principle: ant wraps harnesses, never is one
 
 **ant does not implement agent loops.** Model calls, tool execution,
@@ -256,33 +269,14 @@ Deferred:
 
 ## Why Codex (decision record)
 
-Surveyed against Open Interpreter and `opencode.ai`. Codex wins on
-every operational axis: documented JSON-RPC protocol, first-class
-`turn/interrupt` + `turn/steer`, structured tool-use, native
-MCP-client, Apache-2.0, active maintenance, and a loop shape
-near-isomorphic to claude's. Open Interpreter eliminated: stalled
-(last release Oct 2024), AGPL-3.0, no documented CLI protocol, no
-first-class interrupt. `opencode.ai` is the strong third candidate
-held for later.
-
-Two **economic** axes gate any harness past the operational bar — they
-decide whether running it at arizuko's turn volume is affordable, not
-whether it works:
-
-1. **Prompt caching.** Caching is the harness's job (§ Core principle).
-   A harness that re-sends the full context uncached every turn burns
-   tokens linearly with conversation depth; one that caches well is the
-   difference between viable and not. Codex caches natively; claude
-   does via the SDK.
-2. **Subscription-plan auth.** The harness must authenticate via a
-   login/plan (ChatGPT plan for codex's `~/.codex/auth.json`; the
-   Claude subscription for claude) — not only a per-token API key.
-   Plan-based billing is flat; per-token API billing scales with every
-   turn and is the expensive path at fleet volume.
-
-`opencode.ai` and any later candidate are held to both. A harness that
-clears the operational bar but caches poorly or is API-key-only is not
-adopted until that changes.
+Codex is the second harness because its shape matches claude's: a
+documented JSON-RPC protocol, first-class `turn/interrupt` +
+`turn/steer`, structured tool-use, native MCP-client, prompt caching,
+and ChatGPT-plan auth (`~/.codex/auth.json`, not per-token API keys).
+Caching and plan-based billing are properties of the **harness**, not
+the integration — the `Backend` selects a harness that has them, it
+never implements them. No third harness is planned; the seam stays
+abstract so one could be added, but arizuko ships claude + codex.
 
 ## Open questions
 
