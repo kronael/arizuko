@@ -300,6 +300,29 @@ LISTEN_URL = "http://teled-work:8080"
 	}
 }
 
+// proxyd's depends_on must not reference dashd in profiles that don't emit
+// it (web, standard) — docker compose rejects "depends on undefined service".
+func TestProxydDependsOnDefinedServicesOnly(t *testing.T) {
+	for _, profile := range []string{"web", "standard"} {
+		t.Run(profile, func(t *testing.T) {
+			dir := t.TempDir()
+			os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+			os.WriteFile(filepath.Join(dir, ".env"), []byte(
+				"PROFILE="+profile+"\nWEB_PORT=8095\nAPI_PORT=8080\n"), 0o644)
+			out, err := Generate(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(out, "  dashd:\n") {
+				t.Fatalf("PROFILE=%s should not emit dashd", profile)
+			}
+			if !strings.Contains(out, "depends_on: [gated, webd]") {
+				t.Errorf("PROFILE=%s: proxyd depends_on must omit dashd; got:\n%s", profile, out)
+			}
+		})
+	}
+}
+
 func TestInterpolate(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	got := interpolate("${FOO}-${BAZ}", env)

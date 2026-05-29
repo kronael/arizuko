@@ -373,7 +373,7 @@ func Generate(dataDir string) (string, error) {
 	webPort := envOr(env, "WEB_PORT", "")
 	if webPort != "" && profile != "minimal" {
 		b.WriteString(webdService(app, flavor, dataDir, env))
-		b.WriteString(proxydService(app, flavor, dataDir, env, routes))
+		b.WriteString(proxydService(app, flavor, dataDir, env, routes, profile))
 		b.WriteString(vitedService(app, flavor, dataDir, env))
 	}
 	if profile != "minimal" && profile != "web" {
@@ -588,7 +588,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute) string {
+func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute, profile string) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
 	environment := map[string]string{}
 	if b, err := json.Marshal(routes); err == nil {
@@ -603,6 +603,12 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 			}
 		}
 	}
+	// dashd is full-profile only; depending on it in web/standard profiles
+	// yields "depends on undefined service dashd" — a fatal compose error.
+	deps := "gated, webd"
+	if profile == "full" {
+		deps = "gated, dashd, webd"
+	}
 	return writeSvc(svcDef{
 		name:        "proxyd",
 		app:         app,
@@ -611,7 +617,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 		dataDir:     dataDir,
 		ports:       ports,
 		environment: environment,
-		dependsOn:   "gated, dashd, webd",
+		dependsOn:   deps,
 	})
 }
 
