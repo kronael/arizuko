@@ -41,8 +41,8 @@ match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups
 match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p>Because the platform sits in its own segment, you can write <code>platform=telegram</code> to mean &ldquo;every Telegram chat, regardless of kind&rdquo; without thinking about Telegram&rsquo;s sign-bit trick.</p>
 
-    <h2>typed in Go</h2>
-    <p>Inside the codebase, <code>core.ChatJID</code> and <code>core.UserJID</code> are different types built on <code>*url.URL</code>. So if a function asks for a chat address and you hand it a sender address, the compiler refuses. Before this split they were both <code>string</code> and a swap silently routed messages to the wrong place.</p>
+    <h2>in Go</h2>
+    <p>Inside the codebase a JID is just a <code>string</code>. Two helpers in <code>core/types.go</code> split it: <code>core.JidPlatform(jid)</code> returns everything before the first colon, and <code>core.JidRoom(jid)</code> returns everything after. Matching is Go&rsquo;s <code>path.Match</code> against the route&rsquo;s glob &mdash; the same call the router runs in <code>router.RouteMatches</code>. There is no parse step and no separate chat-vs-sender type; both are addresses the gateway only ever glob-matches.</p>
 
     <h2>per-platform shapes belong to adapters</h2>
     <p>The gateway treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>tgd/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; the gateway and the routes table don&rsquo;t move.</p>

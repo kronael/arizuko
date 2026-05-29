@@ -186,6 +186,48 @@ serves `~/public_html/` at `{world}.{domain}/`.
 - `/priv/*` routing requires proxyd to JWT-gate the prefix and serve
   from `<data>/web/priv/`; see `specs/4/2-proxyd.md`.
 
+## One URL, one backing store
+
+The slot model above is the only writer to `<data>/web/pub/`. There are
+**no ownerless static trees** under it — every `/pub/<seg>/` URL is backed
+by exactly one store. This closes the drift `5/N` (superseded, folded here)
+flagged after the marinade `/pub/guides` incident, where one guide existed
+at `pub/guides/`, `pub/atlas/`, and `pub/atlas/guides/` and a human rsync
+kept three hand-copies that diverged. N file copies feeding one URL violates
+"one renderer, many sinks" (CLAUDE.md).
+
+1. **Every top-level segment of `/pub/` is owned by a group.** A group's
+   slot projects to `<data>/web/pub/<folder>/`. The only writers are (a)
+   group containers, each into its own slot, and (b) tier-0 root, which owns
+   the top level and the shared frame `/pub/arizuko/` (root's `public_html`
+   projects to the tree top).
+
+2. **Cross-group / aliased URLs are redirects, never copies.** A top-level
+   alias like `/pub/guides/` is a `web_routes` row
+   `{path_prefix:/pub/guides/, access:redirect, redirect_to:/pub/atlas/guides/, folder:atlas}`.
+   proxyd's longest-prefix match serves it; no second file tree exists.
+
+3. **The agent publishes via an action, never by writing a path it cannot
+   mount.** Publish = write into `~/public_html/` (its slot) + `set_web_route`
+   for any alias. The agent owns content at `pub/<folder>/...` and points the
+   alias at it — it never needs `pub/guides/` on its filesystem. This is the
+   MCP+REST-uniform publish path.
+
+4. **Top-level prefix ownership is explicit and first-claim.** `set_web_route`
+   (`ipc/ipc.go`) constrains `redirect_to` to the caller's slot but leaves
+   `path_prefix` open. The rule: a `web_routes` row whose `path_prefix` is a
+   top-level prefix outside the caller's own `/pub/<folder>/` is allowed only
+   if unclaimed (no existing row), recorded with `folder` = claimant. The
+   `0068` FK (`web_routes.folder → groups`, CASCADE) retires the claim when
+   the owner dies. Operator-curated top-level paths (`/pub/arizuko/`,
+   marketing `/pub/index.html`) are root-owned, declared in the instance
+   manifest's `web_routes` (`5/36`, `owner: system`).
+
+Operational consequence: the `template/web/pub/` rsync target is
+`<data>/web/pub/arizuko/` only (root slot) — no "rsync to any subdir of
+`web/pub/`" affordance. The operational cleanup shipped on all instances;
+code enforcement of the path-claim constraint is tracked separately.
+
 ## Related
 
 - `specs/3/5-tool-authorization.md` — tier model, mount table

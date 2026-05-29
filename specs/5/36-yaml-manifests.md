@@ -27,7 +27,7 @@ runtime MCP/REST row ops change the DB, not the YAML. A dump never claims to
 be live, so "drift" is a non-concept.
 
 Product composition, cross-product subscriptions, and ingestion semantics
-([`7/4`](4-data-ingestion-curation-eventing.md) Q2 + Q5) remain open — this
+([`7/4`](../7/4-data-ingestion-curation-eventing.md) Q2 + Q5) remain open — this
 spec gives them a place to land later, not an answer.
 
 ## Surface
@@ -676,7 +676,7 @@ Markdown sidecars; (3) `arizuko plan` output (blob shown as "set"/"unset");
 `secrets.create`/`.update` (resreg `params_summary` redaction). Setting a
 blob is a separate operator-gated command, `arizuko secret set <scope>/<name>
 <value>`. Trust boundary unchanged from
-[`7/2 ## secrets`](2-data-model.md#secrets).
+[`7/2 ## secrets`](../7/2-data-model.md#secrets).
 
 ## Status is not in the manifest
 

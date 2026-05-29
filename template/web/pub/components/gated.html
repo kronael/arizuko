@@ -31,7 +31,7 @@
     <p>Without gated nothing has a backend. Adapters cannot register, the poll loop never fires, no container ever spawns, the dashboard reads stale rows, and the schema drifts the moment two daemons each try to migrate it. gated centralises the writes so the rest of the system can stay thin.</p>
 
     <h2>The loop</h2>
-    <p>On startup gated opens <code>$STORE_DIR/messages.db</code>, runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
+    <p>On startup gated opens <code>$DATA_DIR/store/messages.db</code> (<code>DATA_DIR</code> defaults to the working directory), runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
 
     <ol>
       <li>Read <code>messages</code> rows newer than the last cursor.</li>
@@ -79,7 +79,7 @@ make build              # produces ./gated
 mkdir -p /srv/data/myinstance
 cat &gt; /srv/data/myinstance/.env &lt;&lt;EOF
 CHANNEL_SECRET=$(openssl rand -hex 32)
-STORE_DIR=/srv/data/myinstance/store
+DATA_DIR=/srv/data/myinstance
 HOST_DATA_DIR=/srv/data/myinstance
 CONTAINER_IMAGE=arizuko-ant:latest
 API_PORT=8080
@@ -94,7 +94,7 @@ cd /srv/data/myinstance &amp;&amp; /path/to/gated</code></pre>
     <ul>
       <li><code>API_PORT</code> &mdash; HTTP listen port (default <code>8080</code>).</li>
       <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with every adapter; signs <code>/v1/*</code> requests.</li>
-      <li><code>STORE_DIR</code> &mdash; directory holding <code>messages.db</code>.</li>
+      <li><code>DATA_DIR</code> &mdash; instance data dir; gated opens <code>$DATA_DIR/store/messages.db</code>. Defaults to the working directory.</li>
       <li><code>HOST_DATA_DIR</code> / <code>HOST_APP_DIR</code> &mdash; paths bind-mounted into spawned containers.</li>
       <li><code>CONTAINER_IMAGE</code> &mdash; image used for per-group agent runs.</li>
       <li><code>CONTAINER_TIMEOUT</code>, <code>IDLE_TIMEOUT</code>, <code>MAX_CONCURRENT_CONTAINERS</code> &mdash; runner caps.</li>

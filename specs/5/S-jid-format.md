@@ -5,6 +5,18 @@ shipped: 2026-05-01
 
 # Typed JID — single resource per URL
 
+> **Status note (2026-05-28).** The `<platform>:<rest>` wire form +
+> `path.Match` glob semantics below shipped and are canonical. The _typed
+> Go structs_ this spec proposed (`JID`/`ChatJID`/`UserJID` built on
+> `*url.URL`, with `ParseJID`/`MatchJID`) were **descoped** — production
+> keeps JIDs as plain `string`s and splits them with `core.JidPlatform` /
+> `core.JidRoom` (`core/types.go`); `router.RouteMatches` does the
+> `path.Match`. `core/jid.go` was deleted. The genericization direction
+> ([`U-genericization.md`](U-genericization.md)) moves `ChatJID` further
+> toward a bare string alias. Read every "typed struct" / `ParseJID` /
+> `JID.Path()` reference below as the wire contract those helpers enforce,
+> not as live Go types.
+
 A JID identifies one resource on one platform. Today it's a `string`
 with ad-hoc per-platform syntax; multiple resource kinds collide on
 the same prefix (`telegram:1234` is user-DM or group, sign-bit hack

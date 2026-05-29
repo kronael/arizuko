@@ -24,35 +24,24 @@
     <h1>jid</h1>
     <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; jid</p>
 
-    <p class="lede">Every chat and every sender is a JID: a typed URI of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. Built on <code>net/url</code> for free RFC&nbsp;3986 compliance + percent-encoding; matched with <code>path.Match</code> glob semantics across all routing keys.</p>
+    <p class="lede">Every chat and every sender is a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
 
     <h2>1. Wire form &amp; grammar</h2>
 
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L28"><code>core/jid.go:28</code></a> (<code>ParseJID</code>):</p>
+    <pre><code>jid      := platform &quot;:&quot; rest
+platform := lowercase adapter name (everything before the first &quot;:&quot;)
+rest     := opaque platform-owned path (everything after the first &quot;:&quot;)
+kind     := first segment of rest before &quot;/&quot;</code></pre>
 
-    <pre><code>jid     := platform &quot;:&quot; rest
-platform := scheme (lowercase adapter name; <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L83">JID.Platform()</a>)
-rest    := non-empty opaque path (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L92">JID.Path()</a>)
-kind    := first segment of rest before &quot;/&quot; (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L102">JID.Kind()</a>)</code></pre>
-
-    <p>Validation:</p>
+    <p>The platform/rest split is the only structure core enforces. Two helpers in <a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L288"><code>core/types.go</code></a> perform it:</p>
     <ul>
-      <li>Non-empty scheme: <code>ParseJID("")</code> &rarr; error; <code>":foo"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L38"><code>jid.go:38</code></a>).</li>
-      <li>Non-empty opaque path: <code>"telegram:"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L41"><code>jid.go:41</code></a>).</li>
-      <li>Must be opaque-path form (no <code>//</code>): <code>"http://x"</code> &rarr; error.</li>
-      <li><code>ParseChatJID</code> / <code>ParseUserJID</code> additionally require a non-empty <em>kind</em> (first segment): <code>"telegram:/missing"</code> &rarr; error (<a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L73"><code>validateKind</code></a>).</li>
+      <li><code>core.JidPlatform(jid)</code> &mdash; everything before the first <code>:</code>; <code>""</code> when there's no colon or the colon is at position 0.</li>
+      <li><code>core.JidRoom(jid)</code> &mdash; everything after the first <code>:</code>; the whole string when there's no colon.</li>
     </ul>
 
-    <h2>2. Code types</h2>
+    <h2>2. Code shape</h2>
 
-    <p>From <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L18"><code>core/jid.go:18</code></a>:</p>
-
-    <pre><code>type JID struct{ u *url.URL }   // wire-typed base
-
-type ChatJID struct{ JID }       // a destination/chat resource
-type UserJID struct{ JID }       // a user identity resource</code></pre>
-
-    <p><code>Message.ChatJID</code> is a typed <code>ChatJID</code> string; <code>Message.Sender</code> is a typed <code>UserJID</code> string. The Go compiler refuses to swap them. Both implement <code>database/sql.Scanner</code> and <code>driver.Valuer</code>, and both round-trip JSON (<code>MarshalJSON</code> &harr; <code>UnmarshalJSON</code>). The empty wire string scans to a zero JID and emits <code>""</code>.</p>
+    <p>A JID is a <code>string</code>. <code>Message.ChatJID</code> and <code>Message.Sender</code> are both <code>string</code> fields on <a href="https://github.com/kronael/arizuko/blob/main/core/types.go"><code>core.Message</code></a>. There is no parse step, no <code>net/url</code> wrapper, and no separate chat-vs-sender Go type &mdash; the gateway never interprets <code>&lt;rest&gt;</code>, it only glob-matches the full string. Adapters own the per-platform shape of <code>&lt;rest&gt;</code> (section 3).</p>
 
     <h2>3. Per-platform schemas</h2>
 
@@ -96,8 +85,8 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
 
     <table>
       <tr><th>key</th><th>extracts</th><th>source</th></tr>
-      <tr><td><code>platform</code></td><td><code>JidPlatform(msg.ChatJID)</code> &mdash; everything before the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L183"><code>core/types.go:183</code></a></td></tr>
-      <tr><td><code>room</code></td><td><code>JidRoom(msg.ChatJID)</code> &mdash; everything after the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go#L77"><code>core/types.go:77</code></a></td></tr>
+      <tr><td><code>platform</code></td><td><code>JidPlatform(msg.ChatJID)</code> &mdash; everything before the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go"><code>core/types.go</code></a></td></tr>
+      <tr><td><code>room</code></td><td><code>JidRoom(msg.ChatJID)</code> &mdash; everything after the first <code>:</code></td><td><a href="https://github.com/kronael/arizuko/blob/main/core/types.go"><code>core/types.go</code></a></td></tr>
       <tr><td><code>chat_jid</code></td><td><code>msg.ChatJID</code> &mdash; full canonical string</td><td></td></tr>
       <tr><td><code>sender</code></td><td><code>msg.Sender</code> &mdash; full sender JID</td><td></td></tr>
       <tr><td><code>verb</code></td><td><code>msg.Verb</code> &mdash; <code>"message"</code> default; <code>"join"</code>, <code>"edit"</code>, &hellip;</td><td></td></tr>
@@ -125,7 +114,7 @@ type UserJID struct{ JID }       // a user identity resource</code></pre>
 
     <p class="meta">Malformed tokens (no <code>=</code> or empty key) are skipped, not errored. The empty match expression matches everything.</p>
 
-    <p>The same <code>path.Match</code>-based matcher is available as <a href="https://github.com/kronael/arizuko/blob/main/core/jid.go#L252"><code>core.MatchJID(pattern, value)</code></a> for direct JID-pattern checks outside the route engine.</p>
+    <p>The matcher is Go's <code>path.Match</code> applied directly to the JID string; <code>router.RouteMatches</code> is the only matcher. There is no separate <code>core.MatchJID</code> helper &mdash; a JID is a string, so <code>path.Match(pattern, jid)</code> is all a pattern check needs.</p>
 
     <h2>5. Examples</h2>
 
@@ -193,17 +182,16 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
     <h2>8. Design discipline</h2>
 
     <ul>
-      <li><strong>Kind in the path, type in the code.</strong> The first segment after the colon discriminates resource kind (wire). <code>ChatJID</code> vs <code>UserJID</code> distinguishes resource role at compile time (code).</li>
-      <li><strong>Adapter owns its schema.</strong> Core validates only <code>&lt;platform&gt;:&lt;rest&gt;</code> + non-empty kind. Each adapter parses <code>j.Path()</code> per its own declared shape.</li>
-      <li><strong>URI-clean.</strong> Built on <code>net/url</code> opaque-path form; percent-encoding for reserved chars (Bluesky DIDs) is free.</li>
+      <li><strong>Kind in the path.</strong> The first segment after the colon discriminates resource kind on the wire. The role (chat vs sender) is which message field holds the string &mdash; <code>ChatJID</code> or <code>Sender</code> &mdash; not a distinct Go type.</li>
+      <li><strong>Adapter owns its schema.</strong> Core only splits <code>&lt;platform&gt;:&lt;rest&gt;</code> via <code>JidPlatform</code>/<code>JidRoom</code>. Each adapter constructs and parses <code>&lt;rest&gt;</code> per its own declared shape.</li>
+      <li><strong>URI-clean.</strong> Adapters percent-encode reserved chars in <code>&lt;rest&gt;</code> (a Bluesky DID's colons, for example) so the platform/rest split holds.</li>
       <li><strong>One URL = one resource.</strong> No sign-bit hacks, no <code>t1_</code>/<code>t2_</code>/<code>t3_</code> prefix soup, no in-band server suffixes for code (WhatsApp keeps <code>@server</code> because its existing shape already encodes kind).</li>
       <li><strong>Adding a kind later is one string.</strong> A new platform kind earns its place when an adapter, the gateway, or the agent treats it differently from siblings. No system-wide format change, no DB migration of existing rows.</li>
     </ul>
 
     <h2>9. Go deeper</h2>
     <ul>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/core/jid.go"><code>core/jid.go</code></a> &mdash; <code>JID</code>, <code>ChatJID</code>, <code>UserJID</code>, <code>ParseJID</code>, <code>MatchJID</code></li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/core/jid_test.go"><code>core/jid_test.go</code></a> &mdash; full happy-path and rejection test cases</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/core/types.go"><code>core/types.go</code></a> &mdash; <code>JidPlatform</code>, <code>JidRoom</code>, the <code>Message</code> struct (string <code>ChatJID</code> / <code>Sender</code> fields)</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/router/router.go"><code>router/router.go</code></a> &mdash; <code>RouteMatches</code>, <code>msgField</code>, <code>ResolveRoute</code></li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md"><code>specs/5/S-jid-format.md</code></a> &mdash; full spec, per-platform schemas, design discipline</li>
       <li><a href="../reference/grants.html">grants reference</a> &mdash; how <code>jid=&hellip;</code> appears in grant rule params</li>
