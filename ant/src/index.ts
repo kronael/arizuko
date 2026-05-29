@@ -1,10 +1,9 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { query, HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { submitTurn } from './mcp.js';
-import { loadAgentMcpServers, injectMcpEnv } from './mcp-servers.js';
-import { createToolLogPreHook, createToolLogPostHook } from './tool-log.js';
+import { loadAgentMcpServers } from './mcp-servers.js';
+import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from './backend/index.js';
 
 interface ContainerInput {
   prompt: string;
@@ -29,25 +28,11 @@ interface ContainerOutput {
   models?: Record<string, import('./mcp.js').ModelUsage>;
 }
 
-interface SessionEntry {
-  sessionId: string;
-  summary: string;
-}
-
-interface SDKUserMessage {
-  type: 'user';
-  message: { role: 'user'; content: string };
-  parent_tool_use_id: null;
-  session_id: string;
-}
-
 const HOME = '/home/node';
 const IPC_INPUT_DIR = '/run/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
-const MAX_QUEUE = 100;
 const MAX_STDIN_BYTES = 1024 * 1024;
-const QUERY_TIMEOUT_MS = 15 * 60_000;
 
 const PROGRESS_INTERVAL_MS = 15 * 60_000;
 
@@ -72,42 +57,6 @@ function readOutputStyle(): string | null {
 
 let wakeup: (() => void) | null = null;
 process.on('SIGUSR1', () => { if (wakeup) wakeup(); });
-
-class MessageStream {
-  private queue: SDKUserMessage[] = [];
-  private waiting: (() => void) | null = null;
-  private done = false;
-
-  push(text: string): void {
-    if (this.queue.length >= MAX_QUEUE) {
-      log(`MessageStream queue full (${this.queue.length}); dropping message`);
-      return;
-    }
-    this.queue.push({
-      type: 'user',
-      message: { role: 'user', content: text },
-      parent_tool_use_id: null,
-      session_id: '',
-    });
-    this.waiting?.();
-  }
-
-  end(): void {
-    this.done = true;
-    this.waiting?.();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
-    while (true) {
-      while (this.queue.length > 0) {
-        yield this.queue.shift()!;
-      }
-      if (this.done) return;
-      await new Promise<void>(r => { this.waiting = r; });
-      this.waiting = null;
-    }
-  }
-}
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -150,135 +99,8 @@ async function deliverTurn(turnID: string, output: ContainerOutput): Promise<voi
   }
 }
 
-// extractModelUsage converts the SDK's modelUsage record to the snake_case
-// shape gated expects. costUSD → cost_cents via × 100 + round. Spec 5/34.
-function extractModelUsage(modelUsage: unknown): Record<string, import('./mcp.js').ModelUsage> | undefined {
-  if (!modelUsage || typeof modelUsage !== 'object') return undefined;
-  const out: Record<string, import('./mcp.js').ModelUsage> = {};
-  for (const [model, u] of Object.entries(modelUsage as Record<string, {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadInputTokens?: number;
-    cacheCreationInputTokens?: number;
-    costUSD?: number;
-  }>)) {
-    out[model] = {
-      input: u.inputTokens ?? 0,
-      output: u.outputTokens ?? 0,
-      cache_read: u.cacheReadInputTokens ?? 0,
-      cache_write: u.cacheCreationInputTokens ?? 0,
-      cost_cents: Math.round((u.costUSD ?? 0) * 100),
-    };
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 function log(message: string): void {
   console.error(`[ant] ${message}`);
-}
-
-function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
-  const indexPath = path.join(path.dirname(transcriptPath), 'sessions-index.json');
-  try {
-    const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8')) as { entries: SessionEntry[] };
-    return index.entries.find(e => e.sessionId === sessionId)?.summary ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function createPreCompactHook(assistantName?: string): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    const { transcript_path: transcriptPath, session_id: sessionId } = input as PreCompactHookInput;
-    try {
-      const messages = parseTranscript(fs.readFileSync(transcriptPath, 'utf-8'));
-      if (messages.length === 0) {
-        log('No messages to archive');
-      } else {
-        const summary = getSessionSummary(sessionId, transcriptPath);
-        const slug = summary
-          ? summary.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50)
-          : `conversation-${new Date().toTimeString().slice(0, 5).replace(':', '')}`;
-        const dir = `${HOME}/conversations`;
-        fs.mkdirSync(dir, { recursive: true });
-        const fp = path.join(dir, `${new Date().toISOString().split('T')[0]}-${slug}.md`);
-        fs.writeFileSync(fp, formatTranscriptMarkdown(messages, summary, assistantName));
-        log(`Archived conversation to ${fp}`);
-      }
-    } catch (err) {
-      log(`Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    return {
-      systemMessage:
-        'Context is about to be compacted. Invoke /diary before continuing.\n\n' +
-        'Preserve references to these in the summary:\n' +
-        '- PERSONA.md (your identity and persona)\n' +
-        '- CLAUDE.md (project instructions)\n' +
-        '- diary/ entries (recent decisions and progress)\n' +
-        '- facts/ (researched knowledge)\n' +
-        '- users/ (user profiles and preferences)\n' +
-        '- Any open tasks, pending work, or unresolved questions',
-    };
-  };
-}
-
-const SECRET_ENV_VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
-
-function createSanitizeBashHook(): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    const preInput = input as PreToolUseHookInput;
-    const command = (preInput.tool_input as { command?: string })?.command;
-    if (!command) return {};
-
-    const unsetPrefix = `unset ${SECRET_ENV_VARS.join(' ')} 2>/dev/null; `;
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        updatedInput: {
-          ...(preInput.tool_input as Record<string, unknown>),
-          command: unsetPrefix + command,
-        },
-      },
-    };
-  };
-}
-
-interface ParsedMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-function parseTranscript(content: string): ParsedMessage[] {
-  const messages: ParsedMessage[] = [];
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      const c = entry.message?.content;
-      if (!c) continue;
-      if (entry.type === 'user') {
-        const text = typeof c === 'string' ? c : c.map((p: { text?: string }) => p.text || '').join('');
-        if (text) messages.push({ role: 'user', content: text });
-      } else if (entry.type === 'assistant') {
-        const text = c.filter((p: { type: string }) => p.type === 'text').map((p: { text: string }) => p.text).join('');
-        if (text) messages.push({ role: 'assistant', content: text });
-      }
-    } catch { /* skip malformed line */ }
-  }
-  return messages;
-}
-
-function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | null, assistantName?: string): string {
-  const when = new Date().toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-  const body = messages.map(m => {
-    const sender = m.role === 'user' ? 'User' : (assistantName || 'Assistant');
-    const content = m.content.length > 2000 ? m.content.slice(0, 2000) + '...' : m.content;
-    return `**${sender}**: ${content}\n`;
-  }).join('\n');
-  return `# ${title || 'Conversation'}\n\nArchived: ${when}\n\n---\n\n${body}`;
 }
 
 function nudgeProgress(): void {
@@ -357,27 +179,52 @@ function discardNudges(): number {
   } catch { return 0; }
 }
 
-function createIpcDrainHook(): HookCallback {
-  return async (_input, _toolUseId, _context) => {
-    const messages = drainIpcInput();
-    if (messages.length === 0) return {};
-    log(`Piping ${messages.length} IPC messages into active query via PostToolUse hook`);
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PostToolUse',
-        additionalContext: `<user-steering>\n${messages.join('\n')}\n</user-steering>`,
-      },
-    };
-  };
-}
-
 function checkIpcMessage(): string | null {
   if (shouldClose()) return null;
   const messages = drainIpcInput();
   return messages.length > 0 ? messages.join('\n') : null;
 }
 
+// buildSessionConfig assembles the backend-neutral SessionConfig from the
+// container input + the active backend's MCP rendering. extraDirs and the
+// assembled MCP server map carry the same values the pre-seam runtime used.
+function buildSessionConfig(
+  backend: Backend,
+  prompt: string,
+  sessionId: string | undefined,
+  containerInput: ContainerInput,
+  sdkEnv: Record<string, string | undefined>,
+  resumeAt?: string,
+): SessionConfig {
+  const extraDirs: string[] = [];
+  const isRoot = !containerInput.groupFolder.includes('/');
+  if (!isRoot && fs.existsSync('/var/lib/share')) extraDirs.push('/var/lib/share');
+  try {
+    for (const e of fs.readdirSync('/mnt')) {
+      const p = path.join('/mnt', e);
+      if (fs.statSync(p).isDirectory()) extraDirs.push(p);
+    }
+  } catch { /* /mnt absent */ }
+
+  const agentMcpServers = loadAgentMcpServers(HOME);
+  return {
+    prompt,
+    model: sdkEnv['ARIZUKO_MODEL'] || undefined,
+    cwd: HOME,
+    resume: sessionId,
+    resumeAt,
+    systemPrompt: buildSystemPrompt(containerInput),
+    addDirs: extraDirs,
+    env: sdkEnv,
+    mcpServers: backend.name() === 'claude'
+      ? renderMcpServers(agentMcpServers, sdkEnv)
+      : agentMcpServers,
+    assistantName: containerInput.assistantName,
+  };
+}
+
 async function runQuery(
+  backend: Backend,
   prompt: string,
   sessionId: string | undefined,
   containerInput: ContainerInput,
@@ -385,8 +232,8 @@ async function runQuery(
   turnID: string,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
-  const stream = new MessageStream();
-  stream.push(prompt);
+  const cfg = buildSessionConfig(backend, prompt, sessionId, containerInput, sdkEnv, resumeAt);
+  const session: Session = await backend.spawn(cfg);
 
   let ipcPolling = true;
   let closedDuringQuery = false;
@@ -395,7 +242,7 @@ async function runQuery(
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
-      stream.end();
+      void session.close();
       ipcPolling = false;
       wakeup = null;
       return;
@@ -410,72 +257,16 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
-  let maxTurnsHit = false;
   let sessionError = false;
   let lastProgressAt = Date.now();
 
-  const extraDirs: string[] = [];
-  const isRoot = !containerInput.groupFolder.includes('/');
-  if (!isRoot && fs.existsSync('/var/lib/share')) extraDirs.push('/var/lib/share');
   try {
-    for (const e of fs.readdirSync('/mnt')) {
-      const p = path.join('/mnt', e);
-      if (fs.statSync(p).isDirectory()) extraDirs.push(p);
-    }
-  } catch { /* /mnt absent */ }
-
-  const agentMcpServers = loadAgentMcpServers(HOME);
-
-  const abortController = new AbortController();
-  const timeoutTimer = setTimeout(() => {
-    log(`Query timeout (${QUERY_TIMEOUT_MS}ms) reached, aborting`);
-    abortController.abort();
-    stream.end();
-  }, QUERY_TIMEOUT_MS);
-
-  try {
-    const groupModel = sdkEnv['ARIZUKO_MODEL'] || undefined;
-    for await (const message of query({
-      prompt: stream,
-      options: {
-        abortController,
-        cwd: HOME,
-        additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-        resume: sessionId,
-        resumeSessionAt: resumeAt,
-        systemPrompt: buildSystemPrompt(containerInput),
-        model: groupModel,
-        allowedTools: [
-          'Bash',
-          'Read', 'Write', 'Edit', 'Glob', 'Grep',
-          'WebSearch', 'WebFetch',
-          'Task', 'TaskOutput', 'TaskStop',
-          'TodoWrite', 'ToolSearch', 'Skill',
-          'NotebookEdit',
-          'mcp__arizuko__*',
-          ...Object.keys(agentMcpServers).map((n) => `mcp__${n}__*`),
-        ],
-        env: sdkEnv,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        settingSources: ['project', 'user'],
-        mcpServers: injectMcpEnv(agentMcpServers, sdkEnv),
-        hooks: {
-          PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
-          PreToolUse: [
-            { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-            { hooks: [createToolLogPreHook()] },
-          ],
-          PostToolUse: [{ hooks: [createIpcDrainHook(), createToolLogPostHook()] }],
-        },
-      }
-    })) {
+    for await (const event of session.events()) {
       messageCount++;
-      const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
-      log(`[msg #${messageCount}] type=${msgType}`);
+      log(`[msg #${messageCount}] type=${event.type}`);
 
-      if (message.type === 'assistant') {
-        const uuid = (message as { uuid?: string }).uuid;
+      if (event.type === 'assistant') {
+        const uuid = (event.raw as { uuid?: string }).uuid;
         if (uuid) lastAssistantUuid = uuid;
       }
 
@@ -485,25 +276,18 @@ async function runQuery(
         lastProgressAt = now;
       }
 
-      if (message.type === 'system' && message.subtype === 'init') {
-        newSessionId = message.session_id;
+      if (event.type === 'system_init') {
+        newSessionId = event.sessionId;
         log(`Session initialized: ${newSessionId}`);
       }
 
-      if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-        const tn = message as { task_id: string; status: string; summary: string };
-        log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
-      }
-
-      if (message.type === 'result') {
+      if (event.type === 'result') {
         resultCount++;
-        const textResult = 'result' in message ? (message as { result?: string }).result : null;
-        const models = extractModelUsage((message as { modelUsage?: unknown }).modelUsage);
-        log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
-        stream.end();
-        if (message.subtype === 'error_max_turns') {
-          maxTurnsHit = true;
-        } else if (message.subtype === 'error_during_execution') {
+        const subtype = (event.raw as { subtype?: string }).subtype;
+        const textResult = event.text ?? null;
+        const models = event.models;
+        log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
+        if (subtype === 'error_during_execution') {
           log('Session error, will retry without session');
           sessionError = true;
         } else {
@@ -515,14 +299,14 @@ async function runQuery(
     if (resultCount > 0) {
       log(`SDK threw after result (ignored): ${err instanceof Error ? err.message : String(err)}`);
     } else {
-      clearTimeout(timeoutTimer);
+      await session.close();
       throw err;
     }
   }
 
-  clearTimeout(timeoutTimer);
   ipcPolling = false;
   wakeup = null;
+  await session.close();
 
   const discarded = discardNudges();
   if (discarded > 0) {
@@ -530,25 +314,6 @@ async function runQuery(
   }
 
   log(`Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`);
-
-  if (maxTurnsHit && newSessionId) {
-    log('Max turns hit; requesting summary + resumption nudge');
-    for await (const msg of query({
-      prompt: 'You ran out of turns mid-task. Summarise concisely: what you accomplished, what is still pending. Then tell the user they can say "continue" to resume where you left off.',
-      options: {
-        cwd: HOME,
-        maxTurns: 3,
-        resume: newSessionId,
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-      },
-    })) {
-      if (msg.type === 'result') {
-        const txt = (msg as { result?: string }).result ?? null;
-        await deliverTurn(turnID, { status: 'success', result: txt ?? 'ran out of turns; say "continue" to resume.', newSessionId });
-      }
-    }
-  }
 
   return { newSessionId, lastAssistantUuid, closedDuringQuery, sessionError };
 }
@@ -585,6 +350,10 @@ async function main(): Promise<void> {
       sdkEnv[key] = value;
     }
 
+    // ARIZUKO_BACKEND picks the harness; default "claude", unknown = fatal.
+    const backend = selectBackend(process.env.ARIZUKO_BACKEND, drainIpcInput);
+    log(`Backend: ${backend.name()}`);
+
     let sessionId = containerInput.sessionId;
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
@@ -611,7 +380,7 @@ async function main(): Promise<void> {
         log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
 
         const turnID = turnIndex === 0 ? seedTurnID : `${seedTurnID}:${turnIndex}`;
-        const queryResult = await runQuery(prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
+        const queryResult = await runQuery(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
         if (queryResult.sessionError && sessionId) {
           log(`Session error on resume, retrying with fresh session (was: ${sessionId})`);
           sessionId = undefined;
