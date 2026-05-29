@@ -1007,6 +1007,11 @@ and a duplicate `submit_turn` is dropped.
 
 ## Code pointers
 
+> Extracting `gateway/` + `proxyd/` here absorbs **`5/6` 6/6b** (inbound
+> `enrichAttachments`→`enrichBatch` chain, kills the two-call-site drift)
+> and **6/6c** (HTTP `groupScope` factor out of `davRoute`). Factor them as
+> the loop/ingress are built; `5/6` is the design reference.
+
 - `gateway/gateway.go` — the loop (`pollOnce`, `processGroupMessages`,
   `processSenderBatch`, `resolveOrEngaged`, `handleSubmitTurn`,
   `publishRoundDone`, `issueRouteToken`). The `GatedFns`/`StoreFns` seams

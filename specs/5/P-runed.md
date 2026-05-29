@@ -656,6 +656,10 @@ MCP registrations are hand-rolled (carried from `ipc/ipc.go`).
 
 ## Touches
 
+> Extracting `ipc/` here absorbs **`5/6` 6/6a** — the MCP-authz middleware
+> chain (`granted`/`regSocial` → one `gated(Authorize)` wrapper, per
+> `4/9`). Factor it as the host is built; `5/6` is the design reference.
+
 | Component                      | Change                                                                                                             |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
 | `runed/` (new daemon)          | queue + container + ipc folded in; owns `runed.db` + `migrations/`; serves `/v1/runs`, `/v1/sessions`.             |

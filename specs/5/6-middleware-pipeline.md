@@ -1,9 +1,18 @@
 ---
-status: draft
+status: superseded
 relates-to: [4/9-acl-unified, 5/M-webdav, 6/Y-secret-broker, 6/Z-egred-mitm]
 ---
 
 # specs/5/6 — middleware chains for MCP, HTTP, and inbound messages
+
+> **Subsumed into the daemon extraction (2026-05-29).** All three chains
+> live in code the gated split moves: **6/6a** (MCP authz) lands in
+> [`P-runed.md`](P-runed.md)'s MCP host; **6/6b** (inbound enrich) and
+> **6/6c** (HTTP `groupScope`) land in [`E-routd.md`](E-routd.md). The
+> factoring happens during extraction — refactoring the monolith first
+> would be thrown away. This file is kept as the **design reference** for
+> that factoring (the chain shapes, the catalog, the anti-spec
+> "no unifying abstraction" rule); it is not a separate work item.
 
 Three separate request pipelines in arizuko hand-wire the same
 cross-cutting concerns inline. Mention-gating, persona injection,
