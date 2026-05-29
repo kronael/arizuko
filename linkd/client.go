@@ -434,16 +434,23 @@ func (lc *linkClient) deliverComment(router *chanlib.RouterClient, postURN strin
 		lc.mu.Unlock()
 		return
 	}
-	lc.seen[key] = true
 	meURN := lc.meURN
 	lc.mu.Unlock()
 
-	// Skip own comments.
+	markSeen := func() {
+		lc.mu.Lock()
+		lc.seen[key] = true
+		lc.mu.Unlock()
+	}
+
+	// Skip own comments. Permanent — mark seen so we don't re-evaluate.
 	if c.Actor == meURN {
+		markSeen()
 		return
 	}
 	// Skip empty text — LinkedIn allows media-only comments we don't handle.
 	if strings.TrimSpace(c.Message.Text) == "" {
+		markSeen()
 		return
 	}
 
@@ -477,9 +484,12 @@ func (lc *linkClient) deliverComment(router *chanlib.RouterClient, postURN strin
 		IsGroup: true,
 	}
 	if err := router.SendMessage(msg); err != nil {
+		// Don't mark seen — a transient router failure must not drop the
+		// comment; the next poll retries it.
 		slog.Error("deliver failed", "jid", jid, "err", err)
 		return
 	}
+	markSeen()
 	slog.Debug("inbound", "chat_jid", jid, "message_id", msg.ID, "verb", verb)
 }
 

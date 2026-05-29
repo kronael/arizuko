@@ -306,6 +306,38 @@ func TestDeliverComment(t *testing.T) {
 	}
 }
 
+// A transient router failure must NOT mark the comment seen, so the next
+// poll retries it instead of silently dropping inbound.
+func TestDeliverComment_RouterFailure_NotSeen(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":false,"error":"down"}`))
+	}))
+	defer down.Close()
+	rc := chanlib.NewRouterClient(down.URL, "s")
+	rc.SetToken("t")
+
+	lc := &linkClient{meURN: "urn:li:person:me", seen: map[string]bool{}}
+	c := commentItem{ID: "c1", Actor: "urn:li:person:other"}
+	c.Message.Text = "nice post"
+
+	lc.deliverComment(rc, "urn:li:activity:1", c)
+	if lc.seen["urn:li:activity:1|c1"] {
+		t.Fatal("comment marked seen despite delivery failure — would be lost")
+	}
+
+	// Router recovers; retry delivers and marks seen.
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer up.Close()
+	rc2 := chanlib.NewRouterClient(up.URL, "s")
+	rc2.SetToken("t")
+	lc.deliverComment(rc2, "urn:li:activity:1", c)
+	if !lc.seen["urn:li:activity:1|c1"] {
+		t.Fatal("expected comment marked seen after successful retry")
+	}
+}
+
 func TestFetchHistory_Comments(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
