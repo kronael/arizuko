@@ -289,6 +289,35 @@ Callout boxes:
 No framework, no build tooling. Edit HTML directly. Test with any
 static file server or by deploying to a running instance (`/pub/`).
 
+## Maintenance — keep docs current (same-commit rule)
+
+Docs are part of a change, not a later chore. **When you change a
+surface, update its page in the same commit.** Spec: `specs/5/D`.
+
+| You changed…                   | Update…                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| a CLI command / flag           | `reference/cli.html`                                                                                                      |
+| an env var                     | `reference/env.html`                                                                                                      |
+| an MCP tool (name, args, tier) | `reference/mcp.html`                                                                                                      |
+| a DB schema migration          | `reference/schema.html`                                                                                                   |
+| a grant scope or the grant DSL | `reference/grants.html` + `concepts/grants.html` + `concepts/scopes.html`                                                 |
+| JID / token / topic grammar    | the `reference/*` page + its `concepts/*` twin                                                                            |
+| a new daemon                   | `components/<daemon>.html` + `components/index.html` + the `reference/openapi.html` row                                   |
+| a new channel adapter          | `components/<adapter>.html` (+ a `howto/` recipe if setup is non-trivial)                                                 |
+| a new concept / primitive      | a `concepts/<x>.html` page **and** slot it into the curriculum order in `concepts/index.html`, fixing neighbouring pagers |
+| a tagged release               | `changelog/index.html`                                                                                                    |
+
+Discipline:
+
+- **Concepts is an ordered curriculum**, not an alphabetical set. A new
+  concept goes where it belongs in the learning arc — re-stitch
+  `concepts/index.html` order and the prev/next pagers of its
+  neighbours. Don't default to appending at the end.
+- A new `reference/` page updates the inlined left-nav tree in its
+  sibling pages, same commit (static-nav drift).
+- Verify-before-announce: every touched `/pub/*` URL returns 200 before
+  you call it done, then sync to krons (see Deploy procedure above).
+
 ## Adding a new product
 
 1. Create `pub/products/<name>/index.html` (intro) and `setup.html`
