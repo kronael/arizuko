@@ -46,22 +46,6 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) GetProxydRoute(path string) (ProxydRoute, bool) {
-	row := s.db.QueryRow(`SELECT path, backend, auth, gated_by, preserve_headers, strip_prefix
-	                      FROM proxyd_routes WHERE path = ?`, path)
-	var r ProxydRoute
-	var headers string
-	var strip int
-	if err := row.Scan(&r.Path, &r.Backend, &r.Auth, &r.GatedBy, &headers, &strip); err != nil {
-		return ProxydRoute{}, false
-	}
-	if headers != "" {
-		_ = json.Unmarshal([]byte(headers), &r.PreserveHeaders)
-	}
-	r.StripPrefix = strip != 0
-	return r, true
-}
-
 func proxydRouteFields(r ProxydRoute) (headers string, strip int) {
 	b, _ := json.Marshal(r.PreserveHeaders)
 	if r.PreserveHeaders == nil {
@@ -91,66 +75,4 @@ func (s *Store) InsertProxydRoute(r ProxydRoute) error {
 			},
 		}, err
 	})
-}
-
-func (s *Store) UpdateProxydRoute(r ProxydRoute) error {
-	headers, strip := proxydRouteFields(r)
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		res, err := tx.Exec(`UPDATE proxyd_routes
-		                       SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
-		                       WHERE path=?`,
-			r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
-		if err != nil {
-			return audit.Event{}, err
-		}
-		n, _ := res.RowsAffected()
-		if n == 0 {
-			return audit.Event{}, fmt.Errorf("proxyd route %q not found", r.Path)
-		}
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "route.update",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "proxyd_routes/" + r.Path,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"backend":  r.Backend,
-				"auth":     r.Auth,
-				"gated_by": r.GatedBy,
-			},
-		}, nil
-	})
-}
-
-func (s *Store) DeleteProxydRoute(path string) (bool, error) {
-	var hit bool
-	err := s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		res, err := tx.Exec(`DELETE FROM proxyd_routes WHERE path = ?`, path)
-		if err != nil {
-			return audit.Event{}, err
-		}
-		n, _ := res.RowsAffected()
-		hit = n > 0
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "route.delete",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "proxyd_routes/" + path,
-			Outcome:  audit.OutcomeOK,
-		}, nil
-	})
-	return hit, err
-}
-
-// CountProxydRoutes returns total row count; proxyd checks this at boot to
-// decide whether to seed from PROXYD_ROUTES_JSON.
-func (s *Store) CountProxydRoutes() (int, error) {
-	row := s.db.QueryRow(`SELECT COUNT(*) FROM proxyd_routes`)
-	var n int
-	if err := row.Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
 }

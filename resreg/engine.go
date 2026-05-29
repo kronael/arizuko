@@ -148,15 +148,6 @@ func (r *Resource) initMeta() {
 	r.meta = m
 }
 
-// Columns returns the SQL column list used for SELECT/INSERT, in
-// declared struct-field order. Cached at Register-time.
-func (r *Resource) Columns() []string {
-	if r.meta == nil {
-		return nil
-	}
-	return append([]string(nil), r.meta.colsRaw...)
-}
-
 // newRowPtr returns a freshly-allocated pointer to a row, used by Scan
 // loops and parse paths.
 func (r *Resource) newRowPtr() reflect.Value {
@@ -171,39 +162,6 @@ func (r *Resource) ScanAll(db *sql.DB) (any, error) {
 	}
 	q := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table + r.orderBy()
 	rows, err := db.Query(q)
-	if err != nil {
-		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
-	}
-	defer rows.Close()
-	slice := reflect.MakeSlice(reflect.SliceOf(r.meta.rowType), 0, 16)
-	for rows.Next() {
-		ptr := r.newRowPtr()
-		targets := r.scanTargets(ptr.Elem())
-		if err := rows.Scan(targets...); err != nil {
-			return nil, fmt.Errorf("%s: scan: %w", r.Name, err)
-		}
-		if r.Hooks.AfterScan != nil {
-			if err := r.Hooks.AfterScan(ptr.Interface()); err != nil {
-				return nil, fmt.Errorf("%s: after-scan: %w", r.Name, err)
-			}
-		}
-		slice = reflect.Append(slice, ptr.Elem())
-	}
-	return slice.Interface(), rows.Err()
-}
-
-// Scan reads rows matching where (which may be empty). args bind to ?
-// placeholders in where. Returns a `[]RowType`.
-func (r *Resource) Scan(db *sql.DB, where string, args ...any) (any, error) {
-	if r.meta == nil {
-		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
-	}
-	q := "SELECT " + strings.Join(r.meta.columns, ", ") + " FROM " + r.Table
-	if where != "" {
-		q += " WHERE " + where
-	}
-	q += r.orderBy()
-	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: query: %w", r.Name, err)
 	}
