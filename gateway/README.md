@@ -46,7 +46,7 @@ on intent.
 
 Coming per specs (same convention, not yet wired):
 
-- `<proactive_reason validator=… score=…>` — `specs/5/33-proactive-interjection.md:78`
+- `<proactive_reason check=…>` — `specs/5/33-proactive-interjection.md`
 - `<budget_notice level=…>` — `specs/5/34-cost-caps.md:77`
 
 When adding a new block, mirror the convention: new tag name (not

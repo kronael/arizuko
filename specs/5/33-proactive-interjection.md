@@ -1,243 +1,256 @@
 ---
 status: draft
+depends: [E-routd, P-runed, G-engagement]
 ---
 
 # Proactive interjection
 
-Let the agent speak unprompted when it's useful. Today arizuko is
-strictly mention-reactive — the agent answers when it's called. In
-public channels where the bot lurks, valuable interventions
-(noticing a teammate is stuck, recognizing a recurring question,
-linking back to a prior thread) never happen because nothing
-triggers them.
+Let the agent speak unprompted when it's useful. arizuko is
+mention-reactive today — the agent answers when called. In channels
+where the bot lurks, valuable interventions (a teammate stuck on a
+recurring question, a link back to a prior thread) never happen because
+nothing triggers a turn.
 
-Adopted from muaddib's `src/rooms/command/proactive.ts`, which has
-run on IRC since July 2025 and is the most operationally-validated
-piece of that project. The mechanism is small (debounce + validator
-chain + score threshold + mode gate); arizuko has nothing in this
-slot today.
+## Where it runs
+
+The trigger fires **inside routd's orchestration loop** ([`E-routd.md`](E-routd.md)
+§ The orchestration loop). routd owns the loop and is the **sole
+appender**; runed executes the resulting turn via `POST /v1/runs` and
+the agent's `send` callback appends through routd like any other turn.
+No new daemon, no Docker handle in routd.
+
+The proactive trigger is **one source into routd's turn-trigger gate** —
+the same concrete decision that already promotes a mention, sustains an
+engagement window ([`G-engagement.md`](G-engagement.md)), and drops an
+`#observe` message without firing ([`B-route-mode-ingestion.md`](B-route-mode-ingestion.md)).
+It is silence-driven where those are message-driven, so it needs a timer;
+otherwise it is just another input to the same gate, not a parallel
+subsystem. The gate stays **concrete** — arizuko's own signals only;
+generic event-triggering is out of core (§ Out of scope).
 
 ## Why not "just spam the channel"
 
-Two failure modes a naive design would hit:
+Two floors of suppression, either of which vetoes a turn — defending
+against a talkative bot (noise → team mutes) and a drive-by halluciner
+(low-confidence interjection → trust damage):
 
-1. **Talkative bot** — the agent interjects on every silence, every
-   topic shift, every reaction. Channel becomes noise; team mutes.
-2. **Drive-by halluciner** — the agent fires off a half-confident
-   "I notice you might want to…" with no grounding. Damages trust
-   faster than anything else.
+1. **External** — the ordered checks plus a per-chat cooldown decide
+   _this moment_ warrants a turn, before runed is ever called.
+2. **Internal** — the agent receives the proactive turn and may emit
+   nothing; the run ends `outcome:"silent"`. Agent silence is normal.
 
-The defensive structure: a chain of independent validators must all
-agree that _this specific moment_ warrants a turn, and the channel
-must explicitly be in a mode that allows proactive output. Default
-off; opt-in per channel.
+Default off; opt-in per folder.
 
-## Mechanism
+## The proactive sweep
 
-A new background loop in `gateway/` (provisional name
-`gateway/proactive.go`) scans active channels at a low cadence
-(every ~30s). For each channel:
+The scanner is **driven by routd's loop**, not a free-running ticker:
+after each loop iteration, if `now ≥ next_scan_at`, run one scan and
+advance `next_scan_at` by `PROACTIVE_SCAN_INTERVAL` (default 30s) — no
+catch-up for missed ticks (a long turn just delays the next scan). The
+scanner is **not started at all** unless `PROACTIVE_ENABLED` is set
+(unset → no scheduler, not merely an empty body).
 
-1. **Mode gate.** Read the channel's `mode` (new column on
-   `chats` or a row in the existing `chat_modes` shape if one
-   exists; see Schema below). Modes: `silent` (default — no
-   proactive turns), `lurk` (agent observes; may interject if
-   validators pass), `active` (agent participates freely, validators
-   still gate interjection cadence). If `silent` → skip.
-2. **Silence debounce.** Compute `now - last_message_at`. If less
-   than the configured `proactive.silence_min` (default 90s) — agent
-   shouldn't interrupt active conversation — skip. If greater than
-   `proactive.silence_max` (default 12h) — channel is dormant, no
-   one to talk to — skip.
-3. **Validator chain.** Run a sequence of cheap validators in order.
-   Each returns a score in `[0, 1]` and a one-line reason. Validators
-   are pluggable (per-channel `CLAUDE.md` may opt some in/out); the
-   v1 set:
-   - `RecentActivityValidator` — did at least N messages land in the
-     last hour? (otherwise the channel isn't really live)
-   - `UnansweredQuestionValidator` — does the last message read like
-     a question that didn't get an answer?
-   - `RecurringTopicValidator` — does the recent thread match a
-     pattern that the per-user memory or channel diary has notes
-     on?
-   - `MentionGapValidator` — has the bot been silent for
-     `proactive.bot_quiet_min`? (don't carpet-bomb after just
-     answering)
-   - `SchedulerSilenceValidator` — is the channel in a time window
-     where unsolicited messages would be rude? (operator-config'd
-     quiet hours)
-4. **Score threshold.** Sum / aggregate validator scores; require
-   total ≥ `proactive.score_threshold` (default 0.7). Lower bar in
-   `active` mode; raise it in `lurk`.
-5. **Cooldown.** Per-channel `proactive_last_fired_at`. If a turn
-   has fired in the last `proactive.cooldown_min` (default 30min),
-   skip regardless of score. Prevents loops.
-6. **Fire.** Build a normal inbound message with
-   `Sender = "proactive"`, route through the gateway just like any
-   other inbound. The agent gets the recent channel context plus a
-   per-turn envelope flag (`<proactive_reason>...</proactive_reason>`
-   with the top-scoring validator's reason) so it knows this isn't
-   a question to answer but a moment to consider whether to speak.
+Eligible chats are read from a **cached per-group proactive mode**,
+populated when a group's `CLAUDE.md` is loaded and invalidated when it
+changes — never re-parsed per tick. Only chats whose group mode is
+non-`silent` are scanned. For each such `chats` row:
 
-The agent decides whether to actually emit text. If it judges
-nothing useful to say, it emits nothing — the proactive turn ends
-silently. (This is the "second floor" — even if validators agree
-externally, the agent agrees internally before output appears.)
+1. **Silence debounce.** `gap = now − last_inbound_at`, where
+   `last_inbound_at` is the newest **inbound** `messages` row (a real
+   platform message — bot replies and the proactive synthetic row do
+   not reset the clock). `gap < PROACTIVE_SILENCE_MIN` (90s) →
+   conversation is live, don't interrupt. `gap > PROACTIVE_SILENCE_MAX`
+   (12h) → dormant, no one to talk to. Either → skip.
+2. **Cooldown** (MANDATORY). `proactive_last_fired_at` on
+   `chat_proactive`. If a proactive turn fired within
+   `PROACTIVE_COOLDOWN` (default 24h) → skip, regardless of signals.
+   **24h is the established arizuko default for any state-reactive
+   auto-firing trigger** (aeon import, 2026-05-22): a channel that had
+   its proactive moment today does not get another, even if a check now
+   passes.
+3. **Checks** (ordered, cheap reads over `routd.db` — no agent call, no
+   network). **Hard vetoes** run first; any failure skips the chat:
+   - `QuietHours` — inside an operator-configured quiet window → skip.
+   - `BotQuiet` — the bot spoke within `PROACTIVE_BOT_QUIET` (default
+     15m) → skip (don't pile on after just replying).
+   - `RecentActivity` — fewer than `PROACTIVE_RECENT_ACTIVITY_MIN`
+     (default 3) inbound messages on the chat in the last hour → skip
+     (the channel isn't live enough to interject into).
+
+   Then **at least one positive signal** must hold, or skip. v1 ships
+   exactly one:
+   - `UnansweredQuestion` — the last inbound message's text ends with
+     `?` (after trim) and no later bot-authored message exists on the
+     chat.
+
+   More signals are added to this list, never via a weighted score. The
+   firing check's name + reason is the only output.
+
+4. **Fire.** In one `routd.db` transaction, routd appends the synthetic
+   inbound row (`sender="timed-proactive"`, `verb="message"`, empty
+   `content` — the `<proactive_reason>` block, not the row body, carries
+   the framing) **and** sets `proactive_last_fired_at`. The run is
+   dispatched only after that tx commits, so a crash before dispatch
+   leaves the cooldown set: at worst one missed proactive turn, never a
+   double-fire. Dispatch passes `trigger_sender="timed-proactive"`; the
+   `timed-` prefix is the existing engagement-skip carve-out
+   ([`E-routd.md`](E-routd.md) § Atomic / ordered-per-chat consistency
+   contract — `BumpEngagement` runs unless the trigger starts `timed-`),
+   so a proactive turn never extends an engagement window the user
+   didn't open. The rendered prompt carries `<proactive_reason>`
+   (§ Per-turn envelope).
+
+The sweep runs under routd's single-process concurrency model
+([`E-routd.md`](E-routd.md) § Concurrency model). A chat whose folder
+has a running or queued turn is skipped — the per-folder queue already
+serializes, and a proactive inbound never steers a live turn.
 
 ## Schema
 
-Additive migration:
+One chat-scoped table in `routd.db` (the chat is routd's atomic unit;
+[`E-routd.md`](E-routd.md) § routd.db schema). Proactive **mode** is
+group-scoped business state, read from the group's `CLAUDE.md`
+frontmatter (§ Config) — not a column, so an operator edit is the single
+source and there is no DB/file drift.
 
 ```sql
-ALTER TABLE chats
-  ADD COLUMN proactive_mode TEXT NOT NULL DEFAULT 'silent';
-ALTER TABLE chats
-  ADD COLUMN proactive_last_fired_at TEXT;
-```
-
-Modes: `silent` | `lurk` | `active`. Default `silent` so existing
-channels are unaffected.
-
-Optional companion table for per-channel validator overrides (not
-required v1 — channel CLAUDE.md can carry these):
-
-```sql
-CREATE TABLE proactive_overrides (
-  folder TEXT NOT NULL,
-  validator TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  weight REAL NOT NULL DEFAULT 1.0,
-  PRIMARY KEY (folder, validator)
+CREATE TABLE chat_proactive (
+  jid                     TEXT PRIMARY KEY,   -- the chat (chats.jid)
+  proactive_last_fired_at TEXT                -- RFC3339Nano UTC, lexically comparable; NULL = never fired
 );
 ```
 
-## Configuration
+routd's `routd/migrations/` carries this; no source rows (the table is
+new with the feature).
 
-Per-instance defaults in `.env`:
+## Config
 
-```
-PROACTIVE_ENABLED=true                       # global kill switch
-PROACTIVE_SILENCE_MIN=90s
-PROACTIVE_SILENCE_MAX=12h
-PROACTIVE_COOLDOWN_MIN=30m
-PROACTIVE_SCORE_THRESHOLD=0.7
-PROACTIVE_BOT_QUIET_MIN=15m
-PROACTIVE_SCAN_INTERVAL=30s
-```
+Per CLAUDE.md's business-vs-infra split:
 
-Per-channel overrides via `CLAUDE.md` frontmatter (operator edits):
+- **Infra (env, instance-wide).** Tuning + the kill switch — identical
+  across folders:
 
-```yaml
-proactive:
-  mode: lurk
-  threshold: 0.8 # tighter than default
-  quiet_hours: ['22:00-08:00 Europe/Prague']
-  validators:
-    UnansweredQuestionValidator: enabled
-    RecurringTopicValidator: disabled
-```
+  ```
+  PROACTIVE_ENABLED=false      # kill switch; unset/false → no scheduler
+  PROACTIVE_SCAN_INTERVAL=30s
+  PROACTIVE_SILENCE_MIN=90s
+  PROACTIVE_SILENCE_MAX=12h
+  PROACTIVE_COOLDOWN=24h
+  PROACTIVE_BOT_QUIET=15m
+  PROACTIVE_RECENT_ACTIVITY_MIN=3
+  ```
+
+- **Business (per group).** Whether a folder participates, and its quiet
+  hours — operator data, read from the group's `CLAUDE.md` frontmatter
+  (the persona/config carrier, [`E-routd.md`](E-routd.md) prompt build):
+
+  ```yaml
+  proactive:
+    mode: lurk # silent (default) | lurk
+    quiet_hours: ['22:00-08:00 Europe/Prague']
+  ```
+
+  Modes: `silent` (default — never fires; existing folders unaffected),
+  `lurk` (may interject when the checks pass). `quiet_hours` entries are
+  `HH:MM-HH:MM <IANA tz>`; a window may cross midnight; multiple entries
+  union. **Strict, not magical**: a folder with no `proactive:` block is
+  `silent` (default off). A present-but-malformed block — unknown
+  `mode`, unparseable `quiet_hours`, bad tz — is a **logged config
+  error**; the group is flagged misconfigured and fires nothing. It is
+  never silently coerced to `silent`.
 
 ## Per-turn envelope
 
-When a proactive turn fires, the gateway appends to the turn
-envelope:
+When a proactive turn fires, routd's prompt build appends one ephemeral
+`<proactive_reason>` block (the convention + single-renderer rule:
+`gateway/README.md` "Per-turn ephemeral XML blocks"). It marks the turn
+as proactive — the agent reads it to mean "a moment to consider
+speaking", not "a question to answer":
 
 ```xml
-<proactive_reason validator="UnansweredQuestionValidator" score="0.82">
-Last message "where did we land on the lambda issue?" reads like an
-unanswered question; cold-start runbook has a recent matching
-entry.
+<proactive_reason check="UnansweredQuestion">
+Last inbound "where did we land on the lambda issue?" ends with a
+question and has no bot reply.
 </proactive_reason>
 ```
 
-The agent reads this and decides: emit a citation-grounded reply,
-or stay silent. The reason is operator-visible (logged) so
-unwelcome interjections can be traced to which validator fired.
-
-## Operator dashboard
-
-`/dash/groups/<folder>/proactive` — read-only listing of: current
-mode, last-fired-at, recent validator scores (last N firings or
-considered-but-skipped events), enabled-validator list. A toggle
-that flips `proactive_mode` between values lands in v2; v1 is
-file-only (CLAUDE.md frontmatter).
+`check` is the firing check's name (the only structured field); the body
+is freeform renderer text. Operator-visible (logged at fire time, with
+the chat jid, group, firing check, and — on a skip — the vetoing check)
+so an unwelcome interjection or a silent no-fire is traceable, never a
+black-box "the agent decided to speak."
 
 ## Acceptance
 
-1. A channel with `proactive_mode='silent'` (the default) never
-   fires a proactive turn, regardless of activity.
-2. A channel with `proactive_mode='lurk'`, 5 minutes of silence
-   after a question, no bot reply yet → exactly one proactive turn
-   fires; cooldown blocks a second one for 30 minutes.
-3. The agent receiving a proactive turn and judging there's nothing
-   to add emits no output. The channel sees no message; gateway
-   logs the silent termination.
-4. A validator can be disabled per-channel via CLAUDE.md
-   frontmatter; the chain runs without it.
-5. Quiet hours (`22:00-08:00`) suppress all proactive turns inside
-   the window, even with `mode=active`.
-6. Forced disable: `PROACTIVE_ENABLED=false` makes the scan loop a
-   no-op globally (escape hatch for any operator who wants to be
-   sure).
+1. A folder with no `proactive:` block (the default) never fires,
+   regardless of activity.
+2. `mode: lurk`, ≥3 inbound messages in the last hour, the last inbound
+   ends with `?`, no bot reply since → exactly one proactive turn fires;
+   the 24h cooldown blocks a second.
+3. The agent judging there's nothing to add emits no output: the channel
+   sees no message, the run returns `outcome:"silent"`, the cooldown is
+   still set (a considered-but-empty turn counts).
+4. Quiet hours (`22:00-08:00`) veto every proactive turn in the window.
+5. `PROACTIVE_ENABLED` unset → no scheduler runs (global no-op).
+6. A proactive turn does **not** bump engagement
+   (`trigger_sender="timed-proactive"` hits the `timed-` skip); the next
+   user message routes exactly as it would have.
+7. A malformed `proactive:` block is logged as a config error and fires
+   nothing — it is not treated as `silent`.
 
 ## Out of scope
 
-- **Multi-channel coordination.** Proactive turns fire
-  per-channel; no cross-channel awareness ("agent saw a similar
-  question in #design — should it speak in #eng?"). Maybe later;
-  one channel at a time first.
-- **Learning the threshold.** Per-channel score-threshold tuning
-  via feedback signals (operator reactions, user replies) — a
-  feedback-loop spec on its own. v1 uses operator-set values.
-- **External validators.** Custom validators in user skills (e.g.
-  `RunbookMatchValidator` defined by an operator). Hooks for this
-  exist via per-channel CLAUDE.md but the validator set itself
-  ships built-in.
-- **Active mode without channel admin opt-in.** No way to flip a
-  channel into `active` without operator-edited CLAUDE.md.
+- **A generic event-trigger engine.** The gate is concrete — arizuko's
+  own signals only (mention, engagement, observe, reaction, proactive).
+  Custom or general event-triggering is not a core concern: run a
+  pre-aggregator next to arizuko and expose it over MCP (the standard
+  extension point), and the agent reaches it like any other tool.
+  impulse's config-driven weighted engine (per-route `impulse_config`)
+  was removed for exactly this reason
+  ([`B-route-mode-ingestion.md`](B-route-mode-ingestion.md)); the gate
+  carries a small fixed set of signals, never a programmable one.
+- **Cross-channel awareness** ("agent saw this in #design — speak in
+  #eng?"). One chat at a time.
+- **Operator-defined checks.** The v1 set ships built-in; custom signals
+  come from the external MCP pre-aggregator (above), not a core config
+  knob.
 
 ## Decisions
 
-- **Default off.** Channels start in `silent` mode. Operators
-  explicitly opt in per-channel by editing `CLAUDE.md`.
-- **Two floors of suppression.** External (validator chain
-  agreement) AND internal (agent decides whether to emit). Either
-  can veto a turn. The agent's silence is normal and accepted.
-- **Score threshold not vote count.** Validators contribute scores,
-  not yes/no votes. A strong signal from one validator can pass
-  threshold without consensus; a weak signal from many can't.
-- **Per-turn envelope carries the reason.** Operator-visible,
-  audit-friendly. No black-box "the agent decided to speak."
-- **Cooldown per-channel, not per-validator.** A channel that's
-  already had its proactive moment recently doesn't get another
-  one even if a different validator now scores high. Avoids
-  rapid-fire interjection.
-- **Adopt muaddib's design, not their code.** Their TS doesn't
-  port — we re-implement in Go in `gateway/`. Reference:
-  `refs/muaddib/src/rooms/command/proactive.ts`.
+- **Default off, per-folder opt-in.** `silent` until an operator edits
+  `CLAUDE.md`. Mode is group business state in the file (single source);
+  cooldown is chat runtime state in `routd.db`.
+- **Cooldown is mandatory and 24h.** State-reactive auto-firing without
+  a cooldown loops; 24h is the arizuko-wide default for this class.
+  Per-chat (`chat_proactive.jid`) — one proactive moment per chat per
+  day whatever check fired. No per-mode override (a halved cooldown
+  would contradict the invariant).
+- **Two floors.** External (checks + cooldown) AND internal (agent
+  declines → `silent`). Either vetoes.
+- **Binary checks, not a weighted score.** Ordered hard vetoes kill the
+  turn; one positive signal arms it. No score-sum — that would re-create
+  the per-route weighted impulse engine this repo just deleted
+  ([`B-route-mode-ingestion.md`](B-route-mode-ingestion.md)).
+- **Synthetic inbound, normal loop.** The fire path is a
+  `sender="timed-proactive"` row through routd's existing loop — no
+  second dispatch path. The `timed-` prefix reuses the engagement-skip
+  carve-out (proactive is autonomous, like scheduled `timed-*`).
 
 ## Touches
 
-- `gateway/proactive.go` (new) — background loop, validator chain,
-  per-channel state.
-- `gateway/proactive_validators.go` (new) — the five v1 validators
-  as `Validator` interface implementations.
-- `gateway/prompt_build*.go` — append `<proactive_reason>` envelope
-  block on proactive turns. Follows the per-turn ephemeral XML block
-  convention documented in `gateway/README.md` ("Per-turn ephemeral
-  XML blocks"); add a row to that table when this lands.
-- `store/migrations/<next>-proactive-mode.sql` — additive columns.
-- `core/types.go` — `ProactiveMode` enum + parsing.
-- `dashd/proactive.go` (new) — read-only `/dash/groups/<folder>/proactive`.
-- `gateway/persona.go` — read `proactive:` block from CLAUDE.md
-  frontmatter; pass into the validator chain config.
+- `routd` orchestration loop — the loop-driven proactive scan, the check
+  chain, the atomic synthetic-inbound fire path. routd owns the loop
+  ([`E-routd.md`](E-routd.md)); runed is unchanged — a proactive turn is
+  an ordinary `POST /v1/runs`.
+- routd prompt build — append `<proactive_reason>`; refresh the
+  `gateway/README.md` "Per-turn ephemeral XML blocks" row (drop the
+  stale `score=` attribute, use `check=`).
+- `routd/migrations/<next>-chat-proactive.sql` — the `chat_proactive`
+  table.
+- routd CLAUDE.md-frontmatter reader — parse + cache the `proactive:`
+  block (mode + quiet_hours); a parse failure is a logged config error.
 
-Out of touch:
-
-- No channel-adapter changes — proactive turns flow through the
-  normal outbound path.
-- No grants/auth changes — same caller permissions as a regular
-  agent turn.
-- No new MCP tools — agent uses existing `send` tool.
-
-Estimate: ≈ one daemon-week.
+Out of touch: no channel-adapter changes (proactive output flows the
+normal egress path); no auth/grants changes (same caller permissions as
+a regular turn — `trigger_sender="timed-proactive"`,
+`caller_sub="service:routd"`); no new MCP tools (the agent uses `send`).
