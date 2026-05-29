@@ -173,10 +173,10 @@ func TestXGroups_Partial(t *testing.T) {
 	s.handleXGroups(w, req)
 
 	body := w.Body.String()
-	if !strings.Contains(body, `href="/chat/main"`) {
+	if !strings.Contains(body, `href="/panel/main"`) {
 		t.Errorf("missing main card: %s", body)
 	}
-	if !strings.Contains(body, `href="/chat/other"`) {
+	if !strings.Contains(body, `href="/panel/other"`) {
 		t.Errorf("missing other card: %s", body)
 	}
 }

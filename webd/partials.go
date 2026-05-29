@@ -14,7 +14,7 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 	groups := s.groupList()
 	w.Header().Set("Content-Type", "text/html")
 	for _, g := range groups {
-		fmt.Fprintf(w, `<a class="card" href="/chat/%s"><strong>%s</strong></a>`,
+		fmt.Fprintf(w, `<a class="card" href="/panel/%s"><strong>%s</strong></a>`,
 			htmlEscape(g.Folder), htmlEscape(groupfolder.NameOf(g.Folder)))
 	}
 }
