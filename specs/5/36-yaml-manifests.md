@@ -57,7 +57,8 @@ remain open — 5/36 gives them a place to land later, not an answer.
 - `arizuko get <resource>[/<name>]` — dump live DB state as a YAML
   fragment for the named resource (a scoped `export`).
 - `arizuko plan <file>…` — non-mutating; prints diff vs live state, no
-  writes. _(Under review given the dump/import model — see open questions.)_
+  writes. The pre-apply preview — under wholesale rebuild it shows exactly
+  what a restore would change before you commit it.
 
 ## Manifest directory layout
 
@@ -969,9 +970,8 @@ which routes exist, what tasks run). Markdown carries agent context
 3. **Plan.** Diff validated manifest rows against current config
    DB. Produce a human-readable delta: rows to add, rows to
    update, rows unchanged. Unchanged rows are noted but not
-   re-inserted. `arizuko plan` stops here (non-mutating).
-   _(`plan` is under review given the dump/import model — see open
-   questions.)_
+   re-inserted. `arizuko plan` stops here (non-mutating) — the pre-apply
+   preview of a wholesale rebuild.
 4. **Apply.** Open a single SQLite transaction on the config DB.
    Delete all manifest-owned rows. Insert all validated rows from
    the manifest. Commit. On any error: rollback; old DB unchanged.
@@ -1129,8 +1129,10 @@ because most operators do not need git-tracked token state; v2 adds
 
 ## Splitting + composition
 
-_(Multi-file / manifest-dir composition is under review given the
-dump/import model — see open questions.)_
+A per-group dump is naturally multi-file (`base.yaml` + one file per
+group), so `apply`/import reads the whole directory and unions rows by PK.
+This is **inherent to the dump/import model** — "read the dump dir," not an
+additive merge feature. Flat composition only:
 
 - `arizuko apply foo.yaml bar.yaml…` reads all files, merges, plans,
   applies as one run. `arizuko apply manifest/` reads every `*.yaml`
@@ -1226,14 +1228,13 @@ add` CLI verbs — those stay for ad-hoc operator work; manifests
    custom shape. JSON Schema is verbose but tool-friendly.
    Decide at implementation time.
 
-2. **`--prune` ownership boundary, `state: absent`, and multi-file
-   composition** are all **under review given the dump/import model.**
-   A full restore already replaces the cold tier wholesale, so per-row
-   `state: absent` deletion, ownership-aware `--prune`, and additive
-   multi-file merge may be redundant or reshaped. The user is deciding
-   these separately; this pass leaves them as drafted. (Original draft:
-   `--prune` unimplemented in v1; deletion explicit per-row via
-   `state: absent`, a row meaning "delete this PK if present".)
+2. **`--prune`, `state: absent`, multi-file composition — RESOLVED.**
+   Direct consequence of the dump/import model: apply is a full one-tx
+   rebuild, so a row's _absence_ from the manifest already deletes it —
+   the rebuild **is** the prune. Per-row `state: absent` and an
+   ownership-aware `--prune` are therefore **cut** (redundant). Multi-file
+   / dir composition is **kept** — it's inherent to a per-group dump (flat
+   union by PK, no `include:`); see _Splitting + composition_.
 
 3. **Cross-class dependencies.** A `scheduled_task` referencing
    an `invite` that lands later requires two apply runs in v1.
