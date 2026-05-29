@@ -79,6 +79,19 @@ func (s *Store) DelWebRoute(pathPrefix, folder string) (bool, error) {
 	return hit, err
 }
 
+// WebRouteOwner returns the folder owning an exact path_prefix, if a row
+// exists. Backs the 5/N set_web_route path-claim check (a top-level prefix
+// outside the caller's own slot is claimable only if unowned).
+func (s *Store) WebRouteOwner(pathPrefix string) (string, bool) {
+	var folder string
+	if err := s.db.QueryRow(
+		`SELECT folder FROM web_routes WHERE path_prefix = ?`, pathPrefix,
+	).Scan(&folder); err != nil {
+		return "", false
+	}
+	return folder, true
+}
+
 func (s *Store) ListWebRoutes(folder string) []WebRoute {
 	rows, err := s.db.Query(
 		`SELECT path_prefix, access, COALESCE(redirect_to,''), folder, created_at

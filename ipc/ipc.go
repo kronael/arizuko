@@ -187,6 +187,10 @@ type StoreFns struct {
 	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
 	DelWebRoute         func(pathPrefix, folder string) (bool, error)
 	ListWebRoutes       func(folder string) []WebRoute
+	// WebRouteOwner reports which folder already owns an exact path_prefix
+	// row, if any. Used by set_web_route to enforce first-claim ownership
+	// of top-level prefixes outside the caller's own slot (spec 5/V §4).
+	WebRouteOwner func(pathPrefix string) (folder string, ok bool)
 
 	// Spec 5/G engagement primitives. SetEngagement is used by the
 	// engage/disengage MCP tools and by api.handleMessage (verb=mention).
@@ -2575,6 +2579,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					!strings.HasPrefix(redirectTo, "/priv/"+folder+"/") {
 					return toolErr("redirect_to must point into this folder's own slot: /pub/" +
 						folder + "/... or /priv/" + folder + "/...")
+				}
+			}
+			// Path-claim enforcement (spec 5/V §4): a path inside the caller's
+			// own /pub/<folder>/ or /priv/<folder>/ slot is always allowed. A
+			// top-level / other prefix is allowed only if unclaimed — reject if
+			// an existing row already owns it for a different folder.
+			inOwnSlot := strings.HasPrefix(p, "/pub/"+folder+"/") ||
+				strings.HasPrefix(p, "/priv/"+folder+"/")
+			if !inOwnSlot && db.WebRouteOwner != nil {
+				if owner, ok := db.WebRouteOwner(p); ok && owner != folder {
+					return toolErr("path prefix already claimed by folder: " + owner)
 				}
 			}
 			if err := db.SetWebRoute(p, access, redirectTo, folder); err != nil {

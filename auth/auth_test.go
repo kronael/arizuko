@@ -542,7 +542,7 @@ func TestAuthorizeDelegateGroup(t *testing.T) {
 }
 
 func TestAuthorizeRouteTools(t *testing.T) {
-	for _, tool := range []string{"get_routes", "set_routes", "add_route", "delete_route"} {
+	for _, tool := range []string{"list_routes", "set_routes", "add_route", "delete_route"} {
 		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{}); err != nil {
 			t.Errorf("%s should work at tier 0: %v", tool, err)
 		}

@@ -53,6 +53,13 @@ func cmdApply(args []string) {
 	if err != nil {
 		die("Failed: parse %s: %v", file, err)
 	}
+	// Pre-apply DB version is the true "from"; the manifest version is not
+	// (with --force against a drifted DB they differ, and printing manifest
+	// would misreport the prior state).
+	fromVer, err := resreg.ConfigVersion(st.DB())
+	if err != nil {
+		die("Failed: read config_version: %v", err)
+	}
 	newVer, err := resreg.Apply(context.Background(), st.DB(), version, force, manifest)
 	if err != nil {
 		if errors.Is(err, resreg.ErrVersionMismatch) {
@@ -62,7 +69,7 @@ func cmdApply(args []string) {
 		}
 		die("Failed: apply: %v", err)
 	}
-	fmt.Printf("applied %s; config_version: %d -> %d\n", file, version, newVer)
+	fmt.Printf("applied %s; config_version: %d -> %d\n", file, fromVer, newVer)
 	auditCLI(st, "apply", []string{file})
 }
 

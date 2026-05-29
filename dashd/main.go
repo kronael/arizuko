@@ -164,7 +164,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/status/", d.handleStatus)
 	mux.HandleFunc("GET /dash/tasks/", d.handleTasks)
 	mux.HandleFunc("GET /dash/activity/", d.handleActivity)
-	mux.HandleFunc("GET /dash/groups/", d.handleGroups)
+	mux.HandleFunc("GET /dash/groups/{folder...}", d.dispatchGroupsGet)
 	mux.HandleFunc("GET /dash/memory/", d.handleMemory)
 	mux.HandleFunc("GET /dash/profile/", d.handleProfile)
 	mux.HandleFunc("PUT /dash/memory/", d.handleMemoryWrite)
@@ -196,14 +196,15 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /dash/routes/{id}", d.handleRouteDelete)
 	mux.HandleFunc("POST /dash/routes/{id}/delete", d.handleRouteDelete)
 
-	// Group create / delete / settings — admin-gated.
+	// Group create / delete / settings — admin-gated. Settings + delete use
+	// trailing-wildcard ({folder...}) dispatchers so nested folders like
+	// "corp/eng/sre" (multi-segment) address correctly; Go's single-segment
+	// {folder} would let them fall through to the list/other handlers.
 	mux.HandleFunc("GET /dash/groups/new", d.handleGroupNewForm)
 	mux.HandleFunc("POST /dash/groups/new", d.handleGroupCreate)
-	mux.HandleFunc("GET /dash/groups/{folder}/settings", d.handleGroupSettings)
-	mux.HandleFunc("POST /dash/groups/{folder}/settings", d.handleGroupSettingsSave)
+	mux.HandleFunc("POST /dash/groups/{folder...}", d.dispatchGroupsPost)
+	mux.HandleFunc("DELETE /dash/groups/{folder...}", d.handleGroupDelete)
 	mux.HandleFunc("GET /dash/groups/{folder}/tools", d.handleGroupTools)
-	mux.HandleFunc("DELETE /dash/groups/{folder}", d.handleGroupDelete)
-	mux.HandleFunc("POST /dash/groups/{folder}/delete", d.handleGroupDelete)
 	mux.HandleFunc("GET /dash/groups/{folder}/grants", d.handleGroupGrants)
 	mux.HandleFunc("POST /dash/groups/{folder}/grants", d.handleGroupGrantAdd)
 	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", d.handleGroupGrantRevoke)
@@ -552,6 +553,50 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 	if n == 0 {
 		fmt.Fprint(w, `<tr><td colspan=6 class="empty">No messages yet.</td></tr>`)
 	}
+}
+
+// dispatchGroupsGet routes GET /dash/groups/{folder...}. The trailing
+// wildcard captures the whole tail so multi-segment folders (corp/eng/sre)
+// resolve; we split off the known action suffix and delegate.
+func (d *dash) dispatchGroupsGet(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("folder")
+	switch {
+	case rest == "":
+		d.handleGroups(w, r)
+	case strings.HasSuffix(rest, "/settings"):
+		d.handleGroupSettings(w, r)
+	case strings.HasSuffix(rest, "/tools"):
+		d.handleGroupTools(w, r)
+	case strings.HasSuffix(rest, "/grants"):
+		d.handleGroupGrants(w, r)
+	default:
+		d.handleGroups(w, r)
+	}
+}
+
+// dispatchGroupsPost routes POST /dash/groups/{folder...} (settings save,
+// delete alias, grant add/revoke) for nested folders.
+func (d *dash) dispatchGroupsPost(w http.ResponseWriter, r *http.Request) {
+	rest := r.PathValue("folder")
+	switch {
+	case strings.HasSuffix(rest, "/settings"):
+		d.handleGroupSettingsSave(w, r)
+	case strings.HasSuffix(rest, "/delete"):
+		d.handleGroupDelete(w, r)
+	case strings.HasSuffix(rest, "/grants/revoke"):
+		d.handleGroupGrantRevoke(w, r)
+	case strings.HasSuffix(rest, "/grants"):
+		d.handleGroupGrantAdd(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// groupFromPath extracts the folder from a trailing-wildcard {folder...}
+// path value by stripping the trailing action segment(s).
+func groupFromPath(r *http.Request, suffix string) string {
+	rest := r.PathValue("folder")
+	return strings.TrimSuffix(rest, suffix)
 }
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {

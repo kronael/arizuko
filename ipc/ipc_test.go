@@ -982,6 +982,66 @@ func TestServeMCP_SetWebRoute_SelfSlotConstraint(t *testing.T) {
 	}
 }
 
+// set_web_route enforces first-claim ownership of top-level prefixes
+// outside the caller's own slot (spec 5/V §4): own-slot always allowed,
+// unclaimed top-level allowed and recorded under the caller, a prefix
+// already owned by another folder rejected.
+func TestServeMCP_SetWebRoute_PathClaim(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+	var persisted [][4]string
+	// claims maps an exact path_prefix to its owning folder.
+	claims := map[string]string{"/pub/taken/": "other"}
+	db := StoreFns{
+		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {
+			persisted = append(persisted, [4]string{pathPrefix, access, redirectTo, folder})
+			claims[pathPrefix] = folder
+			return nil
+		},
+		WebRouteOwner: func(pathPrefix string) (string, bool) {
+			f, ok := claims[pathPrefix]
+			return f, ok
+		},
+	}
+	stop, err := ServeMCP(sock, GatedFns{}, db, "atlas", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	cases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"own pub slot", "/pub/atlas/guides/", false},
+		{"unclaimed top-level", "/pub/fresh/", false},
+		{"claimed by other folder", "/pub/taken/", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			raw := callRaw(t, sock, "set_web_route", map[string]any{
+				"path":   c.path,
+				"access": "public",
+			})
+			isErr := strings.Contains(raw, `"isError":true`)
+			if isErr != c.wantErr {
+				t.Fatalf("path=%q: isError=%v want %v (resp %s)", c.path, isErr, c.wantErr, raw)
+			}
+		})
+	}
+	// Own-slot + unclaimed persisted (2); the claimed-by-other was rejected.
+	if len(persisted) != 2 {
+		t.Fatalf("SetWebRoute called %d times, want 2", len(persisted))
+	}
+	if claims["/pub/fresh/"] != "atlas" {
+		t.Errorf("unclaimed prefix recorded under %q, want atlas", claims["/pub/fresh/"])
+	}
+	if claims["/pub/taken/"] != "other" {
+		t.Errorf("claimed prefix owner changed to %q, want other", claims["/pub/taken/"])
+	}
+}
+
 func TestRouteTokens_IssueTierMatrix(t *testing.T) {
 	var issued []string
 	gated := GatedFns{

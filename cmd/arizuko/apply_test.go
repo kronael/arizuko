@@ -178,6 +178,44 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	}
 }
 
+// TestApply_ForceFromVersion: under --force against a drifted DB the
+// manifest version differs from the DB version. cmdApply prints the
+// pre-apply DB version (resreg.ConfigVersion before Apply) as the "from",
+// not the manifest version, so the success line reports the true prior state.
+func TestApply_ForceFromVersion(t *testing.T) {
+	_, st := openInstance(t)
+	// Advance the DB a couple of versions so it drifts from a stale manifest.
+	v0 := dbConfigVersion(t, st.DB())
+	if _, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dbVer := dbConfigVersion(t, st.DB()) // true pre-apply version
+	staleManifest := dbVer - 1           // a drifted, lower manifest version
+
+	fromVer, err := resreg.ConfigVersion(st.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromVer != dbVer {
+		t.Fatalf("from = %d, want db version %d", fromVer, dbVer)
+	}
+	if fromVer == staleManifest {
+		t.Fatalf("from must be the DB version, not the stale manifest version %d", staleManifest)
+	}
+	// Force-apply with the stale version; succeeds and bumps from the DB version.
+	newVer, err := resreg.Apply(context.Background(), st.DB(), staleManifest, true, map[string]any{
+		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "ops"}},
+	})
+	if err != nil {
+		t.Fatalf("force Apply: %v", err)
+	}
+	if newVer != fromVer+1 {
+		t.Errorf("new version = %d, want fromVer+1 = %d", newVer, fromVer+1)
+	}
+}
+
 func TestExport_DeterministicAcrossRuns(t *testing.T) {
 	_, st := openInstance(t)
 	v0 := dbConfigVersion(t, st.DB())

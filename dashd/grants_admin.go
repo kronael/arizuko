@@ -26,7 +26,7 @@ var commonActions = []string{
 
 // GET /dash/groups/{folder}/grants — read-only view + add/revoke forms.
 func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/grants")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
@@ -104,7 +104,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 
 // POST /dash/groups/{folder}/grants — insert one ACL row.
 func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/grants")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
@@ -158,7 +158,7 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 
 // POST /dash/groups/{folder}/grants/revoke — delete one ACL row.
 func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/grants/revoke")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return

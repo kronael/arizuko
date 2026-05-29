@@ -68,7 +68,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 				id.Folder, target.TargetFolder)
 		}
 		return nil
-	case "get_routes", "set_routes", "add_route", "delete_route":
+	case "list_routes", "set_routes", "add_route", "delete_route":
 		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage routes", id.Tier)
 		}

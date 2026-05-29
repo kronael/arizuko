@@ -190,7 +190,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/settings")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
@@ -302,7 +302,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/settings")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
@@ -364,7 +364,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 // DELETE /dash/groups/{folder} (or POST .../delete from the form).
 // Removes the DB row + best-effort rm of the groups/<folder>/ dir.
 func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/delete")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return

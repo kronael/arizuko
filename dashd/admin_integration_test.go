@@ -5,6 +5,7 @@ package main
 // real HTTP request through the mux with dbRW wired so writes land.
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -148,6 +149,58 @@ func TestDash_GroupDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(groupDir); !os.IsNotExist(err) {
 		t.Errorf("group dir still present: %v", err)
+	}
+}
+
+// TestDash_NestedFolderRouting: multi-segment folders (corp/eng/sre)
+// address the settings + delete handlers via literal nested paths.
+// Pre-fix, Go's single-segment {folder} let them fall through to the
+// list handler and silently 200 the wrong page.
+func TestDash_NestedFolderRouting(t *testing.T) {
+	srv, inst, groupsDir := newRWDashServer(t)
+	s := inst.Store
+	if err := s.AddACLRow(core.ACLRow{
+		Principal: "alice@x", Action: "admin", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	folder := "corp/eng/sre"
+	if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(groupsDir, folder), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Settings GET must render the settings page, not the groups list.
+	req, _ := http.NewRequest("GET", srv.URL+"/dash/groups/"+folder+"/settings", nil)
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err := noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("settings GET status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "observe_window_messages") {
+		t.Errorf("settings page not rendered for nested folder; got list/other page")
+	}
+
+	// Delete POST-alias must remove the nested group.
+	req, _ = http.NewRequest("POST", srv.URL+"/dash/groups/"+folder+"/delete", nil)
+	req.Header.Set("X-User-Sub", "alice@x")
+	resp, err = noFollow().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("nested delete status = %d, want 303", resp.StatusCode)
+	}
+	if _, ok := s.AllGroups()[folder]; ok {
+		t.Errorf("nested group row still present after delete")
 	}
 }
 

@@ -372,6 +372,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		DelWebRoute: func(pathPrefix, folder string) (bool, error) {
 			return g.store.DelWebRoute(pathPrefix, folder)
 		},
+		WebRouteOwner: g.store.WebRouteOwner,
 		LogExternalCost: func(folder, provider, model string, inputTok, outputTok, costCents int) error {
 			return g.logCost(folder, "", provider+":"+model, ipc.ModelUsage{
 				Input:     inputTok,

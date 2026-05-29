@@ -19,7 +19,7 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
-	folder := r.PathValue("folder")
+	folder := groupFromPath(r, "/tools")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
 		return
