@@ -7,9 +7,9 @@ shipped: phase-1 (per-daemon TOML routes) in v0.35.0; phase-3 (runtime /v1/route
 
 Make `proxyd` a fully generic, config-driven authenticating reverse
 proxy. Operators describe their backends and OAuth providers in a
-TOML file; proxyd handles login, mints capability tokens via the
-shared `auth/` library (or `authd`), and forwards verified requests
-to backends with the token attached.
+TOML file; proxyd delegates login to `authd` (the sole signer),
+verifies the returned tokens offline against `authd`'s JWKs, and
+forwards verified requests to backends.
 
 The component should be droppable in front of any HTTP service stack
 — arizuko or otherwise. Same blueprint as `auth`: clean library
@@ -42,7 +42,7 @@ and verify to the `auth/` library.
 
 ```toml
 listen     = ":8080"
-secret_env = "AUTH_SECRET"
+secret_env = "AUTH_SECRET"   # session-cookie secret only; tokens are verified via authd JWKs ([auth]), not signed here
 session_ttl = "24h"
 
 [auth]
@@ -180,10 +180,11 @@ implementation, two surfaces.
    Existing arizuko deployment ships with the same routes, just
    read from a config file. No behaviour change.
 
-2. **Delegate token mint to auth/authd** — remove proxyd's local
-   JWT minting; call `auth.Mint` (library) for now, switch to
-   `authd /v1/tokens` once `authd` ships. Stays signed with the
-   same `AUTH_SECRET`.
+2. **Delegate all token mint to `authd`** — remove proxyd's local JWT
+   minting entirely. proxyd never signs: it redirects login to `authd`
+   and verifies the returned tokens offline against `authd`'s JWKs. The
+   current local HS256 mint is transitional and is deleted in the same
+   release `authd` ships ([`1-auth-standalone.md`](1-auth-standalone.md)).
 
 3. **`/v1/routes` HTTP API** — runtime route management. Routes
    added via API persist to a small SQLite (or file) so they

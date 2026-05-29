@@ -11,7 +11,7 @@ platform; the platform runs the tenants.
 
 Rides on [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) (federated `/v1/*` and
 capability tokens) and [U-genericization.md](U-genericization.md)
-(`tenant_id`, `runed`). Shares its seeding code with
+(`types.Folder`, `runed`). Shares its seeding code with
 [../8/R-products.md](../8/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
 [`refs/openclaw-managed-agents/openapi/openapi.yaml`](../../refs/openclaw-managed-agents/openapi/openapi.yaml).
@@ -98,12 +98,12 @@ is the stable subject from proxyd/onbod.
 
 New tables (owned by `gated` per 5/5):
 
-| Table                 | Columns                                                                   |
-| --------------------- | ------------------------------------------------------------------------- |
-| `user_agents`         | `id, user_sub, name, tenant_id, version, status, created_at, archived_at` |
-| `user_agent_versions` | `agent_id, version, body_json, created_at`                                |
+| Table                 | Columns                                                                |
+| --------------------- | ---------------------------------------------------------------------- |
+| `user_agents`         | `id, user_sub, name, folder, version, status, created_at, archived_at` |
+| `user_agent_versions` | `agent_id, version, body_json, created_at`                             |
 
-`user_agents.tenant_id` joins to existing `groups`; a `created_by`
+`user_agents.folder` joins to existing `groups`; a `created_by`
 column on `groups` distinguishes user-spawned from operator-seeded.
 
 ## Spawn flow
@@ -114,7 +114,7 @@ user --POST /v1/agents--> gated
   ├── queued: insert admissions row, return 202
   └── approved:
         ├── insert groups + user_agents + user_agent_versions
-        ├── runed.SetupGroup(tenant_id, definition)
+        ├── runed.SetupGroup(folder, definition)
         ├── register channel bindings via gated/v1/routes
         ├── mint slink/MCP token (5/5 §Token)
         └── return { agent, token, slink_url }

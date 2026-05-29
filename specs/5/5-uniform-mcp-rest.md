@@ -36,9 +36,10 @@ Today's surface is split asymmetrically:
 - Authorization lives in [`auth/policy.go:14-96`](../../auth/policy.go),
   a hand-maintained switch over tool names; gating is by capability
   scope (tier is dropped — [`U-genericization.md`](U-genericization.md)
-  "Capability-vs-tier"). proxyd injects identity headers via
-  [`proxyd/main.go:590-604`](../../proxyd/main.go); the agent never
-  carries a token.
+  "Capability-vs-tier"). Today proxyd injects signed identity headers
+  via [`proxyd/main.go:590-604`](../../proxyd/main.go) and in-container
+  agents carry no token — the target model below gives agents an
+  `authd`-minted capability token for sibling `/v1/*` calls.
 
 Agents and operators see different sets of operations. The choice of
 which surface gets a feature is accidental, not principled.
@@ -50,7 +51,9 @@ which surface gets a feature is accidental, not principled.
 2. **Two faces, declared next to the resource.** A `Resource` declares
    its REST endpoints AND its MCP tools; one registration wires both.
 3. **`Caller` is surface-agnostic.** Builds on
-   [`auth.Identity{Sub, Scope, Folder}`](../../auth/README.md);
+   [`auth.Identity`](../../auth/README.md) (`Sub`, `Scope`; folder read
+   via the arizuko helper over `Identity.Extra`, since `auth/` is
+   folder-agnostic — [`1-auth-standalone.md`](1-auth-standalone.md));
    handlers read `Caller`, not `*http.Request` or `mcp.ToolRequest`.
 4. **Policy is declarative.** A `ScopePred` per action lives next to
    the resource; handler dispatches by action, policy is checked first.

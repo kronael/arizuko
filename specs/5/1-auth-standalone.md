@@ -388,9 +388,10 @@ Phase 2 (stand up `authd` + ES256) are outstanding — hence `partial`.
   downscope and signs the narrower token. The minted token returns to
   the agent; the agent decides who to give it to (typically a
   sub-agent it spawns).
-- **Wildcard scopes.** `*:*` allows everything. `tasks:*` allows any
-  task verb. Match logic lives in `HasScope`; spec'd here as exact
-  - namespace wildcards only. More complex matching later.
+- **Wildcard scopes.** Namespace wildcards only: `tasks:*` allows any
+  task verb. **No global `*:*`** — operators carry the enumerated
+  resource list (per [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
+  § scopes). Match logic lives in `HasScope`; more complex matching later.
 - **OAuth state cookie vs JWT.** Today the `state` parameter is a
   cookie. Library form keeps that; daemons can override via
   `StateStore`.
