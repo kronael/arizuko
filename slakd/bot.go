@@ -38,7 +38,6 @@ type paneStore interface {
 	UpsertPane(teamID, userID, threadTS, channelID string) error
 	GetPaneByChannel(channelID string) (store.PaneSession, bool)
 	SetPaneContext(teamID, userID, threadTS, contextJID string) error
-	SetPaneStatusAt(teamID, userID, threadTS, ts string) error
 }
 
 type bot struct {
