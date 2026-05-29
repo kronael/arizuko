@@ -611,8 +611,8 @@ func linkJID(db *sql.DB, jid, userSub string) {
 		return
 	}
 
-	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ? WHERE jid = ?`,
-		userSub, jid)
+	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
+		userSub, time.Now().UTC().Format(time.RFC3339), jid)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "onboarding.approve",
@@ -664,7 +664,8 @@ func admitFromQueue(db *sql.DB) {
 	if len(gates) == 0 {
 		return
 	}
-	// Day-range on queued_at (not LIKE prefix) so timezone drift doesn't miscount admissions.
+	// Day-range on admitted_at (not LIKE prefix) so timezone drift doesn't miscount admissions.
+	now := time.Now().UTC().Format(time.RFC3339)
 	todayStart := time.Now().Format("2006-01-02") + "T00:00:00Z"
 	tomorrowStart := time.Now().Add(24*time.Hour).Format("2006-01-02") + "T00:00:00Z"
 	for _, g := range gates {
@@ -678,7 +679,7 @@ func admitFromQueue(db *sql.DB) {
 		tx.QueryRow(
 			`SELECT COUNT(*) FROM onboarding
 			 WHERE gate = ? AND status = 'approved'
-			   AND queued_at >= ? AND queued_at < ?`,
+			   AND admitted_at >= ? AND admitted_at < ?`,
 			k, todayStart, tomorrowStart).Scan(&admitted)
 		remaining := g.limitPerDay - admitted
 		if remaining <= 0 {
@@ -703,8 +704,8 @@ func admitFromQueue(db *sql.DB) {
 		rows.Close()
 		for _, jid := range batch {
 			if _, err := tx.Exec(
-				`UPDATE onboarding SET status = 'approved' WHERE jid = ?`,
-				jid); err != nil {
+				`UPDATE onboarding SET status = 'approved', admitted_at = ? WHERE jid = ?`,
+				now, jid); err != nil {
 				slog.Error("admitFromQueue update", "jid", jid, "err", err)
 			}
 		}

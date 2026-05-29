@@ -51,7 +51,7 @@ func testDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE routes (id INTEGER PRIMARY KEY AUTOINCREMENT, seq INTEGER, match TEXT, target TEXT, observe_window_messages INTEGER, observe_window_chars INTEGER);
 		CREATE TABLE groups (folder TEXT PRIMARY KEY, parent TEXT, name TEXT, added_at TEXT, slink_token TEXT, product TEXT);
-		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT);
+		CREATE TABLE onboarding (jid TEXT PRIMARY KEY, status TEXT, prompted_at TEXT, created TEXT, token TEXT, token_expires TEXT, user_sub TEXT, gate TEXT, queued_at TEXT, admitted_at TEXT);
 		CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT, is_from_me INTEGER, is_bot_message INTEGER, source TEXT NOT NULL DEFAULT '');
 		CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, owner TEXT, chat_jid TEXT, prompt TEXT, cron TEXT, next_run TEXT, status TEXT, created_at TEXT, context_mode TEXT);
 		CREATE TABLE acl (principal TEXT NOT NULL, action TEXT NOT NULL, scope TEXT NOT NULL, effect TEXT NOT NULL DEFAULT 'allow', params TEXT NOT NULL DEFAULT '', predicate TEXT NOT NULL DEFAULT '', granted_by TEXT, granted_at TEXT NOT NULL, PRIMARY KEY (principal, action, scope, params, predicate, effect));
@@ -716,10 +716,10 @@ func TestAdmitFromQueueRespectsDaily(t *testing.T) {
 	// the per-day counter, so hardcoding a calendar date regresses the moment
 	// the suite runs past that day.
 	today := time.Now().UTC().Format("2006-01-02")
-	// 1 already admitted today
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:0', 'approved', 'github:org=co', ?, 'github:z', '2026-01-01')`,
-		today+"T08:00:00Z")
+	// 1 already admitted today (counted by admitted_at)
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, admitted_at, user_sub, created)
+		VALUES ('t:0', 'approved', 'github:org=co', ?, ?, 'github:z', '2026-01-01')`,
+		today+"T08:00:00Z", today+"T08:00:00Z")
 	// 1 queued
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:1', 'queued', 'github:org=co', ?, 'github:a', '2026-01-01')`,
@@ -733,6 +733,42 @@ func TestAdmitFromQueueRespectsDaily(t *testing.T) {
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 't:1'`).Scan(&s)
 	if s != "queued" {
 		t.Errorf("t:1 want queued (daily limit hit), got %s", s)
+	}
+}
+
+// TestAdmitFromQueueCapHoldsAcrossDays reproduces the cross-day backlog bug:
+// rows queued yesterday, admitted today, must count toward today's quota. Under
+// the old queued_at-counting code the second tick saw 0 admissions "today"
+// (the backlog's queued_at is yesterday) and drained the whole backlog past the
+// cap. Counting by admitted_at keeps the cap intact across poll ticks.
+func TestAdmitFromQueueCapHoldsAcrossDays(t *testing.T) {
+	db := testDB(t)
+	yesterday := time.Now().Add(-24 * time.Hour).UTC().Format("2006-01-02")
+	// 3 users queued yesterday, all under the same gate, limit=2.
+	for i, jid := range []string{"t:1", "t:2", "t:3"} {
+		db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+			VALUES (?, 'queued', 'github:org=co', ?, ?, '2026-01-01')`,
+			jid, yesterday+"T1"+strconv.Itoa(i)+":00:00Z", "github:"+jid)
+	}
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 2)`)
+
+	// Two ticks in the same run; the second must not exceed today's cap.
+	admitFromQueue(db)
+	admitFromQueue(db)
+
+	var approved int
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE gate = 'github:org=co' AND status = 'approved'`).
+		Scan(&approved)
+	if approved != 2 {
+		t.Errorf("want 2 admitted (daily cap), got %d — cap leaks across days", approved)
+	}
+	// admitted rows must carry today's admitted_at so the count is on the right day.
+	today := time.Now().UTC().Format("2006-01-02")
+	var stamped int
+	db.QueryRow(`SELECT COUNT(*) FROM onboarding WHERE status = 'approved' AND admitted_at LIKE ?`,
+		today+"%").Scan(&stamped)
+	if stamped != 2 {
+		t.Errorf("want 2 rows stamped admitted_at=today, got %d", stamped)
 	}
 }
 
@@ -1753,9 +1789,10 @@ func TestQueuePositionETAHours(t *testing.T) {
 func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 	db := testDB(t)
 	today := time.Now().Format("2006-01-02")
-	// Already-approved entry counts against today's budget.
-	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
-		VALUES ('t:old', 'approved', '*', ?, 'u:old', '2026-01-01')`, today+"T02:00:00Z")
+	// Already-approved entry counts against today's budget (by admitted_at).
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, admitted_at, user_sub, created)
+		VALUES ('t:old', 'approved', '*', ?, ?, 'u:old', '2026-01-01')`,
+		today+"T02:00:00Z", today+"T02:00:00Z")
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:wait', 'queued', '*', ?, 'u:wait', '2026-01-01')`, today+"T03:00:00Z")
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
@@ -1772,6 +1809,39 @@ func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:wait'`).Scan(&st)
 	if st != "queued" {
 		t.Errorf("second admit should still be no-op, got %s", st)
+	}
+}
+
+// Backlog queued on a prior day, admitted today, must count against today's
+// limit. The buggy queued_at-scoped count saw 0 admitted today and drained the
+// whole backlog every poll, making the daily limit unbounded across days.
+func TestAdmitFromQueuePriorDayBacklogCounts(t *testing.T) {
+	db := migratedDB(t)
+	// Two entries queued yesterday, limit 1/day. First admit takes one.
+	yesterday := time.Now().Add(-24*time.Hour).Format("2006-01-02")
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:1', 'queued', '*', ?, 'u:1', '2026-01-01')`, yesterday+"T01:00:00Z")
+	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
+		VALUES ('t:2', 'queued', '*', ?, 'u:2', '2026-01-01')`, yesterday+"T02:00:00Z")
+	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('*', 1)`)
+
+	admitFromQueue(db)
+	var s1, s2 string
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:1'`).Scan(&s1)
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:2'`).Scan(&s2)
+	if s1 != "approved" {
+		t.Errorf("oldest backlog entry should be admitted, got %s", s1)
+	}
+	if s2 != "queued" {
+		t.Errorf("second entry must wait: today's quota of 1 spent on t:1, got %s", s2)
+	}
+
+	// Re-poll: the admission stamped admitted_at=today, so today's count is 1,
+	// quota exhausted; t:2 must stay queued instead of draining the backlog.
+	admitFromQueue(db)
+	db.QueryRow(`SELECT status FROM onboarding WHERE jid='t:2'`).Scan(&s2)
+	if s2 != "queued" {
+		t.Errorf("prior-day backlog must not evade today's limit, got %s", s2)
 	}
 }
 
