@@ -21,20 +21,23 @@ and dbt's reference-page rhythm; we adopt none of dbt's look.
 
 ## Guardrail (visual identity is fixed)
 
-The hub.css palette, 2px corners, dense typography, and arizuko color
-twists do not move. This spec changes _where pages live_ and _what
-shape their content takes_, never the look. Any palette / corner /
-font-stack variable in `hub.css` that shifts is a bug. Canonical rule:
-root `CLAUDE.md` "Updating the web docs"; `template/web/CLAUDE.md`
-"Style rules".
+The **existing** hub.css design tokens do not move: the palette, the
+**current corner radii (today 6/4/3px — preserve them, don't invent new
+ones)**, dense typography, the circular theme toggle, arizuko color
+twists. This spec changes _where pages live_ and _what shape their
+content takes_, never the look. Any palette / corner / font-stack
+variable in `hub.css` that shifts is a bug — phase 1 adds layout
+classes only, it does not retune the theme. Canonical rule: root
+`CLAUDE.md` "Updating the web docs"; `template/web/CLAUDE.md` "Style
+rules". (Root CLAUDE.md's shorthand "2px corners" is inaccurate vs the
+live tokens; treat hub.css as source of truth, not that phrase.)
 
 ## Target IA (Divio + two arizuko extensions)
 
-Divio's four categories map to reader posture: learn, do, look up,
-understand. arizuko adds two sections the four-category model doesn't
-cover — operator-deployable units (`products/`) and the daemon catalogue
-(`components/`). These already exist; this spec keeps them and assigns
-each its category role.
+Divio's four categories, plus two the model doesn't cover — operator-
+deployable units (`products/`) and the daemon catalogue (`components/`).
+These already exist; this spec keeps them and assigns each its category
+role.
 
 ```
 pub/
@@ -101,9 +104,10 @@ Concrete elements — all in `hub.css` / `hub.js`, no framework, no build:
 | Footer           | `.docs-footer`         | edit-this-page link + `<time>` last-updated stamp                                                           |
 | Selection helper | `injectSelectionPopup` | select text → "ask the agent about this"                                                                    |
 
-Visual identity is **arizuko's and fixed** (§ guardrail): hub.css palette,
-**2px corners** (never rounded), dense typography, arizuko color twists.
-The shell borrows the dbt/Stripe three-pane _structure_, never the look.
+Visual identity is **arizuko's and fixed** (§ guardrail): the existing
+hub.css palette, corner radii, dense typography, and theme toggle — the
+shell adds layout classes, never new theme tokens. It borrows the
+three-pane _structure_, never another site's look.
 
 ## Adopt from dbt (IA + content rhythm)
 
@@ -116,7 +120,8 @@ The shell borrows the dbt/Stripe three-pane _structure_, never the look.
    comparison (a command's flag set, a table's columns).
 5. Low heading density — H2 count 3–6 per page, H3 only where named,
    no H4.
-6. Previous/Next pager at page foot, keyed off left-nav order.
+6. Previous/Next pager at page foot, keyed off the section's ordered
+   page list (which _is_ the left-nav order — one source, two readers).
 7. Inline version-difference statements ("Available since v0.45.4"),
    never version banners.
 
@@ -159,12 +164,22 @@ Two page kinds share the rhythm:
   Definition → Usage → Examples → Troubleshooting literally.
 
 Chrome lives in `hub.css` (new classes `.docs-layout`, `.docs-nav`,
-`.docs-toc`, `.docs-pager`, `.docs-footer`) and `hub.js` (one
-`buildTOC()` walking `.docs-content h2,h3` into the right rail, one
-`markCurrentNav()` adding `aria-current` by `location.pathname`).
-No framework, no build step. Three-pane at ≥1200px; single column with
-a nav drawer below. Per-page inline `<style>` blocks are deleted into
-`hub.css`.
+`.docs-toc`, `.docs-pager`, `.docs-footer`, `.docs-crumb`) and `hub.js`.
+Contract for the two new fns:
+
+- `markCurrentNav()` — set `aria-current="page"` on the nav link matching
+  the current page, after **normalizing** both sides: strip a trailing
+  `/`, treat `…/x/` and `…/x/index.html` as equal, resolve relative to
+  `pub/`. (Pure `location.pathname` matching breaks on those.)
+- `buildTOC()` — walk `.docs-content h2,h3`; for a heading with no `id`,
+  assign `slug(text)` (lowercase, non-alnum → `-`), de-duped with a
+  `-2`/`-3` suffix; render nothing when a page has fewer than two
+  headings.
+
+No framework, no build step. Three-pane at ≥1200px; below, single column
+— the left nav becomes a drawer behind a topbar button (`aria-expanded`,
+closes on Esc and click-outside; no persistence). Per-page inline
+`<style>` blocks are deleted into `hub.css`.
 
 The left-nav tree is inlined per page (renders before script). When a
 reference page is added, update the tree in sibling files in the same
@@ -180,34 +195,48 @@ unchanged (three-pane, pager, foot); sequence, size, and tone change.
   worked arizuko example (a real route rule, a chat snippet), never an
   exhaustive field list — that's the `reference/` twin's job (§ ownership
   rule). Trim pages that sprawl.
-- **Linear curriculum, not alphabetical.** `concepts/index.html` is the
-  tour TOC: an ordered "start here → next" path that builds up. Arc:
-  1. `index` — what arizuko is, how to take the tour
-  2. `ant` — the agent you talk to
-  3. `routing` — how an inbound message reaches an agent
-  4. `engagement` — staying in the conversation after a mention
-  5. `topics` — scoping work into one conversation
-  6. `onboarding` + `autoviv` — how groups and agents come to exist
-  7. `personas` — giving an agent its voice
-  8. `grants` + `scopes` — what an agent or user may do
-  9. `auth` + `tokens` — proving the identity behind those grants
-  10. `secrets` — folder- and user-scoped credentials
-  11. `skills` — extending what an agent can do
-  12. `tasks` — scheduled and autonomous work
-  13. `web-native-agents` + `webdav` — the web surfaces
-  14. `voice`, `slack-pane`, `jid` — surface/addressing specifics (tail)
+- **Linear curriculum, not alphabetical.** The concepts **section order**
+  is an explicit ordered list of single pages (one pathname per slot,
+  below). It is the **one source of truth** for both the concepts
+  left-nav order AND the pager prev/next — one list, two readers (this is
+  the same rule reference uses, where the section order _is_ the nav
+  tree). `concepts/index.html` is the tour TOC that renders this list:
+  1. `concepts/index.html` — what arizuko is, how to take the tour
+  2. `concepts/ant.html` — the agent you talk to
+  3. `concepts/routing.html` — how an inbound message reaches an agent
+  4. `concepts/engagement.html` — staying in after a mention
+  5. `concepts/topics.html` — scoping work into one conversation
+  6. `concepts/onboarding.html` — how a group is admitted
+  7. `concepts/autoviv.html` — how sub-groups/agents auto-create
+  8. `concepts/personas.html` — giving an agent its voice
+  9. `concepts/grants.html` — what an agent or user may do
+  10. `concepts/scopes.html` — the capability vocabulary
+  11. `concepts/auth.html` — proving who is calling
+  12. `concepts/tokens.html` — the tokens that carry it
+  13. `concepts/secrets.html` — folder/user-scoped credentials
+  14. `concepts/skills.html` — extending what an agent can do
+  15. `concepts/tasks.html` — scheduled + autonomous work
+  16. `concepts/web-native-agents.html` — the web surfaces
+  17. `concepts/webdav.html` — file workspace over the web
+  18. `concepts/voice.html` — voice in/out
+  19. `concepts/slack-pane.html` — the Slack assistant pane
+  20. `concepts/jid.html` — addressing deep-dive (grammar lives in the reference twin)
+
+  prev/next for slot _N_ are slots _N−1_ / _N+1_; slot 1 has no prev,
+  slot 20 no next.
 
 - **Incremental.** Each page opens by connecting to the prior step ("now
   that routing delivers a message, engagement decides whether to keep
-  listening…"); the pager (§ reference rhythm) is keyed to this
-  curriculum order, not nav order — the pager **is** the tour's
-  next/prev.
+  listening…"); the pager walks the section order above — it **is** the
+  tour's next/prev.
 - **Mentor tone** (Effective Go): principle first, then the mechanism,
   then a concrete example; second person; explain _why_, not just
   _what_. Voice per `template/web/CLAUDE.md`.
 
-The only new artifact is the ordered `concepts/index.html` TOC; the rest
-is the existing pages, re-ordered, sized, and connected. No interactive
+The new authored artifact is the ordered `concepts/index.html` TOC; the
+rest is the per-page chrome every section gets (pager wired to the
+section-order neighbours, nav reflecting the order) applied to the
+existing concept pages — re-ordered, sized, connected. No interactive
 playground, no separate `/tour/` tree — it's `concepts/` with a curriculum.
 
 ## Migration path
@@ -232,7 +261,10 @@ cross-link. (Today they overlap.)
   Redirect the old path.
 
 Otherwise no move — the six Divio + extension sections are already in
-place.
+place. **Redirect mechanism** (both moves above): the site is verbatim
+static HTML, so "redirect" = leave a stub page at the old path with
+`<meta http-equiv="refresh" content="0; url=…">` plus a visible canonical
+link — not a server rule.
 
 **New chrome on existing pages (phase 1, reference/ — 11 pages):**
 
@@ -267,11 +299,19 @@ inherit the same chrome (breadcrumb, three-pane, pager, foot). Body
 rhythm differs by category and follows the page contracts already in
 `template/web/CLAUDE.md`. Not started until phase-1 chrome ships.
 
-## Last-updated stamp
+## Last-updated stamp + the two footers
 
-A pre-commit hook writes the page's git author-date into a `<time>` in
-`.docs-footer` on edit (local Python entry in `.pre-commit-config.yaml`,
-no build step). Until the hook lands, hand-stamp from `git log -1`.
+Two footers, kept distinct: the existing site-wide `injectFooter()`
+(hub.js, version stamp) stays as the **global** page footer; `.docs-footer`
+(edit-this-page link + a `<time>` last-updated stamp) is a separate
+in-content element above it. `injectFooter()` is not replaced.
+
+The stamp is written by a pre-commit hook (local Python entry in
+`.pre-commit-config.yaml`, no build step) from
+`git log -1 --format=%aI -- <file>` — the date of the last commit that
+touched the file — into the `<time datetime>` of `.docs-footer`.
+Idempotent (re-stamping an unchanged file is a no-op). If git metadata is
+unavailable, leave the existing stamp untouched — never blank it.
 
 ## Acceptance (phase 1)
 
@@ -326,5 +366,9 @@ when phase 1 ships — see Acceptance.
 
 ## Open questions
 
-None blocking. Version-implicit (no per-page version line) and
-agent-as-search are decided above.
+None blocking after the oracle pass: pager source-of-truth (one
+section-order list), redirects (meta-refresh stubs), the last-updated
+hook (`git log` date) + footer split, and the chrome contract
+(path-normalize, TOC ids, drawer) are all specified above. Two editorial
+calls are left to the writer, not blockers: the exact concepts ordering
+(defensible, not unique) and per-page length.
