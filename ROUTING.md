@@ -493,7 +493,10 @@ After fixed prefixes, proxyd looks up the longest matching prefix in the
 
 Agents add/remove rows via the `set_web_route` / `del_web_route` /
 `list_web_routes` MCP tools (registered in `ipc/ipc.go`). `MatchWebRoute`
-in `store/web_routes.go` does the longest-prefix SQL query.
+in `store/web_routes.go` does the longest-prefix SQL query. A `redirect`
+row's `redirect_to` must point into the caller's own slot
+(`/pub/<folder>/...` or `/priv/<folder>/...`) — proxyd rejects anything
+else, closing an open-redirect / cross-folder impersonation gap.
 
 ### Default (fallthrough)
 

@@ -30,6 +30,51 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`/pub/guides/*` → `/pub/atlas/guides/*`) without write access
   outside its slot.
 
+### Fixed
+
+- **Auth: 6 tools were permanently denied for every tier.**
+  `pin_message`, `unpin_message`, `unpin_all`, `pane_set_prompts`,
+  `pane_set_title` (since 6/D) and `inspect_tasks` (5/30) had no case in
+  `AuthorizeStructural`, so they fell through to "unknown tool" and were
+  refused even for root. Added the policy cases.
+- **Data races** (caught under `-race`): per-turn state set by
+  `submit_turn` vs the worker goroutine (gateway); unlocked `activeCount`
+  read in the queue's `runForGroup`. Both guarded.
+- **Routing reliability**: the queue's steer-into-dying-container
+  teardown no longer starves groups waiting on the concurrency limit;
+  `ObservedSince` watched-source context no longer vanishes after a
+  topic's first turn (UNION arg/placeholder misalignment).
+- **Delivery correctness**: web-chat SSE no longer closes the wrong
+  turn's stream (`round_done` filtered by `turn_id`); `timed` fires
+  tasks whose `next_run` carries a non-UTC offset; `reditd` no longer
+  skips an item when delivery fails mid-poll; `linkd` 401-retry no
+  longer replays writes with an empty body; `teled` multi-chunk HTML
+  fallback no longer duplicates; `twitd` registers the `twitter:` JID
+  prefix it actually uses.
+- **Onboarding**: per-gate `limit_per_day` now counts by admission time
+  (`admitted_at`, migration 0071) not queue time, so a prior-day backlog
+  no longer drains past the daily cap.
+- **Observability / infra**: audit web + system webhook batches are now
+  flushed (were leaking + undelivered); proxyd logs a DB error instead
+  of silently serving an empty route table; `compose` no longer emits a
+  `proxyd` `depends_on` on `dashd` in web/standard profiles (broke
+  `docker compose up`); `FlushSysMsgs` no longer double-delivers system
+  messages on a commit failure; container idle-timer + egress nil-guard
+  hardened.
+
+### Changed
+
+- **Dead code removed** (~175 lines, behavior-identical): proxyd's no-op
+  per-request proxy cache; unused `store` proxyd-routes CRUD and `resreg`
+  `Columns`/`Scan`; a write-only onbod `authSecret` field; narrowed
+  slakd's `paneStore` interface.
+- **Spec direction locked** (design, not yet built): the
+  auth/genericization spine — central `authd` as sole ES256 signer,
+  capability scopes replace tiers, service-JWT-at-boot, and a single
+  big-bang `gated` split into `authd` (first) then `routd`/`runed`/`mcpd`.
+  See `specs/5/{1,U,5,3,35}`, new `specs/5/N` (web publish single-source),
+  and `specs/11/{16,17}` (messaging-gateway, mcp-firewall).
+
 ---
 
 ## [v0.46.0] — 2026-05-28
