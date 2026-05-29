@@ -65,9 +65,7 @@ pub/
   components/
     index.html            all daemons, one-line each, links
     gated.html            gateway daemon — what, why, how it fits, standalone
-    ant.html              agent-as-folder unit (planned move from concepts/)
-    slink.html            public web endpoint (planned move from concepts/)
-    proxyd.html           auth proxy
+    ant.html              agent-as-folder unit    slink.html            public web endpoint    proxyd.html           auth proxy
     webd.html             web channel + SSE hub
     crackbox.html         egress sandbox (planned move from crackbox/)
     onbod.html            onboarding daemon
@@ -82,11 +80,9 @@ pub/
     cli.html              arizuko CLI commands (create, run, invite, chat, group …)
     mcp.html              MCP tools reference (all 30+ tools, params, tiers)
     schema.html           SQLite tables (messages, groups, user_groups, …)
-    grants.html           grant rule syntax (planned move from concepts/)
-    jid.html              JID format reference (planned move from concepts/)
-  howto/
+    grants.html           grant rule syntax    jid.html              JID format reference  howto/
     index.html            getting started — install, create instance, first message
-  concepts/               kept for external links; thin wrappers pointing to /components/ or /reference/
+  concepts/               EXPLANATION — guided walkthrough, curriculum-ordered (spec 5/D); narrative twins of reference nouns
   changelog/index.html
   assets/
     hub.css               single stylesheet (dark/light, prose, code, nav)
@@ -331,27 +327,26 @@ Discipline:
 2. Add a row to `pub/components/index.html`
 3. Link from `pub/reference/env.html` in the daemon's env var section
 
-## Migration from concepts/
+## concepts/ ↔ reference split (spec 5/D)
 
-The `concepts/` pages predate this structure. They are:
+`concepts/` is NOT dissolved — it is the Explanation **walkthrough**
+(curriculum-ordered, spec 5/D). The ownership rule:
 
-- `slink.html`, `slink-reference.html` → migrate to `components/slink.html` + `reference/` (keep concepts/ as redirect)
-- `ant.html` → migrate to `components/ant.html`
-- `grants.html` → migrate to `reference/grants.html`
-- `jid.html` → migrate to `reference/jid.html`
-- `auth.html` → stays in concepts/ (cross-cutting, not a component)
-- `routing.html` → stays in concepts/ (cross-cutting)
-- `voice.html` → migrate to `components/ttsd.html` + mention in channels
-- `webdav.html` → migrate to `components/davd.html`
+- A noun needing both narrative and exhaustive surface (grants, jid,
+  tokens, topics) keeps BOTH: `concepts/<x>.html` (narrative, in the
+  walkthrough) and `reference/<x>.html` (exhaustive), cross-linked.
+- Daemon detail lives in `components/<daemon>.html`; the cross-cutting
+  _idea_ it implements stays a concept (`concepts/voice.html` is the
+  idea, `components/ttsd.html` is the daemon).
 
-Don't delete concepts/ pages until all external links are redirected.
-`crackbox/` and `slink/` top-level dirs → redirect to `components/`.
+Real top-level moves (only these): `crackbox/` → `components/crackbox.html`;
+`examples/chat-sdk.html` → `howto/`. Redirect the old paths.
 
-## Current state (2026-05-04)
+## Current state (2026-05-29)
 
-Exists: landing, concepts/ (ant, auth, grants, jid, routing, slink,
-slink-reference, voice, webdav), crackbox/ (component + reference),
-slink/ (component + reference), howto/, changelog/.
-
-Missing: products/ (all), components/ (all, content exists in concepts/ and crackbox/),
-reference/ (all, content exists in concepts/).
+Populated: landing, `concepts/` (~20 pages), `components/` (~22 daemon
+pages), `reference/` (11 pages), `products/`, `howto/`, `security/`,
+`changelog/`, plus legacy `crackbox/` + `examples/` pending the moves
+above. Pending (spec 5/D): the shared three-pane chrome (inline
+`<style>` still per-page), the reference-rhythm reflow, and the
+concepts curriculum order.
