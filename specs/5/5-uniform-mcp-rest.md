@@ -5,10 +5,15 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 
 # Uniform REST + MCP per resource
 
-> **Canonical principle + federation.** Closed across all resources in
-> [`../5-uniform-mcp-rest.md`](../5-uniform-mcp-rest.md) —
-> the phase 7 spec carries the coverage matrix, per-resource handler
-> pattern, audit contract, and acceptance criteria.
+> **Canonical principle + federation.** This is the canonical "one
+> handler, two faces" statement: it carries the coverage matrix,
+> per-resource handler pattern, audit contract, and acceptance criteria,
+> and defines the federated `/v1/*` surface. The phase-7 program
+> ([`specs/7/index.md`](../7/index.md)) is the downstream continuation
+> that finishes the unification across the data model + git-as-truth; it
+> does not relocate this spec's content. The MCP face is hand-authored
+> here; deriving it from annotated REST is a separate downstream followup
+> ([`11/18-openapi-mcp`](../11/18-openapi-mcp.md)), not a dependency.
 
 **Every operator action accessible via both REST (outside, OAuth-gated)
 AND MCP (inside, scope-gated), wrapped over a single handler.** One
@@ -52,8 +57,8 @@ which surface gets a feature is accidental, not principled.
    its REST endpoints AND its MCP tools; one registration wires both.
 3. **`Caller` is surface-agnostic.** Builds on
    [`auth.Identity`](../../auth/README.md) (`Sub`, `Scope`; folder read
-   via the arizuko helper over `Identity.Extra`, since `auth/` is
-   folder-agnostic — [`1-auth-standalone.md`](1-auth-standalone.md));
+   via the arizuko helper over `Identity.Extra["folder"]`, since `auth/`
+   is folder-agnostic — [`1-auth-standalone.md`](1-auth-standalone.md));
    handlers read `Caller`, not `*http.Request` or `mcp.ToolRequest`.
 4. **Policy is declarative.** A `ScopePred` per action lives next to
    the resource; handler dispatches by action, policy is checked first.
@@ -64,7 +69,7 @@ which surface gets a feature is accidental, not principled.
 type Caller struct {
     Sub    string
     Name   string
-    Folder string
+    Folder string             // resolved by the arizuko helper from Identity.Extra["folder"]; auth/ stays folder-agnostic
     Scope  []types.Scope      // capability list; authz is scope-match (no tier)
     Claims map[string]string  // JWT claims for ACL row predicates
 }
@@ -208,16 +213,19 @@ Token body:
 {
   "sub": "user:abc123" | "agent:atlas/main" | "key:k_42",
   "scope": ["groups:read", "tasks:write", "messages:send", "groups:*", ...],
-  "folder": "atlas/main",
+  "arz/folder": "atlas/main",
   "iat": 1735000000,
   "exp": 1735003600,
   "iss": "authd"
 }
 ```
 
-`folder` scopes the token to a subtree. `atlas/main` token can operate
-on `atlas/main/*` resources but not on `rhias/*`. Root tokens omit
-`folder` (or set `folder: "*"`). There is no `tier` — authorization is
+`arz/folder` is the namespaced folder claim per
+[`1-auth-standalone.md`](1-auth-standalone.md); `auth/` treats it as
+opaque and surfaces it via `Identity.Extra["folder"]` — it is never a
+first-class `auth.Identity` field. It scopes the token to a subtree: an
+`atlas/main` token can operate on `atlas/main/*` resources but not on
+`rhias/*`. Root tokens omit it. There is no `tier` — authorization is
 scope-match over `scope` ([`U-genericization.md`](U-genericization.md)
 "Capability-vs-tier"); folder bounds the subtree, scopes bound the verbs.
 
@@ -244,28 +252,31 @@ Other daemons do not sign; they call `authd /v1/tokens` with the trigger
 context and receive a signed token, or delegate the user-facing flow to
 `authd` directly.
 
-| Trigger surface                        | Triggers on                         | Token shape                        | How                                            |
-| -------------------------------------- | ----------------------------------- | ---------------------------------- | ---------------------------------------------- |
-| **proxyd**                             | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)          |
-| **MCP host** (`ipc/` in gated; `mcpd`) | Agent container spawn / socket bind | agent capability, folder-scoped    | requests token from `authd` at spawn           |
-| **onbod**                              | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow |
-| **dashd**                              | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow    |
+| Trigger surface                 | Triggers on                         | Token shape                        | How                                              |
+| ------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------ |
+| **proxyd**                      | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)            |
+| **runed** (the execution plane) | Agent container spawn / socket bind | agent capability, folder-scoped    | brokers a downscoped token from `authd` at spawn |
+| **onbod**                       | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow   |
+| **dashd**                       | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow      |
 
-The MCP host obtains the agent token from `authd` at container spawn,
-embedding `(folder, grants snapshot)`. The token is passed into the
-container as an env var or via the MCP socket handshake. Agents use it
-for any HTTP call to a sibling daemon's `/v1/*`.
+`runed` ([`P-runed.md`](P-runed.md)) hosts the per-tenant MCP socket and
+brokers the agent token from `authd` at container spawn, embedding
+`(folder, grants snapshot)`. The token is passed into the container as an
+env var or via the MCP socket handshake. Agents use it for any HTTP call
+to a sibling daemon's `/v1/*`. The former `mcpd` is folded into `runed` —
+there is no separate MCP-host daemon.
 
-`auth.Verify(token, jwks) → Identity{sub, scope, folder}` lives in the
-shared `auth/` library. Every daemon imports it and verifies offline. No
-daemon implements its own verification, and no daemon signs.
+`auth.Verify(token, jwks) → Identity{Sub, Scope, Extra}` lives in the
+shared `auth/` library (folder surfaces as `Identity.Extra["folder"]`,
+not a first-class field). Every daemon imports it and verifies offline.
+No daemon implements its own verification, and no daemon signs.
 
 Per-request auth at every `/v1/*` endpoint:
 
 ```go
 ident, err := auth.VerifyHTTP(r, jwks)  // ES256 sig + exp + iss against cached JWKs
-if !auth.HasScope(ident, "tasks", "write") { return 403 }
-if !auth.MatchesFolder(ident, taskFolder) { return 403 }
+if !auth.HasScope(ident, "tasks", "write") { return 403 }      // honors "tasks:*", never "*:*"
+if !identity.FolderContains(ident, taskFolder) { return 403 }  // arizuko helper over Identity.Extra["folder"]
 // proceed
 ```
 
@@ -281,17 +292,29 @@ cross-daemon reaches into another's storage.
 
 | Daemon     | Owns                                                     | Serves                                                                                   |
 | ---------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **gated**  | groups, routes, sessions, channels, messages, grants     | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
+| **routd**  | groups, routes, sessions, channels, messages, grants     | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
+| **runed**  | spawns, run history (hosts the agent MCP socket)         | `/v1/runs`; federates conversation-command tools back to routd's `/v1/turns/*`           |
+| **authd**  | signing keys, JWKs, sessions (sole signer)               | `/v1/tokens`, `/v1/keys`, `/auth/*` login                                                |
 | **timed**  | scheduled_tasks, task_run_logs                           | `/v1/tasks`                                                                              |
 | **webd**   | web_routes, vhosts, slink tokens                         | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
 | **onbod**  | invites, admissions, auth_users                          | `/v1/invites`, `/v1/users`                                                               |
 | **proxyd** | OAuth state (enforcement point; delegates mint to authd) | `/auth/*` (existing); login delegates to authd, which mints                              |
 | **dashd**  | nothing — aggregator UI calling the above                | HTML/HTMX over `/v1/*` of others                                                         |
 
-`grants` lives with gated for now (gated already runs migrations and
-has the broadest schema authority). If a future split puts grants
-elsewhere, the issuance flow doesn't change — `authd` queries the grants
-owner at mint time.
+The first four rows are the products of the `gated` split
+([`U-genericization.md`](U-genericization.md) Phase C, [`E-routd.md`](E-routd.md),
+[`P-runed.md`](P-runed.md)): `authd` signs (extracted standalone first),
+then `routd` (conversation engine + sole message appender) and `runed`
+(execution plane: queue, container lifecycle, MCP socket — the former
+`mcpd` folded in) carve out in one multi-DB cutover. This spec's
+"single handler, two faces" contract is daemon-placement-agnostic: each
+resource is owned by exactly one of these daemons and reached via both
+its `/v1/*` REST face and the MCP face that `runed` federates.
+
+`grants` lives with `routd` (it inherits gated's schema authority for the
+conversation tables). If a future split puts grants elsewhere, the
+issuance flow doesn't change — `authd` queries the grants owner at mint
+time.
 
 **proxyd routes** are not in the ownership table: they're declared
 per-daemon in `template/services/<name>.toml` `[[proxyd_route]]`
@@ -303,41 +326,45 @@ a routes table; it executes the operator-composed one.
 
 ### MCP federation
 
-The MCP socket terminates in gated. Tools touching tables gated owns
-(groups, routes, sessions, channels, messages, grants) stay local.
-Tools touching tables owned by other daemons (tasks → timed, invites
-→ onbod) become **HTTP forwards** with the agent's capability token:
+The MCP socket terminates in `runed` ([`P-runed.md`](P-runed.md)) — the
+execution plane that hosts the per-tenant socket. `runed` owns no
+resource tables, so every tool that touches a table is an **HTTP
+forward** carrying the agent's capability token: conversation-command
+tools (`reply`/`send`/routes/grants/…) forward to `routd`; tasks forward
+to `timed`; invites to `onbod`:
 
 ```
-agent → ipc.tools/call(pause_task, ...)
-       → ipc validates token scope (tasks:write)
-       → ipc HTTP-PATCH timed/v1/tasks/{id} {status: paused}
+agent → runed MCP socket: tools/call(pause_task, ...)
+       → runed validates token scope (tasks:write)
+       → runed HTTP-PATCH timed/v1/tasks/{id} {status: paused}
               with Authorization: Bearer <agent-token>
        → timed verifies token, checks scope, executes, returns
-       → ipc returns result to agent as JSON-RPC
+       → runed returns result to agent as JSON-RPC
 ```
 
-Single MCP socket per agent (today's model). The socket host becomes
-a thin API gateway for the agent — local in-process calls for
-own-domain operations, HTTP forwards for cross-daemon. The forwarder
-shape is `Resource{Store: nil}` — the adapter skips the tx/audit
+Single MCP socket per agent. `runed` is a thin API gateway for the
+agent — every owned operation is an HTTP forward to the daemon that owns
+the table (`routd` for conversation/routing, `timed` for tasks, `onbod`
+for invites). The forwarder shape is `Resource{Store: nil}` — the
+adapter skips the tx/audit
 dance and the destination daemon writes the audit row.
 `webd/routes_mcp.go` is the canonical example.
 
 ### Dashboard becomes an aggregator
 
-`dashd` holds an operator session token (issued by proxyd at login)
-and makes `/v1/*` calls to gated, timed, webd, onbod to render its
-pages. Adds write paths (forms posting to `POST/PATCH/DELETE` of the
-relevant daemon) wherever today's UI is read-only.
+`dashd` holds an operator session token (minted by `authd` at login,
+which proxyd delegates to) and makes `/v1/*` calls to routd, timed,
+webd, onbod to render its pages. Adds write paths (forms posting to
+`POST/PATCH/DELETE` of the relevant daemon) wherever today's UI is
+read-only.
 
 | dashd page        | Old (direct DB)                        | New (federated API)                                                                   |
 | ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `/dash/groups/`   | reads `groups`, `routes`               | `gated/v1/groups`, `gated/v1/routes`                                                  |
+| `/dash/groups/`   | reads `groups`, `routes`               | `routd/v1/groups`, `routd/v1/routes`                                                  |
 | `/dash/tasks/`    | reads `scheduled_tasks`                | `timed/v1/tasks` (+ form → `POST timed/v1/tasks`)                                     |
-| `/dash/activity/` | reads `messages` LIMIT 50              | `gated/v1/messages?limit=50&order=desc`                                               |
-| `/dash/status/`   | reads `groups`, `sessions`, `channels` | `gated/v1/groups`, `gated/v1/sessions`, `gated/v1/channels`                           |
-| `/dash/memory/`   | direct fs read/write                   | new resource on whichever daemon owns the group fs (likely gated): `gated/v1/files/*` |
+| `/dash/activity/` | reads `messages` LIMIT 50              | `routd/v1/messages?limit=50&order=desc`                                               |
+| `/dash/status/`   | reads `groups`, `sessions`, `channels` | `routd/v1/groups`, `routd/v1/sessions`, `routd/v1/channels`                           |
+| `/dash/memory/`   | direct fs read/write                   | new resource on whichever daemon owns the group fs (likely routd): `routd/v1/files/*` |
 | `/dash/profile/`  | reads `auth_users`                     | `onbod/v1/users/{sub}`                                                                |
 
 dashd never touches tables directly after this refactor.
@@ -349,8 +376,9 @@ shape with one addition — the `:own_group` suffix.
 
 - `<resource>:read` / `<resource>:write` — admin.
 - `<resource>:read:own_group` / `<resource>:write:own_group` — scoped
-  to caller's `Identity.Folder` subtree (matches today's
-  [`auth.MatchesFolder`](../../auth/README.md) planned check).
+  to the caller's folder subtree read from `Identity.Extra["folder"]`
+  (the arizuko `identity.go` helper; `auth/` is folder-agnostic per
+  [`1-auth-standalone.md`](1-auth-standalone.md)).
 - `<resource>:*` — all verbs on a resource (operator shortcut, useful
   when verb count grows). No `*:*` global wildcard — operators carry
   the enumerated list (≤20 strings at current resource count). Two
@@ -360,8 +388,11 @@ The scope vocabulary is the operator-token shorthand; the
 authoritative gate is `auth.Authorize` over the unified ACL — see
 [`../4/9-acl-unified.md`](../4/9-acl-unified.md). resreg's `Authz`
 callback derives `(scope, params)` per-action; the adapter then
-delegates to `auth.Authorize`. No parallel `HasScope`-style predicate
-machinery; the ACL row table is the single source of truth.
+delegates to `auth.Authorize`, which uses `auth.HasScope` (honors
+`ns:*`, never `*:*` — [`1-auth-standalone.md`](1-auth-standalone.md))
+as its scope-match primitive. There is no _second_ authorization path
+competing with the ACL gate; the ACL row table is the single source of
+truth.
 
 ## Per-resource access matrix
 
@@ -439,11 +470,15 @@ loop:
 
 ```go
 for _, r := range registry {
-    for action, pred := range r.Policy {
-        if pred.Allows(callerScope) { /* show row */ }
+    for _, action := range r.Actions() {       // (Resource × Action) pairs
+        if auth.Authorize(store, caller, r.Name+":"+action, ...) == nil { /* show row */ }
     }
 }
 ```
+
+The check is `auth.Authorize` over the unified ACL — the same gate the
+adapters call, not a parallel `r.Policy` predicate table (the `Resource`
+type carries `Authz`, not a `Policy` map).
 
 This is the operational reason `Action` exists as a separate type
 rather than implicit in handler-function identity — handler names
@@ -529,11 +564,13 @@ Today: dashd is the operator web UI. Read paths query the shared DB
 directly; the few write paths (`/dash/me/secrets`) call
 `store.SetSecret` directly.
 
-Target: dashd's mutating handlers are thin shims over `resreg`
-endpoints. Reads stay direct queries to the DB (cheap, read-only,
-no audit need) or migrate to `GET /v1/<resource>` symmetrically.
-Writes via registry; reads direct for dashd's own UI. The `/v1/*`
-REST surface is for external consumers; dashd is internal.
+Target: dashd is a pure aggregator — it owns no DB. After the `gated`
+split the tables live in `routd`/`runed`/`timed`/`onbod`, each behind
+its own DB, so dashd has nothing to read directly. Both its reads and
+its mutating handlers go through the owning daemon's `/v1/*`: reads via
+`GET /v1/<resource>`, writes via the `resreg` POST/PATCH/DELETE
+endpoints. dashd is an internal consumer of the same surface external
+callers use.
 
 ## Anti-patterns — what should NOT go via MCP
 
@@ -586,12 +623,13 @@ affordance over the same ACL rows.
 
 ## Resource ownership across daemons
 
-`groups` is gated's; `invites` is onbod's; `web_routes` is webd's.
-Each registers its own resources. The MCP socket terminates in gated,
-so MCP calls to `invites.*` must forward to onbod over HTTP. Pattern
-(shipped 2026-05-25): the forwarder is a `Resource{Store: nil}` whose
-`Handler` does an HTTP call downstream; the adapter skips the
-tx/audit dance, and the destination daemon writes the audit row.
+`groups` is routd's; `invites` is onbod's; `web_routes` is webd's.
+Each registers its own resources. The MCP socket terminates in `runed`
+(which owns no resource tables), so MCP calls to `invites.*` forward to
+onbod over HTTP, `groups.*` to routd, and so on. Pattern (shipped
+2026-05-25): the forwarder is a `Resource{Store: nil}` whose `Handler`
+does an HTTP call downstream; the adapter skips the tx/audit dance, and
+the destination daemon writes the audit row.
 `webd/routes_mcp.go` is the canonical example.
 
 ## Phased rollout
@@ -656,10 +694,10 @@ func (s *ChatsService) List(ctx context.Context, actor Actor, q ChatsQuery) ([]C
     return chats, nil
 }
 
-// MCP wrapper — auth from SO_PEERCRED, JSON-RPC marshalling
+// MCP wrapper — auth from the capability token (auth.VerifyToken), JSON-RPC marshalling
 func (h *MCPHandler) handleListChats(ctx context.Context, req mcp.Req) mcp.Resp { ... }
 
-// REST wrapper — auth from signed headers, HTTP marshalling
+// REST wrapper — auth from Bearer JWT (auth.VerifyHTTP against authd JWKs), HTTP marshalling
 func (h *RESTHandler) handleGetChats(w http.ResponseWriter, r *http.Request) { ... }
 ```
 
@@ -693,7 +731,7 @@ slog telemetry only — no audit row. Field schema:
   tool — no code beyond the struct literal.
 - Auth tests:
   - Agent token with `grants:write:own_group` and
-    `Identity.Folder = "atlas/support"` can `PATCH /v1/grants/{id}`
+    `Identity.Extra["folder"] = "atlas/support"` can `PATCH /v1/grants/{id}`
     for a grant under `atlas/support/*` AND call `grants.update` over
     MCP with the same id; both 200.
   - Same token cannot update a grant under `rhias/*`; both 403.
@@ -726,15 +764,16 @@ slog telemetry only — no audit row. Field schema:
   ([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
   9-case per-tool switch. After Phase G it is **deleted** — not thinned.
-  The per-action `ScopePred` in the registry is the only authorization
-  site (`r.Policy[action](caller, target)`). The switch survives in
+  The per-resource `Authz` callback delegating to `auth.Authorize` over
+  the unified ACL is the only authorization site. The switch survives in
   CHANGELOG only.
 
 ## Open (parked)
 
 - **`:own_group` matching under nested folders.** Subtree containment
-  is the lean. Pin when
-  [`U-genericization.md`](U-genericization.md) lands `MatchesFolder`.
+  is the lean. Pin when the arizuko `identity.go` folder helper (the
+  folder-match logic moved out of `auth/` per
+  [`1-auth-standalone.md`](1-auth-standalone.md)) lands.
 - **Bulk endpoints.** Many POSTs, bulk only on demand.
 - **Action verbs vs CRUD shape.** `messages.send` / `groups.escalate`
   are action-shaped. Inherit Google's `:verb` convention.
@@ -767,23 +806,26 @@ slog telemetry only — no audit row. Field schema:
 
 - `auth/` ([`README.md`](../../auth/README.md)) — gains `Caller`,
   `Resource`, `Endpoint`, `MCPTool`, `ScopePred`, `RegisterResource`,
-  `VerifyHTTP`, `FetchKeys`, `HasScope`, `MatchesFolder` per Phase A.
-  The verify-side single source of truth for token format; minting
-  lives in `authd` ([`1-auth-standalone.md`](1-auth-standalone.md)).
+  `VerifyHTTP`, `FetchKeys`, `HasScope` per Phase A. `auth/` stays
+  folder-agnostic; the folder-match helper lives in arizuko's
+  `identity.go` over `Identity.Extra["folder"]`
+  ([`1-auth-standalone.md`](1-auth-standalone.md)). The verify-side
+  single source of truth for token format; minting lives in `authd`.
 - [`auth/policy.go:14-96`](../../auth/policy.go) — current `Authorize`
   switch; Phase G replaces with registry lookup.
 - [`ipc/ipc.go:32-120`](../../ipc/ipc.go) — `GatedFns`/`StoreFns` plus
   per-tool registrations; resource-action tools migrate to
-  `RegisterResource`, shrinking the file. MCP host gains an authd
-  token-request client (not a local minter) and an HTTP-forward client
-  for cross-daemon tools.
+  `RegisterResource`, shrinking the file. After the split this MCP host
+  is `runed` ([`P-runed.md`](P-runed.md)), which gains an authd
+  token-brokering client (not a local minter) and an HTTP-forward client
+  for cross-daemon tools (conversation tools → routd).
 - [`proxyd/main.go:590-634`](../../proxyd/main.go) — signed-identity
   header path; the `Caller` builder for REST. OAuth login delegates to
   `authd`, which mints the scope-carrying token; proxyd verifies.
-- [`gated/`](../../gated/), [`timed/`](../../timed/),
-  [`onbod/`](../../onbod/), [`webd/`](../../webd/) — each gains a
-  small `v1.go` for its owned resources; calls `RegisterResource` per
-  owned resource.
+- `routd`/`runed` (post-split, from today's [`gated/`](../../gated/)),
+  [`timed/`](../../timed/), [`onbod/`](../../onbod/),
+  [`webd/`](../../webd/) — each gains a small `v1.go` for its owned
+  resources; calls `RegisterResource` per owned resource.
 - [`dashd/`](../../dashd/) — replaces direct `store.*` calls with
   `/v1/*` HTTP calls using the operator's session token.
 - `core/grants.go` — stays as the rule evaluator; called by `authd`
