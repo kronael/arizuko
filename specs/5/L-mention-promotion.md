@@ -99,6 +99,28 @@ The store row carries the promoted verb so all downstream paths
   the table (PRIMARY KEY); a discord message ID and a telegram
   message ID can't collide on lookup.
 
+## Thread replies are implicit reply-to-bot
+
+The promotion keys on `ReplyTo`, but a platform thread doesn't deliver
+each in-thread message as an explicit reply — it carries a thread anchor
+(Slack `thread_ts`, Discord parent channel, …). An adapter that only sets
+`Topic` from that anchor and leaves `ReplyTo` empty defeats the promotion:
+a follow-up in a thread the bot started arrives as `verb=message`, so the
+agent only re-attends while the spec 5/G engagement window is open, then
+goes silent until the user re-@mentions.
+
+Fix at the adapter (the layer that knows the thread shape): **set
+`ReplyTo` = the thread root** for any in-thread message. The gateway
+promotion then flips it to `mention` only when that root resolves via
+`IsBotMessageByID` (`id` OR `platform_id`) — i.e. the thread was started
+by one of the bot's own messages. Human-rooted threads don't resolve, so
+they keep the engagement/mention path; no over-triggering.
+
+`slakd` sets `ReplyTo = thread_ts` for `thread_ts != ts` messages
+(`slakd/bot.go`). Other threaded adapters (`discd` parent channel,
+`teled` forum topics) should follow the same rule when their thread model
+is wired.
+
 ## Migration
 
 No schema change. Existing rows in `messages` keep their stored

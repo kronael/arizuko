@@ -190,6 +190,41 @@ func TestInbound_DMNeverMentionVerb(t *testing.T) {
 	}
 }
 
+// A message inside a thread must carry ReplyTo = thread root, so the spec
+// 5/L reply-to-bot promotion can fire when the root is the bot's own message
+// (atlas auto-attends a thread it started without a re-@mention).
+func TestInbound_ThreadReplySetsReplyTo(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "follow-up in the thread",
+	    "ts": "1700002222.000200",
+	    "thread_ts": "1700002000.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("got %d msgs", len(msgs))
+	}
+	if msgs[0].ReplyTo != "1700002000.000100" {
+		t.Errorf("in-thread message must set ReplyTo=thread_ts, got %q", msgs[0].ReplyTo)
+	}
+	if msgs[0].Topic != "1700002000.000100" {
+		t.Errorf("in-thread message must set Topic=thread_ts, got %q", msgs[0].Topic)
+	}
+}
+
 // handleAssistantThreadStarted must not panic when b.store is nil — pane
 // persistence + context propagation just no-op in that mode.
 func TestAssistantThreadStarted_NilStoreNoPanic(t *testing.T) {

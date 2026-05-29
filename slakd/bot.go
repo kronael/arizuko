@@ -353,8 +353,16 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 	}
 
 	topic := ""
+	replyTo := ""
 	if m.ThreadTS != "" && m.ThreadTS != m.TS {
 		topic = m.ThreadTS
+		// A message inside a thread is an implicit reply to the thread root.
+		// Feeding ReplyTo lets the spec 5/L promotion (api.handleMessage) flip
+		// verb→mention when that root is one of the bot's own messages, so the
+		// agent auto-attends a thread it started without the user re-@mentioning.
+		// Roots authored by someone else don't resolve via IsBotMessageByID, so
+		// human-rooted threads keep the engagement/mention path.
+		replyTo = m.ThreadTS
 	}
 
 	isGroup := !conv.IsIM
@@ -375,6 +383,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		Verb:        verb,
 		Timestamp:   parseSlackTS(m.TS),
 		Topic:       topic,
+		ReplyTo:     replyTo,
 		Attachments: atts,
 		IsGroup:     isGroup,
 		ChatName:    chatName,
