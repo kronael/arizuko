@@ -112,11 +112,19 @@ func tokenList(st *store.Store, args []string) {
 
 func tokenRevoke(st *store.Store, args []string) {
 	if len(args) < 1 {
-		die("usage: arizuko token <instance> revoke <jid>")
+		die("usage: arizuko token <instance> revoke <jid> [<owner_folder>]")
 	}
 	jid := args[0]
-	// Owner folder: derived from the JID (web:<folder>/... or hook:<folder>/...).
-	folder := jidFolder(jid)
+	// owner_folder bounds revocation and may diverge from the JID's folder
+	// (a higher-tier folder can mint on behalf of a descendant — see
+	// store.RouteToken). Take it explicitly when given; otherwise fall back
+	// to the JID's folder, which only holds for self-owned tokens.
+	var folder string
+	if len(args) >= 2 {
+		folder = args[1]
+	} else {
+		folder = jidFolder(jid)
+	}
 	if folder == "" {
 		die("Failed: unrecognised JID format %q", jid)
 	}
@@ -131,17 +139,22 @@ func tokenRevoke(st *store.Store, args []string) {
 	fmt.Println("revoked:", jid)
 }
 
-// jidFolder extracts the folder segment from a route-token JID.
+// jidFolder extracts the owner folder from a route-token JID, matching the
+// grammar used by webd/proxyd. web:<folder>[/<suffix>] → the folder may itself
+// contain "/" (acme/eng), so the whole rest is the folder for the no-suffix
+// case. hook:<folder>/<source>[...] → folder is everything up to the last
+// segment. Tokens minted with a JID suffix or a divergent owner can't be
+// recovered from the JID alone — pass owner_folder explicitly to revoke those.
 func jidFolder(jid string) string {
-	for _, prefix := range []string{"web:", "hook:"} {
-		if strings.HasPrefix(jid, prefix) {
-			rest := strings.TrimPrefix(jid, prefix)
-			// folder is the first path segment
-			if idx := strings.Index(rest, "/"); idx >= 0 {
-				return rest[:idx]
-			}
-			return rest
+	switch {
+	case strings.HasPrefix(jid, "web:"):
+		return strings.TrimPrefix(jid, "web:")
+	case strings.HasPrefix(jid, "hook:"):
+		rest := strings.TrimPrefix(jid, "hook:")
+		if i := strings.LastIndexByte(rest, '/'); i > 0 {
+			return rest[:i]
 		}
+		return rest
 	}
 	return ""
 }
