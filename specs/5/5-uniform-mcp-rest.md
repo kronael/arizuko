@@ -409,9 +409,9 @@ verified token, then call `r.Handler`. Each daemon's `main.go` calls
 `RegisterResource` per owned resource. Routing per daemon is proxyd's
 job ([`35-proxyd-standalone.md` "Per-daemon route declarations"](35-proxyd-standalone.md)).
 
-OpenAPI emerges from the same registry
-([`4-openapi-discoverable.md`](4-openapi-discoverable.md)): walking
-`r.Endpoints` produces the spec; MCP `tools/list` walks `r.MCPTools`.
+OpenAPI emerges from the same registry (engine-generated, no codegen):
+walking `r.Endpoints` produces the spec; MCP `tools/list` walks
+`r.MCPTools`.
 Drift is structurally impossible.
 
 ## Audit + observability

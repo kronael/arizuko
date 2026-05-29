@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [5-uniform-mcp-rest, 4-openapi-discoverable]
+depends: [5-uniform-mcp-rest]
 ---
 
 # specs/5/I — per-tool-call logging

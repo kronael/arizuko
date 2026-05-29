@@ -119,7 +119,7 @@ impossible because both read the same struct.
 Aggregator landing: `/pub/arizuko/reference/openapi.html` lists every
 daemon's `/openapi.json` URL with a one-line description. Spec:
 [`specs/5/36-yaml-manifests.md`](specs/5/36-yaml-manifests.md)
-§"OpenAPI emission" (subsumes `specs/5/4-openapi-discoverable.md`).
+§"OpenAPI emission" (subsumes the former openapi-discoverable spec).
 
 ## Docs layout
 

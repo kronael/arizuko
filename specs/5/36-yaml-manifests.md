@@ -465,8 +465,8 @@ The "free" claim is true for the strict-subset resources (`routes`,
 
 The same reflection that drives SQL/YAML/JSON also emits an OpenAPI 3.1
 document for every daemon — no `huma`, no `swag`, no codegen. Subsumes
-[`5/4-openapi-discoverable.md`](4-openapi-discoverable.md): one engine,
-one walk over the registry, one JSON blob served at `/openapi.json`.
+the former openapi-discoverable spec: one engine, one walk over the
+registry, one JSON blob served at `/openapi.json`.
 
 ```go
 // resreg/openapi.go
