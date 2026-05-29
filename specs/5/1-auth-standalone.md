@@ -44,12 +44,12 @@ server. Three libraries, one shared JOSE implementation:
 (returns an `id_token`); GitHub, Discord, and Telegram are not. The
 resolution path per provider, ported from today's `oauth.go`:
 
-| Provider | Flow                                                                                  | `provider_sub` source    | `name` source               | `email_verified`                 |
-| -------- | ------------------------------------------------------------------------------------- | ------------------------ | --------------------------- | -------------------------------- |
-| Google   | code exchange → verify `id_token` via go-oidc (`oidc.IDTokenVerifier`, nonce checked) | `id_token.sub`           | `id_token.name`             | `id_token.email_verified`        |
-| GitHub   | code exchange (x/oauth2) → `GET api.github.com/user`                                  | `login` (string user id) | `name` ?? `login`           | 0 (no verified-email claim used) |
-| Discord  | code exchange (x/oauth2) → `GET discord.com/api/users/@me`                            | `id`                     | `global_name` ?? `username` | 0                                |
-| Telegram | Login Widget HMAC verify (no code exchange)                                           | widget `id`              | `first_name`[+`last_name`]  | 0                                |
+| Provider | Flow                                                                                  | `provider_sub` source  | `name` source               | `email_verified`                 |
+| -------- | ------------------------------------------------------------------------------------- | ---------------------- | --------------------------- | -------------------------------- |
+| Google   | code exchange → verify `id_token` via go-oidc (`oidc.IDTokenVerifier`, nonce checked) | `id_token.sub`         | `id_token.name`             | `id_token.email_verified`        |
+| GitHub   | code exchange (x/oauth2) → `GET api.github.com/user`                                  | `id` (numeric, stable) | `name` ?? `login`           | 0 (no verified-email claim used) |
+| Discord  | code exchange (x/oauth2) → `GET discord.com/api/users/@me`                            | `id`                   | `global_name` ?? `username` | 0                                |
+| Telegram | Login Widget HMAC verify (no code exchange)                                           | widget `id`            | `first_name`[+`last_name`]  | 0                                |
 
 go-oidc is used **only** for Google's `id_token` verify and the
 verifier-side `RemoteKeySet`; the other three resolve identity via userinfo
@@ -64,9 +64,13 @@ rotation/asymmetric verify) — exactly what go-jose + go-oidc remove; and
 client registration, grant-type state machines, introspection) that are ~20×
 our scope.
 
-`auth/` (verify side) never imports go-jose directly — it verifies through
-go-oidc's `IDTokenVerifier` / `RemoteKeySet` (go-jose transitive). Only
-`authd` (sign side) imports go-jose, to sign and marshal the JWK Set.
+`auth/` (verify side) never imports go-jose directly. For arizuko-issued
+ES256 tokens it uses go-oidc's `RemoteKeySet` to fetch/cache/rotate the JWK
+Set, then runs a **plain JWT verify** (parse, select key by `kid`, check
+signature + `iss`/`exp`/`nbf`) — **not** `IDTokenVerifier`, which is
+OIDC-`id_token`-only. `IDTokenVerifier` is used **solely** at login to verify
+Google's `id_token` (go-jose transitive in both). Only `authd` (sign side)
+imports go-jose, to sign and marshal the JWK Set.
 
 ## Revocation = short-TTL-only (LOCKED)
 
@@ -146,7 +150,9 @@ CREATE TABLE users (
 
 -- oauth_accounts: each external identity linked to a canonical user.
 -- (provider, provider_sub) is globally unique — one external identity
--- maps to at most one canonical user (§ Account linking).
+-- maps to at most one canonical user. (user_id, provider) is unique too —
+-- at most one link per provider per user, so unlink-by-provider is
+-- unambiguous (§ Account linking).
 CREATE TABLE oauth_accounts (
   id            INTEGER PRIMARY KEY,
   user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -155,7 +161,8 @@ CREATE TABLE oauth_accounts (
   email         TEXT,                    -- verified email at link time, if any
   email_verified INTEGER NOT NULL DEFAULT 0,
   linked_at     TEXT NOT NULL,
-  UNIQUE(provider, provider_sub)
+  UNIQUE(provider, provider_sub),
+  UNIQUE(user_id, provider)
 );
 CREATE INDEX idx_oauth_accounts_user ON oauth_accounts(user_id);
 
@@ -177,9 +184,12 @@ CREATE INDEX idx_refresh_user ON refresh_tokens(user_sub);
 CREATE INDEX idx_refresh_family ON refresh_tokens(family_id);
 
 -- signing_keys: ES256 keypairs. Exactly one row is "active" (signs); old
--- rows stay servable in the JWK Set until retired_at + max access TTL
--- elapses (§ JWK rotation). private_key encoding per § Private-key
--- encryption-at-rest.
+-- rows stay servable in the JWK Set through their overlap window
+-- (retired_at + max access TTL), then the GC drops them. Revocation is
+-- purely time-based — no permanent flag: an emergency revoke backdates
+-- retired_at so the overlap has already elapsed, dropping the kid from
+-- /v1/keys at once; the row then expires + is GC'd normally. private_key
+-- encoding per § Private-key encryption-at-rest.
 CREATE TABLE signing_keys (
   kid         TEXT PRIMARY KEY,          -- "<created-unix>-<8 hex rand>"
   alg         TEXT NOT NULL DEFAULT 'ES256',
@@ -187,7 +197,7 @@ CREATE TABLE signing_keys (
   private_key TEXT NOT NULL,             -- "plain:<PKCS8 PEM>" or "gcm:v1:<b64 nonce||ct>" (§ Private-key encryption-at-rest)
   active      INTEGER NOT NULL DEFAULT 0, -- 1 = current signer; only one row =1
   created_at  TEXT NOT NULL,
-  retired_at  TEXT                       -- set when rotated out; row droppable after retired_at + access TTL
+  retired_at  TEXT                       -- set when rotated out; served until retired_at + overlap, then GC'd
 );
 
 -- internal_keys: authd-internal symmetric secrets that must persist across
@@ -307,6 +317,14 @@ claim so `auth/` stays domain-agnostic.
   helper in `arizuko/identity.go` reads it. Root/operator tokens omit it.
 - A clock-skew tolerance of 30s applies to `nbf`/`iat`/`exp` (matches
   today's `clockSkew`).
+- **`sub` prefix rule (pinned).** The `user:`/`service:` prefix appears
+  **only** in the JWT `sub` claim. The **bare** canonical sub is what's
+  stored everywhere else: all DB columns (`users.sub`,
+  `refresh_tokens.user_sub`, `oauth_state.link_user_sub`), the grants
+  lookup (`GET <GRANTS_URL>/v1/users/{sub}/scopes`), and the migration
+  mapping. authd strips the prefix when calling grants and when ingesting
+  `caller_sub` from routd/runed; it adds the prefix only when stamping the
+  `sub` claim at mint time.
 
 `Claims` (mint input) and `Identity` (verify output) carry these as
 generic fields:
@@ -353,8 +371,11 @@ auth middleware); every other `/v1/*` endpoint requires a bootstrap secret
 
 ### `GET /v1/keys` — JWK Set (public)
 
-Marshalled by go-jose from `signing_keys` rows that are `active` OR
-not-yet-fully-retired (overlap window).
+Marshalled by go-jose from `signing_keys` rows that are `active` OR within
+their overlap window (`now < retired_at + max access TTL`). Purely
+time-based — no flag. An emergency-revoked kid is retired with the overlap
+already elapsed (below), so it falls out of this set immediately and ages
+out via the normal GC.
 
 ```jsonc
 // 200
@@ -381,18 +402,24 @@ Verifiers also refresh on `kid`-miss (one re-fetch before failing) — go-oidc
 
 One endpoint, two modes picked by whether the caller holds `tokens:mint` AND
 requested `sub` ≠ caller `sub` (issuer mint) vs same `sub` (downscope). No
-separate `/v1/downscope`. In both modes the minted token is always ⊆ the
-bearer — the subset/subtree check is the only authority rule.
+separate `/v1/downscope`. The two modes bound the minted scope against
+**different sources** — that's the only authority rule, stated per-mode below.
 
 - **Issuer mint** (caller has `tokens:mint`; onbod, dashd, proxyd-on-login):
-  mints a fresh `user`/`service` token for a **different** `sub`. Requested
-  `scope` MUST be ⊆ the caller's `scope` and folder within the caller's
-  `arz/folder` subtree. An invite mints `user`, never `service`. Delegation,
-  never escalation. Violation → `403 scope_exceeds_minter`.
+  mints a fresh `user`/`service` token for a **different** `sub`. The minted
+  `scope` is bounded by the **target sub's grants snapshot** — `authd` fetches
+  `GET <GRANTS_URL>/v1/users/{sub}/scopes` for the requested (bare) `sub` and
+  requires the requested `scope` ⊆ that snapshot, folder within the snapshot's
+  `folder` subtree. It is **not** bounded by the caller's own scope: login,
+  onbod, and dashd mint USER tokens for accounts whose grants the minter does
+  not itself hold. The caller's `tokens:mint` is the authority to mint _at
+  all_; the target's grants set the ceiling. An invite mints `user`, never
+  `service`. Delegation, never escalation. Violation → `403 scope_exceeds_minter`.
 - **Downscope** (any valid bearer, no `tokens:mint`): mints a `downscoped`
   token for the **same** `sub` (the `sub` field is forced to the caller's),
-  `scope` ⊆ caller's, folder within caller's subtree, `parent_jti` = caller's
-  `jti`, TTL capped at parent's remaining lifetime. Violation → `403
+  narrowing the **presented parent token** — minted `scope` ⊆ the **caller's**
+  `scope`, folder within the caller's `arz/folder` subtree, `parent_jti` =
+  caller's `jti`, TTL capped at parent's remaining lifetime. Violation → `403
 scope_exceeds_parent`.
 
 ```jsonc
@@ -457,7 +484,7 @@ rotate-key`.
 
 ```jsonc
 // POST /v1/keys/rotate  Authorization: Bearer <operator>
-{ "revoke_old": false }   // true = emergency revoke: zero overlap, old kid dropped from JWK Set now
+{ "revoke_old": false }   // true = emergency: retire old kid with overlap already elapsed → dropped from JWK Set now
 // 200
 { "new_kid":"1735003600-9f8e7d6c", "retired_kid":"1735000000-a1b2c3d4",
   "old_servable_until":"2026-06-28T12:00:00Z" }  // null when revoke_old=true
@@ -468,9 +495,11 @@ rotate-key`.
 
 Bearer = the user's own access JWT (the `sub` owns the `users` row). Removes
 the matching `oauth_accounts` row. `{provider}` ∈
-`{google,github,discord,telegram}`; `(provider, provider_sub)` is unique so
-the path needs no `provider_sub`. Refused `409` when it would leave the user
-with no `oauth_accounts` row and no local password (`users.hash IS NULL`).
+`{google,github,discord,telegram}`; `UNIQUE(user_id, provider)` means a user
+holds at most one link per provider, so `(user_id, {provider})` resolves to
+exactly one row and the path needs no `provider_sub`. Refused `409` when it
+would leave the user with no `oauth_accounts` row and no local password
+(`users.hash IS NULL`).
 
 ```jsonc
 // DELETE /v1/users/me/accounts/google   Authorization: Bearer <user>
@@ -522,8 +551,16 @@ GET <GRANTS_URL>/v1/users/{sub}/scopes      Authorization: Bearer <authd service
 → 404 {"error":"no_grants"}   (sub has no grant rows)
 ```
 
+- `{sub}` is the **bare** canonical sub (no `user:`/`service:` prefix —
+  § JWT claim set "`sub` prefix rule"). Same call backs issuer-mint's
+  ceiling check (§ `POST /v1/tokens`).
 - Authenticated with `authd`'s own `service:authd` token (scope
-  `grants:read`).
+  `grants:read`). `authd` **self-mints** this token: it holds the signing
+  key, so it signs a `service:authd` JWT (`scope:["grants:read"]`, normal
+  service TTL) directly at startup and refreshes it like any service token —
+  no `service_keys` seed row, no bootstrap secret (the seed mechanism is for
+  **other** daemons, which lack the key). authd is the one daemon that needs
+  no bootstrap to obtain a service identity.
 - Returned `scope` + `folder` stamped into the access JWT as `scope` /
   `arz/folder`. Snapshot taken **once at issuance**; later grant changes take
   effect only at next refresh/login (short-TTL model).
@@ -556,10 +593,13 @@ authorizes elsewhere).
   until they'd have expired anyway; GC drops the row after. The retired key's
   private half can be zeroed at retirement (never re-signed with).
 - **Compromise = emergency revoke** (§ Revocation): `authd rotate-key
---revoke-old` rotates AND sets the compromised key's `retired_at = now` with
-  **zero** overlap (dropped from the JWK Set now). Every token signed by it
-  fails within one JWKS cache TTL (≤1 h; force-purge by restarting verifiers).
-  The single lever that invalidates everything at once.
+--revoke-old` rotates to a fresh active key AND retires the compromised key
+  with **zero overlap** — `retired_at = now − (max access TTL)`, so the
+  `now < retired_at + overlap` serve check is already false and the kid
+  drops from `GET /v1/keys` immediately (then ages out via the normal GC, no
+  permanent flag). Every token signed by it fails
+  within one JWKS cache TTL (≤1 h; force-purge by restarting verifiers). The
+  single lever that invalidates everything at once.
 
 ## TTL table
 
@@ -613,7 +653,8 @@ One canonical `users` row may have multiple `oauth_accounts`. Rules (ported
 from `oauth.go`/`collide.go`):
 
 - **Uniqueness**: `(provider, provider_sub)` globally unique — one external
-  identity → at most one canonical user.
+  identity → at most one canonical user. `(user_id, provider)` also unique —
+  one link per provider per user, so unlink-by-`{provider}` is unambiguous.
 - **First login** (no matching `oauth_accounts` row, no session): create a
   `users` row (`sub = "u_<rand>"`, `name` from provider), insert the
   `oauth_accounts` row, issue a session.
@@ -654,7 +695,10 @@ A single Go module exposing four surfaces. `auth/` is verify-only;
 ```go
 // Verify any incoming token against cached JWKs. Pure function once the
 // JWKs cache is warm. ES256: picks the public key by `kid` from the JWS
-// header (go-oidc RemoteKeySet). Pins iss=="authd", checks exp/nbf/aud.
+// header (go-oidc RemoteKeySet). Pins iss=="authd", checks signature +
+// exp/nbf. Does NOT enforce audience — these take no expected-aud arg; the
+// token's `aud` lands in Identity.Audience (default "" = any) and the caller
+// matches it with MatchesAudience when it cares.
 func VerifyHTTP(r *http.Request, jwks *KeySet) (Identity, error)
 func VerifyToken(token string, jwks *KeySet) (Identity, error)
 
@@ -698,6 +742,15 @@ type AuthHandlers struct {
 func Handlers(providers []Provider, signer Signer, opts ...Option) AuthHandlers
 func Mount(mux *http.ServeMux, providers []Provider, signer Signer, opts ...Option)
 ```
+
+`AuthHandlers` exposes only the four shared handlers; the per-provider
+(`/auth/<provider>`, `/auth/<provider>/callback`), `/auth/telegram`, and
+`/auth/collide` routes from the § OAuth routes table are **not** struct
+fields. `Mount` registers them internally (one provider authorize+callback
+pair per configured provider, plus telegram + collide), wiring each to the
+shared `Callback`/`dispatchOAuth` path. Daemons that want the full login
+surface call `Mount`; `Handlers` is for embedding the four core handlers
+into a custom mux.
 
 `authd` mounts these; proxyd delegates login to `authd`
 ([`35-proxyd-standalone.md`](35-proxyd-standalone.md) § Login flow) — it

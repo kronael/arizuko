@@ -228,7 +228,7 @@ CREATE TABLE turn_context (
   trigger_sender TEXT NOT NULL,           -- for the timed-* engagement-skip
   started_at     TEXT NOT NULL,
   run_id         TEXT,                    -- runed's run id once POST /v1/runs returns
-  state          TEXT NOT NULL DEFAULT 'running'  -- running | done
+  state          TEXT NOT NULL DEFAULT 'running'  -- running | done | expired
 );
 ```
 
@@ -244,6 +244,31 @@ CREATE TABLE turn_results (
   recorded_at  TEXT NOT NULL,
   PRIMARY KEY (folder, turn_id)
 );
+```
+
+### Cost ledger — `cost_log`
+
+Per-turn model cost. **routd owns it**: cost is per-turn and routd owns
+turns/messages, so the turn-outcome callback persists it. `runed` does
+**not** persist cost — it **reports** the per-model breakdown in the
+`submit_turn` → `/v1/turns/{id}/result` payload (`models`), and routd
+writes one `cost_log` row per `(folder, turn_id, model)` from the
+`/result` handler (same first-record path that writes `turn_results`,
+under the `(folder, turn_id)` dedup, so a duplicate `submit_turn` does not
+double-charge). `cost_cap_cents_per_day` (groups) reads this table.
+
+```sql
+CREATE TABLE cost_log (
+  folder       TEXT NOT NULL,
+  turn_id      TEXT NOT NULL,
+  model        TEXT NOT NULL,            -- e.g. "claude-…"
+  input_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_cents   INTEGER NOT NULL DEFAULT 0,
+  recorded_at  TEXT NOT NULL,
+  PRIMARY KEY (folder, turn_id, model)
+);
+CREATE INDEX idx_cost_log_folder_day ON cost_log(folder, recorded_at);
 ```
 
 ### Web routes — `web_routes`
@@ -303,7 +328,9 @@ CREATE TABLE group_watchers (
 -- the original response so a replay returns the exact status+body without
 -- re-executing. Survives restart. Swept hourly past expires_at.
 CREATE TABLE idempotency_keys (
-  endpoint     TEXT NOT NULL,            -- e.g. "POST /v1/turns/reply"
+  endpoint     TEXT NOT NULL,            -- path TEMPLATE with vars collapsed: "POST /v1/turns/reply"
+                                         --   NEVER the filled path ("POST /v1/turns/{turn_id}/reply") —
+                                         --   the per-turn id would partition the ledger and break dedup.
   key          TEXT NOT NULL,            -- X-Idempotency-Key value
   request_hash TEXT NOT NULL,            -- sha256 of canonical request body; mismatch on replay → 409
   status       INTEGER NOT NULL,         -- stored HTTP status
@@ -318,7 +345,7 @@ CREATE INDEX idx_idempotency_expiry ON idempotency_keys(expires_at);
 **Migration note.** routd runs its own `routd/migrations/*.sql` at
 startup (same numbering as `store/migrations/`). The cutover copies the
 above tables and drops the source. Tables NOT listed here (`secrets`,
-`acl`, `acl_membership`, `scheduled_tasks`, `network_rules`, `cost_log`,
+`acl`, `acl_membership`, `scheduled_tasks`, `network_rules`,
 `audit_log`, `config_meta`, `pane_sessions`, auth, onboarding) belong to
 other split products or the residual gated. `pane_sessions` is read by
 the loop's `paneHints` but **owned by runed** — routd reads it over
@@ -478,7 +505,13 @@ table (persistent, survives restart). Pinned protocol:
 
 1. Compute `request_hash = sha256(canonical-body)` and `INSERT` into
    `idempotency_keys` with a placeholder status. First writer wins (PK
-   `(endpoint, key)` serializes concurrent retries). **Canonical body** =
+   `(endpoint, key)` serializes concurrent retries). **`endpoint` is the
+   path TEMPLATE with path variables collapsed** (`POST /v1/turns/reply`),
+   **not** the filled path (`POST /v1/turns/{turn_id}/reply`): the
+   `{turn_id}` segment is per-turn, so embedding it would partition one
+   logical command across turns and defeat the dedup. The client-supplied
+   `X-Idempotency-Key` is what scopes the command; the template names the
+   operation. **Canonical body** =
    the request bytes re-marshalled with sorted object keys and no
    insignificant whitespace (Go: decode to `map[string]any` →
    `json.Marshal`), so encoder differences don't produce false 409s.
@@ -676,11 +709,12 @@ records the outcome idempotently:
 `turn_results` (PK `(folder, turn_id)`); a duplicate returns
 `recorded:false`. On a first record routd looks up `turn_context[turn_id]`
 to recover `(folder, topic, chat_jid)` (the payload carries no `topic`),
-persists the new `session_id` into `sessions(folder, topic)`, writes cost
-rows, publishes `round_done` to the web SSE channel (keyed on the chat
-JID's folder via `turn_context.chat_jid`, **not** the routing-target
-folder — the known routed-web-submission gotcha), and delivers `result`
-if present.
+persists the new `session_id` into `sessions(folder, topic)`, writes one
+`cost_log` row per model from the payload's `models` map (§ cost_log —
+routd persists the cost runed reports; runed never writes cost),
+publishes `round_done` to the web SSE channel (keyed on the chat JID's
+folder via `turn_context.chat_jid`, **not** the routing-target folder —
+the known routed-web-submission gotcha), and delivers `result` if present.
 
 **Completion reconciliation (state machine, PINNED).** Two terminal
 signals exist: the `POST /v1/runs` HTTP response (`outcome` +
@@ -712,8 +746,17 @@ After the run-response returns, a late callback for that `turn_id` →
 (`recoverPendingMessages`); runed containers are per-turn and exit on
 their own. A re-dispatch reuses the same `turn_id` for the same trigger,
 so `turn_results` PK dedups any `submit_turn` the old run delivers and the
-`409 turn_done` guard blocks a double live run. Stale `running` rows older
-than the run timeout are swept to `done` by the hourly GC.
+`409 turn_done` guard blocks a double live run.
+
+Stale `running` rows older than the run timeout are swept by the hourly GC
+to a **distinct** terminal state `'expired'`, **not** `'done'`. This is
+load-bearing: crash-recovery keys re-feed on `state='running'` (sweeping
+to `'done'` would silently kill replay for a turn that never completed),
+while the double-live-run `409 turn_done` guard keys on `state='done'`
+(sweeping to `'done'` would falsely 409 a legitimate re-dispatch). An
+`'expired'` row is neither re-fed (no longer `running`) nor a `done`-guard
+hit — it is a swept-stale marker, preserving the at-least-once replay
+semantics and the done-guard independently.
 
 ### Web routes — `/v1/web_routes`
 
@@ -736,6 +779,7 @@ POST   /v1/route_tokens/hook       { "owner_folder":"acme/eng", "target_folder":
                                    → 201 {"token":"<raw>", "url":"https://…/hook/<raw>", "jid":"hook:acme/eng/github", ...}
 GET    /v1/route_tokens?owner_folder=acme  → 200 [ {jid, owner_folder, created_at} ]   // never returns raw token
 DELETE /v1/route_tokens/{jid}      ?owner_folder=acme   → 204 | 404
+POST   /v1/route_tokens/resolve    { "token":"<raw>" } → 200 {"jid", "owner_folder"} | 404   // webd's token→jid resolve (service-token auth)
 // 403 {"error":"forbidden","message":"mint scope by tier (spec 5/W)"}
 ```
 
@@ -750,10 +794,22 @@ a distinct token, never an error; revocation by `jid` deletes all tokens
 for that JID under the caller's `owner_folder`.
 
 The bearer-token URL surfaces (`GET/POST /chat/<token>/`,
-`POST /hook/<token>`) live in **webd**, which reads `route_tokens` through
-this api (it does not own the table): webd hashes the URL token, looks up
-the row, and appends the body via `POST /v1/messages` under the row's JID.
-No ACL there; the token IS the auth (+ webd's per-token rate limit).
+`POST /hook/<token>`) live in **webd**, which does **not** own
+`route_tokens` and does **not** open `routd.db` (cross-daemon direct DB
+reads are barred by the DB-ownership rule). It resolves the URL token via
+a dedicated routd endpoint:
+
+```jsonc
+POST /v1/route_tokens/resolve   Authorization: Bearer <webd service token>
+{ "token": "<raw URL token>" }
+// 200  {"jid":"web:acme", "owner_folder":"acme"}   // routd hashes sha256(token), looks up route_tokens
+// 404  {"error":"unknown_token"}
+```
+
+webd then appends the request body via `POST /v1/messages` under the
+returned `jid`. No ACL there; the route token IS the auth (+ webd's
+per-token rate limit). routd does the `sha256(token)` hashing and the
+table lookup; webd never sees the hash or the table.
 
 ## MCP tool face
 
@@ -771,7 +827,8 @@ process serves the routing-control tools directly.
 | `send`                                                                           | `POST /v1/turns/{id}/send`             | routd (via runed)           | `messages:send:own_group`    |
 | `send_file`                                                                      | `POST /v1/turns/{id}/document`         | routd (via runed)           | `messages:send:own_group`    |
 | `get_history` / `get_thread`                                                     | `GET /v1/turns/{id}/history`,`/thread` | routd (via runed)           | `chats:read:own_group`       |
-| `like` / `dislike` / `edit` / `delete` / `pin_message` / `unpin_message`         | `POST /v1/turns/{id}/{verb}`           | routd (via runed)           | `messages:send:own_group`    |
+| `like` / `edit` / `delete`                                                       | `POST /v1/turns/{id}/{verb}`           | routd (via runed)           | `messages:send:own_group`    |
+| `dislike` / `pin_message` / `unpin_message` / `unpin_all`                        | mapped paths (§ verb→path exceptions)  | routd (via runed)           | `messages:send:own_group`    |
 | `engage` / `disengage`                                                           | engagement write (5/G)                 | routd (via runed)           | self/owned jid (3-arm authz) |
 | `fork_topic`                                                                     | lineage write (5/F)                    | routd (via runed)           | `messages:send:own_group`    |
 | `set_routes` / `add_route` / `delete_route`                                      | route CRUD                             | routd direct                | `routes:write:own_group`     |
@@ -782,6 +839,23 @@ process serves the routing-control tools directly.
 vs. fresh top-level message), not one tool with a `mode=` param, per the
 project tool-naming rule. The handler is routd's whether federated
 through runed or served direct.
+
+**verb→path exceptions (PINNED, identical in
+[`P-runed.md`](P-runed.md) § federation forward).** Most message tools map
+tool-name → `/v1/turns/{id}/<name>` directly (`reply`→`/reply`,
+`send`→`/send`, `get_history`→`/history`, `get_thread`→`/thread`,
+`like`→`/like`, `edit`→`/edit`, `delete`→`/delete`). Four tools do
+**not** — the tool name is not the path tail, and runed must special-case
+them on forward:
+
+- `send_file` → `/document`.
+- `dislike` → `/like` with `reaction="👎"`. There is **no** `/dislike`
+  endpoint (the dislike-via-like-emoji rule: one code path per mechanism,
+  both verbs visible to the agent).
+- `pin_message` → `/pin`, `unpin_message` → `/unpin` (strip `_message`;
+  the bare verb tail is routd's interface — sending `/pin_message` 404s).
+- `unpin_all` → `/unpin` with `all:true` (the `/v1/turns/{id}/unpin` body
+  carries the `all` flag; the `_all` tool name has no separate path).
 
 ## The routd↔runed interface (PINNED)
 
@@ -808,7 +882,8 @@ runed's spec is written to match exactly.
 }
 // 200 (sync, run complete)
 { "run_id": "run-…", "outcome": "ok"|"error"|"silent", "session_id": "uuid", "error": "",
-  "breaker_open": false }   // true ONLY on the run that trips runed's circuit breaker (P-runed § queue)
+  "steered": false,        // discriminator: false = turn-boundary outcome; true = steer ack (P-runed § steer)
+  "breaker_open": false }  // true ONLY on the run that trips runed's circuit breaker (P-runed § queue)
 // 503 {"error":"queue_shutting_down"}
 ```
 
@@ -853,7 +928,27 @@ runed's spec is written to match exactly.
 executing inside runed's container) call **back** into routd's
 `/v1/turns/{turn_id}/*` (above). routd is the sole appender; runed never
 writes a `messages` row. The `turn_id` on every callback binds it to the
-run routd started.
+run routd started. The full runed→routd obligation set:
+
+| runed → routd                       | When                  | Auth (every call)               |
+| ----------------------------------- | --------------------- | ------------------------------- |
+| `POST /v1/turns/{turn_id}/reply`    | agent `reply`         | agent capability token (Bearer) |
+| `POST /v1/turns/{turn_id}/send`     | agent `send`          | agent capability token          |
+| `POST /v1/turns/{turn_id}/document` | agent `send_file`     | agent capability token          |
+| `GET  /v1/turns/{turn_id}/history`  | agent `get_history`   | agent capability token          |
+| `GET  /v1/turns/{turn_id}/thread`   | agent `get_thread`    | agent capability token          |
+| `POST /v1/turns/{turn_id}/{verb}`   | like/edit/delete/pin… | agent capability token          |
+| `POST /v1/turns/{turn_id}/result`   | agent `submit_turn`   | agent capability token          |
+
+The last row is the **turn-outcome callback**: runed forwards the agent's
+`submit_turn` to `POST /v1/turns/{turn_id}/result` (REST twin of
+`submit_turn`, § turn lifecycle) carrying the `TurnResult` payload
+(`session_id`, `status`, optional `result`/`error`, and the **cost**
+breakdown runed reports — routd persists it, § cost_log). routd records it
+idempotently into `turn_results` (PK `(folder, turn_id)`); a duplicate
+returns `{recorded:false}`. The token is the same agent capability token as
+the conversation callbacks (offline-verified, scope-checked); runed forwards
+it verbatim, never re-signs.
 
 **Invariants.** routd never spawns a container or holds a Docker handle.
 runed never opens `routd.db` or appends a message. The two talk only over

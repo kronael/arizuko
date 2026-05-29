@@ -72,8 +72,11 @@ lineage + sessions). The lineage is a routing/turn-lifecycle concern, and
 `session_id` is **opaque to routd**: `runed` _produces_ it (the harness
 emits it) and returns it on the `POST /v1/runs` backstop + `submit_turn`;
 `routd` _persists_ it. One owner of session lineage, no drift. `runed`
-reads the resume `session_id` off the `POST /v1/runs` request, never from
-its own DB.
+reads the **resume** `session_id` off the `POST /v1/runs` request, never
+from its own DB. The `spawns.session_id` column runed does keep is a
+runtime **echo** (the value this spawn ran/resumed, resolved at envelope
+step 4) — distinct from routd's lineage-authoritative `sessions`; runed
+reads it only to echo on run-status / steer-ack, never to decide resume.
 
 `runed.db` therefore holds only **execution runtime state** with no home
 in routd. Cutover (one-shot, big-bang, NO BACKWARD COMPATIBILITY): the
@@ -107,6 +110,10 @@ CREATE TABLE spawns (
   container_name TEXT NOT NULL,         -- arizuko-<instance>-<safe-folder>-<unixmilli>
   session_log_id INTEGER REFERENCES session_log(id),
   mcp_token_jti  TEXT,                  -- the brokered token for this spawn (mcp_tokens.jti)
+  session_id     TEXT,                  -- runtime ECHO of the harness session id this spawn ran/resumed;
+                                        --   resolved at step 4 (resume value or freshly minted UUID).
+                                        --   NOT lineage-authoritative — routd.sessions owns lineage (opaque to routd);
+                                        --   this is runed's local copy so run-status + steer-ack can echo it.
   state          TEXT NOT NULL,         -- queued|running|exited|timeout|error|killed
   outcome        TEXT,                  -- ok|error|silent (set at exit; NULL while running)
   exit_code      INTEGER,
@@ -138,14 +145,14 @@ CREATE INDEX idx_spawn_logs_run ON spawn_logs(run_id, id);
 -- inbound web routes; these gate an agent's outbound /v1/* calls.
 CREATE TABLE mcp_tokens (
   jti        TEXT PRIMARY KEY,          -- authd-assigned token id
-  run_id     TEXT NOT NULL REFERENCES spawns(run_id) ON DELETE CASCADE,
+  run_id     TEXT NOT NULL UNIQUE REFERENCES spawns(run_id) ON DELETE CASCADE,
+                                        -- UNIQUE: one brokered token per spawn (§ brokering)
   parent_jti TEXT NOT NULL,             -- runed's own service token jti (the downscope parent)
   folder     TEXT NOT NULL,             -- arz/folder claim the token is scoped to
   scope      TEXT NOT NULL,             -- JSON array of granted scope strings
   issued_at  TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
-CREATE INDEX idx_mcp_tokens_run ON mcp_tokens(run_id);
 CREATE INDEX idx_mcp_tokens_expiry ON mcp_tokens(expires_at);
 ```
 
@@ -189,9 +196,10 @@ POST /v1/runs {folder, topic, turn_id, message_batch (rendered prompt), capabili
             4. spawn container (docker run -i --rm):
                  - resolve session_id: if POST /v1/runs.session_id != "" use it
                    (resume); else generate a fresh UUIDv4 NOW (runed mints the
-                   harness session id — opaque to routd). Written to stdin and
-                   session_log; the harness resumes it or reports newSessionId
-                   at exit (step 7).
+                   harness session id — opaque to routd). Written to stdin,
+                   session_log, AND spawns.session_id (the runtime echo
+                   run-status/steer-ack read); the harness resumes it or reports
+                   newSessionId at exit (step 7).
                  - mounts (§ container), egress register, --network <egress-net>,
                    HTTP(S)_PROXY when isolated
                  - write JSON Input (prompt, sessionId, folder, the brokered
@@ -247,11 +255,21 @@ else ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) § MCP federation):
 | MCP connectors (`<connector>_<tool>`)                                                                                                                 | **local**   | runed-spawned stdio subprocess (`ipc/connector.go`)              |
 
 The federation forward (carried from `ipc/ipc.go`'s `GatedFns`, repointed
-at HTTP). Each message verb maps to its own routd path (PINNED,
-[`E-routd.md`](E-routd.md) § Turn / conversation commands) — `reply` →
-`/reply`, `send` → `/send`, `send_file` → `/document`, `get_history` →
-`/history`, `get_thread` → `/thread`, `like`/`edit`/`delete`/`pin_message`/`unpin_message`
-→ `/{verb}`:
+at HTTP). Most message tools map tool-name → `/v1/turns/{id}/<name>`
+directly (`reply`→`/reply`, `send`→`/send`, `get_history`→`/history`,
+`get_thread`→`/thread`, `like`→`/like`, `edit`→`/edit`,
+`delete`→`/delete`). Four tools do **not** — the tool name is not the path
+tail, and runed must special-case them on forward (PINNED, identical in
+[`E-routd.md`](E-routd.md) § verb→path exceptions):
+
+- `send_file` → `/document`.
+- `dislike` → `/like` with `reaction="👎"`. There is **no** `/dislike`
+  endpoint (the dislike-via-like-emoji rule: one code path per mechanism,
+  both verbs visible to the agent).
+- `pin_message` → `/pin`, `unpin_message` → `/unpin` (strip `_message`;
+  the bare verb tail is routd's interface — sending `/pin_message` 404s).
+- `unpin_all` → `/unpin` with `all:true` (the `/v1/turns/{id}/unpin` body
+  carries the `all` flag; the `_all` tool name has no separate path).
 
 ```
 agent → ipc.tools/call(reply, {chatJid, text, replyToId})
@@ -299,7 +317,13 @@ POST authd /v1/tokens   Authorization: Bearer <runed service token>
 - `runed` holds a `service:runed` token, exchanged at boot via
   `auth.ServiceToken` (`AUTHD_SERVICE_KEY`). Its declared `service_scope`
   (`template/services/runed.toml`) is the **ceiling** for any agent token
-  it brokers — the downscope guarantees scope ⊆ parent.
+  it brokers — the downscope guarantees scope ⊆ parent. `service_scope`
+  **MUST include `tokens:mint`**: brokering an agent token under a
+  user/service `sub` is an **issuer-mint** (the caller is not the subject),
+  legal only for an issuer-mint-authorized service per
+  [`1-auth-standalone.md`](1-auth-standalone.md) § issuer-mint. Without
+  `tokens:mint` in runed's scope, `authd` rejects the downscope as an
+  unauthorized issuer-mint and no agent can be spawned.
 - The requested `scope` is `runed`'s own scope ∩ the `capability_scopes`
   `routd` passed. `authd` enforces scope ⊆ parent and folder ⊆
   parent-folder, returning `403 scope_exceeds_parent` on violation —
@@ -353,7 +377,8 @@ not an array — routd renders, runed runs.
 }
 // 200 (sync, run complete)
 { "run_id":"run-…", "outcome":"ok"|"error"|"silent", "session_id":"uuid", "error":"",
-  "breaker_open": false }   // true ONLY on the run that trips the circuit breaker (§ queue)
+  "steered": false,        // discriminator: false = turn-boundary outcome; true = steer ack (§ steer)
+  "breaker_open": false }  // true ONLY on the run that trips the circuit breaker (§ queue)
 // 503 {"error":"queue_shutting_down"}
 ```
 
@@ -428,11 +453,15 @@ Unsupported platform verb → `422 unsupported` (maps
 
 The agent's per-turn `submit_turn` JSON-RPC method (hidden from
 `tools/list`, `ipc/ipc.go`) is handled by `runed`'s MCP host, which (a)
-records `session_id`/cost into `runed.db` (`session_log` via `EndSession`,
-`spawns.outcome`), and (b) forwards the `TurnResult` to
-`routd /v1/turns/{turn_id}/result` so `routd` (the message owner) records
-delivery + cost-log + `round_done` SSE. Idempotency is enforced by `routd`
-on `(folder, turn_id)`; a duplicate returns `{recorded:false}`.
+records `session_id` + run outcome into `runed.db` (`session_log` via
+`EndSession`, `spawns.outcome`/`spawns.session_id`) — **not cost**, and
+(b) forwards the `TurnResult` (including the per-model **cost** breakdown)
+to `routd /v1/turns/{turn_id}/result` so `routd` (the message + turn
+owner) records delivery + `cost_log` + `round_done` SSE.
+**Cost ownership: `routd` persists `cost_log`; `runed` only reports cost
+in the payload** ([`E-routd.md`](E-routd.md) § cost_log). Idempotency is
+enforced by `routd` on `(folder, turn_id)`; a duplicate returns
+`{recorded:false}`.
 
 ## The queue + container model
 
@@ -521,6 +550,11 @@ offline against `authd`'s JWKs (§ Auth).
 }
 // 404 {"error":"unknown_run"}
 ```
+
+`session_id` here is read straight from `spawns.session_id` (the runtime
+echo set at envelope step 4) — the same source the steer-ack response
+(`steered:true`) returns. runed never consults routd's `sessions` for
+this; lineage stays routd's.
 
 ### `GET /v1/runs/{run_id}/output` — streamed / collected output
 

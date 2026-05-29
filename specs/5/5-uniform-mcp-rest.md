@@ -75,12 +75,19 @@ type Caller struct {
 }
 
 type Resource struct {
+    // --- transport half (this spec) ---
     Name      string
     Endpoints []Endpoint   // REST faces
     MCPTools  []MCPTool    // MCP faces
     Authz     func(c Caller, action Action, args Args) (scope string, params map[string]string, err error)
     Handler   func(ctx context.Context, x Execution) (any, error)
     Store     *store.Store // when set: adapter opens tx, audit row in same tx
+
+    // --- row-schema half (5/36 is authoritative) ---
+    // RowType reflect.Type; Table string; PKFields []string; Scope ScopeFn;
+    // Hooks Hooks; SkipApplyRebuild bool — the engine fields that drive
+    // SQL CRUD, YAML round-trip, and OpenAPI emission. See
+    // 36-yaml-manifests.md § "The row-schema half of resreg.Resource".
 }
 
 // Execution carries the surface-agnostic context the handler runs in.
@@ -290,16 +297,16 @@ crypto (ES256 + JWKs) and the standalone-first sequencing.
 Each daemon owns its tables and serves the matching API. No
 cross-daemon reaches into another's storage.
 
-| Daemon     | Owns                                                     | Serves                                                                                   |
-| ---------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **routd**  | groups, routes, sessions, channels, messages, grants     | `/v1/groups`, `/v1/routes`, `/v1/sessions`, `/v1/channels`, `/v1/messages`, `/v1/grants` |
-| **runed**  | spawns, run history (hosts the agent MCP socket)         | `/v1/runs`; federates conversation-command tools back to routd's `/v1/turns/*`           |
-| **authd**  | signing keys, JWKs, sessions (sole signer)               | `/v1/tokens`, `/v1/keys`, `/auth/*` login                                                |
-| **timed**  | scheduled_tasks, task_run_logs                           | `/v1/tasks`                                                                              |
-| **webd**   | web_routes, vhosts, slink tokens                         | `/v1/web-routes`, `/v1/vhosts` (chat reads stay on existing `/api/*`)                    |
-| **onbod**  | invites, admissions, auth_users                          | `/v1/invites`, `/v1/users`                                                               |
-| **proxyd** | OAuth state (enforcement point; delegates mint to authd) | `/auth/*` (existing); login delegates to authd, which mints                              |
-| **dashd**  | nothing — aggregator UI calling the above                | HTML/HTMX over `/v1/*` of others                                                         |
+| Daemon     | Owns                                                                                                                                                                       | Serves                                                                                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **routd**  | groups, routes, messages, sessions, channels, web_routes, route_tokens, grants, acl/user_groups, secrets, network_rules, cost_caps (residual config + conversation tables) | `/v1/groups`, `/v1/routes`, `/v1/messages`, `/v1/sessions`, `/v1/channels`, `/v1/web_routes`, `/v1/route_tokens`, `/v1/grants`, `/v1/acl`, `/v1/secrets`, `/v1/network_rules` |
+| **runed**  | spawns, run history, mcp_tokens (hosts the agent MCP socket)                                                                                                               | `/v1/runs`; federates conversation-command tools back to routd's `/v1/turns/*`                                                                                                |
+| **authd**  | signing keys, JWKs, sessions (sole signer)                                                                                                                                 | `/v1/tokens`, `/v1/keys`, `/auth/*` login                                                                                                                                     |
+| **timed**  | scheduled_tasks, task_run_logs                                                                                                                                             | `/v1/tasks`                                                                                                                                                                   |
+| **webd**   | vhosts (reads `web_routes` + `route_tokens` from routd; serves the `/chat`,`/hook` surfaces)                                                                               | `/v1/vhosts` (chat reads stay on existing `/api/*`; web-route CRUD via routd)                                                                                                 |
+| **onbod**  | invites, admissions, auth_users, onboarding_gates                                                                                                                          | `/v1/invites`, `/v1/users`, `/v1/onboarding_gates`                                                                                                                            |
+| **proxyd** | proxyd_routes (operator-composed enforcement point; delegates mint to authd)                                                                                               | `/auth/*` (existing); login delegates to authd, which mints                                                                                                                   |
+| **dashd**  | nothing — aggregator UI calling the above                                                                                                                                  | HTML/HTMX over `/v1/*` of others                                                                                                                                              |
 
 The first four rows are the products of the `gated` split
 ([`U-genericization.md`](U-genericization.md) Phase C, [`E-routd.md`](E-routd.md),
@@ -396,16 +403,21 @@ truth.
 
 ## Per-resource access matrix
 
+Backing-table owners are the post-split daemons (see "Daemon ownership of
+`/v1/*`" above and "Resource ownership across daemons" below); the residual
+config tables (`grants`, `secrets`, `acl`/`user_groups`, `network_rules`)
+land in `routd`, which inherits gated's schema authority.
+
 | Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                 | Backing tables                                                    |
 | ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (gated)                                                  |
-| `routes`            | operator | operator | —                | —                                                                 | `routes` (gated)                                                  |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/6/Y`](../6/Y-secret-broker.md)) | `secrets` (gated)                                                 |
+| `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                                  |
+| `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                                  |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/6/Y`](../6/Y-secret-broker.md)) | `secrets` (routd)                                                 |
 | `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (timed)                                         |
-| `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (gated)                                                |
-| `group_folders`     | operator | operator | —                | —                                                                 | `groups` (gated)                                                  |
+| `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                                |
+| `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                                  |
 | `egress_allowlist`  | operator | operator | —                | agent                                                             | crackbox register ([`specs/11/10`](../11/10-crackbox-arizuko.md)) |
-| `user_groups` (ACL) | operator | operator | —                | —                                                                 | `user_groups` (gated)                                             |
+| `user_groups` (ACL) | operator | operator | —                | —                                                                 | `user_groups` (routd)                                             |
 | `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                        | `invites` (onbod)                                                 |
 
 Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
@@ -524,18 +536,21 @@ it uniform.
 For each row above without a `resreg.Resource`, the declaration shape
 is a small struct literal. Catalog of new resources:
 
-| Resource          | Actions                                                                         | Owning daemon | Scope predicates                                                |
-| ----------------- | ------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------- |
-| `groups`          | list/get/create/update/delete                                                   | gated         | `admin` at scope ⊇ folder; `*` operator                         |
-| `acl`             | list/get/create/delete                                                          | gated         | `admin` at scope ⊇ row.scope; `*` operator                      |
-| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved) | gated         | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
-| `invites`         | list/get/create/revoke                                                          | onbod         | `admin` at scope ⊇ targetGlob                                   |
-| `identities`      | list/get/create/link/unlink                                                     | gated         | self for own sub; `*` for cross-user link                       |
-| `gates`           | list/get/put/delete/enable                                                      | onbod         | `*` operator                                                    |
-| `network_rules`   | list/get/create/delete                                                          | gated         | folder-`admin` at scope                                         |
-| `cost_caps`       | list/get/set                                                                    | gated         | `*` operator; self-read for own user                            |
-| `scheduled_tasks` | (already partial — finish symmetry)                                             | timed         | folder-`admin` at scope                                         |
-| `web_routes`      | (already MCP — add REST mirror)                                                 | webd          | folder-`admin` at scope                                         |
+Owning daemon is the post-split owner; `routd` holds the residual config +
+conversation tables that were gated's.
+
+| Resource          | Actions                                                                         | Owning daemon                                     | Scope predicates                                                |
+| ----------------- | ------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| `groups`          | list/get/create/update/delete                                                   | routd                                             | `admin` at scope ⊇ folder; `*` operator                         |
+| `acl`             | list/get/create/delete                                                          | routd                                             | `admin` at scope ⊇ row.scope; `*` operator                      |
+| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved) | routd                                             | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
+| `invites`         | list/get/create/revoke                                                          | onbod                                             | `admin` at scope ⊇ targetGlob                                   |
+| `identities`      | list/get/create/link/unlink                                                     | onbod                                             | self for own sub; `*` for cross-user link                       |
+| `gates`           | list/get/put/delete/enable                                                      | onbod                                             | `*` operator                                                    |
+| `network_rules`   | list/get/create/delete                                                          | routd                                             | folder-`admin` at scope                                         |
+| `cost_caps`       | list/get/set                                                                    | routd                                             | `*` operator; self-read for own user                            |
+| `scheduled_tasks` | (already partial — finish symmetry)                                             | timed                                             | folder-`admin` at scope                                         |
+| `web_routes`      | (already MCP — add REST mirror)                                                 | routd (served via webd read; see ownership table) | folder-`admin` at scope                                         |
 
 New action = one struct literal addition + one handler function. The
 handler is the only behavior; everything else is registration. Authz
@@ -623,7 +638,9 @@ affordance over the same ACL rows.
 
 ## Resource ownership across daemons
 
-`groups` is routd's; `invites` is onbod's; `web_routes` is webd's.
+`groups` is routd's; `invites` is onbod's; `web_routes` is routd's too
+(webd reads it through routd's `/v1/web_routes` and serves the `/chat`,
+`/hook` surfaces, per [`E-routd.md`](E-routd.md)).
 Each registers its own resources. The MCP socket terminates in `runed`
 (which owns no resource tables), so MCP calls to `invites.*` forward to
 onbod over HTTP, `groups.*` to routd, and so on. Pattern (shipped

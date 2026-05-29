@@ -33,7 +33,8 @@ spec gives them a place to land later, not an answer.
 ## Surface
 
 - `arizuko export` — **dump** all cold-tier config tables to YAML
-  (`manifest/`, one file per resource kind). Point-in-time; not synced.
+  (`manifest/`; file names are informational — any file may hold any
+  resource kinds, see Manifest directory layout). Point-in-time; not synced.
 - `arizuko apply <file>…` — **restore** the cold tier from a dump: read
   manifest dir or file(s), validate, rebuild config tables in one SQLite
   tx, report diff. **Rebuild scope:** per resource, DELETE+INSERT is scoped
@@ -44,8 +45,8 @@ scope>)`). A row's omission deletes it only within a mentioned scope;
 - `arizuko get <resource>[/<name>]` — dump live DB state as a YAML
   fragment for the named resource (a scoped `export`).
 - `arizuko plan <file>…` — non-mutating; prints diff vs live state, no
-  writes. The pre-apply preview — under wholesale rebuild it shows exactly
-  what a restore would change before you commit it.
+  writes. The pre-apply preview — it shows exactly what a scoped restore
+  would change (within the mentioned scopes) before you commit it.
 
 ## Manifest directory layout
 
@@ -136,16 +137,22 @@ and version are transport envelopes — owned by the transport. The apply tool
 parses YAML → unwraps the envelope (nesting, `config_version:`) → calls the
 same handler REST POST and MCP `create` call.
 
-### `RowType` on `resreg.Resource`
+### The row-schema half of `resreg.Resource`
 
-`resreg.Resource` today is `{Name, Endpoints, MCPTools, Authz, Handler,
-Store}` — no field declares the row column set. **DECISION: v1 adds
-`RowType`:**
+`5/5`'s `Resource` carries the transport half (`{Name, Endpoints, MCPTools,
+Authz, Handler, Store}`). This spec is authoritative for the **row-schema
+half** the engine adds — `RowType`, `Table`, `PKFields`, `Scope`, `Hooks`,
+`SkipApplyRebuild`:
 
 ```go
 type Resource struct {
-    // ... existing fields ...
-    RowType reflect.Type  // pointer to the canonical row Go struct
+    // ... transport fields from 5/5 (Name, Endpoints, MCPTools, Authz, Handler, Store) ...
+    RowType          reflect.Type  // canonical row Go struct, as a value: reflect.TypeOf(Row{})
+    Table            string        // backing SQLite table
+    PKFields         []string      // PK column(s), from pk:"true" struct tags
+    Scope            ScopeFn       // per-resource scope metadata (which field, or none, holds the folder)
+    Hooks            Hooks         // optional Validate/OnInsert callbacks
+    SkipApplyRebuild bool          // true → apply never DELETE+INSERTs (e.g. secrets)
 }
 ```
 
@@ -168,23 +175,29 @@ six readers for one group row), not a greenfield addition.
 **Tagged struct as the contract:**
 
 ```go
-package routes
+package webroutes
 
 type Row struct {
-    Seq    int    `db:"seq"    yaml:"seq"    json:"seq"`
-    Match  string `db:"match"  yaml:"match"  json:"match"`
-    Target string `db:"target" yaml:"target" json:"target"`
+    PathPrefix string `db:"path_prefix" yaml:"path_prefix" json:"path_prefix" pk:"true"`
+    Access     string `db:"access"      yaml:"access"      json:"access"`
+    Folder     string `db:"folder"      yaml:"folder"      json:"folder"`
 }
 
 func init() {
     resreg.Register(resreg.Resource{
-        Name:    "routes",
-        Table:   "routes",
-        RowType: reflect.TypeOf(Row{}),
-        Scope:   resreg.GroupScope("Target"), // field holding the folder
+        Name:    "web_routes",
+        Table:   "web_routes",
+        RowType: reflect.TypeOf(Row{}),   // value, not pointer
+        Scope:   resreg.GroupScope("Folder"), // field that genuinely holds the folder
     })
 }
 ```
+
+`web_routes` is the clean scope example: its `Folder` field IS the folder,
+so scoped DELETE derives directly. `routes` is **not** — `routes.target`
+carries `#observe` / `#topic` fragments (it isn't column-equal to a folder,
+see FK posture), so it needs per-resource scope metadata rather than a bare
+field name.
 
 From that struct, reflection over `db:`/`yaml:`/`json:` tags generates all
 of these with **zero** per-resource code: `SELECT *` scan, `INSERT`, scoped
@@ -199,17 +212,26 @@ The generic core is **one engine, written once** (~300–500 LOC):
 // resreg/engine.go
 func (r *Resource) ScanAll(db *sql.DB) (any, error)            // reflect SELECT *
 func (r *Resource) Insert(tx *sql.Tx, row any) error           // reflect INSERT
-func (r *Resource) DeleteScope(tx *sql.Tx, scope string) error // reflect DELETE
+func (r *Resource) DeleteScope(tx *sql.Tx, scope string) error // reflect DELETE per Resource.Scope
 func (r *Resource) ParseYAML(data []byte) (any, error)         // yaml.Unmarshal
 func (r *Resource) EmitYAML(rows any) ([]byte, error)          // yaml.Marshal
 ```
 
-Apply ≈ 80 lines, Export ≈ 30:
+`DeleteScope` cannot infer the folder from `RowType` alone: `acl` and
+`acl_membership` have **no folder column** (their scope lives in
+`acl.scope` glob / membership edges, not a plain folder field). The
+per-resource `Resource.Scope` metadata supplies the rule — which field (if
+any) holds the folder, or that the resource scopes by `scope`-glob /
+rebuilds wholesale. The engine reads `Scope`, never guesses from the struct.
+
+Apply ≈ 80 lines, Export ≈ 30 (`secrets` `SkipApplyRebuild` skips the
+DELETE+INSERT):
 
 ```go
 for _, r := range resreg.All() {
+    if r.SkipApplyRebuild { continue }   // e.g. secrets — blob set imperatively
     rows, _ := r.ParseYAML(manifest[r.Name])
-    r.DeleteScope(tx, scope)
+    r.DeleteScope(tx, scope)             // scope rule from r.Scope
     for _, row := range rows { r.Insert(tx, row) }
 }
 ```
@@ -218,7 +240,7 @@ for _, r := range resreg.All() {
 `web_routes`, `proxyd_routes`, `onboarding_gates`, `network_rules`): ~30 LOC,
 fully engine-driven. Complex: `groups` +~50 (JSON-blob `container_config`
 hook, nullable `model`), `secrets` +~50 (encrypt/decrypt hook on
-`enc_value`), `scheduled_tasks` +~10 (RFC3339). Ceiling ~150 LOC.
+`value`), `scheduled_tasks` +~10 (RFC3339). Ceiling ~150 LOC.
 
 **The engine handles shape, not semantics.** Per-resource hooks (optional
 `Validate` / `OnInsert` callbacks) cover: validation beyond types ("folder
@@ -253,16 +275,20 @@ For each `Resource` with `RowType != nil`:
 `OpenAPIHandler` caches the JSON for the process lifetime. **Endpoint is
 public** (schemas describe surface, not data) — mount BEFORE auth middleware.
 
-Per-daemon ownership:
+Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
+[`P-runed.md`](P-runed.md), [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
+§ "Daemon ownership of `/v1/*`"):
 
-| Daemon | Owned resources                                                                          |
-| ------ | ---------------------------------------------------------------------------------------- |
-| gated  | groups, acl, acl_membership, routes, web_routes, scheduled_tasks, secrets, network_rules |
-| proxyd | proxyd_routes                                                                            |
-| onbod  | onboarding_gates                                                                         |
-| webd   | — (forwards `routes` to proxyd; doc is informational)                                    |
-| dashd  | — (HTMX operator UI; CRUD lives in gated)                                                |
-| timed  | — (reads scheduled_tasks; gated owns the table)                                          |
+| Daemon | Owned resources                                                                                                                                    |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| routd  | groups, routes, web_routes, acl, acl_membership, secrets, network_rules (residual config + conversation tables; inherits gated's schema authority) |
+| timed  | scheduled_tasks                                                                                                                                    |
+| onbod  | onboarding_gates                                                                                                                                   |
+| authd  | — (signing keys / JWKs / sessions; no manifest-addressable config rows)                                                                            |
+| proxyd | proxyd_routes (operator-composed enforcement point; see [`35-proxyd-standalone.md`](35-proxyd-standalone.md))                                      |
+| runed  | — (execution runtime: spawns / session_log / mcp_tokens; all runtime tables, not config)                                                           |
+| webd   | — (reads `web_routes` from routd; doc is informational)                                                                                            |
+| dashd  | — (HTMX operator UI; CRUD lives in the owning daemons above)                                                                                       |
 
 Daemons with no owned resources still emit `/openapi.json` so the aggregator
 page (`/pub/arizuko/reference/openapi.html`) lists every daemon uniformly.
@@ -272,11 +298,14 @@ page (`/pub/arizuko/reference/openapi.html`) lists every daemon uniformly.
 `config_meta` is a single-row config-class table holding a monotonic
 integer `config_version`. **One bump per apply transaction**, not per row.
 
-**CAS applies only to YAML apply.** MCP/REST mutations don't carry the
-version — they are single-row, write-and-read in one call, serialized by
-`BEGIN IMMEDIATE`; there is no stale snapshot to defend. YAML apply IS the
+**Every writer ADVANCES `config_version`; only YAML apply CHECKS it
+(CAS).** MCP/REST single-row mutations bump the counter in their tx so a
+later apply detects them — but they don't carry a version to compare
+against, because they are single-row, write-and-read in one call, serialized
+by `BEGIN IMMEDIATE`; there is no stale snapshot to defend. YAML apply IS the
 stale-snapshot pattern (export at T, edit for minutes/hours, apply at T+N
-after MCP/REST may have committed), so it needs CAS to surface drift.
+after MCP/REST may have committed), so it is the one writer that CAS-checks
+the stamped version before writing and rejects on mismatch.
 
 **Export** stamps the current DB version into the manifest header
 (`config_version: 42`). **Apply** checks it before writing:
@@ -295,13 +324,17 @@ that surfaces the conflict.
 **(1) Version table + bootstrap migration.**
 
 ```sql
-CREATE TABLE config_meta (version INTEGER NOT NULL DEFAULT 0);
+-- Singleton: id pinned to 1 by CHECK so there is exactly one row to CAS on.
+CREATE TABLE config_meta (
+  id      INTEGER PRIMARY KEY CHECK(id = 1),
+  version INTEGER NOT NULL DEFAULT 0
+);
 -- Bootstrap: count existing config rows so v1 is non-zero on instances
 -- with pre-existing state. First export then sees a real version;
 -- without back-fill, every fresh-install operator would need --force
--- on first apply against a populated DB.
-INSERT INTO config_meta (version)
-  SELECT
+-- on first apply against a populated DB. Upsert keeps the single row.
+INSERT INTO config_meta (id, version)
+  SELECT 1,
     (SELECT COUNT(*) FROM groups)            +
     (SELECT COUNT(*) FROM acl)               +
     (SELECT COUNT(*) FROM acl_membership)    +
@@ -310,7 +343,8 @@ INSERT INTO config_meta (version)
     (SELECT COUNT(*) FROM scheduled_tasks)   +
     (SELECT COUNT(*) FROM network_rules)    +
     (SELECT COUNT(*) FROM proxyd_routes)     +
-    (SELECT COUNT(*) FROM onboarding_gates);
+    (SELECT COUNT(*) FROM onboarding_gates)
+  ON CONFLICT(id) DO UPDATE SET version = excluded.version;
 ```
 
 `secrets` is **excluded** from the version-tracked set: routine blob
@@ -323,11 +357,11 @@ config; the encrypted blob is set imperatively and doesn't touch
 
 ```
 BEGIN IMMEDIATE;
-  SELECT version FROM config_meta;
+  SELECT version FROM config_meta WHERE id = 1;
   -- mismatch (and not --force) → ROLLBACK; reject
-  DELETE FROM <config tables> WHERE folder IN (<manifest scope>);
+  DELETE FROM <config tables> WHERE folder IN (<manifest scope>);   -- secrets skipped (SkipApplyRebuild)
   INSERT INTO <config tables> (...);
-  UPDATE config_meta SET version = version + 1;   -- single bump
+  UPDATE config_meta SET version = version + 1 WHERE id = 1;   -- single bump
 COMMIT;
 ```
 
@@ -482,8 +516,12 @@ chat_reply_state  pane_sessions
 
 **Rules that must be upheld:**
 
-1. `apply` only writes to config tables. It never touches runtime
-   tables.
+1. `apply` only writes to config tables. **The one named exception:** when
+   apply removes a `groups` row, it clears that group's routing
+   side-channel state in the same tx — `chats.sticky_group`,
+   `chat_reply_state.engaged_folder`, `group_watchers`, `router_state` —
+   so a removed group can't silently misroute (see Group removal
+   semantics). It writes no other runtime tables.
 2. Runtime tables are never DELETE'd in bulk — only by explicit
    retention/purge commands.
 3. Both classes have full migration history in `store/migrations/`;
@@ -507,9 +545,11 @@ chat_reply_state  pane_sessions
    — it caches connections, not config rows; the row that picked the URL is
    re-read per request.
 
-**Restore atomicity:** `BEGIN; DELETE config tables; INSERT from YAML;
-COMMIT`. All daemons see new config on their next DB read — no signals, no
-reload endpoints, no cache invalidation. WAL gives readers snapshot isolation
+**Restore atomicity:** `BEGIN; DELETE scoped config rows; INSERT from YAML;
+COMMIT` (per-folder DELETE scoped to the folders the manifest mentions;
+instance-global resources rebuild wholesale; `secrets` skips DELETE+INSERT).
+All daemons see new config on their next DB read — no signals, no reload
+endpoints, no cache invalidation. WAL gives readers snapshot isolation
 during the tx; freed pages return to the freelist.
 
 **Operator-generated config** (onboarding groups, ad-hoc grants, dynamically
@@ -520,20 +560,33 @@ snapshots it into YAML to promote into the static manifest.
 
 Built from `store/migrations/*.sql`; hot-tier tables excluded.
 
-| Resource           | Apply mode | PK (natural key)                                        | Owning daemon        |
-| ------------------ | ---------- | ------------------------------------------------------- | -------------------- |
-| `groups`           | rebuild    | `folder`                                                | gated                |
-| `acl`              | rebuild    | `(principal, action, scope, params, predicate, effect)` | gated                |
-| `acl_membership`   | rebuild    | `(child, parent)`                                       | gated                |
-| `routes`           | rebuild    | `(seq, match, target)`                                  | gated                |
-| `web_routes`       | rebuild    | `path_prefix`                                           | gated                |
-| `scheduled_tasks`  | rebuild    | `id`                                                    | gated (timed reader) |
-| `secrets`          | rebuild    | `(scope_kind, scope_id, key)`                           | gated                |
-| `network_rules`    | rebuild    | `(folder, target)`                                      | gated                |
-| `proxyd_routes`    | rebuild    | `path`                                                  | proxyd               |
-| `onboarding_gates` | rebuild    | `gate`                                                  | onbod                |
-| `invites`          | —          | n/a — CLI/MCP only (see Tokens are not in v1 manifests) | onbod                |
-| `route_tokens`     | —          | n/a — CLI/MCP only                                      | gated                |
+Owning daemon is the post-split owner ([`E-routd.md`](E-routd.md),
+[`P-runed.md`](P-runed.md)); the legacy column names the pre-split source
+table in `gated`'s monolithic `messages.db` (the cutover copies it into the
+new owner's DB, drops the source).
+
+| Resource           | Apply mode  | PK (natural key)                                        | Owning daemon | Legacy source table (pre-split) |
+| ------------------ | ----------- | ------------------------------------------------------- | ------------- | ------------------------------- |
+| `groups`           | rebuild     | `folder`                                                | routd         | gated                           |
+| `acl`              | rebuild     | `(principal, action, scope, params, predicate, effect)` | routd         | gated                           |
+| `acl_membership`   | rebuild     | `(child, parent)`                                       | routd         | gated                           |
+| `routes`           | rebuild     | `(seq, match, target)`                                  | routd         | gated                           |
+| `web_routes`       | rebuild     | `path_prefix`                                           | routd         | gated                           |
+| `scheduled_tasks`  | rebuild     | `id`                                                    | timed         | gated                           |
+| `secrets`          | export-only | `(scope_kind, scope_id, key)`                           | routd         | gated                           |
+| `network_rules`    | rebuild     | `(folder, target)`                                      | routd         | gated                           |
+| `proxyd_routes`    | rebuild     | `path`                                                  | proxyd        | gated                           |
+| `onboarding_gates` | rebuild     | `gate`                                                  | onbod         | gated                           |
+| `invites`          | —           | n/a — CLI/MCP only (see Tokens are not in v1 manifests) | onbod         | gated                           |
+| `route_tokens`     | —           | n/a — CLI/MCP only                                      | routd         | gated                           |
+
+**`secrets` apply-mode is export-only / no-rebuild.** The engine sets
+`SkipApplyRebuild: true` on the `secrets` `Resource`: apply never
+DELETE+INSERTs secret rows, because the encrypted blob is set imperatively
+(`arizuko secret set`) and a rebuild would wipe it. `export` and `get`
+still emit secret metadata (never the blob); apply validates and reports
+diff but skips the DELETE+INSERT for this resource. (`SkipApplyRebuild` is
+also why `secrets` is excluded from the `config_version` set below.)
 
 **PK declaration is load-bearing.** Each resource's struct tags its PK fields
 (`pk:"true"` single-column; multiple tagged for composite). The engine uses
@@ -562,17 +615,23 @@ their git lifecycle.
 1. **Parse.** YAML → typed Go structs. Strict: unknown resource keys or row
    fields reject. Aborts before touching the DB.
 2. **Validate.** Each row validated against the resource schema in the binary
-   (apply tool + gated co-versioned). Aborts before touching the DB.
+   (apply tool + the owning daemon co-versioned). Aborts before touching the
+   DB.
 3. **Plan.** Diff validated rows vs current config DB → human-readable delta
    (add/update/unchanged). `arizuko plan` stops here (non-mutating).
-4. **Apply.** One SQLite tx: DELETE all manifest-owned rows, INSERT all
-   validated rows, COMMIT. On any error: rollback; old DB unchanged.
+4. **Apply.** One SQLite tx, **scoped DELETE+INSERT**: per resource,
+   DELETE the rows within the folders the manifest mentions
+   (`DELETE … WHERE folder IN (<manifest scope>)`) then INSERT the validated
+   rows; absent scopes are untouched. Instance-global resources (no group
+   wrapper) rebuild wholesale. `secrets` (`SkipApplyRebuild`) is validated
+   but never DELETE+INSERTed. COMMIT. On any error: rollback; old DB
+   unchanged.
 5. **Report.** Print the plan delta + `ok`, or the rollback error.
 
 **`arizuko get <resource>` round-trip.** Queries the live config DB and emits
 a manifest YAML fragment that re-applies to a no-op — exact shape `apply`
 accepts, no extra/omitted fields, no reordering. Secret rows emit metadata
-only (`scope_kind`, `scope_id`, `key`); the `enc_value` blob never appears.
+only (`scope_kind`, `scope_id`, `key`); the `value` blob never appears.
 
 **Canonical key order is mandatory** (Go map iteration is
 non-deterministic): top-level `config_version` first, then group folders
@@ -622,8 +681,10 @@ defer_foreign_keys=ON` at tx start (checks defer to COMMIT). No cycle in v1.
 
 ## Atomicity model
 
-**Fully atomic via full rebuild.** Apply is not an upsert loop — it is
-`BEGIN; DELETE all manifest-owned rows; INSERT all rows; COMMIT`. The whole
+**Fully atomic via scoped rebuild.** Apply is not an upsert loop — it is
+`BEGIN; DELETE scoped config rows; INSERT all rows; COMMIT` (per-folder
+DELETE scoped to the folders the manifest mentions; instance-global
+resources rebuild wholesale; `secrets` skips DELETE+INSERT). The whole
 manifest applies or nothing does; no per-row error accumulation, no partial
 state. On validation failure the tx is never opened (error returned before
 any mutation); on DB failure mid-insert it rolls back and the old config DB
@@ -718,8 +779,9 @@ spec/status boundary `kubectl` draws.
    collision surfaces.
 3. **dashd as a manifest editor** — out of scope, future dashd work.
 
-(Resolved: `--prune` / `state: absent` are cut — the full-rebuild apply makes
-a row's absence the prune. Resource-catalog evolution is uniform — adding a
+(Resolved: `--prune` / `state: absent` are cut — within a mentioned scope, a
+row's absence prunes it (scoped DELETE+INSERT); scopes absent from the
+manifest are untouched. Resource-catalog evolution is uniform — adding a
 `resreg.Resource` makes it manifest-addressable automatically.)
 
 ## Acceptance
@@ -741,10 +803,10 @@ Functional:
   messages.
 - All 10 declarative resources go through the engine — no
   bypass code paths remain after the migration.
-- Every HTTP-serving daemon (gated, proxyd, onbod, webd, dashd, timed)
-  exposes `GET /openapi.json` returning a valid OpenAPI 3.1 doc for its
-  owned resources. The document is engine-generated, public, cached for
-  the process lifetime. Subsumes spec `5/4-openapi-discoverable.md`.
+- Every HTTP-serving daemon (routd, runed, authd, timed, onbod, proxyd,
+  webd, dashd) exposes `GET /openapi.json` returning a valid OpenAPI 3.1
+  doc for its owned resources. The document is engine-generated, public,
+  cached for the process lifetime. Subsumes spec `5/4-openapi-discoverable.md`.
 
 Testability:
 
