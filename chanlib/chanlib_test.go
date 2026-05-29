@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -379,4 +380,44 @@ func TestSendMessage_401_TriggersReregisterAndRetries(t *testing.T) {
 	if registerCalls.Load() != 2 {
 		t.Errorf("register calls = %d, want 2 (initial + recovery)", registerCalls.Load())
 	}
+}
+
+// Adapters call SendMessage from many goroutines while a 401 can trigger a
+// concurrent re-register that rewrites token. The token read must be guarded;
+// run under -race to catch the data race fixed here.
+func TestSendMessage_ConcurrentReregister_NoRace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/channels/register":
+			w.Write([]byte(`{"ok":true,"token":"new-tok"}`))
+		default:
+			w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	rc := NewRouterClient(srv.URL, "s")
+	if _, err := rc.Register("tg", srv.URL, []string{"telegram:"}, nil); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for j := 0; j < 50; j++ {
+			rc.reregister()
+			rc.SetToken("tok")
+		}
+	}()
+	wg.Wait()
 }

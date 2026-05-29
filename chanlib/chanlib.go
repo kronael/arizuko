@@ -81,7 +81,17 @@ func NewRouterClient(url, secret string) *RouterClient {
 	return &RouterClient{url: url, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-func (r *RouterClient) SetToken(t string) { r.token = t }
+func (r *RouterClient) SetToken(t string) {
+	r.regMu.Lock()
+	r.token = t
+	r.regMu.Unlock()
+}
+
+func (r *RouterClient) getToken() string {
+	r.regMu.Lock()
+	defer r.regMu.Unlock()
+	return r.token
+}
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
 	slog.Info("registering channel", "name", name, "url", url)
@@ -126,7 +136,7 @@ func (r *RouterClient) reregister() error {
 
 func (r *RouterClient) Deregister() error {
 	var resp struct{ OK bool }
-	return r.Post("/v1/channels/deregister", nil, r.token, &resp)
+	return r.Post("/v1/channels/deregister", nil, r.getToken(), &resp)
 }
 
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
@@ -149,7 +159,7 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
 		}
-		if err := r.Post("/v1/messages", msg, r.token, &resp); err != nil {
+		if err := r.Post("/v1/messages", msg, r.getToken(), &resp); err != nil {
 			last = err
 			continue
 		}
