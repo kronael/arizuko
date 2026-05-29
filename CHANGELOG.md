@@ -14,6 +14,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+---
+
+## [v0.46.1] — 2026-05-29
+
+> arizuko v0.46.1 — reliability & auth fixes
+>
+> The agent stays in the conversation, scheduled tasks fire on time, and a batch of routing, delivery, and auth bugs are gone.
+>
+> • Slack threads — the agent auto-attends a thread it started, no re-@mention needed
+> • Auth — pin/unpin/pane/inspect tools that were wrongly denied for everyone now work
+> • Scheduled tasks — fire correctly even when their next-run carries a non-UTC offset
+> • Onboarding — the per-gate daily admission cap now holds across days
+> • Web publishing — agents redirect a clean top-level URL into their own slot
+> • Hardened — two data races, audit-webhook delivery, per-turn web-chat isolation, and a web/standard deploy break
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
 
 - **web_routes redirect serving on `/pub`** — proxyd now honours
@@ -51,9 +68,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   longer replays writes with an empty body; `teled` multi-chunk HTML
   fallback no longer duplicates; `twitd` registers the `twitter:` JID
   prefix it actually uses.
+- **Slack thread auto-attend**: a message in a thread the agent started is
+  now treated as a reply-to-bot (`slakd` sets `ReplyTo`=thread root), so the
+  spec 5/L promotion fires and the agent keeps responding without a re-
+  @mention — instead of going silent once the engagement window closed.
 - **Onboarding**: per-gate `limit_per_day` now counts by admission time
   (`admitted_at`, migration 0071) not queue time, so a prior-day backlog
   no longer drains past the daily cap.
+- **CLI**: `arizuko token revoke` accepts an explicit `<owner_folder>` and
+  `jidFolder` handles multi-segment folders (`web:acme/eng`), so tokens
+  minted on behalf of a descendant (or under a nested folder) can be revoked.
 - **Observability / infra**: audit web + system webhook batches are now
   flushed (were leaking + undelivered); proxyd logs a DB error instead
   of silently serving an empty route table; `compose` no longer emits a
