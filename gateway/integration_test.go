@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -214,6 +215,73 @@ func TestPollLoop_EmptyOutput(t *testing.T) {
 	cursor := s.GetAgentCursor(jid)
 	if cursor.IsZero() || cursor.Before(ts) {
 		t.Errorf("cursor = %v, want >= %v", cursor, ts)
+	}
+}
+
+// asyncSubmitRunner models the production timing: in the real system
+// submit_turn arrives over the MCP unix socket on the serveConn goroutine
+// while the worker goroutine is blocked in runner.Run (cmd.Wait). The
+// container exiting and cmd.Wait returning establish NO Go happens-before
+// edge with the socket goroutine's writes to turnState, so runAgentWithOpts'
+// post-Run reads of st.newSessionID/st.lastError (and processSenderBatch's
+// read of *hadOutput) race the callback's writes unless the gateway guards
+// them with turnsMu. Run keeps the callback goroutine in flight (it has not
+// returned) when Run returns, so the gateway's own synchronization is the
+// only thing making the post-Run reads safe.
+type asyncSubmitRunner struct {
+	streamText string
+	started    chan struct{}
+	release    chan struct{}
+}
+
+func (r *asyncSubmitRunner) Run(
+	_ *core.Config, _ *groupfolder.Resolver, in container.Input,
+) container.Output {
+	if in.GatedFns.SubmitTurn == nil {
+		return container.Output{Status: "success"}
+	}
+	go func() {
+		close(r.started)
+		<-r.release // hold the callback goroutine live past Run's return
+		in.GatedFns.SubmitTurn(in.Folder, ipc.TurnResult{
+			TurnID:    in.MessageID,
+			SessionID: "fake-sess",
+			Status:    "success",
+			Result:    r.streamText,
+		})
+	}()
+	<-r.started
+	close(r.release)  // unblock; the write to st now races Run's return
+	runtime.Gosched() // widen the window so the detector observes the overlap
+	return container.Output{Status: "success", HadOutput: true}
+}
+
+// TestSubmitTurn_NoRaceWithRunReturn drives the async-submit timing under
+// the race detector to guard the turnState / hadOutput cross-goroutine
+// boundary. Run with: go test ./gateway/... -race -run TestSubmitTurn_NoRace
+func TestSubmitTurn_NoRaceWithRunReturn(t *testing.T) {
+	gw, s, _, _ := newGWWithFake(t)
+	gw.SetRunner(&asyncSubmitRunner{
+		streamText: "async reply",
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	})
+
+	jid := "tg:1234"
+	s.PutGroup(core.Group{Folder: "grp"})
+	s.AddRoute(core.Route{Seq: 0, Match: "room=1234", Target: "grp"})
+
+	ts := time.Now().UTC()
+	if err := s.PutMessage(core.Message{
+		ID: "m1", ChatJID: jid, Sender: "user", Name: "User",
+		Content: "ping", Timestamp: ts,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gw.pollOnce()
+	if _, err := gw.processGroupMessages(jid); err != nil {
+		t.Fatalf("processGroupMessages: %v", err)
 	}
 }
 

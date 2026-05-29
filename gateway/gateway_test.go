@@ -1213,7 +1213,7 @@ func TestMakeOutputCallback_SendsReply(t *testing.T) {
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Hello from agent", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true")
 	}
 	sent := ch.getSent()
@@ -1246,7 +1246,7 @@ func TestMakeOutputCallback_SkipsSelfRoutedLocalDispatch(t *testing.T) {
 	cb, hadOutput := gw.makeOutputCallback(nil, "main", "", "", "main", "user-1")
 	cb("/migrate done", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true (row still persisted)")
 	}
 
@@ -1273,7 +1273,7 @@ func TestMakeOutputCallback_SendError(t *testing.T) {
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Error test", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true even on send error")
 	}
 	sent := ch.getSent()
@@ -1292,7 +1292,7 @@ func TestMakeOutputCallback_EmptySentID(t *testing.T) {
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("Suppressed message", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true even when send suppressed")
 	}
 	msgs, _, _ := s.NewMessages([]string{"jid1"}, time.Time{}, "bot")
@@ -1312,7 +1312,7 @@ func TestMakeOutputCallback_StripsThinksAndStatus(t *testing.T) {
 	cb, hadOutput := gw.makeOutputCallback(ch, "jid1", "", "msg-1", "grp", "user-1")
 	cb("<think>internal thought</think>Visible reply<status>Working on it</status>", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true")
 	}
 	sent := ch.getSent()
@@ -1343,7 +1343,7 @@ func TestMakeOutputCallback_MutedGroup(t *testing.T) {
 	if got := len(ch.getSent()); got != 0 {
 		t.Errorf("muted group: channel.Send called %d times, want 0", got)
 	}
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should flip even when group is muted")
 	}
 
@@ -1408,7 +1408,7 @@ func TestMakeOutputCallback_LateBindsChannel(t *testing.T) {
 	// Agent produces output. The send should succeed via late-bind.
 	cb("Hello after registration", "")
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		t.Error("hadOutput should be true")
 	}
 	sent := ch.getSent()

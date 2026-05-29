@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"maps"
@@ -893,7 +894,7 @@ func (g *Gateway) processSenderBatch(
 
 	if out.Error != "" {
 		g.logAgentError(group, "sender", last.Sender, out.Error)
-		if *hadOutput {
+		if hadOutput.Load() {
 			return true
 		}
 		// Advance the cursor PAST the failed batch so the next poll
@@ -912,7 +913,7 @@ func (g *Gateway) processSenderBatch(
 		return false
 	}
 
-	if !*hadOutput {
+	if !hadOutput.Load() {
 		slog.Info("agent silent",
 			"jid", deliverTo, "group", group.Folder, "sender", last.Sender)
 	}
@@ -965,7 +966,7 @@ func (g *Gateway) processWebTopics(
 
 		if out.Error != "" {
 			g.logAgentError(group, "topic", topic, out.Error)
-			if *hadOutput {
+			if hadOutput.Load() {
 				g.advanceAgentCursor(chatJid, topicMsgs)
 				return true, nil
 			}
@@ -978,7 +979,7 @@ func (g *Gateway) processWebTopics(
 			return false, fmt.Errorf("agent: %s", out.Error)
 		}
 
-		if !*hadOutput {
+		if !hadOutput.Load() {
 			slog.Warn("agent completed with no output delivered",
 				"jid", chatJid, "group", group.Folder, "topic", topic)
 		}
@@ -1059,8 +1060,11 @@ func (g *Gateway) paneHints(trigger []core.Message) string {
 
 func (g *Gateway) makeOutputCallback(
 	ch core.Channel, chatJid, topic, firstMsgID, groupFolder, triggerSender string,
-) (func(string, string), *bool) {
-	var hadOutput bool
+) (func(string, string), *atomic.Bool) {
+	// Written by whichever goroutine invokes the callback (submit_turn runs
+	// on the MCP serveConn goroutine), read by the worker after the turn —
+	// atomic so the cross-goroutine write/read is race-free.
+	var hadOutput atomic.Bool
 	turnID := firstMsgID
 	replyTo := firstMsgID
 
@@ -1128,11 +1132,11 @@ func (g *Gateway) makeOutputCallback(
 
 		stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 		for _, s := range statuses {
-			hadOutput = true
+			hadOutput.Store(true)
 			putAndDeliver("⏳ "+s, "", "")
 		}
 		if clean := router.FormatOutbound(stripped); clean != "" {
-			hadOutput = true
+			hadOutput.Store(true)
 			sentID := putAndDeliver(clean, replyTo, topic)
 			if sentID != "" {
 				replyTo = sentID
@@ -1291,14 +1295,16 @@ func (g *Gateway) runAgentWithOpts(
 		},
 	}
 
-	st := g.beginTurnRun(group.Folder, chatJid, onOutput)
-	defer g.endTurnRun(group.Folder)
+	g.beginTurnRun(group.Folder, chatJid, onOutput)
 	out := g.runner.Run(g.cfg, g.folders, input)
-	if st.newSessionID != "" {
-		out.NewSessionID = st.newSessionID
+	// submit_turn (MCP goroutine) writes st with no Go happens-before edge to
+	// runner.Run's return; read + clear under turnsMu to synchronize.
+	newSessionID, lastError := g.endTurnRun(group.Folder)
+	if newSessionID != "" {
+		out.NewSessionID = newSessionID
 	}
-	if out.Error == "" && st.lastError != "" {
-		out.Error = st.lastError
+	if out.Error == "" && lastError != "" {
+		out.Error = lastError
 	}
 
 	if isolated {
@@ -2296,18 +2302,24 @@ func (g *Gateway) recoverPendingMessages() {
 	}
 }
 
-func (g *Gateway) beginTurnRun(folder, chatJID string, onOutput func(result, status string)) *turnState {
+func (g *Gateway) beginTurnRun(folder, chatJID string, onOutput func(result, status string)) {
 	st := &turnState{chatJID: chatJID, onOutput: onOutput}
 	g.turnsMu.Lock()
 	g.inFlightTurns[folder] = st
 	g.turnsMu.Unlock()
-	return st
 }
 
-func (g *Gateway) endTurnRun(folder string) {
+// endTurnRun removes the in-flight entry and returns the session ID / last
+// error written by submit_turn, all under turnsMu so the read synchronizes
+// with the MCP goroutine's writes.
+func (g *Gateway) endTurnRun(folder string) (newSessionID, lastError string) {
 	g.turnsMu.Lock()
+	defer g.turnsMu.Unlock()
+	if st := g.inFlightTurns[folder]; st != nil {
+		newSessionID, lastError = st.newSessionID, st.lastError
+	}
 	delete(g.inFlightTurns, folder)
-	g.turnsMu.Unlock()
+	return newSessionID, lastError
 }
 
 func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
@@ -2327,6 +2339,15 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 
 	g.turnsMu.Lock()
 	st := g.inFlightTurns[folder]
+	if st != nil {
+		// Write under turnsMu so runAgentWithOpts' post-Run read sees them.
+		if t.SessionID != "" {
+			st.newSessionID = t.SessionID
+		}
+		if t.Error != "" {
+			st.lastError = t.Error
+		}
+	}
 	g.turnsMu.Unlock()
 	if st == nil {
 		slog.Warn("submit_turn with no in-flight run",
@@ -2335,12 +2356,6 @@ func (g *Gateway) handleSubmitTurn(folder string, t ipc.TurnResult) error {
 	}
 
 	g.publishRoundDone(st.chatJID, t.TurnID, t.Status, t.Error)
-	if t.SessionID != "" {
-		st.newSessionID = t.SessionID
-	}
-	if t.Error != "" {
-		st.lastError = t.Error
-	}
 	if st.onOutput != nil && t.Result != "" {
 		st.onOutput(t.Result, t.Status)
 	}
