@@ -792,3 +792,12 @@ Logged (out of this lens — concurrency, not error/boundary):
   elsewhere. Fix path: read `token` under `regMu` in `SendMessage`/`Deregister`
   (or make it atomic.Value). Left unfixed: outside the error-handling/boundary
   lens of this sweep, and a synchronization change wants its own focused diff.
+
+## Pre-existing broken spec links (found 2026-05-29 link-scan, NOT regressions)
+
+Surfaced by a whole-tree markdown link scan during the 5/ finalize; all
+predate this session's restructure (the 5/4-delete + 5/A→11/A move added
+zero broken links). Fix = repoint to the correct target:
+- `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
+- `specs/5/5-uniform-mcp-rest.md` → `../11/11-crackbox-secrets.md` (×2) — no such file in specs/11 (renamed/removed); find the real secrets-broker spec (6/Y?).
+- `specs/7/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
