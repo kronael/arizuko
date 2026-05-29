@@ -5,6 +5,26 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## RESOLVED 2026-05-29 (this session — detail in `.diary/20260528.md`/`20260529.md`)
+
+These entries below are now FIXED; superseding their stale open-entries:
+store `ObservedSince` arg-order (`fc417d49`); auth pane/pin/inspect_tasks
+over-deny (`f90b1618`); container `resetIdle` race + egress nil-guard
+(`f87f4035`); webd SSE `round_done` turn-filter (`a80153b4`); `timed`
+non-UTC `next_run` (`5f879893`); `teled` dup-send (`dbc43fc6`); `reditd`
+cursor-loss (`57076082`); `linkd` 401-empty-body (`2bfd67ba`) + dedup-
+before-deliver (`bcdb0ce7`); `twitd` jid-prefix (`48012efc`); `compose`
+proxyd depends_on (`b3f0dc46`); `audit` webhook flush (`8708e3ee`);
+gateway turn-state race (`8b1bb420`); queue `activeCount` race
+(`edfc2894`) + steer-starvation (`3638728c`); store `FlushSysMsgs`
+swallow (`4f208cdd`); onbod daily-cap bypass (`149616e8`); chanlib
+`RouterClient.token` race (`b7d3b32d`); dashd nested-folder routing +
+ipc `set_web_route` path-claim + cmd/apply version-print + auth
+`get_routes`→`list_routes` (`e8a87278`); STORE_DIR + typed-JID doc drift
++ 6 broken spec links (`90ed5675`); proxyd no-op proxy cache
+(`29853f08`). Residuals (audit idle-tail flush; grants tier-1/2
+pin/pane default; bskyd AT-URI; tier-formula collision) remain open below.
+
 ## container/ipc bug-hunt sweep (2026-05-28)
 
 Read-only correctness pass over `container/` + `ipc/`. Items below are UNSURE-whether-bug (logged, not fixed per triage protocol). Verified-not-bugs at the end.
