@@ -217,13 +217,22 @@ func (q *GroupQueue) SendMessages(groupJid string, texts []string) bool {
 		// and we get a fresh container right away instead of waiting for
 		// the next inbound message.
 		q.mu.Lock()
-		s.active = false
-		s.containerName = ""
-		if q.activeFolders[folder] == groupJid {
-			delete(q.activeFolders, folder)
-		}
-		if q.activeCount > 0 {
-			q.activeCount--
+		// Tear down only if this run still owns the active slot. If
+		// runForGroup completed concurrently it already cleared s.active and
+		// decremented activeCount — repeating that here double-decrements and
+		// can clobber a slot another JID/folder activation now holds.
+		if s.active {
+			s.active = false
+			s.containerName = ""
+			if q.activeFolders[folder] == groupJid {
+				delete(q.activeFolders, folder)
+			}
+			if q.activeCount > 0 {
+				q.activeCount--
+			}
+			if !q.shuttingDown {
+				q.drainWaitingLocked()
+			}
 		}
 		q.mu.Unlock()
 		slog.Warn("steer: signal failed, container gone — slot marked inactive, IPC file persists for next spawn",

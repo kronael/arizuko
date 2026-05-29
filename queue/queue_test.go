@@ -371,6 +371,111 @@ func TestEnqueueSerializesByFolder(t *testing.T) {
 	}
 }
 
+// Regression: SendMessages' signal-fail teardown must not double-decrement
+// activeCount (or free a slot it no longer owns) when runForGroup finished
+// the same activation concurrently. We simulate that interleaving inside the
+// signalContainer hook (which runs with q.mu released): it performs exactly
+// what runForGroup's cleanup does — clear the slot, decrement, free the
+// folder, then start a fresh activation for the same folder. After the hook
+// returns an error, SendMessages re-locks; the fixed code sees s.active is
+// already false and leaves the new activation's bookkeeping untouched.
+func TestSendMessages_SignalFailNoDoubleDecrement(t *testing.T) {
+	ipcDir := t.TempDir()
+	q := New(1, ipcDir)
+
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	s.groupFolder = "fold"
+	s.containerName = "dying-container"
+	q.activeCount = 1
+	q.activeFolders["fold"] = "g1"
+	q.mu.Unlock()
+
+	q.SetSignalContainerForTest(func(string) error {
+		// Mimic runForGroup completing this activation, then a different JID
+		// claiming the same folder slot via drain.
+		q.mu.Lock()
+		s.active = false
+		s.containerName = ""
+		delete(q.activeFolders, "fold")
+		q.activeCount--
+		// New activation for the same folder, owned by a different JID.
+		q.activeFolders["fold"] = "g2"
+		q.activeCount++
+		q.mu.Unlock()
+		return fmt.Errorf("container not running")
+	})
+
+	if ok := q.SendMessages("g1", []string{"hello"}); ok {
+		t.Fatal("SendMessages returned true; want false when signal fails")
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.activeCount != 1 {
+		t.Errorf("activeCount = %d, want 1 (new g2 activation must survive)", q.activeCount)
+	}
+	if q.activeFolders["fold"] != "g2" {
+		t.Errorf("activeFolders[fold] = %q, want g2 (g1 teardown must not free it)", q.activeFolders["fold"])
+	}
+}
+
+// Regression: when SendMessages' signal-fail teardown frees the only slot,
+// any group parked in waitingGroups (here g2, queued because the concurrency
+// limit was hit) must be drained — exactly as runForGroup's cleanup does.
+// Without the drain, g2 starves: the steered g1 re-enqueues and retakes the
+// slot, leaving g2 stuck until an unrelated event happens to drain it.
+func TestSendMessages_SignalFailDrainsWaiting(t *testing.T) {
+	ipcDir := t.TempDir()
+	q := New(1, ipcDir)
+	q.SetFolderForJidFn(func(jid string) string {
+		switch jid {
+		case "g1":
+			return "fa"
+		case "g2":
+			return "fb"
+		}
+		return ""
+	})
+
+	var g2ran atomic.Bool
+	q.SetProcessMessagesFn(func(jid string) (bool, error) {
+		if jid == "g2" {
+			g2ran.Store(true)
+		}
+		return true, nil
+	})
+	q.SetSignalContainerForTest(func(string) error {
+		return fmt.Errorf("container not running")
+	})
+
+	// g1 holds the only slot (folder fa); g2 (folder fb) parked on the limit.
+	q.mu.Lock()
+	s := q.getGroup("g1")
+	s.active = true
+	s.groupFolder = "fa"
+	s.containerName = "dying-container"
+	q.activeCount = 1
+	q.activeFolders["fa"] = "g1"
+	q.waitingGroups = []string{"g2"}
+	q.mu.Unlock()
+
+	if ok := q.SendMessages("g1", []string{"hello"}); ok {
+		t.Fatal("SendMessages returned true; want false when signal fails")
+	}
+
+	time.Sleep(80 * time.Millisecond)
+	if !g2ran.Load() {
+		t.Fatal("g2 never drained after the freed slot — waiting group starved")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.waitingGroups) != 0 {
+		t.Fatalf("waitingGroups = %v, want empty after drain", q.waitingGroups)
+	}
+}
+
 func TestSendMessages_NoLeftoverTmpFiles(t *testing.T) {
 	ipcDir := t.TempDir()
 	q := New(1, ipcDir)
