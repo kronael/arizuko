@@ -196,7 +196,7 @@ v2.
 - `sandd` with `SAND_BACKEND=crackbox` spawns agents in VMs that
   reach `api.anthropic.com` but get 403 on anything else.
 - `pkg/host/` has zero arizuko-internal imports. Same orthogonality
-  test as [5/A](../5/A-orthogonal-components.md).
+  test as [11/A](A-orthogonal-components.md).
 - External-egred mode: pre-run `egred` as a separate container; `pkg/host/`
   detects it via `EGRED_ADMIN` env and skips the auto-spawn.
 

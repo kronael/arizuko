@@ -11,7 +11,7 @@ status: draft
 ## Status
 
 Draft / future. No consumer wired yet. Cataloged in
-[A-orthogonal-components.md](../5/A-orthogonal-components.md) §
+[A-orthogonal-components.md](A-orthogonal-components.md) §
 _mcp-firewall_; this spec expands that stub. Extraction lands when the
 gated split ([U-genericization.md](../5/U-genericization.md)) reaches
 `mcpd` (the MCP host) and per-folder tool gating needs a home that
@@ -105,7 +105,7 @@ negative authority.
 ## Public surface
 
 Three contracts, per
-[A-orthogonal-components.md](../5/A-orthogonal-components.md) §7.
+[A-orthogonal-components.md](A-orthogonal-components.md) §7.
 
 **CLI** — primary surface, no arizuko process needed:
 
@@ -135,7 +135,7 @@ matching the transport the client uses.
 
 ## Layout
 
-The [A §_Layout pattern_](../5/A-orthogonal-components.md) skeleton:
+The [A §_Layout pattern_](A-orthogonal-components.md) skeleton:
 
 ```
 mcp-firewall/
@@ -153,7 +153,7 @@ mcp-firewall/
 
 ## Orthogonality acceptance
 
-Per [A §_Acceptance_](../5/A-orthogonal-components.md):
+Per [A §_Acceptance_](A-orthogonal-components.md):
 
 - The mechanical grep returns empty:
 

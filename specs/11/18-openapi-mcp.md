@@ -413,7 +413,7 @@ exists:
    the MCP tree is no longer a second authored artifact that can drift
    from REST.
 
-The split mirrors [A](../5/A-orthogonal-components.md)'s
+The split mirrors [A](A-orthogonal-components.md)'s
 domain/mechanism table: arizuko owns _which operations exist, what they
 mean, and which scope they need_ (it authors the annotations);
 openapi-mcp owns _render an annotated doc as MCP tools and forward
@@ -423,7 +423,7 @@ is.
 ## Public surface
 
 Three contracts, per
-[A-orthogonal-components.md](../5/A-orthogonal-components.md) §7.
+[A-orthogonal-components.md](A-orthogonal-components.md) §7.
 Indicative shapes; exact names are the component's business.
 
 **CLI** — primary surface, runnable with no arizuko process:
@@ -453,7 +453,7 @@ base URL.
 
 ## Layout
 
-The [A §_Layout pattern_](../5/A-orthogonal-components.md) skeleton:
+The [A §_Layout pattern_](A-orthogonal-components.md) skeleton:
 
 ```
 openapi-mcp/
@@ -471,7 +471,7 @@ openapi-mcp/
 
 ## Orthogonality acceptance
 
-Per [A §_Acceptance_](../5/A-orthogonal-components.md):
+Per [A §_Acceptance_](A-orthogonal-components.md):
 
 - The mechanical grep returns empty:
 

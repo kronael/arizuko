@@ -71,7 +71,7 @@ sidecar/ whisper-cpp container; gateway calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
         in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
-        Shippable separately; specs/5/A-orthogonal-components.md
+        Shippable separately; specs/11/A-orthogonal-components.md
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
@@ -211,6 +211,62 @@ The shared-secret HMAC (`PROXYD_HMAC_SECRET` / `CHANNEL_SECRET`) retires
 once `authd`-minted JWTs replace it; capability scopes replace the
 folder-depth `tier` int. None of the daemon split is built; treat it as
 the target shape, not current behavior.
+
+## Daemon genericization conventions
+
+Durable rules the package layout obeys. Realized incrementally as the
+`gated` split lands (`specs/5/1-auth-standalone.md` authd first, then
+`specs/5/E-routd.md` routd + `specs/5/P-runed.md` runed).
+
+- **Naming.** Daemons end in `d` (`gated`, `proxyd`, `webd`, channel
+  adapters). A daemon is a process, owns at most one DB, exposes REST
+  and/or MCP. Short names use a ≤4-letter root + `d` — the gated-split
+  products are `routd`, `runed` (MCP host folded into `runed`), **not**
+  `routerd`/`agent-runnerd`. Libraries don't end in `d` (`auth`,
+  `audit`, `obs`, `resreg`, `chanlib`, `grants`, `core`, `types`):
+  imported, never run. Utility packages follow Go convention
+  (`httputil/`, not `http_utils/`). One Go module
+  (`github.com/kronael/arizuko`); sibling shippable components stay
+  inside it (`specs/11/A-orthogonal-components.md`).
+
+- **DAG library layering.** Libraries form a directed acyclic graph;
+  downward imports only, no cycles, no library importing a daemon.
+  Layer 0 (zero arizuko-internal deps): `types/`, `obs/`, `core/`.
+  Layer 1 (depend on 0): `audit/`, `auth/`. Layer 2 (depend on 0+1):
+  `resreg/`, `chanlib/`, `grants/`. Layer 3: daemons, importing layers
+  0–2 plus other daemons' `api/v1/` packages. Cross-library imports
+  inside one layer are fine.
+
+- **`types/` shared-IDs package.** Top-level `types/` holds the
+  cross-boundary IDs (`UserSub`, `Folder`, `Tier`, `Scope`) as pure
+  named types — no behavior, no methods, zero arizuko-internal imports.
+  It exists to break import cycles between each `<daemon>/api/v1/` and
+  `core/`. Richer semantics (JID parsing, hierarchy, scope evaluation)
+  stay in `core/` or the owning daemon. Landed (`types/identity.go`).
+
+- **Per-daemon `<daemon>/api/v1/` contract.** Each daemon publishes a
+  tiny `api/v1/` sub-package: wire types + a thin HTTP client (no
+  business logic), zero arizuko-internal imports beyond `types/`. Other
+  daemons import it freely; the daemon's implementation
+  (`handler.go`, `db.go`) stays off-limits. REST and MCP are both
+  implemented in the daemon over the same `api/v1/` types (MCP
+  canonical, REST the impedance match). `v2/` lives next to `v1/` when
+  the shape breaks. Adopt per daemon as its API stabilizes.
+
+- **DB ownership.** Daemons own DBs + migrations + REST/MCP APIs; a
+  daemon needing state opens its own SQLite file and runs its own
+  `migrations/`. Libraries own no DB, no API, no migrations — a library
+  that writes rows takes the caller's `*sql.Tx` (`audit/` is the
+  model). Cross-daemon data access goes through the receiving daemon's
+  `api/v1/` (REST for sync, MCP for agents) — never direct SQL across
+  daemons. Shared `messages.db` stays as-is until a daemon is extracted
+  to its own DB.
+
+- **No backward compatibility.** Cutovers are one-shot: a migration
+  ships in one release, old paths delete in that same release. No dual
+  API periods, no `v1`/`v2` side-by-side as a migration tool. Recovery
+  is `git revert`, not a compat layer. Build order may be staged;
+  the cutover is one commit.
 
 ## Channel Protocol
 
@@ -471,7 +527,7 @@ onbod auto-included when `ONBOARDING_ENABLED=true`. All Go daemons
 listen on :8080 internally except ttsd at :8880 — historical default
 that predates the invariant.
 
-`crackbox` (sibling component, see `specs/5/A-orthogonal-components.md`)
+`crackbox` (sibling component, see `specs/11/A-orthogonal-components.md`)
 and an `agents` internal network are emitted when `CRACKBOX_ADMIN_API` is set.
 The internal network has no default route to the internet; crackbox is
 the only container with both NICs (internal + default bridge). gated

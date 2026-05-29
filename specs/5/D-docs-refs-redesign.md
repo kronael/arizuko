@@ -398,7 +398,7 @@ nav tree; the body H2 rhythm is what differs.
 
 arizuko's design is that several sibling components are shippable
 outside arizuko. The orthogonality grep at
-[`specs/5/A-orthogonal-components.md`](A-orthogonal-components.md)
+[`specs/11/A-orthogonal-components.md`](../11/A-orthogonal-components.md)
 enforces this for `auth|audit|resreg|obs` (extended 2026-05-26 at
 commit `37c99a6`). Each shippable sibling earns a Phase 2 howto page:
 

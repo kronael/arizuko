@@ -70,7 +70,7 @@ Gaps:
   state the trigger condition properly.
 - "Open" (L148-160) — four bullets, two of which (`tenant_id` naming,
   capability-vs-tier perf) need a decision in this spec, not a punt.
-- Cross-link to `specs/5/A-orthogonal-components.md` is mentioned but
+- Cross-link to `specs/11/A-orthogonal-components.md` is mentioned but
   not woven into the Phase C narrative (crackbox is already the
   pattern this spec wants).
 
@@ -82,7 +82,7 @@ Writing sources:
 - `core/types.go`, `core/jid.go`, `auth/identity.go`, `auth/acl.go`,
   `grants/` — the arizuko-specific imports the audit must enumerate.
 - `chanlib/chanlib.go` — already cited as nearest-to-generic shape.
-- `specs/5/A-orthogonal-components.md` — sibling discipline crackbox
+- `specs/11/A-orthogonal-components.md` — sibling discipline crackbox
   already follows; mine for the "what makes a component truly
   orthogonal" checklist.
 
@@ -203,7 +203,7 @@ from chanlib/ | arizuko-specific symbols`. Mine: `README.md`
   e.g. "proxyd-standalone: deploy with one TOML route, one backend,
   one OAuth provider; arizuko deps unset; OAuth login works,
   reverse-proxy works, MCP tools register." One row per daemon.
-- **§ Cross-link to specs/5/A-orthogonal-components.md.** Adopt the
+- **§ Cross-link to specs/11/A-orthogonal-components.md.** Adopt the
   same discipline (no internal package imports) as the acceptance
   criterion for "reusable".
 - **§ ContainerRuntime — pluggable sandbox backends** (DONE
