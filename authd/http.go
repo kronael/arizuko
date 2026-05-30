@@ -8,6 +8,11 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
+// maxBodyBytes caps request bodies on the token endpoints. Both carry only a
+// short secret/token; a larger body is malformed or hostile, so we refuse to
+// buffer it (memory/CPU DoS guard — specs/5/1 unbounded-body finding).
+const maxBodyBytes = 4 << 10
+
 // serviceGrants maps a service principal to the scopes it may obtain at boot.
 // Daemon-initiated work carries one of these (specs/5/1 "Service identity").
 // Declared here, mechanical — no per-deployment DB state.
@@ -71,6 +76,7 @@ func (s *server) handleServiceToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Key string `json:"key"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -96,6 +102,7 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return

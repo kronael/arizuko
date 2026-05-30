@@ -5,10 +5,11 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/kronael/arizuko/auth"
 )
 
@@ -66,18 +67,29 @@ func (a *Authd) reload() error {
 
 // Rotate generates a new active key, retiring the old one as of now (it keeps
 // verifying within its TTL window). Emergency revoke is RevokeAllNow.
+//
+// Retire + insert run in ONE transaction, and the `idx_signing_keys_one_active`
+// partial-unique index guards "exactly one active key": two concurrent
+// Rotate() calls cannot both commit a second active row — the loser fails the
+// constraint and rolls back, leaving a single active signer.
 func (a *Authd) Rotate() error {
-	k, err := auth.NewSigningKey("k-" + uuid.NewString())
+	k, err := auth.NewSigningKey(genKid(time.Now()))
 	if err != nil {
 		return err
 	}
-	if err := retireActiveKeys(a.db, time.Now()); err != nil {
-		return err
-	}
-	if err := insertKey(a.db, k); err != nil {
+	if err := rotateActiveKey(a.db, k, time.Now()); err != nil {
 		return err
 	}
 	return a.reload()
+}
+
+// genKid returns the spec kid scheme: "<created-unix>-<8 hex rand>", sortable
+// by creation time and collision-resistant. Replaces the unsortable uuid so a
+// verifier can derive a key's creation order from the kid alone.
+func genKid(created time.Time) string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%d-%s", created.Unix(), hex.EncodeToString(b))
 }
 
 // RevokeAllNow backdates every active key's retired_at past the serving window,
@@ -100,6 +112,28 @@ func (a *Authd) PublicKeys() map[string]*ecdsa.PublicKey {
 		out[kr.key.Kid] = &kr.key.Priv.PublicKey
 	}
 	return out
+}
+
+// retiredKeys returns the retirement time per still-serving retired kid. The
+// active key is absent (no iat cap). Backs the local KeySet's retired-key
+// forgery check.
+func (a *Authd) retiredKeys() map[string]time.Time {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	out := map[string]time.Time{}
+	for _, kr := range a.serving {
+		if kr.retiredAt != nil {
+			out[kr.key.Kid] = *kr.retiredAt
+		}
+	}
+	return out
+}
+
+// LocalKeySet is the in-process verifier authd uses on itself: public keys plus
+// per-kid retirement, so a token minted with a stolen retired key (iat past
+// retired_at) is rejected even inside the key's serving window.
+func (a *Authd) LocalKeySet() *auth.KeySet {
+	return auth.NewKeySetWithRetirement(a.PublicKeys(), a.retiredKeys())
 }
 
 func (a *Authd) activeKey() (*auth.SigningKey, error) {
@@ -158,8 +192,17 @@ func (a *Authd) Refresh(raw string) (access, newRefresh string, err error) {
 	if time.Now().After(r.expires) {
 		return "", "", auth.ErrExpiredToken
 	}
-	if err := markRefreshUsed(a.db, raw); err != nil {
+	// Atomic compare-and-set: only the goroutine that flips used_at NULL->now
+	// wins the right to rotate. A lost race means another redeem of the SAME
+	// token already won — concurrent redeem of a one-time token is reuse, so
+	// revoke the family and fail, exactly as a sequential replay would.
+	won, err := markRefreshUsed(a.db, raw)
+	if err != nil {
 		return "", "", err
+	}
+	if !won {
+		_ = revokeFamily(a.db, r.family)
+		return "", "", errReuse
 	}
 	newRefresh, err = rotateRefresh(a.db, r.family, r.sub, r.scope, r.aud, a.refreshTTL)
 	if err != nil {

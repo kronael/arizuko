@@ -32,19 +32,38 @@ const tokenClockSkew = 30 * time.Second
 // remote (RemoteKeySet over /v1/keys, for backends) or local (an immutable
 // public-key map, for authd-self and tests). Safe for concurrent use — remote
 // is internally synchronized; local is read-only after construction.
+//
+// retiredAt (local path only) records when a kid was retired. A retired key
+// stays servable through its overlap window so tokens MINTED BEFORE retirement
+// keep verifying, but a token whose iat is AFTER retired_at could only have
+// been freshly minted by a holder of the retired private key — i.e. a thief.
+// VerifyToken rejects those, closing the retired-key forgery window.
 type KeySet struct {
-	remote *oidc.RemoteKeySet
-	keys   map[string]*ecdsa.PublicKey
+	remote    *oidc.RemoteKeySet
+	keys      map[string]*ecdsa.PublicKey
+	retiredAt map[string]time.Time // kid -> retired_at; absent = active (no iat cap)
 }
 
 // NewKeySet builds a local KeySet from public keys — used in-process by authd
 // (which already holds the keys) and by tests. No network, no refresh.
 func NewKeySet(pub map[string]*ecdsa.PublicKey) *KeySet {
+	return NewKeySetWithRetirement(pub, nil)
+}
+
+// NewKeySetWithRetirement is NewKeySet plus per-kid retirement times. A token
+// signed by a kid in retiredAt is rejected when its iat is after that time
+// (forgery with a stolen retired key); a kid absent from retiredAt is the
+// active key — no iat cap.
+func NewKeySetWithRetirement(pub map[string]*ecdsa.PublicKey, retiredAt map[string]time.Time) *KeySet {
 	keys := make(map[string]*ecdsa.PublicKey, len(pub))
 	for k, v := range pub {
 		keys[k] = v
 	}
-	return &KeySet{keys: keys}
+	ret := make(map[string]time.Time, len(retiredAt))
+	for k, v := range retiredAt {
+		ret[k] = v
+	}
+	return &KeySet{keys: keys, retiredAt: ret}
 }
 
 // FetchKeys returns a KeySet backed by go-oidc's RemoteKeySet against
@@ -62,17 +81,20 @@ func (ks *KeySet) lookup(kid string) (*ecdsa.PublicKey, bool) {
 }
 
 // verifyLocal checks the JWS signature against the in-memory key map with
-// go-jose, pinning ES256 (closes alg-confusion). Returns the payload.
-func (ks *KeySet) verifyLocal(token string) ([]byte, error) {
+// go-jose, pinning ES256 (closes alg-confusion). Returns the payload + signing
+// kid (the kid backs the retired-key forgery check in VerifyToken).
+func (ks *KeySet) verifyLocal(token string) (payload []byte, kid string, err error) {
 	jws, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil || len(jws.Signatures) != 1 {
-		return nil, ErrInvalidToken
+		return nil, "", ErrInvalidToken
 	}
-	pub, ok := ks.lookup(jws.Signatures[0].Header.KeyID)
+	kid = jws.Signatures[0].Header.KeyID
+	pub, ok := ks.lookup(kid)
 	if !ok {
-		return nil, ErrInvalidToken
+		return nil, "", ErrInvalidToken
 	}
-	return jws.Verify(pub)
+	payload, err = jws.Verify(pub)
+	return payload, kid, err
 }
 
 // VerifyToken verifies a compact ES256 JWT and returns the Subject. The
@@ -81,6 +103,7 @@ func (ks *KeySet) verifyLocal(token string) ([]byte, error) {
 // arizuko-minted tokens.
 func VerifyToken(token string, ks *KeySet) (Subject, error) {
 	var payload []byte
+	var kid string
 	var err error
 	if ks.remote != nil {
 		// Pin ES256 BEFORE RemoteKeySet.VerifySignature, which does NOT
@@ -93,12 +116,24 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 		}
 		payload, err = ks.remote.VerifySignature(context.Background(), token)
 	} else {
-		payload, err = ks.verifyLocal(token)
+		payload, kid, err = ks.verifyLocal(token)
 	}
 	if err != nil {
 		return Subject{}, ErrInvalidToken
 	}
-	return subjectFromPayload(payload)
+	sub, err := subjectFromPayload(payload)
+	if err != nil {
+		return Subject{}, err
+	}
+	// Retired-key forgery window: a key keeps serving after retirement so
+	// tokens it signed BEFORE retirement still verify, but a token whose iat
+	// is after retired_at must have been minted by a thief holding the retired
+	// private key. Reject it (local path only; remote verifiers rely on the
+	// short access TTL as the revocation horizon — specs/5/1 § Revocation).
+	if retired, ok := ks.retiredAt[kid]; ok && sub.IssuedAt.After(retired) {
+		return Subject{}, ErrInvalidToken
+	}
+	return sub, nil
 }
 
 // subjectFromPayload parses verified claims and enforces the time window.
@@ -126,7 +161,7 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	}
 	return Subject{
 		Sub: c.Sub, Scope: c.Scope, Aud: c.Aud, Iss: c.Iss,
-		Extra: c.Extra, Expires: time.Unix(c.Exp, 0),
+		Extra: c.Extra, IssuedAt: time.Unix(c.Iat, 0), Expires: time.Unix(c.Exp, 0),
 	}, nil
 }
 

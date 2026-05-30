@@ -28,6 +28,12 @@ var (
 
 // TokenClaims is the payload authd signs. Generic: the library does not know
 // what scope strings or Extra keys mean (folder lives in Extra for arizuko).
+//
+// Extra entries serialize as TOP-LEVEL claims (e.g. "arz/folder"), NOT a nested
+// "extra" object — that is what routd/runed read back as Subject.Extra. The
+// Extra map KEY is the full claim name; the round-trip is exact. See the custom
+// MarshalJSON/UnmarshalJSON below. Reserved claim names (reservedClaims) never
+// land in Extra.
 type TokenClaims struct {
 	Sub   string            `json:"sub"`
 	Scope []string          `json:"scope,omitempty"`
@@ -36,17 +42,83 @@ type TokenClaims struct {
 	Iat   int64             `json:"iat"`
 	Nbf   int64             `json:"nbf"`
 	Exp   int64             `json:"exp"`
-	Extra map[string]string `json:"extra,omitempty"`
+	Extra map[string]string `json:"-"`
+}
+
+// reservedClaims are the standard JWT fields TokenClaims owns; every other
+// top-level claim is an Extra entry (the marshal/unmarshal boundary).
+var reservedClaims = map[string]struct{}{
+	"sub": {}, "scope": {}, "aud": {}, "iss": {}, "iat": {}, "nbf": {}, "exp": {},
+}
+
+// claimsAlias avoids the MarshalJSON/UnmarshalJSON recursion on TokenClaims.
+type claimsAlias TokenClaims
+
+// MarshalJSON emits the standard fields plus each Extra entry as a top-level
+// claim. A reserved-name Extra key is dropped (it would shadow a real claim).
+func (c TokenClaims) MarshalJSON() ([]byte, error) {
+	base, err := json.Marshal(claimsAlias(c))
+	if err != nil {
+		return nil, err
+	}
+	if len(c.Extra) == 0 {
+		return base, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(base, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range c.Extra {
+		if _, reserved := reservedClaims[k]; reserved {
+			continue
+		}
+		rv, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		m[k] = rv
+	}
+	return json.Marshal(m)
+}
+
+// UnmarshalJSON reads the standard fields, then folds every non-reserved
+// string-valued top-level claim into Extra so Subject.Extra["arz/folder"]
+// reflects the minted claim.
+func (c *TokenClaims) UnmarshalJSON(b []byte) error {
+	var a claimsAlias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*c = TokenClaims(a)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	for k, raw := range m {
+		if _, reserved := reservedClaims[k]; reserved {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			continue // non-string custom claims are ignored, not an error
+		}
+		if c.Extra == nil {
+			c.Extra = map[string]string{}
+		}
+		c.Extra[k] = s
+	}
+	return nil
 }
 
 // Subject is the verified result of a token: what VerifyToken returns.
 type Subject struct {
-	Sub     string
-	Scope   []string
-	Aud     string
-	Iss     string
-	Extra   map[string]string
-	Expires time.Time
+	Sub      string
+	Scope    []string
+	Aud      string
+	Iss      string
+	Extra    map[string]string
+	IssuedAt time.Time
+	Expires  time.Time
 }
 
 // SigningKey is one ES256 keypair authd holds. The private key signs; the

@@ -64,22 +64,38 @@ func loadKeys(db *sql.DB) ([]keyRow, error) {
 	return out, rows.Err()
 }
 
-// insertKey persists a freshly generated signing key as the new active key.
-func insertKey(db *sql.DB, k *auth.SigningKey) error {
+// rotateActiveKey retires the current active key(s) as of `at` and inserts k as
+// the new active key in ONE transaction. The `idx_signing_keys_one_active`
+// partial-unique index means two concurrent rotations cannot both land a second
+// active row: the loser's INSERT violates the constraint and its tx rolls back,
+// so the trust root never splits into two signers.
+func rotateActiveKey(db *sql.DB, k *auth.SigningKey, at time.Time) error {
 	privPEM, pubPEM, err := encodeKey(k.Priv)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`UPDATE signing_keys SET active = 0, retired_at = ? WHERE active = 1`,
+		at.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
 		`INSERT INTO signing_keys (kid, priv_pem, pub_pem, active, created_at)
 		 VALUES (?, ?, ?, 1, ?)`,
-		k.Kid, privPEM, pubPEM, now())
-	return err
+		k.Kid, privPEM, pubPEM, now()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// retireActiveKeys marks all currently-active keys retired as of `at`. Used on
-// rotation (at=now, key still serves its TTL window) and emergency revoke
-// (at backdated, window closes immediately).
+// retireActiveKeys marks all currently-active keys retired as of `at`. Used by
+// emergency revoke (at backdated, window closes immediately); normal rotation
+// retires in-tx via rotateActiveKey.
 func retireActiveKeys(db *sql.DB, at time.Time) error {
 	_, err := db.Exec(
 		`UPDATE signing_keys SET active = 0, retired_at = ? WHERE active = 1`,
@@ -174,10 +190,20 @@ func lookupRefresh(db *sql.DB, raw string) (refreshRow, bool) {
 	return r, true
 }
 
-func markRefreshUsed(db *sql.DB, raw string) error {
-	_, err := db.Exec(`UPDATE refresh_tokens SET used_at = ? WHERE token_hash = ?`,
+// markRefreshUsed atomically claims a refresh token: the compare-and-set
+// `used_at IS NULL` guard means exactly one of N concurrent redeems of the same
+// token wins (rows-affected == 1). Losers see won=false and must NOT rotate —
+// a second live successor would fork the family and reuse-detection would never
+// fire. The caller revokes the family on a lost race.
+func markRefreshUsed(db *sql.DB, raw string) (won bool, err error) {
+	res, err := db.Exec(
+		`UPDATE refresh_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`,
 		now(), hashToken(raw))
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
 func revokeFamily(db *sql.DB, fam string) error {
