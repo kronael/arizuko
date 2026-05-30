@@ -361,7 +361,12 @@ what fires it. Tag and broadcast travel together.
 
 1. Move CHANGELOG.md [Unreleased] to `[vX.Y.Z] — YYYY-MM-DD`
 2. `git tag vX.Y.Z`, tag docker images (`arizuko:vX.Y.Z`, `arizuko-ant:vX.Y.Z`)
-3. Add `.diary/YYYYMMDD.md` entry
+3. **Release the docs too** — a release ALWAYS ships the web docs: bump the
+   `ARIZUKO_VERSION` stamp in `template/web/pub/assets/hub.js`, update any
+   page whose surface changed (per `template/web/CLAUDE.md` maintenance map),
+   then deploy via the `cp` workflow and verify `/pub/*` returns 200. Docs are
+   part of the release, not an afterthought.
+4. Add `.diary/YYYYMMDD.md` entry
 
 ## Announcing
 
