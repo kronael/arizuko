@@ -76,6 +76,41 @@ func TestTokenUniquePerSpawn(t *testing.T) {
 	}
 }
 
+// TestKillSpawnDoesNotOverwriteTerminal: KillSpawn transitions only a still-
+// active run. A run that already completed normally (state='exited') keeps its
+// terminal state — a kill that loses the TOCTOU race must not relabel it
+// 'killed'. A queued/running run IS transitioned.
+func TestKillSpawnDoesNotOverwriteTerminal(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// run that completed normally before the kill lands.
+	_ = db.CreateSpawn(Spawn{RunID: "done", Folder: "demo", ContainerName: "c1", State: "queued"})
+	_ = db.StartSpawn("done", "s")
+	if err := db.EndSpawn("done", "exited", "ok", 0); err != nil {
+		t.Fatalf("end spawn: %v", err)
+	}
+	if err := db.KillSpawn("done"); err != nil {
+		t.Fatalf("kill spawn: %v", err)
+	}
+	if sp, _ := db.GetSpawn("done"); sp.State != "exited" || sp.Outcome != "ok" {
+		t.Fatalf("completed run got clobbered: state=%q outcome=%q want exited/ok", sp.State, sp.Outcome)
+	}
+
+	// a still-running run IS killed.
+	_ = db.CreateSpawn(Spawn{RunID: "live", Folder: "demo2", ContainerName: "c2", State: "queued"})
+	_ = db.StartSpawn("live", "s")
+	if err := db.KillSpawn("live"); err != nil {
+		t.Fatalf("kill spawn: %v", err)
+	}
+	if sp, _ := db.GetSpawn("live"); sp.State != "killed" {
+		t.Fatalf("live run not killed: state=%q want killed", sp.State)
+	}
+}
+
 // TestSweepExpired drops aged spawns + expired tokens.
 func TestSweepExpired(t *testing.T) {
 	db, err := OpenMem()

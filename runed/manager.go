@@ -344,7 +344,9 @@ func (m *Manager) Kill(runID string) error {
 	live := sp.State == "running" || sp.State == "queued"
 	if live {
 		_ = m.runtime.Kill(sp.ContainerName)
-		_ = m.db.EndSpawn(runID, "killed", "", -1)
+		// KillSpawn re-checks the state in SQL — a run that completed normally
+		// between GetSpawn and here keeps its terminal state (not 'killed').
+		_ = m.db.KillSpawn(runID)
 	}
 	// Free the slot if this run still owns its folder's live registration
 	// (the synchronous spawn goroutine may not have returned yet).

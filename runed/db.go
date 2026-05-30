@@ -182,6 +182,17 @@ func (d *DB) EndSpawn(runID, state, outcome string, exitCode int) error {
 	return err
 }
 
+// KillSpawn records state='killed' ONLY for a still-active run — the TOCTOU
+// between Kill's GetSpawn and this write can let a run complete normally
+// (state='exited'/'error') in between; the WHERE clause guards that so a kill
+// never overwrites an already-terminal state (spec 5/P § DELETE).
+func (d *DB) KillSpawn(runID string) error {
+	_, err := d.db.Exec(`UPDATE spawns SET state='killed', outcome='', exit_code=-1, ended_at=?
+		WHERE run_id=? AND state IN ('queued','running')`,
+		nowTS(), runID)
+	return err
+}
+
 // MarkSteered records that a steer-into-running write happened on a spawn.
 func (d *DB) MarkSteered(runID string) error {
 	_, err := d.db.Exec("UPDATE spawns SET steered=1 WHERE run_id=?", runID)

@@ -308,6 +308,25 @@ func TestBrokerFailureRunIDIsGettable(t *testing.T) {
 	}
 }
 
+// TestKillDoesNotRelabelCompletedRun: a run that has already completed
+// normally (state='exited') keeps its terminal state when Kill arrives — Kill
+// must not overwrite it to 'killed'. Covers both the in-memory live-guard
+// (state read at GetSpawn) and the KillSpawn SQL guard (the TOCTOU backstop).
+func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
+	db, mgr := newMgr(t, FakeRuntime{}, 5)
+	_ = db.CreateSpawn(Spawn{RunID: "r", Folder: "demo", ContainerName: "c", State: "queued"})
+	_ = db.StartSpawn("r", "s")
+	if err := db.EndSpawn("r", "exited", "ok", 0); err != nil {
+		t.Fatalf("end spawn: %v", err)
+	}
+	if err := mgr.Kill("r"); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	if sp, _ := db.GetSpawn("r"); sp.State != "exited" || sp.Outcome != "ok" {
+		t.Fatalf("Kill relabeled a completed run: state=%q outcome=%q want exited/ok", sp.State, sp.Outcome)
+	}
+}
+
 // errBroker always fails brokering.
 type errBroker struct{}
 
