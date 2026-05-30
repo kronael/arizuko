@@ -246,12 +246,17 @@ func TestFetchMsgToInbound(t *testing.T) {
 		},
 	}
 
-	im, ok := fetchMsgToInbound(msg, "tid123", "", newAttRegistry(), 0)
+	im, ok := fetchMsgToInbound(msg, "tid123", "", newAttRegistry(), 0, AuthConfig{})
 	if !ok {
 		t.Fatal("fetchMsgToInbound returned !ok")
 	}
 	if im.ID != "m1@example.com" {
 		t.Errorf("id = %q", im.ID)
+	}
+	// Zero AuthConfig is fail-closed → untrusted, matching the live poller's
+	// Verb for the same unauthenticated message (no drift).
+	if im.Verb != "untrusted" {
+		t.Errorf("verb = %q, want untrusted (fail-closed)", im.Verb)
 	}
 	if im.ChatJID != "email:thread/tid123" {
 		t.Errorf("jid = %q", im.ChatJID)
@@ -273,9 +278,38 @@ func TestFetchMsgToInbound(t *testing.T) {
 	}
 }
 
+// TestFetchMsgToInbound_TrustedVerb verifies the history path runs the same
+// classifier as the live poller: a DMARC-pass message from the trusted
+// authserv replays with Verb="message", not the fail-closed "untrusted".
+func TestFetchMsgToInbound_TrustedVerb(t *testing.T) {
+	raw := []byte("Authentication-Results: mx.google.com; dmarc=pass header.from=example.com\r\n" +
+		"From: alice@example.com\r\n" +
+		"Content-Type: text/plain\r\n\r\nhello history")
+	msg := &imapclient.FetchMessageBuffer{
+		UID: 8,
+		Envelope: &imap.Envelope{
+			MessageID: "<m2@example.com>",
+			Subject:   "hi",
+			Date:      time.Unix(1_700_000_000, 0).UTC(),
+			From:      []imap.Address{{Mailbox: "alice", Host: "example.com"}},
+		},
+		BodySection: []imapclient.FetchBodySectionBuffer{
+			{Section: &imap.FetchItemBodySection{}, Bytes: raw},
+		},
+	}
+	im, ok := fetchMsgToInbound(msg, "tid", "", newAttRegistry(), 0,
+		AuthConfig{TrustedAuthserv: "mx.google.com"})
+	if !ok {
+		t.Fatal("fetchMsgToInbound returned !ok")
+	}
+	if im.Verb != "message" {
+		t.Errorf("verb = %q, want message (trusted)", im.Verb)
+	}
+}
+
 // TestFetchMsgToInbound_NoEnvelope verifies missing envelope → !ok (skip).
 func TestFetchMsgToInbound_NoEnvelope(t *testing.T) {
-	_, ok := fetchMsgToInbound(&imapclient.FetchMessageBuffer{UID: 1}, "tid", "", nil, 0)
+	_, ok := fetchMsgToInbound(&imapclient.FetchMessageBuffer{UID: 1}, "tid", "", nil, 0, AuthConfig{})
 	if ok {
 		t.Error("expected !ok when envelope is nil")
 	}

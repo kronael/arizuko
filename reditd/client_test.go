@@ -406,3 +406,29 @@ func TestFetchHistory_BeforeFilter(t *testing.T) {
 		t.Errorf("before filter wrong: %+v", resp.Messages)
 	}
 }
+
+// TestDelete verifies the Delete round-trip POSTs to /api/del with the target
+// id, matching the Reddit API. The "delete" cap must be advertised (see
+// main.go Caps) or chanreg gates this verb as Unsupported before it ever runs.
+func TestDelete(t *testing.T) {
+	var gotPath, gotID, gotMethod string
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		r.ParseForm()
+		gotID = r.PostForm.Get("id")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer apiSrv.Close()
+
+	rc := makeRedditClient(t, apiSrv)
+	if err := rc.Delete(chanlib.DeleteRequest{TargetID: "t3_abc"}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if gotMethod != "POST" || gotPath != "/api/del" {
+		t.Errorf("got %s %s, want POST /api/del", gotMethod, gotPath)
+	}
+	if gotID != "t3_abc" {
+		t.Errorf("id=%q, want t3_abc", gotID)
+	}
+}

@@ -6,6 +6,7 @@ import {
   loadCursors,
   saveCookies,
   saveCursors,
+  snowflakeNewer,
   type CursorState,
   type Scraper,
   type TwitterConfig,
@@ -103,8 +104,9 @@ async function pollOnce(state: CursorState): Promise<CursorState> {
         const tw = t as Record<string, unknown>;
         const id = String(tw['id'] ?? '');
         if (!id) continue;
-        if (state.mentions && id <= state.mentions) break;
-        if (!next.mentions || id > next.mentions) next.mentions = id;
+        if (state.mentions && !snowflakeNewer(id, state.mentions)) break;
+        if (!next.mentions || snowflakeNewer(id, next.mentions))
+          next.mentions = id;
         const sender = String(tw['username'] ?? 'unknown');
         const inReplyTo = tw['inReplyToStatusId']
           ? String(tw['inReplyToStatusId'])

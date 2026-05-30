@@ -83,6 +83,13 @@ export interface CursorState {
   followers?: number;
 }
 
+// Snowflake IDs are 64-bit and exceed Number.MAX_SAFE_INTEGER, so compare as
+// BigInt. Lexical string compare only matches numeric order at equal length —
+// it skips or re-fetches when widths differ.
+export function snowflakeNewer(a: string, b: string): boolean {
+  return BigInt(a) > BigInt(b);
+}
+
 export function loadCursors(authDir: string): CursorState {
   try {
     const raw = fs.readFileSync(path.join(authDir, 'cursors.json'), 'utf8');

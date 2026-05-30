@@ -8,6 +8,7 @@ import {
   loadCursors,
   saveCookies,
   saveCursors,
+  snowflakeNewer,
   type Scraper,
 } from './twitter';
 import { parseJid, readResponseId, stripTweetPrefix } from './verbs';
@@ -207,5 +208,32 @@ describe('authenticate', () => {
     const dir = freshDir('auth-nothing');
     const { s } = makeMockScraper();
     await expect(authenticate(s, { authDir: dir })).rejects.toThrow(/no auth/);
+  });
+});
+
+describe('snowflakeNewer', () => {
+  it('orders equal-length snowflakes numerically', () => {
+    expect(snowflakeNewer('1700000000000000002', '1700000000000000001')).toBe(
+      true,
+    );
+    expect(snowflakeNewer('1700000000000000001', '1700000000000000002')).toBe(
+      false,
+    );
+  });
+
+  it('orders differing-length ids numerically, not lexically', () => {
+    // 9-char number (999999999) is numerically smaller than 10-char
+    // (1000000000), but lexically "9..." > "1...". Lexical compare would
+    // wrongly skip the longer/newer id or stop too early.
+    const shortOld = '999999999';
+    const longNew = '1000000000';
+    expect(snowflakeNewer(longNew, shortOld)).toBe(true);
+    expect(snowflakeNewer(shortOld, longNew)).toBe(false);
+  });
+
+  it('returns false for equal ids (cursor break is inclusive)', () => {
+    expect(snowflakeNewer('1700000000000000000', '1700000000000000000')).toBe(
+      false,
+    );
   });
 });

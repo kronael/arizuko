@@ -237,7 +237,7 @@ func (s *server) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryRespon
 
 	out := make([]chanlib.InboundMsg, 0, len(msgs))
 	for _, m := range msgs {
-		im, ok := fetchMsgToInbound(m, threadID, s.cfg.ListenURL, s.reg, s.cfg.MaxAttachment)
+		im, ok := fetchMsgToInbound(m, threadID, s.cfg.ListenURL, s.reg, s.cfg.MaxAttachment, s.cfg.Auth)
 		if ok {
 			out = append(out, im)
 		}
@@ -253,6 +253,7 @@ func fetchMsgToInbound(
 	threadID, listenURL string,
 	reg *attRegistry,
 	maxBytes int64,
+	authCfg AuthConfig,
 ) (chanlib.InboundMsg, bool) {
 	if msg.Envelope == nil {
 		return chanlib.InboundMsg{}, false
@@ -281,6 +282,9 @@ func fetchMsgToInbound(
 		toAddr = env.To[0].Addr()
 	}
 	content := renderEmailContent(fromName, fromAddr, env.Subject, env.Date.Format(time.RFC1123Z), toAddr, body, atts)
+	// Set the trust Verb from the same classifier the live poller uses
+	// (imap.go) so replayed history carries the trusted/untrusted signal
+	// instead of an empty Verb — the "no drift" guarantee this file claims.
 	return chanlib.InboundMsg{
 		ID:          msgID,
 		ChatJID:     "email:thread/" + threadID,
@@ -288,6 +292,7 @@ func fetchMsgToInbound(
 		SenderName:  fromName,
 		Content:     content,
 		Timestamp:   env.Date.Unix(),
+		Verb:        VerbForState(classifyRaw(bodyRaw, authCfg).State),
 		Attachments: atts,
 	}, true
 }
