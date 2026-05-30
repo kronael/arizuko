@@ -362,6 +362,116 @@ func TestSend_InvalidReplyURI(t *testing.T) {
 	}
 }
 
+func TestSend_ReturnsCreatedURI(t *testing.T) {
+	m := newBskyMock()
+	defer m.close()
+	bc := newTestClient(t, m)
+	if err := bc.createSession(); err != nil {
+		t.Fatal(err)
+	}
+	uri, err := bc.Send(chanlib.SendRequest{ChatJID: "bluesky:x", Content: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uri == "" {
+		t.Fatal("Send returned empty URI; agent can't edit/delete its own post")
+	}
+}
+
+// TestDefaultReply_FullRuntimePath reproduces the actual runtime chain that
+// the old bare-rkey ID broke: an inbound notification's delivered ID is what
+// the gateway seeds into SetLastReply and the MCP reply fallback hands back
+// as ReplyTo. Feeding that exact ID into Send must resolve through
+// strongRef→getPostCID→splitATURI and succeed. Before the fix, the delivered
+// ID was a bare rkey and Send failed "invalid at:// uri".
+func TestDefaultReply_FullRuntimePath(t *testing.T) {
+	m := newBskyMock()
+	defer m.close()
+	bc := newTestClient(t, m)
+	if err := bc.createSession(); err != nil {
+		t.Fatal(err)
+	}
+
+	mr := newBskyRouterMock()
+	defer mr.close()
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc.SetToken("tok")
+
+	n := notification{
+		URI: "at://did:plc:author/app.bsky.feed.post/3kInbound", Reason: "mention",
+		IndexedAt: "2026-04-17T10:00:00Z",
+	}
+	n.Author.DID = "did:plc:author"
+	n.Author.Handle = "author.bsky"
+	n.Record.Text = "@bot hello"
+	bc.handleNotification(n, rc)
+
+	mr.mu.Lock()
+	if len(mr.msgs) != 1 {
+		mr.mu.Unlock()
+		t.Fatalf("dispatched %d, want 1", len(mr.msgs))
+	}
+	deliveredID := mr.msgs[0].ID
+	mr.mu.Unlock()
+
+	// The delivered ID is what the gateway seeds and the MCP reply fallback
+	// passes as ReplyTo. It must be a full AT-URI.
+	if deliveredID != n.URI {
+		t.Fatalf("delivered ID = %q, want full AT-URI %q", deliveredID, n.URI)
+	}
+
+	// Default reply: agent calls reply with no explicit replyToId, the
+	// gateway-seeded ID flows in as ReplyTo. This must succeed.
+	if _, err := bc.Send(chanlib.SendRequest{
+		ChatJID: "bluesky:x", Content: "hi back", ReplyTo: deliveredID,
+	}); err != nil {
+		t.Fatalf("default reply with seeded ID failed: %v", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec := m.createRecords[len(m.createRecords)-1]["record"].(map[string]any)
+	reply, ok := rec["reply"].(map[string]any)
+	if !ok {
+		t.Fatal("reply field missing — parent ref not built")
+	}
+	if reply["parent"].(map[string]any)["uri"] != n.URI {
+		t.Errorf("parent.uri = %v, want %q", reply["parent"].(map[string]any)["uri"], n.URI)
+	}
+}
+
+// TestHandleNotification_DedupID asserts the same inbound notification yields
+// a stable, unique ID across repeated delivery (the messages.id PK dedup key).
+// The full AT-URI is unique per post, so dedup stays correct after the change.
+func TestHandleNotification_DedupID(t *testing.T) {
+	mr := newBskyRouterMock()
+	defer mr.close()
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc.SetToken("tok")
+
+	bc := &bskyClient{}
+	n := notification{
+		URI: "at://did:plc:a/app.bsky.feed.post/3dup", Reason: "mention",
+		IndexedAt: "2026-04-17T10:00:00Z",
+	}
+	n.Author.DID = "did:plc:a"
+	n.Author.Handle = "a.bsky"
+	n.Record.Text = "dup"
+
+	bc.handleNotification(n, rc)
+	bc.handleNotification(n, rc) // same notification seen twice
+
+	mr.mu.Lock()
+	defer mr.mu.Unlock()
+	if len(mr.msgs) != 2 {
+		t.Fatalf("dispatched %d, want 2", len(mr.msgs))
+	}
+	// Both deliveries carry the identical full-URI ID — the DB's INSERT OR
+	// IGNORE on messages.id collapses them to one row.
+	if mr.msgs[0].ID != n.URI || mr.msgs[1].ID != n.URI {
+		t.Errorf("IDs = %q, %q; want both %q", mr.msgs[0].ID, mr.msgs[1].ID, n.URI)
+	}
+}
+
 func TestHTTPStatusError(t *testing.T) {
 	e := &httpStatusError{Code: 401, Body: "bad", Op: "test"}
 	if e.Error() == "" {
@@ -604,10 +714,10 @@ func TestFetchHistory(t *testing.T) {
 	if len(resp.Messages) != 2 {
 		t.Fatalf("got %d messages", len(resp.Messages))
 	}
-	if resp.Messages[0].ID != "p2" || resp.Messages[0].Content != "second" {
+	if resp.Messages[0].ID != "at://did:plc:a/app.bsky.feed.post/p2" || resp.Messages[0].Content != "second" {
 		t.Errorf("msg[0] = %+v", resp.Messages[0])
 	}
-	if resp.Messages[1].ReplyTo != "p0" {
+	if resp.Messages[1].ReplyTo != "at://did:plc:a/app.bsky.feed.post/p0" {
 		t.Errorf("msg[1] replyTo = %q", resp.Messages[1].ReplyTo)
 	}
 	if resp.Messages[1].Sender != "bluesky:user/did%3Aplc%3Aa" || resp.Messages[1].SenderName != "Alice" {

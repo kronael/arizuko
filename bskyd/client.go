@@ -287,8 +287,14 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		content += fmt.Sprintf(" [Image: %s]", a.Filename)
 	}
 	ts, _ := time.Parse(time.RFC3339, n.IndexedAt)
+	// ID is the full at://repo/collection/rkey URI: it becomes the
+	// reply/like/delete target (gateway seeds SetLastReply with it, the MCP
+	// reply fallback passes it as ReplyTo → strongRef → splitATURI, which
+	// needs all three segments). uriToKey's bare rkey survives only in the
+	// debug log. The full URI is unique per post, so dedup (messages.id PK)
+	// stays correct.
 	if err := rc.SendMessage(chanlib.InboundMsg{
-		ID:          uriToKey(n.URI),
+		ID:          n.URI,
 		ChatJID:     jid,
 		Sender:      jid,
 		SenderName:  name,
@@ -389,10 +395,10 @@ func (bc *bskyClient) Send(req chanlib.SendRequest) (string, error) {
 		}
 		record["reply"] = map[string]any{"root": ref, "parent": ref}
 	}
-	if _, err := bc.createRecord("app.bsky.feed.post", record); err != nil {
-		return "", err
-	}
-	return "", nil
+	// Return the created post's URI (like Post/Quote/Repost) so the agent
+	// can later edit/delete its own reply. Reconstructing it from the rkey
+	// is impossible — the repo is the bot's DID, set by the PDS.
+	return bc.createRecord("app.bsky.feed.post", record)
 }
 
 func (bc *bskyClient) Typing(string, bool) {}
@@ -653,10 +659,13 @@ func (bc *bskyClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 			}
 			replyTo := ""
 			if rec.Reply != nil {
-				replyTo = uriToKey(rec.Reply.Parent.URI)
+				replyTo = rec.Reply.Parent.URI
 			}
+			// Full AT-URI as ID/ReplyTo, matching handleNotification, so the
+			// same post caches to one messages.id row regardless of arrival
+			// path and reply/like/delete targets resolve.
 			out = append(out, chanlib.InboundMsg{
-				ID:         uriToKey(fv.Post.URI),
+				ID:         fv.Post.URI,
 				ChatJID:    req.ChatJID,
 				Sender:     bskyUserJID(fv.Post.Author.DID),
 				SenderName: name,
