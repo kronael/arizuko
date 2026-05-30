@@ -60,7 +60,10 @@ func defaultSMTPSender(addr string, a smtp.Auth, from string, to []string, msg [
 	return nil
 }
 
-func sendReply(cfg config, to, rootMsgID, text string) error {
+// sendReply composes a threaded reply. In-Reply-To points at inReplyTo (the
+// specific message being answered); References lists the thread root first
+// then inReplyTo, per RFC 5322 §3.6.4, so clients nest the reply correctly.
+func sendReply(cfg config, to, rootMsgID, inReplyTo, text string) error {
 	// Sanitize both envelope addresses symmetrically — net/smtp validates
 	// newlines, but defense-in-depth against header injection in case the
 	// validation is ever loosened.
@@ -70,9 +73,18 @@ func sendReply(cfg config, to, rootMsgID, text string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: Re: (arizuko)\r\nDate: %s\r\n",
 		fromAddr, toAddr, time.Now().Format(time.RFC1123Z))
-	if rootMsgID != "" {
-		ref := "<" + sanitizeHeader(strings.Trim(rootMsgID, "<>")) + ">"
-		fmt.Fprintf(&b, "In-Reply-To: %s\r\nReferences: %s\r\n", ref, ref)
+	if inReplyTo == "" {
+		inReplyTo = rootMsgID
+	}
+	if inReplyTo != "" {
+		irt := "<" + sanitizeHeader(strings.Trim(inReplyTo, "<>")) + ">"
+		fmt.Fprintf(&b, "In-Reply-To: %s\r\n", irt)
+		refs := irt
+		if rootMsgID != "" && !strings.EqualFold(strings.Trim(rootMsgID, "<>"), strings.Trim(inReplyTo, "<>")) {
+			root := "<" + sanitizeHeader(strings.Trim(rootMsgID, "<>")) + ">"
+			refs = root + " " + irt
+		}
+		fmt.Fprintf(&b, "References: %s\r\n", refs)
 	}
 	fmt.Fprintf(&b, "Content-Type: text/plain; charset=utf-8\r\n\r\n%s", text)
 

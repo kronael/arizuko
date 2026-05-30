@@ -193,6 +193,9 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.Content = content
 		msg.Timestamp = n.Status.CreatedAt.Unix()
 		msg.Topic = topic
+		// The parent status this toot answers — without it the reply's
+		// in-reply-to metadata is lost and the agent can't thread correctly.
+		msg.ReplyTo = topic
 		msg.Verb = verb
 		msg.Attachments = mc.extractAttachments(n.Status)
 		// visibility=direct → DM; public/unlisted/followers-only → group.

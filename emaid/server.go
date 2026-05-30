@@ -171,7 +171,13 @@ func (s *server) Send(req chanlib.SendRequest) (string, error) {
 	if err := row.Scan(&t.ThreadID, &t.FromAddress, &t.RootMsgID); err != nil {
 		return "", fmt.Errorf("thread not found")
 	}
-	return "", sendReply(s.cfg, t.FromAddress, t.RootMsgID, req.Content)
+	// Prefer the explicit reply target so a reply to a specific message in the
+	// thread threads under it (In-Reply-To), not flattened to the thread root.
+	inReplyTo := req.ReplyTo
+	if inReplyTo == "" {
+		inReplyTo = t.RootMsgID
+	}
+	return "", sendReply(s.cfg, t.FromAddress, t.RootMsgID, inReplyTo, req.Content)
 }
 
 func (s *server) Typing(string, bool) {}

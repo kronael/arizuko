@@ -160,6 +160,46 @@ func TestBotHandler_Send_Success(t *testing.T) {
 	}
 }
 
+// TestBotHandler_Send_ExplicitReplyTo locks the fix where an explicit reply
+// target threads under that message (In-Reply-To = ReplyTo) rather than
+// flattening to the thread root. References lists root then the parent.
+func TestBotHandler_Send_ExplicitReplyTo(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+	if _, err := db.Exec(
+		`INSERT INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?, ?, ?)`,
+		"thr", "user@example.com", "root-1@example.com",
+	); err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+
+	var gotMsg []byte
+	orig := smtpSender
+	smtpSender = func(_ string, _ smtp.Auth, _ string, _ []string, msg []byte) error {
+		gotMsg = msg
+		return nil
+	}
+	defer func() { smtpSender = orig }()
+
+	cfg := config{Name: "email", Account: "bot@example.com", Password: "pw", SMTPHost: "smtp.example.com", SMTPPort: "587"}
+	s := newServer(cfg, db, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() })
+
+	if _, err := s.Send(chanlib.SendRequest{
+		ChatJID: "email:thr", Content: "body", ReplyTo: "mid-9@example.com",
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	m := string(gotMsg)
+	for _, want := range []string{
+		"In-Reply-To: <mid-9@example.com>\r\n",
+		"References: <root-1@example.com> <mid-9@example.com>\r\n",
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("message missing %q; got:\n%s", want, m)
+		}
+	}
+}
+
 func itoa(i int) string {
 	// strconv.Itoa avoided to keep the import list minimal in a test helper.
 	const d = "0123456789"

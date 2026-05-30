@@ -36,7 +36,7 @@ func newRouterMock() *routerMock {
 	return m
 }
 
-func (m *routerMock) close()   { m.srv.Close() }
+func (m *routerMock) close() { m.srv.Close() }
 func (m *routerMock) last() chanlib.InboundMsg {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -118,6 +118,9 @@ func TestHandleNotification_Reply(t *testing.T) {
 	got := mr.last()
 	if got.Topic != "parent-99" {
 		t.Errorf("Topic = %q", got.Topic)
+	}
+	if got.ReplyTo != "parent-99" {
+		t.Errorf("ReplyTo = %q, want parent-99 (reply metadata must carry through)", got.ReplyTo)
 	}
 	if got.Verb != "reply" {
 		t.Errorf("Verb = %q, want reply", got.Verb)
