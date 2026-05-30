@@ -5,33 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>deploy on Discord — arizuko</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p  { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose ol { margin: 0.4em 0 0.8em 1.4em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
-    .prose dd { margin: 0.1em 0 0 1.2em; }
-    .back { font-size: 0.85em; }
-    .note  { background: color-mix(in srgb, var(--accent3) 10%, transparent);
-             border-left: 3px solid var(--accent3);
-             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
-    .warn  { background: color-mix(in srgb, #e67e22 10%, transparent);
-             border-left: 3px solid #e67e22;
-             padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
-    table  { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
-    th     { text-align: left; border-bottom: 1px solid var(--dim, #888);
-             padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
-    td     { padding: 0.25em 0.8em 0.25em 0;
-             border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
-    code   { font-size: 0.9em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>deploy on Discord</h1>
-    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">&larr; how-to</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="How-to">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="./">How-to</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Getting started</a></li>
+            <li><a href="talking-to-agents.html">Talking to agents</a></li>
+            <li><a href="slack.html">Slack</a></li>
+            <li><a href="discord.html" aria-current="page">Discord</a></li>
+            <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
+            <li><a href="chat-link.html">Chat link on your site</a></li>
+            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="webhooks.html">Webhooks</a></li>
+            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="kubernetes.html">Kubernetes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">howto</a> &rsaquo; Discord</p>
+      <h1>deploy on Discord</h1>
+
+
 
     <p>arizuko&rsquo;s Discord adapter (<code>discd</code>) connects one bot account to your Discord server and routes messages to per-group Claude agents. Each server channel gets its own agent, or you share one across the whole server &mdash; your routing table decides.</p>
 
@@ -79,7 +87,7 @@
       </tbody>
     </table>
     <div class="note"><strong>One token, not both.</strong> Set exactly one of <code>DISCORD_BOT_TOKEN</code> or <code>DISCORD_USER_TOKEN</code>. If both are set, the user token takes precedence. If neither is set, discd exits at startup.</div>
-    <div class="warn"><strong>User token risks</strong>: Using a user token runs the agent as your personal Discord account. Discord&rsquo;s ToS restricts automated use of user accounts. Use on accounts you own and can afford to lose. Bot tokens are the safe choice for any production or team deployment.</div>
+    <div class="callout"><strong>User token risks</strong>: Using a user token runs the agent as your personal Discord account. Discord&rsquo;s ToS restricts automated use of user accounts. Use on accounts you own and can afford to lose. Bot tokens are the safe choice for any production or team deployment.</div>
 
     <h2>step 1 — create a Discord application (bot mode)</h2>
     <p>Skip this if you are using a user token.</p>
@@ -93,7 +101,7 @@
           &bull; <strong>Presence Intent</strong> — optional.</li>
       <li>Click <strong>Reset Token</strong> and copy the bot token. Store it; you won&rsquo;t see it again.</li>
     </ol>
-    <div class="warn"><strong>Token security</strong>: treat tokens like passwords. Store them only in your instance&rsquo;s <code>.env</code> file, not in code or chat.</div>
+    <div class="callout"><strong>Token security</strong>: treat tokens like passwords. Store them only in your instance&rsquo;s <code>.env</code> file, not in code or chat.</div>
 
     <h2>step 2 — invite the bot to your server (bot mode)</h2>
     <p>Skip this if you are using a user token (your account is already in your servers).</p>
@@ -242,6 +250,18 @@ send_file chatJid:="discord:123456789/987654321" \
         <tr><td><code>MEDIA_MAX_FILE_BYTES</code></td><td>no</td><td><code>20971520</code> (20 MB)</td><td>max attachment size to proxy</td></tr>
       </tbody>
     </table>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="slack.html">&larr; Slack</a>
+        <a rel="next" href="asymmetric-channels.html">Asymmetric channels &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/discord.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+      </div>
+    </main>
+
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

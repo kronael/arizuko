@@ -5,19 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>getting started</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.2em 0; }
-    .prose dt { color: var(--accent3); font-weight: bold; margin-top: 0.6em; }
-    .prose dd { margin: 0.1em 0 0 1.2em; color: var(--fg); }
-    .back { font-size: 0.85em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; howto &rsaquo; getting started</p>
-    <h1>getting started</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="How-to">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="./">How-to</a>
+          <ul class="nav-children">
+            <li><a href="./" aria-current="page">Getting started</a></li>
+            <li><a href="talking-to-agents.html">Talking to agents</a></li>
+            <li><a href="slack.html">Slack</a></li>
+            <li><a href="discord.html">Discord</a></li>
+            <li><a href="asymmetric-channels.html">Asymmetric channels</a></li>
+            <li><a href="chat-link.html">Chat link on your site</a></li>
+            <li><a href="chat-sdk.html">Embed chat (SDK)</a></li>
+            <li><a href="webhooks.html">Webhooks</a></li>
+            <li><a href="webdav.html">WebDAV mount</a></li>
+            <li><a href="kubernetes.html">Kubernetes</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; how-to</p>
+      <h1>getting started</h1>
+
+
 
     <p>This page walks a fresh host from zero to a running instance with one channel and one invited user. Each step is one command. Skim the whole list first; come back and run them in order.</p>
 
@@ -118,6 +140,17 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
       <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
     </dl>
     <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>reply</code> and <code>send</code> return success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>gateway/gateway.go</code> (group + platform mute), <code>core/config.go</code> (parsing), <code>gateway/gateway_test.go</code> <code>TestMakeOutputCallback_MutedGroup</code> (locked behaviour).</p>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="next" href="talking-to-agents.html">Talking to agents &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>
