@@ -973,3 +973,12 @@ missed (mostly concurrency + the remote verify path):**
   `Field:"ScopeID"` (polymorphic) — latent wrong-scope once scoped-delete wired.
 - [should-fix] no `audit_log` summary row per apply (`engine.go:412`).
 - [nit] single-file apply only (no `manifest/` dir composition + PK-collision).
+
+## Flaky test (2026-05-30, found during fix-wave verification)
+
+- `gateway/integration_test.go:291 TestContainerNameIncludesInstance` — PASSES
+  isolated (`go test -run … -count=1`, full + `-short`), but intermittently
+  FAILS under the concurrent full `go test ./gateway/` run. Pre-existing (not
+  caused by the authd/routd fix-wave; gateway untouched). Shared-state / timing
+  flake among the gateway integration tests. Address in the test-completeness
+  stage (#49).
