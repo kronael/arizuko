@@ -5,22 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>engagement</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-    .note { background: color-mix(in srgb, var(--accent3) 10%, transparent); border-left: 3px solid var(--accent3); padding: 0.5em 0.8em; margin: 0.8em 0; font-size: 0.92em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>engagement</h1>
-    <p class="dim back">stay-in-conversation after mention &middot; <a href="../concepts/">&larr; concepts</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <p class="lede">Mentioning the bot for every single message kills conversation flow. Engagement fixes that. Once the bot has replied in a <code>(chat, topic)</code>, that pair is &ldquo;engaged&rdquo; for a window of time. Subsequent inbounds in the same pair fire the agent without needing another mention.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; engagement</p>
+<h1>engagement</h1>
+
+    <p class="lede">Routing delivered the message to a folder. Now engagement decides whether to keep listening. Mentioning the bot for every single message kills conversation flow, so once the bot has replied in a <code>(chat, topic)</code>, that pair is &ldquo;engaged&rdquo; for a window of time. Subsequent inbounds in the same pair fire the agent without needing another mention.</p>
 
     <h2>two states</h2>
     <p>A <code>(jid, topic)</code> pair is either <strong>engaged</strong> or <strong>idle</strong>.</p>
@@ -61,6 +90,18 @@
 
     <h2>go deeper</h2>
     <p>The mention check, observe-wins ordering, and TTL math live in <a href="https://github.com/kronael/arizuko/blob/main/specs/5/G-engagement.md">specs/5/G</a>. The fork primitive used by the corrective pattern: <a href="../concepts/topics.html">topics</a>. Routing modes that interact with engagement: <a href="../concepts/routing.html#modes">routing modes</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="routing.html">&larr; Routing</a>
+        <a rel="next" href="topics.html">Topics &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/engagement.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

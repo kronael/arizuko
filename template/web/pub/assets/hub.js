@@ -117,6 +117,118 @@
     window.addEventListener('scroll', hide, { passive: true });
   }
 
+  // ── docs three-pane chrome ──────────────────────────────────────────
+  // Only fires on pages that opt in with .docs-layout. The reference and
+  // concepts shells inline their own left-nav tree (renders before this
+  // script); buildTOC fills the right rail; markCurrentNav highlights the
+  // active link; the drawer is the <1200px collapse of the left nav.
+
+  function slug(s) {
+    return s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  // Walk .docs-content h2,h3 into the "On this page" rail. Assign slug ids
+  // to headings that lack one, de-duped with -2/-3. Render nothing when a
+  // page has fewer than two headings.
+  function buildTOC() {
+    var toc = document.querySelector('.docs-toc');
+    var content = document.querySelector('.docs-content');
+    if (!toc || !content) return;
+    var heads = content.querySelectorAll('h2, h3');
+    if (heads.length < 2) {
+      toc.remove();
+      return;
+    }
+    var seen = {};
+    var ul = document.createElement('ul');
+    heads.forEach(function (h) {
+      if (!h.id) {
+        var base = slug(h.textContent) || 'section';
+        var id = base;
+        var n = 2;
+        while (seen[id] || document.getElementById(id)) {
+          id = base + '-' + n++;
+        }
+        h.id = id;
+      }
+      seen[h.id] = true;
+      var li = document.createElement('li');
+      if (h.tagName === 'H3') li.className = 'toc-h3';
+      var a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+    var label = document.createElement('div');
+    label.className = 'toc-label';
+    label.textContent = 'On this page';
+    toc.appendChild(label);
+    toc.appendChild(ul);
+  }
+
+  // Normalize a pathname so `…/x/` and `…/x/index.html` compare equal and a
+  // trailing slash never trips the match.
+  function normPath(p) {
+    p = p.replace(/index\.html$/, '');
+    if (p.length > 1) p = p.replace(/\/$/, '');
+    return p;
+  }
+
+  // Set aria-current="page" on the nav link pointing at this page, matching
+  // on the resolved (absolute) href so relative `../x.html` links normalize
+  // against the browser's own resolution.
+  function markCurrentNav() {
+    var nav = document.querySelector('.docs-nav');
+    if (!nav) return;
+    var here = normPath(window.location.pathname);
+    var links = nav.querySelectorAll('a[href]');
+    links.forEach(function (a) {
+      if (normPath(new URL(a.href, window.location.href).pathname) === here) {
+        a.setAttribute('aria-current', 'page');
+      }
+    });
+  }
+
+  // <1200px: the left nav collapses behind a topbar button. aria-expanded
+  // tracks state; Esc and an outside click close it. No persistence.
+  function initNavDrawer() {
+    var toggle = document.querySelector('.docs-navtoggle');
+    var nav = document.querySelector('.docs-nav');
+    if (!toggle || !nav) return;
+    function open() {
+      nav.removeAttribute('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+    }
+    function close() {
+      nav.setAttribute('hidden', '');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    // Drawer is closed by default below 1200px; above, CSS forces it visible
+    // regardless of the hidden attribute, so a stale hidden attr is harmless.
+    close();
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (toggle.getAttribute('aria-expanded') === 'true') close();
+      else open();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') close();
+    });
+    document.addEventListener('click', function (e) {
+      if (
+        toggle.getAttribute('aria-expanded') === 'true' &&
+        !nav.contains(e.target) &&
+        e.target !== toggle
+      ) {
+        close();
+      }
+    });
+  }
+
   function init() {
     initTheme();
     var btn = document.querySelector('.theme-toggle');
@@ -124,6 +236,9 @@
     var grid = document.querySelector('.grid');
     var empty = document.querySelector('.empty');
     if (grid && empty && grid.children.length > 0) empty.style.display = 'none';
+    buildTOC();
+    markCurrentNav();
+    initNavDrawer();
     injectFooter();
     injectAskAgent();
     injectSelectionPopup();

@@ -5,19 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>jid</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>jid</h1>
-    <p class="dim back">addresses for chats and senders &middot; <a href="../concepts/">&larr; concepts</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
+<h1>jid</h1>
 
     <p class="lede">Every chat and every sender has an address that looks the same across every platform: <code>&lt;platform&gt;:&lt;rest&gt;</code>. A routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group, and nothing else.</p>
 
@@ -52,6 +82,17 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
 
     <h2>go deeper</h2>
     <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="slack-pane.html">&larr; Slack pane</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/jid.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-29">2026-05-29</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

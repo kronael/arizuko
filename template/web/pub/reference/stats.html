@@ -5,25 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko — codebase stats</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .back { font-size: 0.85em; }
-    table { border-collapse: collapse; width: 100%; margin: 0.8em 0 1.2em; font-size: 0.9em; }
-    th { text-align: left; border-bottom: 1px solid var(--dim, #888); padding: 0.3em 0.8em 0.3em 0; font-weight: 600; }
-    td { padding: 0.25em 0.8em 0.25em 0; border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); }
-    td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim, #888); }
-    .group-header td { padding-top: 0.9em; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim, #888); border-bottom: none; }
-    .totals td { border-top: 1px solid var(--dim, #888); border-bottom: none; font-weight: 600; padding-top: 0.5em; }
-    .totals td.n { color: var(--fg); }
-    .note { font-size: 0.85em; color: var(--dim, #888); }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>codebase stats</h1>
-    <p class="dim back"><a href="../">&larr; arizuko</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Reference">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="./">Reference</a>
+          <ul class="nav-children">
+            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="env.html">Environment variables</a></li>
+            <li><a href="mcp.html">MCP tools</a></li>
+            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="openapi.html">OpenAPI</a></li>
+            <li><a href="jid.html">JID format</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="tokens.html">Route tokens</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="stats.html">Codebase stats</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Codebase stats</p>
+<h1>codebase stats</h1>
 
     <p>Snapshot of Go source and test lines per package group. Refreshed on each release. All 39 packages pass.</p>
 
@@ -83,6 +97,17 @@
     </table>
 
     <p class="note">Test-to-source ratio &gt; 1&thinsp;:&thinsp;1 — more lines of test than source. Adapters carry integration test suites against live HTTP mocks; chanreg and api run full round-trip scenarios. Numbers exclude generated files, worktrees, and <code>refs/</code>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="topics.html">&larr; Topics</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/stats.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

@@ -5,21 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>topics</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>topics</h1>
-    <p class="dim back">threads inside one folder &middot; <a href="../concepts/">&larr; concepts</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="index.html">Start here</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <p class="lede">A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; topics</p>
+<h1>topics</h1>
+
+    <p class="lede">Engagement keeps a conversation alive; topics keep two conversations apart. A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
 
     <h2>where topics come from</h2>
     <p>The gateway reads the topic from one of three places:</p>
@@ -49,6 +79,18 @@
 
     <h2>go deeper</h2>
     <p>Topics ride inside one folder; <a href="../concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. How folders relate to each other and what counts as ambient context: <a href="../concepts/scopes.html">scopes</a>. Full fork mechanics and the per-topic observed cursor: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Resolution order: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="engagement.html">&larr; Engagement</a>
+        <a rel="next" href="onboarding.html">Onboarding &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/topics.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

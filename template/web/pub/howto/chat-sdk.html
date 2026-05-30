@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>embed chat with the SDK — arizuko</title>
+    <link rel="stylesheet" href="../assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .back { font-size: 0.85em; }
+      .note {
+        background: color-mix(in srgb, var(--accent3) 10%, transparent);
+        border-left: 3px solid var(--accent3);
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="../">arizuko</a> &rsaquo;
+        <a href="../howto/">how-to</a> &rsaquo; embed chat with the SDK
+      </p>
+      <h1>embed chat with the SDK</h1>
+
+      <p>
+        The plain chat link (<a href="chat-link.html">put a chat link on
+        your site</a>) drops a ready-made page at
+        <code>/chat/&lt;token&gt;/</code> with zero code. When you want the
+        conversation inside your own UI &mdash; your fonts, your layout, your
+        message bubbles &mdash; use <code>arizuko-client.js</code>, the
+        browser SDK that wraps the same token surface.
+      </p>
+
+      <div class="note">
+        Same primitive, two front ends. The SDK talks to the exact
+        <code>/chat/&lt;token&gt;/</code> POST + SSE endpoints the built-in
+        page uses &mdash; see <a href="../reference/tokens.html">reference &rsaquo;
+        route tokens</a> for the wire shapes and
+        <a href="../concepts/tokens.html">concepts &rsaquo; tokens</a> for the
+        bearer model.
+      </div>
+
+      <h2>get a token</h2>
+
+      <p>Mint a <code>web:</code> chat token for the folder you want to talk to:</p>
+
+      <pre><code>arizuko token issue acme chat
+# https://acme.fiu.wtf/chat/Yp3v...Q2/</code></pre>
+
+      <p>
+        The token is the bit after <code>/chat/</code>. Treat it as a
+        shareable bearer credential &mdash; anyone holding it can chat as an
+        anonymous visitor against that folder's agent.
+      </p>
+
+      <h2>load the SDK</h2>
+
+      <p>
+        Pull <code>arizuko-client.js</code> from the same host that serves
+        the docs and chat. It exposes one global, <code>Arizuko</code>.
+      </p>
+
+      <pre><code>&lt;script src="https://acme.fiu.wtf/assets/arizuko-client.js"&gt;&lt;/script&gt;</code></pre>
+
+      <h2>connect, send, stream</h2>
+
+      <p>Three calls carry the whole conversation:</p>
+
+      <ul>
+        <li><code>Arizuko.connect(token)</code> &mdash; resolves to a session
+          with <code>name</code> and <code>folder</code>.</li>
+        <li><code>session.send(content)</code> &mdash; posts a message,
+          resolves to <code>{ turn_id }</code>.</li>
+        <li><code>session.stream(turn_id, handlers)</code> &mdash; subscribes
+          to the SSE stream for that turn: <code>onMessage</code>,
+          <code>onStatus</code>, <code>onDone</code>, <code>onError</code>.</li>
+      </ul>
+
+      <h2>complete sample</h2>
+
+      <p>
+        A self-contained chat page &mdash; header, scrolling thread, input
+        box &mdash; built on the three calls above. Paste your token (or pass
+        <code>?token=&lt;t&gt;</code> in the URL), open the file in a browser,
+        and you have a working chat client styled however you like.
+      </p>
+
+      <pre><code>&lt;!doctype html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="utf-8" /&gt;
+    &lt;meta name="viewport" content="width=device-width,initial-scale=1" /&gt;
+    &lt;title&gt;chat-sdk sample&lt;/title&gt;
+    &lt;script src="https://acme.fiu.wtf/assets/arizuko-client.js"&gt;&lt;/script&gt;
+    &lt;style&gt;
+      body { font: 14px/1.5 -apple-system, sans-serif; display: flex; flex-direction: column; height: 100dvh; }
+      #thread { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+      .msg { max-width: 75%; padding: .55rem .85rem; border-radius: 12px; white-space: pre-wrap; }
+      .msg.user { align-self: flex-end; background: #4ade80; color: #0a0a0a; }
+      .msg.assistant { align-self: flex-start; border: 1px solid #222; }
+      .msg.status { align-self: center; color: #666; font-style: italic; font-size: .85em; }
+      footer form { display: flex; gap: .5rem; padding: .6rem 1rem; border-top: 1px solid #222; }
+      footer input { flex: 1; padding: .5rem .7rem; }
+    &lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;header&gt;&lt;span id="name"&gt;connecting…&lt;/span&gt; &lt;span id="folder"&gt;&lt;/span&gt;&lt;/header&gt;
+    &lt;div id="thread"&gt;&lt;/div&gt;
+    &lt;footer&gt;&lt;form id="f"&gt;&lt;input id="m" placeholder="type a message…" autofocus /&gt;&lt;button id="b" disabled&gt;send&lt;/button&gt;&lt;/form&gt;&lt;/footer&gt;
+    &lt;script&gt;
+      // Paste your chat token here, or override via ?token=&lt;t&gt; in the URL.
+      const TOKEN = new URLSearchParams(location.search).get('token') || 'REPLACE_WITH_CHAT_TOKEN';
+      const thread = document.getElementById('thread');
+      const btn = document.getElementById('b');
+      const input = document.getElementById('m');
+
+      function add(role, content) {
+        const d = document.createElement('div');
+        d.className = 'msg ' + role;
+        d.textContent = content;
+        thread.appendChild(d);
+        d.scrollIntoView({ behavior: 'smooth' });
+        return d;
+      }
+
+      (async () =&gt; {
+        try {
+          const slink = await Arizuko.connect(TOKEN);
+          document.getElementById('name').textContent = slink.name;
+          document.getElementById('folder').textContent = slink.folder;
+          btn.disabled = false;
+
+          document.getElementById('f').onsubmit = async (e) =&gt; {
+            e.preventDefault();
+            const content = input.value.trim();
+            if (!content) return;
+            input.value = '';
+            btn.disabled = true;
+            add('user', content);
+            try {
+              const turn = await slink.send(content);
+              const typing = add('status', 'thinking…');
+              slink.stream(turn.turn_id, {
+                onMessage: (f) =&gt; { typing.remove(); add('assistant', f.content); },
+                onStatus:  (f) =&gt; { typing.textContent = f.content; },
+                onDone:    (_) =&gt; { typing.remove(); },
+                onError:   (err) =&gt; { typing.textContent = 'stream error'; console.error(err); },
+              });
+            } catch (err) {
+              add('status', 'error: ' + err.message);
+            } finally {
+              btn.disabled = false;
+              input.focus();
+            }
+          };
+        } catch (err) {
+          document.getElementById('name').textContent = 'connect failed';
+          add('status', err.message);
+        }
+      })();
+    &lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+      <h2>reconnection</h2>
+
+      <p>
+        <code>stream()</code> handles dropped connections the same way the
+        built-in page does: it reconnects with <code>Last-Event-Id</code>,
+        the server replays missed frames, and the turn resumes live. You
+        don't manage the EventSource yourself.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="chat-link.html">how-to: put a chat link on your site</a> &mdash; the zero-code version of this page.</li>
+        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; the <code>/chat/&lt;token&gt;/</code> POST + SSE surface the SDK wraps.</li>
+        <li><a href="../concepts/tokens.html">concepts/tokens</a> &mdash; the bearer model and JID encoding.</li>
+        <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code>.</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../assets/hub.js"></script>
+  </body>
+</html>

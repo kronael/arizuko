@@ -167,3 +167,248 @@ pre {
   body { font-size: 12px; }
   .hub-container { padding: 1em 0.8em; }
 }
+
+/* ── docs three-pane chrome (layout only; reuses theme tokens above) ── */
+
+.docs-topbar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.6em 1em;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.docs-topbar .docs-wordmark {
+  color: var(--accent);
+  font-weight: bold;
+}
+.docs-navtoggle {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 0.2em 0.5em;
+}
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 16em minmax(0, 1fr) 14em;
+  gap: 2em;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2em 1.5em;
+  align-items: start;
+}
+
+.docs-nav {
+  position: sticky;
+  top: 1em;
+  align-self: start;
+  max-height: calc(100vh - 2em);
+  overflow-y: auto;
+  font-size: 0.9em;
+}
+/* The drawer JS sets [hidden] for the <1200px collapse; above that the nav is
+   always a pane, so force it visible regardless of a stale hidden attribute. */
+.docs-nav[hidden] { display: block; }
+.docs-nav ul { list-style: none; margin: 0; padding: 0; }
+.docs-nav > ul > li { margin: 0.1em 0; }
+.docs-nav .nav-section {
+  display: block;
+  color: var(--accent3);
+  font-weight: bold;
+  margin: 0.9em 0 0.2em;
+}
+.docs-nav .nav-section:first-child { margin-top: 0; }
+.docs-nav .nav-children { margin: 0 0 0.3em 0.8em; }
+.docs-nav .nav-children li { margin: 0.05em 0; }
+.docs-nav a {
+  display: block;
+  color: var(--dim);
+  padding: 0.12em 0.5em;
+  border-radius: 3px;
+  border-left: 2px solid transparent;
+}
+.docs-nav a:hover { color: var(--accent); text-decoration: none; }
+.docs-nav a[aria-current="page"] {
+  color: var(--bright);
+  border-left-color: var(--accent);
+  background: var(--card);
+}
+
+.docs-content { min-width: 0; }
+.docs-content .lede {
+  font-size: 1.05em;
+  color: var(--fg);
+  margin: 0.4em 0 1em;
+}
+.docs-content p { margin: 0.6em 0; }
+.docs-content ul, .docs-content ol { margin: 0.4em 0 0.8em 1.2em; }
+.docs-content li { margin: 0.3em 0; }
+.docs-content pre { margin: 0.6em 0; }
+.docs-content dl { margin: 0.4em 0 1em; }
+.docs-content dt { font-weight: 600; margin: 0.6em 0 0.1em; }
+.docs-content dd { margin: 0 0 0.3em 1.2em; }
+
+.docs-crumb {
+  color: var(--dim);
+  font-size: 0.85em;
+  margin: 0 0 0.4em;
+}
+.docs-crumb a { color: var(--dim); }
+.docs-crumb a:hover { color: var(--accent); }
+
+.docs-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.docs-content th, .docs-content td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.5em;
+  text-align: left;
+  vertical-align: top;
+}
+.docs-content th { background: var(--code-bg); font-weight: 600; }
+.docs-content td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+
+.docs-content .caption {
+  color: var(--dim);
+  font-size: 0.8em;
+  text-transform: lowercase;
+  margin: 0.6em 0 -0.2em;
+}
+.docs-content .meta { font-size: 0.85em; color: var(--dim); }
+.docs-content .meta strong { color: var(--fg); }
+.docs-content .note { font-size: 0.85em; color: var(--dim); }
+
+.docs-content .callout {
+  border-left: 3px solid var(--accent);
+  padding: 0.4em 0.8em;
+  margin: 0.8em 0;
+  background: var(--card);
+}
+
+.docs-content .tablecard {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.6em 1em;
+  margin: 1em 0;
+}
+.docs-content .tablecard h3 { margin-top: 0.2em; }
+
+.tier {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.4em;
+  font-size: 0.78em;
+  color: var(--accent3);
+}
+.docs-content h3 .tier { margin-left: 0.4em; vertical-align: middle; }
+
+/* catalogue-page content classes (folded in from per-page inline <style>) */
+
+/* in-page "Contents"/"Index" list — distinct from the right-rail .docs-toc */
+.docs-content .toc { columns: 2; column-gap: 2em; font-size: 0.9em; margin: 0.6em 0 1.2em; }
+.docs-content .toc ul { list-style: none; margin: 0; padding-left: 0; }
+.docs-content .toc li { break-inside: avoid; margin: 0.15em 0; }
+.docs-content .toc a { display: block; }
+@media (max-width: 640px) { .docs-content .toc { columns: 1; } }
+
+/* cli.html — command signature + source citation + group separator */
+.docs-content .sig { font-size: 1em; }
+.docs-content h3 .sig { font-weight: 600; }
+.docs-content .src { font-size: 0.8em; color: var(--dim); }
+.docs-content .group-h2 { margin-top: 2em; }
+
+/* env.html — per-var field block */
+.docs-content .env-entry { margin: 1.1em 0 1.4em; }
+.docs-content .env-entry h3 { margin: 0 0 0.2em; font-size: 1em; }
+.docs-content .env-entry .effect { margin: 0.1em 0 0.4em; }
+.docs-content .env-entry th { width: 8em; color: var(--dim); font-weight: normal; }
+.docs-content .env-entry th, .docs-content .env-entry td { border: none; padding: 0.25em 0.6em 0.25em 0; }
+.docs-content code.example { word-break: break-all; }
+
+/* mcp.html — param tables + required markers + returns line */
+.docs-content table.params { font-size: 0.88em; }
+.docs-content table.params td.name { white-space: nowrap; }
+.docs-content table.params td.type { color: var(--dim); white-space: nowrap; }
+.docs-content table.params td.req { white-space: nowrap; }
+.docs-content .req-y { color: var(--accent); font-weight: 600; }
+.docs-content .req-n { color: var(--dim); }
+.docs-content .returns { font-size: 0.9em; margin: 0.2em 0 0.4em; }
+.docs-content h3 code { font-size: inherit; padding: 0; background: transparent; }
+
+/* openapi.html — card boxes */
+.docs-content .card { border: 1px solid var(--border); border-radius: 4px; padding: 0.6em 0.9em; margin: 0.8em 0; }
+.docs-content .card h2 { margin: 0 0 0.3em; font-size: 1.1em; border-bottom: none; padding-bottom: 0; }
+.docs-content .card p { margin: 0.2em 0; }
+
+/* schema.html — vestigial-table note */
+.docs-content .dead { font-size: 0.85em; color: var(--dim); font-style: italic; }
+
+.docs-toc {
+  position: sticky;
+  top: 1em;
+  align-self: start;
+  max-height: calc(100vh - 2em);
+  overflow-y: auto;
+  font-size: 0.85em;
+}
+.docs-toc .toc-label {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.78em;
+  margin-bottom: 0.4em;
+}
+.docs-toc ul { list-style: none; margin: 0; padding: 0; }
+.docs-toc li { margin: 0.15em 0; }
+.docs-toc li.toc-h3 { margin-left: 0.9em; }
+.docs-toc a { color: var(--dim); }
+.docs-toc a:hover { color: var(--accent); text-decoration: none; }
+
+.docs-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  margin: 2.5em 0 1em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+}
+.docs-pager a { max-width: 48%; }
+.docs-pager a[rel="next"] { margin-left: auto; text-align: right; }
+
+.docs-footer {
+  margin: 1em 0 0;
+  color: var(--dim);
+  font-size: 0.82em;
+}
+.docs-footer a { color: var(--dim); }
+.docs-footer a:hover { color: var(--accent); }
+
+@media (max-width: 1200px) {
+  .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 1.5em 1em; }
+  .docs-topbar { display: flex; }
+  .docs-nav {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 1.5em;
+    padding-bottom: 1em;
+    border-bottom: 1px solid var(--border);
+  }
+  .docs-nav[hidden] { display: none; }
+  .docs-toc { display: none; }
+  .docs-pager a { max-width: 100%; }
+}

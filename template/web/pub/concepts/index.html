@@ -3,45 +3,109 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>concepts</title>
+  <title>arizuko &middot; concepts</title>
   <link rel="stylesheet" href="../assets/hub.css">
   <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .back { font-size: 0.85em; }
+    .tour { list-style: none; margin: 0.6em 0 1.2em; padding: 0; counter-reset: step; }
+    .tour li { margin: 0.5em 0; padding-left: 2.2em; position: relative; }
+    .tour li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0.05em;
+      width: 1.5em;
+      text-align: right;
+      color: var(--dim);
+      font-size: 0.9em;
+    }
+    .tour a { font-weight: 600; }
   </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>concepts</h1>
-    <p class="dim back"><a href="../">&larr; arizuko</a> &middot; <a href="../howto/">getting started</a></p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <p>One page per primitive. Each page answers three questions: what it is, why it exists, and what you need to know to use it. No setup instructions &mdash; those live in <a href="../howto/">howto</a>. No exhaustive option tables &mdash; those live in <a href="../reference/">reference</a>. Each concept page sends you to the matching component and reference page when you want more detail.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; concepts</p>
+      <h1>concepts</h1>
 
-    <h2>entries</h2>
-    <ul>
-      <li><a href="../concepts/ant.html">ant</a> &mdash; an agent defined by a folder: persona, skills, memory, and secrets in one place.</li>
-      <li><a href="../concepts/tokens.html">route tokens</a> &mdash; one table, two URL prefixes: <code>/chat/&lt;token&gt;/</code> for visitor chat, <code>/hook/&lt;token&gt;</code> for webhook ingest.</li>
-      <li><a href="../concepts/web-native-agents.html">web-native agents</a> &mdash; each folder is a microsite: public page, embedded chat, form intake, and content the agent writes.</li>
-      <li><a href="../concepts/jid.html">jid</a> &mdash; one typed address shape for every chat and sender across every adapter.</li>
-      <li><a href="../concepts/routing.html">routing</a> &mdash; one table that maps inbound JIDs to ant folders; supports globs, reply chains, sticky topics.</li>
-      <li><a href="../concepts/grants.html">grants</a> &mdash; what an agent is allowed to do, composed at spawn from tier defaults plus folder rules plus user ACL.</li>
-      <li><a href="../concepts/auth.html">auth</a> &mdash; OAuth, local login, account linking; collision UX and the single canonical sub.</li>
-      <li><a href="../concepts/webdav.html">webdav</a> &mdash; the per-group file workspace over WebDAV; mount it from Finder, <code>rclone</code>, or curl.</li>
-      <li><a href="../concepts/voice.html">voice</a> &mdash; Whisper in, Kokoro out; the agent decides when to speak, the platform delivers a voice note.</li>
-      <li><a href="../concepts/topics.html">topics</a> &mdash; threads inside one folder; fork mechanics and per-topic observed cursor.</li>
-      <li><a href="../concepts/scopes.html">scopes</a> &mdash; folder hierarchy; same-level siblings observe, children stay isolated.</li>
-      <li><a href="../concepts/engagement.html">engagement</a> &mdash; stay in conversation after one mention; thread-by-default on Slack.</li>
-      <li><a href="../concepts/slack-pane.html">slack pane</a> &mdash; the Agents &amp; AI Apps sidebar; title, suggested prompts, pane context.</li>
-      <li><a href="../concepts/tasks.html">tasks</a> &mdash; scheduled or recurring agent runs; cron, interval, or one-shot triggers.</li>
-      <li><a href="../concepts/onboarding.html">onboarding</a> &mdash; how new users get in: invite tokens, admission queue, SetupGroup.</li>
-      <li><a href="../concepts/skills.html">skills</a> &mdash; markdown instruction sets the agent loads on demand; built-in vs user, dispatch, migration.</li>
-      <li><a href="../concepts/secrets.html">secrets</a> &mdash; folder secrets injected into the container; user secrets resolved by a host-side broker at tool-call time.</li>
-      <li><a href="../concepts/personas.html">personas</a> &mdash; per-folder <code>PERSONA.md</code> with frontmatter <code>name</code>, <code>summary</code>, <code>voice</code>; strict-or-empty re-anchor.</li>
-    </ul>
+      <p class="lede">A guided tour of how arizuko works, one idea at a time. Read it front to back the first time &mdash; each page builds on the one before it &mdash; or jump straight to the primitive you're stuck on.</p>
 
-    <p class="dim">more concepts as they&rsquo;re written.</p>
+      <h2>How to take the tour</h2>
+      <p>Concepts is a walkthrough, not a glossary. The order below is a learning arc: you meet the agent, watch a message reach it, then peel back one layer at a time &mdash; who's allowed to do what, how an agent proves who's calling, where its credentials and skills come from, and the surfaces it lives on. Each page is a single idea you can read in a minute or two, with one worked example from a real deployment.</p>
+      <p>Every page ends with a <strong>next</strong> link that walks this same order, so you can follow the tour with the pager and never lose your place. When you want the exhaustive grammar &mdash; every flag, every column, the full JID schema &mdash; each concept points you at its twin in <a href="../reference/">reference</a>. Concepts is the why and the shape; reference is the field list.</p>
+
+      <h2>The tour</h2>
+      <ol class="tour">
+        <li><a href="ant.html">The ant</a> &mdash; the agent you talk to: a folder holding a persona, skills, memory, and secrets.</li>
+        <li><a href="routing.html">Routing</a> &mdash; how an inbound message finds the right agent: one table mapping JIDs to folders.</li>
+        <li><a href="engagement.html">Engagement</a> &mdash; once a message lands, deciding whether to keep listening after a single mention.</li>
+        <li><a href="topics.html">Topics</a> &mdash; scoping a strand of work into its own conversation inside one folder.</li>
+        <li><a href="onboarding.html">Onboarding</a> &mdash; how a new group and its members are admitted: invites, the admission queue, SetupGroup.</li>
+        <li><a href="autoviv.html">Autoviv</a> &mdash; how sub-groups and their agents come into being on first contact, without a manual step.</li>
+        <li><a href="personas.html">Personas</a> &mdash; giving an agent its voice and standing instructions.</li>
+        <li><a href="grants.html">Grants</a> &mdash; what an agent or user is allowed to do, composed at spawn from tier, folder rules, and ACL.</li>
+        <li><a href="scopes.html">Scopes</a> &mdash; the folder hierarchy that grants speak in: who can see whom, where isolation begins.</li>
+        <li><a href="auth.html">Auth</a> &mdash; proving who is calling: OAuth, local login, account linking, one canonical sub.</li>
+        <li><a href="tokens.html">Tokens</a> &mdash; the route tokens that carry a caller's identity into a chat or webhook URL.</li>
+        <li><a href="secrets.html">Secrets</a> &mdash; folder- and user-scoped credentials, and how they reach the container.</li>
+        <li><a href="skills.html">Skills</a> &mdash; markdown instruction sets the agent loads on demand to extend what it can do.</li>
+        <li><a href="tasks.html">Tasks</a> &mdash; scheduled and recurring runs: cron, interval, one-shot, autonomous work.</li>
+        <li><a href="web-native-agents.html">Web-native agents</a> &mdash; the web surfaces a folder owns: a public page, embedded chat, form intake.</li>
+        <li><a href="webdav.html">WebDAV</a> &mdash; the file workspace, mountable from Finder, rclone, or curl.</li>
+        <li><a href="voice.html">Voice</a> &mdash; voice in and out: Whisper transcribes, the agent decides when to speak back.</li>
+        <li><a href="slack-pane.html">Slack pane</a> &mdash; the Slack assistant sidebar: title, suggested prompts, pane context.</li>
+        <li><a href="jid.html">Addressing (JID)</a> &mdash; the one typed address shape behind every chat and sender, across every adapter.</li>
+      </ol>
+
+      <p>No setup commands here &mdash; those live in <a href="../howto/">how-to</a>. No exhaustive option tables &mdash; those live in <a href="../reference/">reference</a>. When you're ready to build, start with <a href="../howto/">getting started</a>.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="next" href="ant.html">The ant &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-21">2026-05-21</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

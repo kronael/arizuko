@@ -65,9 +65,11 @@ pub/
   components/
     index.html            all daemons, one-line each, links
     gated.html            gateway daemon — what, why, how it fits, standalone
-    ant.html              agent-as-folder unit    slink.html            public web endpoint    proxyd.html           auth proxy
+    ant.html              agent-as-folder unit
+    slink.html            public web endpoint
+    proxyd.html           auth proxy
     webd.html             web channel + SSE hub
-    crackbox.html         egress sandbox (planned move from crackbox/)
+    crackbox.html         egress sandbox (old crackbox/ redirects here)
     onbod.html            onboarding daemon
     dashd.html            operator dashboard
     timed.html            cron/interval scheduler
@@ -80,8 +82,11 @@ pub/
     cli.html              arizuko CLI commands (create, run, invite, chat, group …)
     mcp.html              MCP tools reference (all 30+ tools, params, tiers)
     schema.html           SQLite tables (messages, groups, user_groups, …)
-    grants.html           grant rule syntax    jid.html              JID format reference  howto/
+    grants.html           grant rule syntax
+    jid.html              JID format reference
+  howto/
     index.html            getting started — install, create instance, first message
+    chat-sdk.html         embed chat with arizuko-client.js (old examples/ redirects here)
   concepts/               EXPLANATION — guided walkthrough, curriculum-ordered (spec 5/D); narrative twins of reference nouns
   changelog/index.html
   assets/

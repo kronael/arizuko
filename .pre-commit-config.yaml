@@ -35,3 +35,8 @@ repos:
         language: system
         pass_filenames: false
         files: ^ant/src/.*\.ts$
+      - id: stamp-docs
+        name: stamp-docs
+        entry: python3 stamp-docs.py
+        language: system
+        files: ^template/web/pub/.*\.html$

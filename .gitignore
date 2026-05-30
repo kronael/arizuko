@@ -49,4 +49,5 @@ slakd/slakd
 crackbox/crackbox
 ttsd/ttsd
 *.py
+!stamp-docs.py
 specs/res/mox/

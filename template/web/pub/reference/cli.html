@@ -5,32 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; reference &middot; CLI commands</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
-    .status { font-size: 0.85em; color: var(--dim, #888); }
-    .sig { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.0em; }
-    .src { font-size: 0.8em; color: var(--dim, #888); }
-    table { border-collapse: collapse; margin: 0.4em 0 1em; width: 100%; font-size: 0.9em; }
-    th, td { border-bottom: 1px solid var(--border, rgba(127,127,127,0.2)); padding: 0.3em 0.6em; text-align: left; vertical-align: top; }
-    th { font-weight: 600; }
-    h3 { margin-top: 1.4em; }
-    h3 .sig { font-weight: 600; }
-    .group-h2 { margin-top: 2em; border-top: 1px solid var(--border, rgba(127,127,127,0.2)); padding-top: 0.6em; }
-    .toc ul { list-style: none; padding-left: 0; }
-    .toc li { margin: 0.15em 0; }
-    .toc code { font-size: 0.9em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>CLI commands</h1>
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; CLI commands</p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Reference">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="./">Reference</a>
+          <ul class="nav-children">
+            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="env.html">Environment variables</a></li>
+            <li><a href="mcp.html">MCP tools</a></li>
+            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="openapi.html">OpenAPI</a></li>
+            <li><a href="jid.html">JID format</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="tokens.html">Route tokens</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="stats.html">Codebase stats</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; CLI commands</p>
+<h1>CLI commands</h1>
 
     <p class="lede">Every subcommand of the <code>arizuko</code> binary, grouped by concern. Each entry shows the exact signature, the flags <code>flag.NewFlagSet</code> registers, what state changes where, and a source link pointing at the dispatch site. Ground truth is <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go"><code>cmd/arizuko/main.go</code></a>; the dispatch map sits at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L54"><code>main.go:54</code></a>.</p>
 
@@ -386,6 +393,18 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       <li><a href="../reference/grants.html">grants syntax</a> &mdash; pattern language used by <code>group grant</code> and <code>invite create</code></li>
       <li><a href="https://github.com/kronael/arizuko/tree/main/cmd/arizuko"><code>cmd/arizuko/</code></a> &mdash; source of truth</li>
     </ul>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; reference</a>
+        <a rel="next" href="env.html">Environment variables &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

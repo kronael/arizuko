@@ -5,24 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; jid</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .prose table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; width: 100%; }
-    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.5em; text-align: left; vertical-align: top; }
-    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
-    .meta { font-size: 0.85em; color: var(--dim, #888); }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>jid</h1>
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; jid</p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Reference">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="./">Reference</a>
+          <ul class="nav-children">
+            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="env.html">Environment variables</a></li>
+            <li><a href="mcp.html">MCP tools</a></li>
+            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="openapi.html">OpenAPI</a></li>
+            <li><a href="jid.html">JID format</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="tokens.html">Route tokens</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="stats.html">Codebase stats</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; JID format</p>
+<h1>jid</h1>
 
     <p class="lede">Every chat and every sender is a JID of the form <code>&lt;platform&gt;:&lt;rest&gt;</code>. The first segment of <code>&lt;rest&gt;</code> is a kind discriminator. JIDs are plain strings; routing matches them with <code>path.Match</code> glob semantics across all routing keys.</p>
 
@@ -197,6 +212,18 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       <li><a href="../reference/grants.html">grants reference</a> &mdash; how <code>jid=&hellip;</code> appears in grant rule params</li>
       <li><a href="../reference/schema.html">schema reference</a> &mdash; every column that stores a JID</li>
     </ul>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="openapi.html">&larr; OpenAPI</a>
+        <a rel="next" href="grants.html">Grants &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/jid.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-29">2026-05-29</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

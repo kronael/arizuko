@@ -5,40 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>arizuko &middot; MCP tools reference</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
-    .back { font-size: 0.85em; }
-    .callout { border-left: 3px solid var(--accent, #888); padding: 0.4em 0.8em; margin: 0.8em 0; background: var(--bg-soft, rgba(127,127,127,0.06)); }
-    .status { font-size: 0.85em; color: var(--dim, #888); }
-    h2 { margin-top: 1.8em; padding-bottom: 0.2em; border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 30%, transparent); }
-    h3 { margin-top: 1.4em; font-family: var(--mono, monospace); font-size: 1.05em; }
-    h3 code { font-size: inherit; padding: 0; background: transparent; }
-    .meta { font-size: 0.85em; color: var(--dim, #888); margin: 0.15em 0 0.5em; }
-    .meta code { font-size: 0.85em; }
-    table.params { border-collapse: collapse; width: 100%; margin: 0.5em 0 0.7em; font-size: 0.88em; }
-    table.params th { text-align: left; border-bottom: 1px solid var(--dim, #888); padding: 0.25em 0.7em 0.25em 0; font-weight: 600; }
-    table.params td { padding: 0.2em 0.7em 0.2em 0; border-bottom: 1px solid color-mix(in srgb, var(--dim, #888) 25%, transparent); vertical-align: top; }
-    table.params td.name { font-family: var(--mono, monospace); white-space: nowrap; }
-    table.params td.type { color: var(--dim, #888); white-space: nowrap; }
-    table.params td.req { white-space: nowrap; }
-    .req-y { color: var(--accent, #b04); font-weight: 600; }
-    .req-n { color: var(--dim, #888); }
-    .returns { font-size: 0.9em; margin: 0.2em 0 0.4em; }
-    .returns strong { font-weight: 600; }
-    .toc { columns: 2; column-gap: 2em; font-size: 0.9em; margin: 0.6em 0 1.2em; }
-    .toc ul { margin: 0; padding-left: 1.2em; }
-    .toc li { break-inside: avoid; margin: 0.15em 0; }
-    .tier { display: inline-block; font-size: 0.75em; padding: 0.05em 0.45em; border-radius: 3px; background: color-mix(in srgb, var(--dim, #888) 18%, transparent); color: var(--dim, #888); vertical-align: middle; margin-left: 0.4em; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <h1>MCP tools reference</h1>
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; MCP tools</p>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Reference">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="./">Reference</a>
+          <ul class="nav-children">
+            <li><a href="cli.html">CLI commands</a></li>
+            <li><a href="env.html">Environment variables</a></li>
+            <li><a href="mcp.html">MCP tools</a></li>
+            <li><a href="schema.html">SQLite schema</a></li>
+            <li><a href="openapi.html">OpenAPI</a></li>
+            <li><a href="jid.html">JID format</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="tokens.html">Route tokens</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="stats.html">Codebase stats</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; MCP tools</p>
+<h1>MCP tools reference</h1>
 
     <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>set_web_host</code> is tier 0 only).</p>
 
@@ -774,6 +773,17 @@
       <li><strong>tier1FixedActions has one stale name.</strong> <code>tier1FixedActions</code> lists <code>get_routes</code> but the registered tool is <code>list_routes</code>; at tier 1 the default rules don't grant it without explicit override. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L154"><code>grants/grants.go:154</code></a>.</li>
     </ul>
 
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="env.html">&larr; Environment variables</a>
+        <a rel="next" href="schema.html">SQLite schema &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>
