@@ -52,6 +52,36 @@ New find (open, low): **`invite_create` desc/enforcement mismatch** — desc
 `tier >= 2` (tier 0-1 only). Same shape as the fixed list_acl case; doc-fix
 follow-up.
 
+## routd has NO production Deliverer + NO channel-registration surface (2026-05-30, CUTOVER FLIP-BLOCKER, high)
+
+Found during the gated→routd compose cutover flip (compose-gen wiring task).
+routd cannot deliver outbound to adapters and adapters cannot register:
+
+- `routd/cmd/routd/main.go:88` wires `routd.NewServer(db, loop, nil, ...)` —
+  the `Deliverer` is `nil` in production. The only `Deliverer` implementations
+  in the tree are test fakes (`parity_test.go`, `auth_test.go`, etc.). So
+  `POST /v1/turns/{id}/send`, `/v1/outbound`, the outbound-retry loop, and the
+  run-error failure-notice all hit the `s.deliver == nil` → `502 no_channel`
+  path. The agent's replies never reach the platform.
+- routd's mux (`routd/server.go` `Handler`) has NO `/v1/channels/register`,
+  `/v1/channels/deregister`, or `GET /v1/channels`. Adapters register via
+  `chanlib.RegisterChannel` → `POST /v1/channels/register` against `ROUTER_URL`
+  (`chanlib/chanlib.go:103`); against routd that 404s, so no adapter is ever
+  known to the deliverer. `arizuko status` also reads `GET /v1/channels`
+  (`cmd/arizuko/main.go:811`) → would 404.
+
+In the gated topology this is `gated/main.go`'s `apiSrv` + `chanreg` (the
+`OnRegister`/`ChannelLookup` wiring at `gated/main.go:79-93`). The routd build
+never ported channel registration + the jid-prefix→adapter delivery resolution
+the comment on `Deliverer` (`routd/server.go:18` "Production resolves the
+adapter by jid prefix") promises. This is a routd parity gap, NOT fixable by
+compose wiring — the FLIP re-points `ROUTER_URL` to `routd:8080` correctly, but
+routd needs a production `Deliverer` (chanreg-backed) + the `/v1/channels/*`
+endpoints wired in `routd/cmd/routd/main.go` before the flip can carry live
+traffic. Suspected fix: port `chanreg.New` + `apiSrv.OnRegister/ChannelLookup`
++ the HTTP `/v1/channels/*` handlers into routd, and construct the real
+`Deliverer` (jid-prefix → registered HTTPChannel) instead of `nil`.
+
 ## container/ipc bug-hunt sweep (2026-05-28)
 
 Read-only correctness pass over `container/` + `ipc/`. Items below are UNSURE-whether-bug (logged, not fixed per triage protocol). Verified-not-bugs at the end.
