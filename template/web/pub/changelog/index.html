@@ -22,6 +22,17 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.47.0 <span class="date">&mdash; 30 May 2026</span></h2>
+    <p>The docs site got a full redesign and the &ldquo;ask the agent&rdquo; chat became a real, persistent popup; a batch of platform-reply bugs are gone.</p>
+    <ul>
+      <li><strong>Docs redesign</strong> &mdash; reference &amp; components use a navigable three-pane; concepts, how-to &amp; products read as a guided tour; version + updated date on every page; the previous docs are preserved at <a href="../legacy/">/legacy/</a>.</li>
+      <li><strong>Ask-the-agent chat</strong> &mdash; a bottom-docked popup (full-screen on mobile) with persistent, browsable threads.</li>
+      <li><strong>Bluesky</strong> &mdash; default replies, likes, and deletes now resolve (were silently failing); <code>send</code> returns the post URI.</li>
+      <li><strong>More platform fixes</strong> &mdash; Reddit <code>delete</code> works, email history carries the trust signal, X/Telegram cursor fixes, feed verbs record into the thread.</li>
+      <li><strong>Under the hood</strong> &mdash; authd token authority, routd/runed daemons, and a proactive interjector land as additive groundwork (not yet switched on).</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0470--2026-05-30">CHANGELOG &sect; v0.47.0</a></p>
+
     <h2>arizuko v0.42.0 <span class="date">&mdash; 19 May 2026</span></h2>
     <p>Five new dashd pages, three security fixes, and secrets now encrypted at rest. The operator dashboard is usable for day-to-day ops without touching .env or the DB.</p>
     <ul>
