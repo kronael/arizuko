@@ -1099,3 +1099,20 @@ adversarially re-verified; all security-critical + parity fixes confirmed SOLID.
 
 None are soak blockers. The auth FLIP-BLOCKER must be resolved before the prod
 flip removes proxyd's `X-User-Groups` injection.
+
+## cross-section test findings (2026-05-30)
+
+- **routd ingress not folder-gated (verify intent, low/med):** `POST /v1/messages`
+  (`routd/server.go:172`) is scope-gated (`messages:write`) but `authed` discards
+  the token's `arz/folder` claim — a `messages:write` token bound to folder A can
+  ingest a message that routes to folder B. Folder-binding is enforced only on the
+  turn-callback surface (`authzTurn`, turns.go:138) + route-CRUD. Plausibly
+  by-design (routing is route-table-driven; the callback is where folder-scope
+  matters), but if ingress should be folder-scoped it's MISSING. Surfaced by
+  `routd/authd_integration_test.go` (1fd68528).
+- **authd `TestRefreshRotationRaceSingleWinner` flaky (test-quality, low):**
+  intermittently fails under parallel `go test ./...` load ("successor must be
+  revoked after a concurrent-reuse family kill"), passes 5/5 in isolation + on
+  rerun. The TEST's own concurrency timing is racy, not the refresh code. Fix the
+  test's synchronization (deterministic ordering) in the refine pass so it stops
+  reddening the integration checkpoint.
