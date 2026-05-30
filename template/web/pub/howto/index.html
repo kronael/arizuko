@@ -117,7 +117,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
       <dt><code>SEND_DISABLED_CHANNELS</code></dt>
       <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
     </dl>
-    <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>send_reply</code> returns success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>gateway/gateway.go</code> (group + platform mute), <code>core/config.go</code> (parsing), <code>gateway/gateway_test.go</code> <code>TestMakeOutputCallback_MutedGroup</code> (locked behaviour).</p>
+    <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>reply</code> and <code>send</code> return success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>gateway/gateway.go</code> (group + platform mute), <code>core/config.go</code> (parsing), <code>gateway/gateway_test.go</code> <code>TestMakeOutputCallback_MutedGroup</code> (locked behaviour).</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

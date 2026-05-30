@@ -83,7 +83,7 @@ OBSERVE_WINDOW_CHARS=8000</code></pre>
         available) or copy the template into the seeded group:
       </p>
       <pre><code>cp -r ant/examples/reality/* /srv/data/arizuko_nemo/groups/rhias/
-# adjust PERSONA.md / PERSONA.md to taste before first run</code></pre>
+# adjust PERSONA.md and CLAUDE.md to taste before first run</code></pre>
 
       <h2>4. seed facts/threads</h2>
       <p>
@@ -106,9 +106,10 @@ facts/threads/relationship-alice.md</code></pre>
         By default <code>arizuko create</code> wires Telegram DMs to
         the default group. For Rhias, you want one named group
         (<code>rhias</code>) for the primary conversation and any
-        secondary channels routed deliberately. Use the
-        <code>add_route</code> MCP tool from the operator chat, or
-        directly via SQL during setup:
+        secondary channels routed deliberately. Add the route with the
+        <code>add_route</code> MCP tool from <code>arizuko chat nemo</code>, or
+        put it in the manifest and run <code>arizuko apply</code>. The route row
+        looks like:
       </p>
       <pre><code>seq  match                                     target
 10   platform=telegram chat=user/&lt;your-tg-id&gt;  rhias
@@ -150,25 +151,28 @@ facts/threads/relationship-alice.md</code></pre>
        changed, what was resolved, what's still open.</code></pre>
       <p>
         The agent writes the task into the <code>tasks</code> table
-        via the <code>add_task</code> MCP tool; <code>timed</code>
+        via the <code>schedule_task</code> MCP tool; <code>timed</code>
         picks it up and fires the prompt on schedule.
       </p>
 
       <h2>8. verify</h2>
       <ul>
-        <li><code>docker compose ps</code> shows all services healthy.</li>
+        <li><code>sudo arizuko status nemo</code> shows the stack up and the router reachable.</li>
         <li>Send the bot a DM on Telegram &mdash; the agent replies in the persona declared in <code>PERSONA.md</code>.</li>
         <li>Ask <em>"what threads do I have?"</em> &mdash; the agent enumerates from <code>facts/threads/</code>.</li>
-        <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> &mdash; the <code>rhias</code> group, route, and any scheduled tasks are visible.</li>
+        <li>If you serve the web layer at <code>WEB_HOST</code>, visit <code>https://&lt;WEB_HOST&gt;/dash/</code> &mdash; the <code>rhias</code> group, its route, and any scheduled tasks show up there.</li>
       </ul>
 
       <h2>9. tune the persona</h2>
       <p>
-        The shipped <code>PERSONA.md</code> is the baseline voice.
-        Override or extend it via <code>PERSONA.md</code> (with a
-        <code>summary:</code> frontmatter field) and <code>CLAUDE.md</code>
-        in the group folder &mdash; both edit-via-WebDAV at
-        <code>/dav/rhias/</code>. The agent reloads on the next turn.
+        The shipped <code>PERSONA.md</code> sets the baseline voice. Edit
+        <code>groups/rhias/PERSONA.md</code> to change it, and add
+        per-deployment rules in <code>groups/rhias/CLAUDE.md</code> &mdash; the
+        <code>CLAUDE.md</code> layers on top without rewriting the persona.
+        Keep a <code>summary:</code> field in the <code>PERSONA.md</code>
+        frontmatter (see the callout below). The agent reloads on the next
+        turn. To edit these files over the network instead of on the host,
+        mount the workspace with <a href="../../howto/webdav.html">WebDAV</a>.
       </p>
 
       <div class="callout">

@@ -47,10 +47,10 @@
       </p>
 
       <p>
-        A persistent agent grounded in your actual life and context. Not a
-        task runner or a search tool &mdash; a presence that holds ongoing
-        threads about real-world situations: relationships, decisions,
-        projects, commitments. Template at <code>ant/examples/reality/</code>.
+        A long-running agent tied to your own notes, diary, and message
+        history. Not a task bot or a search box &mdash; it keeps ongoing
+        threads about the real situations you live with: a relationship, a
+        decision, a project. Template at <code>ant/examples/reality/</code>.
       </p>
 
       <h2>system shape</h2>
@@ -137,8 +137,7 @@
       <p>
         One reality-agent deployment, &ldquo;Nemo&rdquo;, runs on both
         Telegram and WhatsApp but with different roles. The team reads
-        WhatsApp for situational signal but converses in Telegram. Two pulls
-        in tension:
+        WhatsApp for signal but converses in Telegram. That pulls two ways:
       </p>
       <ul>
         <li>
@@ -175,7 +174,7 @@
       </p>
       <p>
         The agent&rsquo;s own <code>CLAUDE.md</code> can add a
-        defence-in-depth rule (&ldquo;never call <code>send_message</code>
+        belt-and-suspenders rule (&ldquo;never <code>send</code> or <code>reply</code>
         targeting WhatsApp&rdquo;) on top of the platform-level
         <code>#observe</code> enforcement, but with the route mode in place
         the rule is redundant by construction.

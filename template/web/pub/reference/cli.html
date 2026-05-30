@@ -47,7 +47,7 @@
       <h2>Index</h2>
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
-        <li><a href="#manifest">Config manifests</a> &mdash; <code>apply</code>, <code>export</code></li>
+        <li><a href="#manifest">Config manifests</a> &mdash; <code>export</code>, <code>apply</code>, <code>plan</code>, <code>get</code></li>
         <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
@@ -98,7 +98,7 @@ arizuko pair krons mastd login --instance mas.to</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L699"><code>cmd/arizuko/main.go:699</code></a></p>
 
     <h2 id="manifest" class="group-h2">Config manifests</h2>
-    <p>The cold-tier config of an instance &mdash; groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks, network rules, onboarding gates, proxyd routes &mdash; reads and writes as one YAML document. The same <code>resreg</code> engine that serves these resources over REST, MCP, and <a href="openapi.html"><code>/openapi.json</code></a> also drives <code>export</code> and <code>apply</code>, so the YAML shape matches the schema exactly. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/36-yaml-manifests.md"><code>specs/5/36-yaml-manifests.md</code></a>.</p>
+    <p>The cold-tier config of an instance &mdash; groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks, network rules, onboarding gates, proxyd routes &mdash; reads and writes as one YAML document. The same <code>resreg</code> engine that serves these resources over REST, MCP, and <a href="openapi.html"><code>/openapi.json</code></a> also drives <code>export</code>, <code>apply</code>, <code>plan</code>, and <code>get</code>, so the YAML shape matches the schema exactly. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/36-yaml-manifests.md"><code>specs/5/36-yaml-manifests.md</code></a>.</p>
 
     <h3 id="export"><span class="sig">arizuko export &lt;instance&gt; [output.yaml]</span></h3>
     <p>Dump the instance's cold-tier resources as one YAML document. Keys sort deterministically &mdash; <code>config_version</code> first, then resources by name &mdash; so re-exporting an unchanged store yields byte-identical output, which makes the file diffable in git. Writes to the named file if given; otherwise to stdout (the byte-count line goes to stderr so a redirect captures only YAML).</p>
@@ -119,6 +119,21 @@ arizuko export krons krons-config.yaml</code></pre>
 arizuko apply krons krons.yaml
 arizuko apply krons krons.yaml --force</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L29"><code>cmd/arizuko/apply.go:29</code></a></p>
+
+    <h3 id="plan"><span class="sig">arizuko plan &lt;instance&gt; &lt;manifest.yaml&gt;</span></h3>
+    <p>Show what <code>apply</code> would change, without touching the DB. Prints one block per resource: <code>+</code> for rows the manifest adds, <code>~</code> for rows it updates, <code>-</code> for rows it removes. Secrets never mutate via <code>apply</code>, so they print as informational (<code>N set (not applied)</code>) rather than as deltas. If the manifest's <code>config_version</code> doesn't match the store's, the last line says so &mdash; that's the same mismatch <code>apply</code> would reject without <code>--force</code>.</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko export krons > krons.yaml
+# edit krons.yaml
+arizuko plan krons krons.yaml</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L120"><code>cmd/arizuko/apply.go:120</code></a></p>
+
+    <h3 id="get"><span class="sig">arizuko get &lt;instance&gt; &lt;resource&gt;</span></h3>
+    <p>Emit one resource from the live store as a YAML fragment &mdash; the same shape <code>apply</code> accepts, so re-applying the fragment is a no-op. Use it to pull one table (say <code>routes</code> or <code>web_routes</code>) out of the store without exporting the whole config. Secret rows emit metadata only; the encrypted value never leaves the DB.</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko get krons routes
+arizuko get krons web_routes</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/apply.go#L196"><code>cmd/arizuko/apply.go:196</code></a></p>
 
     <h2 id="chat" class="group-h2">Operator chat &amp; messaging</h2>
 
@@ -354,7 +369,7 @@ arizuko network krons list corp/eng</code></pre>
     <h2 id="secret" class="group-h2">Secrets (folder &amp; user)</h2>
     <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md"><code>specs/9/11-crackbox-secrets.md</code></a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
 
-    <div class="callout"><strong>Status:</strong> <code>cmd/arizuko/secret.go</code> is currently uncommitted on the working branch. The feature ships under <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a> (folder + user scopes, REST + MCP surface). Commands documented here reflect the in-flight implementation; signatures will land in the next tag.</div>
+    <div class="callout"><strong>Note:</strong> folder secrets and user secrets share the <code>secrets</code> table, split by <code>scope_kind</code> (<code>folder</code> or <code>user</code>). The same rows back the REST and MCP secret surface (<a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a>). Values are encrypted at rest; <code>list</code> shows keys, never values.</div>
 
     <h3 id="secret-set"><span class="sig">arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</span></h3>
     <p>Store a folder-scoped secret. <code>--value</code> is required; empty values rejected. Key is validated against the uppercase ENV-style pattern.</p>

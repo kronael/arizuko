@@ -104,6 +104,7 @@ param   := [&quot;!&quot;] name [&quot;=&quot; glob]</code></pre>
 send                                    # any send call
 send(jid=telegram:group/*)              # send only to telegram groups
 !post                                   # forbid posting
+!send(jid=telegram:group/*)             # deny: block sends to telegram groups
 send_file(jid=*)                        # file send to any allowed target
 share_mount(readonly=false)             # writable workspace mount
 share_mount(readonly=true)              # read-only workspace mount</code></pre>
@@ -155,10 +156,10 @@ list_tasks, pause_task, resume_task, cancel_task</code></pre>
 
     <h2>7. The operator role</h2>
 
-    <p>Pre-v0.38.0 the operator was a literal <code>user_groups(sub, '**')</code> row. Now it's a role: <code>acl_membership(sub, role:operator)</code>, plus one wildcard <code>acl</code> row granting <code>role:operator</code> the action of choice on scope <code>**</code>. <code>arizuko grant &lt;sub&gt; **</code> writes the membership edge; the role's permissions are seeded once by <code>arizuko create</code>.</p>
+    <p>Pre-v0.38.0 the operator was a literal <code>user_groups(sub, '**')</code> row. Now it's a role: <code>acl_membership(sub, role:operator)</code>, plus one wildcard <code>acl</code> row granting <code>role:operator</code> the action of choice on scope <code>**</code>. <code>arizuko group &lt;instance&gt; grant &lt;sub&gt; **</code> writes the membership edge; the role's permissions are seeded once by <code>arizuko create</code>.</p>
 
     <pre><code># Make alice an operator.
-arizuko grant google:114alice@example.com '**'
+arizuko group krons grant google:114alice@example.com '**'
 
 # Equivalent SQL:
 INSERT INTO acl_membership (child, parent, added_at) VALUES
@@ -210,7 +211,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-19">2026-05-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 
