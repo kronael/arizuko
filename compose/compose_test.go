@@ -323,6 +323,178 @@ func TestProxydDependsOnDefinedServicesOnly(t *testing.T) {
 	}
 }
 
+// serviceBlock returns the YAML text for one top-level service (from
+// "  <name>:\n" up to the next "  <name>:\n" or EOF). Indented keys belong to
+// the service; the next 2-space-indented "<word>:" line starts the next one.
+func serviceBlock(out, name string) string {
+	start := strings.Index(out, "  "+name+":\n")
+	if start < 0 {
+		return ""
+	}
+	rest := out[start+len("  "+name+":\n"):]
+	for i := 0; i < len(rest); i++ {
+		if i == 0 || rest[i-1] == '\n' {
+			// next top-level service: exactly 2-space indent + ident + ":"
+			if strings.HasPrefix(rest[i:], "  ") && !strings.HasPrefix(rest[i:], "   ") &&
+				rest[i+2] != ' ' {
+				if j := strings.IndexByte(rest[i+2:], ':'); j >= 0 && !strings.ContainsAny(rest[i+2:i+2+j], " \n") {
+					return out[start : start+len("  "+name+":\n")+i]
+				}
+			}
+		}
+	}
+	return out[start:]
+}
+
+// TestSplitDaemonsEmitted: authd/routd/runed emitted ADDITIVELY alongside
+// gated (soak phase — gated must still be present).
+func TestSplitDaemonsEmitted(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, svc := range []string{"  gated:", "  authd:", "  routd:", "  runed:"} {
+		if !strings.Contains(out, svc) {
+			t.Errorf("missing service %q (split daemons must coexist with gated)", svc)
+		}
+	}
+	for _, svc := range []string{"authd", "routd", "runed"} {
+		if !strings.Contains(serviceBlock(out, svc), "entrypoint: ['"+svc+"']") {
+			t.Errorf("%s missing entrypoint ['%s']", svc, svc)
+		}
+		if !strings.Contains(serviceBlock(out, svc), "/health") {
+			t.Errorf("%s missing /health healthcheck", svc)
+		}
+	}
+}
+
+// TestSplitTopology_DockerCrackboxOnlyRuned: only runed gets the docker socket
+// + the spawn wiring (group_add). routd and authd are docker-free and
+// crackbox-free.
+func TestSplitTopology_DockerCrackboxOnlyRuned(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"+
+			"CRACKBOX_ADMIN_API=http://crackbox:3129\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runed := serviceBlock(out, "runed")
+	if !strings.Contains(runed, "/var/run/docker.sock") {
+		t.Error("runed must mount docker.sock to spawn agent containers")
+	}
+	if !strings.Contains(runed, "group_add:") {
+		t.Error("runed must group_add the docker gid")
+	}
+	// runed gets crackbox env via its scoped env file.
+	runedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
+	if !strings.Contains(string(runedEnv), "CRACKBOX_ADMIN_API=http://crackbox:3129") {
+		t.Errorf("runed env should carry CRACKBOX_ADMIN_API; got:\n%s", runedEnv)
+	}
+
+	for _, svc := range []string{"routd", "authd"} {
+		blk := serviceBlock(out, svc)
+		if strings.Contains(blk, "docker.sock") {
+			t.Errorf("%s must NOT mount docker.sock (only runed spawns containers)", svc)
+		}
+		if strings.Contains(blk, "group_add:") {
+			t.Errorf("%s must NOT group_add docker gid", svc)
+		}
+		env, _ := os.ReadFile(filepath.Join(dir, "env", svc+".env"))
+		if strings.Contains(string(env), "CRACKBOX") || strings.Contains(string(env), "EGRESS") {
+			t.Errorf("%s env must NOT carry crackbox/egress vars; got:\n%s", svc, env)
+		}
+	}
+}
+
+// TestSplitWiring_AuthdURL: AUTHD_URL is wired into every consumer
+// (routd, runed, proxyd, webd, onbod) — the in-network authd base URL.
+func TestSplitWiring_AuthdURL(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nAUTH_SECRET=j\n"+
+			"WEB_PORT=8095\nONBOARDING_ENABLED=true\n"), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, daemon := range []string{"routd", "runed", "proxyd", "webd", "onbod"} {
+		env, err := os.ReadFile(filepath.Join(dir, "env", daemon+".env"))
+		if err != nil {
+			t.Fatalf("read %s.env: %v", daemon, err)
+		}
+		if !strings.Contains(string(env), "AUTHD_URL=http://authd:8080") {
+			t.Errorf("%s env missing AUTHD_URL=http://authd:8080; got:\n%s", daemon, env)
+		}
+	}
+}
+
+// TestSplitWiring_ServiceKeys: routd/runed each get a distinct
+// AUTHD_SERVICE_KEY in their own env file, and authd's AUTHD_SERVICE_KEYS
+// carries BOTH as principal=secret pairs.
+func TestSplitWiring_ServiceKeys(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	routdKey := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
+	runedKey := readEnvFileKey(filepath.Join(dir, "env", "runed.env"), "AUTHD_SERVICE_KEY")
+	if routdKey == "" || runedKey == "" {
+		t.Fatalf("routd/runed AUTHD_SERVICE_KEY empty: routd=%q runed=%q", routdKey, runedKey)
+	}
+	if routdKey == runedKey {
+		t.Error("routd and runed must get DISTINCT service keys")
+	}
+	authdEnv, _ := os.ReadFile(filepath.Join(dir, "env", "authd.env"))
+	keys := string(authdEnv)
+	if !strings.Contains(keys, "service:routd="+routdKey) {
+		t.Errorf("authd AUTHD_SERVICE_KEYS missing routd's key; got:\n%s", keys)
+	}
+	if !strings.Contains(keys, "service:runed="+runedKey) {
+		t.Errorf("authd AUTHD_SERVICE_KEYS missing runed's key; got:\n%s", keys)
+	}
+	// authd must NOT receive routd/runed's per-daemon AUTHD_SERVICE_KEY value
+	// (it's not in authd's allow-list); the keys reach it only via the list.
+	if strings.Contains(keys, "\nAUTHD_SERVICE_KEY=") {
+		t.Errorf("authd env should not carry a bare AUTHD_SERVICE_KEY; got:\n%s", keys)
+	}
+}
+
+// TestSplitWiring_KeysStableAcrossRegen: a second Generate (redeploy) reuses
+// the persisted service keys instead of minting fresh ones — otherwise every
+// redeploy would invalidate routd/runed's authd identity.
+func TestSplitWiring_KeysStableAcrossRegen(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	k1 := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	k2 := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
+	if k1 == "" || k1 != k2 {
+		t.Errorf("service key must persist across regenerate: %q -> %q", k1, k2)
+	}
+}
+
 func TestInterpolate(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	got := interpolate("${FOO}-${BAZ}", env)

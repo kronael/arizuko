@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,6 +32,40 @@ func dockerGID() int {
 		return int(st.Gid)
 	}
 	return 999
+}
+
+// provisionServiceKey returns the AUTHD_SERVICE_KEY for a daemon, reusing the
+// value already persisted in env/<daemon>.env (so a redeploy keeps the same
+// service identity) and minting a fresh random hex key on first generate.
+func provisionServiceKey(dataDir, daemon string, env map[string]string) string {
+	if existing := readEnvFileKey(filepath.Join(dataDir, "env", daemon+".env"), "AUTHD_SERVICE_KEY"); existing != "" {
+		return existing
+	}
+	return randomHex(32)
+}
+
+// readEnvFileKey scans a KEY=VALUE env file for one key. Empty on miss/error —
+// callers treat that as "generate fresh".
+func readEnvFileKey(path, key string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// randomHex returns n random bytes as a lowercase hex string.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("compose: crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(b)
 }
 
 // imageRefRE constrains docker image references to alnum, dots, colons,
@@ -80,6 +116,36 @@ var daemonKeys = map[string][]string{
 		"PROXYD_HMAC_SECRET",
 	},
 	"timed": {"CHANNEL_SECRET"},
+	// authd: auth authority. auth.db only; no message DB, no docker, no crackbox.
+	// Serves JWKS; seeded with the service keys (AUTHD_SERVICE_KEYS, hashed at
+	// compare time inside authd) + OAuth provider config.
+	"authd": {
+		"AUTH_SECRET", "AUTH_BASE_URL",
+		"AUTHD_SERVICE_KEY", "AUTHD_SERVICE_KEYS", "GRANTS_URL",
+		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
+		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
+	},
+	// routd: conversation state. routd.db + adapters (/v1/send) + calls runed.
+	// Verifies via authd JWKS. NO crackbox, NO docker socket.
+	"routd": {
+		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY",
+		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
+		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
+	},
+	// runed: execution plane. The ONLY new daemon wired to docker.sock +
+	// crackbox + the per-folder agent networks; mirrors gated's spawn env.
+	"runed": {
+		"AUTHD_URL", "AUTHD_SERVICE_KEY",
+		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
+		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
+		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
+		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
+		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
+		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
+		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
+		"HOST_CODEX_DIR", "CHANNEL_SECRET",
+	},
 	"onbod": {
 		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",
 		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
@@ -88,20 +154,21 @@ var daemonKeys = map[string][]string{
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
+		"AUTHD_URL",
 	},
-	"dashd":  {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL"},
-	"webd":   {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET"},
-	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET"},
-	"teled":  {"CHANNEL_SECRET", "TELEGRAM_BOT_TOKEN"},
-	"discd":  {"CHANNEL_SECRET", "DISCORD_BOT_TOKEN"},
-	"mastd":  {"CHANNEL_SECRET", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
-	"bskyd":  {"CHANNEL_SECRET", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
-	"reditd": {"CHANNEL_SECRET", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
-	"slakd":  {"CHANNEL_SECRET", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
-	"linkd":  {"CHANNEL_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
-	"emaid":  {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
-	"whapd":  {"CHANNEL_SECRET"},
-	"twitd":  {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	"dashd":    {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL"},
+	"webd":     {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
+	"proxyd":   {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
+	"teled":    {"CHANNEL_SECRET", "TELEGRAM_BOT_TOKEN"},
+	"discd":    {"CHANNEL_SECRET", "DISCORD_BOT_TOKEN"},
+	"mastd":    {"CHANNEL_SECRET", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
+	"bskyd":    {"CHANNEL_SECRET", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
+	"reditd":   {"CHANNEL_SECRET", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
+	"slakd":    {"CHANNEL_SECRET", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
+	"linkd":    {"CHANNEL_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
+	"emaid":    {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
+	"whapd":    {"CHANNEL_SECRET"},
+	"twitd":    {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
 }
 
@@ -122,8 +189,10 @@ func envFileFor(name string) string {
 }
 
 // writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs.
-// Called from Generate before rendering compose; failure is non-fatal.
-func writeEnvFiles(dataDir string, env map[string]string) error {
+// perDaemon holds keys scoped to a single daemon (e.g. each daemon's own
+// AUTHD_SERVICE_KEY) that must NOT leak across the shared env map. Called from
+// Generate before rendering compose; failure is non-fatal.
+func writeEnvFiles(dataDir string, env map[string]string, perDaemon map[string]map[string]string) error {
 	dir := filepath.Join(dataDir, "env")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -135,6 +204,10 @@ func writeEnvFiles(dataDir string, env map[string]string) error {
 		var b strings.Builder
 		fmt.Fprintf(&b, "# Generated per-daemon env for %s. Do not edit by hand.\n", daemon)
 		for _, k := range all {
+			if v, ok := perDaemon[daemon][k]; ok && v != "" {
+				fmt.Fprintf(&b, "%s=%s\n", k, v)
+				continue
+			}
 			if v, ok := env[k]; ok && v != "" {
 				fmt.Fprintf(&b, "%s=%s\n", k, v)
 			}
@@ -266,7 +339,7 @@ func Generate(dataDir string) (string, error) {
 	for k, v := range map[string]string{
 		"API_PORT":       fmt.Sprintf("%d", core.DefaultAPIPort),
 		"ASSISTANT_NAME": "arizuko",
-		"DATA_DIR":       dataDir,          // host path; used in extra service volume strings
+		"DATA_DIR":       dataDir,            // host path; used in extra service volume strings
 		"CONTAINER_DATA": containerDataMount, // container-internal data path for TOML templates
 	} {
 		if _, ok := env[k]; !ok {
@@ -317,6 +390,27 @@ func Generate(dataDir string) (string, error) {
 		}
 	}
 
+	// Service-key provisioning (split-daemon soak, spec 5/E + 5/P). routd and
+	// runed authenticate to authd with a per-daemon AUTHD_SERVICE_KEY; authd
+	// recognises them via AUTHD_SERVICE_KEYS (principal=secret pairs — the raw
+	// secret; authd SHA-256-hashes both sides at compare time). Keys persist in
+	// the per-daemon env files so a redeploy keeps the same identity instead of
+	// invalidating in-flight tokens. AUTHD_URL is the authd in-network base URL
+	// every consumer (routd, runed, proxyd, webd, onbod) verifies/exchanges
+	// against. All additive: gated keeps its own wiring untouched.
+	routdKey := provisionServiceKey(dataDir, "routd", env)
+	runedKey := provisionServiceKey(dataDir, "runed", env)
+	perDaemon := map[string]map[string]string{
+		"routd": {"AUTHD_SERVICE_KEY": routdKey},
+		"runed": {"AUTHD_SERVICE_KEY": runedKey},
+	}
+	if _, ok := env["AUTHD_SERVICE_KEYS"]; !ok {
+		env["AUTHD_SERVICE_KEYS"] = fmt.Sprintf("service:routd=%s,service:runed=%s", routdKey, runedKey)
+	}
+	if _, ok := env["AUTHD_URL"]; !ok {
+		env["AUTHD_URL"] = "http://authd:8080"
+	}
+
 	servicesDir := filepath.Join(dataDir, "services")
 
 	entries, err := os.ReadDir(servicesDir)
@@ -359,7 +453,7 @@ func Generate(dataDir string) (string, error) {
 
 	// Per-daemon env files: non-fatal if it fails; log for triage.
 	// Written after services scan so service-triggered env (TTS_*) lands.
-	if werr := writeEnvFiles(dataDir, env); werr != nil {
+	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
 		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
 	}
 
@@ -370,6 +464,13 @@ func Generate(dataDir string) (string, error) {
 	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
 	b.WriteString(gatedService(app, flavor, dataDir, env))
+	// Split daemons (soak phase, spec 5/E + 5/P): authd/routd/runed run
+	// ADDITIVELY alongside gated. They own separate DBs (auth.db / routd.db /
+	// runed.db) so coexistence is clean. Only runed gets docker.sock + crackbox
+	// + the spawn mounts; routd/authd are message-DB-free and docker-free.
+	b.WriteString(authdService(app, flavor, dataDir, env))
+	b.WriteString(routdService(app, flavor, dataDir, env))
+	b.WriteString(runedService(app, flavor, dataDir, env))
 	webPort := envOr(env, "WEB_PORT", "")
 	if webPort != "" && profile != "minimal" {
 		b.WriteString(webdService(app, flavor, dataDir, env))
@@ -535,6 +636,73 @@ func gatedService(app, flavor, dataDir string, env map[string]string) string {
 	// Host-publish side uses the .env value as external port.
 	b.WriteString("    environment:\n")
 	writeEnv(&b, gatedEnv)
+	b.WriteString(healthBlock)
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
+}
+
+// authdService emits the auth authority. auth.db only — NO message DB, NO
+// docker socket, NO crackbox. Serves JWKS to every verifier; reads its own
+// service keys + OAuth provider config from env/authd.env. No depends_on:
+// authd is the authority, nothing it relies on must come up first.
+func authdService(app, flavor, dataDir string, env map[string]string) string {
+	var b strings.Builder
+	b.WriteString("  authd:\n")
+	fmt.Fprintf(&b, "    container_name: %s_authd_%s\n", app, flavor)
+	b.WriteString("    image: arizuko:latest\n")
+	b.WriteString("    entrypoint: ['authd']\n")
+	b.WriteString("    user: '1000:1000'\n")
+	fmt.Fprintf(&b, "    volumes:\n      - %s:%s\n", dataDir, containerDataMount)
+	b.WriteString(envFileFor("authd"))
+	b.WriteString("    environment:\n")
+	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
+	b.WriteString(healthBlock)
+	b.WriteString("    restart: on-failure\n")
+	return b.String()
+}
+
+// routdService emits the conversation-state daemon. routd.db + adapters
+// (/v1/send) + calls runed; verifies via authd JWKS. NO crackbox, NO docker
+// socket. Depends on authd (verifier keyset) + runed (run dispatch).
+func routdService(app, flavor, dataDir string, env map[string]string) string {
+	return writeSvc(svcDef{
+		name:       "routd",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "routd",
+		dataDir:    dataDir,
+		dependsOn:  "authd, runed",
+	})
+}
+
+// runedService emits the execution plane — the ONLY new daemon wired to the
+// docker socket + crackbox + the per-folder agent networks. It mirrors gated's
+// spawn wiring (uid 1000, group_add into docker gid, docker.sock mount, the
+// read-only HOST_APP_DIR source mount). Depends on authd (broker downscope).
+func runedService(app, flavor, dataDir string, env map[string]string) string {
+	var b strings.Builder
+	b.WriteString("  runed:\n")
+	fmt.Fprintf(&b, "    container_name: %s_runed_%s\n", app, flavor)
+	b.WriteString("    image: arizuko:latest\n")
+	b.WriteString("    entrypoint: ['runed']\n")
+	// uid 1000 matches agent container so shared data dir files round-trip;
+	// group_add into docker gid grants docker.sock access for spawning agents.
+	b.WriteString("    user: '1000:1000'\n")
+	fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
+	b.WriteString("    volumes:\n")
+	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
+	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
+	runedEnv := map[string]string{"DATA_DIR": containerDataMount}
+	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
+		fmt.Fprintf(&b, "      - %s:%s:ro\n", hostApp, containerSrcMount)
+		runedEnv["APP_SRC_DIR"] = containerSrcMount
+	}
+	b.WriteString("    extra_hosts:\n")
+	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
+	b.WriteString(envFileFor("runed"))
+	b.WriteString("    environment:\n")
+	writeEnv(&b, runedEnv)
+	b.WriteString("    depends_on: [authd]\n")
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()

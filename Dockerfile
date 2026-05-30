@@ -19,6 +19,9 @@ RUN apk add --no-cache sqlite-libs ca-certificates docker-cli wget \
     && chown -R 1000:1000 /srv/app/home
 COPY --from=build /arizuko /usr/local/bin/arizuko
 COPY --from=build /gated /usr/local/bin/gated
+COPY --from=build /authd /usr/local/bin/authd
+COPY --from=build /routd /usr/local/bin/routd
+COPY --from=build /runed /usr/local/bin/runed
 COPY --from=build /timed /usr/local/bin/timed
 COPY --from=build /teled /usr/local/bin/teled
 COPY --from=build /discd /usr/local/bin/discd
