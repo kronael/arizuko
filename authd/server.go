@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,6 +166,96 @@ func (a *Authd) MintNarrower(sub string, parentScope, requested []string, aud st
 		return "", err
 	}
 	return k.MintNarrower(parentScope, auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud}, a.accessTTL)
+}
+
+// minted is one signed access token plus the values the HTTP layer echoes back.
+type minted struct {
+	token     string
+	jti       string
+	expiresAt time.Time
+}
+
+// folderExtra builds the optional arz/folder private claim. Empty folder = no
+// claim (root/operator tokens omit it — spec 5/1 § JWT claim set).
+func folderExtra(folder string) map[string]string {
+	if folder == "" {
+		return nil
+	}
+	return map[string]string{"arz/folder": folder}
+}
+
+// signMinted signs c (with a fresh jti, the given ttl, and an optional folder
+// claim) and returns the echo-back values. ttl<=0 falls back to accessTTL.
+func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration) (minted, error) {
+	k, err := a.activeKey()
+	if err != nil {
+		return minted{}, err
+	}
+	if ttl <= 0 {
+		ttl = a.accessTTL
+	}
+	c.Jti = auth.NewJTI()
+	c.Extra = folderExtra(folder)
+	tok, err := k.Sign(c, ttl)
+	if err != nil {
+		return minted{}, err
+	}
+	return minted{token: tok, jti: c.Jti, expiresAt: time.Now().Add(ttl)}, nil
+}
+
+// Downscope mints a "downscoped" token for the SAME sub as the parent: requested
+// scope must be ⊆ parent scope, folder ⊆ parent folder, ttl ≤ parent remaining.
+// parent_jti links it to the parent (spec 5/1 § POST /v1/tokens downscope mode).
+// runed/broker.go is the live caller.
+func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string, ttl time.Duration) (minted, error) {
+	for _, want := range requested {
+		if !auth.HasScopeCoveredBy(parent.Scope, want) {
+			return minted{}, auth.ErrScopeTooBroad
+		}
+	}
+	if folder != "" && !folderWithin(parentFolder(parent), folder) {
+		return minted{}, auth.ErrScopeTooBroad
+	}
+	if len(requested) == 0 {
+		requested = append([]string(nil), parent.Scope...)
+	}
+	if folder == "" {
+		folder = parentFolder(parent)
+	}
+	if rem := time.Until(parent.Expires); rem > 0 && (ttl <= 0 || ttl > rem) {
+		ttl = rem
+	}
+	return a.signMinted(auth.TokenClaims{
+		Sub: parent.Sub, Scope: requested, Aud: parent.Aud, ParentJTI: parent.JTI,
+	}, folder, ttl)
+}
+
+// IssuerMint mints a fresh user/service token for a (possibly different) sub,
+// scope bounded by the TARGET sub's grants snapshot — NOT the caller's scope
+// (spec 5/1 § POST /v1/tokens issuer mint). targetGrants/folder come from the
+// grants snapshot the caller fetched.
+func (a *Authd) IssuerMint(sub string, requested, targetGrants []string, folder, aud string, ttl time.Duration) (minted, error) {
+	for _, want := range requested {
+		if !auth.HasScopeCoveredBy(targetGrants, want) {
+			return minted{}, auth.ErrScopeTooBroad
+		}
+	}
+	if len(requested) == 0 {
+		requested = append([]string(nil), targetGrants...)
+	}
+	return a.signMinted(auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud}, folder, ttl)
+}
+
+// parentFolder reads the arz/folder claim a verified parent carries ("" = none).
+func parentFolder(s auth.Subject) string { return s.Extra["arz/folder"] }
+
+// folderWithin reports whether child is parent or a descendant subtree of it.
+// Empty parent = unrestricted (no folder bound).
+func folderWithin(parent, child string) bool {
+	if parent == "" {
+		return true
+	}
+	return child == parent || strings.HasPrefix(child, parent+"/")
 }
 
 // IssueRefresh starts a new refresh-token family for sub.

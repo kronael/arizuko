@@ -12,6 +12,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"time"
@@ -35,20 +36,23 @@ var (
 // MarshalJSON/UnmarshalJSON below. Reserved claim names (reservedClaims) never
 // land in Extra.
 type TokenClaims struct {
-	Sub   string            `json:"sub"`
-	Scope []string          `json:"scope,omitempty"`
-	Aud   string            `json:"aud,omitempty"`
-	Iss   string            `json:"iss"`
-	Iat   int64             `json:"iat"`
-	Nbf   int64             `json:"nbf"`
-	Exp   int64             `json:"exp"`
-	Extra map[string]string `json:"-"`
+	Sub       string            `json:"sub"`
+	Scope     []string          `json:"scope,omitempty"`
+	Aud       string            `json:"aud,omitempty"`
+	Iss       string            `json:"iss"`
+	Iat       int64             `json:"iat"`
+	Nbf       int64             `json:"nbf"`
+	Exp       int64             `json:"exp"`
+	Jti       string            `json:"jti,omitempty"`        // unique token id; audit + downscope parent ref
+	ParentJTI string            `json:"parent_jti,omitempty"` // downscoped tokens only
+	Extra     map[string]string `json:"-"`
 }
 
 // reservedClaims are the standard JWT fields TokenClaims owns; every other
 // top-level claim is an Extra entry (the marshal/unmarshal boundary).
 var reservedClaims = map[string]struct{}{
 	"sub": {}, "scope": {}, "aud": {}, "iss": {}, "iat": {}, "nbf": {}, "exp": {},
+	"jti": {}, "parent_jti": {},
 }
 
 // claimsAlias avoids the MarshalJSON/UnmarshalJSON recursion on TokenClaims.
@@ -112,13 +116,15 @@ func (c *TokenClaims) UnmarshalJSON(b []byte) error {
 
 // Subject is the verified result of a token: what VerifyToken returns.
 type Subject struct {
-	Sub      string
-	Scope    []string
-	Aud      string
-	Iss      string
-	Extra    map[string]string
-	IssuedAt time.Time
-	Expires  time.Time
+	Sub       string
+	Scope     []string
+	Aud       string
+	Iss       string
+	JTI       string
+	ParentJTI string
+	Extra     map[string]string
+	IssuedAt  time.Time
+	Expires   time.Time
 }
 
 // SigningKey is one ES256 keypair authd holds. The private key signs; the
@@ -126,6 +132,14 @@ type Subject struct {
 type SigningKey struct {
 	Kid  string
 	Priv *ecdsa.PrivateKey
+}
+
+// NewJTI returns a random 128-bit token id (base64url), used for audit
+// correlation and as a downscope parent reference.
+func NewJTI() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // NewSigningKey generates a fresh P-256 keypair with the given kid.
@@ -146,6 +160,9 @@ func (k *SigningKey) Sign(c TokenClaims, ttl time.Duration) (string, error) {
 	c.Iat = now.Unix()
 	c.Nbf = now.Unix()
 	c.Exp = now.Add(ttl).Unix()
+	if c.Jti == "" {
+		c.Jti = NewJTI()
+	}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return "", err

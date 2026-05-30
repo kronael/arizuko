@@ -161,6 +161,7 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	}
 	return Subject{
 		Sub: c.Sub, Scope: c.Scope, Aud: c.Aud, Iss: c.Iss,
+		JTI: c.Jti, ParentJTI: c.ParentJTI,
 		Extra: c.Extra, IssuedAt: time.Unix(c.Iat, 0), Expires: time.Unix(c.Exp, 0),
 	}, nil
 }

@@ -233,6 +233,8 @@ func TestOAuthUserUpsertUniqueProvider(t *testing.T) {
 	}
 }
 
+// New /v1/service-token shape (spec 5/1 §435): secret in the Authorization
+// header, daemon name in the body. The body carries NO secret.
 func TestServiceTokenEndpoint(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
@@ -240,22 +242,13 @@ func TestServiceTokenEndpoint(t *testing.T) {
 	ts := httptest.NewServer(srv.mux())
 	defer ts.Close()
 
-	body, _ := json.Marshal(map[string]string{"key": "boot-secret-timed"})
-	resp, err := http.Post(ts.URL+"/v1/service-token", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp, out := postSvcToken(t, ts.URL, "timed", "boot-secret-timed")
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	var out struct {
-		AccessToken string `json:"access_token"`
-	}
-	json.NewDecoder(resp.Body).Decode(&out)
-
 	ks := auth.NewKeySet(a.PublicKeys())
-	sub, err := auth.VerifyToken(out.AccessToken, ks)
+	sub, err := auth.VerifyToken(out.Token, ks)
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
 	}
@@ -266,6 +259,32 @@ func TestServiceTokenEndpoint(t *testing.T) {
 	if !auth.HasScope(sub.Scope, "messages", "write") || !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("service:timed grants wrong: %v", sub.Scope)
 	}
+	// The response advertises the scope; the field name is "token", not the old
+	// "access_token".
+	if len(out.Scope) == 0 {
+		t.Fatal("service-token response must echo scope")
+	}
+}
+
+// The secret rides the Authorization header; a secret in the JSON body (the old
+// shape) is ignored — the body carries only the daemon name now.
+func TestServiceTokenSecretMustBeInHeaderNotBody(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot-secret-timed": "service:timed"}}
+	ts := httptest.NewServer(srv.mux())
+	defer ts.Close()
+
+	// Secret only in the body (old shape) + no Authorization header → rejected.
+	body, _ := json.Marshal(map[string]string{"daemon": "timed", "key": "boot-secret-timed", "secret": "boot-secret-timed"})
+	resp, err := http.Post(ts.URL+"/v1/service-token", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("a secret carried only in the body must NOT authenticate")
+	}
 }
 
 func TestServiceTokenBadSecretRejected(t *testing.T) {
@@ -275,15 +294,49 @@ func TestServiceTokenBadSecretRejected(t *testing.T) {
 	ts := httptest.NewServer(srv.mux())
 	defer ts.Close()
 
-	body, _ := json.Marshal(map[string]string{"key": "wrong"})
-	resp, err := http.Post(ts.URL+"/v1/service-token", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp, _ := postSvcToken(t, ts.URL, "timed", "wrong")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
+}
+
+// Wrong daemon name with a valid secret is also rejected (the name must match
+// the principal the secret is bound to).
+func TestServiceTokenWrongDaemonRejected(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	srv := &server{a: a, serviceSecrets: map[string]string{"boot": "service:timed"}}
+	ts := httptest.NewServer(srv.mux())
+	defer ts.Close()
+
+	resp, _ := postSvcToken(t, ts.URL, "onbod", "boot") // boot is timed's secret
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for mismatched daemon, got %d", resp.StatusCode)
+	}
+}
+
+type svcTokenResp struct {
+	Token string   `json:"token"`
+	Scope []string `json:"scope"`
+}
+
+func postSvcToken(t *testing.T, base, daemon, secret string) (*http.Response, svcTokenResp) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"daemon": daemon})
+	req, _ := http.NewRequest(http.MethodPost, base+"/v1/service-token", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out svcTokenResp
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp, out
 }
 
 func TestKeysEndpointServesJWKS(t *testing.T) {

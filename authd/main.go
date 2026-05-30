@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "modernc.org/sqlite"
@@ -91,6 +92,13 @@ func main() {
 	slog.Info("authd started", "db", dsn, "addr", listenAddr, "serving_keys", len(a.PublicKeys()))
 
 	mux := srv.mux()
+	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
+	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
+	if cfg, cerr := core.LoadConfig(); cerr == nil {
+		srv.registerOAuth(mux, cfg)
+	} else {
+		slog.Warn("oauth /auth/* not mounted: config load failed", "err", cerr)
+	}
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", []string{}))
 	httpd := &http.Server{Addr: listenAddr, Handler: mux}
 

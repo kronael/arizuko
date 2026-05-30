@@ -634,3 +634,97 @@ func fetchDiscordUser(ctx context.Context, token string) (string, string, error)
 	}
 	return u.ID, name, nil
 }
+
+// Exported provider primitives. authd's /auth/* handlers (specs/5/1) drive the
+// SAME OAuth dance as proxyd's HS256 RegisterRoutes path — these wrappers let
+// authd reuse the exchange + userinfo code without forking it. They are pure
+// (store-free, secret-free); only the issuance (ES256 + authd refresh store)
+// differs and lives in authd.
+
+func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+	return exchangeGoogle(ctx, cfg, code, verifier)
+}
+
+func FetchGoogleUser(ctx context.Context, token string) (sub, name, email string, verified bool, err error) {
+	return fetchGoogleUser(ctx, token)
+}
+
+func ExchangeGitHub(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+	return exchangeGitHub(ctx, cfg, code, verifier)
+}
+
+func FetchGitHubUser(ctx context.Context, token string) (sub, name string, err error) {
+	return fetchGitHubUser(ctx, token)
+}
+
+func ExchangeDiscord(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
+	return exchangeDiscord(ctx, cfg, code, verifier)
+}
+
+func FetchDiscordUser(ctx context.Context, token string) (sub, name string, err error) {
+	return fetchDiscordUser(ctx, token)
+}
+
+func VerifyTelegramWidget(form url.Values, botToken string) bool {
+	return verifyTelegramWidget(form, botToken)
+}
+
+func MatchEmailAllowlist(email, allowlist string) bool { return matchEmailAllowlist(email, allowlist) }
+
+func CheckGitHubOrgMember(ctx context.Context, token, org, username string) bool {
+	return checkGitHubOrgMember(ctx, token, org, username)
+}
+
+func AuthBaseURL(cfg *core.Config) string { return authBaseURL(cfg) }
+
+func SafeReturn(v string) (string, bool) { return safeReturn(v) }
+
+func JSSafe(b []byte) string { return jsSafe(b) }
+
+// SignState / VerifyState expose the signed-cookie CSRF+PKCE state used by the
+// provider redirect/callback. authd reuses them for its /auth/* flow with a
+// CSRF-only HMAC key (the state is a CSRF token, not an identity token, so it
+// stays symmetric — specs/5/1 collide-token rule). intent carries link-intent
+// + return path across the redirect.
+type StateIntent = stateIntent
+
+func SignState(secret []byte, intent StateIntent) string { return signStateP(secret, intent) }
+
+func VerifyState(secret []byte, r *http.Request) (StateIntent, bool) { return verifyState(secret, r) }
+
+// NewLinkIntent builds a link-intent state payload for ?intent=link flows.
+func NewLinkIntent(linkFrom, returnTo string) StateIntent {
+	return stateIntent{Intent: "link", LinkFrom: linkFrom, Return: returnTo}
+}
+
+// ConsumePKCE reads + clears the PKCE verifier cookie (callback side).
+func ConsumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
+	return consumePKCE(w, r, secure)
+}
+
+// WritePKCE generates a PKCE verifier, stores it in an HttpOnly cookie, and
+// returns the S256 code_challenge to append to the authorize URL.
+func WritePKCE(w http.ResponseWriter, secure bool) (challenge string, err error) {
+	vb := make([]byte, 32)
+	if _, err := rand.Read(vb); err != nil {
+		return "", err
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(vb)
+	http.SetCookie(w, &http.Cookie{
+		Name: "oauth_pkce", Value: verifier, Path: "/",
+		MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
+		Secure: secure, SameSite: http.SameSiteLaxMode,
+	})
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:]), nil
+}
+
+// WriteStateCookie persists the signed CSRF state in an HttpOnly cookie (the
+// redirect side; VerifyState reads it back at callback).
+func WriteStateCookie(w http.ResponseWriter, state string, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name: "oauth_state", Value: state, Path: "/",
+		MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
+		Secure: secure, SameSite: http.SameSiteLaxMode,
+	})
+}

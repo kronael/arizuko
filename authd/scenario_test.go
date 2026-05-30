@@ -74,6 +74,28 @@ func postJSON(t *testing.T, url string, body any) (*http.Response, map[string]an
 	return resp, out
 }
 
+// postServiceToken exchanges via the spec 5/1 §435 shape: secret in the
+// Authorization header, daemon name in the body.
+func postServiceToken(t *testing.T, url, daemon, secret string) (*http.Response, map[string]any) {
+	t.Helper()
+	b, _ := json.Marshal(map[string]string{"daemon": daemon})
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if resp.Body != nil {
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+	}
+	return resp, out
+}
+
 // HTTP-integration: a freshly minted token verifies end-to-end through
 // FetchKeys (RemoteKeySet hits /v1/keys over the wire). specs/5/1 "offline
 // verification ... pure function over (token, JWKs)".
@@ -270,11 +292,11 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 	a := newTestAuthd(t, db)
 	_, ts := newServer(t, a)
 
-	resp, out := postJSON(t, ts.URL+"/v1/service-token", map[string]string{"key": "boot-timed"})
+	resp, out := postServiceToken(t, ts.URL+"/v1/service-token", "timed", "boot-timed")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("service-token status %d", resp.StatusCode)
 	}
-	access, _ := out["access_token"].(string)
+	access, _ := out["token"].(string)
 	ks := auth.NewKeySet(a.PublicKeys())
 	sub, err := auth.VerifyToken(access, ks)
 	if err != nil {
