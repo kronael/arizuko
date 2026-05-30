@@ -22,6 +22,18 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.48.0 <span class="date">&mdash; 30 May 2026</span></h2>
+    <p>A correctness pass across the router and every adapter &mdash; agent audit logging restored, inbound messages no longer drop on transient failures, and reply threading fixed on email + Mastodon.</p>
+    <ul>
+      <li><strong>Audit logging restored</strong> &mdash; agent tool calls are recorded again (was silently off).</li>
+      <li><strong>No dropped inbound</strong> &mdash; Bluesky &amp; X stop losing messages on a transient send failure.</li>
+      <li><strong>Honest health</strong> &mdash; Telegram/Slack/X report disconnected when the platform link drops.</li>
+      <li><strong>Reply threading</strong> &mdash; email &amp; Mastodon replies thread correctly; adapter capabilities now match reality.</li>
+      <li><strong>Tests</strong> &mdash; 74+ new unit/integration tests across 13 packages.</li>
+      <li><strong>Under the hood</strong> &mdash; the authd/routd/runed split daemons land as additive groundwork behind a flag (dormant; default still runs gated).</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0480--2026-05-30">CHANGELOG &sect; v0.48.0</a></p>
+
     <h2>arizuko v0.47.0 <span class="date">&mdash; 30 May 2026</span></h2>
     <p>The docs site got a full redesign and the &ldquo;ask the agent&rdquo; chat became a real, persistent popup; a batch of platform-reply bugs are gone.</p>
     <ul>
