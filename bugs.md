@@ -23,7 +23,34 @@ ipc `set_web_route` path-claim + cmd/apply version-print + auth
 `get_routes`→`list_routes` (`e8a87278`); STORE_DIR + typed-JID doc drift
 + 6 broken spec links (`90ed5675`); proxyd no-op proxy cache
 (`29853f08`). Residuals (audit idle-tail flush; grants tier-1/2
-pin/pane default; bskyd AT-URI; tier-formula collision) remain open below.
+pin/pane default; tier-formula collision) remain open below.
+
+## RESOLVED 2026-05-30 (bug-fix wave — research+fix subs, each with tests)
+
+- **authd auth surface** (cutover step 1, additive): `/v1/tokens`,
+  `/v1/service-token` (Authorization header), `/auth/*` OAuth ported into
+  authd, `auth/service.go` TokenSource bootstrap (`fea768e4`). Live HS256
+  path untouched; the flip stays USER-GATED.
+- **reditd delete-cap** omission (`82d96380`) — advertise `delete` cap.
+- **twitd snowflake lexical compare** (`82d96380`) — BigInt cursor compare.
+- **emaid FetchHistory empty Verb** (`82d96380`) — set trust Verb from the
+  same classifier as the live poller.
+- **bskyd AT-URI** (`6b216907`) — inbound ID is now the full `at://` URI so
+  the agent's default reply/like/delete resolve; `Send` returns the post URI.
+- **ipc feed verbs skip recordOutbound** (`6d1b9446`) — `quote`/`repost` now
+  record (own-feed content); `forward` stays an unrecorded relay by design.
+- **ipc list_acl tier guard** (`6d1b9446`) — registered for tier ≤1 to match
+  `AuthorizeStructural` enforcement.
+- **linkd seen-before-deliver** — was ALREADY fixed (`bcdb0ce7`); the
+  sweep-section entry below was a double-log. No action.
+- **ipc post/delete "Tier 0-2" descriptions** — confirmed ACCURATE (describe
+  the default grant matrix, not a hard tier gate; tier-3 defaults exclude
+  post/delete). Not stale, no enforcement gap. No change.
+
+New find (open, low): **`invite_create` desc/enforcement mismatch** — desc
+(`ipc/ipc.go` ~2087) says "Tier 0-2 only" but `AuthorizeStructural` denies
+`tier >= 2` (tier 0-1 only). Same shape as the fixed list_acl case; doc-fix
+follow-up.
 
 ## container/ipc bug-hunt sweep (2026-05-28)
 
