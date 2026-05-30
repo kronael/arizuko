@@ -61,6 +61,39 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 	}
 }
 
+// Regression (oracle finding 3): the access-token subject must be identical
+// across login and refresh. IssueRefresh stores the canonical "user:" subject
+// so a refreshed token keeps the prefix instead of dropping to a bare sub.
+func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	o := newOAuth(t, a, nil, nil)
+
+	req := httptest.NewRequest("GET", "/auth/google/callback", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, req, "google", "g-123", "Alice", auth.StateIntent{})
+
+	loginSub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatalf("login token must verify: %v", err)
+	}
+	access, _, err := a.Refresh(jsonField(t, rec.Body.Bytes(), "refresh_token"))
+	if err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+	refreshSub, err := auth.VerifyToken(access, a.LocalKeySet())
+	if err != nil {
+		t.Fatalf("refreshed token must verify: %v", err)
+	}
+	if refreshSub.Sub != loginSub.Sub {
+		t.Fatalf("subject drifted across refresh: login=%q refresh=%q", loginSub.Sub, refreshSub.Sub)
+	}
+	if refreshSub.Sub != "user:google:g-123" {
+		t.Fatalf("refreshed sub = %q want user:google:g-123", refreshSub.Sub)
+	}
+}
+
 // Browser login (Accept: text/html) delivers the access token via the
 // localStorage bootstrap + an HttpOnly refresh cookie, not a JSON body.
 func TestOAuthBrowserDeliveryUsesCookieAndBootstrap(t *testing.T) {

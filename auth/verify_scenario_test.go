@@ -105,6 +105,22 @@ func TestVerifyRejectsAbsentExp(t *testing.T) {
 	}
 }
 
+// Threat: a token with no iat zeroes Subject.IssuedAt, disarming VerifyToken's
+// retired-key forgery check (iat>retired_at). iat is a required claim — reject
+// when absent (no fail-open), same clause as exp/nbf (specs/5/1).
+func TestVerifyRejectsAbsentIat(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+
+	c := validClaims()
+	delete(c, "iat")
+	tok := signRaw(t, jose.ES256, k.Priv, "k1", c)
+
+	if _, err := VerifyToken(tok, ks); err != ErrInvalidToken {
+		t.Fatalf("token with absent iat must be rejected, got %v", err)
+	}
+}
+
 // Threat: a token with no nbf bypasses the not-before window. Same just-fixed
 // no-fail-open clause (specs/5/1).
 func TestVerifyRejectsAbsentNbf(t *testing.T) {
