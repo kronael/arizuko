@@ -52,7 +52,7 @@
 
     <p class="lede">Auth proves a logged-in human. But a public chat box on a website, or a webhook from GitHub, has no one to log in. A route token is the no-login counterpart: a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
 
-    <h2>One table, two URL surfaces</h2>
+    <h2>one table, two URLs</h2>
 
     <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
 
@@ -72,7 +72,7 @@ created_at    when it was minted</code></pre>
 
     <p>The two URLs share their handler internals &mdash; same widget, same POST path, same SSE &mdash; but the binding is enforced at token lookup: a <code>hook:</code> token presented at <code>/chat/&lt;token&gt;/</code> returns 404, and a <code>web:</code> token at <code>/hook/&lt;token&gt;</code> returns 404. Each issuance verb picks its URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. One URL per kind keeps each surface single-purpose.</p>
 
-    <h2>What the JID encodes</h2>
+    <h2>what the JID encodes</h2>
 
     <p><code>web:&lt;folder&gt;</code> means &ldquo;anonymous visitor chat at this folder.&rdquo; <code>web:acme</code> is acme's public chat URL. Add a suffix to split one folder across pages: <code>web:acme/support</code> and <code>web:acme/sales</code> are different conversations against the same agent, distinguishable in routing rules.</p>
 
@@ -80,7 +80,7 @@ created_at    when it was minted</code></pre>
 
     <p>JID prefixes split routing &mdash; a <code>hook:</code> message and a <code>web:</code> message can fire different rules even though one table issued both tokens. The URL the request arrived on matches the JID prefix one-to-one.</p>
 
-    <h2>Issuance</h2>
+    <h2>issuance</h2>
 
     <p>Two sources mint tokens, one writer inserts the row.</p>
 
@@ -95,7 +95,7 @@ created_at    when it was minted</code></pre>
 
     <p>Folders do not get a chat token automatically when they are created. A folder gets a token when someone calls <code>issue_chat_link</code> for it. This keeps unused folders from accumulating live URLs.</p>
 
-    <h2>Who can mint for which folder</h2>
+    <h2>who can mint for which folder</h2>
 
     <p>Resolved by the unified <a href="../concepts/grants.html">grants</a> tier. Lower tier = broader mint reach.</p>
 
@@ -109,21 +109,21 @@ created_at    when it was minted</code></pre>
 
     <p>Tier 1 at <code>acme</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child. In that case the row's <code>owner_folder</code> stays at <code>acme</code> &mdash; the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
 
-    <h2>Revocation</h2>
+    <h2>revocation</h2>
 
     <p>One <code>DELETE</code> on the row. The next request to the URL returns 401 immediately &mdash; no grace period, no cache to wait out. An agent in folder A cannot delete a token whose <code>owner_folder = B</code>; the ACL gate at <code>revoke_route_token</code> requires admin on <code>owner_folder</code>.</p>
 
-    <h2>The bearer model</h2>
+    <h2>the bearer model</h2>
 
     <p>Whoever holds the URL can POST to it. There is no second factor, no signing on the body, no per-caller identity at this surface. webd does not verify <code>X-Hub-Signature</code> or any other upstream HMAC &mdash; that belongs to a skill on the agent side, not the platform. Rotation is by reissue: mint a new token, swap the URL at the source, delete the old row.</p>
 
     <p>webd applies a per-token rate limit in memory. The ceiling is chosen by JID prefix &mdash; <code>web:</code> sits at a lower bucket sized for humans, <code>hook:</code> at a higher bucket for machine bursts. Body size is capped at 1 MiB.</p>
 
-    <h2>Name</h2>
+    <h2>name</h2>
 
     <p>Previously called <em>slink</em>; renamed to <em>route tokens</em> for clarity once webhooks joined the same primitive.</p>
 
-    <h2>Go deeper</h2>
+    <h2>go deeper</h2>
 
     <ul>
       <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site, what the visitor sees.</li>

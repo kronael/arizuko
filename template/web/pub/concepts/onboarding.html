@@ -63,7 +63,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <h2>admission queue</h2>
     <p>When <code>ONBOARDING_ENABLED=1</code>, a new JID that hits the instance without an invite doesn&rsquo;t go straight into a group. <code>onbod</code> sends an auth link via <code>gated</code>&rsquo;s outbound API and writes the user into the queue.</p>
     <p>The queue is gated by <code>ONBOARDING_GATES</code> &mdash; a list of rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
-    <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../concepts/scopes.html">dashd</a> or by adjusting gate config.</p>
+    <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
 
     <h2>SetupGroup writes a group</h2>
     <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, prototype)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>

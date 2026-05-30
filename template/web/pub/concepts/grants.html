@@ -50,10 +50,10 @@
 
     <h1>grants</h1>
 
-    <p class="lede">A persona decides how an agent <em>sounds</em>; a grant decides what it&rsquo;s <em>allowed to do</em>. The whole permission model collapses to one question: <em>may principal P do action A on scope S?</em> Two SQL tables answer every check &mdash; <code>acl</code> for the rules and <code>acl_membership</code> for "this id belongs to that group" &mdash; and one <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
+    <p class="lede">A persona decides how an agent <em>sounds</em>; a grant decides what it&rsquo;s <em>allowed to do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> for the rules and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
 
     <h2>the four words</h2>
-    <p>The whole system is built on four nouns. Get these right and the rest is bookkeeping.</p>
+    <p>Four words name everything in that question. Get these right and the rest is rows.</p>
     <ul>
       <li><strong>Principal</strong> &mdash; who is asking. A human (<code>google:114alice</code>), a folder's agent container (<code>folder:atlas/eng</code>), a channel-side identity (<code>discord:user/811&hellip;</code>), or a named role (<code>role:operator</code>).</li>
       <li><strong>Action</strong> &mdash; what they want to do. <code>interact</code> (send a message), <code>admin</code> (manage the folder), <code>mcp:&lt;tool&gt;</code> (call one MCP tool), or <code>*</code> (everything).</li>
@@ -65,7 +65,7 @@
     <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>. If you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside that folder &mdash; you do not list them one by one. The implication is:</p>
     <pre><code>*  &supe;  admin  &supe;  interact
 *  &supe;  admin  &supe;  mcp:&lt;tool&gt;</code></pre>
-    <p>Deny short-circuits the whole thing. If any matching row says <code>deny</code>, the request is rejected even when other rows would allow it. The check lives in <code>auth.Authorize</code> (<code>auth/authorize.go</code>); it tries explicit rules first, then falls back to tier defaults derived in <code>grants.DeriveRules</code> for <code>mcp:*</code> actions only.</p>
+    <p>One matching <code>deny</code> stops the check. If any matching row says <code>deny</code>, the request is rejected even when other rows would allow it. The check lives in <code>auth.Authorize</code> (<code>auth/authorize.go</code>); it tries explicit rules first, then falls back to tier defaults derived in <code>grants.DeriveRules</code> for <code>mcp:*</code> actions only.</p>
 
     <h2>principal shapes</h2>
     <table>
@@ -118,10 +118,10 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <p>Alice posts in Discord as <code>discord:user/811&hellip;</code>. Later she logs in via Google. The OAuth callback writes one membership edge:</p>
     <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
   ('discord:user/811...', 'google:114alice', now());</code></pre>
-    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No row rewriting, no migration &mdash; the channel-side id keeps working as before.</p>
+    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working as before.</p>
 
     <h2>where the check runs</h2>
-    <p>Every gate funnels through <code>auth.Authorize(principal, action, scope, claims, params)</code>. The MCP server calls it when the agent invokes a tool; <code>gated</code> calls it when a message wants to enter a folder. One call, one answer.</p>
+    <p>Every gate funnels through <code>auth.Authorize(principal, action, scope, claims, params)</code> &mdash; the same call for an agent and a human. A message wanting into a folder hits it once; a tool call leaving that folder hits it again. The MCP path and the REST path share the one function, so an agent and an operator see the same answer for the same request. One call, one answer.</p>
     <pre><code>Authorize(
   principal: "folder:atlas/eng",
   action:    "mcp:send",

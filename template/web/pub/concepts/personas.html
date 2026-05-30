@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; personas</p>
 <h1>personas</h1>
 
-    <p class="lede">Autoviv spins a fresh folder into existence; that folder still sounds like the default. A persona is what gives it a voice. It&rsquo;s a <code>PERSONA.md</code> file in the group folder &mdash; one more file in the ant, true to the equation from page one. The frontmatter feeds structured fields like the TTS voice and a short re-anchor block; the body is the long-form register the agent reads on demand. Editing the file is the whole interface; there is no persona table to keep in sync.</p>
+    <p class="lede">Autoviv spins a fresh folder into existence, and that folder still sounds like the default. A persona is what gives it a voice. It&rsquo;s a <code>PERSONA.md</code> file in the group folder &mdash; one more file in the ant, same rule as page one: the agent is the folder. The frontmatter holds named fields like the TTS voice and a short reminder of how to sound; the body is the long voice guide the agent reads only when it asks for it. Editing the file is the whole interface; there is no persona table to keep in sync.</p>
 
     <h2>file location</h2>
     <p>One file per group, at <code>&lt;data-dir&gt;/groups/&lt;folder&gt;/PERSONA.md</code>. The operator edits it directly &mdash; via WebDAV, an editor on the host, or the dashboard. There is no persona table; the file <em>is</em> the source of truth.</p>
@@ -80,11 +80,11 @@ Direct, no preamble. Defaults to short answers. Lowercase info, capitalized erro
 (For full register: /persona)
 &lt;/persona&gt;
 </code></pre>
-    <p>The block sits next to the autocalls envelope inside the user message, so the agent re-anchors its voice even when the system prompt has drifted out of focus after many turns. The body of <code>PERSONA.md</code> is <em>not</em> injected per turn &mdash; the agent invokes the <code>/persona</code> skill when it wants the full register.</p>
+    <p>The block sits next to the autocalls envelope inside the user message, so the agent re-anchors its voice even when the session has gotten long and the system prompt has scrolled out of focus. The body of <code>PERSONA.md</code> is <em>not</em> injected per turn &mdash; the agent invokes the <code>/persona</code> skill when it wants the full voice guide.</p>
 
     <h2>strictness rule</h2>
     <p>If <code>PERSONA.md</code> is missing, has no frontmatter, has no <code>summary</code> field, or the summary is empty, <code>personaBlock</code> returns <code>""</code>. No fallback to body text, no guessing from the folder name, no inheritance from a parent folder&rsquo;s persona. The agent simply runs in its default register.</p>
-    <p>This is deliberate. A magical fallback would mean &ldquo;the persona block sometimes contains operator data, sometimes contains a guess&rdquo; &mdash; the agent could not tell which. Strict-or-empty keeps the contract sharp.</p>
+    <p>This is deliberate. A magical fallback would mean &ldquo;the persona block sometimes contains operator data, sometimes contains a guess&rdquo; &mdash; the agent could not tell which. Strict-or-empty keeps the rule plain: the block is either real persona text or nothing.</p>
 
     <h2>versioning</h2>
     <p>Personas live with the group, not with the agent image. Edits to <code>PERSONA.md</code> take effect on the next turn &mdash; no migration, no rebuild. The agent image ships skills and base prompts; the group ships voice. Releases bump <code>MIGRATION_VERSION</code> for skill changes, never for persona edits.</p>

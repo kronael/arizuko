@@ -49,10 +49,10 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">The tour ends where it began &mdash; routing. Slack panes, voice notes, web chats, webhooks: every surface you&rsquo;ve met names its chats and senders the same way, and this is that name. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>, so a single routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else. One address grammar is what lets the rest of the system stay platform-blind.</p>
+    <p class="lede">The tour ends where it began &mdash; routing. Telegram chats, web chats, voice notes, webhooks: every adapter you&rsquo;ve met names its chats and senders the same way, and this is that name. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>, so a single routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else. One address shape lets routes and grants ignore each platform&rsquo;s quirks.</p>
 
     <h2>the shape</h2>
-    <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each format is its own little puzzle.</p>
+    <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each platform has its own odd IDs.</p>
     <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon is the platform&rsquo;s business, kept as an opaque string the gateway only matches with globs:</p>
     <pre><code>telegram:user/123              # telegram DM with user 123
 telegram:group/-100456         # telegram group, supergroup, or channel
@@ -64,7 +64,7 @@ web:&lt;folder&gt;[/&lt;suffix&gt;]        # browser chat at folder; URL token r
 hook:&lt;folder&gt;/&lt;source&gt;[/...]   # webhook ingest: folder is the destination, source is the agent-chosen label</code></pre>
 
     <h2>matching with globs</h2>
-    <p>Routes use Go&rsquo;s <code>path.Match</code> across <code>/</code> boundaries. So <code>*</code> grabs any run of characters except <code>/</code>, <code>?</code> grabs one character, and <code>[0-9]</code> grabs a digit. The same syntax works on every field:</p>
+    <p>Routes match with Go&rsquo;s <code>path.Match</code>. <code>*</code> grabs any run of characters but stops at <code>/</code>, so each slash-separated segment stays separate; <code>?</code> grabs one character, and <code>[0-9]</code> grabs a digit. The same syntax works on every field:</p>
     <pre><code>match='chat_jid=telegram:group/*'    # all telegram groups
 match='chat_jid=discord:dm/*'        # all discord DMs
 match='chat_jid=whatsapp:*@g.us'     # all whatsapp groups

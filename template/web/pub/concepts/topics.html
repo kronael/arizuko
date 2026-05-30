@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; topics</p>
 <h1>topics</h1>
 
-    <p class="lede">Engagement keeps a conversation alive; topics keep two conversations apart. A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
+    <p class="lede">Engagement keeps turns flowing to the same folder; topics keep two conversations inside that folder apart. A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
 
     <h2>where topics come from</h2>
     <p>The gateway reads the topic from one of three places:</p>
@@ -64,7 +64,7 @@
     <p>For the web channel, the gateway groups inbound messages by topic and runs one agent per topic, one after another.</p>
 
     <h2>forks</h2>
-    <p>A fork copies the parent topic&rsquo;s Claude Code session file to a fresh session UUID. The child resumes natively from the parent&rsquo;s tail &mdash; every prior turn IS in the child&rsquo;s history, no prompt-injection trickery. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
+    <p>A fork copies the parent topic&rsquo;s Claude Code session file to a fresh session UUID. The child resumes natively from the parent&rsquo;s tail &mdash; every prior turn is already in the child&rsquo;s history, because it got the real session file, not a pasted-in summary. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
     <p>Three triggers all map to one <code>ForkTopic(folder, parent, child)</code> call:</p>
     <ul>
       <li><strong>Default fork from main</strong> &mdash; the first turn in a brand-new topic forks the folder&rsquo;s main session.</li>
@@ -72,10 +72,10 @@
       <li><strong>Explicit <code>fork_topic</code> MCP</strong> &mdash; the agent branches a focused side-conversation. Pass <code>force=true</code> to overwrite an existing child.</li>
     </ul>
     <p>On every turn the agent receives a <code>&lt;topic name=&quot;X&quot; /&gt;</code> envelope so it knows what scope it&rsquo;s in. There is no <code>&lt;inherited&gt;</code> block &mdash; the parent&rsquo;s history is already in the child session.</p>
-    <p>The <code>observed_cursor</code> column is per-topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
+    <p><code>sessions.observed_cursor</code> is per topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
 
     <h2>sticky topic</h2>
-    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. Sticky overrides whatever native topic the platform sent.</p>
+    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. A sticky topic wins over the thread ID the platform sent.</p>
 
     <h2>go deeper</h2>
     <p>Topics ride inside one folder; <a href="../concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. How folders relate to each other and what counts as ambient context: <a href="../concepts/scopes.html">scopes</a>. Full fork mechanics and the per-topic observed cursor: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Resolution order: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
@@ -86,7 +86,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/topics.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 
