@@ -39,6 +39,7 @@ type config struct {
 	pubRedirectURL string
 	authSecret     string
 	hmacSecret     string
+	authdURL       string // soak: dual-verify ES256 bearers + 302 /auth/* to authd
 	routesJSON     string
 	trustedProxies []*net.IPNet
 	chatAnonDosRPM int
@@ -62,6 +63,7 @@ func loadConfig() config {
 		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
 		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
 		hmacSecret:     hmacSecret,
+		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
@@ -178,6 +180,7 @@ type server struct {
 	rr        *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy *httputil.ReverseProxy
 	vh        *vhosts
+	ks          *auth.KeySet // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
 	pubRedir     *pubRedirect
 }
@@ -275,7 +278,7 @@ func (p *pubRedirect) reachable() bool {
 	return p.ok
 }
 
-func newServer(cfg config, st *store.Store, vh *vhosts) *server {
+func newServer(cfg config, st *store.Store, vh *vhosts, ks *auth.KeySet) *server {
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
 	return &server{
@@ -284,6 +287,7 @@ func newServer(cfg config, st *store.Store, vh *vhosts) *server {
 		rr:        rr,
 		viteProxy: proxy(cfg.viteAddr),
 		vh:        vh,
+		ks:          ks,
 		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
 		pubRedir:     newPubRedirect(cfg.pubRedirectURL),
 	}
@@ -418,7 +422,15 @@ func (rl *rateLimiter) allow(key string) bool {
 
 func (s *server) handler(cfg *core.Config, aud *audit.Audit) http.Handler {
 	mux := http.NewServeMux()
-	auth.RegisterRoutes(mux, s.st, cfg)
+	// Soak: route NEW logins to authd's ES256 OAuth. When AUTHD_URL is set,
+	// 302 /auth/* to authd's /auth/* (existing HS256 sessions still verify via
+	// tryAuth's dual path); unset → serve the local HS256 OAuth flow as today.
+	// Reversible: clearing AUTHD_URL restores RegisterRoutes.
+	if s.cfg.authdURL != "" {
+		mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
+	} else {
+		auth.RegisterRoutes(mux, s.st, cfg)
+	}
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	mux.HandleFunc("/", s.route)
@@ -788,12 +800,34 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 	return r2
 }
 
+// groupsForSub resolves a verified sub to its grant patterns (X-User-Groups).
+// ES256 subs are prefixed (`user:google:123`); grant rows key on the bare sub
+// (`google:123`) per spec 5/1 § "sub prefix rule". Strip a leading `user:`
+// before the lookup so ES256 and HS256 subs map to the same grants.
+func (s *server) groupsForSub(sub string) []string {
+	if s.st == nil {
+		return nil
+	}
+	return s.st.UserScopes(strings.TrimPrefix(sub, "user:"))
+}
+
 // tryAuth returns an identity-stamped request if the caller has a valid
 // Bearer JWT or refresh-token cookie; otherwise nil.
+//
+// Bearer verify is dual during the HMAC→ES256 soak: HS256 (auth.VerifyJWT)
+// first, then ES256 (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is
+// set. Either success stamps the same X-User-* headers (X-User-Sig still
+// injected → backends unchanged). With AUTHD_URL unset, ks is nil and this is
+// HS256-only, exactly as before the soak.
 func (s *server) tryAuth(r *http.Request) *http.Request {
 	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
 		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {
 			return s.setUserHeaders(r, c.Sub, c.Name, c.Groups)
+		}
+		if s.ks != nil {
+			if sub, err := auth.VerifyHTTP(r, s.ks); err == nil {
+				return s.setUserHeaders(r, sub.Sub, sub.Extra["name"], s.groupsForSub(sub.Sub))
+			}
 		}
 	}
 	if s.st == nil {
@@ -816,6 +850,17 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 		return nil
 	}
 	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserScopes(u.Sub))
+}
+
+// redirectAuthToAuthd 302s a browser /auth/* request to authd's matching
+// /auth/* endpoint (soak step: new logins mint ES256 at authd). Path + query
+// are preserved so /auth/login?return=... and provider callbacks carry through.
+func (s *server) redirectAuthToAuthd(w http.ResponseWriter, r *http.Request) {
+	loc := s.cfg.authdURL + r.URL.Path
+	if r.URL.RawQuery != "" {
+		loc += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, loc, http.StatusFound)
 }
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -870,7 +915,21 @@ func main() {
 	os.MkdirAll(coreCfg.WebDir, 0o755)
 	vh := newVhosts(filepath.Join(coreCfg.WebDir, "vhosts.json"))
 
-	s := newServer(cfg, st, vh)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Soak: dual-verify ES256 bearers alongside HS256. When AUTHD_URL is set,
+	// fetch authd's public JWKs so tryAuth can accept ES256 tokens; unset →
+	// ks stays nil and proxyd is HS256-only, exactly as today.
+	var ks *auth.KeySet
+	if cfg.authdURL != "" {
+		if ks, err = auth.FetchKeys(ctx, cfg.authdURL); err != nil {
+			slog.Error("fetch authd keys", "err", err)
+			os.Exit(1)
+		}
+	}
+
+	s := newServer(cfg, st, vh, ks)
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 

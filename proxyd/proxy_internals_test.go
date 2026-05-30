@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 // parseTrustedProxies handles CIDRs, bare IPs, and invalid entries.
@@ -253,5 +259,148 @@ func TestMatchWebRoute_Empty(t *testing.T) {
 	_, ok := matchWebRoute(nil, "/pub/foo")
 	if ok {
 		t.Error("empty routes should return false")
+	}
+}
+
+// es256KeySet mints a local signing key + matching KeySet for ES256 soak tests.
+func es256KeySet(t *testing.T) (*auth.SigningKey, *auth.KeySet) {
+	t.Helper()
+	k, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k, auth.NewKeySet(map[string]*ecdsa.PublicKey{k.Kid: &k.Priv.PublicKey})
+}
+
+// Soak step 1: an ES256 bearer minted by authd's key is accepted alongside
+// HS256, stamping the same X-User-* headers (X-User-Sig still present).
+func TestTryAuth_ES256Bearer(t *testing.T) {
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "hs256secret", hmacSecret: "hmac", authdURL: "http://authd"}, ks: ks}
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user", Scope: []string{"messages:send"}}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r2 := s.tryAuth(r)
+	if r2 == nil {
+		t.Fatal("tryAuth returned nil for valid ES256 bearer")
+	}
+	if got := r2.Header.Get("X-User-Sub"); got != "user:google:123" {
+		t.Errorf("X-User-Sub = %q", got)
+	}
+	if r2.Header.Get("X-User-Sig") == "" {
+		t.Error("X-User-Sig must still be injected for backends during soak")
+	}
+}
+
+// HS256 bearer keeps working with the ES256 KeySet present (additive).
+func TestTryAuth_HS256StillWorksWithKeySet(t *testing.T) {
+	_, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "testsecret", authdURL: "http://authd"}, ks: ks}
+	tok := testMintJWT([]byte("testsecret"), "user:hsbob")
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r2 := s.tryAuth(r)
+	if r2 == nil || r2.Header.Get("X-User-Sub") != "user:hsbob" {
+		t.Fatalf("HS256 bearer not accepted alongside ES256 KeySet: %v", r2)
+	}
+}
+
+// A garbage bearer is rejected on both paths.
+func TestTryAuth_ES256Invalid(t *testing.T) {
+	_, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "secret", authdURL: "http://authd"}, ks: ks}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer not.a.jwt")
+	if s.tryAuth(r) != nil {
+		t.Error("invalid bearer must be rejected")
+	}
+}
+
+// AUTHD_URL unset → ks nil → the ES256 path is absent: a valid ES256 bearer is
+// rejected, exactly the pre-soak HS256-only behavior.
+func TestTryAuth_ES256RejectedWhenKeySetNil(t *testing.T) {
+	k, _ := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "hs256secret"}} // ks: nil, authdURL: ""
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	if s.tryAuth(r) != nil {
+		t.Error("ES256 bearer must be rejected when AUTHD_URL unset (HS256-only)")
+	}
+}
+
+// Soak step 2: ES256 sub `user:google:123` resolves grants under the bare
+// `google:123` principal — the leading `user:` is stripped before lookup.
+func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.AddACLRow(core.ACLRow{
+		Principal: "google:123", Action: "*", Scope: "atlas", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "hs", hmacSecret: "h", authdURL: "http://authd"}, st: st, ks: ks}
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r2 := s.tryAuth(r)
+	if r2 == nil {
+		t.Fatal("tryAuth nil for ES256 bearer with grants")
+	}
+	var groups []string
+	_ = json.Unmarshal([]byte(r2.Header.Get("X-User-Groups")), &groups)
+	found := false
+	for _, g := range groups {
+		if g == "atlas" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("X-User-Groups = %q; want grant for bare sub google:123 (atlas)", groups)
+	}
+}
+
+// Soak step 6: with AUTHD_URL set, /auth/login 302s to authd; query preserved.
+func TestRedirectAuthToAuthd(t *testing.T) {
+	s := &server{cfg: config{authdURL: "https://authd.example"}}
+	r := httptest.NewRequest("GET", "/auth/login?return=/me", nil)
+	w := httptest.NewRecorder()
+	s.redirectAuthToAuthd(w, r)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "https://authd.example/auth/login?return=/me" {
+		t.Errorf("Location = %q", loc)
+	}
+}
+
+// With AUTHD_URL unset, the handler serves the local HS256 OAuth flow
+// (RegisterRoutes) — /auth/login returns the login page, not a redirect to authd.
+func TestHandler_AuthLocalWhenAuthdUnset(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s := &server{cfg: config{authSecret: "s"}, st: st, rr: newRoutesResource(st, nil)}
+	h := s.handler(&core.Config{AuthSecret: "s"}, nil)
+	r := httptest.NewRequest("GET", "/auth/login", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code == http.StatusFound {
+		t.Errorf("with AUTHD_URL unset, /auth/login must not 302 to authd (got %d)", w.Code)
 	}
 }
