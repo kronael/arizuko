@@ -16,6 +16,65 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.47.0] — 2026-05-30
+
+> arizuko v0.47.0 — docs you can navigate, a chat that remembers
+>
+> The docs site got a full redesign and the "ask the agent" chat became a real, persistent popup; a batch of platform-reply bugs are fixed.
+>
+> • Docs — reference & components get a navigable three-pane; concepts, how-to & products read as a guided tour; version + updated on every page; old docs preserved at `/legacy/`
+> • Chat — the ask-the-agent widget is now a bottom-docked popup (full-screen on mobile) with persistent, browsable threads
+> • Bluesky — default replies/likes/deletes now resolve (were silently failing)
+> • Reddit `delete` works; email history carries the trust signal; X/Telegram cursor fixes
+> • Under the hood — authd token authority, routd/runed daemons, proactive interjector land as additive groundwork (not yet switched on)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Docs two-chrome system** (spec 5/D) — every doc page uses one of two reused
+  layouts: a navigable three-pane (left nav + content + right TOC) for the
+  catalogues (`reference/`, `components/`), and a thin-nav guided-tour layout
+  for the learning sections (`concepts/`, `howto/`, `products/`). Landing +
+  security stay one-pagers. The global footer carries the version + a
+  "previous docs" link; each page carries a git-stamped updated date. The
+  pre-redesign docs are preserved at `/pub/arizuko/legacy/`.
+- **Rebuilt "ask the agent" chat widget** — a bottom-docked popup that expands
+  upward on desktop and goes full-screen on mobile, with persistent, browsable
+  threads (localStorage visitor id + thread list, 30-day prune) and a new
+  `GET /chat/<token>/<topic>/messages` endpoint that loads a thread's history
+  before the live stream connects. Backed by a dedicated `arizuko/support`
+  group with the docs + codebase in context.
+- **authd auth surface** (cutover step 1, additive) — `POST /v1/tokens`
+  (issuer-mint + downscope), `POST /v1/service-token`, `/auth/*` OAuth in
+  authd, and an `auth.TokenSource` service-token bootstrap. The live HS256
+  path is unchanged; the cutover flip stays gated.
+- **routd + runed daemons** (additive) — the conversation/execution split
+  lands as code; gated still orchestrates.
+- **Proactive interjector** (spec 5/33) in the routd loop.
+- **`arizuko plan` + `arizuko get`** — resreg manifest preview + per-resource
+  export.
+
+### Fixed
+
+- **Bluesky** — inbound messages now carry the full `at://` URI as their id, so
+  an agent's default reply / like / delete resolves (a bare rkey made them
+  silently fail); `Send` returns the created post's URI.
+- **Reddit** — the `delete` verb is advertised so it reaches the working impl.
+- **X (Twitter)** — the mention cursor compares snowflake ids as BigInt, not
+  lexically.
+- **Email** — replayed history carries the trusted/untrusted Verb signal.
+- **ipc** — `quote`/`repost` record outbound (own-feed threading + engagement);
+  `list_acl` registration matches its tier enforcement.
+- **authd verify hardening** — issuer pinned, missing `exp`/`nbf` rejected (no
+  fail-open), ES256 pinned against alg-confusion, the retired-key forgery
+  window closed, the refresh-token reuse race fixed.
+- **Docs accuracy** — adapter callback route is `POST /send` (not `/v1/send`,
+  fixed on 11 pages), the token-mint tier model, `path.Match` semantics, tier
+  slash-count, JID is a plain string (not `net/url`), `arizuko token` CLI.
+
+---
+
 ## [v0.46.1] — 2026-05-29
 
 > arizuko v0.46.1 — reliability & auth fixes
