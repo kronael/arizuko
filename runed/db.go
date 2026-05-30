@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
@@ -123,6 +124,43 @@ func (d *DB) RecentSessions(folder string, limit int) ([]SessionRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// RecentSessionRecords lists a folder's session_log rows as core.SessionRecord
+// (the shape the agent's inspect_session tool renders), newest first. Backs the
+// runed-local RecentSessions StoreFn in the split.
+func (d *DB) RecentSessionRecords(folder string, limit int) []core.SessionRecord {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := d.db.Query(`SELECT id, group_folder, session_id, started_at,
+		ended_at, result, error, message_count
+		FROM session_log WHERE group_folder=? ORDER BY id DESC LIMIT ?`, folder, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []core.SessionRecord
+	for rows.Next() {
+		var sr core.SessionRecord
+		var startedAt string
+		var endedAt, result, errStr sql.NullString
+		var msgCount sql.NullInt64
+		if err := rows.Scan(&sr.ID, &sr.Folder, &sr.SessionID, &startedAt,
+			&endedAt, &result, &errStr, &msgCount); err != nil {
+			return out
+		}
+		sr.StartedAt, _ = time.Parse(time.RFC3339, startedAt)
+		if endedAt.Valid {
+			t, _ := time.Parse(time.RFC3339, endedAt.String)
+			sr.EndedAt = &t
+		}
+		sr.Result = result.String
+		sr.Error = errStr.String
+		sr.MsgCount = int(msgCount.Int64)
+		out = append(out, sr)
+	}
+	return out
 }
 
 // --- spawns ---

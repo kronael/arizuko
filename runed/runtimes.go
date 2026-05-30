@@ -50,6 +50,9 @@ type dockerRuntime struct {
 	folders *groupfolder.Resolver
 	runner  container.Runner
 	fed     *Federator
+	// db is runed's own store, read directly for the runed-local StoreFns
+	// (RecentSessions ← session_log). nil disables those tools (local-dev).
+	db *DB
 	// signal SIGUSR1s a running container by name (steer wakeup). Defaults
 	// to `docker kill --signal=SIGUSR1`; tests inject a fake so the prod
 	// steer path is exercised without docker.
@@ -62,10 +65,11 @@ type dockerRuntime struct {
 
 // NewDockerRuntime builds the production Runtime around the docker runner +
 // the federation forward to routd. fed forwards the agent's message tools
-// to routd /v1/turns/{turn_id}/* (the sole appender).
-func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, fed *Federator) Runtime {
+// to routd /v1/turns/{turn_id}/* (the sole appender); db backs the
+// runed-local read StoreFns (session_log).
+func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, fed *Federator, db *DB) Runtime {
 	return &dockerRuntime{
-		cfg: cfg, folders: folders, runner: container.DockerRunner{}, fed: fed,
+		cfg: cfg, folders: folders, runner: container.DockerRunner{}, fed: fed, db: db,
 		signal: func(name string) error {
 			return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
 		},
@@ -98,6 +102,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	stopTTL := d.armRunTTL(spec.RunTTL, spec.ContainerName)
 	defer stopTTL()
 	gated := d.gatedFns(ctx, spec)
+	store := d.storeFns(ctx, spec)
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
 		Name:      spec.ContainerName,
 		Prompt:    spec.MessageBatch,
@@ -108,6 +113,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		MessageID: spec.TurnID,
 		Sender:    spec.TriggerSender,
 		GatedFns:  gated,
+		StoreFns:  store,
 	})
 	return RunResult{
 		Outcome:      outcomeFor(out),
