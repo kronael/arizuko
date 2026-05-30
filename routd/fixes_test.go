@@ -33,10 +33,10 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, idem string) (string, 
 	}
 	return d.pid, nil
 }
-func (d *recDeliverer) React(_, _, _ string) error { d.reacts++; return nil }
-func (d *recDeliverer) Edit(_, _, _ string) error  { return nil }
-func (d *recDeliverer) Delete(_, _ string) error   { return nil }
-func (d *recDeliverer) Pin(_, _ string) error      { return nil }
+func (d *recDeliverer) React(_, _, _ string) error      { d.reacts++; return nil }
+func (d *recDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *recDeliverer) Delete(_, _ string) error        { return nil }
+func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.pid, nil
@@ -439,4 +439,97 @@ func statusOf(db *DB, id string) string {
 	var st string
 	db.SQL().QueryRow("SELECT status FROM messages WHERE id=?", id).Scan(&st)
 	return st
+}
+
+// TestRoutesReplaceScopedToSubtree: a folder-scoped caller replacing its own
+// routes must NOT wipe a sibling folder's routes. Before the fix
+// handleRoutesReplace ran a global DELETE FROM routes (spec 5/E § route
+// ownership): folder A's PUT erased folder B.
+func TestRoutesReplaceScopedToSubtree(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:write:own_group"}, folder: "a"})
+	// Seed folder B's route directly (a different owner put it there).
+	if _, err := db.AddRoute(core.Route{Seq: 1, Match: "platform=slack", Target: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	// Folder A replaces ITS routes.
+	rec := doJSON(t, h, "PUT", "/v1/routes", "",
+		[]apiv1.Route{{Seq: 2, Match: "platform=tg", Target: "a"}})
+	if rec.Code != 200 {
+		t.Fatalf("scoped replace = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	routes, err := db.Routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawA, sawB bool
+	for _, r := range routes {
+		switch r.Target {
+		case "a":
+			sawA = true
+		case "b":
+			sawB = true
+		}
+	}
+	if !sawB {
+		t.Fatal("scoped replace by folder a wiped folder b's route")
+	}
+	if !sawA {
+		t.Fatal("scoped replace did not insert folder a's route")
+	}
+}
+
+// TestRoutesListScopedToSubtree: a folder-scoped read token sees only its own
+// subtree's routes, not the whole table (info-leak fix; matches gated /me).
+func TestRoutesListScopedToSubtree(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:read:own_group"}, folder: "a"})
+	if _, err := db.AddRoute(core.Route{Seq: 1, Match: "m", Target: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddRoute(core.Route{Seq: 2, Match: "m", Target: "a/sub"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddRoute(core.Route{Seq: 3, Match: "m", Target: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "GET", "/v1/routes", "", nil)
+	if rec.Code != 200 {
+		t.Fatalf("list = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	var out []apiv1.Route
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range out {
+		if r.Target == "b" {
+			t.Fatalf("scoped list leaked sibling folder route: %q", r.Target)
+		}
+	}
+	if len(out) != 2 {
+		t.Fatalf("scoped list returned %d routes want 2 (a, a/sub)", len(out))
+	}
+}
+
+// TestScanMessagesAbortsOnRowError: a malformed row (a NULL in a column scanned
+// into a non-nullable Go type) must ABORT the scan with an error, not silently
+// skip the row and advance the cursor past it (silent message loss).
+func TestScanMessagesAbortsOnRowError(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	// sender_name is nullable in the schema but scanned into a plain string;
+	// a NULL there fails rows.Scan.
+	if _, err := db.SQL().Exec(`INSERT INTO messages
+		(id, chat_jid, sender, sender_name, content, timestamp, verb, status)
+		VALUES ('m1','slack:T/C/U','u',NULL,'hi','2026-01-01T00:00:00Z','message','sent')`); err != nil {
+		t.Fatal(err)
+	}
+	_, hi, err := db.NewMessages("")
+	if err == nil {
+		t.Fatal("scan over a malformed row returned nil error (silent skip)")
+	}
+	if hi != "" {
+		t.Fatalf("cursor advanced to %q past the unscanned row", hi)
+	}
 }

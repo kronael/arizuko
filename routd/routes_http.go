@@ -43,7 +43,8 @@ func fromWireRoute(r apiv1.Route) core.Route {
 }
 
 func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "routes:read", "routes:read:own_group") {
+	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
+	if !ok {
 		return
 	}
 	routes, err := s.db.Routes()
@@ -53,6 +54,9 @@ func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]apiv1.Route, 0, len(routes))
 	for _, rt := range routes {
+		if !ownsFolder(folder, rt.Target) { // scoped caller sees only its subtree
+			continue
+		}
 		out = append(out, toWireRoute(rt))
 	}
 	writeJSON(w, 200, out)
@@ -95,7 +99,7 @@ func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
 		}
 		routes = append(routes, fromWireRoute(rt))
 	}
-	n, err := s.db.SetRoutes(routes)
+	n, err := s.db.SetRoutes(folder, routes)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return

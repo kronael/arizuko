@@ -153,8 +153,8 @@ func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
 		return nil, since, err
 	}
 	defer rows.Close()
-	msgs, hi := scanMessages(rows, since)
-	return msgs, hi, rows.Err()
+	msgs, hi, err := scanMessages(rows, since)
+	return msgs, hi, err
 }
 
 // MessagesSince returns one chat's rows with timestamp > since.
@@ -167,8 +167,8 @@ func (d *DB) MessagesSince(chatJID, since string) ([]core.Message, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	msgs, _ := scanMessages(rows, since)
-	return msgs, rows.Err()
+	msgs, _, err := scanMessages(rows, since)
+	return msgs, err
 }
 
 // History returns the chat's rows older than before (or all when before is
@@ -192,15 +192,22 @@ func (d *DB) History(chatJID, before string, limit int) ([]core.Message, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	msgs, _ := scanMessages(rows, "")
+	msgs, _, err := scanMessages(rows, "")
+	if err != nil {
+		return nil, err
+	}
 	// reverse to chronological
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
-	return msgs, rows.Err()
+	return msgs, nil
 }
 
-func scanMessages(rows *sql.Rows, since string) ([]core.Message, string) {
+// scanMessages drains rows into core.Message values, tracking the high-water
+// mark from `since`. A row scan error ABORTS (returns the error) rather than
+// skipping the row: a silent skip past a malformed row would advance the
+// cursor over it and lose the message permanently.
+func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) {
 	hi := since
 	var out []core.Message
 	for rows.Next() {
@@ -210,7 +217,7 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string) {
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
 			&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
 			&turnID, &m.Status, &platformID, &m.ChatName); err != nil {
-			continue
+			return out, hi, err
 		}
 		m.FromMe = fromMe == 1
 		m.BotMsg = botMsg == 1
@@ -224,7 +231,7 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string) {
 		}
 		out = append(out, m)
 	}
-	return out, hi
+	return out, hi, rows.Err()
 }
 
 // MarkBotPlatformID stamps the platform id + sent status on an outbound row
@@ -258,8 +265,8 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 		return nil, err
 	}
 	defer rows.Close()
-	msgs, _ := scanMessages(rows, "")
-	return msgs, rows.Err()
+	msgs, _, err := scanMessages(rows, "")
+	return msgs, err
 }
 
 // TopicByID returns the topic of a stored row matched by id OR platform_id —
@@ -353,14 +360,23 @@ func (d *DB) AddRoute(r core.Route) (int64, error) {
 	return res.LastInsertId()
 }
 
-// SetRoutes replaces the whole route table, returning the new count.
-func (d *DB) SetRoutes(routes []core.Route) (int, error) {
+// SetRoutes replaces the routes whose target (sans #fragment) is `folder` or
+// under `folder/`, returning the new count. An empty folder (open mode)
+// replaces the whole table. Mirrors store.SetRoutes' folder-scoped delete so a
+// scoped caller never wipes another folder's routes.
+func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
 	tx, err := d.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec("DELETE FROM routes"); err != nil {
+	if folder == "" {
+		if _, err := tx.Exec("DELETE FROM routes"); err != nil {
+			return 0, err
+		}
+	} else if _, err := tx.Exec(
+		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
+		folder, folder, folder); err != nil {
 		return 0, err
 	}
 	for _, r := range routes {

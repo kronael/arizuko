@@ -110,7 +110,7 @@ func (failingRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOu
 
 func doSetRoutes(t *testing.T, db *DB, routes []core.Route) {
 	t.Helper()
-	if _, err := db.SetRoutes(routes); err != nil {
+	if _, err := db.SetRoutes("", routes); err != nil {
 		t.Fatalf("set routes: %v", err)
 	}
 }
