@@ -1078,6 +1078,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		optional map[string]bool
 		call     func(a map[string]string) (string, error) // id may be ""
 		idOut    bool                                       // true → JSON {ok,id}; false → "ok"
+		// record, when set, returns the text logged via recordOutbound after a
+		// successful call — for verbs that author new content on the agent's
+		// own feed (quote, repost) so the agent later sees its own IDs and
+		// threading/engagement track, same as post. nil for relay/reaction
+		// verbs: forward targets a foreign chat (recording under the active
+		// turn's key would mis-thread it); like/delete/edit mutate existing
+		// content rather than authoring new content.
+		record func(a map[string]string) string
 	}
 	regSocial := func(s socialAct) {
 		opts := make([]mcp.ToolOption, 0, len(s.args))
@@ -1112,6 +1120,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				id, err := s.call(vals)
 				if err != nil {
 					return toolMaybeUnsupported(err)
+				}
+				if s.record != nil {
+					recordOutbound(gated, db, jid, s.record(vals), id, folder)
 				}
 				if s.idOut {
 					return toolJSON(map[string]any{"ok": true, "id": id})
@@ -1162,8 +1173,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	regSocial(socialAct{
 		name:  "quote",
 		desc:  "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
-		args:  []string{"chatJid", "sourceMsgId", "comment"},
-		idOut: true,
+		args:   []string{"chatJid", "sourceMsgId", "comment"},
+		idOut:  true,
+		record: func(a map[string]string) string { return a["comment"] },
 		call: func(a map[string]string) (string, error) {
 			if gated.Quote == nil {
 				return "", errors.New("quote not configured")
@@ -1175,8 +1187,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	regSocial(socialAct{
 		name:  "repost",
 		desc:  "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
-		args:  []string{"chatJid", "sourceMsgId"},
-		idOut: true,
+		args:   []string{"chatJid", "sourceMsgId"},
+		idOut:  true,
+		record: func(a map[string]string) string { return "" },
 		call: func(a map[string]string) (string, error) {
 			if gated.Repost == nil {
 				return "", errors.New("repost not configured")
@@ -2041,10 +2054,12 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(db.ListTasks(folder, identity.Tier == 0))
 		})
 
-	if identity.Tier <= 2 {
+	if identity.Tier <= 1 {
 		// Unified ACL inspection. Reads acl rows scoped to folder; subsumes
 		// the legacy get_grants/set_grants surface. Writes go through
-		// dashd or `arizuko grant`. Tier 0-2 only.
+		// dashd or `arizuko grant`. Tier 0-1 only — AuthorizeStructural
+		// denies tier 2 (grant-management group), so registering it there
+		// only yields a tool that always errors.
 		srv.AddTool(mcp.NewTool("list_acl",
 			mcp.WithDescription("List acl rows for a folder. Returns rows where scope matches the folder. Audit what's permitted before changing. Tier 0-1 only."),
 			mcp.WithString("folder", mcp.Required()),

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1076,5 +1077,116 @@ func TestRouteTokens_IssueTierMatrix(t *testing.T) {
 	srv3 := buildMCPServer(gated, StoreFns{}, "a/b/c/d", rules, "")
 	if srv3 == nil {
 		t.Fatal("nil server")
+	}
+}
+
+// quote/repost author new content on the agent's own feed, so they must
+// record via recordOutbound (SetLastReply + PutMessage) like post —
+// otherwise the agent never sees its own feed-post IDs in context.
+// forward relays to a DIFFERENT chat and must NOT record under the active
+// turn's key (mis-thread + wrong engagement attribution).
+func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
+	dir := t.TempDir()
+	sock := dir + "/gated.sock"
+
+	var lastReplyIDs, putIDs []string
+	db := StoreFns{
+		CurrentTopic:        func(folder string) string { return "" },
+		DefaultFolderForJID: func(jid string) string { return "world" }, // route exists → authz passes
+		SetLastReply: func(jid, topic, replyID, folder string) error {
+			lastReplyIDs = append(lastReplyIDs, replyID)
+			return nil
+		},
+		PutMessage: func(m core.Message) error {
+			putIDs = append(putIDs, m.ReplyToID)
+			return nil
+		},
+	}
+	gated := GatedFns{
+		Quote:   func(jid, src, comment string) (string, error) { return "quote-id", nil },
+		Repost:  func(jid, src string) (string, error) { return "repost-id", nil },
+		Forward: func(src, target, comment string) (string, error) { return "forward-id", nil },
+	}
+	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	defer stop()
+
+	if p, e := callTool(t, sock, "quote", map[string]any{
+		"chatJid": "bluesky:feed", "sourceMsgId": "src-1", "comment": "hot take",
+	}); e != "" {
+		t.Fatalf("quote: %s", e)
+	} else if p["id"] != "quote-id" {
+		t.Fatalf("quote id = %v, want quote-id", p["id"])
+	}
+	if p, e := callTool(t, sock, "repost", map[string]any{
+		"chatJid": "mastodon:home", "sourceMsgId": "src-2",
+	}); e != "" {
+		t.Fatalf("repost: %s", e)
+	} else if p["id"] != "repost-id" {
+		t.Fatalf("repost id = %v, want repost-id", p["id"])
+	}
+	if p, e := callTool(t, sock, "forward", map[string]any{
+		"sourceMsgId": "src-3", "targetJid": "telegram:other",
+	}); e != "" {
+		t.Fatalf("forward: %s", e)
+	} else if p["id"] != "forward-id" {
+		t.Fatalf("forward id = %v, want forward-id", p["id"])
+	}
+
+	// quote + repost recorded their platform IDs; forward did not.
+	wantRecorded := []string{"quote-id", "repost-id"}
+	if !reflect.DeepEqual(lastReplyIDs, wantRecorded) {
+		t.Fatalf("SetLastReply ids = %v, want %v (forward must not record)", lastReplyIDs, wantRecorded)
+	}
+	if !reflect.DeepEqual(putIDs, wantRecorded) {
+		t.Fatalf("PutMessage replyTo ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
+	}
+}
+
+// list_acl is registered only for tiers 0-1: AuthorizeStructural denies
+// tier 2 (the grant-management group), so the registration guard and the
+// "Tier 0-1 only" description must agree — tier 2 must not see a tool it can
+// never call. Tier = min(count("/"), 3).
+func TestServeMCP_ListACL_TierGate(t *testing.T) {
+	cases := []struct {
+		folder string
+		tier   int
+		want   bool
+	}{
+		{"world", 0, true},
+		{"world/a", 1, true},
+		{"world/a/b", 2, false},
+		{"world/a/b/c", 3, false},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		sock := dir + "/gated.sock"
+		db := StoreFns{ListACL: func(string) []core.ACLRow { return nil }}
+		stop, err := ServeMCP(sock, GatedFns{}, db, c.folder, []string{"*"}, 0, "")
+		if err != nil {
+			t.Fatalf("ServeMCP %s: %v", c.folder, err)
+		}
+		conn, err := net.Dial("unix", sock)
+		if err != nil {
+			stop()
+			t.Fatalf("dial %s: %v", c.folder, err)
+		}
+		b, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": map[string]any{},
+		})
+		conn.Write(append(b, '\n'))
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		resp, err := bufio.NewReader(conn).ReadBytes('\n')
+		conn.Close()
+		stop()
+		if err != nil {
+			t.Fatalf("read %s: %v", c.folder, err)
+		}
+		got := strings.Contains(string(resp), `"list_acl"`)
+		if got != c.want {
+			t.Fatalf("tier %d (%s): list_acl registered=%v, want %v", c.tier, c.folder, got, c.want)
+		}
 	}
 }
