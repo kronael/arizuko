@@ -47,6 +47,7 @@ type Gateway struct {
 	channels []core.Channel
 	gatedFns ipc.GatedFns
 	storeFns ipc.StoreFns
+	audit    *audit.Audit
 
 	// lastTimestamp is persisted and queried as RFC3339Nano throughout to
 	// preserve nanosecond precision; seconds-only formats risk missed messages.
@@ -128,9 +129,13 @@ func (g *Gateway) context() context.Context {
 // need to invoke the same handlers the MCP face calls.
 func (g *Gateway) GatedFns() ipc.GatedFns { return g.gatedFns }
 
-// SetAudit injects the audit writer into GatedFns so MCP tool calls
-// emit system events. Call after New, before Run.
-func (g *Gateway) SetAudit(a *audit.Audit) { g.gatedFns.Audit = a }
+// SetAudit injects the audit writer so MCP tool calls emit system
+// events. Stored on g (not just gatedFns) because Run rebuilds gatedFns
+// from scratch; the literal there re-applies g.audit. Call before Run.
+func (g *Gateway) SetAudit(a *audit.Audit) {
+	g.audit = a
+	g.gatedFns.Audit = a
+}
 
 // resolveOrEngaged is the single renderer for "find the group that owns
 // this chat", shared by pollOnce and processGroupMessages. When the
@@ -217,7 +222,49 @@ func (g *Gateway) Run(ctx context.Context) error {
 	lc.SetEnqueue(func(jid string) { g.queue.EnqueueMessageCheck(jid) })
 	g.AddChannel(lc)
 
+	g.wireFns()
+
+	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),
+	// spawn each connector once to harvest its tool catalog, register
+	// through the broker chain. Spec 9/11 M6. Missing file is fine.
+	if conns, err := LoadConnectors(ctx, g.cfg.ProjectRoot); err != nil {
+		slog.Error("connectors: load failed", "err", err)
+	} else {
+		g.storeFns.Connectors = conns
+		if len(conns) > 0 {
+			slog.Info("connectors loaded", "tools", len(conns))
+		}
+	}
+
+	g.queue.SetProcessMessagesFn(g.processGroupMessages)
+	g.queue.SetHasPendingFn(func(jid string) bool {
+		return g.store.HasPendingMessages(jid, g.cfg.Name)
+	})
+	g.queue.SetFolderForJidFn(g.folderForJid)
+	g.queue.SetNotifyErrorFn(g.onCircuitBreakerOpen)
+
+	for _, ch := range g.channels {
+		if err := ch.Connect(ctx); err != nil {
+			slog.Error("channel connect failed",
+				"channel", ch.Name(), "err", err)
+			continue
+		}
+	}
+	slog.Info("channels connected", "count", len(g.channels))
+
+	g.recoverPendingMessages()
+	g.seedCodexDirs()
+	g.checkMigrationVersion()
+
+	return g.runLoop(ctx)
+}
+
+// wireFns builds the MCP-facing GatedFns/StoreFns tables. Run calls it
+// after AddChannel; the Audit writer comes from g.audit (set by SetAudit)
+// so the rebuild here can't silently drop per-tool-call audit emission.
+func (g *Gateway) wireFns() {
 	g.gatedFns = ipc.GatedFns{
+		Audit: g.audit,
 		SendMessage: func(jid, text string) (string, error) {
 			return g.sendMessageReply(jid, text, "", "")
 		},
@@ -785,21 +832,19 @@ func (g *Gateway) processGroupMessages(chatJid string) (bool, error) {
 	return true, nil
 }
 
+// groupBySender splits msgs into consecutive same-sender runs, preserving
+// causal order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the
+// whole slice by sender would reorder a conversation's turns.
 func groupBySender(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
 	var batches [][]core.Message
-	senderIdx := make(map[string]int)
-
-	for _, m := range msgs {
-		idx, seen := senderIdx[m.Sender]
-		if !seen {
-			idx = len(batches)
-			senderIdx[m.Sender] = idx
+	for i, m := range msgs {
+		if i == 0 || m.Sender != msgs[i-1].Sender {
 			batches = append(batches, nil)
 		}
-		batches[idx] = append(batches[idx], m)
+		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 	return batches
 }
@@ -925,22 +970,24 @@ func (g *Gateway) processWebTopics(
 	group core.Group, chatJid string, msgs []core.Message,
 ) (bool, error) {
 	ch := g.findChannelForJID(chatJid)
-	byTopic := make(map[string][]core.Message)
-	var topicOrder []string
-	for _, m := range msgs {
-		if _, seen := byTopic[m.Topic]; !seen {
-			topicOrder = append(topicOrder, m.Topic)
+	// Split into consecutive same-topic runs, preserving causal order:
+	// interleaved A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the
+	// whole backlog by topic would reorder turns across topics.
+	var batches [][]core.Message
+	for i, m := range msgs {
+		if i == 0 || m.Topic != msgs[i-1].Topic {
+			batches = append(batches, nil)
 		}
-		byTopic[m.Topic] = append(byTopic[m.Topic], m)
+		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 
-	if len(topicOrder) == 0 {
+	if len(batches) == 0 {
 		return false, nil
 	}
 
-	for _, topic := range topicOrder {
-		topicMsgs := byTopic[topic]
+	for _, topicMsgs := range batches {
 		last := topicMsgs[len(topicMsgs)-1]
+		topic := last.Topic
 
 		effectiveTopic := g.effectiveTopic(chatJid, topic)
 		parent := ""
@@ -1454,6 +1501,10 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 }
 
 func (g *Gateway) sendDocument(jid, path, name, caption, replyTo, threadID string) error {
+	if !g.canSendToJID(jid) {
+		slog.Debug("doc send suppressed by SEND_DISABLED_CHANNELS", "jid", jid)
+		return nil
+	}
 	ch := g.findChannelForJID(jid)
 	if ch == nil {
 		return fmt.Errorf("no channel for jid %s", jid)
@@ -1782,11 +1833,16 @@ func downloadFile(ctx context.Context, url, dest, secret string, maxBytes int64)
 	}
 	body := io.Reader(resp.Body)
 	if maxBytes > 0 {
-		body = io.LimitReader(resp.Body, maxBytes)
+		// +1 so a body exactly at the limit reads short and an
+		// oversized body trips n > maxBytes instead of truncating.
+		body = io.LimitReader(resp.Body, maxBytes+1)
 	}
-	_, cpErr := io.Copy(f, body)
+	n, cpErr := io.Copy(f, body)
 	if closeErr := f.Close(); cpErr == nil {
 		cpErr = closeErr
+	}
+	if cpErr == nil && maxBytes > 0 && n > maxBytes {
+		cpErr = fmt.Errorf("file exceeds %d bytes", maxBytes)
 	}
 	if cpErr != nil {
 		os.Remove(dest)
@@ -1827,10 +1883,13 @@ func transcribeOnce(ctx context.Context, baseURL, model, path, lang, mime string
 	}
 	req.URL.RawQuery = q.Encode()
 	resp, err := httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
 	var out struct {
 		Text string `json:"text"`
 	}
@@ -1927,7 +1986,9 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	// Default route: match the jid's post-colon room literal (or the full
 	// string when no platform prefix), target the group folder.
 	match := "room=" + core.JidRoom(jid)
-	g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: group.Folder})
+	if _, err := g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: group.Folder}); err != nil {
+		return fmt.Errorf("add route for %s: %w", group.Folder, err)
+	}
 	ensureGroupGitRepo(filepath.Join(g.cfg.GroupsDir, group.Folder))
 	return nil
 }
@@ -2180,12 +2241,16 @@ func (g *Gateway) observeWindow(folder string) (int, int) {
 		if core.ParseRouteTarget(r.Target).Folder != folder {
 			continue
 		}
+		if r.ObserveWindowMessages <= 0 && r.ObserveWindowChars <= 0 {
+			continue
+		}
 		if r.ObserveWindowMessages > 0 {
 			maxN = r.ObserveWindowMessages
 		}
 		if r.ObserveWindowChars > 0 {
 			maxC = r.ObserveWindowChars
 		}
+		break // first route with an override wins (spec 6/F)
 	}
 	return maxN, maxC
 }

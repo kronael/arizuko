@@ -22,6 +22,9 @@ func (g *Gateway) sendVoice(jid, text, voice, folder, threadID string) (string, 
 	if !g.canSendToJID(jid) {
 		return "", nil
 	}
+	if err := validateVoiceText(text); err != nil {
+		return "", err
+	}
 	if !g.cfg.TTSEnabled {
 		return "", chanlib.Unsupported("send_voice", "tts", "TTS_ENABLED=false on this instance")
 	}
