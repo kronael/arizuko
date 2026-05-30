@@ -1146,3 +1146,17 @@ flip removes proxyd's `X-User-Groups` injection.
   rerun. The TEST's own concurrency timing is racy, not the refresh code. Fix the
   test's synchronization (deterministic ordering) in the refine pass so it stops
   reddening the integration checkpoint.
+
+## routd extended-verb delivery gap (2026-05-30, flip-completeness, med)
+
+routd's `/v1/turns/{id}/*` callback surface (server.go:93-102) covers reply,
+send, document, history, like, edit, delete, pin, unpin, result — but MISSING
+`send_voice`, `post`, `quote`, `repost`, `forward`, `dislike`, `typing` (gated's
+ipc/ipc.go exposes all of them). routd's `Deliverer` likewise lacks SendVoice/
+Post/Quote/Repost/Forward/Dislike/Typing. At the cutover flip, an agent calling
+any of these → 404 on routd → voice replies, social-feed amplification (post/
+quote/repost for twitter/mastodon/reddit/bluesky), forward, typing indicators,
+and dislike-reactions all break. CLOSE before a feature-complete flip: port the
+verbs (add /v1/turns handlers + Deliverer methods, from ipc/ipc.go + the gated
+Channel/Socializer egress). Core conversation (text reply/send/document/react)
+works without it. Found scoping the channel-plane (ff8b3ca4).
