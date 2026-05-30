@@ -147,8 +147,9 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 		return Subject{}, ErrInvalidToken
 	}
 	// iat/nbf/exp are required claims; a missing time bound is a reject,
-	// never "no constraint" (no fail-open).
-	if c.Exp == 0 || c.Nbf == 0 {
+	// never "no constraint" (no fail-open). iat==0 would zero IssuedAt and
+	// defeat VerifyToken's retired-key forgery check, so reject it too.
+	if c.Exp == 0 || c.Nbf == 0 || c.Iat == 0 {
 		return Subject{}, ErrInvalidToken
 	}
 	now := time.Now().Unix()

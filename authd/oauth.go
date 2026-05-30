@@ -293,7 +293,11 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, return
 			return
 		}
 	}
-	refresh, err := o.a.IssueRefresh(sub, scope, "")
+	// Store the refresh subject in the SAME canonical (prefixed) form the
+	// access token carries — Refresh mints via MintForSubject(r.sub), which
+	// signs the sub verbatim, so a bare sub here would drop the user: prefix
+	// on every refreshed access token.
+	refresh, err := o.a.IssueRefresh(claimSub, scope, "")
 	if err != nil {
 		slog.Error("issue refresh", "sub", sub, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
