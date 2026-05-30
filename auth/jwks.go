@@ -110,10 +110,14 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 		// validate alg (go-oidc warns against using it directly). Without
 		// this, a poisoned/MITM'd JWKS serving an `oct` key + an HS256 token
 		// would verify — alg/key-type confusion. The pre-parse rejects any
-		// non-ES256 token, mirroring the local path.
-		if _, perr := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256}); perr != nil {
+		// non-ES256 token, mirroring the local path. We also lift the signing
+		// kid out of the parsed header so the retired-key forgery check below
+		// fires on the remote path too (without it, kid="" disables the check).
+		jws, perr := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
+		if perr != nil || len(jws.Signatures) != 1 {
 			return Subject{}, ErrInvalidToken
 		}
+		kid = jws.Signatures[0].Header.KeyID
 		payload, err = ks.remote.VerifySignature(context.Background(), token)
 	} else {
 		payload, kid, err = ks.verifyLocal(token)
@@ -128,8 +132,10 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 	// Retired-key forgery window: a key keeps serving after retirement so
 	// tokens it signed BEFORE retirement still verify, but a token whose iat
 	// is after retired_at must have been minted by a thief holding the retired
-	// private key. Reject it (local path only; remote verifiers rely on the
-	// short access TTL as the revocation horizon — specs/5/1 § Revocation).
+	// private key. Reject it. retiredAt is populated on the local path
+	// (NewKeySetWithRetirement); on the remote path it is empty unless the
+	// verifier was built with retirement times, so the kid lookup is a no-op
+	// for the common RemoteKeySet case — but when present, it fires uniformly.
 	if retired, ok := ks.retiredAt[kid]; ok && sub.IssuedAt.After(retired) {
 		return Subject{}, ErrInvalidToken
 	}

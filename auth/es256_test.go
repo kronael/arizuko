@@ -218,3 +218,61 @@ func TestMintNarrowerWildcardParentCoversVerb(t *testing.T) {
 		t.Fatalf("tasks:* should cover tasks:write: %v", err)
 	}
 }
+
+// typClaim decodes the minted JWS payload and returns its "typ" claim — the
+// spec-mandated token-kind claim, distinct from the JWS header "typ":"JWT".
+func typClaim(t *testing.T, tok string) string {
+	t.Helper()
+	var c TokenClaims
+	if err := json.Unmarshal(decodeJWTPayload(t, tok), &c); err != nil {
+		t.Fatal(err)
+	}
+	return c.Typ
+}
+
+// Each mint mode stamps the spec typ claim: MintForSubject carries whatever typ
+// the caller sets ("user"/"service"); MintNarrower forces "downscoped".
+func TestTypClaimPerMintMode(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+
+	user, err := k.MintForSubject([]string{"tasks:read"},
+		TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"tasks:read"}}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := typClaim(t, user); got != "user" {
+		t.Fatalf("user mint typ = %q want user", got)
+	}
+
+	svc, err := k.MintForSubject([]string{"tasks:read"},
+		TokenClaims{Sub: "service:timed", Typ: "service", Scope: []string{"tasks:read"}}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := typClaim(t, svc); got != "service" {
+		t.Fatalf("service mint typ = %q want service", got)
+	}
+
+	down, err := k.MintNarrower([]string{"tasks:read", "tasks:write"},
+		TokenClaims{Sub: "user:1", Scope: []string{"tasks:read"}}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := typClaim(t, down); got != "downscoped" {
+		t.Fatalf("downscope typ = %q want downscoped (forced by MintNarrower)", got)
+	}
+}
+
+// The typ claim is reserved, so it never leaks into Subject.Extra on round-trip.
+func TestTypNotFoldedIntoExtra(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+	tok, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"a:read"}}, time.Minute)
+	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+	sub, err := VerifyToken(tok, ks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sub.Extra["typ"]; ok {
+		t.Fatal("typ is a reserved claim; it must not fold into Extra")
+	}
+}

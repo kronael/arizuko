@@ -37,6 +37,7 @@ var (
 // land in Extra.
 type TokenClaims struct {
 	Sub       string            `json:"sub"`
+	Typ       string            `json:"typ,omitempty"` // "user" | "service" | "downscoped" (claim, not JWS header)
 	Scope     []string          `json:"scope,omitempty"`
 	Aud       string            `json:"aud,omitempty"`
 	Iss       string            `json:"iss"`
@@ -51,7 +52,7 @@ type TokenClaims struct {
 // reservedClaims are the standard JWT fields TokenClaims owns; every other
 // top-level claim is an Extra entry (the marshal/unmarshal boundary).
 var reservedClaims = map[string]struct{}{
-	"sub": {}, "scope": {}, "aud": {}, "iss": {}, "iat": {}, "nbf": {}, "exp": {},
+	"sub": {}, "typ": {}, "scope": {}, "aud": {}, "iss": {}, "iat": {}, "nbf": {}, "exp": {},
 	"jti": {}, "parent_jti": {},
 }
 
@@ -206,5 +207,6 @@ func (k *SigningKey) MintNarrower(parentScope []string, c TokenClaims, ttl time.
 	if len(c.Scope) == 0 {
 		c.Scope = append([]string(nil), parentScope...)
 	}
+	c.Typ = "downscoped"
 	return k.Sign(c, ttl)
 }

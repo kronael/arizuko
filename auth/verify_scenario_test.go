@@ -8,12 +8,14 @@ package auth
 // RemoteKeySet path is covered end-to-end in authd/scenario_test.go.
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -263,9 +265,9 @@ func TestVerifyGarbageDoesNotPanic(t *testing.T) {
 		"only-one-segment",
 		"a.b", // two segments
 		strings.Repeat("A", 5000),
-		good[:len(good)-5],                          // truncated signature
-		good[:len(good)/2],                          // truncated mid-token
-		"eyJhbGciOiJFUzI1NiJ9." + good,              // mangled header prefix
+		good[:len(good)-5],             // truncated signature
+		good[:len(good)/2],             // truncated mid-token
+		"eyJhbGciOiJFUzI1NiJ9." + good, // mangled header prefix
 		base64.RawURLEncoding.EncodeToString([]byte("{}")) + ".x.y",
 	}
 	for _, g := range garbage {
@@ -359,5 +361,37 @@ func TestVerifyHTTPBearerExtraction(t *testing.T) {
 	}
 	if _, err := mk("Bearer " + good); err != nil {
 		t.Fatalf("valid Bearer must verify, got %v", err)
+	}
+}
+
+// Remote-path retired-key forgery: a token whose iat is AFTER a kid's retired_at
+// could only have been freshly minted by a holder of the retired private key (a
+// thief). The check must fire on the RemoteKeySet (backend) path too, not just
+// the local path — the kid is lifted from the pre-parsed JWS header. specs/5/1
+// § Revocation + jwks.go retired-key forgery window.
+func TestRemotePathRejectsRetiredKidForgery(t *testing.T) {
+	k, _ := NewSigningKey("kretired")
+	// Serve k's public half as the JWKS so RemoteKeySet.VerifySignature accepts
+	// the signature — the forgery is in the iat-vs-retired_at relation, not the
+	// signature.
+	jwks, _ := PublicJWKS(k)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jwks)
+	}))
+	defer ts.Close()
+
+	remote, err := FetchKeys(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject the retirement time: the kid was retired one minute ago.
+	remote.retiredAt = map[string]time.Time{"kretired": time.Now().Add(-time.Minute)}
+
+	// A token minted NOW (iat after retired_at) on the remote path must be
+	// rejected — the forgery window is closed even when verifying via RemoteKeySet.
+	forged, _ := k.Sign(TokenClaims{Sub: "user:thief", Scope: []string{"a:read"}}, time.Minute)
+	if _, err := VerifyToken(forged, remote); err != ErrInvalidToken {
+		t.Fatalf("remote path must reject a token minted after retired_at, got %v", err)
 	}
 }
