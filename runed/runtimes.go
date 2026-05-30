@@ -212,6 +212,7 @@ func (d *dockerRuntime) gatedFns(ctx context.Context, spec RunSpec) ipc.GatedFns
 			_, err := d.fed.Result(ctx, spec.TurnID, spec.Token, "turn-"+spec.TurnID, routdv1.TurnResult{
 				TurnID: spec.TurnID, SessionID: t.SessionID, Status: t.Status,
 				Result: t.Result, Error: t.Error,
+				CallerSub: t.CallerSub, Models: modelCosts(t.Models),
 			})
 			return err
 		},
@@ -234,4 +235,19 @@ func platformID(r any) string {
 		return sr.PlatformID
 	}
 	return ""
+}
+
+// modelCosts maps the agent's per-model usage (ipc.ModelUsage) onto routd's
+// cost-log shape (routdv1.ModelCost). routd persists Input/Output/CostCents;
+// the agent's CacheRead/CacheWrite fold into CostCents upstream and are not a
+// cost_log column. nil/empty in → nil out (the cost-less ant path).
+func modelCosts(in map[string]ipc.ModelUsage) map[string]routdv1.ModelCost {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]routdv1.ModelCost, len(in))
+	for model, u := range in {
+		out[model] = routdv1.ModelCost{Input: u.Input, Output: u.Output, CostCents: u.CostCents}
+	}
+	return out
 }

@@ -143,30 +143,35 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 			}
 			continue
 		}
-		// Idle folder, under cap: register the live run now (still holding the
-		// lock) so a racing Run sees the folder busy.
+		// Idle folder, under cap: resolve the effective session id (resume or
+		// fresh) and register the live run now (still holding the lock) so a
+		// racing Run that steers in sees the real session id, not the empty
+		// req.SessionID a fresh spawn would otherwise carry until spawn() mints
+		// one.
 		runID := "run_" + randHex(8)
-		m.active[folder] = &folderRun{runID: runID, sessionID: req.SessionID}
+		sessionID := req.SessionID
+		if sessionID == "" {
+			sessionID = newUUID()
+		}
+		m.active[folder] = &folderRun{runID: runID, sessionID: sessionID}
 		m.activeCount++
 		m.mu.Unlock()
-		return m.spawn(ctx, req, runID), nil
+		return m.spawn(ctx, req, runID, sessionID), nil
 	}
 }
 
 // spawn runs the full execution-session envelope for one fresh spawn. The
 // live-run slot is already registered (under the Run lock) and is freed by
 // endRun on every exit path.
-func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID string) runedv1.RunOutcome {
+func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sessionID string) runedv1.RunOutcome {
 	folder := string(req.Folder)
 	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, safeFolder(folder), time.Now().UnixMilli())
 
-	// 1. resolve session id (resume or fresh).
-	sessionID := req.SessionID
-	if sessionID == "" {
-		sessionID = newUUID()
-	}
+	// session id (resume or fresh) is resolved by Run under the lock and
+	// stamped into the live-run slot before this spawn starts, so a racing
+	// steer sees the real id.
 
-	// 2. broker the downscoped capability token (spec 5/P § brokering).
+	// broker the downscoped capability token (spec 5/P § brokering).
 	want := intersect(m.scopes, req.CapabilityScopes)
 	jws, jti, expiresAt, berr := m.broker.Broker(ctx, req.CallerSub, folder, want, m.runTTL)
 	if berr != nil {
@@ -174,7 +179,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID strin
 		return runedv1.RunOutcome{RunID: runID, Outcome: runedv1.OutcomeError, Error: "broker: " + berr.Error()}
 	}
 
-	// 3. session_log + spawns rows.
+	// session_log + spawns rows.
 	logID, _ := m.db.RecordSession(folder, sessionID)
 	_ = m.db.CreateSpawn(Spawn{
 		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
@@ -184,7 +189,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID strin
 	_ = m.db.RecordToken(jti, runID, "service:runed", folder, string(scopeJSON), expiresAt)
 	_ = m.db.StartSpawn(runID, sessionID)
 
-	// 4-7. run the envelope. RegisterSteer wires the steer callback into the
+	// run the envelope. RegisterSteer wires the steer callback into the
 	// live-run slot once the Runtime's container + IPC are up, so a
 	// concurrent POST /v1/runs steers into it instead of spawning afresh.
 	res := m.runtime.Run(ctx, RunSpec{

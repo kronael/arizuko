@@ -2,6 +2,10 @@ package runed
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -10,6 +14,8 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
+	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -115,5 +121,46 @@ func TestExitCodeMessageCountFlow(t *testing.T) {
 	}
 	if res.Outcome != runedv1.OutcomeError {
 		t.Fatalf("outcome=%q want error", res.Outcome)
+	}
+}
+
+// TestSubmitTurnForwardsCost: the agent's submit_turn carries per-model token
+// usage + caller_sub on ipc.TurnResult; the federation forward MUST land them
+// on routd's TurnResult so cost_log can persist (Bug 5 — runtimes.go dropped
+// Models + CallerSub, so cost breakdown never reached routd).
+func TestSubmitTurnForwardsCost(t *testing.T) {
+	var got routdv1.TurnResult
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &got)
+		_ = json.NewEncoder(w).Encode(routdv1.TurnResultAck{Recorded: true})
+	}))
+	defer srv.Close()
+
+	rt := &dockerRuntime{
+		cfg: &core.Config{}, folders: &groupfolder.Resolver{},
+		fed: NewFederator(srv.URL), signal: func(string) error { return nil },
+	}
+	gated := rt.gatedFns(context.Background(), RunSpec{TurnID: "turn-1", Token: "tok"})
+
+	err := gated.SubmitTurn("acme/eng", ipc.TurnResult{
+		TurnID: "turn-1", SessionID: "s-1", Status: "success", Result: "done",
+		CallerSub: "user:42",
+		Models: map[string]ipc.ModelUsage{
+			"claude-opus-4-8": {Input: 1200, Output: 300, CacheRead: 80, CacheWrite: 40, CostCents: 17},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SubmitTurn: %v", err)
+	}
+	if got.CallerSub != "user:42" {
+		t.Fatalf("caller_sub=%q want user:42 (dropped)", got.CallerSub)
+	}
+	mc, ok := got.Models["claude-opus-4-8"]
+	if !ok {
+		t.Fatalf("models dropped: %+v", got.Models)
+	}
+	if mc.Input != 1200 || mc.Output != 300 || mc.CostCents != 17 {
+		t.Fatalf("model cost = %+v want input=1200 output=300 cost_cents=17", mc)
 	}
 }

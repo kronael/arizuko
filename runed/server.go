@@ -64,6 +64,14 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
 	return ok
 }
 
+// handleRun is the routd→runed contract (POST /v1/runs). Service-to-service
+// only: routd calls it with its service token. Bearer-only by design — unlike
+// the operator/agent surfaces (DELETE /v1/runs, GET /v1/sessions) which gate
+// per-scope (runs:kill / sessions:read), runed is not reachable by agent or
+// human tokens (internal docker-network service), so a valid service bearer is
+// the gate. (When authd grows service:routd in serviceGrants at cutover, this
+// can tighten to a runs:run scope check — the asymmetry is intentional, not a
+// gap.)
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return

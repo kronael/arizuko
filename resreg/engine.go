@@ -515,13 +515,19 @@ func Apply(ctx context.Context, db *sql.DB, manifestVersion int64, force bool, m
 		if !mentioned {
 			continue // resource absent from manifest → untouched
 		}
-		if r.HasScope() {
-			for _, scope := range r.manifestScopes(rows) {
+		scopes := r.manifestScopes(rows)
+		if r.HasScope() && len(scopes) > 0 {
+			// Scoped resource with rows: prune only the mentioned scopes.
+			for _, scope := range scopes {
 				if err := r.DeleteScope(ctx, tx, scope); err != nil {
 					return current, err
 				}
 			}
 		} else if err := r.DeleteAll(ctx, tx); err != nil {
+			// Global resource, OR a scoped resource mentioned with an empty
+			// list: an explicitly-present empty list is the operator declaring
+			// "no rows for this resource" — wipe the whole table. (A resource
+			// absent from the manifest is already skipped above and untouched.)
 			return current, err
 		}
 		if err := r.InsertAll(ctx, tx, rows); err != nil {
@@ -730,16 +736,21 @@ func (r *Resource) Diff(db *sql.DB, manifestRows any) (ResourceDelta, error) {
 }
 
 // scopeFilter returns the set of folder scopes the manifest mentions for
-// a scoped resource, or nil for a scope-less resource (nil == every live
-// row is in scope, wholesale rebuild). A scoped resource with zero
-// manifest rows returns an empty (non-nil) set → nothing is in scope, so
-// no Remove fires, matching apply (scoped DELETE touches no folder).
+// a scoped resource, or nil for "every live row is in scope" (wholesale
+// rebuild). nil fires when the resource is scope-less, OR when a scoped
+// resource is mentioned with zero rows — an explicitly-present empty list
+// wipes the whole resource (matching apply's DeleteAll fallback), so plan
+// must list every live row as a Remove.
 func (r *Resource) scopeFilter(manifestRows any) map[string]bool {
 	if !r.HasScope() {
 		return nil
 	}
+	scopes := r.manifestScopes(manifestRows)
+	if len(scopes) == 0 {
+		return nil
+	}
 	set := map[string]bool{}
-	for _, s := range r.manifestScopes(manifestRows) {
+	for _, s := range scopes {
 		set[s] = true
 	}
 	return set

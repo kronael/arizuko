@@ -285,6 +285,64 @@ func TestApply_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestApply_EmptyScopedListClears: a manifest mentioning a scoped resource
+// with an EMPTY list wipes all its rows — the declarative way to remove a
+// scoped resource entirely. A resource ABSENT from the manifest is left
+// untouched (Bug 7 — an empty list produced zero scopes, so DeleteScope
+// never ran and stale rows survived; absent must still be a no-op).
+func TestApply_EmptyScopedListClears(t *testing.T) {
+	db, _ := freshEngine(t)
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"},
+		TestRow{Kind: "b", Name: "z", Value: "3"},
+	)
+
+	// Manifest MENTIONS testrows with an empty list → clears every row.
+	v, err := Apply(context.Background(), db, 0, false, map[string]any{
+		"testrows": []TestRow{},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Apply empty: %v", err)
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("rows after empty-list apply = %d, want 0 (empty list clears)", n)
+	}
+
+	// Re-seed, then apply a manifest that does NOT mention testrows at all →
+	// the resource is untouched.
+	insertRaw(t, db, TestRow{Kind: "a", Name: "x", Value: "1"})
+	if _, err := Apply(context.Background(), db, v, false, map[string]any{}, nil); err != nil {
+		t.Fatalf("Apply absent: %v", err)
+	}
+	db.QueryRow(`SELECT COUNT(*) FROM testrows`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("rows after absent-from-manifest apply = %d, want 1 (untouched)", n)
+	}
+}
+
+// TestPlan_EmptyScopedListMatchesApply: plan for an empty-list scoped
+// resource must report every live row as a Remove — plan and apply must
+// agree (Bug 7: scopeFilter used to return an empty set, hiding the wipe).
+func TestPlan_EmptyScopedListMatchesApply(t *testing.T) {
+	db, r := freshEngine(t)
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"},
+		TestRow{Kind: "b", Name: "z", Value: "3"},
+	)
+	d, err := r.Diff(db, []TestRow{})
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if len(d.Remove) != 2 {
+		t.Fatalf("Remove = %v, want both live rows (empty list wipes all)", d.Remove)
+	}
+	if !d.Changed() {
+		t.Error("Changed() = false, want true (a wipe is a change)")
+	}
+}
+
 func TestApply_Force(t *testing.T) {
 	db, _ := freshEngine(t)
 	// version is 0; manifest claims 99; without force → error

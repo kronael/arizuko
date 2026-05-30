@@ -98,6 +98,41 @@ func TestSteerWhenLive(t *testing.T) {
 	}
 }
 
+// TestFreshRunSteerSeesResolvedSessionID: for a FRESH run (empty
+// req.SessionID), a concurrent Run that steers into the live spawn must see
+// the resolved (minted) session id on the ack — not the empty req.SessionID
+// (Bug 6 — the slot used to store req.SessionID, registered BEFORE spawn
+// minted the id, so a racing steer reported steered:true with an empty id).
+func TestFreshRunSteerSeesResolvedSessionID(t *testing.T) {
+	wired := make(chan struct{})
+	release := make(chan struct{})
+	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+		spec.RegisterSteer(func(string) bool { return true })
+		close(wired)
+		<-release
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "minted-by-runtime"}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+
+	done := make(chan struct{})
+	go func() {
+		// fresh run: no SessionID — the Manager must mint one before registering.
+		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
+		close(done)
+	}()
+	<-wired
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "second"})
+	if !out.Steered {
+		t.Fatalf("second Run steered=%v want true", out.Steered)
+	}
+	if out.SessionID == "" {
+		t.Fatalf("steered ack carries empty session id — slot registered before spawn resolved one (Bug 6)")
+	}
+	close(release)
+	<-done
+}
+
 // TestConcurrencyCap: with MaxConcurrent=2 and 3 distinct busy folders, at
 // most 2 containers run at once; the 3rd waits for a slot (spec 5/P §
 // MAX_CONCURRENT cap + waiting queue).
