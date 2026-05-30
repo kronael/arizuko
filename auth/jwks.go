@@ -83,6 +83,14 @@ func VerifyToken(token string, ks *KeySet) (Subject, error) {
 	var payload []byte
 	var err error
 	if ks.remote != nil {
+		// Pin ES256 BEFORE RemoteKeySet.VerifySignature, which does NOT
+		// validate alg (go-oidc warns against using it directly). Without
+		// this, a poisoned/MITM'd JWKS serving an `oct` key + an HS256 token
+		// would verify — alg/key-type confusion. The pre-parse rejects any
+		// non-ES256 token, mirroring the local path.
+		if _, perr := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256}); perr != nil {
+			return Subject{}, ErrInvalidToken
+		}
 		payload, err = ks.remote.VerifySignature(context.Background(), token)
 	} else {
 		payload, err = ks.verifyLocal(token)
