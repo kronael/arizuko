@@ -169,7 +169,7 @@ func loadConfig() (config, error) {
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),
-		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
+		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://routd:8080"),
 		listenAddr:   chanlib.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
 	}

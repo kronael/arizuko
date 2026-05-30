@@ -2,7 +2,7 @@ image = "arizuko:latest"
 entrypoint = ["emaid"]
 
 [environment]
-ROUTER_URL = "http://gated:8080"
+ROUTER_URL = "http://routd:8080"
 EMAIL_IMAP_HOST = "${EMAIL_IMAP_HOST}"
 EMAIL_SMTP_HOST = "${EMAIL_SMTP_HOST}"
 EMAIL_ACCOUNT = "${EMAIL_ACCOUNT}"
