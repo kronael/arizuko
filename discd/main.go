@@ -8,6 +8,15 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs discd actually implements. Forward/Quote*/
+// Repost/Dislike/Post return honest Unsupported hints (see bot.go) and are
+// intentionally absent. (*Quote IS implemented via reply, so it stays.)
+// The cap↔impl consistency test in main_test.go guards this from drifting.
+var caps = map[string]bool{
+	"send_text": true, "send_file": true, "send_voice": true, "typing": true, "fetch_history": true,
+	"edit": true, "quote": true, "delete": true, "pin": true, "like": true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -17,10 +26,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"discord:"},
-		Caps: map[string]bool{
-			"send_text": true, "send_file": true, "typing": true, "fetch_history": true,
-			"edit": true, "quote": true, "delete": true, "pin": true,
-		},
+		Caps:          caps,
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {

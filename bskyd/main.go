@@ -8,6 +8,15 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs bskyd implements. Forward/Dislike/Edit
+// return honest Unsupported hints (no Bluesky primitive / appview rejects
+// edits). The cap↔impl consistency test guards this.
+var caps = map[string]bool{
+	"send_text": true, "send_file": true, "fetch_history": true,
+	"post": true, "like": true, "delete": true,
+	"quote": true, "repost": true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -17,11 +26,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"bluesky:"},
-		Caps: map[string]bool{
-			"send_text": true, "send_file": true, "fetch_history": true,
-			"post": true, "like": true, "delete": true,
-			"quote": true, "repost": true,
-		},
+		Caps:          caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			bc, err := newBskyClient(cfg)
 			if err != nil {

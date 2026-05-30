@@ -140,6 +140,68 @@ func (NoSocial) Edit(EditRequest) error                 { return ErrUnsupported 
 func (NoSocial) Pin(PinRequest) error                   { return ErrUnsupported }
 func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported }
 
+// gatedVerbProbes maps each capability key that chanreg gates on to a probe
+// that invokes the corresponding verb. The cap key is the one the consumer
+// (chanreg/httpchan.go) checks — note `fwd` gates Forward and `pin` gates
+// both Pin and Unpin. `like`/`post` are NOT gated, so they're omitted.
+var gatedVerbProbes = map[string]func(BotHandler) error{
+	// Use a .png name so adapters that only accept image blobs (bskyd) take
+	// their real branch instead of an extension-default Unsupported.
+	"send_file":     func(b BotHandler) error { return b.SendFile("", "x.png", "x.png", "", "", "") },
+	"send_voice":    func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
+	"delete":        func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
+	"edit":          func(b BotHandler) error { return b.Edit(EditRequest{}) },
+	"pin":           func(b BotHandler) error { return b.Pin(PinRequest{}) },
+	"fwd":           func(b BotHandler) error { _, e := b.Forward(ForwardRequest{}); return e },
+	"quote":         func(b BotHandler) error { _, e := b.Quote(QuoteRequest{}); return e },
+	"repost":        func(b BotHandler) error { _, e := b.Repost(RepostRequest{}); return e },
+	"dislike":       func(b BotHandler) error { return b.Dislike(DislikeRequest{}) },
+	"fetch_history": func(b BotHandler) error { return probeHistory(b) },
+}
+
+func probeHistory(b BotHandler) error {
+	hp, ok := b.(HistoryProvider)
+	if !ok {
+		return ErrUnsupported // no FetchHistory method ⇒ effectively unsupported
+	}
+	_, e := hp.FetchHistory(HistoryRequest{})
+	return e
+}
+
+// isStubVerb reports whether a verb is an unconditional Unsupported stub.
+// Stubs return ErrUnsupported as their first statement (no field deref); real
+// impls deref platform clients and panic on a zero-value handler. We treat a
+// panic or any non-Unsupported error as "real impl".
+func isStubVerb(b BotHandler, probe func(BotHandler) error) (stub bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			stub = false // touched a nil client ⇒ real impl
+		}
+	}()
+	return errors.Is(probe(b), ErrUnsupported)
+}
+
+// CapImplReport returns human-readable drift between an adapter's advertised
+// capability map and its actual verb implementations: a gated cap advertised
+// for a stub verb ("advertised but unsupported"), or a real verb left
+// unadvertised ("implemented but not advertised"). Only gated caps are
+// checked. Call with a zero-value or minimal handler; real impls are detected
+// by their panic/error on nil platform clients. Empty slice ⇒ consistent.
+func CapImplReport(b BotHandler, caps map[string]bool) []string {
+	var out []string
+	for cap, probe := range gatedVerbProbes {
+		stub := isStubVerb(b, probe)
+		advertised := caps[cap]
+		switch {
+		case advertised && stub:
+			out = append(out, fmt.Sprintf("%s: advertised but verb returns Unsupported", cap))
+		case !advertised && !stub:
+			out = append(out, fmt.Sprintf("%s: verb implemented but not advertised", cap))
+		}
+	}
+	return out
+}
+
 // NoPinSupport is a mixin for adapters whose platform lacks message
 // pinning. Embed alongside the BotHandler implementation when the
 // adapter implements other social verbs but not pin/unpin.

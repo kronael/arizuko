@@ -8,6 +8,15 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs mastd implements. Forward/Quote/Dislike
+// return honest Unsupported hints (no Mastodon primitive); SendFile media
+// upload is not wired. The cap↔impl consistency test guards this.
+var caps = map[string]bool{
+	"send_text": true, "fetch_history": true,
+	"post": true, "like": true, "delete": true,
+	"repost": true, "edit": true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -17,11 +26,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"mastodon:"},
-		Caps: map[string]bool{
-			"send_text": true, "fetch_history": true,
-			"post": true, "like": true, "delete": true,
-			"repost": true, "edit": true,
-		},
+		Caps:          caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			mc, err := newMastoClient(cfg)
 			if err != nil {

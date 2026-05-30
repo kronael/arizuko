@@ -11,6 +11,17 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// caps advertises the gated verbs slakd implements. Forward/Quote/Repost
+// return honest Unsupported hints (Slack has no such primitive). pin covers
+// Pin AND Unpin. dislike is a thin like(👎) delegation (true downvote absent,
+// but the verb works). fetch_history is explicitly false — no history API
+// wired. The cap↔impl consistency test guards this.
+var caps = map[string]bool{
+	"send_text": true, "send_file": true, "fetch_history": false,
+	"typing": true, "edit": true, "like": true, "delete": true, "dislike": true, "post": true,
+	"pin": true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -20,11 +31,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"slack:"},
-		Caps: map[string]bool{
-			"send_text": true, "send_file": true, "fetch_history": false,
-			"typing": true, "edit": true, "like": true, "delete": true, "dislike": true, "post": true,
-			"pin": true,
-		},
+		Caps:          caps,
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {

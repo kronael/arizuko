@@ -129,6 +129,54 @@ func TestNoPinSupport(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// CapImplReport — cap↔impl drift detection
+// ---------------------------------------------------------------------------
+
+// fakeBot has all-Unsupported verbs (via NoSocial/NoVoiceSender/NoFileSender)
+// except the ones we override below to be "real" (return a non-Unsupported
+// error). It is NOT a HistoryProvider, so fetch_history probes as a stub.
+type fakeBot struct {
+	NoSocial
+	NoVoiceSender
+	NoFileSender
+}
+
+func (fakeBot) Send(SendRequest) (string, error) { return "", nil }
+func (fakeBot) Typing(string, bool)              {}
+
+// realDislikeBot overrides Dislike with a real impl (non-Unsupported error).
+type realDislikeBot struct{ fakeBot }
+
+func (realDislikeBot) Dislike(DislikeRequest) error { return errors.New("network") }
+
+func TestCapImplReport_AdvertisedStubFlagged(t *testing.T) {
+	// Advertise dislike on an all-stub bot → must be flagged.
+	drift := CapImplReport(fakeBot{}, map[string]bool{"dislike": true})
+	if len(drift) == 0 {
+		t.Fatal("advertising a stub verb should report drift")
+	}
+	if !strings.Contains(strings.Join(drift, "\n"), "dislike: advertised but verb returns Unsupported") {
+		t.Errorf("drift = %v", drift)
+	}
+}
+
+func TestCapImplReport_RealUnadvertisedFlagged(t *testing.T) {
+	// Real dislike impl but cap not advertised → must be flagged.
+	drift := CapImplReport(realDislikeBot{}, map[string]bool{})
+	joined := strings.Join(drift, "\n")
+	if !strings.Contains(joined, "dislike: verb implemented but not advertised") {
+		t.Errorf("expected dislike unadvertised drift, got %v", drift)
+	}
+}
+
+func TestCapImplReport_ConsistentIsEmpty(t *testing.T) {
+	// All-stub bot advertising nothing gated → no drift.
+	if drift := CapImplReport(fakeBot{}, map[string]bool{}); len(drift) != 0 {
+		t.Errorf("all-stub + no caps should be clean, got %v", drift)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // writeBotResult — structured UnsupportedError encoding (non-Post verbs)
 // ---------------------------------------------------------------------------
 

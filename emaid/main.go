@@ -9,6 +9,12 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs emaid implements. Email is immutable and
+// not a feed, so delete/edit/forward/quote/repost/dislike and file/voice
+// uploads return honest Unsupported hints. The cap↔impl consistency test
+// guards this.
+var caps = map[string]bool{"send_text": true, "fetch_history": true}
+
 func main() {
 	cfg := loadConfig()
 	// Spec 8/17 tier-3 DKIM is pre-wired but unimplemented. Surface the
@@ -27,7 +33,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"email:"},
-		Caps:          map[string]bool{"send_text": true, "fetch_history": true},
+		Caps:          caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			db, err := openDB(cfg.DataDir)
 			if err != nil {

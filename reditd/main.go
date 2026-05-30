@@ -10,6 +10,15 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs reditd implements. Reddit has a true
+// downvote so dislike is native. Forward/Quote/Repost return honest
+// Unsupported hints; SendFile (3-step image upload) is not wired. post is
+// real (text submit). The cap↔impl consistency test guards this.
+var caps = map[string]bool{
+	"send_text": true, "fetch_history": true, "post": true,
+	"like": true, "dislike": true, "edit": true, "delete": true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -19,10 +28,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"reddit:"},
-		Caps: map[string]bool{
-			"send_text": true, "fetch_history": true,
-			"like": true, "dislike": true, "edit": true, "delete": true,
-		},
+		Caps:          caps,
 		Start: func(ctx context.Context, router *chanlib.RouterClient) (http.Handler, func(), error) {
 			rc, err := newRedditClient(cfg)
 			if err != nil {
