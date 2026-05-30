@@ -53,36 +53,33 @@
       <h2>agents as data</h2>
       <p>
         An agent is a folder of files the LLM loop reads. The persona is a
-        file. Memory is a file. Skills are directories. Config is a file you
-        can diff, review in a PR, and roll back with <code>git revert</code>.
+        file. Memory lives on disk. Skills are directories. Config is a file
+        you can diff, review in a PR, and roll back with <code>git revert</code>.
         The org chart is the folder tree.
       </p>
       <p>
-        Each folder is a context boundary: <code>corp/sales</code>
-        doesn&rsquo;t see <code>corp/eng/sre</code>&rsquo;s memory. Change
-        the persona by editing a file; the next session picks it up. Add a
-        skill by dropping a directory. Everything an agent knows or can do
-        is readable, inspectable, and replaceable.
+        Each folder is a wall: <code>corp/sales</code> doesn&rsquo;t see
+        <code>corp/eng/sre</code>&rsquo;s memory. Change the persona by editing
+        a file; the next session picks it up. Add a skill by dropping a
+        directory. You can read everything an agent knows, audit it, and
+        swap it out.
       </p>
       <p>
-        Agents need structure the same way humans do &mdash; not bureaucracy,
-        but enough to know what they can reach, what their job is, and who
-        they answer to. Minimality and orthogonality provide that: one concept
-        per primitive, nothing hidden, everything composable. A system simple
-        enough for a human to reason about is simple enough for an agent to
-        manage. That&rsquo;s the design principle arizuko is built around.
+        Agents need structure the same way people do &mdash; enough to know
+        what they can reach, what their job is, and who they answer to. Small
+        parts with one job each give them that: nothing hidden, parts that
+        fit together. A system a person can reason about is one an agent can
+        manage. That rule drives the whole design.
       </p>
 
       <h2>why not a shared assistant?</h2>
       <ul>
-        <li><strong>Wrong replies land in the thread</strong> &mdash; one
-          assistant reads sales, support, and ops history from the same
-          memory.</li>
-        <li><strong>Old context changes new work</strong> &mdash; unrelated
-          threads stay attached unless somebody clears them.</li>
+        <li><strong>One memory mixes everything</strong> &mdash; sales,
+          support, and ops history feed the same replies.</li>
+        <li><strong>Old threads steer new work</strong> &mdash; unrelated
+          context stays attached unless somebody clears it.</li>
         <li><strong>Your system lives in Slack, email, and files</strong> &mdash;
-          one shared assistant sees one thread, not the whole operating
-          surface.</li>
+          one shared assistant sees one thread, not all of it.</li>
         <li><strong>Failures are hard to inspect</strong> &mdash; there&rsquo;s
           no file to diff, no route to trace, and no clean rollback.</li>
       </ul>
@@ -93,17 +90,18 @@
 
       <h2>how it works</h2>
       <p>
-        A folder is an agent: <code>PERSONA.md</code>, a <code>skills/</code>
-        set, memory files, and an ACL row. When a message arrives, a Docker
-        container starts for the folder and connects to <code>gated</code>
-        via MCP over a unix socket. Every tool call goes through that socket;
-        the host controls what the agent can reach. Every platform operation
-        is an MCP tool and a REST endpoint &mdash; no separate agent API.
-        All state is in SQLite WAL; the container is stateless.
+        A folder is an agent: <code>PERSONA.md</code>, <code>skills/</code>,
+        memory files, and an ACL row. When a message arrives, arizuko starts
+        a Docker container for that folder. The container connects to
+        <code>gated</code> over MCP on a unix socket. Every tool call goes
+        through that socket; the host controls what the agent can reach. Every
+        platform operation is an MCP tool and a REST endpoint &mdash; no
+        separate agent API. All state is in SQLite WAL; the container is
+        stateless.
       </p>
       <p>
-        The stack is sized for agent teams: dozens of messages a day, not
-        web-scale traffic. Go binaries, Docker Compose, SQLite WAL,
+        The stack is for agent teams: dozens of messages a day, not
+        consumer-scale traffic. Go binaries, Docker Compose, SQLite WAL,
         <code>proxyd</code> signing identity headers &mdash; no Auth0, no
         Redis, no Vault.
       </p>
@@ -117,43 +115,43 @@
           file, a memory file, and a skill set. Add a folder, get an agent.
         </li>
         <li>
-          <strong>Personality, skills, and memory.</strong> Each folder has a
+          <strong>Persona, skills, and memory.</strong> Each folder has a
           <code>PERSONA.md</code> (voice and instructions), a
           <code>skills/</code> set, and memory that accumulates across weeks.
           An agent that helped close a deal in January remembers it in March.
         </li>
         <li>
           <strong>Topics that fork.</strong> Spin a side-conversation off any
-          thread &mdash; the new topic carries the parent&rsquo;s conversation
-          as its starting context. Parallel workstreams, no context loss.
+          thread &mdash; the new topic starts with the parent conversation as
+          context. Parallel workstreams, no context loss.
         </li>
         <li>
-          <strong>Agents that commission agents.</strong> A root agent can
-          create a child group on first contact, assign routes, and schedule
-          tasks &mdash; using the same MCP tools a human operator would invoke.
-          Deploy a per-customer support agent automatically &mdash; no automation
-          logic to write.
+          <strong>Agents that create agents.</strong> A root agent can make a
+          child group on first contact, assign routes, and schedule tasks
+          &mdash; with the same MCP tools a human operator would invoke. Stand
+          up a per-customer support agent on first contact, no automation code
+          to write.
         </li>
       </ul>
 
       <h2>ingest</h2>
       <ul>
         <li>
-          <strong>Any surface works.</strong> Drop files via WebDAV, send a
-          message in chat, email the agent&rsquo;s address, or POST to a
-          webhook &mdash; they all arrive as messages in the same folder. No
-          import wizard, no format conversion.
+          <strong>Files, chat, email, webhooks &mdash; one inbox.</strong>
+          Drop files via WebDAV, send a message in chat, email the
+          agent&rsquo;s address, or POST to a webhook. They all arrive as
+          messages in the same folder. No import wizard, no format conversion.
         </li>
         <li>
-          <strong>Agents grow their own knowledge.</strong> When an agent
-          researches something mid-conversation, it writes the findings to its
-          own <code>facts/</code>. The next session, it already knows. No admin
-          step, no sync job.
+          <strong>Agents write what they learn to <code>facts/</code>.</strong>
+          When an agent researches something mid-conversation, it saves the
+          findings to its own <code>facts/</code>. The next session, it already
+          knows. No admin step, no sync job.
         </li>
         <li>
-          <strong>Every system can feed it.</strong> Issue a webhook token for
-          any folder and pipe in alerts, tickets, or CRM events &mdash; they
-          arrive as messages and the agent decides what to retain.
+          <strong>Any system can post into a folder.</strong> Issue a webhook
+          token and pipe in alerts, tickets, or CRM events &mdash; they arrive
+          as messages and the agent decides what to keep.
         </li>
       </ul>
 
@@ -163,8 +161,8 @@
           <strong>Agents talk to each other.</strong> Route a message from
           support to eng, delegate work to a child, escalate to a parent.
           <code>delegate_group</code>, <code>escalate_group</code>, and
-          <code>observe_group</code> are MCP tools built around the same
-          coordination protocols a human operator would use.
+          <code>observe_group</code> are the same MCP tools a human operator
+          uses.
         </li>
         <li>
           <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
@@ -195,9 +193,9 @@
           web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
           webhook relay &mdash; the adapter owns the connection and surfaces
           events (threads, reactions, voice messages) that webhooks
-          can&rsquo;t express. Also: Slack (<code>slakd</code>, AI assistant
-          pane), Reddit (<code>reditd</code>), X/Twitter (<code>twitd</code>),
-          LinkedIn (<code>linkd</code>).
+          can&rsquo;t express. Adapters also cover Slack (<code>slakd</code>,
+          AI assistant pane), Reddit (<code>reditd</code>), X/Twitter
+          (<code>twitd</code>), and LinkedIn (<code>linkd</code>).
         </li>
         <li>
           <strong>Public chat and webhook surfaces.</strong> Issue a route
@@ -217,10 +215,10 @@
       <h2>operate</h2>
       <ul>
         <li>
-          <strong>MCP over a unix socket.</strong> Every agent connects to
-          <code>gated</code> via a MCP unix socket bridged into the container.
+          <strong>MCP over a unix socket.</strong> Each agent connects to
+          <code>gated</code> over an MCP unix socket bridged into the container.
           Tool calls go through that socket; the host controls what the agent
-          can reach. Side effects are auditable, revocable, and scoped to the
+          can reach. You can audit, revoke, or scope every side effect by the
           folder&rsquo;s grant rules.
         </li>
         <li>
@@ -231,10 +229,11 @@
           rest). No editing <code>.env</code> by hand to rewire a route.
         </li>
         <li>
-          <strong>Egress sandboxing.</strong> <code>crackbox</code> wraps each
-          container with a per-folder hostname allowlist, HTTPS via CONNECT,
-          and DNS filtering. The agent can only reach what you explicitly
-          permit. See <a href="components/crackbox.html">crackbox</a>.
+          <strong>Egress sandboxing.</strong>
+          <a href="components/crackbox.html"><code>crackbox</code></a> wraps
+          each container with a per-folder hostname allowlist, HTTPS via
+          CONNECT, and DNS filtering. The agent reaches only what you
+          explicitly permit.
         </li>
       </ul>
 
@@ -263,7 +262,7 @@
           <td>Isolated teams, egress control</td>
         </tr>
         <tr>
-          <td>Product recipe</td>
+          <td>Prebuilt recipe</td>
           <td>Pre-seeded config</td>
           <td><a href="products/slack-team/">slack-team</a>,
             <a href="products/reality/">reality</a> &mdash; 5 minutes</td>
@@ -291,7 +290,7 @@ arizuko run demo
 # systemd unit: arizuko_demo (sudo systemctl status arizuko_demo)
 
 # talk to the default group from a browser
-arizuko token issue demo chat   # prints a /chat/&lt;token&gt;/ URL
+arizuko token demo issue chat main   # prints a /chat/&lt;token&gt;/ URL
 
 # or from a script &mdash; same endpoint, JSON in / JSON out
 curl -X POST https://example.com/chat/&lt;token&gt;/ \
@@ -301,7 +300,7 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
       <h2>go deeper</h2>
       <ul>
         <li>
-          <a href="products/">products</a> &mdash; curated configurations:
+          <a href="products/">products</a> &mdash; ready-made setups:
           Slack team agent, support bot, content pipeline, PM board, and more.
         </li>
         <li>
@@ -311,8 +310,8 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
           <code>timed</code>, plus the channel adapters.
         </li>
         <li>
-          <a href="concepts/">concepts</a> &mdash; the primitives one
-          page each: topics, scopes, routing, grants, auth, jid, tasks,
+          <a href="concepts/">concepts</a> &mdash; one page for each
+          primitive: topics, scopes, routing, grants, auth, jid, tasks,
           secrets, personas, skills, onboarding, slack pane, route tokens,
           webdav, voice.
         </li>
