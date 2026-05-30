@@ -60,10 +60,20 @@ func main() {
 		verify = keysetVerifier{ks: ks}
 	}
 
-	// runed client: routd's service token authenticates POST /v1/runs.
-	svcToken := os.Getenv("ROUTD_SERVICE_TOKEN")
+	// runed client: routd's service token authenticates POST /v1/runs. The
+	// HMAC→ES256 cutover exchanges AUTHD_SERVICE_KEY for an authd-minted
+	// service:routd ES256 token at boot and refreshes it (auth.ServiceToken);
+	// authd's issuer-pin would 401 the static ROUTD_SERVICE_TOKEN. When
+	// AUTHD_URL or AUTHD_SERVICE_KEY is unset, fall back to the static env
+	// (additive, local-dev safe).
 	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
-	runedClient := runedv1.NewClient(runedURL, svcToken, runTimeout)
+	var runedClient *runedv1.Client
+	if ts, err := auth.ServiceToken(authdURL, "routd", os.Getenv("AUTHD_SERVICE_KEY")); err == nil {
+		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runTimeout)
+		slog.Info("routd service-token bootstrap via authd", "authd", authdURL)
+	} else {
+		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
+	}
 
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runTimeout,

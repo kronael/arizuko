@@ -35,7 +35,6 @@ func main() {
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
 	routdURL := envOr("ROUTD_URL", "http://routd:8080")
-	svcToken := os.Getenv("RUNED_SERVICE_TOKEN")
 	runTTL := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
 	db, err := runed.Open(cfg.StoreDir)
@@ -60,11 +59,21 @@ func main() {
 		verify = keysetVerifier{ks: ks}
 	}
 
-	// Broker: downscope a capability token per spawn from authd. runed
-	// mints nothing. Unset AUTHD_URL → no brokering (local-dev).
+	// Broker: downscope a capability token per spawn from authd. runed mints
+	// nothing; the downscope PARENT is runed's own service:runed token. The
+	// HMAC→ES256 cutover exchanges AUTHD_SERVICE_KEY for an authd-minted,
+	// auto-refreshing service:runed token (auth.ServiceToken); authd's
+	// issuer-pin would 401 the static RUNED_SERVICE_TOKEN. Fall back to the
+	// static env when AUTHD_SERVICE_KEY is unset; no AUTHD_URL → no brokering
+	// (local-dev).
 	var broker runed.Broker
 	if authdURL != "" {
-		broker = runed.NewHTTPBroker(authdURL, svcToken)
+		if ts, terr := auth.ServiceToken(authdURL, "runed", os.Getenv("AUTHD_SERVICE_KEY")); terr == nil {
+			broker = runed.NewHTTPBrokerWithSource(authdURL, ts.Token)
+			slog.Info("runed service-token bootstrap via authd", "authd", authdURL)
+		} else {
+			broker = runed.NewHTTPBroker(authdURL, os.Getenv("RUNED_SERVICE_TOKEN"))
+		}
 	} else {
 		broker = runed.NewStaticBroker("", "dev")
 	}

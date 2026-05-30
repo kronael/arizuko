@@ -12,10 +12,12 @@ import (
 
 // Client is a thin HTTP client for runed's /v1/* surface. routd holds one
 // to call POST /v1/runs. The bearer is a service token (routd's own
-// service:routd token); the caller sets it via Token.
+// service:routd token); the caller sets the static Token, or a refreshing
+// TokenFn (auth.ServiceToken) for the boot-exchange cutover path.
 type Client struct {
 	BaseURL string
-	Token   string
+	Token   string                                // static fallback bearer
+	TokenFn func(context.Context) (string, error) // live service token; wins when non-nil
 	HTTP    *http.Client
 }
 
@@ -28,6 +30,25 @@ func NewClient(baseURL, token string, timeout time.Duration) *Client {
 		Token:   token,
 		HTTP:    &http.Client{Timeout: timeout},
 	}
+}
+
+// NewClientWithSource is NewClient with a refreshing token source
+// (auth.ServiceToken) instead of a static bearer — the HMAC→ES256 cutover
+// path. tokenFn is consulted per call; the TokenSource caches + refreshes.
+func NewClientWithSource(baseURL string, tokenFn func(context.Context) (string, error), timeout time.Duration) *Client {
+	return &Client{
+		BaseURL: baseURL,
+		TokenFn: tokenFn,
+		HTTP:    &http.Client{Timeout: timeout},
+	}
+}
+
+// bearer returns the live token (TokenFn) when configured, else the static one.
+func (c *Client) bearer(ctx context.Context) (string, error) {
+	if c.TokenFn != nil {
+		return c.TokenFn(ctx)
+	}
+	return c.Token, nil
 }
 
 // Run posts a RunRequest to POST /v1/runs and blocks until the run
@@ -44,8 +65,12 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
 	if err != nil {
 		return out, err
 	}
+	tok, err := c.bearer(ctx)
+	if err != nil {
+		return out, err
+	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return out, err
