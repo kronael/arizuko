@@ -24,7 +24,7 @@
     <p>slakd is the Slack channel adapter. It receives Slack workspace events over the HTTP Events API (proxyd forwards <code>/slack/events</code> to slakd) and posts outbound via the Slack Web API. From gated&rsquo;s point of view it is a normal channel adapter with JID prefix <code>slack:</code> and per-message JIDs of the form <code>slack:&lt;workspace&gt;/&lt;kind&gt;/&lt;id&gt;</code> where <code>kind</code> is <code>channel</code>, <code>dm</code>, or <code>group</code>.</p>
 
     <h2>Why it exists</h2>
-    <p>Slack is the canonical team chat surface and the only platform arizuko targets that ships an &ldquo;Agents &amp; AI Apps&rdquo; assistant pane &mdash; a dedicated sidebar with suggested prompts and a conversation title. Talking to Slack directly (rather than through a SaaS gateway) is what lets slakd implement that pane natively and ride the same trust boundary as every other adapter.</p>
+    <p>Slack is where many teams already work, and it&rsquo;s the only platform arizuko targets that ships an &ldquo;Agents &amp; AI Apps&rdquo; assistant pane &mdash; a sidebar with suggested prompts and a conversation title. Talking to Slack directly, rather than through a SaaS gateway, is what lets slakd drive that pane and verify the same <code>CHANNEL_SECRET</code> signature as every other adapter.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -38,7 +38,7 @@
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
       gated
-        |  POST /v1/send         (callback to slakd)
+        |  POST /send           (callback to slakd)
         v
       slakd     (chat.postMessage / files.* / reactions.add)
         |

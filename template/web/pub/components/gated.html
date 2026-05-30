@@ -21,14 +21,14 @@
     <h1>gated</h1>
 
     <h2>What it is</h2>
-    <p>gated is the gateway daemon. One Go binary that owns <code>messages.db</code>, runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
+    <p>gated is the gateway daemon &mdash; one Go binary that owns <code>messages.db</code>. It runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
 
     <p>It is the only daemon that runs SQL migrations. Other daemons connect to the same SQLite file but never write to the schema.</p>
 
     <h2>Why it exists</h2>
     <p>Adapters (Telegram, Slack, WhatsApp, web&hellip;) need somewhere to post inbound messages and pick up outbound replies. Agent containers need an MCP socket to call tools and submit turns. A scheduler needs a place to drop future messages. All those needs collapse to one writer with one schema.</p>
 
-    <p>Without gated nothing has a backend. Adapters cannot register, the poll loop never fires, no container ever spawns, the dashboard reads stale rows, and the schema drifts the moment two daemons each try to migrate it. gated centralises the writes so the rest of the system can stay thin.</p>
+    <p>Without gated nothing has a backend. Adapters can&rsquo;t register, the poll loop never fires, no container spawns. And the schema drifts the moment two daemons each try to migrate it &mdash; one writer with one schema is what keeps the other daemons thin.</p>
 
     <h2>The loop</h2>
     <p>On startup gated opens <code>$DATA_DIR/store/messages.db</code> (<code>DATA_DIR</code> defaults to the working directory), runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
@@ -60,7 +60,7 @@
     <p>Hard deps: a writable data dir, Docker (for the container runner), and <code>$CONTAINER_IMAGE</code> built and present locally.</p>
 
     <h2>Cold-tier resources</h2>
-    <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that single struct the engine serves four surfaces that cannot drift, because they all read the same fields:</p>
+    <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that one struct the engine serves four endpoints; they read the same fields, so they can&rsquo;t fall out of sync:</p>
     <ul>
       <li>REST CRUD at <code>/v1/&lt;name&gt;</code> &mdash; list, create, update, delete.</li>
       <li>MCP resources for agents.</li>

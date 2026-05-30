@@ -25,7 +25,7 @@
     <h1>crackbox</h1>
 
     <h2>What it is</h2>
-    <p>crackbox is an egress sandbox: a small forward proxy you put in front of an untrusted workload and tell which hosts it may reach. Everything off the allowlist is silently blocked. It runs an AI agent, a CI script, or any other command with a tight list of reachable hosts and no other way out.</p>
+    <p>crackbox is an egress sandbox: a small forward proxy you put in front of an untrusted workload and tell which hosts it may reach. Everything off the allowlist is silently blocked. Wrap an AI agent, a CI script, or any other command in a tight list of reachable hosts and no other way out.</p>
 
     <h2>Why it exists</h2>
     <p>Agents and build scripts want the network. You want them to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points them. Browser permission prompts don't fit a headless workload. Per-process iptables is fiddly. A network-level egress firewall doesn't know which process is calling. crackbox sits in the one place that does: the proxy the workload talks through.</p>
@@ -124,7 +124,7 @@ path = ""                      # registry persistence; empty = RAM-only</code></
     <pre><code>import "github.com/kronael/arizuko/crackbox/pkg/admin"   // Registry, API
 import "github.com/kronael/arizuko/crackbox/pkg/proxy"   // forward + transparent
 import "github.com/kronael/arizuko/crackbox/pkg/client"  // admin HTTP client</code></pre>
-    <p>The CLI is the primary surface. The library is exported but not promised stable across point releases; pin the import path to a tag.</p>
+    <p>The CLI is the primary interface. The library is exported but not promised stable across point releases; pin the import path to a tag.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

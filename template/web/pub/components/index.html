@@ -22,7 +22,7 @@
     <h1>components</h1>
     <p class="dim back"><a href="../">arizuko</a> &rsaquo; components</p>
 
-    <p class="lede">A directory of every daemon in an arizuko deployment. Core daemons ship in every instance. Channel adapters plug platforms in; an instance runs as many as it needs. Each row links to that daemon&rsquo;s page &mdash; some pages are still being written.</p>
+    <p class="lede">Every daemon in an arizuko deployment. Core daemons ship in every instance. Channel adapters plug platforms in; an instance runs as many as it needs. Each row links to that daemon&rsquo;s page.</p>
 
     <h2>Core</h2>
     <table>
@@ -31,7 +31,7 @@
       </thead>
       <tbody>
         <tr><td class="name"><a href="../components/gated.html">gated</a></td><td>gateway daemon &mdash; HTTP API, MCP host, message loop, owns the SQLite schema</td></tr>
-        <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> surface, MCP endpoint</td></tr>
+        <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
         <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
         <tr><td class="name"><a href="../components/dashd.html">dashd</a></td><td>operator dashboard &mdash; browse groups, grants, messages in a browser</td></tr>
         <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>onboarding daemon &mdash; admission queue, invite tokens, OAuth handshake</td></tr>

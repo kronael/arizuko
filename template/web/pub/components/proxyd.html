@@ -48,7 +48,7 @@
 
     <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>[[proxyd_route]]</code> blocks in <code>template/services/*.toml</code>. Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a TOML; no edit to <code>main.go</code>.</p>
 
-    <p>Two paths get bespoke treatment in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route by token-segment presence; webd hashes the token against <code>route_tokens</code>, anonymous callers run through a per-token in-memory bucket sized by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
+    <p>Two paths skip the plain prefix match and get their own handling in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route on the token segment: webd hashes the token against <code>route_tokens</code>, and anonymous callers run through a per-token in-memory rate bucket keyed by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
 
     <h2>Standalone usage</h2>
     <p>proxyd needs three things to run on its own: a SQLite store (for the route table, sessions, and route-token lookup), an HMAC secret shared with every backend, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
@@ -67,7 +67,7 @@ export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"
     <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. Auth failures show up as 401 with a <code>Set-Cookie: auth_return=&lt;path&gt;</code> and a 303 to <code>/auth/login</code>; route-token rate trips return 429.</p>
 
     <h2>Runtime route mutation</h2>
-    <p>Routes are mutable at runtime through a small REST surface. <code>GET /v1/routes</code> lists them; <code>POST /v1/routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
+    <p>Routes are mutable at runtime through a small set of REST endpoints. <code>GET /v1/routes</code> lists them; <code>POST /v1/routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
 
     <p>The same operations are exposed as MCP tools (<code>routes.list</code>, <code>routes.get</code>, <code>routes.create</code>, <code>routes.update</code>, <code>routes.delete</code>) on webd&rsquo;s <code>/mcp</code> bridge. One handler in <code>proxyd/resource.go</code> serves both faces &mdash; agent and operator see the same shape.</p>
 

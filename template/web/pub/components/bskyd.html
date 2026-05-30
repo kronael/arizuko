@@ -24,7 +24,7 @@
     <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to gated, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
 
     <h2>Why it exists</h2>
-    <p>Bluesky is the AT Protocol social surface. There is no streaming API for arbitrary accounts &mdash; the firehose is consumer-wide and too noisy &mdash; so bskyd polls <code>listNotifications</code> and the auth-session refresh flow. Writing posts means signing record creates against the PDS, which is what bskyd handles for the agent.</p>
+    <p>Bluesky is the AT Protocol social network. There is no streaming API for one account &mdash; the firehose is network-wide and too noisy &mdash; so bskyd polls <code>listNotifications</code> and refreshes its auth session on a loop. Posting means signing record creates against the PDS, which is what bskyd does for the agent.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -35,7 +35,7 @@
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
       gated
-        |  POST /v1/send         (callback to bskyd)
+        |  POST /send           (callback to bskyd)
         v
       bskyd     (com.atproto.repo.createRecord on app.bsky.feed.*)
         |

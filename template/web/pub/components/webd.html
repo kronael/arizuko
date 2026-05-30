@@ -21,12 +21,12 @@
     <h1>webd</h1>
 
     <h2>What it is</h2>
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>), serves the public chat widget at <code>/chat/&lt;token&gt;/</code> + the fire-and-forget webhook ingest at <code>/hook/&lt;token&gt;</code> plus the authed operator panel at <code>/panel/&lt;folder&gt;</code>, and pushes per-turn agent output to browsers over Server-Sent Events. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events. It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
 
     <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
     <h2>Why it exists</h2>
-    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, fan agent frames out to the page, and look like one more channel to gated. Splitting that out into a dedicated adapter keeps gated free of HTML and keeps every chat surface (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
+    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to gated. Splitting that into its own adapter keeps gated free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
 
     <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
 

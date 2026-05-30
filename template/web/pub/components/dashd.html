@@ -21,14 +21,14 @@
     <h1>dashd</h1>
 
     <h2>What it is</h2>
-    <p>dashd is the operator dashboard: an HTMX server that renders pages over <code>messages.db</code> and allow-listed memory files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on a fixed list of markdown files under each group&rsquo;s folder.</p>
+    <p>dashd is the operator dashboard: an HTMX server that renders pages over <code>messages.db</code> and a fixed set of markdown files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on that markdown list under each group&rsquo;s folder.</p>
 
     <p>Routes live at <code>/dash/*</code>. The portal at <code>/dash/</code> links to status, tasks, activity, groups, memory, and profile pages, each rendered server-side as one HTML page plus HTMX partials for live sub-views.</p>
 
     <h2>Why it exists</h2>
-    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works but does not scale to non-engineers and does not give a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
+    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
-    <p>dashd owns no tables of its own. It is an aggregator: it reads from <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, and <code>auth_users</code> &mdash; tables owned by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/V-platform-api.md</code> is to migrate those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs; dashd becomes pure client.</p>
+    <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/V-platform-api.md</code> is to move those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs, leaving dashd a pure client.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -48,10 +48,10 @@
 
     <p>dashd reads identity from signed headers set by <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
 
-    <p>Two write surfaces today. <strong>Memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, <code>episodes/</code>; reads capped at 1&nbsp;MiB; path joiner blocks symlink escape. <strong>TIER 1 admin</strong> — routes editor, groups CRUD, per-user secrets — gated by the admin check above.</p>
+    <p>Two write paths today. The <strong>memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, and <code>episodes/</code>. Reads are capped at 1&nbsp;MiB, and the path joiner blocks any symlink that escapes the group folder. <strong>TIER 1 admin</strong> &mdash; routes editor, groups CRUD, per-user secrets &mdash; sits behind the admin check above.</p>
 
     <h2>Standalone usage</h2>
-    <p>dashd needs a SQLite file and a port. The TIER 1 write surface refuses requests without a signed admin identity; read views still need proxyd&rsquo;s front gate to be safe on the public internet.</p>
+    <p>dashd needs a SQLite file and a port. The TIER 1 write paths refuse requests without a signed admin identity; read views still need proxyd&rsquo;s front gate to be safe on the public internet.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export DASH_PORT=:8080
@@ -78,7 +78,7 @@ export INSTANCE_NAME=demo
 
     <p>HTMX partials (<code>tasks/x/list</code>, <code>activity/x/recent</code>) feed live sub-views.</p>
 
-    <p>TIER 1 admin surfaces (admin auth + CSRF):</p>
+    <p>TIER 1 admin pages (admin auth + CSRF):</p>
 
     <ul>
       <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>

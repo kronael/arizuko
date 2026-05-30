@@ -35,7 +35,7 @@
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
       gated
-        |  POST /v1/send         (callback to whapd)
+        |  POST /send           (callback to whapd)
         v
       whapd     (sock.sendMessage / reactMessage / delete)
         |

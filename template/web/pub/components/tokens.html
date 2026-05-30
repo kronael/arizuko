@@ -26,7 +26,7 @@
     <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>
 
     <h2>Why it exists</h2>
-    <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform mint surface, and a uniform revoke step.</p>
+    <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform way to mint it, and a uniform way to revoke it.</p>
 
     <h2>The two surfaces</h2>
     <pre><code>GET  /chat/&lt;token&gt;/            &rarr; chat widget (HTML)
@@ -51,7 +51,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
     <h2>Mint authorization</h2>
-    <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 mints for any folder; tier 1 mints for self and descendants; tier 2 mints for self only; tier 3+ cannot mint. The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+    <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 through 2 mint for their own folder and its descendants; tier 3 and above cannot mint at all (<code>authorizeMint</code> in <code>ipc/ipc.go</code>). The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
 
     <h2>Rate limits</h2>
     <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>

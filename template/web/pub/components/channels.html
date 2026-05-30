@@ -27,26 +27,30 @@
     <h2>What they are</h2>
     <p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>gated</code> on the right.</p>
 
-    <p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code>. Outbound: <code>gated</code> calls back to the adapter&rsquo;s <code>POST /v1/send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
+    <p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code> at <code>/v1/messages</code>. Outbound: <code>gated</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
 
     <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
+
+    <h2>Why they exist</h2>
+    <p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>gated</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>gated</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>gated</code> doesn&rsquo;t change.</p>
 
     <h2>The shared shape</h2>
     <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
 
     <ul>
       <li><code>Channel</code> &mdash; <code>Name</code>, <code>Connect</code>, <code>Send</code>, <code>SendFile</code>, <code>SendVoice</code>, <code>Owns</code>, <code>Typing</code>, <code>Disconnect</code>. The minimum every adapter implements.</li>
-      <li><code>Socializer</code> &mdash; <code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>. Implemented where the platform has the verb; sentinel error otherwise.</li>
-      <li><code>Suggester</code> / <code>Namer</code> &mdash; pane controls. Suggested-prompt buttons and conversation title. Implemented today by slakd; others can opt in.</li>
+      <li><code>Socializer</code> &mdash; <code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code>. Implemented where the platform has the verb; sentinel error otherwise.</li>
+      <li><code>Suggester</code> / <code>Namer</code> &mdash; suggested-prompt buttons and the conversation title. Implemented today by slakd; others can opt in.</li>
       <li><code>HistoryFetcher</code> &mdash; optional. Pull older messages from the platform API when the agent asks for context.</li>
     </ul>
 
-    <p>Every adapter serves the same HTTP surface:</p>
+    <p>Every adapter serves the same HTTP endpoints (mounted by <code>chanlib</code>):</p>
 
     <ul>
       <li><code>GET /health</code> &mdash; 200 when connected to the platform, 503 when the link is down (QR unscanned, stream dropped, token expired).</li>
-      <li><code>POST /v1/send</code> &mdash; <code>gated</code> hands the adapter an outbound row to deliver.</li>
-      <li><code>POST /v1/connect</code> / <code>POST /v1/disconnect</code> &mdash; lifecycle for the upstream session.</li>
+      <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>gated</code> hands the adapter an outbound row to deliver.</li>
+      <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the <code>Socializer</code> verbs, one route each.</li>
+      <li><code>GET /v1/history</code> &mdash; mounted only when the adapter implements <code>HistoryFetcher</code>.</li>
     </ul>
 
     <h2>How they fit</h2>
@@ -58,7 +62,7 @@
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
       gated
-        |  POST /v1/send         (callback to adapter)
+        |  POST /send            (callback to adapter)
         v
       &lt;channel adapter&gt;
         |  platform-native protocol
@@ -79,7 +83,7 @@
         <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
         <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
         <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
-        <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments, posts, crossposts; native dislike via downvote.</td></tr>
+        <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts; native dislike via downvote (the one platform with a true downvote).</td></tr>
         <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
         <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
         <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
@@ -87,19 +91,19 @@
       </tbody>
     </table>
 
-    <p>Capability gaps are honest: an adapter without a platform verb returns <code>chanlib.ErrUnsupported</code>. The agent gets a structured response and picks another action instead of silently dropping the call.</p>
+    <p>An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> rather than failing quietly. The agent reads that response and picks another action instead of dropping the call.</p>
 
     <p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>gated</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
 
-    <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the surface.</p>
+    <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the channel.</p>
 
-    <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have richer TypeScript clients (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
+    <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have their best-maintained clients in TypeScript (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
 
     <h2>Adding a new adapter</h2>
     <p>Two artifacts, no edits to <code>proxyd</code> or <code>compose</code>:</p>
 
     <ol>
-      <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP surface on <code>LISTEN_ADDR=:8080</code>.</li>
+      <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
       <li>Drop a <code>template/services/&lt;daemon&gt;.toml</code> with the compose env block and a <code>[[proxyd_route]]</code> entry. The next <code>arizuko run</code> picks it up.</li>
     </ol>
 

@@ -36,7 +36,7 @@
       <li>Parse <code>Authentication-Results</code>. DMARC pass on the configured authserv-id (plus optional <code>From</code>-domain allowlist) &rarr; <code>verb=message</code>. Anything else &rarr; <code>verb=untrusted</code>, optional <code>[UNVERIFIED]</code> subject prefix. <code>EMAIL_STRICT_AUTH=1</code> drops untrusted mail outright.</li>
       <li>Look up the thread row by <code>Message-ID</code> or <code>References</code>. Hit &rarr; reuse the existing <code>chat_jid</code>. Miss &rarr; mint a new one.</li>
       <li>POST <code>/v1/messages</code> to gated, signed with <code>CHANNEL_SECRET</code>.</li>
-      <li>On outbound, gated calls back to <code>POST /v1/send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
+      <li>On outbound, gated calls back to <code>POST /send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
     </ol>
 
     <h2>How it fits</h2>
@@ -48,7 +48,7 @@
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
       gated
-        |  POST /v1/send         (callback to emaid)
+        |  POST /send           (callback to emaid)
         v
       emaid     (SMTP submit; In-Reply-To = thread root)
         |
