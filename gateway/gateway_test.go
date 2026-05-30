@@ -33,11 +33,11 @@ type sentMsg struct {
 	text string
 }
 
-func (m *mockChannel) Name() string                             { return m.name }
-func (m *mockChannel) Connect(_ context.Context) error          { return nil }
-func (m *mockChannel) Disconnect() error                        { return nil }
-func (m *mockChannel) Typing(_ string, _ bool) error            { return nil }
-func (m *mockChannel) SendFile(_, _, _, _, _, _ string) error    { return nil }
+func (m *mockChannel) Name() string                                { return m.name }
+func (m *mockChannel) Connect(_ context.Context) error             { return nil }
+func (m *mockChannel) Disconnect() error                           { return nil }
+func (m *mockChannel) Typing(_ string, _ bool) error               { return nil }
+func (m *mockChannel) SendFile(_, _, _, _, _, _ string) error      { return nil }
 func (m *mockChannel) SendVoice(_, _, _, _ string) (string, error) { return "", nil }
 func (m *mockChannel) Owns(jid string) bool {
 	for _, j := range m.jids {
@@ -1153,6 +1153,8 @@ type testChannel struct {
 	jids    []string
 	mu      sync.Mutex
 	sent    []testSentMsg
+	files   int
+	voices  int
 	sendErr error
 	sendID  string
 	counter int
@@ -1169,8 +1171,28 @@ func (c *testChannel) Name() string                    { return c.name }
 func (c *testChannel) Connect(_ context.Context) error { return nil }
 func (c *testChannel) Disconnect() error               { return nil }
 func (c *testChannel) Typing(_ string, _ bool) error   { return nil }
-func (c *testChannel) SendFile(_, _, _, _, _, _ string) error     { return nil }
-func (c *testChannel) SendVoice(_, _, _, _ string) (string, error) { return "", nil }
+func (c *testChannel) SendFile(_, _, _, _, _, _ string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.files++
+	return nil
+}
+func (c *testChannel) SendVoice(_, _, _, _ string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.voices++
+	return "voice-1", nil
+}
+func (c *testChannel) getFiles() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.files
+}
+func (c *testChannel) getVoices() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.voices
+}
 func (c *testChannel) Owns(jid string) bool {
 	for _, j := range c.jids {
 		if strings.HasPrefix(jid, j) {

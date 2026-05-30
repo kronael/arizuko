@@ -21,6 +21,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/chanreg"
@@ -28,7 +29,6 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/grants"
-	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/queue"
@@ -97,10 +97,10 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 func New(cfg *core.Config, s *store.Store) *Gateway {
 	g := &Gateway{
-		cfg:           cfg,
-		store:         s,
-		queue:         queue.New(cfg.MaxContainers, cfg.IpcDir),
-		runner:        container.DockerRunner{},
+		cfg:            cfg,
+		store:          s,
+		queue:          queue.New(cfg.MaxContainers, cfg.IpcDir),
+		runner:         container.DockerRunner{},
 		steeredTs:      make(map[string]time.Time),
 		currentTrigger: make(map[string]string),
 		currentTopic:   make(map[string]string),
@@ -256,7 +256,15 @@ func (g *Gateway) Run(ctx context.Context) error {
 	g.seedCodexDirs()
 	g.checkMigrationVersion()
 
-	return g.runLoop(ctx)
+	groups := g.store.AllGroups()
+	slog.Info("arizuko running",
+		"name", g.cfg.Name,
+		"groups", len(groups),
+		"image", g.cfg.Image,
+	)
+
+	g.messageLoop(ctx)
+	return nil
 }
 
 // wireFns builds the MCP-facing GatedFns/StoreFns tables. Run calls it
@@ -271,22 +279,22 @@ func (g *Gateway) wireFns() {
 		SendReply: func(jid, text, replyTo string) (string, error) {
 			return g.sendMessageReply(jid, text, replyTo, "")
 		},
-		SendDocument: g.sendDocument,
-		SendVoice:    g.sendVoice,
-		Post:         g.postToJID,
-		Like:         g.likeOnJID,
-		Delete:       g.deleteOnJID,
-		Forward:      g.forwardToJID,
-		Quote:        g.quoteToJID,
-		Repost:       g.repostToJID,
-		Dislike:      g.dislikeOnJID,
-		Edit:         g.editOnJID,
-		Pin:          g.pinOnJID,
-		Unpin:        g.unpinOnJID,
-		ClearSession: g.clearSession,
-		ForkTopic:    g.forkTopic,
-		GroupsDir:    g.cfg.GroupsDir,
-		WebDir:       g.cfg.WebDir,
+		SendDocument:  g.sendDocument,
+		SendVoice:     g.sendVoice,
+		Post:          g.postToJID,
+		Like:          g.likeOnJID,
+		Delete:        g.deleteOnJID,
+		Forward:       g.forwardToJID,
+		Quote:         g.quoteToJID,
+		Repost:        g.repostToJID,
+		Dislike:       g.dislikeOnJID,
+		Edit:          g.editOnJID,
+		Pin:           g.pinOnJID,
+		Unpin:         g.unpinOnJID,
+		ClearSession:  g.clearSession,
+		ForkTopic:     g.forkTopic,
+		GroupsDir:     g.cfg.GroupsDir,
+		WebDir:        g.cfg.WebDir,
 		InjectMessage: g.injectMessage,
 		RegisterGroup: g.registerGroupIPC,
 		SetupGroup: func(folder string) error {
@@ -295,8 +303,8 @@ func (g *Gateway) wireFns() {
 			}
 			return g.store.SeedDefaultTasks(folder, folder)
 		},
-		GetGroups:           g.store.AllGroups,
-		EnqueueMessageCheck: g.queue.EnqueueMessageCheck,
+		GetGroups:            g.store.AllGroups,
+		EnqueueMessageCheck:  g.queue.EnqueueMessageCheck,
 		FetchPlatformHistory: g.fetchPlatformHistory,
 		SpawnGroup: func(parentFolder, childJID string) (core.Group, error) {
 			if _, ok := g.store.GroupByFolder(parentFolder); !ok {
@@ -319,19 +327,19 @@ func (g *Gateway) wireFns() {
 				UsedCount:   inv.UsedCount,
 			}, nil
 		},
-		SubmitTurn:    g.handleSubmitTurn,
-		AcceptURLBase: g.cfg.AuthBaseURL,
-		IssueRouteToken:  g.issueRouteToken,
-		ListRouteTokens:  g.listRouteTokens,
-		RevokeRouteToken: g.store.RevokeRouteToken,
-		PaneSetPrompts: g.paneSetPrompts,
-		PaneSetTitle:   g.paneSetTitle,
-		SetGroupOpen:           g.store.SetGroupOpen,
-		SetGroupObserveWindow:  g.store.SetGroupObserveWindow,
-		GroupObserveWindow:     g.store.GroupObserveWindow,
-		AddGroupWatcher:        g.store.AddGroupWatcher,
-		RemoveGroupWatcher:     g.store.RemoveGroupWatcher,
-		EngagementTTL:          g.cfg.EngagementTTL,
+		SubmitTurn:            g.handleSubmitTurn,
+		AcceptURLBase:         g.cfg.AuthBaseURL,
+		IssueRouteToken:       g.issueRouteToken,
+		ListRouteTokens:       g.listRouteTokens,
+		RevokeRouteToken:      g.store.RevokeRouteToken,
+		PaneSetPrompts:        g.paneSetPrompts,
+		PaneSetTitle:          g.paneSetTitle,
+		SetGroupOpen:          g.store.SetGroupOpen,
+		SetGroupObserveWindow: g.store.SetGroupObserveWindow,
+		GroupObserveWindow:    g.store.GroupObserveWindow,
+		AddGroupWatcher:       g.store.AddGroupWatcher,
+		RemoveGroupWatcher:    g.store.RemoveGroupWatcher,
+		EngagementTTL:         g.cfg.EngagementTTL,
 	}
 	g.storeFns = ipc.StoreFns{
 		CreateTask: g.store.CreateTask,
@@ -339,25 +347,25 @@ func (g *Gateway) wireFns() {
 		UpdateTaskStatus: func(id, status string) error {
 			return g.store.UpdateTask(id, store.TaskPatch{Status: &status})
 		},
-		DeleteTask:          g.store.DeleteTask,
-		ListTasks:           g.store.ListTasks,
-		ListRoutes:          g.store.ListRoutes,
-		SetRoutes:           g.store.SetRoutes,
-		AddRoute:            g.store.AddRoute,
-		DeleteRoute:         g.store.DeleteRoute,
-		GetRoute:            g.store.GetRoute,
-		DefaultFolderForJID: g.store.DefaultFolderForJID,
-		ListACL:             g.store.ListACL,
-		PutMessage:          g.store.PutMessage,
-		GetLastReplyID:        g.store.GetLastReplyID,
-		SetLastReply:          g.store.SetLastReply,
-		BumpEngagement:        g.store.BumpEngagement,
-		SetEngagement:         g.store.SetEngagement,
-		EngagedFolder:         g.store.EngagedFolder,
-		CurrentTriggerSender:  g.currentTriggerSender,
-		CurrentTopic:          g.currentTurnTopic,
-		MessagesBefore:      g.store.MessagesBefore,
-		MessagesByThread:    g.store.MessagesByThread,
+		DeleteTask:           g.store.DeleteTask,
+		ListTasks:            g.store.ListTasks,
+		ListRoutes:           g.store.ListRoutes,
+		SetRoutes:            g.store.SetRoutes,
+		AddRoute:             g.store.AddRoute,
+		DeleteRoute:          g.store.DeleteRoute,
+		GetRoute:             g.store.GetRoute,
+		DefaultFolderForJID:  g.store.DefaultFolderForJID,
+		ListACL:              g.store.ListACL,
+		PutMessage:           g.store.PutMessage,
+		GetLastReplyID:       g.store.GetLastReplyID,
+		SetLastReply:         g.store.SetLastReply,
+		BumpEngagement:       g.store.BumpEngagement,
+		SetEngagement:        g.store.SetEngagement,
+		EngagedFolder:        g.store.EngagedFolder,
+		CurrentTriggerSender: g.currentTriggerSender,
+		CurrentTopic:         g.currentTurnTopic,
+		MessagesBefore:       g.store.MessagesBefore,
+		MessagesByThread:     g.store.MessagesByThread,
 		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
 			rows, err := g.store.FindMessages(q, scope, sender, since, limit)
 			if err != nil {
@@ -377,7 +385,7 @@ func (g *Gateway) wireFns() {
 			}
 			return out, nil
 		},
-		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
+		JIDRoutedToFolder: g.store.JIDRoutedToFolder,
 		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
 			rows := g.store.ErroredChats(folder, isRoot)
 			out := make([]ipc.ErroredChat, len(rows))
@@ -453,48 +461,6 @@ func (g *Gateway) wireFns() {
 		},
 		LogIPCAudit: g.store.LogIPCAudit,
 	}
-
-	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),
-	// spawn each connector once to harvest its tool catalog, register
-	// through the broker chain. Spec 9/11 M6. Missing file is fine.
-	if conns, err := LoadConnectors(ctx, g.cfg.ProjectRoot); err != nil {
-		slog.Error("connectors: load failed", "err", err)
-	} else {
-		g.storeFns.Connectors = conns
-		if len(conns) > 0 {
-			slog.Info("connectors loaded", "tools", len(conns))
-		}
-	}
-
-	g.queue.SetProcessMessagesFn(g.processGroupMessages)
-	g.queue.SetHasPendingFn(func(jid string) bool {
-		return g.store.HasPendingMessages(jid, g.cfg.Name)
-	})
-	g.queue.SetFolderForJidFn(g.folderForJid)
-	g.queue.SetNotifyErrorFn(g.onCircuitBreakerOpen)
-
-	for _, ch := range g.channels {
-		if err := ch.Connect(ctx); err != nil {
-			slog.Error("channel connect failed",
-				"channel", ch.Name(), "err", err)
-			continue
-		}
-	}
-	slog.Info("channels connected", "count", len(g.channels))
-
-	g.recoverPendingMessages()
-	g.seedCodexDirs()
-	g.checkMigrationVersion()
-
-	groups := g.store.AllGroups()
-	slog.Info("arizuko running",
-		"name", g.cfg.Name,
-		"groups", len(groups),
-		"image", g.cfg.Image,
-	)
-
-	g.messageLoop(ctx)
-	return nil
 }
 
 func (g *Gateway) Shutdown() {
@@ -849,6 +815,24 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 	return batches
 }
 
+// groupByTopic splits msgs into consecutive same-topic runs, preserving
+// causal order: interleaved A,B,A yields [A],[B],[A], not [A,A],[B].
+// Regrouping the whole web backlog by topic would reorder turns across
+// topics.
+func groupByTopic(msgs []core.Message) [][]core.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var batches [][]core.Message
+	for i, m := range msgs {
+		if i == 0 || m.Topic != msgs[i-1].Topic {
+			batches = append(batches, nil)
+		}
+		batches[len(batches)-1] = append(batches[len(batches)-1], m)
+	}
+	return batches
+}
+
 func (g *Gateway) tryExternalRoute(
 	routes []core.Route, msg core.Message, group core.Group, chatJid string,
 ) bool {
@@ -970,17 +954,7 @@ func (g *Gateway) processWebTopics(
 	group core.Group, chatJid string, msgs []core.Message,
 ) (bool, error) {
 	ch := g.findChannelForJID(chatJid)
-	// Split into consecutive same-topic runs, preserving causal order:
-	// interleaved A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the
-	// whole backlog by topic would reorder turns across topics.
-	var batches [][]core.Message
-	for i, m := range msgs {
-		if i == 0 || m.Topic != msgs[i-1].Topic {
-			batches = append(batches, nil)
-		}
-		batches[len(batches)-1] = append(batches[len(batches)-1], m)
-	}
-
+	batches := groupByTopic(msgs)
 	if len(batches) == 0 {
 		return false, nil
 	}
@@ -1310,21 +1284,21 @@ func (g *Gateway) runAgentWithOpts(
 		g.folders, group.Folder, isRoot, slices.Collect(maps.Values(g.store.AllGroups())))
 
 	input := container.Input{
-		Prompt:          prompt,
-		SessionID:       sessionID,
-		ChatJID:         chatJid,
-		Folder:          group.Folder,
-		Topic:           topic,
-		GroupPath:       groupPath,
-		Name:            cname,
-		Config:          group.Config,
-		Model:           group.Model,
-		Channel:         chanName,
-		MessageID:       msgID,
-		Sender:          sender,
-		Grants:          rules,
-		GatedFns: g.gatedFns,
-		StoreFns: g.storeFns,
+		Prompt:    prompt,
+		SessionID: sessionID,
+		ChatJID:   chatJid,
+		Folder:    group.Folder,
+		Topic:     topic,
+		GroupPath: groupPath,
+		Name:      cname,
+		Config:    group.Config,
+		Model:     group.Model,
+		Channel:   chanName,
+		MessageID: msgID,
+		Sender:    sender,
+		Grants:    rules,
+		GatedFns:  g.gatedFns,
+		StoreFns:  g.storeFns,
 		PaneLookup: func(channelID string) bool {
 			if g.store == nil {
 				return false
@@ -2220,9 +2194,9 @@ func (g *Gateway) handlePrefixLayer(
 // observeWindow returns the (maxMessages, maxChars) caps for surfacing
 // observed messages on a folder. Precedence (spec 6/F):
 //
-//   per-route override (routes.observe_window_*)  >
-//   per-group override (groups.observe_window_*)  >
-//   instance default (env OBSERVE_WINDOW_*)
+//	per-route override (routes.observe_window_*)  >
+//	per-group override (groups.observe_window_*)  >
+//	instance default (env OBSERVE_WINDOW_*)
 //
 // The route chosen is the first one targeting `folder` (sans fragment)
 // with a non-zero override.
