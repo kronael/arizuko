@@ -19,16 +19,16 @@ import (
 // xrpc/auth/send/poll paths. All routes are in-process httptest handlers;
 // no real network calls.
 type bskyMock struct {
-	mu            sync.Mutex
-	srv           *httptest.Server
-	createHits    int32
-	refreshHits   int32
-	listHits      int32
+	mu             sync.Mutex
+	srv            *httptest.Server
+	createHits     int32
+	refreshHits    int32
+	listHits       int32
 	updateSeenHits int32
-	getRecordHits int32
-	createRecords []map[string]any
-	accessJwt     string
-	refreshJwt    string
+	getRecordHits  int32
+	createRecords  []map[string]any
+	accessJwt      string
+	refreshJwt     string
 	// notifications returned by listNotifications (newest first)
 	notifications []notification
 	// behaviour toggles
@@ -114,10 +114,12 @@ func newBskyMock() *bskyMock {
 
 func (m *bskyMock) close() { m.srv.Close() }
 
-func (m *bskyMock) setRejectAccess(v bool)  { m.mu.Lock(); m.rejectAccess = v; m.mu.Unlock() }
-func (m *bskyMock) setRefreshFails(v bool)  { m.mu.Lock(); m.refreshFails = v; m.mu.Unlock() }
+func (m *bskyMock) setRejectAccess(v bool) { m.mu.Lock(); m.rejectAccess = v; m.mu.Unlock() }
+func (m *bskyMock) setRefreshFails(v bool) { m.mu.Lock(); m.refreshFails = v; m.mu.Unlock() }
 func (m *bskyMock) setNotifications(ns []notification) {
-	m.mu.Lock(); m.notifications = ns; m.mu.Unlock()
+	m.mu.Lock()
+	m.notifications = ns
+	m.mu.Unlock()
 }
 
 func newTestClient(t *testing.T, m *bskyMock) *bskyClient {
@@ -508,7 +510,7 @@ func TestFetchNotifications_Dispatches(t *testing.T) {
 	// Notifications newest-first in API response
 	m.setNotifications([]notification{
 		{
-			URI: "at://did:plc:a/app.bsky.feed.post/new",
+			URI:    "at://did:plc:a/app.bsky.feed.post/new",
 			Reason: "mention", IsRead: false,
 			IndexedAt: "2026-04-17T10:00:00Z",
 			Author: struct {
@@ -634,7 +636,7 @@ func TestHandleNotification_WithImages(t *testing.T) {
 
 	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
 	n := notification{
-		URI: "at://did:plc:a/app.bsky.feed.post/xyz",
+		URI:    "at://did:plc:a/app.bsky.feed.post/xyz",
 		Reason: "mention", IndexedAt: "2026-04-17T10:00:00Z",
 	}
 	n.Author.DID = "did:plc:a"
