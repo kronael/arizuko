@@ -36,6 +36,7 @@ type Loop struct {
 	db         *DB
 	q          *queue.GroupQueue
 	runner     Runner
+	deliver    Deliverer
 	roundDone  RoundDoneFn
 	pollEvery  time.Duration
 	runTimeout time.Duration
@@ -49,6 +50,12 @@ type Loop struct {
 	modes         *modeCache
 	pendingReason sync.Map // turn_id → proactiveResult
 	nextScanAt    time.Time
+
+	// Maintenance cadence, loop-driven (no free tickers). nextRetryAt paces
+	// the outbound retry sweep (pending bot rows >30s); nextGCAt paces the
+	// hourly GC (expired stale running turns + idempotency-ledger sweep).
+	nextRetryAt time.Time
+	nextGCAt    time.Time
 }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -62,6 +69,11 @@ type LoopConfig struct {
 	IpcDir     string
 	RunScopes  []types.Scope
 	RoundDone  RoundDoneFn
+
+	// Deliver is the egress half used for the outbound retry loop and the
+	// run-error failure notice; the same Deliverer the Server uses. nil = no
+	// redelivery / no notice (pure REST tests).
+	Deliver Deliverer
 
 	// Proactive (5/33). Proactive.Enabled false → no scan ever runs.
 	// GroupsDir is where per-group CLAUDE.md lives (the proactive-mode
@@ -84,6 +96,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	l := &Loop{
 		db:         db,
 		runner:     runner,
+		deliver:    cfg.Deliver,
 		roundDone:  cfg.RoundDone,
 		pollEvery:  cfg.PollEvery,
 		runTimeout: cfg.RunTimeout,
@@ -133,6 +146,9 @@ func (l *Loop) Run(ctx context.Context) {
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
 	}
+	now := time.Now()
+	l.nextRetryAt = now.Add(outboundRetryEvery)
+	l.nextGCAt = now.Add(gcEvery)
 	t := time.NewTicker(l.pollEvery)
 	defer t.Stop()
 	for {
@@ -143,7 +159,65 @@ func (l *Loop) Run(ctx context.Context) {
 		case <-t.C:
 			l.pollOnce()
 			l.maybeScanProactive(time.Now())
+			l.maybeRetryOutbound(time.Now())
+			l.maybeGC(time.Now())
 		}
+	}
+}
+
+// Maintenance cadence (spec 5/E § Outbound is poll-reconciled, § turn
+// lifecycle). The retry sweep re-dispatches pending bot rows; the GC sweeps
+// stale running turns and the idempotency ledger.
+const (
+	outboundRetryEvery = 30 * time.Second
+	outboundRetryAfter = 30 * time.Second
+	outboundFailAfter  = 24 * time.Hour
+	gcEvery            = time.Hour
+)
+
+// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s
+// and fails them after 24h (spec 5/E § Outbound is poll-reconciled). The
+// adapter dedups on the row's stable message_id, so a redelivered row never
+// creates a second platform message. No-op when no Deliverer is wired.
+func (l *Loop) maybeRetryOutbound(now time.Time) {
+	if l.deliver == nil || now.Before(l.nextRetryAt) {
+		return
+	}
+	l.nextRetryAt = now.Add(outboundRetryEvery)
+	rows, err := l.db.PendingOutbound(now.Add(-outboundRetryAfter), 200)
+	if err != nil {
+		slog.Warn("retry outbound: list pending", "err", err)
+		return
+	}
+	for _, m := range rows {
+		if now.Sub(m.Timestamp) > outboundFailAfter {
+			_ = l.db.MarkStatus(m.ID, core.MessageStatusFailed)
+			continue
+		}
+		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, m.ID)
+		if derr == nil {
+			_ = l.db.MarkBotPlatformID(m.ID, pid)
+		}
+	}
+}
+
+// maybeGC runs the hourly housekeeping: sweep stale 'running' turns to
+// 'expired' (so a crashed-never-completed turn stops being re-fed yet does
+// not trip the done-guard) and drop expired idempotency-ledger rows.
+func (l *Loop) maybeGC(now time.Time) {
+	if now.Before(l.nextGCAt) {
+		return
+	}
+	l.nextGCAt = now.Add(gcEvery)
+	if l.runTimeout > 0 {
+		if n, err := l.db.SweepExpiredRunning(l.runTimeout); err != nil {
+			slog.Warn("gc: sweep expired running", "err", err)
+		} else if n > 0 {
+			slog.Info("gc: swept stale running turns", "count", n)
+		}
+	}
+	if err := l.db.SweepIdempotency(); err != nil {
+		slog.Warn("gc: sweep idempotency", "err", err)
 	}
 }
 
@@ -327,14 +401,39 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		// Do not advance the cursor here.
 		return true, nil
 	}
-	// Clean turn-boundary outcome: persist session_id backstop, advance.
-	if out.SessionID != "" {
+	if out.BreakerOpen {
+		slog.Warn("circuit breaker open", "folder", folder, "turn_id", turnID)
+	}
+	// POST /v1/runs has returned: close the callback surface so a late frame
+	// 409s, even if an early submit_turn already flipped state→done.
+	_ = l.db.SetRunReturned(turnID)
+	if out.Outcome == runedv1.OutcomeError {
+		// The run definitively failed. Advance past the batch (starvation
+		// guard), flag the chat errored, and notify the chat — don't treat a
+		// failed run as a silent success (spec 5/E § outcome).
+		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error)
+		_ = l.db.MarkChatErrored(chatJID)
+		if l.deliver != nil {
+			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "fail-"+turnID)
+		}
+		_ = l.db.SetTurnState(turnID, "done")
+		l.advance(chatJID, last)
+		return false, nil
+	}
+	// Clean turn-boundary outcome: persist session_id backstop UNLESS
+	// submit_turn already recorded one (its value wins; spec 5/E
+	// § Completion reconciliation), then advance.
+	if out.SessionID != "" && !l.db.TurnResultRecorded(folder, turnID) {
 		_ = l.db.PutSession(folder, topic, out.SessionID)
 	}
 	_ = l.db.SetTurnState(turnID, "done")
 	l.advance(chatJID, last)
 	return out.Outcome != runedv1.OutcomeSilent, nil
 }
+
+// runFailureNotice is sent to the chat when a run returns outcome:error and
+// produced no usable output, so the user isn't left silent.
+const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
 
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // agent's conversation frames arrive out-of-band during the run via the

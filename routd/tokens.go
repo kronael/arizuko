@@ -141,8 +141,9 @@ type IdemRecord struct {
 
 // IdemClaim attempts to claim (endpoint, key) with reqHash. Returns
 // (claimed=true, _) when this caller won the insert (it must then execute
-// and IdemFinish). When lost, returns (false, prior) with the stored
-// record; the caller replays prior.Response if reqHash matches, else 409.
+// and AppendAndFinish to atomically persist the row + ledger response). When
+// lost, returns (false, prior) with the stored record; the caller replays
+// prior.Response if reqHash matches, else 409.
 func (d *DB) IdemClaim(endpoint, key, reqHash string) (bool, IdemRecord, error) {
 	created := time.Now().UTC()
 	expires := created.Add(24 * time.Hour)
@@ -160,13 +161,6 @@ func (d *DB) IdemClaim(endpoint, key, reqHash string) (bool, IdemRecord, error) 
 	err = d.db.QueryRow("SELECT request_hash, status, response FROM idempotency_keys WHERE endpoint=? AND key=?",
 		endpoint, key).Scan(&rec.RequestHash, &rec.Status, &rec.Response)
 	return false, rec, err
-}
-
-// IdemFinish records the real (status, response) for a claimed ledger row.
-func (d *DB) IdemFinish(endpoint, key string, status int, response string) error {
-	_, err := d.db.Exec("UPDATE idempotency_keys SET status=?, response=? WHERE endpoint=? AND key=?",
-		status, response, endpoint, key)
-	return err
 }
 
 // SweepIdempotency drops ledger rows past expires_at (hourly GC).

@@ -105,6 +105,20 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// adapterName extracts the calling adapter's name from its service token
+// sub (service:<adapter>); "adapter" when there's no verifier (tests). Used
+// to mint <adapter>-<idempotency-key> ids.
+func (s *Server) adapterName(r *http.Request) string {
+	if s.verify == nil {
+		return "adapter"
+	}
+	sub, _, _, err := s.verify.Verify(r)
+	if err == nil {
+		return strings.TrimPrefix(sub, "service:")
+	}
+	return "adapter"
+}
+
 // --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +134,18 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
 		return
 	}
-	if m.ID == "" {
+	// Idempotency for the append-only log keys on the message id (the PK).
+	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
+	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key
+	// together is ambiguous (spec 5/E § POST /v1/messages key rules).
+	idemKey := r.Header.Get("X-Idempotency-Key")
+	switch {
+	case m.ID != "" && idemKey != "":
+		writeErr(w, 400, "ambiguous_idempotency", "send either a stable id or X-Idempotency-Key, not both")
+		return
+	case m.ID == "" && idemKey != "":
+		m.ID = s.adapterName(r) + "-" + idemKey
+	case m.ID == "":
 		m.ID = "in-" + randHex(8)
 	}
 	ts := time.Now().UTC()
@@ -135,6 +160,12 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo) {
 		verb = "mention"
+	}
+	// Reaction topic-inheritance: a reaction/reply with no topic of its own
+	// inherits the parent message's topic so it routes to the parent's
+	// thread, not the main topic (spec 5/E § Channel ingress).
+	if m.Topic == "" && m.ReplyTo != "" {
+		m.Topic = s.db.TopicByID(m.ReplyTo)
 	}
 	row := buildMessageRow(m, ts, verb)
 	// engagement-on-mention commits with the row (before PutMessage).

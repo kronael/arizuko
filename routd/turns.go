@@ -35,9 +35,11 @@ func lockTurn(turnID string) func() {
 
 // idem wraps a turn-command handler in the idempotency ledger. endpoint is
 // the path TEMPLATE with vars collapsed (e.g. "POST /v1/turns/reply"), NOT
-// the filled path — the per-turn id would partition the ledger. Returns
-// (handled=true) when the call was a replay (response already written).
-func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, required bool, exec func(body []byte) (int, any)) {
+// the filled path — the per-turn id would partition the ledger. exec returns
+// the HTTP (status, resp) and, when the call appends a bot row, that row —
+// idem persists the row AND finishes the ledger in ONE tx so a crash between
+// them can't leave a permanent in_flight (spec 5/E § Idempotency step 2).
+func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, required bool, exec func(body []byte) (int, any, *core.Message)) {
 	body, _ := io.ReadAll(r.Body)
 	key := r.Header.Get("X-Idempotency-Key")
 	if key == "" {
@@ -45,8 +47,11 @@ func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, r
 			writeErr(w, 400, "missing_idempotency_key", "X-Idempotency-Key required")
 			return
 		}
-		// at-least-once: execute without ledger
-		status, resp := exec(body)
+		// at-least-once: execute without ledger.
+		status, resp, row := exec(body)
+		if row != nil {
+			_ = s.db.PutMessage(*row)
+		}
 		writeJSON(w, status, resp)
 		return
 	}
@@ -71,9 +76,11 @@ func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, r
 		_, _ = w.Write([]byte(prior.Response))
 		return
 	}
-	status, resp := exec(body)
+	status, resp, row := exec(body)
 	raw, _ := json.Marshal(resp)
-	_ = s.db.IdemFinish(endpoint, key, status, string(raw))
+	// Persist the row (if any) AND finish the ledger atomically — a crash
+	// between can't leave a permanent in_flight.
+	_ = s.db.AppendAndFinish(row, endpoint, key, status, string(raw))
 	writeJSON(w, status, resp)
 }
 
@@ -91,15 +98,21 @@ func canonicalHash(body []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+// callbackClosed reports whether a turn's callback surface is closed: the
+// done-guard fires only AFTER POST /v1/runs returns (run_returned), so a
+// still-live run's trailing frames stay valid even past an early submit_turn
+// that flipped state→done (spec 5/E § Post-terminal callbacks).
+func (s *Server) callbackClosed(tc TurnContext) bool { return tc.RunReturned }
+
 func (s *Server) handleReply(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return
 	}
 	turnID := r.PathValue("turn_id")
-	s.idem(w, r, "POST /v1/turns/reply", true, func(body []byte) (int, any) {
+	s.idem(w, r, "POST /v1/turns/reply", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.ReplyRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" {
-			return 400, apiv1.Err{Error: "bad_request", Message: "jid required"}
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid required"}, nil
 		}
 		return s.appendAndDeliver(turnID, req.JID, req.Text, req.ReplyToID, true)
 	})
@@ -110,28 +123,29 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turnID := r.PathValue("turn_id")
-	s.idem(w, r, "POST /v1/turns/send", true, func(body []byte) (int, any) {
+	s.idem(w, r, "POST /v1/turns/send", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.ReplyRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" {
-			return 400, apiv1.Err{Error: "bad_request", Message: "jid required"}
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid required"}, nil
 		}
 		return s.appendAndDeliver(turnID, req.JID, req.Text, "", false)
 	})
 }
 
-// appendAndDeliver writes the bot row status=pending, attempts delivery,
-// and on success marks platform_id+sent. threaded replies thread to the
-// active topic's last_reply_id when reply_to_id is empty. Writes
-// SetLastReply (always) + BumpEngagement (unless timed-* trigger).
-func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded bool) (int, any) {
+// appendAndDeliver builds the bot row status=pending, attempts delivery, and
+// on success stamps platform_id+sent BEFORE returning the row to idem for the
+// atomic append+ledger-finish. threaded replies thread to the active topic's
+// last_reply_id when reply_to_id is empty. Writes SetLastReply (always) +
+// BumpEngagement (unless timed-* trigger). Returns the row to persist.
+func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded bool) (int, any, *core.Message) {
 	unlock := lockTurn(turnID)
 	defer unlock()
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
-		return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context for turn_id"}
+		return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context for turn_id"}, nil
 	}
-	if tc.State == "done" {
-		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}
+	if s.callbackClosed(tc) {
+		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}, nil
 	}
 	if threaded && replyToID == "" {
 		replyToID = s.db.LastReplyID(jid, tc.Topic)
@@ -143,24 +157,19 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
 		TurnID: turnID, Status: core.MessageStatusPending,
 	}
-	if err := s.db.PutMessage(row); err != nil {
-		return 500, apiv1.Err{Error: "store_error", Message: err.Error()}
-	}
 	_ = s.db.SetLastReply(jid, tc.Topic, msgID, tc.Folder)
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
 		_ = s.db.SetEngagement(jid, tc.Topic, tc.Folder, s.engagementT)
 	}
-	status := core.MessageStatusPending
 	platformID := ""
 	if s.deliver != nil {
-		pid, err := s.deliver.Send(jid, text, replyToID, tc.Topic, msgID)
-		if err == nil {
+		if pid, err := s.deliver.Send(jid, text, replyToID, tc.Topic, msgID); err == nil {
 			platformID = pid
-			status = core.MessageStatusSent
-			_ = s.db.MarkBotPlatformID(msgID, pid)
+			row.PlatformID = pid
+			row.Status = core.MessageStatusSent
 		}
 	}
-	return 200, apiv1.SendResult{MessageID: msgID, PlatformID: platformID, Status: status}
+	return 200, apiv1.SendResult{MessageID: msgID, PlatformID: platformID, Status: row.Status}, &row
 }
 
 func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
@@ -168,32 +177,30 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turnID := r.PathValue("turn_id")
-	s.idem(w, r, "POST /v1/turns/document", true, func(body []byte) (int, any) {
+	s.idem(w, r, "POST /v1/turns/document", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.DocumentRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" || req.Path == "" {
-			return 400, apiv1.Err{Error: "bad_request", Message: "jid and path required"}
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid and path required"}, nil
 		}
 		unlock := lockTurn(turnID)
 		defer unlock()
 		tc, ok := s.db.GetTurnContext(turnID)
 		if !ok {
-			return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context"}
+			return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context"}, nil
+		}
+		if s.callbackClosed(tc) {
+			return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}, nil
 		}
 		msgID := "out-" + randHex(8)
 		row := core.Message{ID: msgID, ChatJID: req.JID, Sender: tc.Folder,
 			Content: req.Caption, Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 			Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending}
-		if err := s.db.PutMessage(row); err != nil {
-			return 500, apiv1.Err{Error: "store_error", Message: err.Error()}
-		}
-		status := core.MessageStatusPending
 		if s.deliver != nil {
 			if _, err := s.deliver.Document(req.JID, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
-				status = core.MessageStatusSent
-				_ = s.db.MarkStatus(msgID, status)
+				row.Status = core.MessageStatusSent
 			}
 		}
-		return 200, apiv1.SendResult{MessageID: msgID, Status: status}
+		return 200, apiv1.SendResult{MessageID: msgID, Status: row.Status}, &row
 	})
 }
 
@@ -233,15 +240,19 @@ func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return
 	}
-	s.idem(w, r, "POST /v1/turns/edit", false, func(body []byte) (int, any) {
+	turnID := r.PathValue("turn_id")
+	s.idem(w, r, "POST /v1/turns/edit", false, func(body []byte) (int, any, *core.Message) {
+		if status, errResp := s.guardOpen(turnID); errResp != nil {
+			return status, errResp, nil
+		}
 		var req apiv1.EditRequest
 		json.Unmarshal(body, &req)
 		if s.deliver != nil {
 			if err := s.deliver.Edit(req.JID, req.PlatformID, req.Content); err != nil {
-				return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}
+				return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 			}
 		}
-		return 200, apiv1.OK{OK: true}
+		return 200, apiv1.OK{OK: true}, nil
 	})
 }
 
@@ -272,17 +283,36 @@ func (s *Server) handleUnpin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// guardOpen returns a 409 turn_done error for a closed turn (run-response
+// returned), else (0, nil). The mutation tools (like/edit/delete/pin/unpin)
+// run it so a late frame doesn't mutate a platform message after the run is
+// no longer live (spec 5/E § Post-terminal callbacks).
+func (s *Server) guardOpen(turnID string) (int, any) {
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		return 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context for turn_id"}
+	}
+	if s.callbackClosed(tc) {
+		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}
+	}
+	return 0, nil
+}
+
 func (s *Server) mutate(w http.ResponseWriter, r *http.Request, endpoint string, fn func(apiv1.ReactionRequest) error) {
 	if !s.authed(w, r) {
 		return
 	}
-	s.idem(w, r, endpoint, false, func(body []byte) (int, any) {
+	turnID := r.PathValue("turn_id")
+	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
+		if status, errResp := s.guardOpen(turnID); errResp != nil {
+			return status, errResp, nil
+		}
 		var req apiv1.ReactionRequest
 		json.Unmarshal(body, &req)
 		if err := fn(req); err != nil {
-			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}
+			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 		}
-		return 200, apiv1.OK{OK: true}
+		return 200, apiv1.OK{OK: true}, nil
 	})
 }
 
@@ -290,19 +320,25 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint string,
 	if !s.authed(w, r) {
 		return
 	}
-	s.idem(w, r, endpoint, false, func(body []byte) (int, any) {
+	turnID := r.PathValue("turn_id")
+	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
+		if status, errResp := s.guardOpen(turnID); errResp != nil {
+			return status, errResp, nil
+		}
 		var req apiv1.TargetRequest
 		json.Unmarshal(body, &req)
 		if err := fn(req); err != nil {
-			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}
+			return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
 		}
-		return 200, apiv1.OK{OK: true}
+		return 200, apiv1.OK{OK: true}, nil
 	})
 }
 
 // handleResult is submit_turn's REST twin. Records the outcome
 // idempotently into turn_results, persists session_id + cost on the FIRST
-// record, flips turn_context to done.
+// record, flips turn_context to done. It does NOT set run_returned: the run
+// may still emit trailing frames until POST /v1/runs returns, and those
+// callbacks stay valid (spec 5/E § Post-terminal callbacks).
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r) {
 		return

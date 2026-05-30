@@ -27,8 +27,12 @@ type stubRunner struct {
 func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.gotBatch = req.MessageBatch
 	r.gotTurn = req.TurnID
-	// the agent's reply tool calls back into routd (the sole appender).
-	r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back", "", true)
+	// the agent's reply tool calls back into routd (the sole appender). The
+	// HTTP idem wrapper persists the returned row; calling appendAndDeliver
+	// directly, the stub must persist it itself.
+	if _, _, row := r.srv.appendAndDeliver(req.TurnID, req.ChatJID, "hello back", "", true); row != nil {
+		_ = r.srv.db.PutMessage(*row)
+	}
 	// the agent submits its turn.
 	first, _ := r.srv.db.RecordTurnResult(string(req.Folder), req.TurnID, "sess-stub", "success")
 	if first {
@@ -65,9 +69,10 @@ func TestContractRoundTrip(t *testing.T) {
 	}
 	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}})
 
-	// (1) ingest an inbound via POST /v1/messages.
+	// (1) ingest an inbound via POST /v1/messages. The adapter sends a stable
+	// platform id and no X-Idempotency-Key (the id is the dedup key).
 	in := apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"}
-	rec := doJSON(t, h, "POST", "/v1/messages", "k-in", in)
+	rec := doJSON(t, h, "POST", "/v1/messages", "", in)
 	if rec.Code != 200 {
 		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
 	}

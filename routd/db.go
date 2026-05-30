@@ -86,11 +86,15 @@ func (d *DB) GroupExists(folder string) bool {
 
 // --- messages (sole appender) ---
 
-// PutMessage appends one messages row. routd is the only writer. A
-// duplicate id is a no-op (first-written row authoritative, append-only
-// log).
-func (d *DB) PutMessage(m core.Message) error {
-	_, err := d.db.Exec(`INSERT OR IGNORE INTO messages
+// execer is the shared subset of *sql.DB and *sql.Tx PutMessage uses, so the
+// same INSERT serves both the auto-commit and in-tx (atomic-with-ledger)
+// paths.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func putMessage(x execer, m core.Message) error {
+	_, err := x.Exec(`INSERT OR IGNORE INTO messages
 		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
 		 is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender,
 		 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
@@ -101,6 +105,34 @@ func (d *DB) PutMessage(m core.Message) error {
 		m.Topic, m.RoutedTo, defaultVerb(m.Verb), m.Attachments, m.Source, b2i(false),
 		nullStr(m.TurnID), defaultStatus(m.Status), nullStr(m.PlatformID), m.ChatName)
 	return err
+}
+
+// PutMessage appends one messages row. routd is the only writer. A
+// duplicate id is a no-op (first-written row authoritative, append-only
+// log).
+func (d *DB) PutMessage(m core.Message) error { return putMessage(d.db, m) }
+
+// AppendAndFinish appends the bot row AND finishes the idempotency ledger row
+// in ONE tx (spec 5/E § Idempotency step 2). A crash between the two cannot
+// leave a permanent in_flight ledger row: either both commit or neither does,
+// and the retry replays. msg==nil finishes only the ledger (mutation
+// handlers that append no row).
+func (d *DB) AppendAndFinish(msg *core.Message, endpoint, key string, status int, response string) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if msg != nil {
+		if err := putMessage(tx, *msg); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("UPDATE idempotency_keys SET status=?, response=? WHERE endpoint=? AND key=?",
+		status, response, endpoint, key); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // MessageExists reports whether a message id is stored.
@@ -207,6 +239,45 @@ func (d *DB) MarkBotPlatformID(id, platformID string) error {
 // loop).
 func (d *DB) MarkStatus(id, status string) error {
 	_, err := d.db.Exec("UPDATE messages SET status=? WHERE id=?", status, id)
+	return err
+}
+
+// PendingOutbound returns bot rows still status='pending' whose timestamp is
+// at or before cutoff — the outbound retry feed (spec 5/E § Outbound is
+// poll-reconciled).
+func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
+		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
+		status, platform_id, chat_name
+		FROM messages WHERE status='pending' AND is_bot_message=1 AND timestamp <= ?
+		ORDER BY timestamp ASC LIMIT ?`, cutoff.UTC().Format(time.RFC3339Nano), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	msgs, _ := scanMessages(rows, "")
+	return msgs, rows.Err()
+}
+
+// TopicByID returns the topic of a stored row matched by id OR platform_id —
+// reaction topic-inheritance looks up the parent so a reaction to a threaded
+// message routes to the parent's topic, not the main topic (spec 5/E
+// § Channel ingress).
+func (d *DB) TopicByID(id string) string {
+	var topic string
+	d.db.QueryRow("SELECT topic FROM messages WHERE id=? OR platform_id=? LIMIT 1", id, id).Scan(&topic)
+	return topic
+}
+
+// MarkChatErrored flags a chat as errored (a run definitively failed). The
+// flag surfaces in inspection; it does not block re-feed (the cursor advance
+// past the failed batch is the starvation guard).
+func (d *DB) MarkChatErrored(chatJID string) error {
+	_, err := d.db.Exec(`INSERT INTO chats(jid, errored) VALUES(?,1)
+		ON CONFLICT(jid) DO UPDATE SET errored=1`, chatJID)
 	return err
 }
 
@@ -367,35 +438,39 @@ func (d *DB) LastReplyID(jid, topic string) string {
 // --- turn context + results ---
 
 // PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so
-// late callbacks resolve their topic from turn_id alone.
+// late callbacks resolve their topic from turn_id alone. A re-dispatch
+// resets run_returned to 0 (the new run is live again).
 func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger string) error {
 	_, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, started_at, state)
 		VALUES(?,?,?,?,?,?, 'running')
 		ON CONFLICT(turn_id) DO UPDATE SET folder=excluded.folder, topic=excluded.topic,
-		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, state='running'`,
+		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, state='running', run_returned=0`,
 		turnID, folder, topic, chatJID, trigger, nowTS())
 	return err
 }
 
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
-	TurnID  string
-	Folder  string
-	Topic   string
-	ChatJID string
-	Trigger string
-	State   string
+	TurnID      string
+	Folder      string
+	Topic       string
+	ChatJID     string
+	Trigger     string
+	State       string
+	RunReturned bool
 }
 
 // GetTurnContext recovers a turn's context by turn_id.
 func (d *DB) GetTurnContext(turnID string) (TurnContext, bool) {
 	var tc TurnContext
-	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state
+	var runReturned int
+	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state, run_returned
 		FROM turn_context WHERE turn_id=?`, turnID).Scan(
-		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State)
+		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State, &runReturned)
 	if err != nil {
 		return TurnContext{}, false
 	}
+	tc.RunReturned = runReturned == 1
 	return tc, true
 }
 
@@ -405,9 +480,18 @@ func (d *DB) SetTurnState(turnID, state string) error {
 	return err
 }
 
+// SetRunReturned marks that POST /v1/runs has returned for a turn. After
+// this, late callbacks 409 turn_done (the run is no longer live); before it,
+// trailing frames from a still-live run stay valid even past an early
+// submit_turn (spec 5/E § Post-terminal callbacks).
+func (d *DB) SetRunReturned(turnID string) error {
+	_, err := d.db.Exec("UPDATE turn_context SET run_returned=1 WHERE turn_id=?", turnID)
+	return err
+}
+
 // RunningTurns lists turn_ids still in state=running (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {
-	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state
+	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state, run_returned
 		FROM turn_context WHERE state='running'`)
 	if err != nil {
 		return nil, err
@@ -416,12 +500,28 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 	var out []TurnContext
 	for rows.Next() {
 		var tc TurnContext
-		if err := rows.Scan(&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State); err != nil {
+		var runReturned int
+		if err := rows.Scan(&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State, &runReturned); err != nil {
 			return nil, err
 		}
+		tc.RunReturned = runReturned == 1
 		out = append(out, tc)
 	}
 	return out, rows.Err()
+}
+
+// SweepExpiredRunning flips stale state='running' turns older than the run
+// timeout to the DISTINCT terminal 'expired' (NOT 'done') so they stop being
+// re-fed by crash recovery, without tripping the done-guard against a
+// legitimate re-dispatch (spec 5/E § turn lifecycle). Returns the count
+// swept.
+func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-timeout).UTC().Format(time.RFC3339Nano)
+	res, err := d.db.Exec("UPDATE turn_context SET state='expired' WHERE state='running' AND started_at < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // RecordTurnResult inserts the agent-submitted outcome idempotently
@@ -434,6 +534,16 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// TurnResultRecorded reports whether submit_turn already recorded an outcome
+// for (folder, turn_id). The run-response path checks this before persisting
+// its session_id backstop so submit_turn's value wins (spec 5/E § Completion
+// reconciliation).
+func (d *DB) TurnResultRecorded(folder, turnID string) bool {
+	var n int
+	d.db.QueryRow("SELECT 1 FROM turn_results WHERE folder=? AND turn_id=?", folder, turnID).Scan(&n)
+	return n == 1
 }
 
 // --- sessions (lineage; session_id opaque to routd) ---
