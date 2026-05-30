@@ -1,0 +1,258 @@
+package routd
+
+import (
+	"context"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+)
+
+// turnRec is one dispatched run captured by recRunner.
+type turnRec struct {
+	turnID, folder, topic, batch, trigger string
+}
+
+// recRunner records every POST /v1/runs and returns a clean ok outcome. Used
+// by the parity tests to assert per-topic / per-sender turn fan-out without
+// the callback round-trip stubRunner does.
+type recRunner struct{ runs []turnRec }
+
+func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	r.runs = append(r.runs, turnRec{
+		turnID: req.TurnID, folder: string(req.Folder), topic: req.Topic,
+		batch: req.MessageBatch, trigger: req.TriggerSender,
+	})
+	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
+}
+
+func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {
+	t.Helper()
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	rr := &recRunner{}
+	loop := NewLoop(db, rr, LoopConfig{})
+	loop.StopQueue()
+	return db, loop, rr
+}
+
+// TestWebPerTopicDispatch: a web: chat with messages on two topics dispatches
+// ONE turn per topic in first-seen order (gated processWebTopics parity).
+func TestWebPerTopicDispatch(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u", Content: "q1", Topic: "alpha", Timestamp: now})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "u", Content: "q2", Topic: "beta", Timestamp: now.Add(time.Second)})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "web:demo", Sender: "u", Content: "q3", Topic: "alpha", Timestamp: now.Add(2 * time.Second)})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 2 {
+		t.Fatalf("turns=%d want 2 (one per topic): %+v", len(rr.runs), rr.runs)
+	}
+	if rr.runs[0].topic != "alpha" || rr.runs[1].topic != "beta" {
+		t.Fatalf("topic order=%q,%q want alpha,beta", rr.runs[0].topic, rr.runs[1].topic)
+	}
+	// the alpha turn batches both alpha rows (q1 + q3).
+	if !contains(rr.runs[0].batch, "q1") || !contains(rr.runs[0].batch, "q3") {
+		t.Fatalf("alpha batch missing q1/q3: %q", rr.runs[0].batch)
+	}
+	if db.GetAgentCursor("web:demo") == "" {
+		t.Fatal("cursor not advanced after all topic turns")
+	}
+}
+
+// TestGroupBySenderBatching: a multi-party chat dispatches ONE turn per
+// distinct sender in first-seen order (gated processSenderBatch parity).
+func TestGroupBySenderBatching(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m1", Timestamp: now, Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "slack:T/C/X", Sender: "bob", Content: "m2", Timestamp: now.Add(time.Second), Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m3", Timestamp: now.Add(2 * time.Second), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 2 {
+		t.Fatalf("turns=%d want 2 (one per sender): %+v", len(rr.runs), rr.runs)
+	}
+	if rr.runs[0].trigger != "alice" || rr.runs[1].trigger != "bob" {
+		t.Fatalf("sender order=%q,%q want alice,bob", rr.runs[0].trigger, rr.runs[1].trigger)
+	}
+	if !contains(rr.runs[0].batch, "m1") || !contains(rr.runs[0].batch, "m3") {
+		t.Fatalf("alice batch missing m1/m3: %q", rr.runs[0].batch)
+	}
+}
+
+// TestStickyGroupNav: a bare @<folder> pins routing and is consumed (no turn);
+// a subsequent bare message routes to the pinned group (gated handleStickyCommand).
+func TestStickyNavConsumed(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.PutGroup(core.Group{Folder: "child"})
+	// the chat routes to demo via the route table; sticky-nav runs post-resolve
+	// (mirrors gated: handleStickyCommand fires only after resolveOrEngaged).
+	doSetRoutes(t, db, []core.Route{{Match: "platform=tg", Target: "demo"}})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "tg:1", Sender: "u", Content: "@child", Timestamp: now, Verb: "message"})
+
+	loop.pollOnce()
+	if g, _ := db.StickyState("tg:1"); g != "child" {
+		t.Fatalf("sticky_group=%q want child", g)
+	}
+	if len(rr.runs) != 0 {
+		t.Fatalf("sticky command dispatched a turn: %+v", rr.runs)
+	}
+	if db.GetAgentCursor("tg:1") == "" {
+		t.Fatal("consumed sticky command did not advance cursor")
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("sticky ack sends=%d want 1", len(dl.sends))
+	}
+}
+
+// TestSlashNewClearsSession: /new clears the resolved folder's session and is
+// consumed (no turn). /chatid acks the jid (gated handleCommand subset).
+func TestSlashNewClearsSession(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.PutSession("demo", "", "sess-X")
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u", Content: "/new", Timestamp: time.Now().UTC()})
+
+	loop.pollOnce()
+	if db.SessionID("demo", "") != "" {
+		t.Fatal("/new did not clear session")
+	}
+	if db.GetAgentCursor("web:demo") == "" {
+		t.Fatal("/new did not advance cursor")
+	}
+}
+
+// TestChildDelegation: an @child prefix delegates to folder/child, appending a
+// delegation row carrying the origin chat as forwarded_from (the return
+// address). Mirrors gated handlePrefixLayer + delegateViaMessage.
+func TestChildDelegation(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "root"})
+	_ = db.PutGroup(core.Group{Folder: "root/eng"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "root"}})
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
+		Content: "@eng please ship it", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	loop.pollOnce()
+	// the delegation row landed on the child folder JID with the return address.
+	msgs, _ := db.MessagesSince("root/eng", "")
+	if len(msgs) != 1 {
+		t.Fatalf("delegation rows on child=%d want 1", len(msgs))
+	}
+	if msgs[0].ForwardedFrom != "slack:T/C/X" {
+		t.Fatalf("forwarded_from=%q want slack:T/C/X", msgs[0].ForwardedFrom)
+	}
+	if msgs[0].Content != "please ship it" {
+		t.Fatalf("delegated content=%q want stripped prompt", msgs[0].Content)
+	}
+	if db.GetAgentCursor("slack:T/C/X") == "" {
+		t.Fatal("consumed delegation did not advance origin cursor")
+	}
+}
+
+// TestObserveMarksMessages: a route in observe mode (target=folder#observe)
+// flags inbound rows is_observed=1 and routed_to=folder, fires no turn, and
+// advances the cursor (gated MarkMessagesObserved parity).
+func TestObserveMarksMessages(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo#observe"}})
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
+		Content: "ambient", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	had, err := loop.processGroupMessages("slack:T/C/X")
+	if err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if had || len(rr.runs) != 0 {
+		t.Fatalf("observe-mode fired a turn (had=%v runs=%d)", had, len(rr.runs))
+	}
+	var obs int
+	var routed string
+	db.SQL().QueryRow("SELECT is_observed, routed_to FROM messages WHERE id='a'").Scan(&obs, &routed)
+	if obs != 1 || routed != "demo" {
+		t.Fatalf("observe row not marked: is_observed=%d routed_to=%q", obs, routed)
+	}
+	if db.GetAgentCursor("slack:T/C/X") == "" {
+		t.Fatal("observe ingest did not advance cursor")
+	}
+}
+
+// TestEngagementTopicRootNormalization: engagement recorded on the root topic
+// ("") also governs a thread message (topic="<thread>") that has no engagement
+// record of its own — the thread→root fallback (gated poll engTopic).
+func TestEngagementTopicRootNormalization(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "eng"})
+	// engagement claimed on root topic for the chat → eng.
+	_ = db.SetEngagement("slack:T/C/X", "", "eng", time.Hour)
+	// a message arrives in a thread (its own topic, no engagement record).
+	last := core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
+		Content: "follow-up", Topic: "1700.0001", Timestamp: time.Now().UTC(), Verb: "message"}
+
+	folder, ok := loop.resolveGroup("slack:T/C/X", last)
+	if !ok || folder != "eng" {
+		t.Fatalf("resolve=%q,%v want eng,true (thread→root engagement)", folder, ok)
+	}
+}
+
+// TestRouteGetScopeFilter: a folder-scoped token cannot GET a route whose
+// target lies outside its subtree — 404, not a leak (info-leak fix).
+func TestRouteGetScopeFilter(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:read:own_group"}, folder: "a"})
+	id, err := db.AddRoute(core.Route{Seq: 1, Match: "platform=slack", Target: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "GET", "/v1/routes/"+strconv.FormatInt(id, 10), "", nil)
+	if rec.Code != 404 {
+		t.Fatalf("scoped GET of foreign route = %d want 404 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestNoEngagementOnMentionIngress: a verb=mention ingress no longer commits an
+// empty-folder engagement row (which would make Engaged return ("",true) and
+// misroute). The chat resolves via the route table, not a phantom engagement.
+func TestNoEngagementOnMentionIngress(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	h := srv.Handler()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Match: "platform=slack", Target: "demo"}})
+	in := apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "mention"}
+	if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
+		t.Fatalf("ingest=%d", rec.Code)
+	}
+	// no engagement record was written at ingress.
+	if _, ok := db.Engaged("slack:T/C/U", ""); ok {
+		t.Fatal("ingress committed an engagement (want deferred to dispatch)")
+	}
+	// the message still resolves via the route table (not a phantom engagement).
+	last := core.Message{ChatJID: "slack:T/C/U", Verb: "mention"}
+	if folder, ok := srv.loop.resolveGroup("slack:T/C/U", last); !ok || folder != "demo" {
+		t.Fatalf("resolve=%q,%v want demo,true", folder, ok)
+	}
+}
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }

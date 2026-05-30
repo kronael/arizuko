@@ -23,7 +23,8 @@ func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
 		ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Name: m.SenderName,
 		Content: m.Content, Timestamp: ts, ReplyToID: m.ReplyTo,
 		ReplyToText: m.ReplyToText, ReplyToSender: m.ReplyToSender,
-		Topic: m.Topic, Verb: verb, Attachments: atts, ChatName: m.ChatName,
+		ForwardedFrom: m.ForwardedFrom,
+		Topic:         m.Topic, Verb: verb, Attachments: atts, ChatName: m.ChatName,
 		Status: core.MessageStatusSent,
 	}
 }
@@ -63,7 +64,8 @@ func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "routes:read", "routes:read:own_group") {
+	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
+	if !ok {
 		return
 	}
 	id, ok := atoi64(r.PathValue("id"))
@@ -74,6 +76,10 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 	routes, _ := s.db.Routes()
 	for _, rt := range routes {
 		if rt.ID == id {
+			if !ownsFolder(folder, rt.Target) { // scoped caller can't GET a route outside its subtree
+				writeErr(w, 404, "not_found", "route not found")
+				return
+			}
 			writeJSON(w, 200, toWireRoute(rt))
 			return
 		}

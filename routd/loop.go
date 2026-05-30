@@ -277,7 +277,26 @@ func (l *Loop) pollOnce() {
 	}
 	for chatJID, chatMsgs := range byChat {
 		last := chatMsgs[len(chatMsgs)-1]
-		if _, ok := l.resolveGroup(chatJID, last); !ok {
+		r := l.resolve(chatJID, last)
+		if !r.ok {
+			if r.Observe != "" {
+				// Route-table observe rule: ingest silently into the folder's
+				// ambient context (is_observed=1), no turn (spec 5/B).
+				ids := make([]string, len(chatMsgs))
+				for i, m := range chatMsgs {
+					ids[i] = m.ID
+				}
+				if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
+					slog.Warn("poll: mark observed", "jid", chatJID, "err", err)
+				}
+			}
+			l.advance(chatJID, last)
+			continue
+		}
+		// Steering layer (sticky-nav / slash / @child delegation) consumes the
+		// latest message BEFORE enqueue; a consumed message advances the cursor
+		// and never reaches a turn (mirrors gated pollOnce).
+		if l.steer(chatJID, last, r.Folder) {
 			l.advance(chatJID, last)
 			continue
 		}
@@ -292,41 +311,75 @@ func (l *Loop) pollCursor() string {
 	return l.db.MinAgentCursor()
 }
 
+// resolution is the outcome of route resolution for one chat's latest
+// message. Exactly one of {ok, observe} is meaningful: ok=true → dispatch to
+// Folder; Observe non-empty → silent ingest into that folder (no turn);
+// neither → route miss (drop).
+type resolution struct {
+	Folder  string
+	Topic   string // route-pinned topic (rt.Topic), "" leaves the message's own
+	Observe string // observe-mode folder; messages get is_observed=1, no turn
+	ok      bool
+}
+
 // resolveGroup is routd's single route renderer, shared by pollOnce and
 // processGroupMessages (spec 5/E § Route resolution). Direct address →
-// route table → engagement override.
+// route table → engagement override, with topic-root normalization and
+// observe-mode signalling. Mirrors gated resolveOrEngaged + the poll-side
+// engagement/observe branch.
 func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
+	r := l.resolve(chatJID, last)
+	return r.Folder, r.ok
+}
+
+func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	// 1. Direct address: web:<folder> or a bare registered folder.
 	if direct := directFolder(chatJID); direct != "" && l.db.GroupExists(direct) {
-		return direct, true
+		return resolution{Folder: direct, ok: true}
 	}
 	// 2. Route table.
 	routes, err := l.db.Routes()
 	if err == nil {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {
-			topic := last.Topic
-			if rt.Topic != "" {
-				topic = rt.Topic
+			// Engagement overrides the route. Engagement is recorded on the
+			// root topic (topic="") when the agent replies to an @mention;
+			// thread replies arrive with topic="<thread>" which won't match —
+			// normalize thread→root when the thread topic has no own record
+			// (mirrors gated poll engTopic fallback).
+			engTopic := last.Topic
+			if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
+				engTopic = ""
 			}
-			if folder, ok := l.engaged(chatJID, topic); ok {
-				return folder, true
+			if folder, ok := l.engaged(chatJID, engTopic); ok {
+				return resolution{Folder: folder, ok: true}
 			}
 			if rt.Mode == "observe" {
-				return "", false // silent ingest; no turn (5/B)
+				return resolution{Observe: rt.Folder} // silent ingest; no turn (5/B)
 			}
-			return rt.Folder, true
+			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true}
 		}
 	}
-	// 3. Engagement fallback on a route miss.
-	if folder, ok := l.engaged(chatJID, last.Topic); ok {
-		return folder, true
+	// 3. Engagement fallback on a route miss (topic-root normalized).
+	engTopic := last.Topic
+	if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
+		engTopic = ""
 	}
-	return "", false
+	if folder, ok := l.engaged(chatJID, engTopic); ok {
+		return resolution{Folder: folder, ok: true}
+	}
+	return resolution{}
 }
 
+// engaged returns the live engagement folder for (chatJID, topic). An empty
+// engaged folder (e.g. a stale ingress claim) is NOT a route — return false
+// so resolveGroup falls through instead of dispatching to "".
 func (l *Loop) engaged(chatJID, topic string) (string, bool) {
-	return l.db.Engaged(chatJID, topic)
+	folder, ok := l.db.Engaged(chatJID, topic)
+	if !ok || folder == "" {
+		return "", false
+	}
+	return folder, true
 }
 
 // directFolder returns the folder a JID directly addresses, or "" if the
@@ -356,11 +409,21 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	last := msgs[len(msgs)-1]
-	folder, ok := l.resolveGroup(chatJID, last)
-	if !ok {
+	r := l.resolve(chatJID, last)
+	if !r.ok {
+		if r.Observe != "" {
+			ids := make([]string, len(msgs))
+			for i, m := range msgs {
+				ids[i] = m.ID
+			}
+			if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
+				slog.Warn("process: mark observed", "jid", chatJID, "err", err)
+			}
+		}
 		l.advance(chatJID, last)
 		return false, nil
 	}
+	folder := r.Folder
 	// Strip bot rows from the trigger batch (don't feed the agent its own
 	// output) but keep them in the rendered context.
 	var trigger []core.Message
@@ -373,33 +436,68 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		l.advance(chatJID, last)
 		return false, nil
 	}
-	topic := last.Topic
-	turnID := last.ID
+
+	// web: chats dispatch one turn per topic in first-seen order; everyone
+	// else batches per distinct sender, one turn each (mirrors gated
+	// processWebTopics / processSenderBatch). The route-pinned topic (r.Topic)
+	// overrides the message's own topic for the non-web path.
+	var groups [][]core.Message
+	if strings.HasPrefix(chatJID, "web:") {
+		groups = groupByTopic(trigger)
+	} else {
+		groups = groupBySender(trigger)
+	}
+
+	hadAny := false
+	for _, batch := range groups {
+		bl := batch[len(batch)-1]
+		topic := bl.Topic
+		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
+			topic = r.Topic
+		}
+		had, steered, derr := l.runTurn(folder, topic, chatJID, bl.ID, batch)
+		if derr != nil {
+			// Transport failure: do NOT advance — re-fed next poll
+			// (at-least-once; turn_results dedups). State stays running.
+			return hadAny, derr
+		}
+		if steered {
+			// Steer ack: the original run governs the batch; don't advance.
+			return true, nil
+		}
+		hadAny = hadAny || had
+	}
+	l.advance(chatJID, last)
+	return hadAny, nil
+}
+
+// runTurn dispatches ONE turn for a trigger batch (already bot-stripped),
+// records its outcome, and returns (hadOutput, steered, err). It does NOT
+// advance the agent_cursor — processGroupMessages advances once past the
+// whole batch after all per-sender/per-topic turns close.
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
+	last := trigger[len(trigger)-1]
 	rendered := router.FormatMessages(trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead
 	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
 	// it is consumed so a re-fed turn does not re-attach a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
-		r := v.(proactiveResult)
-		rendered = proactiveReasonBlock(r.check, r.reason) + rendered
+		pr := v.(proactiveResult)
+		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
 	}
 
 	if err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender); err != nil {
-		return false, err
+		return false, false, err
 	}
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 
 	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
 	if derr != nil {
-		// Transport failure: do NOT advance — re-fed next poll
-		// (at-least-once; turn_results dedups). State stays running.
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
-		return false, derr
+		return false, false, derr
 	}
 	if out.Steered {
-		// Steer ack: the original run's response governs the batch.
-		// Do not advance the cursor here.
-		return true, nil
+		return true, true, nil
 	}
 	if out.BreakerOpen {
 		slog.Warn("circuit breaker open", "folder", folder, "turn_id", turnID)
@@ -408,27 +506,65 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	// 409s, even if an early submit_turn already flipped state→done.
 	_ = l.db.SetRunReturned(turnID)
 	if out.Outcome == runedv1.OutcomeError {
-		// The run definitively failed. Advance past the batch (starvation
-		// guard), flag the chat errored, and notify the chat — don't treat a
-		// failed run as a silent success (spec 5/E § outcome).
+		// The run definitively failed. Flag the chat errored and notify it —
+		// don't treat a failed run as a silent success (spec 5/E § outcome).
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error)
 		_ = l.db.MarkChatErrored(chatJID)
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "fail-"+turnID)
 		}
 		_ = l.db.SetTurnState(turnID, "done")
-		l.advance(chatJID, last)
-		return false, nil
+		return false, false, nil
 	}
 	// Clean turn-boundary outcome: persist session_id backstop UNLESS
 	// submit_turn already recorded one (its value wins; spec 5/E
-	// § Completion reconciliation), then advance.
+	// § Completion reconciliation).
 	if out.SessionID != "" && !l.db.TurnResultRecorded(folder, turnID) {
 		_ = l.db.PutSession(folder, topic, out.SessionID)
 	}
 	_ = l.db.SetTurnState(turnID, "done")
-	l.advance(chatJID, last)
-	return out.Outcome != runedv1.OutcomeSilent, nil
+	return out.Outcome != runedv1.OutcomeSilent, false, nil
+}
+
+// groupBySender splits a batch into one sub-batch per distinct sender, in
+// first-seen order (one turn per sender; mirrors gated groupBySender).
+func groupBySender(msgs []core.Message) [][]core.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var batches [][]core.Message
+	idx := map[string]int{}
+	for _, m := range msgs {
+		i, seen := idx[m.Sender]
+		if !seen {
+			i = len(batches)
+			idx[m.Sender] = i
+			batches = append(batches, nil)
+		}
+		batches[i] = append(batches[i], m)
+	}
+	return batches
+}
+
+// groupByTopic splits a batch into one sub-batch per distinct topic, in
+// first-seen order (the web: per-topic dispatch; mirrors gated
+// processWebTopics).
+func groupByTopic(msgs []core.Message) [][]core.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var batches [][]core.Message
+	idx := map[string]int{}
+	for _, m := range msgs {
+		i, seen := idx[m.Topic]
+		if !seen {
+			i = len(batches)
+			idx[m.Topic] = i
+			batches = append(batches, nil)
+		}
+		batches[i] = append(batches[i], m)
+	}
+	return batches
 }
 
 // runFailureNotice is sent to the chat when a run returns outcome:error and

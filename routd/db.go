@@ -147,7 +147,7 @@ func (d *DB) MessageExists(id string) bool {
 func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
 	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name
+		status, platform_id, chat_name, forwarded_from
 		FROM messages WHERE timestamp > ? ORDER BY timestamp ASC`, since)
 	if err != nil {
 		return nil, since, err
@@ -161,7 +161,7 @@ func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
 func (d *DB) MessagesSince(chatJID, since string) ([]core.Message, error) {
 	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name
+		status, platform_id, chat_name, forwarded_from
 		FROM messages WHERE chat_jid=? AND timestamp > ? ORDER BY timestamp ASC`, chatJID, since)
 	if err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func (d *DB) History(chatJID, before string, limit int) ([]core.Message, error) 
 	}
 	q := `SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
 		is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id, status,
-		platform_id, chat_name FROM messages WHERE chat_jid=?`
+		platform_id, chat_name, forwarded_from FROM messages WHERE chat_jid=?`
 	args := []any{chatJID}
 	if before != "" {
 		q += " AND timestamp < ?"
@@ -212,13 +212,14 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) 
 	var out []core.Message
 	for rows.Next() {
 		var m core.Message
-		var ts, turnID, platformID sql.NullString
+		var ts, turnID, platformID, fwdFrom sql.NullString
 		var fromMe, botMsg int
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
 			&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
-			&turnID, &m.Status, &platformID, &m.ChatName); err != nil {
+			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom); err != nil {
 			return out, hi, err
 		}
+		m.ForwardedFrom = fwdFrom.String
 		m.FromMe = fromMe == 1
 		m.BotMsg = botMsg == 1
 		m.TurnID = turnID.String
@@ -258,7 +259,7 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 	}
 	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
 		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name
+		status, platform_id, chat_name, forwarded_from
 		FROM messages WHERE status='pending' AND is_bot_message=1 AND timestamp <= ?
 		ORDER BY timestamp ASC LIMIT ?`, cutoff.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
@@ -325,6 +326,59 @@ func (d *DB) StickyState(chatJID string) (group, topic string) {
 	var g, t sql.NullString
 	d.db.QueryRow("SELECT sticky_group, sticky_topic FROM chats WHERE jid=?", chatJID).Scan(&g, &t)
 	return g.String, t.String
+}
+
+// SetStickyGroup pins (or clears, when folder=="") the @group navigation
+// target for a chat — subsequent messages route to it until reset.
+func (d *DB) SetStickyGroup(chatJID, folder string) error {
+	_, err := d.db.Exec(`INSERT INTO chats(jid, sticky_group) VALUES(?,?)
+		ON CONFLICT(jid) DO UPDATE SET sticky_group=excluded.sticky_group`, chatJID, folder)
+	return err
+}
+
+// SetStickyTopic pins (or clears, when topic=="") the #topic navigation
+// target for a chat.
+func (d *DB) SetStickyTopic(chatJID, topic string) error {
+	_, err := d.db.Exec(`INSERT INTO chats(jid, sticky_topic) VALUES(?,?)
+		ON CONFLICT(jid) DO UPDATE SET sticky_topic=excluded.sticky_topic`, chatJID, topic)
+	return err
+}
+
+// RoutedToByMessageID returns the folder a stored message was routed to
+// (matched by id OR platform_id), or "" when absent. Delegation looks this
+// up to send a reply-to-bot back to the child that authored the reply.
+func (d *DB) RoutedToByMessageID(id string) string {
+	var routed string
+	d.db.QueryRow("SELECT routed_to FROM messages WHERE id=? OR platform_id=? LIMIT 1", id, id).Scan(&routed)
+	return routed
+}
+
+// IsEngaged reports whether (jid, topic) has a live engagement window — the
+// topic-root normalization probe (engagement recorded on root may not match a
+// thread topic).
+func (d *DB) IsEngaged(jid, topic string) bool {
+	_, ok := d.Engaged(jid, topic)
+	return ok
+}
+
+// MarkMessagesObserved flags rows as is_observed=1 and stamps routed_to so a
+// route-table observe rule (target=folder#observe) ingests them silently into
+// the folder's ambient context without firing a turn (spec 5/B).
+func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range ids {
+		if _, err := tx.Exec("UPDATE messages SET is_observed=1, routed_to=? WHERE id=?", folder, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // --- routes ---
@@ -569,6 +623,13 @@ func (d *DB) PutSession(folder, topic, sessionID string) error {
 	_, err := d.db.Exec(`INSERT INTO sessions(group_folder, topic, session_id) VALUES(?,?,?)
 		ON CONFLICT(group_folder, topic) DO UPDATE SET session_id=excluded.session_id`,
 		folder, topic, sessionID)
+	return err
+}
+
+// DeleteSession drops the persisted session for (folder, topic) — the /new
+// command's session reset.
+func (d *DB) DeleteSession(folder, topic string) error {
+	_, err := d.db.Exec("DELETE FROM sessions WHERE group_folder=? AND topic=?", folder, topic)
 	return err
 }
 

@@ -21,6 +21,7 @@ type Message struct {
 	ReplyTo        string       `json:"reply_to"`
 	ReplyToText    string       `json:"reply_to_text"`
 	ReplyToSender  string       `json:"reply_to_sender"`
+	ForwardedFrom  string       `json:"forwarded_from"` // delegation return-address (spec 5/E § delegation)
 	Topic          string       `json:"topic"`
 	Verb           string       `json:"verb"`     // default message; like|dislike|edit|delete|...
 	Reaction       string       `json:"reaction"` // emoji for verb=like

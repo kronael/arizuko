@@ -215,10 +215,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		m.Topic = s.db.TopicByID(m.ReplyTo)
 	}
 	row := buildMessageRow(m, ts, verb)
-	// engagement-on-mention commits with the row (before PutMessage).
-	if verb == "mention" {
-		_ = s.db.SetEngagement(m.ChatJID, m.Topic, "", s.engagementT)
-	}
+	// Engagement is NOT committed at ingress: the owning folder isn't known
+	// until route resolution. routd defers the engagement claim to dispatch
+	// time (appendAndDeliver bumps it with the resolved folder), mirroring
+	// gated's makeOutputCallback/poll bump sites. A pre-PutMessage claim with
+	// an empty folder would make Engaged return ("", true) and misroute.
 	if err := s.db.PutMessage(row); err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
