@@ -126,6 +126,41 @@ func (s *server) handleChatTokenConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /chat/<token>/<topic>/messages — prior messages for this token's JID
+// and topic, oldest→newest, capped at the last 100 (store ceiling). Powers
+// the widget's history-on-open. Empty/unknown topic → empty list (not error).
+func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) {
+	row, ok := s.lookupRouteToken(w, r)
+	if !ok {
+		return
+	}
+	topic := r.PathValue("topic")
+	if len(topic) > maxTopicLen {
+		http.Error(w, "topic too long", http.StatusBadRequest)
+		return
+	}
+	type msgOut struct {
+		ID      string `json:"id"`
+		Role    string `json:"role"`
+		Content string `json:"content"`
+		TS      string `json:"ts"`
+	}
+	out := []msgOut{}
+	if topic != "" {
+		msgs, err := s.st.MessagesByThread(row.JID, topic, time.Now(), 100)
+		if err != nil {
+			http.Error(w, "store failed", http.StatusInternalServerError)
+			return
+		}
+		// MessagesByThread returns newest→oldest; reverse to oldest→newest.
+		out = make([]msgOut, len(msgs))
+		for i, m := range msgs {
+			out[len(msgs)-1-i] = msgOut{m.ID, messageRole(m), m.Content, m.Timestamp.Format(time.RFC3339)}
+		}
+	}
+	chanlib.WriteJSON(w, out)
+}
+
 // POST /chat/<token>  — append a user message, optionally stream the reply.
 // Accept header drives response shape: text/event-stream → SSE,
 // text/html → HTMX bubble, anything else → JSON.
@@ -462,52 +497,138 @@ var htmlReplacer = strings.NewReplacer(
 func htmlEscape(s string) string { return htmlReplacer.Replace(s) }
 
 const chatWidgetHTML = `<!DOCTYPE html><html><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>%s</title>
 <style>
 :root{--bg:#0a0a0a;--fg:#e0e0e0;--accent:#4ade80;--accent2:#a78bfa;--accent3:#58a6ff;--dim:#666;--border:#222;--card:#111;--card-hover:#161616}
 [data-theme=light]{--bg:#fafafa;--fg:#1a1a1a;--accent:#16a34a;--accent2:#7c3aed;--accent3:#0969da;--dim:#888;--border:#ddd;--card:#fff;--card-hover:#f5f5f5}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:var(--fg);background:var(--bg);height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-header{display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--card)}
-header .name{color:var(--accent);font-weight:600;font-size:1.05em}
-header .dim{color:var(--dim);font-size:.85em}
+html,body{height:100%%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:var(--fg);background:transparent}
+/* dock — slim bar bottom-right on desktop; expands UPWARD into the panel */
+#dock{position:fixed;right:1rem;bottom:1rem;width:380px;max-width:calc(100vw - 2rem);background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.4);display:flex;flex-direction:column;overflow:hidden;transition:height .18s ease}
+#dock.collapsed{height:52px}
+#dock.open{height:560px;max-height:calc(100dvh - 2rem)}
+header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;cursor:pointer;flex-shrink:0;user-select:none}
+header .name{color:var(--accent);font-weight:600;font-size:1.05em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .ico{color:var(--dim);font-size:1.1em;line-height:1;background:none;border:none;cursor:pointer;padding:.15rem .3rem;border-radius:6px}
+header .ico:hover{color:var(--fg);background:var(--card-hover)}
+/* thread switcher drawer */
+#threads{display:none;flex-direction:column;border-bottom:1px solid var(--border);background:var(--bg);max-height:200px;overflow-y:auto}
+#dock.show-threads #threads{display:flex}
+#threads .row{display:flex;align-items:center;gap:.5rem;padding:.5rem .9rem;cursor:pointer;font-size:.88em;border-bottom:1px solid var(--border)}
+#threads .row:hover{background:var(--card-hover)}
+#threads .row.active{color:var(--accent)}
+#threads .row .ttl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#threads .row .del{color:var(--dim);background:none;border:none;cursor:pointer;font-size:.95em;padding:0 .2rem}
+#threads .row .del:hover{color:var(--accent2)}
+#threads .new{padding:.55rem .9rem;color:var(--accent3);cursor:pointer;font-weight:600;font-size:.88em}
+#threads .new:hover{background:var(--card-hover)}
+#body{flex:1;display:flex;flex-direction:column;min-height:0}
+#dock.collapsed #body{display:none}
 #thread{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.5rem}
 @keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.msg{max-width:75%%;padding:.55rem .85rem;border-radius:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-size:.9em;animation:pop .15s ease}
+.msg{max-width:80%%;padding:.55rem .85rem;border-radius:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-size:.9em;animation:pop .15s ease}
 .msg.user{align-self:flex-end;background:var(--accent);color:var(--bg);border-bottom-right-radius:3px}
-.msg.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:3px}
-.msg .meta{font-size:.7em;color:var(--dim);margin-top:.25em}
-.msg.user .meta{color:rgba(0,0,0,.45)}
+.msg.assistant{align-self:flex-start;background:var(--bg);border:1px solid var(--border);border-bottom-left-radius:3px}
 .typing{align-self:flex-start;color:var(--dim);font-size:.85em;padding:.3rem .8rem;animation:pop .15s ease}
-footer{padding:.6rem 1rem;padding-bottom:max(.6rem,env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--card)}
+footer{padding:.6rem .8rem;padding-bottom:max(.6rem,env(safe-area-inset-bottom));border-top:1px solid var(--border);flex-shrink:0}
 footer form{display:flex;gap:.5rem;align-items:flex-end}
 footer textarea{flex:1;resize:none;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:.9em;height:2.6rem;transition:border-color .15s}
 footer textarea:focus{outline:none;border-color:var(--accent3)}
-footer button{padding:.5rem 1.2rem;background:var(--accent);color:var(--bg);border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:600;font-size:.9em;min-height:44px;transition:opacity .15s}
+footer button{padding:.5rem 1.1rem;background:var(--accent);color:var(--bg);border:none;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:600;font-size:.9em;min-height:44px;transition:opacity .15s}
 footer button:hover{opacity:.85}
 footer button:disabled{opacity:.35;cursor:default}
-@media(max-width:600px){body{font-size:13px}.msg{max-width:90%%}footer textarea{font-size:16px}}
+/* mobile — full screen; when collapsed only a top bar shows */
+@media(max-width:640px){
+  #dock{right:0;left:0;bottom:0;top:auto;width:auto;max-width:none;border:none;border-radius:0;box-shadow:none}
+  #dock.open{height:100dvh;max-height:100dvh;border-radius:0}
+  #dock.collapsed{height:calc(52px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom)}
+  .msg{max-width:88%%}
+  footer textarea{font-size:16px}
+}
 </style>
 <script>(function(){var t=localStorage.getItem('hub-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})()</script>
 </head><body>
-<header>
-  <span class="name">%s</span>
-  <span class="dim">ant link</span>
-</header>
-<div id="thread"></div>
-<footer>
-  <form id="f" onsubmit="send(event)">
-    <textarea id="m" placeholder="type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send(event)}"></textarea>
-    <button type="submit" id="btn">send</button>
-  </form>
-</footer>
+<div id="dock" class="collapsed">
+  <header id="bar">
+    <button class="ico" id="listBtn" title="threads" onclick="event.stopPropagation();toggleThreads()">&#9776;</button>
+    <span class="name">%s</span>
+    <button class="ico" id="toggleBtn" title="expand">&#9650;</button>
+  </header>
+  <div id="threads"></div>
+  <div id="body">
+    <div id="thread"></div>
+    <footer>
+      <form id="f" onsubmit="send(event)">
+        <textarea id="m" placeholder="type a message..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send(event)}"></textarea>
+        <button type="submit" id="btn">send</button>
+      </form>
+    </footer>
+  </div>
+</div>
 <script>
-var folder="%s",token="%s",topic='t'+Date.now(),es,reconnectTimer;
+var folder="%s",token="%s";
+var VKEY='arz_chat_visitor',TKEY='arz_chat_threads',MAXAGE=30*864e5;
+var es,reconnectTimer,cur=null;
+
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function visitor(){var v=localStorage.getItem(VKEY);if(!v){v=rnd();localStorage.setItem(VKEY,v)}return v}
+function rnd(){return Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,6)}
+function loadThreads(){
+  var a=[];try{a=JSON.parse(localStorage.getItem(TKEY))||[]}catch(x){}
+  var now=Date.now();a=a.filter(function(t){return now-(t.updated||0)<MAXAGE});
+  return a;
+}
+function saveThreads(a){localStorage.setItem(TKEY,JSON.stringify(a))}
+function topicFor(id){return visitor()+'-'+id}
+
+function renderThreads(){
+  var a=loadThreads(),box=document.getElementById('threads');box.innerHTML='';
+  a.sort(function(x,y){return (y.updated||0)-(x.updated||0)});
+  a.forEach(function(t){
+    var row=document.createElement('div');row.className='row'+(cur&&cur.id===t.id?' active':'');
+    var ttl=document.createElement('span');ttl.className='ttl';ttl.textContent=t.title||'New chat';
+    var del=document.createElement('button');del.className='del';del.innerHTML='&#215;';del.title='delete';
+    del.onclick=function(e){e.stopPropagation();delThread(t.id)};
+    row.appendChild(ttl);row.appendChild(del);
+    row.onclick=function(){openThread(t);document.getElementById('dock').classList.remove('show-threads')};
+    box.appendChild(row);
+  });
+  var nw=document.createElement('div');nw.className='new';nw.textContent='+ new chat';
+  nw.onclick=function(){newThread()};box.appendChild(nw);
+}
+function toggleThreads(){
+  expand();document.getElementById('dock').classList.toggle('show-threads');renderThreads();
+}
+function upsertThread(t){
+  var a=loadThreads(),i=a.findIndex(function(x){return x.id===t.id});
+  if(i<0)a.push(t);else a[i]=t;saveThreads(a);
+}
+function delThread(id){
+  var a=loadThreads().filter(function(x){return x.id!==id});saveThreads(a);
+  if(cur&&cur.id===id){cur=null;if(a.length)openThread(a[0]);else newThread()}
+  renderThreads();
+}
+function newThread(){
+  var t={id:rnd(),title:'New chat',topic:'',updated:Date.now()};
+  t.topic=topicFor(t.id);upsertThread(t);openThread(t);
+  document.getElementById('dock').classList.remove('show-threads');
+  document.getElementById('m').focus();
+}
+
+async function openThread(t){
+  cur=t;t.updated=Date.now();upsertThread(t);renderThreads();
+  var thread=document.getElementById('thread');thread.innerHTML='';
+  try{
+    var resp=await fetch('/chat/'+token+'/'+encodeURIComponent(t.topic)+'/messages');
+    if(resp.ok){(await resp.json()).forEach(function(m){addMsg(m.role||'assistant',m.content,m.id)})}
+  }catch(x){}
+  connect(t.topic);
+}
+
 function addMsg(role,content,id){
-  var d=document.createElement('div');
-  d.className='msg '+role;
+  var d=document.createElement('div');d.className='msg '+role;
   if(id)d.id='msg-'+id;
   d.innerHTML=esc(content).replace(/\n/g,'<br>');
   document.getElementById('thread').appendChild(d);
@@ -516,14 +637,13 @@ function addMsg(role,content,id){
 function showTyping(){
   if(document.querySelector('.typing'))return;
   var d=document.createElement('div');d.className='typing';d.textContent='…';
-  document.getElementById('thread').appendChild(d);
-  d.scrollIntoView({behavior:'smooth'});
+  document.getElementById('thread').appendChild(d);d.scrollIntoView({behavior:'smooth'});
 }
-function connect(){
-  clearTimeout(reconnectTimer);
-  if(es)es.close();
+function connect(topic){
+  clearTimeout(reconnectTimer);if(es)es.close();
   es=new EventSource('/chat/stream?token='+encodeURIComponent(token)+'&group='+encodeURIComponent(folder)+'&topic='+encodeURIComponent(topic));
   es.addEventListener('message',function(e){
+    if(!cur||cur.topic!==topic)return;
     try{
       var m=JSON.parse(e.data);
       if(document.getElementById('msg-'+m.id))return;
@@ -531,20 +651,21 @@ function connect(){
       addMsg(m.role||'assistant',m.content,m.id);
     }catch(x){}
   });
-  es.onerror=function(){es.close();reconnectTimer=setTimeout(connect,3000)};
+  es.onerror=function(){es.close();reconnectTimer=setTimeout(function(){connect(topic)},3000)};
 }
-connect();
+
 async function send(e){
-  e.preventDefault();
+  e.preventDefault();if(!cur)newThread();
   var input=document.getElementById('m'),btn=document.getElementById('btn');
-  var content=input.value.trim();
-  if(!content)return;
+  var content=input.value.trim();if(!content)return;
   input.value='';btn.disabled=true;
+  if(cur.title==='New chat'){cur.title=content.slice(0,40);}
+  cur.updated=Date.now();upsertThread(cur);renderThreads();
   try{
     var resp=await fetch('/chat/'+token,{
       method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'text/html'},
-      body:'content='+encodeURIComponent(content)+'&topic='+encodeURIComponent(topic)
+      body:'content='+encodeURIComponent(content)+'&topic='+encodeURIComponent(cur.topic)
     });
     if(!resp.ok){addMsg('assistant','Error: '+resp.statusText);return}
     var html=await resp.text();
@@ -554,5 +675,28 @@ async function send(e){
     showTyping();
   }finally{btn.disabled=false;input.focus()}
 }
+
+var dock=document.getElementById('dock');
+function expand(){
+  if(!dock.classList.contains('collapsed'))return;
+  dock.classList.remove('collapsed');dock.classList.add('open');
+  document.getElementById('toggleBtn').innerHTML='&#9660;';
+  document.getElementById('toggleBtn').title='collapse';
+  document.getElementById('m').focus();
+}
+function collapse(){
+  dock.classList.add('collapsed');dock.classList.remove('open','show-threads');
+  document.getElementById('toggleBtn').innerHTML='&#9650;';
+  document.getElementById('toggleBtn').title='expand';
+}
+function toggleDock(){dock.classList.contains('collapsed')?expand():collapse()}
+document.getElementById('bar').onclick=toggleDock;
+document.getElementById('toggleBtn').onclick=function(e){e.stopPropagation();toggleDock()};
+
+(function init(){
+  var a=loadThreads();saveThreads(a);
+  if(a.length){a.sort(function(x,y){return (y.updated||0)-(x.updated||0)});openThread(a[0])}
+  else newThread();
+})();
 </script>
 </body></html>`

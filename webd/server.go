@@ -78,6 +78,7 @@ func (s *server) handler() http.Handler {
 	withCORS("POST /chat/{token}", s.handleChatTokenPost)
 	withCORS("POST /chat/{token}/", s.handleChatTokenPost)
 	withCORS("POST /chat/{token}/mcp", s.handleChatTokenMCP)
+	withCORS("GET /chat/{token}/{topic}/messages", s.handleChatTokenHistory)
 	withCORS("GET /chat/stream", s.handleRouteTokenStream)
 	withCORS("GET /chat/{token}/{id}", s.handleTurnSnapshot)
 	withCORS("GET /chat/{token}/{id}/status", s.handleTurnStatus)
