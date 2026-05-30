@@ -271,28 +271,15 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, return
 		return
 	}
 	claimSub := "user:" + sub
-	access, err := o.a.MintForSubject(claimSub, scope, scope, "")
+	// One mint path, mirroring IssuerMint: signMinted stamps a single jti, the
+	// arz/folder claim, and typ="user" in one Sign — no mint-then-discard.
+	m, err := o.a.signMinted(auth.TokenClaims{Sub: claimSub, Typ: "user", Scope: scope}, folder, o.a.accessTTL)
 	if err != nil {
 		slog.Error("mint access", "sub", sub, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if folder != "" {
-		// Re-mint with the folder claim (MintForSubject takes no folder; the
-		// session-issuance path is the only one that stamps arz/folder).
-		k, kerr := o.a.activeKey()
-		if kerr != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		access, err = k.Sign(auth.TokenClaims{
-			Sub: claimSub, Scope: scope, Extra: map[string]string{"arz/folder": folder},
-		}, o.a.accessTTL)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-	}
+	access := m.token
 	// Store the refresh subject in the SAME canonical (prefixed) form the
 	// access token carries — Refresh mints via MintForSubject(r.sub), which
 	// signs the sub verbatim, so a bare sub here would drop the user: prefix

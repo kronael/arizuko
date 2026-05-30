@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -22,6 +24,11 @@ type Authd struct {
 	accessTTL    time.Duration // short access JWT lifetime (~15m)
 	refreshTTL   time.Duration // rotating refresh lifetime
 	maxAccessTTL time.Duration // longest access TTL ever minted; bounds a retired key's serving window
+
+	// grants, when wired, re-snapshots the bare sub's scope ceiling on every
+	// refresh (spec 5/1 § refresh: "re-runs the snapshot so a refreshed token
+	// reflects current grants"). nil = reuse the stored refresh-row scope.
+	grants GrantsFetcher
 
 	mu      sync.RWMutex
 	active  *auth.SigningKey // current signing key
@@ -149,13 +156,14 @@ func (a *Authd) activeKey() (*auth.SigningKey, error) {
 
 // MintForSubject signs an authoritative access token for sub, scope bounded by
 // the target's grants snapshot. The minted claim carries the prefixed subject
-// (e.g. "user:123", "service:timed"); sub is passed already prefixed.
-func (a *Authd) MintForSubject(sub string, requested, targetGrants []string, aud string) (string, error) {
+// (e.g. "user:123", "service:timed"); sub is passed already prefixed. typ is
+// the JWT `typ` claim ("user" | "service").
+func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string, aud string) (string, error) {
 	k, err := a.activeKey()
 	if err != nil {
 		return "", err
 	}
-	return k.MintForSubject(targetGrants, auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud}, a.accessTTL)
+	return k.MintForSubject(targetGrants, auth.TokenClaims{Sub: sub, Typ: typ, Scope: requested, Aud: aud}, a.accessTTL)
 }
 
 // MintNarrower signs a delegated token: requested must be a subset of the
@@ -226,7 +234,7 @@ func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string
 		ttl = rem
 	}
 	return a.signMinted(auth.TokenClaims{
-		Sub: parent.Sub, Scope: requested, Aud: parent.Aud, ParentJTI: parent.JTI,
+		Sub: parent.Sub, Typ: "downscoped", Scope: requested, Aud: parent.Aud, ParentJTI: parent.JTI,
 	}, folder, ttl)
 }
 
@@ -234,7 +242,7 @@ func (a *Authd) Downscope(parent auth.Subject, requested []string, folder string
 // scope bounded by the TARGET sub's grants snapshot — NOT the caller's scope
 // (spec 5/1 § POST /v1/tokens issuer mint). targetGrants/folder come from the
 // grants snapshot the caller fetched.
-func (a *Authd) IssuerMint(sub string, requested, targetGrants []string, folder, aud string, ttl time.Duration) (minted, error) {
+func (a *Authd) IssuerMint(sub, typ string, requested, targetGrants []string, folder, aud string, ttl time.Duration) (minted, error) {
 	for _, want := range requested {
 		if !auth.HasScopeCoveredBy(targetGrants, want) {
 			return minted{}, auth.ErrScopeTooBroad
@@ -243,7 +251,7 @@ func (a *Authd) IssuerMint(sub string, requested, targetGrants []string, folder,
 	if len(requested) == 0 {
 		requested = append([]string(nil), targetGrants...)
 	}
-	return a.signMinted(auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud}, folder, ttl)
+	return a.signMinted(auth.TokenClaims{Sub: sub, Typ: typ, Scope: requested, Aud: aud}, folder, ttl)
 }
 
 // parentFolder reads the arz/folder claim a verified parent carries ("" = none).
@@ -295,11 +303,27 @@ func (a *Authd) Refresh(raw string) (access, newRefresh string, err error) {
 		_ = revokeFamily(a.db, r.family)
 		return "", "", errReuse
 	}
-	newRefresh, err = rotateRefresh(a.db, r.family, r.sub, r.scope, r.aud, a.refreshTTL)
+	// Re-snapshot grants on refresh so a revoked user does not keep scope up to
+	// the refresh TTL (spec 5/1 § refresh). With no fetcher wired, the stored
+	// scope is the ceiling; with one, the fresh snapshot is, and a backend
+	// outage fails CLOSED (mint nothing) rather than reusing stale scope.
+	scope := r.scope
+	if a.grants != nil {
+		snap, gerr := a.grants.FetchGrants(context.Background(), bareSub(r.sub))
+		switch {
+		case gerr == nil:
+			scope = snap.Scope
+		case errors.Is(gerr, ErrNoGrants):
+			scope = nil
+		default:
+			return "", "", errGrantsUnavailable
+		}
+	}
+	newRefresh, err = rotateRefresh(a.db, r.family, r.sub, scope, r.aud, a.refreshTTL)
 	if err != nil {
 		return "", "", err
 	}
-	access, err = a.MintForSubject(r.sub, r.scope, r.scope, r.aud)
+	access, err = a.MintForSubject(r.sub, "user", scope, scope, r.aud)
 	if err != nil {
 		return "", "", err
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
@@ -35,7 +36,9 @@ func main() {
 			slog.Error("DATABASE or DATA_DIR env required")
 			os.Exit(1)
 		}
-		dsn = filepath.Join(dataDir, "store", "messages.db")
+		// authd owns auth.db and runs its own migrations; it must NOT migrate
+		// gated's messages.db (CLAUDE.md DB-ownership rule).
+		dsn = filepath.Join(dataDir, "auth.db")
 	}
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
@@ -82,7 +85,7 @@ func main() {
 	// Self-mint service:authd at boot from AUTHD_SERVICE_KEY, proving the
 	// signer is live and giving authd its own identity for outbound calls.
 	if boot := os.Getenv("AUTHD_SERVICE_KEY"); boot != "" {
-		if _, err := a.MintForSubject("service:authd", nil, serviceGrants["service:authd"], ""); err != nil {
+		if _, err := a.MintForSubject("service:authd", "service", nil, serviceGrants["service:authd"], ""); err != nil {
 			slog.Error("self-mint service:authd", "err", err)
 			os.Exit(1)
 		}
@@ -95,6 +98,7 @@ func main() {
 	// OAuth /auth/* (spec 5/1): authd is the OAuth provider, minting ES256.
 	// Mounted only when provider config is present (AUTH_BASE_URL + a client id).
 	if cfg, cerr := core.LoadConfig(); cerr == nil {
+		srv.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
 		srv.registerOAuth(mux, cfg)
 	} else {
 		slog.Warn("oauth /auth/* not mounted: config load failed", "err", cerr)

@@ -104,7 +104,7 @@ func TestHTTPFetchKeysVerifiesMintedToken(t *testing.T) {
 	a := newTestAuthd(t, db)
 	_, ts := newServer(t, a)
 
-	tok, err := a.MintForSubject("user:9", nil, []string{"tasks:read"}, "")
+	tok, err := a.MintForSubject("user:9", "user", nil, []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestHTTPTokenRejectedByWrongServersKeys(t *testing.T) {
 	aB := newTestAuthd(t, dbB)
 	_, tsB := newServer(t, aB)
 
-	tok, _ := aA.MintForSubject("user:1", nil, []string{"tasks:read"}, "")
+	tok, _ := aA.MintForSubject("user:1", "user", nil, []string{"tasks:read"}, "")
 	// Sanity: A's token verifies against A.
 	if err := fetchVerify(t, tsA.URL, tok); err != nil {
 		t.Fatalf("control: A-token must verify against A: %v", err)
@@ -150,7 +150,7 @@ func TestHTTPRetiredKeyVerifiesWithinWindow(t *testing.T) {
 	a := newTestAuthd(t, db) // maxAccessTTL = 1h, so a just-retired key stays serving
 	_, ts := newServer(t, a)
 
-	oldTok, _ := a.MintForSubject("user:1", nil, []string{"a:read"}, "")
+	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
 	if err := a.Rotate(); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestHTTPRetiredKeyFallsOutOfWindow(t *testing.T) {
 	}
 	_, ts := newServer(t, a)
 
-	oldTok, _ := a.MintForSubject("user:1", nil, []string{"a:read"}, "")
+	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
 	if err := a.Rotate(); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestHTTPRevokeAllNowStopsOldTokens(t *testing.T) {
 	a := newTestAuthd(t, db)
 	_, ts := newServer(t, a)
 
-	oldTok, _ := a.MintForSubject("user:1", nil, []string{"a:read"}, "")
+	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
 	if err := fetchVerify(t, ts.URL, oldTok); err != nil {
 		t.Fatalf("control: token must verify before revoke: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestHTTPRefreshReuseKillsLiveSuccessor(t *testing.T) {
 		t.Fatalf("first refresh status %d", resp.StatusCode)
 	}
 	r1, _ := out["refresh_token"].(string)
-	access, _ := out["access_token"].(string)
+	access, _ := out["token"].(string)
 	if r1 == "" || r1 == r0 {
 		t.Fatalf("refresh must rotate; got r1=%q", r1)
 	}
@@ -260,7 +260,7 @@ func TestHTTPRefreshUnknownTokenRejected(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unknown refresh token must be 401, got %d", resp.StatusCode)
 	}
-	if _, ok := out["access_token"]; ok {
+	if _, ok := out["token"]; ok {
 		t.Fatal("a rejected refresh must not return an access token")
 	}
 }
@@ -324,7 +324,7 @@ func TestMintForSubjectDropsScopeBeyondGrants(t *testing.T) {
 	a := newTestAuthd(t, db)
 
 	// Target granted only tasks:read; request tasks:read + secrets:read + admin:*.
-	tok, err := a.MintForSubject("user:1",
+	tok, err := a.MintForSubject("user:1", "user",
 		[]string{"tasks:read", "secrets:read", "admin:write"},
 		[]string{"tasks:read"}, "")
 	if err != nil {

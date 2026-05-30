@@ -52,6 +52,7 @@ type server struct {
 	a              *Authd
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
 	grants         GrantsFetcher     // nil until the gated cutover step wires it
+	secureCookies  bool              // mark refresh cookies Secure (https deployment)
 }
 
 func (s *server) mux() *http.ServeMux {
@@ -81,7 +82,7 @@ func (s *server) handleKeys(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_, _ = w.Write(body)
 }
 
@@ -119,7 +120,7 @@ func (s *server) handleServiceToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "bad_service_key", "unknown daemon or hash mismatch")
 		return
 	}
-	token, err := s.a.MintForSubject(principal, nil, serviceGrants[principal], "")
+	token, err := s.a.MintForSubject(principal, "service", nil, serviceGrants[principal], "")
 	if err != nil {
 		slog.Error("mint service token", "principal", principal, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -196,7 +197,7 @@ func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 		auth.HasScope(caller.Scope, "tokens", "mint") && req.Sub != "" && req.Sub != caller.Sub
 	var m minted
 	if issuer {
-		m, err = s.issuerMint(r.Context(), req.Sub, req.Scope, req.Aud, ttl)
+		m, err = s.issuerMint(r.Context(), req.Typ, req.Sub, req.Scope, req.Aud, ttl)
 	} else {
 		m, err = s.a.Downscope(caller, req.Scope, req.Folder, ttl)
 	}
@@ -232,7 +233,10 @@ var errGrantsUnavailable = errors.New("grants backend unavailable")
 // grants fetcher wired (the additive-step default) it fails closed — authd
 // cannot evaluate the required ceiling, so it must not mint (spec 5/1: issuer
 // mint is bounded by the target's grants, never the caller's scope).
-func (s *server) issuerMint(ctx context.Context, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
+func (s *server) issuerMint(ctx context.Context, typ, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
+	if typ == "" {
+		typ = "user"
+	}
 	if s.grants == nil {
 		return minted{}, errGrantsUnavailable
 	}
@@ -243,7 +247,7 @@ func (s *server) issuerMint(ctx context.Context, sub string, requested []string,
 		}
 		return minted{}, errGrantsUnavailable
 	}
-	return s.a.IssuerMint(sub, requested, snap.Scope, snap.Folder, aud, ttl)
+	return s.a.IssuerMint(sub, typ, requested, snap.Scope, snap.Folder, aud, ttl)
 }
 
 // bareSub strips the "user:"/"service:" prefix for the grants lookup (spec 5/1
@@ -271,30 +275,59 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": msg})
 }
 
-// handleRefresh rotates a refresh token, returning a new access + refresh pair.
+// handleRefresh rotates a refresh token, returning a new access JWT plus the
+// successor refresh token by the SAME channel it was presented on (spec 5/1
+// § POST /v1/refresh): cookie in → successor in Set-Cookie, omitted from the
+// JSON body (stays HttpOnly); body in → successor in the JSON body, no cookie.
+// A request with both a cookie and a body token uses the cookie (browser wins).
 // Reuse of a spent token revokes the family and returns 401.
 func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+	raw, browser := refreshFromRequest(w, r)
+	if raw == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	access, newRefresh, err := s.a.Refresh(req.RefreshToken)
+	access, newRefresh, err := s.a.Refresh(raw)
 	if err != nil {
 		if err == errReuse {
 			slog.Warn("refresh token reuse — family revoked")
 		}
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		if errors.Is(err, errGrantsUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "grants_unavailable", "grants backend unavailable")
+			return
+		}
+		writeErr(w, http.StatusUnauthorized, "invalid_refresh", "missing, expired, or reused refresh token")
 		return
 	}
-	writeJSON(w, map[string]any{
-		"access_token":  access,
-		"refresh_token": newRefresh,
-		"token_type":    "Bearer",
-	})
+	exp := time.Now().Add(s.a.accessTTL).UTC().Format(time.RFC3339)
+	body := map[string]any{"token": access, "expires_at": exp}
+	if browser {
+		http.SetCookie(w, &http.Cookie{
+			Name: "refresh_token", Value: newRefresh, Path: "/",
+			Expires: time.Now().Add(s.a.refreshTTL), HttpOnly: true,
+			Secure: s.secureCookies, SameSite: http.SameSiteLaxMode,
+		})
+	} else {
+		body["refresh_token"] = newRefresh
+	}
+	writeJSON(w, body)
+}
+
+// refreshFromRequest pulls the refresh token off the cookie (browser channel,
+// preferred) or the JSON body. browser reports which channel won — it decides
+// where the successor is delivered (Set-Cookie vs body).
+func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, browser bool) {
+	if c, err := r.Cookie("refresh_token"); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return "", false
+	}
+	return req.RefreshToken, false
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

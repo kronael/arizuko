@@ -51,7 +51,7 @@ func TestBootGeneratesActiveKey(t *testing.T) {
 func TestMintVerifyThroughAuthd(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	tok, err := a.MintForSubject("service:timed", nil, []string{"tasks:read"}, "")
+	tok, err := a.MintForSubject("service:timed", "service", nil, []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestAuthdMintNarrowerDownscope(t *testing.T) {
 func TestRotationKeepsOldKeyServingWithinWindow(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db) // maxAccessTTL = 1h
-	oldTok, _ := a.MintForSubject("user:1", nil, []string{"a:read"}, "")
+	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
 
 	if err := a.Rotate(); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestRetiredKeyDropsAfterWindow(t *testing.T) {
 func TestRevokeAllNowClosesWindow(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	oldTok, _ := a.MintForSubject("user:1", nil, []string{"a:read"}, "")
+	oldTok, _ := a.MintForSubject("user:1", "user", nil, []string{"a:read"}, "")
 	if err := a.RevokeAllNow(); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestKeysEndpointServesJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch keys: %v", err)
 	}
-	tok, _ := a.MintForSubject("user:9", nil, []string{"x:read"}, "")
+	tok, _ := a.MintForSubject("user:9", "user", nil, []string{"x:read"}, "")
 	if _, err := auth.VerifyToken(tok, ks); err != nil {
 		t.Fatalf("verify against fetched jwks: %v", err)
 	}
@@ -376,15 +376,19 @@ func TestRefreshEndpointRotates(t *testing.T) {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	var out struct {
-		AccessToken  string `json:"access_token"`
+		Token        string `json:"token"`
+		ExpiresAt    string `json:"expires_at"`
 		RefreshToken string `json:"refresh_token"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
 	if out.RefreshToken == "" || out.RefreshToken == r0 {
 		t.Fatal("refresh endpoint must return a rotated token")
 	}
+	if out.ExpiresAt == "" {
+		t.Fatal("refresh response must carry expires_at (spec 5/1 shape)")
+	}
 	ks := auth.NewKeySet(a.PublicKeys())
-	if _, err := auth.VerifyToken(out.AccessToken, ks); err != nil {
+	if _, err := auth.VerifyToken(out.Token, ks); err != nil {
 		t.Fatalf("access from refresh endpoint invalid: %v", err)
 	}
 }
