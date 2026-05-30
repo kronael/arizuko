@@ -508,14 +508,18 @@ func (d *DB) LastReplyID(jid, topic string) string {
 // --- turn context + results ---
 
 // PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so
-// late callbacks resolve their topic from turn_id alone. A re-dispatch
-// resets run_returned to 0 (the new run is live again).
-func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger string) error {
-	_, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, started_at, state)
-		VALUES(?,?,?,?,?,?, 'running')
+// late callbacks resolve their topic from turn_id alone. returnTo is the
+// delegation return-address (the trigger batch's forwarded_from): when set,
+// the callback surface delivers reply/send/document back to it instead of the
+// child folder JID the run addresses (gateway.go § deliverTo override). A
+// re-dispatch resets run_returned to 0 (the new run is live again).
+func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) error {
+	_, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
+		VALUES(?,?,?,?,?,?,?, 'running')
 		ON CONFLICT(turn_id) DO UPDATE SET folder=excluded.folder, topic=excluded.topic,
-		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, state='running', run_returned=0`,
-		turnID, folder, topic, chatJID, trigger, nowTS())
+		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, return_to=excluded.return_to,
+		state='running', run_returned=0`,
+		turnID, folder, topic, chatJID, trigger, returnTo, nowTS())
 	return err
 }
 
@@ -526,6 +530,7 @@ type TurnContext struct {
 	Topic       string
 	ChatJID     string
 	Trigger     string
+	ReturnTo    string
 	State       string
 	RunReturned bool
 }
@@ -534,9 +539,9 @@ type TurnContext struct {
 func (d *DB) GetTurnContext(turnID string) (TurnContext, bool) {
 	var tc TurnContext
 	var runReturned int
-	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state, run_returned
+	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned
 		FROM turn_context WHERE turn_id=?`, turnID).Scan(
-		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State, &runReturned)
+		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.ReturnTo, &tc.State, &runReturned)
 	if err != nil {
 		return TurnContext{}, false
 	}
@@ -561,7 +566,7 @@ func (d *DB) SetRunReturned(turnID string) error {
 
 // RunningTurns lists turn_ids still in state=running (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {
-	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, state, run_returned
+	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned
 		FROM turn_context WHERE state='running'`)
 	if err != nil {
 		return nil, err
@@ -571,7 +576,7 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 	for rows.Next() {
 		var tc TurnContext
 		var runReturned int
-		if err := rows.Scan(&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.State, &runReturned); err != nil {
+		if err := rows.Scan(&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.ReturnTo, &tc.State, &runReturned); err != nil {
 			return nil, err
 		}
 		tc.RunReturned = runReturned == 1

@@ -346,8 +346,8 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 			// root topic (topic="") when the agent replies to an @mention;
 			// thread replies arrive with topic="<thread>" which won't match —
 			// normalize thread→root when the thread topic has no own record
-			// (mirrors gated poll engTopic fallback).
-			engTopic := last.Topic
+			// (mirrors gated poll engTopic fallback off effectiveTopic).
+			engTopic := l.effectiveTopic(chatJID, last.Topic)
 			if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
 				engTopic = ""
 			}
@@ -361,7 +361,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 		}
 	}
 	// 3. Engagement fallback on a route miss (topic-root normalized).
-	engTopic := last.Topic
+	engTopic := l.effectiveTopic(chatJID, last.Topic)
 	if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
 		engTopic = ""
 	}
@@ -369,6 +369,17 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 		return resolution{Folder: folder, ok: true}
 	}
 	return resolution{}
+}
+
+// effectiveTopic resolves the topic a turn dispatches under: a set sticky
+// #topic (chats.sticky_topic) overrides the message's own topic, else the
+// message topic stands (mirrors gated effectiveTopic gateway.go:2109). The
+// #topic sticky-nav command sets sticky_topic; without this it was dead state.
+func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
+	if _, sticky := l.db.StickyState(chatJID); sticky != "" {
+		return sticky
+	}
+	return msgTopic
 }
 
 // engaged returns the live engagement folder for (chatJID, topic). An empty
@@ -451,7 +462,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	hadAny := false
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
-		topic := bl.Topic
+		// A set sticky #topic overrides the message's own topic (gated
+		// effectiveTopic); a route-pinned topic is the explicit non-web override.
+		topic := l.effectiveTopic(chatJID, bl.Topic)
 		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
 			topic = r.Topic
 		}
@@ -486,7 +499,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
 	}
 
-	if err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender); err != nil {
+	// A delegated trigger carries forwarded_from = the origin chat JID; persist
+	// it as the turn's return address so reply/send/document deliver back to the
+	// origin, not the child folder JID the run addresses (gated deliverTo
+	// override, gateway.go § processSenderBatch).
+	if err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom); err != nil {
 		return false, false, err
 	}
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
@@ -526,43 +543,38 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	return out.Outcome != runedv1.OutcomeSilent, false, nil
 }
 
-// groupBySender splits a batch into one sub-batch per distinct sender, in
-// first-seen order (one turn per sender; mirrors gated groupBySender).
+// groupBySender splits msgs into consecutive same-sender runs, preserving
+// causal order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole
+// slice by sender would reorder a conversation's turns (mirrors gated
+// groupBySender).
 func groupBySender(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
 	var batches [][]core.Message
-	idx := map[string]int{}
-	for _, m := range msgs {
-		i, seen := idx[m.Sender]
-		if !seen {
-			i = len(batches)
-			idx[m.Sender] = i
+	for i, m := range msgs {
+		if i == 0 || m.Sender != msgs[i-1].Sender {
 			batches = append(batches, nil)
 		}
-		batches[i] = append(batches[i], m)
+		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 	return batches
 }
 
-// groupByTopic splits a batch into one sub-batch per distinct topic, in
-// first-seen order (the web: per-topic dispatch; mirrors gated
-// processWebTopics).
+// groupByTopic splits msgs into consecutive same-topic runs, preserving causal
+// order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole backlog
+// by topic would reorder turns across topics (the web: per-topic dispatch;
+// mirrors gated processWebTopics).
 func groupByTopic(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
 	}
 	var batches [][]core.Message
-	idx := map[string]int{}
-	for _, m := range msgs {
-		i, seen := idx[m.Topic]
-		if !seen {
-			i = len(batches)
-			idx[m.Topic] = i
+	for i, m := range msgs {
+		if i == 0 || m.Topic != msgs[i-1].Topic {
 			batches = append(batches, nil)
 		}
-		batches[i] = append(batches[i], m)
+		batches[len(batches)-1] = append(batches[len(batches)-1], m)
 	}
 	return batches
 }

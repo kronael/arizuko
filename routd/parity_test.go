@@ -43,15 +43,17 @@ func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {
 	return db, loop, rr
 }
 
-// TestWebPerTopicDispatch: a web: chat with messages on two topics dispatches
-// ONE turn per topic in first-seen order (gated processWebTopics parity).
+// TestWebPerTopicDispatch: a web: chat batches adjacent same-topic rows into one
+// turn and forks a new turn when the topic changes, in first-seen order (gated
+// processWebTopics consecutive-run parity). Interleaved topics are covered by
+// TestGroupByTopicConsecutiveRuns.
 func TestWebPerTopicDispatch(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	now := time.Now().UTC()
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u", Content: "q1", Topic: "alpha", Timestamp: now})
-	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "u", Content: "q2", Topic: "beta", Timestamp: now.Add(time.Second)})
-	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "web:demo", Sender: "u", Content: "q3", Topic: "alpha", Timestamp: now.Add(2 * time.Second)})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "u", Content: "q3", Topic: "alpha", Timestamp: now.Add(time.Second)})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "web:demo", Sender: "u", Content: "q2", Topic: "beta", Timestamp: now.Add(2 * time.Second)})
 
 	if _, err := loop.processGroupMessages("web:demo"); err != nil {
 		t.Fatalf("process: %v", err)
@@ -62,7 +64,7 @@ func TestWebPerTopicDispatch(t *testing.T) {
 	if rr.runs[0].topic != "alpha" || rr.runs[1].topic != "beta" {
 		t.Fatalf("topic order=%q,%q want alpha,beta", rr.runs[0].topic, rr.runs[1].topic)
 	}
-	// the alpha turn batches both alpha rows (q1 + q3).
+	// the alpha turn batches both adjacent alpha rows (q1 + q3).
 	if !contains(rr.runs[0].batch, "q1") || !contains(rr.runs[0].batch, "q3") {
 		t.Fatalf("alpha batch missing q1/q3: %q", rr.runs[0].batch)
 	}
@@ -71,16 +73,18 @@ func TestWebPerTopicDispatch(t *testing.T) {
 	}
 }
 
-// TestGroupBySenderBatching: a multi-party chat dispatches ONE turn per
-// distinct sender in first-seen order (gated processSenderBatch parity).
+// TestGroupBySenderBatching: a multi-party chat batches adjacent same-sender
+// rows into one turn and forks a new turn when the sender changes, in first-seen
+// order (gated processSenderBatch consecutive-run parity). Interleaved senders
+// are covered by TestGroupBySenderConsecutiveRuns.
 func TestGroupBySenderBatching(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	now := time.Now().UTC()
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m1", Timestamp: now, Verb: "message"})
-	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "slack:T/C/X", Sender: "bob", Content: "m2", Timestamp: now.Add(time.Second), Verb: "message"})
-	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m3", Timestamp: now.Add(2 * time.Second), Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m3", Timestamp: now.Add(time.Second), Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "slack:T/C/X", Sender: "bob", Content: "m2", Timestamp: now.Add(2 * time.Second), Verb: "message"})
 
 	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
 		t.Fatalf("process: %v", err)
@@ -256,3 +260,161 @@ func TestNoEngagementOnMentionIngress(t *testing.T) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+// TestGroupBySenderConsecutiveRuns: an interleaved A,B,A backlog splits into
+// THREE ordered batches [A],[B],[A], not the reordered [A,A],[B] a whole-slice
+// map regroup would produce (gated groupBySender consecutive-run parity).
+func TestGroupBySenderConsecutiveRuns(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m1", Timestamp: now, Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "slack:T/C/X", Sender: "bob", Content: "m2", Timestamp: now.Add(time.Second), Verb: "message"})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "slack:T/C/X", Sender: "alice", Content: "m3", Timestamp: now.Add(2 * time.Second), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 3 {
+		t.Fatalf("turns=%d want 3 (A,B,A consecutive runs): %+v", len(rr.runs), rr.runs)
+	}
+	got := []string{rr.runs[0].trigger, rr.runs[1].trigger, rr.runs[2].trigger}
+	if got[0] != "alice" || got[1] != "bob" || got[2] != "alice" {
+		t.Fatalf("sender order=%v want [alice bob alice]", got)
+	}
+	if !contains(rr.runs[0].batch, "m1") || !contains(rr.runs[2].batch, "m3") {
+		t.Fatalf("batches lost causal order: %q / %q", rr.runs[0].batch, rr.runs[2].batch)
+	}
+}
+
+// TestGroupByTopicConsecutiveRuns: an interleaved alpha,beta,alpha web backlog
+// splits into THREE ordered batches, not the reordered [alpha,alpha],[beta] a
+// whole-slice map regroup would produce (gated processWebTopics parity).
+func TestGroupByTopicConsecutiveRuns(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u", Content: "q1", Topic: "alpha", Timestamp: now})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:demo", Sender: "u", Content: "q2", Topic: "beta", Timestamp: now.Add(time.Second)})
+	_ = db.PutMessage(core.Message{ID: "c", ChatJID: "web:demo", Sender: "u", Content: "q3", Topic: "alpha", Timestamp: now.Add(2 * time.Second)})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 3 {
+		t.Fatalf("turns=%d want 3 (alpha,beta,alpha consecutive runs): %+v", len(rr.runs), rr.runs)
+	}
+	got := []string{rr.runs[0].topic, rr.runs[1].topic, rr.runs[2].topic}
+	if got[0] != "alpha" || got[1] != "beta" || got[2] != "alpha" {
+		t.Fatalf("topic order=%v want [alpha beta alpha]", got)
+	}
+	if !contains(rr.runs[0].batch, "q1") || !contains(rr.runs[2].batch, "q3") {
+		t.Fatalf("batches lost causal order: %q / %q", rr.runs[0].batch, rr.runs[2].batch)
+	}
+}
+
+// TestSlashNewReinjectsFollowup: `/new look into X` clears the resolved
+// folder's session AND reinjects "look into X" as a fresh inbound that runs on
+// the cleared session (gated cmdNew followup parity). A bare /new only clears.
+func TestSlashNewReinjectsFollowup(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.PutSession("demo", "", "sess-X")
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "/new look into X", Timestamp: time.Now().UTC()})
+
+	loop.pollOnce() // consumes /new: clears session, reinjects followup, advances past /new
+	if db.SessionID("demo", "") != "" {
+		t.Fatal("/new did not clear session")
+	}
+	// the synthetic followup landed as a fresh inbound.
+	msgs, _ := db.MessagesSince("web:demo", db.GetAgentCursor("web:demo"))
+	if len(msgs) != 1 || msgs[0].Content != "look into X" {
+		t.Fatalf("followup not reinjected: %+v", msgs)
+	}
+	// the ack mentions processing (followup non-empty path).
+	if len(dl.sends) != 1 || !contains(dl.sends[0].text, "Processing your message") {
+		t.Fatalf("ack=%+v want a 'Processing your message' notice", dl.sends)
+	}
+	// draining the queue runs the followup on the cleared session (no turn for /new itself).
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process followup: %v", err)
+	}
+	if len(rr.runs) != 1 || !contains(rr.runs[0].batch, "look into X") {
+		t.Fatalf("followup not processed: %+v", rr.runs)
+	}
+}
+
+// TestStickyTopicRoutesSubsequent: a set sticky #topic (the #topic nav command)
+// overrides a subsequent message's own topic for dispatch (gated effectiveTopic
+// parity) — without applying sticky_topic it was dead state.
+func TestStickyTopicRoutesSubsequent(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	if err := db.SetStickyTopic("slack:T/C/X", "support"); err != nil {
+		t.Fatalf("set sticky topic: %v", err)
+	}
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
+		Content: "my question", Topic: "", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(rr.runs) != 1 {
+		t.Fatalf("turns=%d want 1", len(rr.runs))
+	}
+	if rr.runs[0].topic != "support" {
+		t.Fatalf("dispatched topic=%q want support (sticky override)", rr.runs[0].topic)
+	}
+}
+
+// TestEngagementNormalizedOffEffectiveTopic: a set sticky #topic makes the
+// engagement probe key on the sticky topic, not the message's raw topic (gated
+// normalizes off effectiveTopic). Engagement on the sticky topic governs a bare
+// inbound whose own topic is empty.
+func TestEngagementNormalizedOffEffectiveTopic(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "eng"})
+	_ = db.SetStickyTopic("slack:T/C/X", "support")
+	// engagement claimed on the sticky topic for the chat → eng.
+	_ = db.SetEngagement("slack:T/C/X", "support", "eng", time.Hour)
+	// a bare inbound (empty own topic) — effectiveTopic resolves it to "support".
+	last := core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
+		Content: "follow-up", Topic: "", Timestamp: time.Now().UTC(), Verb: "message"}
+
+	folder, ok := loop.resolveGroup("slack:T/C/X", last)
+	if !ok || folder != "eng" {
+		t.Fatalf("resolve=%q,%v want eng,true (engagement keyed on sticky topic)", folder, ok)
+	}
+}
+
+// TestDelegatedReplyReturnsToOrigin: a delegated turn (trigger batch carries
+// forwarded_from = origin JID) delivers its reply back to the ORIGIN chat, not
+// the child folder JID the run addresses (gated deliverTo override parity).
+func TestDelegatedReplyReturnsToOrigin(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	_ = db.PutGroup(core.Group{Folder: "root/eng"})
+	// a delegated turn: the run addresses the child folder JID; return_to is the origin.
+	_ = db.PutTurnContext("t-deleg", "root/eng", "", "root/eng", "delegate", "slack:T/C/ORIGIN")
+
+	status, _, row := srv.appendAndDeliver("t-deleg", "root/eng", "done", "", true)
+	if status != 200 || row == nil {
+		t.Fatalf("appendAndDeliver status=%d row=%v", status, row)
+	}
+	if row.ChatJID != "slack:T/C/ORIGIN" {
+		t.Fatalf("bot row chat_jid=%q want slack:T/C/ORIGIN (return path)", row.ChatJID)
+	}
+	if len(dl.sends) != 1 || dl.sends[0].jid != "slack:T/C/ORIGIN" {
+		t.Fatalf("delivered to %+v want origin slack:T/C/ORIGIN", dl.sends)
+	}
+}

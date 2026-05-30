@@ -120,7 +120,7 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	defer db.Close()
 	dl := &fakeDeliverer{platformID: "1716.0042"}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
 	h := srv.Handler()
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "idem-1",
@@ -170,7 +170,7 @@ func TestResultRecordsOutcome(t *testing.T) {
 	}
 	defer db.Close()
 	srv := NewServer(db, nil, nil, nil, 0, "")
-	_ = db.PutTurnContext("t9", "demo", "main", "web:demo", "u1")
+	_ = db.PutTurnContext("t9", "demo", "main", "web:demo", "u1", "")
 	h := srv.Handler()
 
 	body := apiv1.TurnResult{TurnID: "t9", SessionID: "sX", Status: "success",
@@ -234,12 +234,15 @@ type fakeDeliverer struct {
 	sends      int
 }
 
-func (d *fakeDeliverer) Send(_, _, _, _, _ string) (string, error) { d.sends++; return d.platformID, nil }
-func (d *fakeDeliverer) React(_, _, _ string) error                { return nil }
-func (d *fakeDeliverer) Edit(_, _, _ string) error                 { return nil }
-func (d *fakeDeliverer) Delete(_, _ string) error                  { return nil }
-func (d *fakeDeliverer) Pin(_, _ string) error                     { return nil }
-func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error           { return nil }
+func (d *fakeDeliverer) Send(_, _, _, _, _ string) (string, error) {
+	d.sends++
+	return d.platformID, nil
+}
+func (d *fakeDeliverer) React(_, _, _ string) error      { return nil }
+func (d *fakeDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
+func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
+func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }

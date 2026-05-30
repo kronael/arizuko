@@ -61,7 +61,7 @@ func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	h := srv.Handler()
 
 	// submit_turn arrives early (flips state→done, run_returned stays 0).
@@ -289,11 +289,11 @@ func TestSweepExpiredRunning(t *testing.T) {
 	}
 	defer db.Close()
 	// a turn started 2h ago, still running.
-	_ = db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1", "")
 	db.SQL().Exec("UPDATE turn_context SET started_at=? WHERE turn_id='old'",
 		time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339Nano))
 	// a turn started just now, still running.
-	_ = db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1")
+	_ = db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
 
 	n, err := db.SweepExpiredRunning(time.Hour)
 	if err != nil {
@@ -359,7 +359,7 @@ func TestMutationDoneGuard(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	h := srv.Handler()
-	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
 
 	// before run-return: like succeeds.
 	rec := doJSON(t, h, "POST", "/v1/turns/t/like", "",
@@ -391,7 +391,7 @@ func TestAppendAndFinishAtomic(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{pid: "pid-1"}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
 	h := srv.Handler()
 
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t/reply", "k1",

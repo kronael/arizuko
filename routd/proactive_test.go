@@ -218,7 +218,7 @@ func TestProactiveRunningTurnSkips(t *testing.T) {
 	defer db.Close()
 	now := time.Now().UTC()
 	seedQuestion(t, db, "slack:T/C/U", now, 5*time.Minute, 3)
-	_ = db.PutTurnContext("live", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("live", "demo", "", "slack:T/C/U", "u1", "")
 	if r := evalProactive(db, defaultProactiveCfg(), lurk, "slack:T/C/U", now); r.fired || r.check != "RunningTurn" {
 		t.Fatalf("want skip RunningTurn, got %+v", r)
 	}

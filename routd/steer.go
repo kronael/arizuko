@@ -127,22 +127,47 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	head, arg := lookupCommand(msg.Content)
 	switch head {
 	case "/new":
-		topic := ""
-		if name, _, ok := parsePrefix(arg); ok && strings.HasPrefix(strings.TrimSpace(arg), "#") {
-			topic = "#" + name
-		}
-		_ = l.db.DeleteSession(folder, topic)
-		if topic == "" {
-			l.ack(chatJID, "Session cleared.")
-		} else {
-			l.ack(chatJID, "Topic session cleared.")
-		}
+		l.cmdNew(chatJID, folder, arg)
 		return true
 	case "/chatid":
 		l.ack(chatJID, chatJID)
 		return true
 	}
 	return false
+}
+
+// cmdNew clears the resolved folder's session (root or #topic) AND reinjects any
+// trailing text as a fresh inbound so `/new look into X` clears the session then
+// processes "look into X"; a bare `/new` just clears. Mirrors gated cmdNew
+// (commands.go § cmdNew). The synthetic inbound is enqueued; the consumed /new
+// row advances the cursor, so the followup runs on a clean session next poll.
+func (l *Loop) cmdNew(chatJID, folder, arg string) {
+	label := "Session cleared."
+	followup := ""
+	if strings.HasPrefix(strings.TrimSpace(arg), "#") {
+		label = "Topic session cleared."
+		name, rest, _ := parsePrefix(arg)
+		_ = l.db.DeleteSession(folder, "#"+name)
+		if rest != "" {
+			followup = "#" + name + " " + rest
+		}
+	} else {
+		_ = l.db.DeleteSession(folder, "")
+		followup = strings.TrimSpace(arg)
+	}
+	if followup == "" {
+		l.ack(chatJID, label)
+		return
+	}
+	_ = l.db.PutMessage(core.Message{
+		ID:        core.MsgID("cmd-new"),
+		ChatJID:   chatJID,
+		Sender:    "user",
+		Content:   followup,
+		Timestamp: time.Now().UTC(),
+	})
+	l.Enqueue(chatJID)
+	l.ack(chatJID, label+" Processing your message...")
 }
 
 // --- @child delegation / external-route prefix layer ---

@@ -36,7 +36,7 @@ func authSrv(t *testing.T, v Verifier) (*DB, http.Handler) {
 // token could drive any turn.
 func TestTurnCallbackRequiresScope(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"chats:read:own_group"}, folder: "demo"})
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
 		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "hi"})
@@ -52,7 +52,7 @@ func TestTurnCallbackRequiresScope(t *testing.T) {
 // turn's folder, is allowed (200).
 func TestTurnCallbackCorrectScope(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"messages:send:own_group"}, folder: "demo"})
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
 		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "hi"})
@@ -69,7 +69,7 @@ func TestTurnCallbackCorrectScope(t *testing.T) {
 // another group's turn (folder-binding half of the auth-hole fix).
 func TestTurnCallbackWrongFolder(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"messages:send:own_group"}, folder: "other"})
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1") // turn owned by "demo"
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "") // turn owned by "demo"
 
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
 		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "hi"})
@@ -122,7 +122,7 @@ func TestIngressRequiresWriteScope(t *testing.T) {
 // NOT a success body (which would lose the bot row + ledger durability).
 func TestIdemStoreErrorReturns500(t *testing.T) {
 	db, h := authSrv(t, nil) // nil verifier → open; this isolates the store path
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1")
+	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	// Drop the messages table: IdemClaim (idempotency_keys) still claims the
 	// key, but AppendAndFinish's putMessage insert then fails → store_error.
 	if _, err := db.SQL().Exec("DROP TABLE messages"); err != nil {

@@ -118,6 +118,17 @@ func canonicalHash(body []byte) string {
 // that flipped state→done (spec 5/E § Post-terminal callbacks).
 func (s *Server) callbackClosed(tc TurnContext) bool { return tc.RunReturned }
 
+// returnTarget redirects a turn's outbound delivery to the delegation
+// return-address (the trigger batch's forwarded_from) when set, so a delegated
+// reply returns to the ORIGIN chat instead of the child folder JID the run
+// addresses. Mirrors gated's deliverTo override (gateway.go § processSenderBatch).
+func returnTarget(tc TurnContext, jid string) string {
+	if tc.ReturnTo != "" {
+		return tc.ReturnTo
+	}
+	return jid
+}
+
 // authzTurn gates a turn-callback handler: the bearer token must carry one of
 // anyScope AND its arz/folder claim must own the turn's folder. The brokered
 // agent token authd mints for a run is bound to that run's group folder, so a
@@ -183,6 +194,7 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 	if s.callbackClosed(tc) {
 		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}, nil
 	}
+	jid = returnTarget(tc, jid)
 	if threaded && replyToID == "" {
 		replyToID = s.db.LastReplyID(jid, tc.Topic)
 	}
@@ -227,12 +239,13 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 		if s.callbackClosed(tc) {
 			return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}, nil
 		}
+		jid := returnTarget(tc, req.JID)
 		msgID := "out-" + randHex(8)
-		row := core.Message{ID: msgID, ChatJID: req.JID, Sender: tc.Folder,
+		row := core.Message{ID: msgID, ChatJID: jid, Sender: tc.Folder,
 			Content: req.Caption, Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 			Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending}
 		if s.deliver != nil {
-			if _, err := s.deliver.Document(req.JID, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
+			if _, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
 				row.Status = core.MessageStatusSent
 			}
 		}
