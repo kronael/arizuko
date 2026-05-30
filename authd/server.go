@@ -276,8 +276,9 @@ func (a *Authd) IssueRefresh(sub string, scope []string, aud string) (string, er
 // Refresh rotates a refresh token: verifies it is live and unused, mints a new
 // access + successor refresh, and tombstones the old one. Presenting an
 // already-used token is reuse — the whole family is revoked and errReuse
-// returned.
-func (a *Authd) Refresh(raw string) (access, newRefresh string, err error) {
+// returned. ctx bounds the grants re-snapshot so an abandoned HTTP request
+// (client gone) doesn't hold a goroutine for the full FetchGrants timeout.
+func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh string, err error) {
 	r, ok := lookupRefresh(a.db, raw)
 	if !ok {
 		return "", "", auth.ErrInvalidToken
@@ -311,7 +312,7 @@ func (a *Authd) Refresh(raw string) (access, newRefresh string, err error) {
 	// outage fails CLOSED (mint nothing) rather than reusing stale scope.
 	scope := r.scope
 	if a.grants != nil {
-		snap, gerr := a.grants.FetchGrants(context.Background(), bareSub(r.sub))
+		snap, gerr := a.grants.FetchGrants(ctx, bareSub(r.sub))
 		switch {
 		case gerr == nil:
 			scope = snap.Scope

@@ -10,6 +10,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -71,7 +72,7 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			_, newRefresh, err := a.Refresh(r0)
+			_, newRefresh, err := a.Refresh(context.Background(), r0)
 			if err == nil {
 				mu.Lock()
 				winners++
@@ -87,7 +88,7 @@ func TestRefreshRotationRaceSingleWinner(t *testing.T) {
 	}
 	// The lost races flagged reuse → the family (incl. the lone successor) is
 	// revoked, so the successor is dead.
-	if _, _, err := a.Refresh(successors[0]); err == nil {
+	if _, _, err := a.Refresh(context.Background(), successors[0]); err == nil {
 		t.Fatal("successor must be revoked after a concurrent-reuse family kill")
 	}
 }

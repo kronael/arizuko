@@ -290,7 +290,7 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	access, newRefresh, err := s.a.Refresh(raw)
+	access, newRefresh, err := s.a.Refresh(r.Context(), raw)
 	if err != nil {
 		if err == errReuse {
 			slog.Warn("refresh token reuse — family revoked")

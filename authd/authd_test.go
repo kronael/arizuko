@@ -161,7 +161,7 @@ func TestRefreshRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	access, r1, err := a.Refresh(r0)
+	access, r1, err := a.Refresh(context.Background(), r0)
 	if err != nil {
 		t.Fatalf("first refresh: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestRefreshRotation(t *testing.T) {
 		t.Fatalf("bad refreshed access %+v", sub)
 	}
 	// The successor still rotates.
-	if _, _, err := a.Refresh(r1); err != nil {
+	if _, _, err := a.Refresh(context.Background(), r1); err != nil {
 		t.Fatalf("second refresh: %v", err)
 	}
 }
@@ -186,16 +186,16 @@ func TestRefreshReuseRevokesFamily(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	r0, _ := a.IssueRefresh("user:1", []string{"a:read"}, "")
-	_, r1, err := a.Refresh(r0)
+	_, r1, err := a.Refresh(context.Background(), r0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Replaying the spent r0 is a reuse attack.
-	if _, _, err := a.Refresh(r0); err != errReuse {
+	if _, _, err := a.Refresh(context.Background(), r0); err != errReuse {
 		t.Fatalf("expected errReuse on replay, got %v", err)
 	}
 	// The whole family is now revoked: the live successor r1 is dead too.
-	if _, _, err := a.Refresh(r1); err == nil {
+	if _, _, err := a.Refresh(context.Background(), r1); err == nil {
 		t.Fatal("successor token must be revoked after family kill")
 	}
 }
@@ -203,7 +203,7 @@ func TestRefreshReuseRevokesFamily(t *testing.T) {
 func TestRefreshUnknownTokenRejected(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	if _, _, err := a.Refresh("not-a-real-token"); err != auth.ErrInvalidToken {
+	if _, _, err := a.Refresh(context.Background(), "not-a-real-token"); err != auth.ErrInvalidToken {
 		t.Fatalf("expected ErrInvalidToken, got %v", err)
 	}
 }

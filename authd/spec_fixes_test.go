@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 )
@@ -132,7 +133,7 @@ func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
 	}
 
 	// Refreshing re-adds the prefix at mint: the access sub is unchanged.
-	access2, _, err := a.Refresh(refresh)
+	access2, _, err := a.Refresh(context.Background(), refresh)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
 	}
 
 	// Refresh re-snapshot: the refreshed access reflects the fetcher's scopes.
-	refreshSub, _, err := a.Refresh(jsonField(t, rec.Body.Bytes(), "refresh_token"))
+	refreshSub, _, err := a.Refresh(context.Background(), jsonField(t, rec.Body.Bytes(), "refresh_token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +309,7 @@ func TestRefreshReSnapshotsGrants(t *testing.T) {
 
 	// Narrow the user's grants, then refresh — the new access must reflect it.
 	g.snap = GrantsSnapshot{Scope: []string{"tasks:read"}}
-	access, _, err := a.Refresh(r0)
+	access, _, err := a.Refresh(context.Background(), r0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +331,7 @@ func TestRefreshReusesStoredScopeWhenUnwired(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db) // grants nil
 	r0, _ := a.IssueRefresh("user:1", []string{"tasks:read", "tasks:write"}, "")
-	access, _, err := a.Refresh(r0)
+	access, _, err := a.Refresh(context.Background(), r0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +348,44 @@ func TestRefreshFailsClosedWhenGrantsDown(t *testing.T) {
 	a := newTestAuthd(t, db)
 	a.grants = downGrants{}
 	r0, _ := a.IssueRefresh("user:1", []string{"tasks:read"}, "")
-	if _, _, err := a.Refresh(r0); err == nil {
+	if _, _, err := a.Refresh(context.Background(), r0); err == nil {
 		t.Fatal("refresh with grants backend down must fail closed (no token)")
+	}
+}
+
+// blockingGrants blocks until ctx is cancelled, then returns the ctx error —
+// it stands in for a hung grants backend so the test can prove Refresh honours
+// the caller's ctx (a cancelled request aborts the fetch instead of hanging).
+type blockingGrants struct{}
+
+func (blockingGrants) FetchGrants(ctx context.Context, _ string) (GrantsSnapshot, error) {
+	<-ctx.Done()
+	return GrantsSnapshot{}, ctx.Err()
+}
+
+// TestRefreshHonoursCtxCancel: a cancelled request ctx aborts the grants fetch
+// promptly (fail-closed) instead of holding the goroutine for the backend
+// timeout — before the fix Refresh used context.Background() so the abandoned
+// fetch ran to completion regardless of the request.
+func TestRefreshHonoursCtxCancel(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	a.grants = blockingGrants{}
+	r0, _ := a.IssueRefresh("user:1", []string{"tasks:read"}, "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := a.Refresh(ctx, r0)
+		done <- err
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled refresh must fail closed (no token), got nil error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Refresh did not honour ctx cancel (still blocked on grants fetch)")
 	}
 }

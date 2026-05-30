@@ -56,7 +56,7 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 	if refresh == "" {
 		t.Fatal("JSON login must return an initial refresh token")
 	}
-	if _, newR, err := a.Refresh(refresh); err != nil || newR == refresh {
+	if _, newR, err := a.Refresh(context.Background(), refresh); err != nil || newR == refresh {
 		t.Fatalf("OAuth-issued refresh must rotate: newR=%q err=%v", newR, err)
 	}
 }
@@ -79,7 +79,7 @@ func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login token must verify: %v", err)
 	}
-	access, _, err := a.Refresh(jsonField(t, rec.Body.Bytes(), "refresh_token"))
+	access, _, err := a.Refresh(context.Background(), jsonField(t, rec.Body.Bytes(), "refresh_token"))
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
 	}
