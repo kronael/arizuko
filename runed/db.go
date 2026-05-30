@@ -164,8 +164,12 @@ func (d *DB) StartSpawn(runID, sessionID string) error {
 }
 
 // EndSpawn records the terminal state + outcome + exit code at teardown.
+// A 'killed' state is sticky: a later teardown UPDATE (the spawn goroutine
+// returning after a deliberate DELETE killed the container) won't clobber it
+// back to 'error' (spec 5/P § DELETE: don't set outcome=error for a kill).
 func (d *DB) EndSpawn(runID, state, outcome string, exitCode int) error {
-	_, err := d.db.Exec(`UPDATE spawns SET state=?, outcome=?, exit_code=?, ended_at=? WHERE run_id=?`,
+	_, err := d.db.Exec(`UPDATE spawns SET state=?, outcome=?, exit_code=?, ended_at=?
+		WHERE run_id=? AND state!='killed'`,
 		state, outcome, exitCode, nowTS(), runID)
 	return err
 }

@@ -14,6 +14,7 @@ import (
 type RunSpec struct {
 	RunID         string
 	Folder        string
+	ContainerName string // the Manager's pinned name; the Runtime spawns + Kills by it
 	Topic         string
 	ChatJID       string
 	SessionID     string // resume; empty = fresh
@@ -23,6 +24,13 @@ type RunSpec struct {
 	TurnID        string
 	Token         string // brokered capability token (the JWS, in memory only)
 	Isolated      bool
+
+	// RegisterSteer is the Manager's hook the Runtime calls ONCE the
+	// container + IPC dir are up, handing back a steer closure (IPC write +
+	// SIGUSR1) so a concurrent POST /v1/runs steers into this live spawn
+	// (spec 5/P § Steer-into-running-container). The closure returns false
+	// when the container has already exited (the documented steer race).
+	RegisterSteer func(steer func(batch string) bool)
 }
 
 // RunResult is the harness outcome at the turn boundary. NewSessionID is
@@ -44,6 +52,10 @@ type RunResult struct {
 // frames arrive out-of-band via the agent's callbacks into routd.
 type Runtime interface {
 	Run(ctx context.Context, spec RunSpec) RunResult
+	// Kill stops a live container by name (DELETE /v1/runs/{id}): stop,
+	// then docker kill, then rm -f (spec 5/P § DELETE). A no-op for runtimes
+	// with no container (FakeRuntime/LocalRuntime return nil).
+	Kill(containerName string) error
 }
 
 // Broker brokers a downscoped capability token per spawn (spec 5/P §

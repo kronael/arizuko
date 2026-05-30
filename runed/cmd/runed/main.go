@@ -74,9 +74,10 @@ func main() {
 	runtime := runed.NewDockerRuntime(cfg, folders, fed)
 
 	mgr := runed.NewManager(db, runtime, broker, runed.ManagerConfig{
-		Scopes:   []types.Scope{"messages:send:own_group", "chats:read:own_group"},
-		RunTTL:   runTTL,
-		Instance: cfg.Name,
+		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
+		RunTTL:        runTTL,
+		Instance:      cfg.Name,
+		MaxConcurrent: cfg.MaxContainers,
 	})
 
 	// hourly GC of expired spawns + tokens.
@@ -109,11 +110,19 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
-	slog.Info("runed stopping")
-	cancel()
-	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Graceful shutdown (spec 5/P § Graceful shutdown): stop accepting new
+	// POST /v1/runs but DETACH in-flight runs — don't cancel them. Each
+	// in-flight spawn's MCP socket lives inside its still-running
+	// container.Run handler (driven by the per-request context, NOT the
+	// daemon ctx), so the container can still call tools + submit_turn. We
+	// wait up to RUNED_SHUTDOWN_GRACE for handlers to finish, then exit
+	// (containers are docker --rm and outlive the daemon).
+	grace := durOr("RUNED_SHUTDOWN_GRACE", runTTL)
+	slog.Info("runed stopping (detaching in-flight runs)", "grace", grace, "in_flight", mgr.ActiveCount())
+	sctx, scancel := context.WithTimeout(context.Background(), grace)
 	defer scancel()
 	_ = httpd.Shutdown(sctx)
+	cancel() // stop the GC goroutine only — after handlers have drained.
 }
 
 // keysetVerifier adapts auth.FetchKeys → runed.Verifier (offline verify).

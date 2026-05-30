@@ -30,9 +30,9 @@ import (
 )
 
 const (
-	maxOutputSize             = 10 * 1024 * 1024 // 10MB
-	containerHome             = core.ContainerHome
-	containerGracePeriod      = 30 * time.Second
+	maxOutputSize               = 10 * 1024 * 1024 // 10MB
+	containerHome               = core.ContainerHome
+	containerGracePeriod        = 30 * time.Second
 	containerSoftDeadlineOffset = 2 * time.Minute
 )
 
@@ -113,6 +113,11 @@ type Output struct {
 	NewSessionID string `json:"newSessionId,omitempty"`
 	Error        string `json:"error,omitempty"`
 	HadOutput    bool   `json:"-"`
+	// ExitCode is the container's process exit code (0 = clean). MessageCount
+	// is the number of [ant] agent lines observed on stderr — a per-spawn
+	// activity count runed echoes into session_log (spec 5/P § envelope 6).
+	ExitCode     int `json:"-"`
+	MessageCount int `json:"-"`
 }
 
 // Runner runs a containerized agent invocation. Tests inject fakes.
@@ -406,6 +411,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		},
 	})
 
+	msgCount := int(idleResets.Load()) // [ant] lines observed this spawn
+
 	if to {
 		slog.Error("container timed out",
 			"group", in.Folder, "container", containerName,
@@ -414,6 +421,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			Status: "error",
 			Error: fmt.Sprintf(
 				"Container timed out after %s", cfgTimeout),
+			ExitCode:     code,
+			MessageCount: msgCount,
 		}
 	}
 
@@ -429,10 +438,12 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 			Status: "error",
 			Error: fmt.Sprintf(
 				"Container exited with code %d: %s", code, tail),
+			ExitCode:     code,
+			MessageCount: msgCount,
 		}
 	}
 
-	return Output{Status: "success"}
+	return Output{Status: "success", ExitCode: code, MessageCount: msgCount}
 }
 
 func prepareInput(cfg *core.Config, in Input, groupDir string) Input {

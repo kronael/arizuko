@@ -2,6 +2,14 @@ package runed
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"math/rand/v2"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -28,6 +36,9 @@ func (f FakeRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	return f.Fn(ctx, spec)
 }
 
+// Kill is a no-op for the fake (no container to stop).
+func (FakeRuntime) Kill(string) error { return nil }
+
 // dockerRuntime is the production Runtime: it stands up the per-tenant MCP
 // host (ipc.ServeMCP) with GatedFns repointed at HTTP forwards into routd
 // (the Federator), then spawns the per-turn container via container.Run.
@@ -38,22 +49,38 @@ type dockerRuntime struct {
 	folders *groupfolder.Resolver
 	runner  container.Runner
 	fed     *Federator
+	// signal SIGUSR1s a running container by name (steer wakeup). Defaults
+	// to `docker kill --signal=SIGUSR1`; tests inject a fake so the prod
+	// steer path is exercised without docker.
+	signal func(name string) error
 }
 
 // NewDockerRuntime builds the production Runtime around the docker runner +
 // the federation forward to routd. fed forwards the agent's message tools
 // to routd /v1/turns/{turn_id}/* (the sole appender).
 func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, fed *Federator) Runtime {
-	return &dockerRuntime{cfg: cfg, folders: folders, runner: container.DockerRunner{}, fed: fed}
+	return &dockerRuntime{
+		cfg: cfg, folders: folders, runner: container.DockerRunner{}, fed: fed,
+		signal: func(name string) error {
+			return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
+		},
+	}
 }
 
 // Run spawns one container turn. GatedFns are repointed at the Federator so
 // the agent's reply/send/like/... tool calls forward to routd over HTTP,
 // stamped with this run's turn_id + the brokered token. submit_turn fans to
-// routd's /result twin.
+// routd's /result twin. Before spawning it registers the steer closure so a
+// concurrent POST /v1/runs writes into this live container instead of
+// spawning a second (spec 5/P § Steer-into-running-container).
 func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
+	if spec.RegisterSteer != nil {
+		ipcDir, _ := d.folders.IpcPath(spec.Folder)
+		spec.RegisterSteer(d.steerInto(ipcDir, spec.ContainerName))
+	}
 	gated := d.gatedFns(ctx, spec)
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
+		Name:      spec.ContainerName,
 		Prompt:    spec.MessageBatch,
 		SessionID: spec.SessionID,
 		ChatJID:   spec.ChatJID,
@@ -63,12 +90,66 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		Sender:    spec.TriggerSender,
 		GatedFns:  gated,
 	})
-	res := RunResult{
+	return RunResult{
 		Outcome:      outcomeFor(out),
 		NewSessionID: out.NewSessionID,
 		Error:        out.Error,
+		ExitCode:     out.ExitCode,
+		MessageCount: out.MessageCount,
 	}
-	return res
+}
+
+// steerInto returns the steer closure: write the batch as an IPC input file
+// into the running container's ipc/<folder>/input/ and SIGUSR1 it (carried
+// from queue.SendMessages). Returns false when the SIGUSR1 fails — the
+// container already exited (the documented steer race); the Manager then
+// falls through to a fresh spawn and the orphaned IPC file is drained by the
+// next container at session start.
+func (d *dockerRuntime) steerInto(ipcDir, containerName string) func(batch string) bool {
+	return func(batch string) bool {
+		if batch == "" || ipcDir == "" || containerName == "" {
+			return false
+		}
+		if err := writeIPCInput(ipcDir, batch); err != nil {
+			return false
+		}
+		return d.signal(containerName) == nil
+	}
+}
+
+// Kill stops a live container by name: stop, then docker kill, then rm -f
+// (spec 5/P § DELETE /v1/runs/{id}). Idempotent — killing an already-exited
+// container is a harmless no-op exit.
+func (d *dockerRuntime) Kill(containerName string) error {
+	if containerName == "" {
+		return nil
+	}
+	_ = exec.Command(container.Bin, container.StopContainerArgs(containerName)...).Run()
+	_ = exec.Command(container.Bin, "kill", containerName).Run()
+	_ = exec.Command(container.Bin, "rm", "-f", containerName).Run()
+	return nil
+}
+
+// writeIPCInput drops one {type:"message",text} file into the container's
+// IPC input dir via temp+rename (atomic; the agent's drainIpcInput picks it
+// up). Carried from queue.writeIpcFile.
+func writeIPCInput(ipcDir, text string) error {
+	inputDir := groupfolder.IpcInputDir(ipcDir)
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%d-%04s.json", time.Now().UnixMilli(), strconv.FormatInt(int64(rand.IntN(1679616)), 36))
+	fp := filepath.Join(inputDir, name)
+	tmp := fp + ".tmp"
+	payload, _ := json.Marshal(map[string]string{"type": "message", "text": text})
+	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, fp); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // gatedFns builds the federation forward: every message tool the agent

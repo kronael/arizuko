@@ -1,9 +1,9 @@
 package runed
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
@@ -40,15 +40,28 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
+// authz verifies the bearer token and (when a scope is required) checks the
+// token carries it. Returns the token's arz/folder claim + ok. verify==nil
+// is open (single-tenant / local-dev): ok=true, folder="" (no folder bound).
+func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string) (folder string, ok bool) {
 	if s.verify == nil {
-		return true
+		return "", true
 	}
-	if _, _, _, err := s.verify.Verify(r); err != nil {
+	_, scope, folder, err := s.verify.Verify(r)
+	if err != nil {
 		writeErr(w, 401, "unauthorized", err.Error())
-		return false
+		return "", false
 	}
-	return true
+	if needScope != "" && !slices.Contains(scope, needScope) {
+		writeErr(w, 403, "forbidden", "missing scope "+needScope)
+		return "", false
+	}
+	return folder, true
+}
+
+func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
+	_, ok := s.authz(w, r, "")
+	return ok
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
@@ -90,26 +103,32 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if _, ok := s.authz(w, r, "runs:kill"); !ok {
 		return
 	}
 	runID := r.PathValue("run_id")
-	sp, err := s.db.GetSpawn(runID)
-	if err != nil {
+	if err := s.mgr.Kill(runID); err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
-	}
-	if sp.State == "running" || sp.State == "queued" {
-		_ = s.db.EndSpawn(runID, "killed", "error", -1)
+	} else if err != nil {
+		writeErr(w, 500, "kill_failed", err.Error())
+		return
 	}
 	writeJSON(w, 200, map[string]bool{"killed": true})
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	folder, ok := s.authz(w, r, "sessions:read")
+	if !ok {
 		return
 	}
-	rows, err := s.db.RecentSessions(r.URL.Query().Get("folder"), 0)
+	// Folder is bound by the token's arz/folder claim, not the ?folder=
+	// query param — a token cannot read another folder's history. Open mode
+	// (verify==nil, folder="") honors the query param for local-dev.
+	if folder == "" {
+		folder = r.URL.Query().Get("folder")
+	}
+	rows, err := s.db.RecentSessions(folder, 0)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -133,5 +152,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, runedv1.Err{Error: code, Message: msg})
 }
-
-var _ = context.Background
