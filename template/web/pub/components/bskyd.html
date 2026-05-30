@@ -50,54 +50,54 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; bskyd</p>
       <h1>bskyd</h1>
 
-          <h2>What it is</h2>
-          <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to gated, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
+    <h2>What it is</h2>
+    <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to gated, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
 
-          <h2>Why it exists</h2>
-          <p>Bluesky is the AT Protocol social network. There is no streaming API for one account &mdash; the firehose is network-wide and too noisy &mdash; so bskyd polls <code>listNotifications</code> and refreshes its auth session on a loop. Posting means signing record creates against the PDS, which is what bskyd does for the agent.</p>
+    <h2>Why it exists</h2>
+    <p>Bluesky is the AT Protocol social network. There is no streaming API for one account &mdash; the firehose is network-wide and too noisy &mdash; so bskyd polls <code>listNotifications</code> and refreshes its auth session on a loop. Posting means signing record creates against the PDS, which is what bskyd does for the agent.</p>
 
-          <h2>How it fits</h2>
-          <div class="callout">
-            <pre><code>Bluesky PDS (bsky.social or custom)
-              |  xrpc poll: app.bsky.notification.listNotifications
-              v
-            bskyd     (LISTEN_ADDR=:8080)
-              |  POST /v1/messages    (signed by CHANNEL_SECRET)
-              v
-            gated
-              |  POST /send           (callback to bskyd)
-              v
-            bskyd     (com.atproto.repo.createRecord on app.bsky.feed.*)
-              |
-              v
-            Bluesky PDS</code></pre>
-          </div>
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Bluesky PDS (bsky.social or custom)
+        |  xrpc poll: app.bsky.notification.listNotifications
+        v
+      bskyd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /send           (callback to bskyd)
+        v
+      bskyd     (com.atproto.repo.createRecord on app.bsky.feed.*)
+        |
+        v
+      Bluesky PDS</code></pre>
+    </div>
 
-          <p>Wired verbs (<code>bskyd/client.go</code>, <code>bskyd/server.go</code>): <code>send</code> / <code>reply</code> (<code>app.bsky.feed.post</code>; <code>reply_to</code> sets the reply ref), <code>send_file</code> (<code>uploadBlob</code> + <code>app.bsky.embed.images</code>, single image), <code>post</code> (with first <code>media_paths[0]</code> embedded), <code>like</code> (<code>app.bsky.feed.like</code> record), <code>delete</code> (<code>com.atproto.repo.deleteRecord</code>), <code>quote</code> (<code>app.bsky.embed.record</code>), <code>repost</code> (<code>app.bsky.feed.repost</code> record). <code>dislike</code>, <code>forward</code>, <code>edit</code> are 501-with-hint.</p>
+    <p>Wired verbs (<code>bskyd/client.go</code>, <code>bskyd/server.go</code>): <code>send</code> / <code>reply</code> (<code>app.bsky.feed.post</code>; <code>reply_to</code> sets the reply ref), <code>send_file</code> (<code>uploadBlob</code> + <code>app.bsky.embed.images</code>, single image), <code>post</code> (with first <code>media_paths[0]</code> embedded), <code>like</code> (<code>app.bsky.feed.like</code> record), <code>delete</code> (<code>com.atproto.repo.deleteRecord</code>), <code>quote</code> (<code>app.bsky.embed.record</code>), <code>repost</code> (<code>app.bsky.feed.repost</code> record). <code>dislike</code>, <code>forward</code>, <code>edit</code> are 501-with-hint.</p>
 
-          <p>The <code>edit</code> hint is by design: <code>putRecord</code> succeeds at the PDS, but the Bluesky appview intentionally ignores updates to <code>app.bsky.feed.post</code> records &mdash; the edit never appears in the feed. Use <code>delete</code> + <code>post</code> instead.</p>
+    <p>The <code>edit</code> hint is by design: <code>putRecord</code> succeeds at the PDS, but the Bluesky appview intentionally ignores updates to <code>app.bsky.feed.post</code> records &mdash; the edit never appears in the feed. Use <code>delete</code> + <code>post</code> instead.</p>
 
-          <p>Inbound is public-feed only. DMs would need <code>chat.bsky.convo</code> proxied through <code>did:web:api.bsky.chat</code>, and no inbound DM polling is wired today.</p>
+    <p>Inbound is public-feed only. DMs would need <code>chat.bsky.convo</code> proxied through <code>did:web:api.bsky.chat</code>, and no inbound DM polling is wired today.</p>
 
-          <h2>Standalone usage</h2>
-          <p>bskyd is a plain Go binary. It needs a reachable gated, a Bluesky handle, and an app password (not your main password).</p>
+    <h2>Standalone usage</h2>
+    <p>bskyd is a plain Go binary. It needs a reachable gated, a Bluesky handle, and an app password (not your main password).</p>
 
-          <pre><code>export ROUTER_URL=http://gated:8080
-      export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
-      export LISTEN_ADDR=:8080
-      export BLUESKY_IDENTIFIER=you.bsky.social
-      export BLUESKY_PASSWORD=abcd-efgh-ijkl-mnop    # app password
-      export BLUESKY_SERVICE=https://bsky.social     # or your PDS
-      export DATA_DIR=/srv/data/arizuko_demo
-      ./bskyd</code></pre>
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export BLUESKY_IDENTIFIER=you.bsky.social
+export BLUESKY_PASSWORD=abcd-efgh-ijkl-mnop    # app password
+export BLUESKY_SERVICE=https://bsky.social     # or your PDS
+export DATA_DIR=/srv/data/arizuko_demo
+./bskyd</code></pre>
 
-          <p>Bluesky-side setup: <em>Settings &rarr; Privacy and security &rarr; App passwords</em>. App passwords skip 2FA and can be revoked individually. <code>GET /health</code> returns 503 when the auth session is invalid; bskyd refreshes automatically and recovers on the next poll.</p>
+    <p>Bluesky-side setup: <em>Settings &rarr; Privacy and security &rarr; App passwords</em>. App passwords skip 2FA and can be revoked individually. <code>GET /health</code> returns 503 when the auth session is invalid; bskyd refreshes automatically and recovers on the next poll.</p>
 
-          <h2>Go deeper</h2>
-          <ul>
-            <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-            <li><code>bskyd/README.md</code> &mdash; verb table, file map, DM gap.</li>
-          </ul>
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>bskyd/README.md</code> &mdash; verb table, file map, DM gap.</li>
+    </ul>
 
 
       <nav class="docs-pager" aria-label="Pager">

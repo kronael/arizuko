@@ -50,52 +50,52 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; mastd</p>
       <h1>mastd</h1>
 
-          <h2>What it is</h2>
-          <p>mastd is the Mastodon channel adapter. It opens the user streaming API on a configured Mastodon instance, filters notifications to mentions and DMs, and posts inbound to gated. Outbound goes through the Mastodon REST API. JID prefix is <code>mastodon:</code>; per-account JIDs are <code>mastodon:&lt;account_id&gt;</code>.</p>
+    <h2>What it is</h2>
+    <p>mastd is the Mastodon channel adapter. It opens the user streaming API on a configured Mastodon instance, filters notifications to mentions and DMs, and posts inbound to gated. Outbound goes through the Mastodon REST API. JID prefix is <code>mastodon:</code>; per-account JIDs are <code>mastodon:&lt;account_id&gt;</code>.</p>
 
-          <h2>Why it exists</h2>
-          <p>Mastodon is the fediverse foothold: one adapter speaks ActivityPub against any Mastodon instance the operator has an account on. Streaming is the only practical way to get low-latency notifications &mdash; polling the public API hits rate limits before the bot becomes useful.</p>
+    <h2>Why it exists</h2>
+    <p>Mastodon is the fediverse foothold: one adapter speaks ActivityPub against any Mastodon instance the operator has an account on. Streaming is the only practical way to get low-latency notifications &mdash; polling the public API hits rate limits before the bot becomes useful.</p>
 
-          <h2>How it fits</h2>
-          <div class="callout">
-            <pre><code>Mastodon instance
-              |  streaming API: /api/v1/streaming/user (SSE)
-              v
-            mastd     (LISTEN_ADDR=:8080)
-              |  POST /v1/messages    (signed by CHANNEL_SECRET)
-              v
-            gated
-              |  POST /send           (callback to mastd)
-              v
-            mastd     (REST: /api/v1/statuses, /favourite, /reblog, ...)
-              |
-              v
-            Mastodon</code></pre>
-          </div>
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Mastodon instance
+        |  streaming API: /api/v1/streaming/user (SSE)
+        v
+      mastd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /send           (callback to mastd)
+        v
+      mastd     (REST: /api/v1/statuses, /favourite, /reblog, ...)
+        |
+        v
+      Mastodon</code></pre>
+    </div>
 
-          <p>Wired verbs (<code>mastd/client.go</code>): <code>send</code> and <code>reply</code> (<code>POST /api/v1/statuses</code>, with <code>in_reply_to_id</code> when set), <code>post</code> (text-only toot), <code>like</code> (<code>/favourite</code>), <code>delete</code>, <code>repost</code> (<code>/reblog</code>), <code>edit</code> (<code>PUT /api/v1/statuses/{id}</code>). <code>forward</code>, <code>quote</code>, <code>dislike</code> are 501-with-hint &mdash; Mastodon has no quote primitive (treated as anti-feature on the network) and no downvote.</p>
+    <p>Wired verbs (<code>mastd/client.go</code>): <code>send</code> and <code>reply</code> (<code>POST /api/v1/statuses</code>, with <code>in_reply_to_id</code> when set), <code>post</code> (text-only toot), <code>like</code> (<code>/favourite</code>), <code>delete</code>, <code>repost</code> (<code>/reblog</code>), <code>edit</code> (<code>PUT /api/v1/statuses/{id}</code>). <code>forward</code>, <code>quote</code>, <code>dislike</code> are 501-with-hint &mdash; Mastodon has no quote primitive (treated as anti-feature on the network) and no downvote.</p>
 
-          <p><code>send_file</code> is not implemented; the adapter returns <code>NoFileSender</code> until the <code>POST /api/v2/media</code> flow lands. <code>send</code> posts publicly today &mdash; DM semantics require an <code>acct</code> handle plus <code>Toot.Visibility = "direct"</code>, which the current JID format does not carry.</p>
+    <p><code>send_file</code> is not implemented; the adapter returns <code>NoFileSender</code> until the <code>POST /api/v2/media</code> flow lands. <code>send</code> posts publicly today &mdash; DM semantics require an <code>acct</code> handle plus <code>Toot.Visibility = "direct"</code>, which the current JID format does not carry.</p>
 
-          <h2>Standalone usage</h2>
-          <p>mastd is a plain Go binary. It needs a reachable gated and an access token from a Mastodon application registered on the target instance.</p>
+    <h2>Standalone usage</h2>
+    <p>mastd is a plain Go binary. It needs a reachable gated and an access token from a Mastodon application registered on the target instance.</p>
 
-          <pre><code>export ROUTER_URL=http://gated:8080
-      export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
-      export LISTEN_ADDR=:8080
-      export MASTODON_INSTANCE_URL=https://mastodon.social
-      export MASTODON_ACCESS_TOKEN=...
-      ./mastd</code></pre>
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export MASTODON_INSTANCE_URL=https://mastodon.social
+export MASTODON_ACCESS_TOKEN=...
+./mastd</code></pre>
 
-          <p>Mastodon-side setup: <em>Preferences &rarr; Development &rarr; New application</em> on your instance. Required scopes: <code>read</code>, <code>write</code>, <code>follow</code>. Copy the access token.</p>
+    <p>Mastodon-side setup: <em>Preferences &rarr; Development &rarr; New application</em> on your instance. Required scopes: <code>read</code>, <code>write</code>, <code>follow</code>. Copy the access token.</p>
 
-          <p><code>GET /health</code> returns 503 when the notification stream is down. Mastodon instances sometimes reset the stream; mastd reconnects automatically &mdash; a persistent 503 points at the instance, not the adapter.</p>
+    <p><code>GET /health</code> returns 503 when the notification stream is down. Mastodon instances sometimes reset the stream; mastd reconnects automatically &mdash; a persistent 503 points at the instance, not the adapter.</p>
 
-          <h2>Go deeper</h2>
-          <ul>
-            <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-            <li><code>mastd/README.md</code> &mdash; verb table, known gaps (DM semantics, media on <code>post</code>).</li>
-          </ul>
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>mastd/README.md</code> &mdash; verb table, known gaps (DM semantics, media on <code>post</code>).</li>
+    </ul>
 
 
       <nav class="docs-pager" aria-label="Pager">

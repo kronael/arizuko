@@ -50,79 +50,79 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; onbod</p>
       <h1>onbod</h1>
 
-          <h2>What it is</h2>
-          <p>onbod is the onboarding daemon. It admits a new user &mdash; via invite token, OAuth bind, or a wait in the admission queue &mdash; then builds that user&rsquo;s group folder by calling <code>container.SetupGroup</code>, the one function that creates a group.</p>
+    <h2>What it is</h2>
+    <p>onbod is the onboarding daemon. It admits a new user &mdash; via invite token, OAuth bind, or a wait in the admission queue &mdash; then builds that user&rsquo;s group folder by calling <code>container.SetupGroup</code>, the one function that creates a group.</p>
 
-          <p>It owns three tables: <code>invites</code>, <code>onboarding</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
+    <p>It owns three tables: <code>invites</code>, <code>onboarding</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
 
-          <h2>Why it exists</h2>
-          <p>Two problems would have no good answer without onbod. First, a new user reaching the bot has nothing &mdash; no record in <code>auth_users</code>, no folder, no skills, no settings, no default tasks. Something has to put them through identity confirmation, decide whether to admit them, and bring them online.</p>
+    <h2>Why it exists</h2>
+    <p>Two problems would have no good answer without onbod. First, a new user reaching the bot has nothing &mdash; no record in <code>auth_users</code>, no folder, no skills, no settings, no default tasks. Something has to put them through identity confirmation, decide whether to admit them, and bring them online.</p>
 
-          <p>Second, group creation is not <code>mkdir</code>. <code>container.SetupGroup</code> creates <code>&lt;groups&gt;/&lt;folder&gt;/</code> and <code>logs/</code>, copies the prototype if one is named, seeds <code>.claude/skills/</code> with the standard skill set, writes default settings, and chowns everything to the container UID. Skipping any step yields a folder the agent cannot use.</p>
+    <p>Second, group creation is not <code>mkdir</code>. <code>container.SetupGroup</code> creates <code>&lt;groups&gt;/&lt;folder&gt;/</code> and <code>logs/</code>, copies the prototype if one is named, seeds <code>.claude/skills/</code> with the standard skill set, writes default settings, and chowns everything to the container UID. Skipping any step yields a folder the agent cannot use.</p>
 
-          <p>The rule is firm: operators never <code>mkdir</code> a group by hand. Stand it up through onbod (invite redemption or the <code>/v1/users</code> path) so it gets the full set of files.</p>
+    <p>The rule is firm: operators never <code>mkdir</code> a group by hand. Stand it up through onbod (invite redemption or the <code>/v1/users</code> path) so it gets the full set of files.</p>
 
-          <h2>How it fits</h2>
-          <div class="callout">
-            <pre><code>new JID reaches a channel adapter
-              |
-              v   inbound message
-              |
-            gated   no auth_users row → writes awaiting_message
-              |
-            onbod   poll loop sends auth link via gated outbound API
-              |     /onboard landing → OAuth (GitHub/Google/Discord)
-              |     gate match → onboarding queue (per-gate daily limit)
-              |     admitFromQueue (~60s) → approved
-              |     container.SetupGroup(folder, prototype)
-              v     auth.Mint(sub, scope=[users:read self], iss=onbod)
-            user gets redemption token, dashd verifies it via auth.VerifyHTTP</code></pre>
-          </div>
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>new JID reaches a channel adapter
+        |
+        v   inbound message
+        |
+      gated   no auth_users row → writes awaiting_message
+        |
+      onbod   poll loop sends auth link via gated outbound API
+        |     /onboard landing → OAuth (GitHub/Google/Discord)
+        |     gate match → onboarding queue (per-gate daily limit)
+        |     admitFromQueue (~60s) → approved
+        |     container.SetupGroup(folder, prototype)
+        v     auth.Mint(sub, scope=[users:read self], iss=onbod)
+      user gets redemption token, dashd verifies it via auth.VerifyHTTP</code></pre>
+    </div>
 
-          <p>Gate matching uses <code>ONBOARDING_GATES</code>: a list of github-org, google-domain, or catch-all rules with optional daily caps. A user who matches no gate stays queued. Admitted users with a second JID on another channel auto-link to their existing group rather than getting a fresh one.</p>
+    <p>Gate matching uses <code>ONBOARDING_GATES</code>: a list of github-org, google-domain, or catch-all rules with optional daily caps. A user who matches no gate stays queued. Admitted users with a second JID on another channel auto-link to their existing group rather than getting a fresh one.</p>
 
-          <p>onbod is also a JWT issuer. At invite redemption it calls <code>auth.Mint</code> with the same HS256 key every other daemon verifies against, issuing a short-TTL token scoped to <code>users:read</code> on the user&rsquo;s own <code>sub</code>. The token bootstraps the user into dashd before they get a full session from proxyd&rsquo;s OAuth flow.</p>
+    <p>onbod is also a JWT issuer. At invite redemption it calls <code>auth.Mint</code> with the same HS256 key every other daemon verifies against, issuing a short-TTL token scoped to <code>users:read</code> on the user&rsquo;s own <code>sub</code>. The token bootstraps the user into dashd before they get a full session from proxyd&rsquo;s OAuth flow.</p>
 
-          <h2>Standalone usage</h2>
-          <p>onbod runs as a daemon against the shared SQLite store and the gated outbound API. It will not run without <code>ROUTER_URL</code> pointing at a reachable gated &mdash; the poll loop sends auth links through gated, not directly to platforms.</p>
+    <h2>Standalone usage</h2>
+    <p>onbod runs as a daemon against the shared SQLite store and the gated outbound API. It will not run without <code>ROUTER_URL</code> pointing at a reachable gated &mdash; the poll loop sends auth links through gated, not directly to platforms.</p>
 
-          <pre><code>export DATA_DIR=/srv/data/arizuko_demo
-      export ONBOD_LISTEN_ADDR=:8080
-      export ROUTER_URL=http://gated:8080
-      export AUTH_SECRET=$(openssl rand -hex 32)
-      export CHANNEL_SECRET=$(openssl rand -hex 32)
-      export AUTH_BASE_URL=https://example.com
-      export ONBOARDING_ENABLED=1
-      export ONBOARDING_GATES='github-org:myorg:5,catch-all:0'
-      export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
-      ./onbod</code></pre>
+    <pre><code>export DATA_DIR=/srv/data/arizuko_demo
+export ONBOD_LISTEN_ADDR=:8080
+export ROUTER_URL=http://gated:8080
+export AUTH_SECRET=$(openssl rand -hex 32)
+export CHANNEL_SECRET=$(openssl rand -hex 32)
+export AUTH_BASE_URL=https://example.com
+export ONBOARDING_ENABLED=1
+export ONBOARDING_GATES='github-org:myorg:5,catch-all:0'
+export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
+./onbod</code></pre>
 
-          <p>Set <code>ONBOARDING_ENABLED=0</code> and onbod exits immediately. Health: <code>GET /health</code> returns 200 when the database is reachable; queued users see their position on <code>/onboard</code>, which refreshes every 30 seconds.</p>
+    <p>Set <code>ONBOARDING_ENABLED=0</code> and onbod exits immediately. Health: <code>GET /health</code> returns 200 when the database is reachable; queued users see their position on <code>/onboard</code>, which refreshes every 30 seconds.</p>
 
-          <h2>SetupGroup, the one canonical path</h2>
-          <p>Every group folder in an arizuko instance was created by one function: <code>container.SetupGroup(cfg, folder, prototype)</code>. It runs the same five steps in the same order:</p>
+    <h2>SetupGroup, the one canonical path</h2>
+    <p>Every group folder in an arizuko instance was created by one function: <code>container.SetupGroup(cfg, folder, prototype)</code>. It runs the same five steps in the same order:</p>
 
-          <ul>
-            <li>Resolve the folder against <code>cfg.GroupsDir</code>; reject anything that escapes.</li>
-            <li><code>mkdir -p</code> the group folder and its <code>logs/</code> subdirectory.</li>
-            <li>If a prototype is named, copy its tree in (no symlinks).</li>
-            <li>Seed <code>.claude/skills/</code> with the standard skill set, write default settings.</li>
-            <li>Chown the whole tree to the container UID (1000) so the agent inside can write.</li>
-          </ul>
+    <ul>
+      <li>Resolve the folder against <code>cfg.GroupsDir</code>; reject anything that escapes.</li>
+      <li><code>mkdir -p</code> the group folder and its <code>logs/</code> subdirectory.</li>
+      <li>If a prototype is named, copy its tree in (no symlinks).</li>
+      <li>Seed <code>.claude/skills/</code> with the standard skill set, write default settings.</li>
+      <li>Chown the whole tree to the container UID (1000) so the agent inside can write.</li>
+    </ul>
 
-          <p>A folder built any other way is missing one of these steps. The agent then fails on first turn &mdash; no skills loaded, or no write permission on logs, or a missing settings file. There is no fallback path that fills the gaps later; the cost of skipping <code>SetupGroup</code> is recreating the folder from scratch.</p>
+    <p>A folder built any other way is missing one of these steps. The agent then fails on first turn &mdash; no skills loaded, or no write permission on logs, or a missing settings file. There is no fallback path that fills the gaps later; the cost of skipping <code>SetupGroup</code> is recreating the folder from scratch.</p>
 
-          <h2>What onbod does not do</h2>
-          <p>onbod does not send messages, run the agent, or schedule tasks. Its scope is narrow: turn an unknown JID into a row in <code>auth_users</code>, a folder on disk, and a token the user can present to other daemons.</p>
+    <h2>What onbod does not do</h2>
+    <p>onbod does not send messages, run the agent, or schedule tasks. Its scope is narrow: turn an unknown JID into a row in <code>auth_users</code>, a folder on disk, and a token the user can present to other daemons.</p>
 
-          <h2>Go deeper</h2>
-          <ul>
-            <li><a href="../reference/env.html#onbod">reference/env &mdash; onbod</a> &mdash; full env var table.</li>
-            <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; verifies the session tokens onbod mints.</li>
-            <li><code>specs/5/A-auth-consolidated.md</code> &mdash; auth and admission model.</li>
-            <li><code>specs/5/V-platform-api.md</code> &mdash; <code>/v1/invites</code> and <code>/v1/users</code> surface.</li>
-            <li><code>specs/4/26-prototypes.md</code> &mdash; the prototype mechanic <code>SetupGroup</code> copies from.</li>
-          </ul>
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../reference/env.html#onbod">reference/env &mdash; onbod</a> &mdash; full env var table.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; verifies the session tokens onbod mints.</li>
+      <li><code>specs/5/A-auth-consolidated.md</code> &mdash; auth and admission model.</li>
+      <li><code>specs/5/V-platform-api.md</code> &mdash; <code>/v1/invites</code> and <code>/v1/users</code> surface.</li>
+      <li><code>specs/4/26-prototypes.md</code> &mdash; the prototype mechanic <code>SetupGroup</code> copies from.</li>
+    </ul>
 
 
       <nav class="docs-pager" aria-label="Pager">

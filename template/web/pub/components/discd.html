@@ -50,56 +50,56 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; discd</p>
       <h1>discd</h1>
 
-          <h2>What it is</h2>
-          <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to gated, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
+    <h2>What it is</h2>
+    <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to gated, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
 
-          <h2>Why it exists</h2>
-          <p>Discord is the canonical community channel for arizuko deployments &mdash; guild channels for team chat, threads for tasks, DMs for one-on-one. Talking to the Discord gateway directly is what lets discd surface reactions as <code>like</code> / <code>dislike</code> events and keep the websocket alive across rolling restarts.</p>
+    <h2>Why it exists</h2>
+    <p>Discord is the canonical community channel for arizuko deployments &mdash; guild channels for team chat, threads for tasks, DMs for one-on-one. Talking to the Discord gateway directly is what lets discd surface reactions as <code>like</code> / <code>dislike</code> events and keep the websocket alive across rolling restarts.</p>
 
-          <h2>How it fits</h2>
-          <div class="callout">
-            <pre><code>Discord (gateway.discord.gg)
-              |  websocket: MESSAGE_CREATE, MESSAGE_REACTION_ADD, ...
-              v
-            discd     (LISTEN_ADDR=:8080)
-              |  POST /v1/messages    (signed by CHANNEL_SECRET)
-              v
-            gated
-              |  POST /send           (callback to discd)
-              v
-            discd     (REST: channels/.../messages, reactions, ...)
-              |
-              v
-            Discord</code></pre>
-          </div>
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Discord (gateway.discord.gg)
+        |  websocket: MESSAGE_CREATE, MESSAGE_REACTION_ADD, ...
+        v
+      discd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /send           (callback to discd)
+        v
+      discd     (REST: channels/.../messages, reactions, ...)
+        |
+        v
+      Discord</code></pre>
+    </div>
 
-          <p>Wired verbs (<code>discd/bot.go</code>, <code>discd/server.go</code>): <code>send</code> (chunked at 2000 chars, honours <code>reply_to</code> via <code>message_reference</code>), <code>send_file</code> (multipart), <code>typing</code>, <code>edit</code>, <code>delete</code>, <code>like</code> (default <span>&#128077;</span>), <code>quote</code>. <code>dislike</code>, <code>forward</code>, <code>post</code>, <code>repost</code> are 501-with-hint &mdash; the agent gets pointers like <code>like(emoji='&#128078;')</code> rather than a generic capability error.</p>
+    <p>Wired verbs (<code>discd/bot.go</code>, <code>discd/server.go</code>): <code>send</code> (chunked at 2000 chars, honours <code>reply_to</code> via <code>message_reference</code>), <code>send_file</code> (multipart), <code>typing</code>, <code>edit</code>, <code>delete</code>, <code>like</code> (default <span>&#128077;</span>), <code>quote</code>. <code>dislike</code>, <code>forward</code>, <code>post</code>, <code>repost</code> are 501-with-hint &mdash; the agent gets pointers like <code>like(emoji='&#128078;')</code> rather than a generic capability error.</p>
 
-          <p>Inbound: messages where the bot is in <code>m.Mentions</code> or is the parent author of a reply ride <code>verb=mention</code>; everything else in guilds is <code>verb=message</code> (v0.39.1 made reply-to-bot and reactions count as mentions). Reactions <code>MessageReactionAdd</code> emit synthetic <code>like</code>/<code>dislike</code> inbound rows classified by <code>chanlib.ClassifyEmoji</code>.</p>
+    <p>Inbound: messages where the bot is in <code>m.Mentions</code> or is the parent author of a reply ride <code>verb=mention</code>; everything else in guilds is <code>verb=message</code> (v0.39.1 made reply-to-bot and reactions count as mentions). Reactions <code>MessageReactionAdd</code> emit synthetic <code>like</code>/<code>dislike</code> inbound rows classified by <code>chanlib.ClassifyEmoji</code>.</p>
 
-          <p>Attachments use direct Discord CDN URLs cached via the shared <code>chanlib.URLCache</code>.</p>
+    <p>Attachments use direct Discord CDN URLs cached via the shared <code>chanlib.URLCache</code>.</p>
 
-          <h2>Standalone usage</h2>
-          <p>discd is a plain Go binary. It needs a reachable gated and a Discord bot or user token.</p>
+    <h2>Standalone usage</h2>
+    <p>discd is a plain Go binary. It needs a reachable gated and a Discord bot or user token.</p>
 
-          <pre><code>export ROUTER_URL=http://gated:8080
-      export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
-      export LISTEN_ADDR=:8080
-      export DISCORD_BOT_TOKEN=...
-      export ASSISTANT_NAME=arizuko
-      ./discd</code></pre>
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export DISCORD_BOT_TOKEN=...
+export ASSISTANT_NAME=arizuko
+./discd</code></pre>
 
-          <p>Discord-side setup: create an application at <code>discord.com/developers</code>, add a bot, copy the token. Required gateway intents: <code>GUILDS</code>, <code>GUILD_MESSAGES</code>, <code>GUILD_MESSAGE_REACTIONS</code>, <code>MESSAGE_CONTENT</code>, <code>DIRECT_MESSAGES</code>. Invite the bot with the OAuth URL.</p>
+    <p>Discord-side setup: create an application at <code>discord.com/developers</code>, add a bot, copy the token. Required gateway intents: <code>GUILDS</code>, <code>GUILD_MESSAGES</code>, <code>GUILD_MESSAGE_REACTIONS</code>, <code>MESSAGE_CONTENT</code>, <code>DIRECT_MESSAGES</code>. Invite the bot with the OAuth URL.</p>
 
-          <p>User mode (<code>DISCORD_USER_TOKEN</code> instead of bot token) authenticates as a Discord user account &mdash; useful where a bot account is not allowed. It skips gateway intents, which user tokens cannot request.</p>
+    <p>User mode (<code>DISCORD_USER_TOKEN</code> instead of bot token) authenticates as a Discord user account &mdash; useful where a bot account is not allowed. It skips gateway intents, which user tokens cannot request.</p>
 
-          <p><code>GET /health</code> returns 503 when the websocket is disconnected; <code>discordgo</code> reconnects automatically, so a persistent 503 means token revoked or Discord-side outage.</p>
+    <p><code>GET /health</code> returns 503 when the websocket is disconnected; <code>discordgo</code> reconnects automatically, so a persistent 503 means token revoked or Discord-side outage.</p>
 
-          <h2>Go deeper</h2>
-          <ul>
-            <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-            <li><code>discd/README.md</code> &mdash; verb table, file map.</li>
-          </ul>
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>discd/README.md</code> &mdash; verb table, file map.</li>
+    </ul>
 
 
       <nav class="docs-pager" aria-label="Pager">
