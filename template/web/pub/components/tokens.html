@@ -5,74 +5,117 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>route tokens &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; route tokens</p>
-    <h1>route tokens</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>The <code>route_tokens</code> table plus the two URL prefixes that read from it: <code>/chat/&lt;token&gt;/</code> for visitor web chat, <code>/hook/&lt;token&gt;</code> for inbound webhooks. One row per token, four columns (<code>token_hash</code>, <code>jid</code>, <code>owner_folder</code>, <code>created_at</code>). The JID prefix tells webd which surface a token belongs to.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; route tokens</p>
+      <h1>route tokens</h1>
 
-    <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>
+          <h2>What it is</h2>
+          <p>The <code>route_tokens</code> table plus the two URL prefixes that read from it: <code>/chat/&lt;token&gt;/</code> for visitor web chat, <code>/hook/&lt;token&gt;</code> for inbound webhooks. One row per token, four columns (<code>token_hash</code>, <code>jid</code>, <code>owner_folder</code>, <code>created_at</code>). The JID prefix tells webd which surface a token belongs to.</p>
 
-    <h2>Why it exists</h2>
-    <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform way to mint it, and a uniform way to revoke it.</p>
+          <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>
 
-    <h2>The two surfaces</h2>
-    <pre><code>GET  /chat/&lt;token&gt;/            &rarr; chat widget (HTML)
-POST /chat/&lt;token&gt;/            &rarr; message in; SSE reply stream out
-POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no reply</code></pre>
+          <h2>Why it exists</h2>
+          <p>Two long-standing needs &mdash; &ldquo;give my site a chat URL&rdquo; and &ldquo;let GitHub POST events to the agent&rdquo; &mdash; want the same primitive: a URL bound to a destination JID. Before this table the chat URL was hardcoded as one column on the <code>groups</code> table and webhooks improvised on top of it. Pulling the token out into a first-class row gives every inbound URL a uniform shape, a uniform way to mint it, and a uniform way to revoke it.</p>
 
-    <p>Chat tokens carry JIDs prefixed <code>web:</code>; hook tokens carry <code>hook:</code>. Both URL prefixes accept any valid token &mdash; the kind is metadata for the agent, not a URL gate. Inbound JID is whatever the token row stores; the surface contract (widget+SSE vs fire-and-forget) is fixed by the URL.</p>
+          <h2>The two surfaces</h2>
+          <pre><code>GET  /chat/&lt;token&gt;/            &rarr; chat widget (HTML)
+      POST /chat/&lt;token&gt;/            &rarr; message in; SSE reply stream out
+      POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no reply</code></pre>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>browser / curl / GitHub / Linear / ...
-        |
-        v   /chat/&lt;token&gt;/...   or   /hook/&lt;token&gt;
-        |
-      proxyd     (public path; per-token rate shield)
-        |
-      webd       (hash token, look up row, append inbound at row.jid)
-        |
-      gated      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
-    </div>
+          <p>Chat tokens carry JIDs prefixed <code>web:</code>; hook tokens carry <code>hook:</code>. Both URL prefixes accept any valid token &mdash; the kind is metadata for the agent, not a URL gate. Inbound JID is whatever the token row stores; the surface contract (widget+SSE vs fire-and-forget) is fixed by the URL.</p>
 
-    <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>browser / curl / GitHub / Linear / ...
+              |
+              v   /chat/&lt;token&gt;/...   or   /hook/&lt;token&gt;
+              |
+            proxyd     (public path; per-token rate shield)
+              |
+            webd       (hash token, look up row, append inbound at row.jid)
+              |
+            gated      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
+          </div>
 
-    <h2>Mint authorization</h2>
-    <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 through 2 mint for their own folder and its descendants; tier 3 and above cannot mint at all (<code>authorizeMint</code> in <code>ipc/ipc.go</code>). The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
+          <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
-    <h2>Rate limits</h2>
-    <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
+          <h2>Mint authorization</h2>
+          <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 through 2 mint for their own folder and its descendants; tier 3 and above cannot mint at all (<code>authorizeMint</code> in <code>ipc/ipc.go</code>). The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
 
-    <h2>What it does not do</h2>
-    <p>No body signature verification (no <code>X-Hub-Signature</code> check), no second-factor auth on the URL, no per-IP fingerprinting. The bearer model is intentional &mdash; the URL <em>is</em> the credential. Upstream HMAC validation is a skill concern, executed on the agent side from the row's <code>headers</code> field.</p>
+          <h2>Rate limits</h2>
+          <p>Per-token in-memory bucket in webd. The bucket ceiling is chosen by JID prefix: <code>web:</code> uses a smaller bucket sized for human typing; <code>hook:</code> uses a larger bucket sized for machine bursts. Body cap is 1 MiB. Excess returns 429.</p>
 
-    <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
+          <h2>What it does not do</h2>
+          <p>No body signature verification (no <code>X-Hub-Signature</code> check), no second-factor auth on the URL, no per-IP fingerprinting. The bearer model is intentional &mdash; the URL <em>is</em> the credential. Upstream HMAC validation is a skill concern, executed on the agent side from the row's <code>headers</code> field.</p>
 
-    <h2>Standalone usage</h2>
-    <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
+          <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
-      <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
-      <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
-      <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
-      <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
-    </ul>
+          <h2>Standalone usage</h2>
+          <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the primitive, the JID prefixes, the bearer model.</li>
+            <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full endpoint table, payload shapes, SSE events, MCP tools.</li>
+            <li><a href="../howto/chat-link.html">how-to: chat link</a> &mdash; issue a chat URL, paste it on a site.</li>
+            <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; wire GitHub, Linear, custom alerts.</li>
+            <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code> and <code>/hook/*</code>.</li>
+            <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a> &mdash; the route_tokens spec.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="timed.html">&larr; timed</a>
+        <a rel="next" href="ttsd.html">ttsd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/tokens.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

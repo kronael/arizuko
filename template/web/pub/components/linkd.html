@@ -5,71 +5,114 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>linkd &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; linkd</p>
-    <h1>linkd</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>linkd is the LinkedIn channel adapter. It targets the LinkedIn v2 community-management API for the bot account&rsquo;s own shares and comments &mdash; UGC posts, likes, reshares, comments, deletes. JID prefix is <code>linkedin:</code>.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; linkd</p>
+      <h1>linkd</h1>
 
-    <h2>Why it exists</h2>
-    <p>LinkedIn DMs and company-page posting are gated behind partner-only OAuth scopes that arizuko deployments cannot get. linkd carves out the subset that works under <code>w_member_social</code> &mdash; the agent&rsquo;s own UGC posts and the social actions on them &mdash; and returns structured hints for the rest so the agent has a concrete alternative instead of a silent failure.</p>
+          <h2>What it is</h2>
+          <p>linkd is the LinkedIn channel adapter. It targets the LinkedIn v2 community-management API for the bot account&rsquo;s own shares and comments &mdash; UGC posts, likes, reshares, comments, deletes. JID prefix is <code>linkedin:</code>.</p>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>LinkedIn (api.linkedin.com)
-        |  poll: own UGC shares + comments, every LINKEDIN_POLL_INTERVAL
-        v
-      linkd     (LISTEN_ADDR=:8080)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
-        v
-      gated
-        |  POST /send           (callback to linkd)
-        v
-      linkd     (REST: /v2/ugcPosts | /v2/socialActions/{urn}/...)
-        |
-        v
-      LinkedIn</code></pre>
-    </div>
+          <h2>Why it exists</h2>
+          <p>LinkedIn DMs and company-page posting are gated behind partner-only OAuth scopes that arizuko deployments cannot get. linkd carves out the subset that works under <code>w_member_social</code> &mdash; the agent&rsquo;s own UGC posts and the social actions on them &mdash; and returns structured hints for the rest so the agent has a concrete alternative instead of a silent failure.</p>
 
-    <p>Wired verbs (<code>linkd/client.go</code>): <code>send</code> / <code>reply</code> as comments on a post URN (<code>POST /v2/socialActions/{urn}/comments</code>); when <code>LINKEDIN_AUTO_PUBLISH=true</code>, <code>send</code> with a non-comment JID falls back to publishing a <code>ugcPost</code>. <code>post</code> (<code>/v2/ugcPosts</code>), <code>like</code> (<code>/v2/socialActions/{urn}/likes</code>), <code>delete</code> (<code>DELETE /v2/ugcPosts/{urn}</code> for own posts), <code>repost</code> (<code>/v2/ugcPosts</code> with <code>referenceUgcPost</code>), <code>fetch_history</code> (comments on a post URN). <code>send_file</code>, <code>forward</code>, <code>quote</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>LinkedIn (api.linkedin.com)
+              |  poll: own UGC shares + comments, every LINKEDIN_POLL_INTERVAL
+              v
+            linkd     (LISTEN_ADDR=:8080)
+              |  POST /v1/messages    (signed by CHANNEL_SECRET)
+              v
+            gated
+              |  POST /send           (callback to linkd)
+              v
+            linkd     (REST: /v2/ugcPosts | /v2/socialActions/{urn}/...)
+              |
+              v
+            LinkedIn</code></pre>
+          </div>
 
-    <p>The <code>edit</code> hint exists because UGC edit requires the versioned <code>/rest/posts</code> PARTIAL_UPDATE flow, which is not wired. <code>send_file</code> needs the <code>/assets registerUpload</code> + binary PUT dance; same story.</p>
+          <p>Wired verbs (<code>linkd/client.go</code>): <code>send</code> / <code>reply</code> as comments on a post URN (<code>POST /v2/socialActions/{urn}/comments</code>); when <code>LINKEDIN_AUTO_PUBLISH=true</code>, <code>send</code> with a non-comment JID falls back to publishing a <code>ugcPost</code>. <code>post</code> (<code>/v2/ugcPosts</code>), <code>like</code> (<code>/v2/socialActions/{urn}/likes</code>), <code>delete</code> (<code>DELETE /v2/ugcPosts/{urn}</code> for own posts), <code>repost</code> (<code>/v2/ugcPosts</code> with <code>referenceUgcPost</code>), <code>fetch_history</code> (comments on a post URN). <code>send_file</code>, <code>forward</code>, <code>quote</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint.</p>
 
-    <h2>Standalone usage</h2>
-    <p>linkd is a plain Go binary. It needs a reachable gated and a LinkedIn application with member-social scopes. linkd refreshes the access token automatically on 401 via the refresh token.</p>
+          <p>The <code>edit</code> hint exists because UGC edit requires the versioned <code>/rest/posts</code> PARTIAL_UPDATE flow, which is not wired. <code>send_file</code> needs the <code>/assets registerUpload</code> + binary PUT dance; same story.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
-export LISTEN_ADDR=:8080
-export LINKEDIN_CLIENT_ID=...
-export LINKEDIN_CLIENT_SECRET=...
-export LINKEDIN_ACCESS_TOKEN=...
-export LINKEDIN_REFRESH_TOKEN=...
-export LINKEDIN_POLL_INTERVAL=300s
-export LINKEDIN_AUTO_PUBLISH=false
-./linkd</code></pre>
+          <h2>Standalone usage</h2>
+          <p>linkd is a plain Go binary. It needs a reachable gated and a LinkedIn application with member-social scopes. linkd refreshes the access token automatically on 401 via the refresh token.</p>
 
-    <p>LinkedIn-side setup: register an app at <code>linkedin.com/developers</code>. Required scopes: <code>r_liteprofile</code>, <code>w_member_social</code>. Walk through the OAuth code flow once to mint the initial access + refresh tokens; copy them into env. Company-page posting and DM messaging both need partner approval and are intentionally out of scope.</p>
+          <pre><code>export ROUTER_URL=http://gated:8080
+      export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+      export LISTEN_ADDR=:8080
+      export LINKEDIN_CLIENT_ID=...
+      export LINKEDIN_CLIENT_SECRET=...
+      export LINKEDIN_ACCESS_TOKEN=...
+      export LINKEDIN_REFRESH_TOKEN=...
+      export LINKEDIN_POLL_INTERVAL=300s
+      export LINKEDIN_AUTO_PUBLISH=false
+      ./linkd</code></pre>
 
-    <p><code>GET /health</code> returns 503 when the access token is expired and refresh fails.</p>
+          <p>LinkedIn-side setup: register an app at <code>linkedin.com/developers</code>. Required scopes: <code>r_liteprofile</code>, <code>w_member_social</code>. Walk through the OAuth code flow once to mint the initial access + refresh tokens; copy them into env. Company-page posting and DM messaging both need partner approval and are intentionally out of scope.</p>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-      <li><code>linkd/README.md</code> &mdash; verb table, scopes, file map.</li>
-    </ul>
+          <p><code>GET /health</code> returns 503 when the access token is expired and refresh fails.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+            <li><code>linkd/README.md</code> &mdash; verb table, scopes, file map.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="gated.html">&larr; gated</a>
+        <a rel="next" href="mastd.html">mastd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/linkd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

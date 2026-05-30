@@ -5,120 +5,159 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>channel adapters &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-    table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
-    th, td { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.4em 0.7em; text-align: left; vertical-align: top; }
-    th { font-weight: 600; }
-    td.name { white-space: nowrap; font-family: monospace; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; channel adapters</p>
-    <h1>channel adapters</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What they are</h2>
-    <p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>gated</code> on the right.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; channel adapters</p>
+      <h1>channel adapters</h1>
 
-    <p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code> at <code>/v1/messages</code>. Outbound: <code>gated</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
+      <h2>What they are</h2>
+      <p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>gated</code> on the right.</p>
 
-    <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
+      <p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code> at <code>/v1/messages</code>. Outbound: <code>gated</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
 
-    <h2>Why they exist</h2>
-    <p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>gated</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>gated</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>gated</code> doesn&rsquo;t change.</p>
+      <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
 
-    <h2>The shared shape</h2>
-    <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
+      <h2>Why they exist</h2>
+      <p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>gated</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>gated</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>gated</code> doesn&rsquo;t change.</p>
 
-    <ul>
-      <li><code>Channel</code> &mdash; <code>Name</code>, <code>Connect</code>, <code>Send</code>, <code>SendFile</code>, <code>SendVoice</code>, <code>Owns</code>, <code>Typing</code>, <code>Disconnect</code>. The minimum every adapter implements.</li>
-      <li><code>Socializer</code> &mdash; <code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code>. Implemented where the platform has the verb; sentinel error otherwise.</li>
-      <li><code>Suggester</code> / <code>Namer</code> &mdash; suggested-prompt buttons and the conversation title. Implemented today by slakd; others can opt in.</li>
-      <li><code>HistoryFetcher</code> &mdash; optional. Pull older messages from the platform API when the agent asks for context.</li>
-    </ul>
+      <h2>The shared shape</h2>
+      <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
 
-    <p>Every adapter serves the same HTTP endpoints (mounted by <code>chanlib</code>):</p>
+      <ul>
+        <li><code>Channel</code> &mdash; <code>Name</code>, <code>Connect</code>, <code>Send</code>, <code>SendFile</code>, <code>SendVoice</code>, <code>Owns</code>, <code>Typing</code>, <code>Disconnect</code>. The minimum every adapter implements.</li>
+        <li><code>Socializer</code> &mdash; <code>Post</code>, <code>Like</code>, <code>Dislike</code>, <code>Forward</code>, <code>Quote</code>, <code>Repost</code>, <code>Edit</code>, <code>Delete</code>, <code>Pin</code>, <code>Unpin</code>. Implemented where the platform has the verb; sentinel error otherwise.</li>
+        <li><code>Suggester</code> / <code>Namer</code> &mdash; suggested-prompt buttons and the conversation title. Implemented today by slakd; others can opt in.</li>
+        <li><code>HistoryFetcher</code> &mdash; optional. Pull older messages from the platform API when the agent asks for context.</li>
+      </ul>
 
-    <ul>
-      <li><code>GET /health</code> &mdash; 200 when connected to the platform, 503 when the link is down (QR unscanned, stream dropped, token expired).</li>
-      <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>gated</code> hands the adapter an outbound row to deliver.</li>
-      <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the <code>Socializer</code> verbs, one route each.</li>
-      <li><code>GET /v1/history</code> &mdash; mounted only when the adapter implements <code>HistoryFetcher</code>.</li>
-    </ul>
+      <p>Every adapter serves the same HTTP endpoints (mounted by <code>chanlib</code>):</p>
 
-    <h2>How they fit</h2>
-    <div class="callout">
-      <pre><code>platform (Slack, Telegram, &hellip;)
-        |  platform-native protocol
-        v
-      &lt;channel adapter&gt;   (LISTEN_ADDR=:8080, own container)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
-        v
-      gated
-        |  POST /send            (callback to adapter)
-        v
-      &lt;channel adapter&gt;
-        |  platform-native protocol
-        v
-      platform</code></pre>
-    </div>
+      <ul>
+        <li><code>GET /health</code> &mdash; 200 when connected to the platform, 503 when the link is down (QR unscanned, stream dropped, token expired).</li>
+        <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>gated</code> hands the adapter an outbound row to deliver.</li>
+        <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the <code>Socializer</code> verbs, one route each.</li>
+        <li><code>GET /v1/history</code> &mdash; mounted only when the adapter implements <code>HistoryFetcher</code>.</li>
+      </ul>
 
-    <p>The trust contract is symmetric: <code>gated</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
+      <h2>How they fit</h2>
+      <div class="callout">
+        <pre><code>platform (Slack, Telegram, &hellip;)
+          |  platform-native protocol
+          v
+        &lt;channel adapter&gt;   (LISTEN_ADDR=:8080, own container)
+          |  POST /v1/messages    (signed by CHANNEL_SECRET)
+          v
+        gated
+          |  POST /send            (callback to adapter)
+          v
+        &lt;channel adapter&gt;
+          |  platform-native protocol
+          v
+        platform</code></pre>
+      </div>
 
-    <h2>The adapters</h2>
-    <table>
-      <thead>
-        <tr><th>name</th><th>platform</th><th>language</th><th>notes</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
-        <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
-        <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
-        <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
-        <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
-        <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts; native dislike via downvote (the one platform with a true downvote).</td></tr>
-        <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
-        <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
-        <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
-        <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
-      </tbody>
-    </table>
+      <p>The trust contract is symmetric: <code>gated</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
 
-    <p>An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> rather than failing quietly. The agent reads that response and picks another action instead of dropping the call.</p>
+      <h2>The adapters</h2>
+      <table>
+        <thead>
+          <tr><th>name</th><th>platform</th><th>language</th><th>notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack</td><td>Go</td><td>Assistant pane &mdash; suggested prompts and conversation title; reactions map to likes.</td></tr>
+          <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram</td><td>Go</td><td>Long-poll bot API, file uploads, native voice messages.</td></tr>
+          <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord</td><td>Go</td><td>Gateway over websocket, ActionRow buttons, channel threads.</td></tr>
+          <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon</td><td>Go</td><td>ActivityPub via API token, replies and boosts.</td></tr>
+          <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky</td><td>Go</td><td>AT Protocol, post threading.</td></tr>
+          <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit</td><td>Go</td><td>Comments and posts; native dislike via downvote (the one platform with a true downvote).</td></tr>
+          <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email</td><td>Go</td><td>IMAP receive, SMTP send, threading by Message-ID.</td></tr>
+          <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn</td><td>Go</td><td>Messaging API, connection-scoped DMs.</td></tr>
+          <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp</td><td>TypeScript</td><td>Baileys client, QR pairing, voice notes.</td></tr>
+          <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter</td><td>TypeScript</td><td>Mentions and DMs.</td></tr>
+        </tbody>
+      </table>
 
-    <p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>gated</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
+      <p>An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> rather than failing quietly. The agent reads that response and picks another action instead of dropping the call.</p>
 
-    <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the channel.</p>
+      <p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>gated</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
 
-    <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have their best-maintained clients in TypeScript (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
+      <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the channel.</p>
 
-    <h2>Adding a new adapter</h2>
-    <p>Two artifacts, no edits to <code>proxyd</code> or <code>compose</code>:</p>
+      <p>Language choice follows the upstream SDK. Most platforms have a maintained Go client, so the adapter is Go. WhatsApp and X have their best-maintained clients in TypeScript (Baileys, twitter-api-v2), so those adapters run on Node. The HTTP contract is identical either way.</p>
 
-    <ol>
-      <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
-      <li>Drop a <code>template/services/&lt;daemon&gt;.toml</code> with the compose env block and a <code>[[proxyd_route]]</code> entry. The next <code>arizuko run</code> picks it up.</li>
-    </ol>
+      <h2>Adding a new adapter</h2>
+      <p>Two artifacts, no edits to <code>proxyd</code> or <code>compose</code>:</p>
 
-    <p>Spec: <code>specs/5/35-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
+      <ol>
+        <li>Write the daemon. Implement <code>Channel</code>; implement <code>Socializer</code> for the verbs the platform exposes. Serve the standard HTTP endpoints on <code>LISTEN_ADDR=:8080</code>.</li>
+        <li>Drop a <code>template/services/&lt;daemon&gt;.toml</code> with the compose env block and a <code>[[proxyd_route]]</code> entry. The next <code>arizuko run</code> picks it up.</li>
+      </ol>
 
-    <h2>Asymmetric channels</h2>
-    <p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="../howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
+      <p>Spec: <code>specs/5/35-proxyd-standalone.md</code>. Extension points: <a href="https://github.com/kronael/arizuko/blob/main/EXTENDING.md">EXTENDING.md</a>.</p>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><code>core/types.go</code> &mdash; <code>Channel</code>, <code>Socializer</code>, <code>Suggester</code>, <code>Namer</code>, <code>HistoryFetcher</code> interfaces.</li>
-      <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the other end of every adapter&rsquo;s HTTP calls.</li>
-      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an inbound message picks its group and reply channel.</li>
-    </ul>
+      <h2>Asymmetric channels</h2>
+      <p>An inbound channel and an outbound channel do not have to be the same daemon. A message can arrive on email and the reply can go out on Slack &mdash; the route table decides. See <a href="../howto/asymmetric-channels.html">howto/asymmetric-channels</a>.</p>
+
+      <h2>Go deeper</h2>
+      <ul>
+        <li><code>core/types.go</code> &mdash; <code>Channel</code>, <code>Socializer</code>, <code>Suggester</code>, <code>Namer</code>, <code>HistoryFetcher</code> interfaces.</li>
+        <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
+        <li><a href="../components/gated.html">components/gated</a> &mdash; the other end of every adapter&rsquo;s HTTP calls.</li>
+        <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an inbound message picks its group and reply channel.</li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="bskyd.html">&larr; bskyd</a>
+        <a rel="next" href="crackbox.html">crackbox &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/channels.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

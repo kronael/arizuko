@@ -5,86 +5,129 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>webd &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; webd</p>
-    <h1>webd</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events. It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; webd</p>
+      <h1>webd</h1>
 
-    <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
+          <h2>What it is</h2>
+          <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events. It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
 
-    <h2>Why it exists</h2>
-    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to gated. Splitting that into its own adapter keeps gated free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
+          <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
-    <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
+          <h2>Why it exists</h2>
+          <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to gated. Splitting that into its own adapter keeps gated free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
 
-    <h2>The transport</h2>
-    <p>Web chat runs over plain HTTP, no WebSockets. The browser POSTs a message and gets back a <code>turn_id</code>. It then opens an SSE stream at the round&rsquo;s URL and reads <code>event: message</code> frames as the agent produces them; the stream closes on <code>event: round_done</code>. Dropped connections reconnect with <code>Last-Event-Id</code> and replay missed frames.</p>
+          <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>browser / curl / MCP client
-        |  HTTP + SSE
-        v
-      proxyd          (auth for /api/*, /mcp ; strips identity on /slink/*)
-        |
-        v
-      webd  --POST /v1/messages--&gt;  gated     (CHANNEL_SECRET signed)
-        ^                            |
-        |                            v
-        +--POST /send----------  arizuko-ant container
-            (gated calls webd back; webd fans to SSE subscribers)</code></pre>
-    </div>
+          <h2>The transport</h2>
+          <p>Web chat runs over plain HTTP, no WebSockets. The browser POSTs a message and gets back a <code>turn_id</code>. It then opens an SSE stream at the round&rsquo;s URL and reads <code>event: message</code> frames as the agent produces them; the stream closes on <code>event: round_done</code>. Dropped connections reconnect with <code>Last-Event-Id</code> and replay missed frames.</p>
 
-    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from gated (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by <code>CHANNEL_SECRET</code>; signed identity headers forwarded from proxyd under <code>PROXYD_HMAC_SECRET</code>. Outputs: HTML pages and SSE frames to the browser, signed POSTs to gated&rsquo;s <code>/v1/messages</code>.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>browser / curl / MCP client
+              |  HTTP + SSE
+              v
+            proxyd          (auth for /api/*, /mcp ; strips identity on /slink/*)
+              |
+              v
+            webd  --POST /v1/messages--&gt;  gated     (CHANNEL_SECRET signed)
+              ^                            |
+              |                            v
+              +--POST /send----------  arizuko-ant container
+                  (gated calls webd back; webd fans to SSE subscribers)</code></pre>
+          </div>
 
-    <p>Hard deps: a reachable gated at <code>$ROUTER_URL</code>, and the same SQLite file gated owns (webd&rsquo;s <code>/api/*</code> chat reads still hit the DB directly today; they migrate to <code>/v1/messages</code> when that ships).</p>
+          <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from gated (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by <code>CHANNEL_SECRET</code>; signed identity headers forwarded from proxyd under <code>PROXYD_HMAC_SECRET</code>. Outputs: HTML pages and SSE frames to the browser, signed POSTs to gated&rsquo;s <code>/v1/messages</code>.</p>
 
-    <h2>Standalone usage</h2>
-    <p>Yes, as a process &mdash; but useless without gated. webd does not store messages; it forwards them. Run it on its own only when pointing at a running gated.</p>
+          <p>Hard deps: a reachable gated at <code>$ROUTER_URL</code>, and the same SQLite file gated owns (webd&rsquo;s <code>/api/*</code> chat reads still hit the DB directly today; they migrate to <code>/v1/messages</code> when that ships).</p>
 
-    <pre><code># with gated already up on the same data dir
-cd /srv/data/myinstance
-WEBD_LISTEN=:9001 \
-WEBD_URL=http://localhost:9001 \
-ROUTER_URL=http://localhost:8080 \
-CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2) \
-WEB_HOST=localhost:9001 \
-/path/to/webd</code></pre>
+          <h2>Standalone usage</h2>
+          <p>Yes, as a process &mdash; but useless without gated. webd does not store messages; it forwards them. Run it on its own only when pointing at a running gated.</p>
 
-    <p>On startup webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with name <code>web</code>, caps <code>send_text</code> + <code>typing</code>, and its own callback URL. If registration fails the process exits. <code>GET /health</code> returns 200 once registered.</p>
+          <pre><code># with gated already up on the same data dir
+      cd /srv/data/myinstance
+      WEBD_LISTEN=:9001 \
+      WEBD_URL=http://localhost:9001 \
+      ROUTER_URL=http://localhost:8080 \
+      CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2) \
+      WEB_HOST=localhost:9001 \
+      /path/to/webd</code></pre>
 
-    <h2>Key env vars</h2>
-    <ul>
-      <li><code>WEBD_LISTEN</code> &mdash; HTTP listen address (default <code>:8080</code>).</li>
-      <li><code>WEBD_URL</code> &mdash; URL gated should call back on (default <code>http://webd:8080</code>).</li>
-      <li><code>ROUTER_URL</code> &mdash; where gated is reachable (default <code>http://gated:8080</code>).</li>
-      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with gated for <code>/v1/*</code> + <code>/send</code> + <code>/typing</code>.</li>
-      <li><code>PROXYD_HMAC_SECRET</code> &mdash; verifies identity headers forwarded by proxyd for <code>/api/*</code>, <code>/x/*</code>, <code>/mcp</code>.</li>
-      <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
-    </ul>
+          <p>On startup webd calls <code>POST $ROUTER_URL/v1/channels/register</code> with name <code>web</code>, caps <code>send_text</code> + <code>typing</code>, and its own callback URL. If registration fails the process exits. <code>GET /health</code> returns 200 once registered.</p>
 
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+          <h2>Key env vars</h2>
+          <ul>
+            <li><code>WEBD_LISTEN</code> &mdash; HTTP listen address (default <code>:8080</code>).</li>
+            <li><code>WEBD_URL</code> &mdash; URL gated should call back on (default <code>http://webd:8080</code>).</li>
+            <li><code>ROUTER_URL</code> &mdash; where gated is reachable (default <code>http://gated:8080</code>).</li>
+            <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with gated for <code>/v1/*</code> + <code>/send</code> + <code>/typing</code>.</li>
+            <li><code>PROXYD_HMAC_SECRET</code> &mdash; verifies identity headers forwarded by proxyd for <code>/api/*</code>, <code>/x/*</code>, <code>/mcp</code>.</li>
+            <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
+          </ul>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, planned <code>/v1/*</code> routes.</li>
-      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the backend webd talks to.</li>
-      <li><code>specs/5/J-sse.md</code> &mdash; SSE streams and the chat-MCP transport.</li>
-    </ul>
+          <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, planned <code>/v1/*</code> routes.</li>
+            <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
+            <li><a href="../components/gated.html">components/gated</a> &mdash; the backend webd talks to.</li>
+            <li><code>specs/5/J-sse.md</code> &mdash; SSE streams and the chat-MCP transport.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="twitd.html">&larr; twitd</a>
+        <a rel="next" href="whapd.html">whapd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/webd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

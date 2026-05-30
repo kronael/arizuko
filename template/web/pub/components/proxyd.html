@@ -5,96 +5,139 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>proxyd &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; proxyd</p>
-    <h1>proxyd</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>proxyd is the auth-gated reverse proxy at the public edge. It terminates every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header attached.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; proxyd</p>
+      <h1>proxyd</h1>
 
-    <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> SQLite table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/routes</code>.</p>
+          <h2>What it is</h2>
+          <p>proxyd is the auth-gated reverse proxy at the public edge. It terminates every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header attached.</p>
 
-    <h2>Why it exists</h2>
-    <p>Backends like <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a>, and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="../components/tokens.html">route-token</a> POSTs.</p>
+          <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> SQLite table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/routes</code>.</p>
 
-    <p>proxyd is the single trust boundary. It strips every <code>X-User-*</code> header on entry, runs the auth check, then re-stamps <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code>, and an HMAC signature over those fields. Backends verify the signature via <code>auth.RequireSigned</code> (redirect to login on failure) or <code>auth.StripUnsigned</code> (drop the header and continue anonymous). Both helpers live in <code>auth/middleware.go</code>.</p>
+          <h2>Why it exists</h2>
+          <p>Backends like <a href="../components/dashd.html">dashd</a>, <a href="../components/webd.html">webd</a>, and <a href="../components/onbod.html">onbod</a> listen on <code>:8080</code> inside their containers and trust whatever they get over the wire. Without proxyd there is no place to check a JWT, no shared HMAC to prove who the caller is, and no rate shield in front of <a href="../components/tokens.html">route-token</a> POSTs.</p>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>browser / curl / MCP client
-        |
-        v   any HTTP request
-        |
-      proxyd   verify JWT or refresh-token cookie
-        |      strip inbound X-User-*, re-stamp + HMAC-sign
-        |      longest-prefix match on the route table
-        v
-      dashd / webd / onbod / davd / vited / channel adapter
-        |      auth.RequireSigned or auth.StripUnsigned
-        v
-      handler</code></pre>
-    </div>
+          <p>proxyd is the single trust boundary. It strips every <code>X-User-*</code> header on entry, runs the auth check, then re-stamps <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code>, and an HMAC signature over those fields. Backends verify the signature via <code>auth.RequireSigned</code> (redirect to login on failure) or <code>auth.StripUnsigned</code> (drop the header and continue anonymous). Both helpers live in <code>auth/middleware.go</code>.</p>
 
-    <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>[[proxyd_route]]</code> blocks in <code>template/services/*.toml</code>. Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a TOML; no edit to <code>main.go</code>.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>browser / curl / MCP client
+              |
+              v   any HTTP request
+              |
+            proxyd   verify JWT or refresh-token cookie
+              |      strip inbound X-User-*, re-stamp + HMAC-sign
+              |      longest-prefix match on the route table
+              v
+            dashd / webd / onbod / davd / vited / channel adapter
+              |      auth.RequireSigned or auth.StripUnsigned
+              v
+            handler</code></pre>
+          </div>
 
-    <p>Two paths skip the plain prefix match and get their own handling in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route on the token segment: webd hashes the token against <code>route_tokens</code>, and anonymous callers run through a per-token in-memory rate bucket keyed by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
+          <p>The route table comes from two places: a static core list in <code>compose/compose.go</code> (dashd, webd, davd, onbod) and per-service <code>[[proxyd_route]]</code> blocks in <code>template/services/*.toml</code>. Compose generation collects the survivors after env-gating and writes <code>PROXYD_ROUTES_JSON</code>. Adding a channel adapter means shipping a TOML; no edit to <code>main.go</code>.</p>
 
-    <h2>Standalone usage</h2>
-    <p>proxyd needs three things to run on its own: a SQLite store (for the route table, sessions, and route-token lookup), an HMAC secret shared with every backend, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
+          <p>Two paths skip the plain prefix match and get their own handling in <code>dispatchRoute</code>. <code>/chat/*</code> and <code>/hook/*</code> route on the token segment: webd hashes the token against <code>route_tokens</code>, and anonymous callers run through a per-token in-memory rate bucket keyed by JID prefix. <code>/dav/*</code> requires auth, scopes the path to a group the caller belongs to, and blocks writes to <code>.env</code>, <code>*.pem</code>, <code>.git</code>, and anything under <code>&lt;group&gt;/logs/</code>.</p>
 
-    <pre><code>export DATA_DIR=/srv/data/arizuko_demo
-export PROXYD_LISTEN=:8080
-export AUTH_SECRET=$(openssl rand -hex 32)
-export PROXYD_HMAC_SECRET=$(openssl rand -hex 32)
-export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"user"}]'
-./proxyd</code></pre>
+          <h2>Standalone usage</h2>
+          <p>proxyd needs three things to run on its own: a SQLite store (for the route table, sessions, and route-token lookup), an HMAC secret shared with every backend, and at least one route in <code>PROXYD_ROUTES_JSON</code>.</p>
 
-    <p>Without <code>PROXYD_HMAC_SECRET</code>, proxyd generates an ephemeral one at boot and logs a warning &mdash; backends sharing the same env value will reject every signature. Set it explicitly and copy it to every backend.</p>
+          <pre><code>export DATA_DIR=/srv/data/arizuko_demo
+      export PROXYD_LISTEN=:8080
+      export AUTH_SECRET=$(openssl rand -hex 32)
+      export PROXYD_HMAC_SECRET=$(openssl rand -hex 32)
+      export PROXYD_ROUTES_JSON='[{"path":"/api/","backend":"http://api:8080","auth":"user"}]'
+      ./proxyd</code></pre>
 
-    <p><code>TRUSTED_PROXIES</code> is a comma-separated CIDR list. Only peers inside one of those ranges get their <code>X-Forwarded-For</code> honoured; everyone else has it replaced with the TCP peer. Empty means trust nothing.</p>
+          <p>Without <code>PROXYD_HMAC_SECRET</code>, proxyd generates an ephemeral one at boot and logs a warning &mdash; backends sharing the same env value will reject every signature. Set it explicitly and copy it to every backend.</p>
 
-    <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. Auth failures show up as 401 with a <code>Set-Cookie: auth_return=&lt;path&gt;</code> and a 303 to <code>/auth/login</code>; route-token rate trips return 429.</p>
+          <p><code>TRUSTED_PROXIES</code> is a comma-separated CIDR list. Only peers inside one of those ranges get their <code>X-Forwarded-For</code> honoured; everyone else has it replaced with the TCP peer. Empty means trust nothing.</p>
 
-    <h2>Runtime route mutation</h2>
-    <p>Routes are mutable at runtime through a small set of REST endpoints. <code>GET /v1/routes</code> lists them; <code>POST /v1/routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
+          <p>Health: <code>GET /health</code> returns <code>{"ok":true}</code>. Auth failures show up as 401 with a <code>Set-Cookie: auth_return=&lt;path&gt;</code> and a 303 to <code>/auth/login</code>; route-token rate trips return 429.</p>
 
-    <p>The same operations are exposed as MCP tools (<code>routes.list</code>, <code>routes.get</code>, <code>routes.create</code>, <code>routes.update</code>, <code>routes.delete</code>) on webd&rsquo;s <code>/mcp</code> bridge. One handler in <code>proxyd/resource.go</code> serves both faces &mdash; agent and operator see the same shape.</p>
+          <h2>Runtime route mutation</h2>
+          <p>Routes are mutable at runtime through a small set of REST endpoints. <code>GET /v1/routes</code> lists them; <code>POST /v1/routes</code> creates one; <code>PATCH</code> and <code>DELETE</code> on <code>/v1/routes/{path}</code> update or drop a route. The path segment is URL-encoded, so <code>/slack/</code> becomes <code>%2Fslack%2F</code>.</p>
 
-    <p>Authorisation is the operator gate: <code>role:operator</code> in the unified ACL, which surfaces as <code>**</code> in the JWT <code>groups</code> claim. Mutations persist to the <code>proxyd_routes</code> table and take effect on the next request &mdash; no restart, durable across reboots.</p>
+          <p>The same operations are exposed as MCP tools (<code>routes.list</code>, <code>routes.get</code>, <code>routes.create</code>, <code>routes.update</code>, <code>routes.delete</code>) on webd&rsquo;s <code>/mcp</code> bridge. One handler in <code>proxyd/resource.go</code> serves both faces &mdash; agent and operator see the same shape.</p>
 
-    <h2>The two verify modes</h2>
-    <p>Backends pick one of two helpers from <code>auth/middleware.go</code> depending on how strict the surface is:</p>
+          <p>Authorisation is the operator gate: <code>role:operator</code> in the unified ACL, which surfaces as <code>**</code> in the JWT <code>groups</code> claim. Mutations persist to the <code>proxyd_routes</code> table and take effect on the next request &mdash; no restart, durable across reboots.</p>
 
-    <ul>
-      <li><code>RequireSigned(secret)</code> &mdash; strict. A missing or wrong signature means the identity headers are stripped and the response is a 303 to <code>/auth/login</code>. Use on private surfaces (dashd, davd, the channel adapter inboxes).</li>
-      <li><code>StripUnsigned(secret)</code> &mdash; lenient. A wrong signature is logged and the headers are scrubbed, but the handler still runs with no identity. Use where anonymous access is fine but spoofed identity is not.</li>
-    </ul>
+          <h2>The two verify modes</h2>
+          <p>Backends pick one of two helpers from <code>auth/middleware.go</code> depending on how strict the surface is:</p>
 
-    <p>Both paths log <code>auth: user sig verify failed</code> with <code>attempted_sub</code> and <code>remote</code> so spoofing attempts show up in <code>journalctl</code>.</p>
+          <ul>
+            <li><code>RequireSigned(secret)</code> &mdash; strict. A missing or wrong signature means the identity headers are stripped and the response is a 303 to <code>/auth/login</code>. Use on private surfaces (dashd, davd, the channel adapter inboxes).</li>
+            <li><code>StripUnsigned(secret)</code> &mdash; lenient. A wrong signature is logged and the headers are scrubbed, but the handler still runs with no identity. Use where anonymous access is fine but spoofed identity is not.</li>
+          </ul>
 
-    <h2>What proxyd does not do</h2>
-    <p>proxyd does not run business logic. It does not query <code>messages.db</code> beyond the route table, sessions, and route-token lookup. It does not enforce per-group scope (backends do, after verifying the signed header). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
+          <p>Both paths log <code>auth: user sig verify failed</code> with <code>attempted_sub</code> and <code>remote</code> so spoofing attempts show up in <code>journalctl</code>.</p>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
-      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
-      <li><a href="../components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
-      <li><code>SECURITY.md</code> &mdash; trust model, signed headers, secret rotation.</li>
-      <li><code>specs/5/35-proxyd-standalone.md</code> &mdash; TOML route field semantics.</li>
-      <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/routes</code> runtime mutation surface.</li>
-    </ul>
+          <h2>What proxyd does not do</h2>
+          <p>proxyd does not run business logic. It does not query <code>messages.db</code> beyond the route table, sessions, and route-token lookup. It does not enforce per-group scope (backends do, after verifying the signed header). It does not terminate TLS in production deployments &mdash; that belongs to a front like Caddy or nginx, which forwards to proxyd over loopback or a trusted network.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><a href="../reference/env.html#proxyd">reference/env &mdash; proxyd</a> &mdash; full env var table.</li>
+            <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook surfaces gated by proxyd.</li>
+            <li><a href="../components/dashd.html">components/dashd</a> &mdash; an auth-required backend behind proxyd.</li>
+            <li><code>SECURITY.md</code> &mdash; trust model, signed headers, secret rotation.</li>
+            <li><code>specs/5/35-proxyd-standalone.md</code> &mdash; TOML route field semantics.</li>
+            <li><code>specs/5/5-uniform-mcp-rest.md</code> &mdash; the <code>/v1/routes</code> runtime mutation surface.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="onbod.html">&larr; onbod</a>
+        <a rel="next" href="reditd.html">reditd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/proxyd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

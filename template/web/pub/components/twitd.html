@@ -5,79 +5,122 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>twitd &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; twitd</p>
-    <h1>twitd</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>twitd is the X / Twitter channel adapter. It wraps <code>agent-twitter-client</code> (the ai16z fork of <code>@the-convocation/twitter-scraper</code>) to drive X via browser emulation &mdash; cookies, not an API key. TypeScript / Bun, JID prefix <code>twitter:</code>.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; twitd</p>
+      <h1>twitd</h1>
 
-    <h2>Why it exists</h2>
-    <p>X&rsquo;s official v2 API is paywalled past the point of being useful for a hobbyist bot: writing tweets, mentioning users, posting DMs &mdash; none of it is available on the free tier. <code>agent-twitter-client</code> drives the same web surface a logged-in user sees, which is the only path that works for arizuko deployments. Account suspensions are common; the README documents an account-loss runbook.</p>
+          <h2>What it is</h2>
+          <p>twitd is the X / Twitter channel adapter. It wraps <code>agent-twitter-client</code> (the ai16z fork of <code>@the-convocation/twitter-scraper</code>) to drive X via browser emulation &mdash; cookies, not an API key. TypeScript / Bun, JID prefix <code>twitter:</code>.</p>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>X (twitter.com web surface)
-        |  agent-twitter-client poll (mentions, DM convs)
-        v
-      twitd     (LISTEN_ADDR=:8080, Bun runtime)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
-        v
-      gated
-        |  POST /send           (callback to twitd)
-        v
-      twitd     (sendTweet | sendDirectMessage | favorite | ...)
-        |
-        v
-      X</code></pre>
-    </div>
+          <h2>Why it exists</h2>
+          <p>X&rsquo;s official v2 API is paywalled past the point of being useful for a hobbyist bot: writing tweets, mentioning users, posting DMs &mdash; none of it is available on the free tier. <code>agent-twitter-client</code> drives the same web surface a logged-in user sees, which is the only path that works for arizuko deployments. Account suspensions are common; the README documents an account-loss runbook.</p>
 
-    <p>JID forms: <code>twitter:home</code> for the timeline / mentions, <code>twitter:tweet/&lt;id&gt;</code> for a specific tweet, <code>twitter:dm/&lt;conv_id&gt;</code> for a DM thread, <code>twitter:user/&lt;handle&gt;</code> for a profile.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>X (twitter.com web surface)
+              |  agent-twitter-client poll (mentions, DM convs)
+              v
+            twitd     (LISTEN_ADDR=:8080, Bun runtime)
+              |  POST /v1/messages    (signed by CHANNEL_SECRET)
+              v
+            gated
+              |  POST /send           (callback to twitd)
+              v
+            twitd     (sendTweet | sendDirectMessage | favorite | ...)
+              |
+              v
+            X</code></pre>
+          </div>
 
-    <p>Wired verbs (<code>twitd/src/verbs.ts</code>): <code>send</code> (DM via <code>sendDirectMessage</code>), <code>post</code> (tweet), <code>reply</code> (<code>sendTweet(text, replyToId)</code>), <code>repost</code> (retweet), <code>quote</code> (quote-tweet; empty body returns hint to <code>repost</code>), <code>like</code> (favorite &mdash; binary, no emoji), <code>delete</code> (own tweets), <code>send_file</code> (image / video for tweets; DM attachments degrade to text-only). <code>forward</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint &mdash; X has no downvote and X Premium edit is not exposed by the library.</p>
+          <p>JID forms: <code>twitter:home</code> for the timeline / mentions, <code>twitter:tweet/&lt;id&gt;</code> for a specific tweet, <code>twitter:dm/&lt;conv_id&gt;</code> for a DM thread, <code>twitter:user/&lt;handle&gt;</code> for a profile.</p>
 
-    <p>No streaming. twitd polls mentions on <code>TWITTER_POLL_INTERVAL</code> (default 90 s).</p>
+          <p>Wired verbs (<code>twitd/src/verbs.ts</code>): <code>send</code> (DM via <code>sendDirectMessage</code>), <code>post</code> (tweet), <code>reply</code> (<code>sendTweet(text, replyToId)</code>), <code>repost</code> (retweet), <code>quote</code> (quote-tweet; empty body returns hint to <code>repost</code>), <code>like</code> (favorite &mdash; binary, no emoji), <code>delete</code> (own tweets), <code>send_file</code> (image / video for tweets; DM attachments degrade to text-only). <code>forward</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint &mdash; X has no downvote and X Premium edit is not exposed by the library.</p>
 
-    <h2>Auth (3 paths, priority order)</h2>
-    <ol>
-      <li><strong>Cookie file</strong> at <code>$TWITTER_AUTH_DIR/cookies.json</code>. Export from a logged-in browser. Recommended &mdash; skips 2FA.</li>
-      <li><strong>Username + password</strong> via <code>TWITTER_USERNAME</code>, <code>TWITTER_PASSWORD</code>, <code>TWITTER_EMAIL</code>, <code>TWITTER_2FA_SECRET</code>. Used only when cookies are missing or invalid; on success cookies are persisted.</li>
-      <li><strong>Pair mode</strong>: <code>bun dist/main.js --pair</code> performs login with env creds, persists cookies, exits. Useful for warm-up.</li>
-    </ol>
+          <p>No streaming. twitd polls mentions on <code>TWITTER_POLL_INTERVAL</code> (default 90 s).</p>
 
-    <p>Cookies are atomically rotated to <code>cookies.json.bak</code> on every save.</p>
+          <h2>Auth (3 paths, priority order)</h2>
+          <ol>
+            <li><strong>Cookie file</strong> at <code>$TWITTER_AUTH_DIR/cookies.json</code>. Export from a logged-in browser. Recommended &mdash; skips 2FA.</li>
+            <li><strong>Username + password</strong> via <code>TWITTER_USERNAME</code>, <code>TWITTER_PASSWORD</code>, <code>TWITTER_EMAIL</code>, <code>TWITTER_2FA_SECRET</code>. Used only when cookies are missing or invalid; on success cookies are persisted.</li>
+            <li><strong>Pair mode</strong>: <code>bun dist/main.js --pair</code> performs login with env creds, persists cookies, exits. Useful for warm-up.</li>
+          </ol>
 
-    <h2>Standalone usage</h2>
-    <pre><code>export ROUTER_URL=http://gated:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
-export LISTEN_ADDR=:8080
-export TWITTER_AUTH_DIR=/srv/data/store/twitter-auth
-export TWITTER_POLL_INTERVAL=90
-# either: drop a cookies.json into TWITTER_AUTH_DIR, or:
-export TWITTER_USERNAME=...  TWITTER_PASSWORD=...  TWITTER_EMAIL=...
-bun dist/main.js</code></pre>
+          <p>Cookies are atomically rotated to <code>cookies.json.bak</code> on every save.</p>
 
-    <p><code>GET /health</code> returns 503 with <code>{status:"disconnected"}</code> while unauthenticated, and 503 <code>{status:"stale"}</code> if no inbound has flowed in 5 minutes. Triage: cookies expired &rarr; drop a new <code>cookies.json</code>, restart twitd. 2FA challenge during password login &rarr; switch to the cookie path.</p>
+          <h2>Standalone usage</h2>
+          <pre><code>export ROUTER_URL=http://gated:8080
+      export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+      export LISTEN_ADDR=:8080
+      export TWITTER_AUTH_DIR=/srv/data/store/twitter-auth
+      export TWITTER_POLL_INTERVAL=90
+      # either: drop a cookies.json into TWITTER_AUTH_DIR, or:
+      export TWITTER_USERNAME=...  TWITTER_PASSWORD=...  TWITTER_EMAIL=...
+      bun dist/main.js</code></pre>
 
-    <p>The library (<code>agent-twitter-client@0.0.18</code>) is solo-maintained; pin the version so X-side breakage stays out of the dep graph until the operator chooses to upgrade.</p>
+          <p><code>GET /health</code> returns 503 with <code>{status:"disconnected"}</code> while unauthenticated, and 503 <code>{status:"stale"}</code> if no inbound has flowed in 5 minutes. Triage: cookies expired &rarr; drop a new <code>cookies.json</code>, restart twitd. 2FA challenge during password login &rarr; switch to the cookie path.</p>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
-      <li><code>twitd/README.md</code> &mdash; verb table, account-loss runbook, env table.</li>
-      <li><code>specs/2/k-twitter-adapter.md</code> &mdash; adapter spec.</li>
-    </ul>
+          <p>The library (<code>agent-twitter-client@0.0.18</code>) is solo-maintained; pin the version so X-side breakage stays out of the dep graph until the operator chooses to upgrade.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+            <li><code>twitd/README.md</code> &mdash; verb table, account-loss runbook, env table.</li>
+            <li><code>specs/2/k-twitter-adapter.md</code> &mdash; adapter spec.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="ttsd.html">&larr; ttsd</a>
+        <a rel="next" href="webd.html">webd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/twitd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

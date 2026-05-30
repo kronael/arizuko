@@ -5,97 +5,140 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ttsd &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; ttsd</p>
-    <h1>ttsd</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the OpenAI shape (<code>{model, voice, input, response_format}</code>), forwards the request verbatim to the configured backend, and streams audio bytes back to the caller.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; ttsd</p>
+      <h1>ttsd</h1>
 
-    <p>It also exposes <code>GET /v1/voices</code> (a passthrough for backends that list voices) and a <code>GET /health</code> that returns 503 when the upstream is unreachable.</p>
+          <h2>What it is</h2>
+          <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the OpenAI shape (<code>{model, voice, input, response_format}</code>), forwards the request verbatim to the configured backend, and streams audio bytes back to the caller.</p>
 
-    <h2>Why it exists</h2>
-    <p>arizuko speaks one TTS protocol &mdash; OpenAI&rsquo;s. ttsd pins that contract at the daemon boundary so the gateway and the <code>send_voice</code> MCP tool never see the choice of backend. Default is the bundled Kokoro-FastAPI container; flip <code>TTS_BACKEND_URL</code> to Piper, Coqui, OpenAI cloud, or anything else that speaks <code>/v1/audio/speech</code>, and no caller code changes.</p>
+          <p>It also exposes <code>GET /v1/voices</code> (a passthrough for backends that list voices) and a <code>GET /health</code> that returns 503 when the upstream is unreachable.</p>
 
-    <p>It also normalises the health signal. Kokoro&rsquo;s readiness probe and OpenAI&rsquo;s 401 on an unauthenticated <code>HEAD</code> would each need a custom check in gated; ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape matching every other arizuko adapter.</p>
+          <h2>Why it exists</h2>
+          <p>arizuko speaks one TTS protocol &mdash; OpenAI&rsquo;s. ttsd pins that contract at the daemon boundary so the gateway and the <code>send_voice</code> MCP tool never see the choice of backend. Default is the bundled Kokoro-FastAPI container; flip <code>TTS_BACKEND_URL</code> to Piper, Coqui, OpenAI cloud, or anything else that speaks <code>/v1/audio/speech</code>, and no caller code changes.</p>
 
-    <h2>The loop</h2>
-    <p>One request, one upstream call. ttsd runs an <code>httputil.NewSingleHostReverseProxy</code> against <code>TTS_BACKEND_URL</code>:</p>
+          <p>It also normalises the health signal. Kokoro&rsquo;s readiness probe and OpenAI&rsquo;s 401 on an unauthenticated <code>HEAD</code> would each need a custom check in gated; ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape matching every other arizuko adapter.</p>
 
-    <ol>
-      <li>Receive <code>POST /v1/audio/speech</code> with the OpenAI body.</li>
-      <li>Director copies <code>URL.Path</code> verbatim onto the backend URL.</li>
-      <li>Stream the response (audio bytes, any <code>Content-Type</code>) back to the caller.</li>
-      <li>On dial error, return <code>502 tts backend unreachable</code>.</li>
-    </ol>
+          <h2>The loop</h2>
+          <p>One request, one upstream call. ttsd runs an <code>httputil.NewSingleHostReverseProxy</code> against <code>TTS_BACKEND_URL</code>:</p>
 
-    <p>The <code>/health</code> handler probes the backend&rsquo;s <code>/health</code> with a 3-second timeout, falling back to a <code>HEAD /</code> for backends that don&rsquo;t expose one. Used by gated to gate <code>send_voice</code>: when the probe returns 503, the tool returns <code>chanlib.ErrUnsupported</code> and the agent falls back to a plain text reply.</p>
+          <ol>
+            <li>Receive <code>POST /v1/audio/speech</code> with the OpenAI body.</li>
+            <li>Director copies <code>URL.Path</code> verbatim onto the backend URL.</li>
+            <li>Stream the response (audio bytes, any <code>Content-Type</code>) back to the caller.</li>
+            <li>On dial error, return <code>502 tts backend unreachable</code>.</li>
+          </ol>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>agent
-   |  send_voice(chat_jid, text, voice)
-   v
- gated  ---&gt;  POST TTS_BASE_URL/v1/audio/speech
-   |
-   v
- ttsd  ---&gt;  POST TTS_BACKEND_URL/v1/audio/speech
-   |
-   v
- kokoro / piper / openai cloud
-   |
-   v  audio bytes (ogg, mp3, &hellip;)
- gated caches at &lt;data_dir&gt;/tts/&lt;hash&gt;.ogg, hands to adapter</code></pre>
-    </div>
+          <p>The <code>/health</code> handler probes the backend&rsquo;s <code>/health</code> with a 3-second timeout, falling back to a <code>HEAD /</code> for backends that don&rsquo;t expose one. Used by gated to gate <code>send_voice</code>: when the probe returns 503, the tool returns <code>chanlib.ErrUnsupported</code> and the agent falls back to a plain text reply.</p>
 
-    <p>Inputs: HTTP from gated (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>agent
+         |  send_voice(chat_jid, text, voice)
+         v
+       gated  ---&gt;  POST TTS_BASE_URL/v1/audio/speech
+         |
+         v
+       ttsd  ---&gt;  POST TTS_BACKEND_URL/v1/audio/speech
+         |
+         v
+       kokoro / piper / openai cloud
+         |
+         v  audio bytes (ogg, mp3, &hellip;)
+       gated caches at &lt;data_dir&gt;/tts/&lt;hash&gt;.ogg, hands to adapter</code></pre>
+          </div>
 
-    <p>Concepts: <a href="../concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
+          <p>Inputs: HTTP from gated (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
 
-    <h2>Standalone usage</h2>
-    <p>Yes. ttsd has no DB, no auth, no admin UI &mdash; just an env-configured reverse proxy. Front it with proxyd or any other auth layer when exposing it.</p>
+          <p>Concepts: <a href="../concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
 
-    <pre><code># bundled Kokoro backend
-docker run -d --name kokoro -p 8881:8880 \
-  ghcr.io/remsky/kokoro-fastapi-cpu:latest
-docker run -d --name ttsd -p 8880:8880 \
-  -e TTS_BACKEND_URL=http://localhost:8881 \
-  arizuko-ttsd:latest
+          <h2>Standalone usage</h2>
+          <p>Yes. ttsd has no DB, no auth, no admin UI &mdash; just an env-configured reverse proxy. Front it with proxyd or any other auth layer when exposing it.</p>
 
-# probe
-curl -s localhost:8880/health
-curl -s -X POST localhost:8880/v1/audio/speech \
-  -H 'content-type: application/json' \
-  -d '{"model":"kokoro","voice":"af_sky","input":"hello","response_format":"mp3"}' \
-  --output hello.mp3</code></pre>
+          <pre><code># bundled Kokoro backend
+      docker run -d --name kokoro -p 8881:8880 \
+        ghcr.io/remsky/kokoro-fastapi-cpu:latest
+      docker run -d --name ttsd -p 8880:8880 \
+        -e TTS_BACKEND_URL=http://localhost:8881 \
+        arizuko-ttsd:latest
 
-    <h2>Key env vars</h2>
-    <ul>
-      <li><code>TTSD_ADDR</code> &mdash; listen address (default <code>:8880</code>).</li>
-      <li><code>TTS_BACKEND_URL</code> &mdash; OpenAI-compatible TTS backend (default <code>http://kokoro:8880</code>).</li>
-      <li><code>LOG_LEVEL</code> &mdash; <code>debug</code> / <code>info</code> / <code>warn</code> / <code>error</code>.</li>
-    </ul>
+      # probe
+      curl -s localhost:8880/health
+      curl -s -X POST localhost:8880/v1/audio/speech \
+        -H 'content-type: application/json' \
+        -d '{"model":"kokoro","voice":"af_sky","input":"hello","response_format":"mp3"}' \
+        --output hello.mp3</code></pre>
 
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+          <h2>Key env vars</h2>
+          <ul>
+            <li><code>TTSD_ADDR</code> &mdash; listen address (default <code>:8880</code>).</li>
+            <li><code>TTS_BACKEND_URL</code> &mdash; OpenAI-compatible TTS backend (default <code>http://kokoro:8880</code>).</li>
+            <li><code>LOG_LEVEL</code> &mdash; <code>debug</code> / <code>info</code> / <code>warn</code> / <code>error</code>.</li>
+          </ul>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
-      <li><code>ttsd/README.md</code> &mdash; endpoint contract and backend options.</li>
-      <li><code>specs/5/T-voice-synthesis.md</code> &mdash; canonical voice spec.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the caller that hashes, caches, and dispatches the audio.</li>
-    </ul>
+          <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
+            <li><code>ttsd/README.md</code> &mdash; endpoint contract and backend options.</li>
+            <li><code>specs/5/T-voice-synthesis.md</code> &mdash; canonical voice spec.</li>
+            <li><a href="../components/gated.html">components/gated</a> &mdash; the caller that hashes, caches, and dispatches the audio.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="tokens.html">&larr; route tokens</a>
+        <a rel="next" href="twitd.html">twitd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/ttsd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

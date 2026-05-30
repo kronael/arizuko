@@ -5,111 +5,154 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>gated &middot; component</title>
   <link rel="stylesheet" href="../assets/hub.css">
-  <style>
-    .prose p { margin: 0.6em 0; }
-    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
-    .prose li { margin: 0.3em 0; }
-    .prose pre { margin: 0.6em 0; }
-    .back { font-size: 0.85em; }
-    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
-    .callout pre { margin: 0; background: transparent; }
-  </style>
 </head>
 <body>
-  <div class="hub-container prose">
-    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; gated</p>
-    <h1>gated</h1>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
 
-    <h2>What it is</h2>
-    <p>gated is the gateway daemon &mdash; one Go binary that owns <code>messages.db</code>. It runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; gated</p>
+      <h1>gated</h1>
 
-    <p>It is the only daemon that runs SQL migrations. Other daemons connect to the same SQLite file but never write to the schema.</p>
+          <h2>What it is</h2>
+          <p>gated is the gateway daemon &mdash; one Go binary that owns <code>messages.db</code>. It runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
 
-    <h2>Why it exists</h2>
-    <p>Adapters (Telegram, Slack, WhatsApp, web&hellip;) need somewhere to post inbound messages and pick up outbound replies. Agent containers need an MCP socket to call tools and submit turns. A scheduler needs a place to drop future messages. All those needs collapse to one writer with one schema.</p>
+          <p>It is the only daemon that runs SQL migrations. Other daemons connect to the same SQLite file but never write to the schema.</p>
 
-    <p>Without gated nothing has a backend. Adapters can&rsquo;t register, the poll loop never fires, no container spawns. And the schema drifts the moment two daemons each try to migrate it &mdash; one writer with one schema is what keeps the other daemons thin.</p>
+          <h2>Why it exists</h2>
+          <p>Adapters (Telegram, Slack, WhatsApp, web&hellip;) need somewhere to post inbound messages and pick up outbound replies. Agent containers need an MCP socket to call tools and submit turns. A scheduler needs a place to drop future messages. All those needs collapse to one writer with one schema.</p>
 
-    <h2>The loop</h2>
-    <p>On startup gated opens <code>$DATA_DIR/store/messages.db</code> (<code>DATA_DIR</code> defaults to the working directory), runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
+          <p>Without gated nothing has a backend. Adapters can&rsquo;t register, the poll loop never fires, no container spawns. And the schema drifts the moment two daemons each try to migrate it &mdash; one writer with one schema is what keeps the other daemons thin.</p>
 
-    <ol>
-      <li>Read <code>messages</code> rows newer than the last cursor.</li>
-      <li>Resolve each row to a group via the <code>routes</code> table.</li>
-      <li>If the route is <code>#observe</code>, store-only. Otherwise enqueue a container run for that group.</li>
-      <li>The container talks back over its MCP socket; agent output lands as outbound rows; the adapter picks them up via its registered callback.</li>
-    </ol>
+          <h2>The loop</h2>
+          <p>On startup gated opens <code>$DATA_DIR/store/messages.db</code> (<code>DATA_DIR</code> defaults to the working directory), runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
 
-    <h2>How it fits</h2>
-    <div class="callout">
-      <pre><code>adapters (teled, slakd, webd, &hellip;)
-        |  POST /v1/messages          (signed by CHANNEL_SECRET)
-        v
-      gated  ----&gt;  messages.db  (single writer, WAL)
-        |
-        |  spawn per-group container
-        v
-      arizuko-ant container
-        |  MCP over unix socket
-        v
-      gated /v1/outbound  ----&gt;  adapter callback URL</code></pre>
-    </div>
+          <ol>
+            <li>Read <code>messages</code> rows newer than the last cursor.</li>
+            <li>Resolve each row to a group via the <code>routes</code> table.</li>
+            <li>If the route is <code>#observe</code>, store-only. Otherwise enqueue a container run for that group.</li>
+            <li>The container talks back over its MCP socket; agent output lands as outbound rows; the adapter picks them up via its registered callback.</li>
+          </ol>
 
-    <p>Inputs: HTTP from adapters on <code>$API_PORT</code>; MCP from agent containers on per-group unix sockets under <code>$HOST_DATA_DIR/ipc/&lt;folder&gt;/</code>. Outputs: spawned <code>arizuko-ant</code> containers, outbound rows in the DB, HTTP callbacks back to each registered adapter.</p>
+          <h2>How it fits</h2>
+          <div class="callout">
+            <pre><code>adapters (teled, slakd, webd, &hellip;)
+              |  POST /v1/messages          (signed by CHANNEL_SECRET)
+              v
+            gated  ----&gt;  messages.db  (single writer, WAL)
+              |
+              |  spawn per-group container
+              v
+            arizuko-ant container
+              |  MCP over unix socket
+              v
+            gated /v1/outbound  ----&gt;  adapter callback URL</code></pre>
+          </div>
 
-    <p>Hard deps: a writable data dir, Docker (for the container runner), and <code>$CONTAINER_IMAGE</code> built and present locally.</p>
+          <p>Inputs: HTTP from adapters on <code>$API_PORT</code>; MCP from agent containers on per-group unix sockets under <code>$HOST_DATA_DIR/ipc/&lt;folder&gt;/</code>. Outputs: spawned <code>arizuko-ant</code> containers, outbound rows in the DB, HTTP callbacks back to each registered adapter.</p>
 
-    <h2>Cold-tier resources</h2>
-    <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that one struct the engine serves four endpoints; they read the same fields, so they can&rsquo;t fall out of sync:</p>
-    <ul>
-      <li>REST CRUD at <code>/v1/&lt;name&gt;</code> &mdash; list, create, update, delete.</li>
-      <li>MCP resources for agents.</li>
-      <li>A YAML document for <code>arizuko export</code> / <code>arizuko apply</code>.</li>
-      <li>An OpenAPI 3.1 schema at <a href="../reference/openapi.html"><code>/openapi.json</code></a>.</li>
-    </ul>
-    <p>Declared foreign keys keep the rows honest: deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code>, so URL routes pinned to a removed group go with it. See <a href="../reference/openapi.html">reference/openapi</a> for the per-daemon endpoints and <a href="../reference/cli.html#manifest">reference/cli</a> for the manifest commands.</p>
+          <p>Hard deps: a writable data dir, Docker (for the container runner), and <code>$CONTAINER_IMAGE</code> built and present locally.</p>
 
-    <h2>Standalone usage</h2>
-    <p>Yes. gated is a plain Go binary that needs a data dir and an env file. The arizuko CLI generates a compose file that runs gated next to its adapters, but the daemon does not require compose.</p>
+          <h2>Cold-tier resources</h2>
+          <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that one struct the engine serves four endpoints; they read the same fields, so they can&rsquo;t fall out of sync:</p>
+          <ul>
+            <li>REST CRUD at <code>/v1/&lt;name&gt;</code> &mdash; list, create, update, delete.</li>
+            <li>MCP resources for agents.</li>
+            <li>A YAML document for <code>arizuko export</code> / <code>arizuko apply</code>.</li>
+            <li>An OpenAPI 3.1 schema at <a href="../reference/openapi.html"><code>/openapi.json</code></a>.</li>
+          </ul>
+          <p>Declared foreign keys keep the rows honest: deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code>, so URL routes pinned to a removed group go with it. See <a href="../reference/openapi.html">reference/openapi</a> for the per-daemon endpoints and <a href="../reference/cli.html#manifest">reference/cli</a> for the manifest commands.</p>
 
-    <pre><code># build
-make build              # produces ./gated
+          <h2>Standalone usage</h2>
+          <p>Yes. gated is a plain Go binary that needs a data dir and an env file. The arizuko CLI generates a compose file that runs gated next to its adapters, but the daemon does not require compose.</p>
 
-# seed a data dir
-mkdir -p /srv/data/myinstance
-cat &gt; /srv/data/myinstance/.env &lt;&lt;EOF
-CHANNEL_SECRET=$(openssl rand -hex 32)
-DATA_DIR=/srv/data/myinstance
-HOST_DATA_DIR=/srv/data/myinstance
-CONTAINER_IMAGE=arizuko-ant:latest
-API_PORT=8080
-EOF
+          <pre><code># build
+      make build              # produces ./gated
 
-# run
-cd /srv/data/myinstance &amp;&amp; /path/to/gated</code></pre>
+      # seed a data dir
+      mkdir -p /srv/data/myinstance
+      cat &gt; /srv/data/myinstance/.env &lt;&lt;EOF
+      CHANNEL_SECRET=$(openssl rand -hex 32)
+      DATA_DIR=/srv/data/myinstance
+      HOST_DATA_DIR=/srv/data/myinstance
+      CONTAINER_IMAGE=arizuko-ant:latest
+      API_PORT=8080
+      EOF
 
-    <p>gated reads <code>.env</code> from its working directory (via <code>core.LoadConfig</code>), so always <code>cd</code> into the data dir before launching it. <code>GET /health</code> returns 200 once the API server is up and the DB is reachable.</p>
+      # run
+      cd /srv/data/myinstance &amp;&amp; /path/to/gated</code></pre>
 
-    <h2>Key env vars</h2>
-    <ul>
-      <li><code>API_PORT</code> &mdash; HTTP listen port (default <code>8080</code>).</li>
-      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with every adapter; signs <code>/v1/*</code> requests.</li>
-      <li><code>DATA_DIR</code> &mdash; instance data dir; gated opens <code>$DATA_DIR/store/messages.db</code>. Defaults to the working directory.</li>
-      <li><code>HOST_DATA_DIR</code> / <code>HOST_APP_DIR</code> &mdash; paths bind-mounted into spawned containers.</li>
-      <li><code>CONTAINER_IMAGE</code> &mdash; image used for per-group agent runs.</li>
-      <li><code>CONTAINER_TIMEOUT</code>, <code>IDLE_TIMEOUT</code>, <code>MAX_CONCURRENT_CONTAINERS</code> &mdash; runner caps.</li>
-    </ul>
+          <p>gated reads <code>.env</code> from its working directory (via <code>core.LoadConfig</code>), so always <code>cd</code> into the data dir before launching it. <code>GET /health</code> returns 200 once the API server is up and the DB is reachable.</p>
 
-    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+          <h2>Key env vars</h2>
+          <ul>
+            <li><code>API_PORT</code> &mdash; HTTP listen port (default <code>8080</code>).</li>
+            <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with every adapter; signs <code>/v1/*</code> requests.</li>
+            <li><code>DATA_DIR</code> &mdash; instance data dir; gated opens <code>$DATA_DIR/store/messages.db</code>. Defaults to the working directory.</li>
+            <li><code>HOST_DATA_DIR</code> / <code>HOST_APP_DIR</code> &mdash; paths bind-mounted into spawned containers.</li>
+            <li><code>CONTAINER_IMAGE</code> &mdash; image used for per-group agent runs.</li>
+            <li><code>CONTAINER_TIMEOUT</code>, <code>IDLE_TIMEOUT</code>, <code>MAX_CONCURRENT_CONTAINERS</code> &mdash; runner caps.</li>
+          </ul>
 
-    <h2>Go deeper</h2>
-    <ul>
-      <li><code>gated/README.md</code> &mdash; tables owned, federated <code>/v1/*</code> surface, health signal.</li>
-      <li><code>gateway/README.md</code> &mdash; the poll loop, per-turn XML envelope, mute mode.</li>
-      <li><code>store/README.md</code> &mdash; schema, migrations, public API.</li>
-      <li><code>ARCHITECTURE.md</code> &mdash; full message flow and container lifecycle.</li>
-      <li><a href="../components/webd.html">components/webd</a> &mdash; an adapter that talks to gated like every other.</li>
-    </ul>
+          <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+          <h2>Go deeper</h2>
+          <ul>
+            <li><code>gated/README.md</code> &mdash; tables owned, federated <code>/v1/*</code> surface, health signal.</li>
+            <li><code>gateway/README.md</code> &mdash; the poll loop, per-turn XML envelope, mute mode.</li>
+            <li><code>store/README.md</code> &mdash; schema, migrations, public API.</li>
+            <li><code>ARCHITECTURE.md</code> &mdash; full message flow and container lifecycle.</li>
+            <li><a href="../components/webd.html">components/webd</a> &mdash; an adapter that talks to gated like every other.</li>
+          </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="emaid.html">&larr; emaid</a>
+        <a rel="next" href="linkd.html">linkd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/gated.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>
