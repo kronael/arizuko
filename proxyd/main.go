@@ -175,14 +175,14 @@ func (v *vhosts) match(host string) (string, bool) {
 }
 
 type server struct {
-	cfg       config
-	st        *store.Store
-	rr        *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
-	viteProxy *httputil.ReverseProxy
-	vh        *vhosts
+	cfg         config
+	st          *store.Store
+	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
+	viteProxy   *httputil.ReverseProxy
+	vh          *vhosts
 	ks          *auth.KeySet // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
-	pubRedir     *pubRedirect
+	pubRedir    *pubRedirect
 }
 
 // routes / proxies are thin snapshot accessors so the rest of proxyd can
@@ -282,14 +282,14 @@ func newServer(cfg config, st *store.Store, vh *vhosts, ks *auth.KeySet) *server
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
 	return &server{
-		cfg:       cfg,
-		st:        st,
-		rr:        rr,
-		viteProxy: proxy(cfg.viteAddr),
-		vh:        vh,
+		cfg:         cfg,
+		st:          st,
+		rr:          rr,
+		viteProxy:   proxy(cfg.viteAddr),
+		vh:          vh,
 		ks:          ks,
 		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
-		pubRedir:     newPubRedirect(cfg.pubRedirectURL),
+		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
 	}
 }
 
