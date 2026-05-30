@@ -16,6 +16,7 @@ func TestExtraSerializesTopLevelAndRoundTrips(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	tok, err := k.Sign(TokenClaims{
 		Sub:   "user:7",
+		Typ:   "user",
 		Scope: []string{"tasks:read"},
 		Extra: map[string]string{"arz/folder": "atlas/main"},
 	}, time.Minute)
@@ -69,7 +70,7 @@ func TestRetiredKeyRejectsPostRetirementForgery(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	retiredAt := time.Now().Add(-time.Hour) // retired an hour ago, still in window
 	// A token minted NOW (iat = now) is after retired_at — forgery.
-	forged, _ := k.Sign(TokenClaims{Sub: "user:1"}, time.Minute)
+	forged, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user"}, time.Minute)
 	ks := NewKeySetWithRetirement(
 		map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey},
 		map[string]time.Time{"k1": retiredAt})
@@ -78,7 +79,7 @@ func TestRetiredKeyRejectsPostRetirementForgery(t *testing.T) {
 	}
 	// A token whose iat predates retirement still verifies (legit pre-retire
 	// token inside the overlap window). Same key, retired_at set to the future.
-	legit, _ := k.Sign(TokenClaims{Sub: "user:1"}, time.Minute)
+	legit, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user"}, time.Minute)
 	ksLegit := NewKeySetWithRetirement(
 		map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey},
 		map[string]time.Time{"k1": time.Now().Add(time.Hour)})
@@ -92,7 +93,7 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := k.Sign(TokenClaims{Sub: "user:42", Scope: []string{"tasks:read"}, Aud: "app"}, time.Minute)
+	tok, err := k.Sign(TokenClaims{Sub: "user:42", Typ: "user", Scope: []string{"tasks:read"}, Aud: "app"}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 func TestVerifyRejectsWrongKey(t *testing.T) {
 	k1, _ := NewSigningKey("k1")
 	k2, _ := NewSigningKey("k2")
-	tok, _ := k1.Sign(TokenClaims{Sub: "user:1"}, time.Minute)
+	tok, _ := k1.Sign(TokenClaims{Sub: "user:1", Typ: "user"}, time.Minute)
 	// KeySet only knows k2's public key; k1-signed token must fail.
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k2": &k2.Priv.PublicKey})
 	if _, err := VerifyToken(tok, ks); err != ErrInvalidToken {
@@ -125,7 +126,7 @@ func TestVerifyRejectsWrongKey(t *testing.T) {
 
 func TestVerifyRejectsExpired(t *testing.T) {
 	k, _ := NewSigningKey("k1")
-	tok, _ := k.Sign(TokenClaims{Sub: "user:1"}, -2*time.Minute) // already expired past skew
+	tok, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user"}, -2*time.Minute) // already expired past skew
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
 	if _, err := VerifyToken(tok, ks); err != ErrExpiredToken {
 		t.Fatalf("expected ErrExpiredToken, got %v", err)
@@ -140,7 +141,7 @@ func TestPublicJWKSServesByKid(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A token from k2 must verify against a KeySet parsed from the JWKS doc.
-	tok, _ := k2.Sign(TokenClaims{Sub: "user:2"}, time.Minute)
+	tok, _ := k2.Sign(TokenClaims{Sub: "user:2", Typ: "user"}, time.Minute)
 	ks := keySetFromJWKS(t, body)
 	if _, err := VerifyToken(tok, ks); err != nil {
 		t.Fatalf("verify against published jwks: %v", err)
@@ -156,7 +157,7 @@ func TestMintForSubjectBoundsToTargetGrants(t *testing.T) {
 	// Target only granted tasks:read; requesting tasks:write+read yields just read.
 	tok, err := k.MintForSubject(
 		[]string{"tasks:read"},
-		TokenClaims{Sub: "user:1", Scope: []string{"tasks:write", "tasks:read"}},
+		TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"tasks:write", "tasks:read"}},
 		time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +174,7 @@ func TestMintForSubjectBoundsToTargetGrants(t *testing.T) {
 
 func TestMintForSubjectEmptyRequestGetsAllGrants(t *testing.T) {
 	k, _ := NewSigningKey("k1")
-	tok, _ := k.MintForSubject([]string{"a:read", "b:write"}, TokenClaims{Sub: "x"}, time.Minute)
+	tok, _ := k.MintForSubject([]string{"a:read", "b:write"}, TokenClaims{Sub: "x", Typ: "user"}, time.Minute)
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
 	sub, _ := VerifyToken(tok, ks)
 	if !HasScope(sub.Scope, "a", "read") || !HasScope(sub.Scope, "b", "write") {
@@ -196,7 +197,7 @@ func TestMintNarrowerAllowsSubset(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	tok, err := k.MintNarrower(
 		[]string{"tasks:read", "tasks:write"},
-		TokenClaims{Sub: "agent:sub", Scope: []string{"tasks:read"}},
+		TokenClaims{Sub: "agent:sub", ParentJTI: "p1", Scope: []string{"tasks:read"}},
 		time.Minute)
 	if err != nil {
 		t.Fatalf("subset should mint: %v", err)

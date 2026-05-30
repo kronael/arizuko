@@ -280,11 +280,10 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, return
 		return
 	}
 	access := m.token
-	// Store the refresh subject in the SAME canonical (prefixed) form the
-	// access token carries — Refresh mints via MintForSubject(r.sub), which
-	// signs the sub verbatim, so a bare sub here would drop the user: prefix
-	// on every refreshed access token.
-	refresh, err := o.a.IssueRefresh(claimSub, scope, "")
+	// Store the BARE canonical sub in refresh_tokens (spec 5/1 § JWT claim set
+	// "sub prefix rule": the user:/service: prefix lives ONLY in the JWT sub
+	// claim, never in DB columns). Refresh re-adds the prefix when it mints.
+	refresh, err := o.a.IssueRefresh(sub, scope, "")
 	if err != nil {
 		slog.Error("issue refresh", "sub", sub, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

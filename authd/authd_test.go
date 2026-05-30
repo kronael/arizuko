@@ -69,7 +69,7 @@ func TestAuthdMintNarrowerDownscope(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	// Agent parent token holds tasks:read+write; downscope to read-only.
-	tok, err := a.MintNarrower("agent:sub", []string{"tasks:read", "tasks:write"}, []string{"tasks:read"}, "")
+	tok, err := a.MintNarrower("agent:sub", []string{"tasks:read", "tasks:write"}, []string{"tasks:read"}, "", "parent-jti")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestAuthdMintNarrowerDownscope(t *testing.T) {
 		t.Fatalf("downscoped token scope wrong: %v", sub.Scope)
 	}
 	// Asking for more than the parent has must fail.
-	if _, err := a.MintNarrower("agent:sub", []string{"tasks:read"}, []string{"secrets:read"}, ""); err == nil {
+	if _, err := a.MintNarrower("agent:sub", []string{"tasks:read"}, []string{"secrets:read"}, "", "parent-jti"); err == nil {
 		t.Fatal("escalation beyond parent scope must error")
 	}
 }
@@ -155,7 +155,9 @@ func TestKeyPersistsAcrossReopen(t *testing.T) {
 func TestRefreshRotation(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
-	r0, err := a.IssueRefresh("user:1", []string{"tasks:read"}, "")
+	// The refresh row stores the BARE sub (spec 5/1 "sub prefix rule"); the
+	// user: prefix is added only when the access JWT is minted.
+	r0, err := a.IssueRefresh("1", []string{"tasks:read"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

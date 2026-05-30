@@ -23,7 +23,10 @@ const maxBodyBytes = 4 << 10
 // Daemon-initiated work carries one of these (specs/5/1 "Service identity").
 // Declared here, mechanical — no per-deployment DB state.
 var serviceGrants = map[string][]string{
-	"service:authd": {"keys:read"},
+	// authd self-mints service:authd to call the grants backend at boot/login/
+	// refresh (spec 5/1 § Login-time scope snapshot: "scope grants:read"). It
+	// needs grants:read, not keys:read — /v1/keys is public.
+	"service:authd": {"grants:read"},
 	"service:timed": {"messages:write", "tasks:read"},
 	"service:onbod": {"messages:write", "groups:write"},
 	"service:gated": {"messages:write", "messages:read", "tasks:read", "tasks:write"},

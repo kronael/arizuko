@@ -40,7 +40,7 @@ func callerToken(t *testing.T, a *Authd, sub string, scope []string, folder stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := auth.TokenClaims{Sub: sub, Scope: scope}
+	c := auth.TokenClaims{Sub: sub, Typ: "user", Scope: scope}
 	if folder != "" {
 		c.Extra = map[string]string{"arz/folder": folder}
 	}

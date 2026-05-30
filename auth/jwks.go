@@ -158,6 +158,18 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	if c.Exp == 0 || c.Nbf == 0 || c.Iat == 0 {
 		return Subject{}, ErrInvalidToken
 	}
+	// typ is a required claim that drives verifier policy (spec 5/1 § JWT claim
+	// set): it must be one of user|service|downscoped — a missing/unknown typ is
+	// a reject (no fail-open), and a downscoped token must carry parent_jti.
+	switch c.Typ {
+	case "user", "service":
+	case "downscoped":
+		if c.ParentJTI == "" {
+			return Subject{}, ErrInvalidToken
+		}
+	default:
+		return Subject{}, ErrInvalidToken
+	}
 	now := time.Now().Unix()
 	skew := int64(tokenClockSkew.Seconds())
 	if now+skew < c.Nbf {
@@ -167,7 +179,7 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 		return Subject{}, ErrExpiredToken
 	}
 	return Subject{
-		Sub: c.Sub, Scope: c.Scope, Aud: c.Aud, Iss: c.Iss,
+		Sub: c.Sub, Typ: c.Typ, Scope: c.Scope, Aud: c.Aud, Iss: c.Iss,
 		JTI: c.Jti, ParentJTI: c.ParentJTI,
 		Extra: c.Extra, IssuedAt: time.Unix(c.Iat, 0), Expires: time.Unix(c.Exp, 0),
 	}, nil

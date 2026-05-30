@@ -30,7 +30,7 @@ func fakeAuthd(t *testing.T, key *SigningKey, ttl time.Duration, calls *int32) *
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		tok, _ := key.Sign(TokenClaims{Sub: "service:timed", Scope: []string{"tasks:read"}}, ttl)
+		tok, _ := key.Sign(TokenClaims{Sub: "service:timed", Typ: "service", Scope: []string{"tasks:read"}}, ttl)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token":      tok,
 			"expires_at": time.Now().Add(ttl).UTC().Format(time.RFC3339),

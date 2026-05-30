@@ -118,6 +118,7 @@ func (c *TokenClaims) UnmarshalJSON(b []byte) error {
 // Subject is the verified result of a token: what VerifyToken returns.
 type Subject struct {
 	Sub       string
+	Typ       string // "user" | "service" | "downscoped" — drives verifier policy (spec 5/1)
 	Scope     []string
 	Aud       string
 	Iss       string

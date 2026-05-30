@@ -167,13 +167,15 @@ func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string
 }
 
 // MintNarrower signs a delegated token: requested must be a subset of the
-// parent token's scope. Backs the mint_token MCP tool.
-func (a *Authd) MintNarrower(sub string, parentScope, requested []string, aud string) (string, error) {
+// parent token's scope. parentJTI links it to the parent token it narrows
+// (required on a downscoped token — spec 5/1 § JWT claim set). Backs the
+// mint_token MCP tool.
+func (a *Authd) MintNarrower(sub string, parentScope, requested []string, aud, parentJTI string) (string, error) {
 	k, err := a.activeKey()
 	if err != nil {
 		return "", err
 	}
-	return k.MintNarrower(parentScope, auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud}, a.accessTTL)
+	return k.MintNarrower(parentScope, auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud, ParentJTI: parentJTI}, a.accessTTL)
 }
 
 // minted is one signed access token plus the values the HTTP layer echoes back.
@@ -323,7 +325,9 @@ func (a *Authd) Refresh(raw string) (access, newRefresh string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	access, err = a.MintForSubject(r.sub, "user", scope, scope, r.aud)
+	// r.sub is the BARE canonical sub (spec 5/1 "sub prefix rule"); the user:
+	// prefix is added ONLY here at mint, so the access claim stays "user:<sub>".
+	access, err = a.MintForSubject("user:"+r.sub, "user", scope, scope, r.aud)
 	if err != nil {
 		return "", "", err
 	}

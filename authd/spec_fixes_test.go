@@ -97,6 +97,128 @@ func TestIssuerMintStampsRequestedTyp(t *testing.T) {
 	}
 }
 
+// Refresh rows store the BARE canonical sub (spec 5/1 "sub prefix rule": the
+// user:/service: prefix lives ONLY in the JWT sub claim); the minted access
+// token re-adds the prefix. A full OAuth login → refresh keeps the access sub
+// at "user:<bare>", and the stored refresh row carries the bare form.
+func TestRefreshRowStoresBareSubMintAddsPrefix(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	o := newOAuth(t, a, nil, nil)
+
+	req := httptest.NewRequest("GET", "/auth/google/callback", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, req, "google", "g-bare", "U", auth.StateIntent{})
+
+	// The minted access token carries the user:-prefixed sub.
+	access := jsonField(t, rec.Body.Bytes(), "token")
+	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.Sub != "user:google:g-bare" {
+		t.Fatalf("minted access sub = %q want user:google:g-bare", sub.Sub)
+	}
+
+	// The stored refresh row holds the BARE sub (no user: prefix).
+	refresh := jsonField(t, rec.Body.Bytes(), "refresh_token")
+	row, ok := lookupRefresh(a.db, refresh)
+	if !ok {
+		t.Fatal("refresh row must exist")
+	}
+	if row.sub != "google:g-bare" {
+		t.Fatalf("stored refresh sub = %q want bare google:g-bare (no user: prefix)", row.sub)
+	}
+
+	// Refreshing re-adds the prefix at mint: the access sub is unchanged.
+	access2, _, err := a.Refresh(refresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub2, err := auth.VerifyToken(access2, a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub2.Sub != "user:google:g-bare" {
+		t.Fatalf("refreshed access sub = %q want user:google:g-bare", sub2.Sub)
+	}
+}
+
+// The HTTP grants fetcher, when GRANTS_URL is set, authenticates with authd's
+// self-minted service:authd token (scope grants:read) and pulls the bare sub's
+// scope + folder at login AND re-snapshots them at refresh (spec 5/1
+// § Login-time scope snapshot). With GRANTS_URL unset the fetcher is nil and
+// behavior is unchanged (empty-scope sessions).
+func TestHTTPGrantsFetcherWiredAndUnwired(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+
+	// Unwired: an empty GRANTS_URL leaves grants nil (current behavior).
+	if g := newHTTPGrants(a, ""); g != nil {
+		t.Fatal("empty GRANTS_URL must leave the grants fetcher nil (unchanged behavior)")
+	}
+
+	// Stub grants backend: verifies the caller's bearer is a valid service:authd
+	// token carrying grants:read, then returns the requested sub's scope+folder.
+	var gotSub string
+	gs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearerTok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		sub, err := auth.VerifyToken(bearerTok, a.LocalKeySet())
+		if err != nil || sub.Sub != "service:authd" || !auth.HasScope(sub.Scope, "grants", "read") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// /v1/users/{bareSub}/scopes — the bare sub is the last path segment.
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		gotSub = parts[len(parts)-2]
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"scope": []string{"tasks:read", "tasks:write"}, "folder": "atlas/main",
+		})
+	}))
+	defer gs.Close()
+
+	g := newHTTPGrants(a, gs.URL)
+	if g == nil {
+		t.Fatal("a set GRANTS_URL must build a fetcher")
+	}
+	a.grants = g
+
+	// Login snapshot: dispatch pulls the target's scope+folder through the fetcher.
+	o := newOAuth(t, a, nil, g)
+	req := httptest.NewRequest("GET", "/auth/google/callback", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	o.dispatch(rec, req, "google", "g-http", "U", auth.StateIntent{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login with grants fetcher status %d: %s", rec.Code, rec.Body.String())
+	}
+	if gotSub != "google:g-http" {
+		t.Fatalf("grants lookup used sub %q want bare google:g-http", gotSub)
+	}
+	sub, err := auth.VerifyToken(jsonField(t, rec.Body.Bytes(), "token"), a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auth.HasScope(sub.Scope, "tasks", "write") || sub.Extra["arz/folder"] != "atlas/main" {
+		t.Fatalf("login snapshot must stamp fetched scope+folder, got %v / %v", sub.Scope, sub.Extra)
+	}
+
+	// Refresh re-snapshot: the refreshed access reflects the fetcher's scopes.
+	refreshSub, _, err := a.Refresh(jsonField(t, rec.Body.Bytes(), "refresh_token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := auth.VerifyToken(refreshSub, a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auth.HasScope(rs.Scope, "tasks", "write") {
+		t.Fatalf("refresh must re-snapshot grants, got %v", rs.Scope)
+	}
+}
+
 // /v1/refresh accepts the refresh token from a COOKIE (browser sends only a
 // cookie) and returns the spec shape: a "token" + "expires_at"; the successor
 // refresh rides Set-Cookie, not the JSON body.

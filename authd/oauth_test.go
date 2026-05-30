@@ -62,8 +62,9 @@ func TestOAuthDispatchMintsES256AndCreatesUser(t *testing.T) {
 }
 
 // Regression (oracle finding 3): the access-token subject must be identical
-// across login and refresh. IssueRefresh stores the canonical "user:" subject
-// so a refreshed token keeps the prefix instead of dropping to a bare sub.
+// across login and refresh. The refresh row stores the BARE sub (spec 5/1 "sub
+// prefix rule"); Refresh re-adds the user: prefix at mint, so the access claim
+// keeps the prefix consistently rather than dropping it or double-prefixing.
 func TestOAuthRefreshSubMatchesLogin(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)

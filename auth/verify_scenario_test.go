@@ -67,6 +67,7 @@ func validClaims() map[string]any {
 	now := time.Now().Unix()
 	return map[string]any{
 		"sub":   "user:1",
+		"typ":   "user",
 		"scope": []string{"tasks:read"},
 		"iss":   Issuer,
 		"iat":   now,
@@ -88,6 +89,70 @@ func TestVerifyRejectsWrongIssuer(t *testing.T) {
 
 	if _, err := VerifyToken(tok, ks); err != ErrInvalidToken {
 		t.Fatalf("wrong-issuer token must be rejected, got %v", err)
+	}
+}
+
+// Threat: a token with a missing or unknown typ claim must not verify — typ is
+// required and drives verifier policy (specs/5/1 § JWT claim set "typ ... req").
+// A missing typ is a reject, never "no constraint" (no fail-open).
+func TestVerifyRejectsMissingOrUnknownTyp(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+
+	missing := validClaims()
+	delete(missing, "typ")
+	if _, err := VerifyToken(signRaw(t, jose.ES256, k.Priv, "k1", missing), ks); err != ErrInvalidToken {
+		t.Fatalf("token with no typ must be rejected, got %v", err)
+	}
+
+	unknown := validClaims()
+	unknown["typ"] = "admin" // not one of user|service|downscoped
+	if _, err := VerifyToken(signRaw(t, jose.ES256, k.Priv, "k1", unknown), ks); err != ErrInvalidToken {
+		t.Fatalf("token with unknown typ must be rejected, got %v", err)
+	}
+}
+
+// Threat: a downscoped token carries no parent_jti — its delegation chain is
+// unverifiable. specs/5/1 § JWT claim set marks parent_jti req for typ
+// "downscoped"; the verifier rejects a downscoped token that omits it.
+func TestVerifyRejectsDownscopedWithoutParentJTI(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+
+	c := validClaims()
+	c["typ"] = "downscoped" // but no parent_jti
+	if _, err := VerifyToken(signRaw(t, jose.ES256, k.Priv, "k1", c), ks); err != ErrInvalidToken {
+		t.Fatalf("downscoped token without parent_jti must be rejected, got %v", err)
+	}
+
+	// Positive control: a downscoped token WITH parent_jti verifies and surfaces
+	// the typ on the Subject.
+	c["parent_jti"] = "p1"
+	sub, err := VerifyToken(signRaw(t, jose.ES256, k.Priv, "k1", c), ks)
+	if err != nil {
+		t.Fatalf("downscoped token with parent_jti must verify, got %v", err)
+	}
+	if sub.Typ != "downscoped" || sub.ParentJTI != "p1" {
+		t.Fatalf("downscoped Subject typ/parent_jti wrong: %+v", sub)
+	}
+}
+
+// A valid typ is surfaced on the verified Subject so callers can apply
+// type-specific policy (specs/5/1 § JWT claim set adds Subject.Typ).
+func TestVerifySurfacesTypOnSubject(t *testing.T) {
+	k, _ := NewSigningKey("k1")
+	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
+
+	for _, typ := range []string{"user", "service"} {
+		c := validClaims()
+		c["typ"] = typ
+		sub, err := VerifyToken(signRaw(t, jose.ES256, k.Priv, "k1", c), ks)
+		if err != nil {
+			t.Fatalf("typ=%q must verify, got %v", typ, err)
+		}
+		if sub.Typ != typ {
+			t.Fatalf("Subject.Typ = %q want %q", sub.Typ, typ)
+		}
 	}
 }
 
@@ -255,7 +320,7 @@ func TestVerifyRejectsUnknownKid(t *testing.T) {
 func TestVerifyGarbageDoesNotPanic(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
-	good, _ := k.Sign(TokenClaims{Sub: "user:1", Scope: []string{"a:read"}}, time.Minute)
+	good, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"a:read"}}, time.Minute)
 
 	garbage := []string{
 		"",
@@ -316,7 +381,7 @@ func TestGlobalWildcardScopeAuthorizesNothing(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
 
-	tok, err := k.Sign(TokenClaims{Sub: "user:1", Scope: []string{"*:*", "*"}}, time.Minute)
+	tok, err := k.Sign(TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"*:*", "*"}}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +412,7 @@ func TestMintNarrowerRejectsGlobalWildcardParent(t *testing.T) {
 func TestVerifyHTTPBearerExtraction(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
-	good, _ := k.Sign(TokenClaims{Sub: "user:1", Scope: []string{"a:read"}}, time.Minute)
+	good, _ := k.Sign(TokenClaims{Sub: "user:1", Typ: "user", Scope: []string{"a:read"}}, time.Minute)
 
 	mk := func(h string) (Subject, error) {
 		r := newRequestWithAuth(t, h)
@@ -390,7 +455,7 @@ func TestRemotePathRejectsRetiredKidForgery(t *testing.T) {
 
 	// A token minted NOW (iat after retired_at) on the remote path must be
 	// rejected — the forgery window is closed even when verifying via RemoteKeySet.
-	forged, _ := k.Sign(TokenClaims{Sub: "user:thief", Scope: []string{"a:read"}}, time.Minute)
+	forged, _ := k.Sign(TokenClaims{Sub: "user:thief", Typ: "user", Scope: []string{"a:read"}}, time.Minute)
 	if _, err := VerifyToken(forged, remote); err != ErrInvalidToken {
 		t.Fatalf("remote path must reject a token minted after retired_at, got %v", err)
 	}

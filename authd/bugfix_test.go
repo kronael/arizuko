@@ -209,7 +209,7 @@ func TestRetiredKeyForgeryRejectedThroughAuthd(t *testing.T) {
 		t.Fatalf("expected old+new keys serving, got %d", len(a.PublicKeys()))
 	}
 	// Thief mints a FRESH token with the retired key (iat = now > retired_at).
-	forged, err := stolen.Sign(auth.TokenClaims{Sub: "user:evil", Scope: []string{"tasks:write"}}, time.Minute)
+	forged, err := stolen.Sign(auth.TokenClaims{Sub: "user:evil", Typ: "user", Scope: []string{"tasks:write"}}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
