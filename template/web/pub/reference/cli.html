@@ -48,7 +48,7 @@
       <ul>
         <li><a href="#lifecycle">Instance lifecycle</a> &mdash; <code>create</code>, <code>generate</code>, <code>run</code>, <code>status</code>, <code>pair</code></li>
         <li><a href="#manifest">Config manifests</a> &mdash; <code>apply</code>, <code>export</code></li>
-        <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code></li>
+        <li><a href="#chat">Operator chat &amp; messaging</a> &mdash; <code>chat</code>, <code>send</code>, <code>token</code></li>
         <li><a href="#group">Groups &amp; grants</a> &mdash; <code>group list|add|rm|grant|ungrant|grants</code></li>
         <li><a href="#identity">Identities</a> &mdash; <code>identity list|link|unlink</code></li>
         <li><a href="#invite">Invites</a> &mdash; <code>invite create|list|revoke</code></li>
@@ -143,6 +143,22 @@ arizuko apply krons krons.yaml --force</code></pre>
 arizuko send krons main "what's the status?" --stream
 echo "long body" | arizuko send krons main --stdin --wait</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/send.go#L29"><code>cmd/arizuko/send.go:29</code></a></p>
+
+    <h3 id="token"><span class="sig">arizuko token &lt;instance&gt; &lt;issue|list|revoke&gt; ...</span></h3>
+    <p>Manage the route tokens that back <code>/chat/&lt;token&gt;/</code> visitor chat and <code>/hook/&lt;token&gt;</code> webhook ingest. Each token is one row in <code>route_tokens</code> mapping an opaque URL token to a JID and owner folder. <code>issue</code> mints a token for a <code>web:</code> or <code>hook:</code> JID and prints both the JID and the raw token (the token is shown once). <code>list</code> tabulates a folder's tokens. <code>revoke</code> deletes one by JID; pass <code>&lt;owner_folder&gt;</code> when the token was minted on behalf of a descendant or under a nested folder (the owner can diverge from the JID's folder), since the JID alone can't recover it.</p>
+    <table>
+      <tr><th>Subcommand</th><th>Form</th></tr>
+      <tr><td><code>issue chat</code></td><td><code>arizuko token &lt;instance&gt; issue chat &lt;folder&gt; [&lt;suffix&gt;]</code></td></tr>
+      <tr><td><code>issue webhook</code></td><td><code>arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; &lt;label&gt; [&lt;suffix&gt;]</code></td></tr>
+      <tr><td><code>list</code></td><td><code>arizuko token &lt;instance&gt; list &lt;folder&gt;</code></td></tr>
+      <tr><td><code>revoke</code></td><td><code>arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></td></tr>
+    </table>
+    <p><strong>State touched:</strong> <code>issue</code> inserts a <code>route_tokens</code> row; <code>revoke</code> deletes one; <code>list</code> is read-only. <code>issue</code> and <code>revoke</code> write an audit row.</p>
+    <pre><code>arizuko token krons issue chat support
+arizuko token krons issue webhook eng github
+arizuko token krons list support
+arizuko token krons revoke web:support</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/token.go#L20"><code>cmd/arizuko/token.go:20</code></a></p>
 
     <h2 id="group" class="group-h2">Groups &amp; grants</h2>
     <p>All <code>group</code> verbs share the same store and dispatch under <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L256"><code>cmd/arizuko/main.go:256</code></a>.</p>
@@ -400,7 +416,7 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

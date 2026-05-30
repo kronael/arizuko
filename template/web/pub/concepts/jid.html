@@ -75,10 +75,10 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p>Inside the codebase a JID is just a <code>string</code>. Two helpers in <code>core/types.go</code> split it: <code>core.JidPlatform(jid)</code> returns everything before the first colon, and <code>core.JidRoom(jid)</code> returns everything after. Matching is Go&rsquo;s <code>path.Match</code> against the route&rsquo;s glob &mdash; the same call the router runs in <code>router.RouteMatches</code>. There is no parse step and no separate chat-vs-sender type; both are addresses the gateway only ever glob-matches.</p>
 
     <h2>per-platform shapes belong to adapters</h2>
-    <p>The gateway treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>tgd/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; the gateway and the routes table don&rsquo;t move.</p>
+    <p>The gateway treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>teled/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; the gateway and the routes table don&rsquo;t move.</p>
 
-    <h2>URI-clean</h2>
-    <p>The address is built on <code>net/url</code>, so an ID with reserved characters &mdash; a Bluesky DID contains a colon, for example &mdash; encodes safely without breaking the platform/rest split.</p>
+    <h2>colons in the rest</h2>
+    <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and hands back everything before it; the rest stays untouched. So an ID that itself contains a colon doesn&rsquo;t break the platform/rest split. A Bluesky DID is a <code>did:plc:&hellip;</code> string &mdash; the adapter percent-encodes its colons (<code>bluesky:user/did%3Aplc%3A&hellip;</code>) so a glob never trips on them.</p>
 
     <h2>go deeper</h2>
     <p>Per-platform schemas, code types, migration history, and design rules: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/S-jid-format.md">specs/5/S-jid-format.md</a>. For how these addresses get matched into folders, see <a href="../concepts/routing.html">routing</a>.</p>
