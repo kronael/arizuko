@@ -38,6 +38,7 @@ type slackMock struct {
 	authUserID string
 	authTeamID string
 	authFail   bool // when set, auth.test returns {ok:false}
+	authCalls  int  // number of auth.test hits (probe-lifecycle assertion)
 
 	// rate-limit one path on first hit, then succeed.
 	rateLimitOnce map[string]bool
@@ -53,6 +54,7 @@ func newSlackMock() *slackMock {
 	mux.HandleFunc("/api/auth.test", func(w http.ResponseWriter, _ *http.Request) {
 		m.mu.Lock()
 		fail := m.authFail
+		m.authCalls++
 		m.mu.Unlock()
 		if fail {
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "invalid_auth"})
@@ -762,6 +764,41 @@ func TestHealthProbe_FlipsOnAuthFailure(t *testing.T) {
 	mock.mu.Unlock()
 	if !waitFor(500*time.Millisecond, func() bool { return b.isConnected() }) {
 		t.Fatal("connected did not recover to true after auth restored")
+	}
+}
+
+// TestHealthProbe_StopsOnCtxCancel: the probe goroutine must exit when its
+// (Start) ctx is cancelled — before the fix it was launched with
+// context.Background() and leaked past shutdown. We cancel the ctx and assert
+// no further auth.test calls land.
+func TestHealthProbe_StopsOnCtxCancel(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go b.healthProbe(ctx, 2*time.Millisecond)
+
+	// let it tick a few times.
+	if !waitFor(500*time.Millisecond, func() bool {
+		mock.mu.Lock()
+		defer mock.mu.Unlock()
+		return mock.authCalls > 0
+	}) {
+		t.Fatal("probe never ran")
+	}
+	cancel()
+	// drain any tick already in flight, then snapshot.
+	time.Sleep(20 * time.Millisecond)
+	mock.mu.Lock()
+	before := mock.authCalls
+	mock.mu.Unlock()
+	time.Sleep(30 * time.Millisecond) // several probe intervals
+	mock.mu.Lock()
+	after := mock.authCalls
+	mock.mu.Unlock()
+	if after != before {
+		t.Fatalf("probe kept calling auth.test after ctx cancel: %d -> %d", before, after)
 	}
 }
 

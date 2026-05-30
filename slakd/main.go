@@ -32,7 +32,7 @@ func main() {
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"slack:"},
 		Caps:          caps,
-		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
+		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {
 				slog.Error("slack init failed", "err", err)
@@ -48,7 +48,7 @@ func main() {
 			}
 			srv := newServer(cfg, b, b.isConnected, b.LastInboundAt)
 			b.files = srv.files
-			if err := b.start(rc); err != nil {
+			if err := b.start(ctx, rc); err != nil {
 				slog.Error("slack auth.test failed", "err", err)
 				return nil, nil, err
 			}

@@ -197,9 +197,9 @@ func (b *bot) setTypingReaction(jid string, on bool) {
 	}
 }
 
-func (b *bot) start(rc *chanlib.RouterClient) error {
+func (b *bot) start(ctx context.Context, rc *chanlib.RouterClient) error {
 	b.rc = rc
-	user, team, err := b.authTest(context.Background())
+	user, team, err := b.authTest(ctx)
 	if err != nil {
 		return fmt.Errorf("slack auth.test: %w", err)
 	}
@@ -207,11 +207,12 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.teamID.Store(team)
 	b.connected.Store(true)
 	slog.Info("slack connected", "bot_user_id", user, "team_id", team)
-	go b.clearOrphanEyes(context.Background())
+	go b.clearOrphanEyes(ctx)
 	// Slack's Events API has no persistent socket to watch, so /health would
 	// otherwise report "ok" forever even after the token is revoked. Re-probe
-	// auth.test periodically and flip connected on the result.
-	go b.healthProbe(context.Background(), 60*time.Second)
+	// auth.test periodically and flip connected on the result. Bound the probe
+	// to the Start ctx so the goroutine exits on shutdown.
+	go b.healthProbe(ctx, 60*time.Second)
 	return nil
 }
 
