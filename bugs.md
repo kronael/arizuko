@@ -1062,3 +1062,40 @@ migrate skill's announce step independent of the file-copy step so a stale-path
 failure can't skip the broadcast — future migrations are unaffected since the
 correct skill is shipped. Manual remedy for rhias: re-trigger `/migrate` once
 the new skill is active. Scope: ant migrate skill / per-group skill staleness.
+
+## post-cutover verifier findings — deferred (2026-05-30, 4 adversarial sonnet verifiers)
+
+The cutover code (daemon parity + spec + dual-verify + compose-wire) was
+adversarially re-verified; all security-critical + parity fixes confirmed SOLID.
+7 actionable regressions/bugs were FIXED (365328d4/a99dc3cc/485a89d6/5543c65f/
+2b2d5486). These remain DEFERRED:
+
+- **FLIP-BLOCKER (auth, MED, latent):** `auth/middleware.go stampES256Identity`
+  is incomplete on the ES256-DIRECT path — it stamps the `user:`-prefixed sub
+  (breaks onbod `github:`/`google:` gate matching → onboarding stalls) and only
+  `arz/folder` as `X-User-Groups` (operator `**` grant → `[]` → locked out of
+  `requireFolder` routes). LATENT: during the soak proxyd still injects
+  `X-User-Sig`, so webd/onbod take the HMAC path; this bites only at the FLIP
+  when proxyd stops injecting `X-User-Groups`. RESOLVE BEFORE FLIP: keep proxyd
+  the grant-injector (verify ES256 → inject `X-User-Groups` from DB grants), OR
+  have `stampES256Identity` do the DB grants lookup + stamp the bare sub.
+- **LOW (auth):** middleware comment says bare-sub but stamps prefixed (comment-
+  only); `/v1/service-token` response omits `expires_at` (fallback works);
+  retired-key forgery check is a no-op on RemoteKeySet (all backend verifiers) —
+  documented tradeoff, short access-TTL is the defence; `handleTokens` issuer-
+  mint doesn't validate/normalize the `user:` sub prefix (grants strip via
+  bareSub, minted sub just violates the contract).
+- **LOW (runed):** `Kill` doesn't `EndSession` for non-isolated killed runs;
+  `armRunTTL` can have an in-flight Kill after Run returns (idempotent, not a
+  leak); `handleRunKill`/`handleRunStatus` don't fold the token folder (docker-
+  network-internal, threat-model-acceptable); `staticBroker` test jti PK
+  collision swallowed in multi-run tests (test-infra).
+- **LOW (gateway/adapters):** `tts.synthesize` uses `context.Background()` (not
+  cancelled on shutdown); `like`/`post` cap-drift is invisible to
+  `CapImplReport` (chanreg never gates them — informational only); mastd reply
+  Topic = immediate parent, not thread root (depth-1 threads, design limit);
+  emaid `sendReply` has a redundant rootMsgID fallback (dead when called from
+  server.go, not a bug).
+
+None are soak blockers. The auth FLIP-BLOCKER must be resolved before the prod
+flip removes proxyd's `X-User-Groups` injection.
