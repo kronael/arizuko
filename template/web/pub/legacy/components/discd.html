@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>discd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; discd</p>
+    <h1>discd</h1>
+
+    <h2>What it is</h2>
+    <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to gated, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
+
+    <h2>Why it exists</h2>
+    <p>Discord is the canonical community channel for arizuko deployments &mdash; guild channels for team chat, threads for tasks, DMs for one-on-one. Talking to the Discord gateway directly is what lets discd surface reactions as <code>like</code> / <code>dislike</code> events and keep the websocket alive across rolling restarts.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Discord (gateway.discord.gg)
+        |  websocket: MESSAGE_CREATE, MESSAGE_REACTION_ADD, ...
+        v
+      discd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to discd)
+        v
+      discd     (REST: channels/.../messages, reactions, ...)
+        |
+        v
+      Discord</code></pre>
+    </div>
+
+    <p>Wired verbs (<code>discd/bot.go</code>, <code>discd/server.go</code>): <code>send</code> (chunked at 2000 chars, honours <code>reply_to</code> via <code>message_reference</code>), <code>send_file</code> (multipart), <code>typing</code>, <code>edit</code>, <code>delete</code>, <code>like</code> (default <span>&#128077;</span>), <code>quote</code>. <code>dislike</code>, <code>forward</code>, <code>post</code>, <code>repost</code> are 501-with-hint &mdash; the agent gets pointers like <code>like(emoji='&#128078;')</code> rather than a generic capability error.</p>
+
+    <p>Inbound: messages where the bot is in <code>m.Mentions</code> or is the parent author of a reply ride <code>verb=mention</code>; everything else in guilds is <code>verb=message</code> (v0.39.1 made reply-to-bot and reactions count as mentions). Reactions <code>MessageReactionAdd</code> emit synthetic <code>like</code>/<code>dislike</code> inbound rows classified by <code>chanlib.ClassifyEmoji</code>.</p>
+
+    <p>Attachments use direct Discord CDN URLs cached via the shared <code>chanlib.URLCache</code>.</p>
+
+    <h2>Standalone usage</h2>
+    <p>discd is a plain Go binary. It needs a reachable gated and a Discord bot or user token.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export DISCORD_BOT_TOKEN=...
+export ASSISTANT_NAME=arizuko
+./discd</code></pre>
+
+    <p>Discord-side setup: create an application at <code>discord.com/developers</code>, add a bot, copy the token. Required gateway intents: <code>GUILDS</code>, <code>GUILD_MESSAGES</code>, <code>GUILD_MESSAGE_REACTIONS</code>, <code>MESSAGE_CONTENT</code>, <code>DIRECT_MESSAGES</code>. Invite the bot with the OAuth URL.</p>
+
+    <p>User mode (<code>DISCORD_USER_TOKEN</code> instead of bot token) authenticates as a Discord user account &mdash; useful where a bot account is not allowed. It skips gateway intents, which user tokens cannot request.</p>
+
+    <p><code>GET /health</code> returns 503 when the websocket is disconnected; <code>discordgo</code> reconnects automatically, so a persistent 503 means token revoked or Discord-side outage.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>discd/README.md</code> &mdash; verb table, file map.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

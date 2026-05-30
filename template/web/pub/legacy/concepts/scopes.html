@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>scopes</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>scopes</h1>
+    <p class="dim back">folders, siblings, ambient context &middot; <a href="../concepts/">&larr; concepts</a></p>
+
+    <p class="lede">A folder is a scope. Messages inside the folder are the folder&rsquo;s own conversation. Messages stored in a sibling folder leak in as ambient context &mdash; the agent can read them without being asked. Messages deeper in a child folder stay isolated.</p>
+
+    <h2>folder = scope</h2>
+    <p>Every group is a folder under the data dir: <code>solo/inbox</code>, <code>corp/eng/sre</code>, <code>corp/eng/oncall</code>. The folder path doubles as the identity of the agent that runs there and as the scope rules for what it sees. Path depth sets the tier: the instance root (0 slashes, like <code>main</code>) is tier 0; one-slash folders (like <code>corp/eng</code>) are tier 1 &mdash; these are &ldquo;world&rdquo; groups; anything deeper is tier 2+. Siblings share a parent.</p>
+    <p>Because one agent runs per group, context isolation is structural. The <code>corp/eng/sre</code> agent carries the SRE team&rsquo;s full conversation history, diary, and skills. <code>corp/eng/oncall</code> carries the oncall team&rsquo;s. There is no shared context pool to pollute &mdash; each agent&rsquo;s Claude Code session is its own folder, its own prompt window, its own memory.</p>
+
+    <h2>same-level siblings observe each other</h2>
+    <p>Two folders under the same parent see each other&rsquo;s messages as ambient <code>&lt;observed&gt;</code> context on every turn. The default sibling list is &ldquo;all folders sharing my immediate parent.&rdquo; So <code>corp/eng/sre</code> and <code>corp/eng/oncall</code> both observe traffic in the other &mdash; useful when an incident in one is relevant to the other team.</p>
+    <p>The window is bounded: see <a href="../reference/env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a> and <a href="../reference/env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a> for the instance default; <code>routes.observe_window_messages</code> and <code>routes.observe_window_chars</code> override per route.</p>
+    <p>Each topic in a folder tracks its own <code>sessions.observed_cursor</code>, so one topic consuming an observed message does not hide it from another topic in the same folder (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">5/F</a>).</p>
+
+    <h2>children are isolated</h2>
+    <p>A child folder is <em>not</em> a sibling. <code>corp/eng/oncall/incident-42</code> sits under <code>oncall</code>; the parent does not auto-observe the child, and the child does not auto-observe its uncles. To break the wall, route the child&rsquo;s traffic up explicitly with a routing rule, or grant a specific cross-folder ACL.</p>
+    <p>This keeps deep hierarchies useful: spin up an incident folder, talk freely, archive when done &mdash; no noise upstream.</p>
+
+    <h2>worked example</h2>
+    <pre><code>corp/
+  eng/
+    sre/         &larr; sees oncall (sibling)
+    oncall/      &larr; sees sre (sibling)
+      incident-42/   &larr; isolated; oncall does not auto-see it</code></pre>
+    <p>An SRE asking a question in <code>corp/eng/sre</code> sees recent oncall chatter as ambient. An incident commander running <code>corp/eng/oncall/incident-42</code> is talking only to the incident folder&rsquo;s agent &mdash; the broader oncall channel is quiet, the incident folder stays focused.</p>
+
+    <h2>per-topic observed cursor</h2>
+    <p>Inside one folder, every <a href="../concepts/topics.html">topic</a> tracks its own watermark over observed messages. So <code>#triage</code> and <code>#deploy</code> in the same folder both see the same ambient sidechannel; one consuming it doesn&rsquo;t hide it from the other. The cursor is per <code>(folder, topic)</code> in <code>sessions.observed_cursor</code>.</p>
+
+    <h2>go deeper</h2>
+    <p>Folder hierarchy spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Topic lineage and the per-topic observed cursor: <a href="../concepts/topics.html">topics</a>. How a message lands in a folder in the first place: <a href="../concepts/routing.html">routing</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

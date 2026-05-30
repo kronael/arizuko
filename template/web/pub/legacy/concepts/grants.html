@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>grants</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.8em 0; font-size: 0.95em; }
+    .prose th, .prose td { border: 1px solid var(--border); padding: 0.35em 0.7em; text-align: left; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../concepts/">concepts</a> &rsaquo; grants</p>
+    <h1>grants</h1>
+
+    <p class="lede">A grant answers one question: <em>may principal P do action A on scope S?</em> Two SQL tables answer every check &mdash; <code>acl</code> for the rules and <code>acl_membership</code> for "this id belongs to that group." One <code>auth.Authorize()</code> call walks both.</p>
+
+    <h2>the four words</h2>
+    <p>The whole system is built on four nouns. Get these right and the rest is bookkeeping.</p>
+    <ul>
+      <li><strong>Principal</strong> &mdash; who is asking. A human (<code>google:114alice</code>), a folder's agent container (<code>folder:atlas/eng</code>), a channel-side identity (<code>discord:user/811&hellip;</code>), or a named role (<code>role:operator</code>).</li>
+      <li><strong>Action</strong> &mdash; what they want to do. <code>interact</code> (send a message), <code>admin</code> (manage the folder), <code>mcp:&lt;tool&gt;</code> (call one MCP tool), or <code>*</code> (everything).</li>
+      <li><strong>Scope</strong> &mdash; where. A folder path like <code>atlas/eng</code>, or a glob like <code>atlas/**</code>.</li>
+      <li><strong>Effect</strong> &mdash; <code>allow</code> (default) or <code>deny</code>. Deny wins.</li>
+    </ul>
+
+    <h2>the action lattice</h2>
+    <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>. If you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside that folder &mdash; you do not list them one by one. The implication is:</p>
+    <pre><code>*  &supe;  admin  &supe;  interact
+*  &supe;  admin  &supe;  mcp:&lt;tool&gt;</code></pre>
+    <p>Deny short-circuits the whole thing. If any matching row says <code>deny</code>, the request is rejected even when other rows would allow it. The check lives in <code>auth.Authorize</code> (<code>auth/authorize.go</code>); it tries explicit rules first, then falls back to tier defaults derived in <code>grants.DeriveRules</code> for <code>mcp:*</code> actions only.</p>
+
+    <h2>principal shapes</h2>
+    <table>
+      <tr><th>Kind</th><th>Example</th><th>Meaning</th></tr>
+      <tr><td>OAuth sub</td><td><code>google:114alice</code></td><td>A canonical human, minted by auth (see <a href="../concepts/auth.html">auth</a>).</td></tr>
+      <tr><td>Folder agent</td><td><code>folder:atlas/eng</code></td><td>The agent container running at this folder.</td></tr>
+      <tr><td>Platform identity</td><td><code>discord:user/811&hellip;</code></td><td>A user known on a channel, not yet OAuth-claimed.</td></tr>
+      <tr><td>Room identity</td><td><code>discord:837&hellip;/1504&hellip;</code></td><td>A channel room itself &mdash; lets everyone in the room share a grant.</td></tr>
+      <tr><td>Role</td><td><code>role:operator</code></td><td>A named bag of members. Filled by <code>acl_membership</code>.</td></tr>
+      <tr><td>Wildcards</td><td><code>**</code>, <code>google:*</code>, <code>folder:**</code></td><td>Globs split on <code>:</code> and <code>/</code>.</td></tr>
+    </table>
+
+    <h2>four rows, four real patterns</h2>
+    <p>Each row below is something you would actually insert. All four together describe a working multi-channel instance.</p>
+
+    <p><strong>1. Alice can talk in her own folder.</strong></p>
+    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('google:114alice', 'interact', 'alice', now());</code></pre>
+
+    <p><strong>2. The eng folder admin manages the whole subtree.</strong> The glob <code>eng/**</code> matches <code>eng</code>, <code>eng/sre</code>, <code>eng/sre/oncall</code>, and so on.</p>
+    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('google:114alice', 'admin', 'eng/**', now());</code></pre>
+
+    <p><strong>3. Ban one user globally.</strong> A deny row at scope <code>**</code> beats every allow.</p>
+    <pre><code>INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
+  ('discord:user/badguy', '*', '**', 'deny', now());</code></pre>
+
+    <p><strong>4. Everyone in a Discord room may chat with one folder's agent.</strong> The principal is the <em>room</em>, not the users in it. New people who join the room pick up the grant for free.</p>
+    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('discord:837.../channel/1504...', 'interact', 'main/lab', now());</code></pre>
+
+    <p>The same rows from the operator CLI:</p>
+    <pre><code>arizuko grants add google:114alice interact alice
+arizuko grants add google:114alice admin eng/**
+arizuko grants add discord:user/badguy '*' '**' --deny
+arizuko grants add discord:837.../channel/1504... interact main/lab</code></pre>
+
+    <h2>roles &mdash; one indirection, many members</h2>
+    <p>When the same permission set should apply to several people, you do not copy the row. You make a role, grant the role, and add members. Two tables, two operations.</p>
+    <pre><code>-- Define the role: editors may admin the docs subtree.
+INSERT INTO acl (principal, action, scope, granted_at) VALUES
+  ('role:editor', 'admin', 'docs/**', now());
+
+-- Bind alice to the role.
+INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('google:114alice', 'role:editor', now());</code></pre>
+    <p>Adding a second editor &mdash; one more <code>acl_membership</code> row. Granting editors a new scope &mdash; one more <code>acl</code> row. Roles can contain roles: <code>acl_membership(role:senior-editor, role:editor)</code> works the same way.</p>
+
+    <h2>claiming a channel identity</h2>
+    <p>Alice posts in Discord as <code>discord:user/811&hellip;</code>. Later she logs in via Google. The OAuth callback writes one membership edge:</p>
+    <pre><code>INSERT INTO acl_membership (child, parent, added_at) VALUES
+  ('discord:user/811...', 'google:114alice', now());</code></pre>
+    <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No row rewriting, no migration &mdash; the channel-side id keeps working as before.</p>
+
+    <h2>where the check runs</h2>
+    <p>Every gate funnels through <code>auth.Authorize(principal, action, scope, claims, params)</code>. The MCP server calls it when the agent invokes a tool; <code>gated</code> calls it when a message wants to enter a folder. One call, one answer.</p>
+    <pre><code>Authorize(
+  principal: "folder:atlas/eng",
+  action:    "mcp:send",
+  scope:     "atlas/eng",
+  claims:    {tier: "2", world: "atlas"},
+  params:    {jid: "telegram:group/-1234"},
+)</code></pre>
+
+    <h2>don't do this</h2>
+    <ul>
+      <li><strong>Don't insert deny rows to "take back" access.</strong> Remove the allow row or the membership edge instead. Denies are for true exceptions &mdash; banning one user from an otherwise-open channel &mdash; not for undoing yesterday's grant.</li>
+      <li><strong>Don't grant <code>admin</code> with a params predicate.</strong> Admin means full write at scope. Conditional admin is surprising. Use <code>mcp:&lt;tool&gt;</code> with params when you want a narrow capability.</li>
+      <li><strong>Don't put routing into ACL.</strong> The <code>routes</code> table answers "where does this message land." <code>acl</code> answers "may this principal act here." They share the principal namespace for room ids but never merge.</li>
+      <li><strong>Don't bypass roles for operators.</strong> The first operator is bound by one <code>acl_membership(sub, role:operator)</code> edge at <code>arizuko create</code>. Adding more operators is another membership row &mdash; not a fresh wildcard grant each time.</li>
+    </ul>
+
+    <h2>where to go next</h2>
+    <p>Canonical spec with the full schema and evaluation algorithm: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/9-acl-unified.md">specs/4/9-acl-unified.md</a>. Rule-syntax reference: <a href="../reference/grants.html">reference / grants</a>. For where principals come from in the first place, see <a href="../concepts/auth.html">auth</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

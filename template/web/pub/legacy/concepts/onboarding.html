@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>onboarding</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../concepts/">concepts</a> &rsaquo; onboarding</p>
+    <h1>onboarding</h1>
+
+    <p class="lede">A new user arrives. The <code>onbod</code> daemon decides whether they get in, which group they land in, and how their identity binds to one canonical sub. Three entry paths feed it: invite tokens, the admission queue, and the second-JID auto-link.</p>
+
+    <h2>invite tokens</h2>
+    <p>An operator mints a token with the CLI:</p>
+    <pre><code>arizuko invite &lt;instance&gt; create &lt;target_glob&gt; [--max-uses N] [--expires DURATION]
+arizuko invite &lt;instance&gt; list   [--issued-by SUB]
+arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
+    <p>The token is a row in the <code>invites</code> table (owned by <code>onbod</code>). <code>target_glob</code> picks which group the redeemer lands in &mdash; for example <code>corp/eng/*</code> or a specific folder. <code>--max-uses</code> defaults to 1; <code>--expires</code> is a Go duration like <code>72h</code>. Omit it and the token never expires.</p>
+    <p>The recipient opens the link, picks an OAuth provider (GitHub, Google, Discord, Telegram widget &mdash; whichever the instance has configured), and <code>onbod</code> writes an <code>auth_users</code> row keyed by the returned <strong>sub</strong>. See <a href="../concepts/auth.html">auth</a> for what a sub is and how linking works.</p>
+
+    <h2>admission queue</h2>
+    <p>When <code>ONBOARDING_ENABLED=1</code>, a new JID that hits the instance without an invite doesn&rsquo;t go straight into a group. <code>onbod</code> sends an auth link via <code>gated</code>&rsquo;s outbound API and writes the user into the queue.</p>
+    <p>The queue is gated by <code>ONBOARDING_GATES</code> &mdash; a list of rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
+    <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../concepts/scopes.html">dashd</a> or by adjusting gate config.</p>
+
+    <h2>SetupGroup writes a group</h2>
+    <p>Once a user is approved (via invite or queue), <code>onbod</code> calls <code>container.SetupGroup(cfg, folder, prototype)</code>. That function is the only correct way to create a group &mdash; never <code>mkdir</code> a folder under <code>groups/</code> by hand.</p>
+    <p>It creates the group directory plus <code>logs/</code>, copies the prototype tree if one is configured (<code>ONBOARDING_PROTOTYPE</code>), then runs <code>seedGroupDir</code>:</p>
+    <ul>
+      <li><code>.claude/skills/</code> &mdash; every directory under <code>ant/skills/</code> with a valid name is copied in. See <a href="../concepts/skills.html">skills</a>.</li>
+      <li><code>.claude/CLAUDE.md</code> &mdash; copied from <code>ant/CLAUDE.md</code>.</li>
+      <li><code>.claude/.claude.json</code> &mdash; seeded with a per-folder user id (sha256 of <code>arizuko:&lt;folder&gt;</code>).</li>
+      <li>Ownership chowned to uid 1000 so the in-container <code>node</code> user can write.</li>
+    </ul>
+    <p>Skipping <code>SetupGroup</code> produces a folder the agent can&rsquo;t use: no skills, no settings, wrong ownership. Everything onbod does for a brand-new user funnels through this one call.</p>
+
+    <h2>second-JID auto-link</h2>
+    <p>A user who already has a world and shows up on a second platform &mdash; same human, new JID &mdash; doesn&rsquo;t re-onboard. <code>onbod</code> detects the existing canonical sub via the OAuth callback and links the new JID to the existing world. No queue, no new group.</p>
+
+    <h2>limits and lifetime</h2>
+    <p>Invite tokens enforce <code>max_uses</code> at redemption: the <code>UsedCount</code> column increments, and <code>RevokeInvite</code> marks them dead. Expired tokens (<code>expires_at &lt; now</code>) are refused with an error. Gate daily limits reset on UTC day boundaries &mdash; the queue counts admissions whose <code>queued_at</code> falls in the current day.</p>
+
+    <h2>go deeper</h2>
+    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/A-auth-consolidated.md">specs/5/A-auth-consolidated.md</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

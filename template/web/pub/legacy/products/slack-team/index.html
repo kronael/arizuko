@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slack team agent — arizuko</title>
+    <link rel="stylesheet" href="../../assets/hub.css" />
+    <style>
+      .prose p {
+        margin: 0.6em 0;
+      }
+      .prose ul {
+        margin: 0.4em 0 0.8em 1.2em;
+      }
+      .prose li {
+        margin: 0.3em 0;
+      }
+      .prose pre {
+        margin: 0.6em 0;
+      }
+      .lede {
+        font-size: 1.05em;
+        color: var(--fg);
+        margin: 0.4em 0 1em;
+      }
+      .back {
+        font-size: 0.85em;
+      }
+      .callout {
+        border-left: 3px solid var(--accent, #888);
+        padding: 0.4em 0.8em;
+        margin: 1em 0;
+        background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="../../">arizuko</a> &rsaquo; products &rsaquo; Slack team agent
+      </p>
+      <h1>Slack team agent</h1>
+
+      <p class="lede">
+        One agent in a Slack channel, with channel-scoped persona and thread
+        context but per-teammate memory, grants, and private web chat.
+      </p>
+
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Channel as workspace.</strong> A Slack channel maps to an
+          arizuko group folder. The product ships its base persona and rules in
+          <code>~/.claude/CLAUDE.md</code>; the channel&rsquo;s own
+          <code>~/CLAUDE.md</code> overrides and extends them &mdash; allowed
+          tools, citation rules, refusals, voice for this channel. #eng-support
+          behaves differently from #design from #incidents. The folder mounts at
+          <code>/dav/&lt;channel&gt;/</code> over WebDAV &mdash; edit in Finder,
+          <code>rclone</code>, or any editor.
+        </li>
+        <li>
+          <strong>Per-user memory.</strong> The agent maintains a memory file
+          per teammate (<code>users/&lt;channel&gt;-&lt;id&gt;.md</code> inside
+          the channel folder) &mdash; preferences, recurring tasks, prior
+          conclusions. Alice has hers, Bob has his. (Per-user
+          <em>secrets</em> &mdash; distinct from memory &mdash; are spec 9/11,
+          not yet shipped; folder-scoped secrets work today.)
+        </li>
+        <li>
+          <strong>Per-user grants.</strong> Per-user grant rules decide which
+          actions each member can ask the agent to take. A teammate&rsquo;s
+          sub-folder (e.g. <code>eng/alice/</code>) inherits from the channel
+          and overrides only what differs &mdash; tweak one skill, keep
+          everything else.
+        </li>
+        <li>
+          <strong>Linked identities.</strong> GitHub, Google, Discord, and
+          Telegram logins resolve to the same user record so the same person
+          reaches the same memory and grants across surfaces.
+        </li>
+        <li>
+          <strong>Private web workspace.</strong> The same channel exposes a
+          token-bound <a href="../../concepts/tokens.html">chat URL</a>
+          (<code>/chat/&lt;token&gt;/</code>) &mdash; a browser chat against the
+          same agent. Take the conversation off Slack onto a phone or laptop
+          without losing context.
+        </li>
+        <li>
+          <strong>Operator dashboard.</strong> <code>/dash/</code> for grants,
+          routing, scheduled tasks, admission queue, and per-channel health.
+        </li>
+        <li>
+          <strong>Customisable, upgradable in place.</strong> Persona, skills,
+          and channel rules are plain Markdown edited via WebDAV or chat. Each
+          release ships migrations the agent applies as a per-group 3-way merge,
+          preserving local edits.
+        </li>
+      </ul>
+
+      <h2>example: shared thread, user-scoped state</h2>
+      <pre><code>#eng-support &middot; thread
+
+  alice  @bot summarize the fix from the cold-start runbook for this thread
+  bot    Bundle growth after deploy is coming from broad SDK imports.
+         Recommended: switch back to per-service imports.
+         source: /docs/runbooks/lambda-cold-start.md:67
+
+  bob    @bot save that conclusion to my notes
+  bot    Wrote notes/lambda-cold-start.md in your user area.
+
+  alice  @bot remember: prefer per-service imports for any new lambda
+  bot    Saved to your memory.
+</code></pre>
+      <p>
+        Same thread, same channel <code>CLAUDE.md</code>, different resolved
+        user state. The answer is visible to the team; Bob&rsquo;s write lands
+        in Bob&rsquo;s user area; Alice&rsquo;s preference lands in her memory
+        file. Shared deliberation, user-scoped state. None of Bob&rsquo;s notes
+        are visible to Alice; none of either user&rsquo;s memory leaks into the
+        channel&rsquo;s shared context.
+      </p>
+
+      <h2>how teammates use it</h2>
+      <ul>
+        <li>
+          <strong>AI sidebar pane.</strong> Click the AI icon in Slack
+          to open a private pane against the channel agent &mdash;
+          suggested-prompt buttons, a per-pane title, and full channel
+          context. Details:
+          <a href="../../concepts/slack-pane.html">slack pane</a>.
+        </li>
+        <li>
+          <strong>In a channel.</strong> The bot stays quiet by default.
+          <code>@bot</code> mentions fire a turn. With the recommended
+          routing rule (see setup), channel chatter lands in
+          <code>#observe</code> &mdash; agent reads for context but
+          doesn&rsquo;t reply unless called on.
+        </li>
+        <li>
+          <strong>In a thread.</strong> Replying to one of the bot&rsquo;s
+          messages counts as a mention &mdash; the agent answers in the
+          same thread, with the thread&rsquo;s history as context.
+        </li>
+        <li>
+          <strong>In a DM.</strong> Every message is for the bot. No
+          mention needed; replies come back in the same DM.
+        </li>
+        <li>
+          <strong>File uploads.</strong> Drop a file on the bot or in a
+          mentioned thread. The agent reads it via the file-read skill
+          and replies in-thread.
+        </li>
+        <li>
+          <strong>Reactions.</strong> An emoji reaction on a bot message
+          can fire a turn if the route table is set up for it &mdash;
+          handy for &ldquo;thumbs up to confirm&rdquo; flows.
+        </li>
+      </ul>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> Conversation history, channel files,
+          per-user memory, channel-scoped secrets, agent state &mdash; all live
+          under <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code> of the directory; no DB dump.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> Slack for bot traffic;
+          Anthropic for model calls. Any extra agent egress goes through
+          <a href="../../crackbox/">crackbox</a> and only reaches hosts you
+          allowlist per channel.
+        </li>
+        <li>
+          <strong>Channel-scoped secrets.</strong> API keys for tools the agent
+          calls live in the <code>secrets</code> table (plaintext at rest;
+          operator trusts disk + FS perms). Folder-scoped values are merged into
+          the container's spawn env; Slack channels get folder secrets only
+          (per-user overlay is 1:1-chat only).
+        </li>
+        <li>
+          <strong>Channel boundary.</strong> A teammate in #eng-support sees
+          that channel&rsquo;s context and their own user area; #design&rsquo;s
+          files and persona are inaccessible unless granted explicitly.
+        </li>
+      </ul>
+
+      <h2>per-user features (optional)</h2>
+      <ul>
+        <li>
+          <strong>Per-teammate memory file.</strong> Auto-created on a
+          teammate&rsquo;s first message; keyed by Slack user ID. Not
+          shared with the channel; not visible to other teammates.
+          Works without any sign-in &mdash; Slack workspace membership
+          is the fence.
+        </li>
+        <li>
+          <strong>OAuth sign-in (optional).</strong> A teammate who
+          signs in at <code>/auth/login</code> with GitHub or Google
+          links that identity to their Slack user. Memory and grants
+          then survive across surfaces: the same person reaches the
+          same notes from the web chat, from a DM, or from a different
+          channel.
+        </li>
+        <li>
+          <strong>Per-user secrets.</strong> Spec
+          <a href="../../concepts/secrets.html">9/11</a> &mdash; the
+          <code>arizuko user-secret</code> CLI exists today, but the
+          full broker model (per-tool, audit-logged) is not yet shipped.
+          For now, secrets are folder-scoped.
+        </li>
+      </ul>
+
+      <h2>same shape on Discord</h2>
+      <p>
+        Most of this maps to Discord 1:1 — guild channels behave like
+        Slack channels (room JID, per-channel <code>CLAUDE.md</code>,
+        per-user memory), threads behave like Slack threads. Three
+        deltas worth flagging:
+      </p>
+      <ul>
+        <li>
+          <strong>No AI sidebar.</strong> Discord has no equivalent of
+          Slack's assistant pane. Suggested-prompt buttons land on
+          Discord via interaction components (different mechanism, not
+          yet ported to <code>discd</code>). DM + mention flow works
+          the same.
+        </li>
+        <li>
+          <strong>Mentions look different.</strong> Slack uses
+          <code>&lt;@USERID&gt;</code> in body; Discord uses
+          <code>&lt;@123…&gt;</code>. Both are normalized to
+          <code>@&lt;assistant-name&gt;</code> before reaching the agent.
+        </li>
+        <li>
+          <strong>Routing JIDs differ.</strong> Slack:
+          <code>slack:T1234/channel/C5678</code>. Discord:
+          <code>discord:guild/channel</code>. Same grant primitive,
+          different namespace.
+        </li>
+      </ul>
+      <p>
+        Run the same product over both: install both adapters, route
+        each channel to the same folder, agent doesn't care.
+      </p>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create acme
+cd /srv/data/arizuko_acme
+$EDITOR .env             # set Slack/Discord/Telegram tokens; enable the adapters you want
+arizuko run acme
+
+# in Slack:
+#   create the Slack App, set bot token + signing secret in .env
+#   subscribe events to https://&lt;your-host&gt;/slack/events
+#   invite the bot to a channel; teammates sign in via OAuth at /auth/login
+#   linked identities resolve to the same user record; per-user state goes live</code></pre>
+      <p>
+        Full step-by-step is in the
+        <a href="../../products/slack-team/setup.html">operator setup guide</a>;
+        the <a href="../../howto/slack.html">Slack adapter how-to</a> covers
+        Slack-specific quirks. Per-channel <code>CLAUDE.md</code> override
+        lives in the channel folder; edit via WebDAV or directly on the
+        server.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../">arizuko platform overview</a> &mdash; the primitives
+          this product is built on
+        </li>
+        <li>
+          <a href="../../concepts/grants.html">grants</a> &mdash; per-user and
+          per-group action scoping
+        </li>
+        <li>
+          <a href="../../concepts/slack-pane.html">slack pane</a> &mdash;
+          the AI sidebar surface, pane-open events, suggested prompts
+        </li>
+        <li>
+          <a href="../../concepts/personas.html">personas</a> &mdash;
+          how voice + skills + frontmatter shape one channel&rsquo;s agent
+        </li>
+        <li>
+          <a href="../../howto/slack.html">Slack adapter how-to</a> &mdash;
+          Slack-specific quirks and verification steps
+        </li>
+        <li>
+          <a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers,
+          account linking, identity resolution
+        </li>
+        <li>
+          <a href="../../concepts/webdav.html">webdav</a> &mdash; mounting the
+          channel workspace
+        </li>
+        <li>
+          <a href="../../crackbox/">crackbox</a> &mdash; per-channel egress
+          isolation
+        </li>
+        <li>
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
+          first channel, first invite
+        </li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../../assets/hub.js"></script>
+  </body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gated &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; gated</p>
+    <h1>gated</h1>
+
+    <h2>What it is</h2>
+    <p>gated is the gateway daemon. One Go binary that owns <code>messages.db</code>, runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
+
+    <p>It is the only daemon that runs SQL migrations. Other daemons connect to the same SQLite file but never write to the schema.</p>
+
+    <h2>Why it exists</h2>
+    <p>Adapters (Telegram, Slack, WhatsApp, web&hellip;) need somewhere to post inbound messages and pick up outbound replies. Agent containers need an MCP socket to call tools and submit turns. A scheduler needs a place to drop future messages. All those needs collapse to one writer with one schema.</p>
+
+    <p>Without gated nothing has a backend. Adapters cannot register, the poll loop never fires, no container ever spawns, the dashboard reads stale rows, and the schema drifts the moment two daemons each try to migrate it. gated centralises the writes so the rest of the system can stay thin.</p>
+
+    <h2>The loop</h2>
+    <p>On startup gated opens <code>$STORE_DIR/messages.db</code>, runs every migration in <code>store/migrations/</code>, brings up the HTTP server, and enters the gateway poll loop. Each tick:</p>
+
+    <ol>
+      <li>Read <code>messages</code> rows newer than the last cursor.</li>
+      <li>Resolve each row to a group via the <code>routes</code> table.</li>
+      <li>If the route is <code>#observe</code>, store-only. Otherwise enqueue a container run for that group.</li>
+      <li>The container talks back over its MCP socket; agent output lands as outbound rows; the adapter picks them up via its registered callback.</li>
+    </ol>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>adapters (teled, slakd, webd, &hellip;)
+        |  POST /v1/messages          (signed by CHANNEL_SECRET)
+        v
+      gated  ----&gt;  messages.db  (single writer, WAL)
+        |
+        |  spawn per-group container
+        v
+      arizuko-ant container
+        |  MCP over unix socket
+        v
+      gated /v1/outbound  ----&gt;  adapter callback URL</code></pre>
+    </div>
+
+    <p>Inputs: HTTP from adapters on <code>$API_PORT</code>; MCP from agent containers on per-group unix sockets under <code>$HOST_DATA_DIR/ipc/&lt;folder&gt;/</code>. Outputs: spawned <code>arizuko-ant</code> containers, outbound rows in the DB, HTTP callbacks back to each registered adapter.</p>
+
+    <p>Hard deps: a writable data dir, Docker (for the container runner), and <code>$CONTAINER_IMAGE</code> built and present locally.</p>
+
+    <h2>Cold-tier resources</h2>
+    <p>Beyond the message bus, gated owns the slow-changing config rows &mdash; groups, <code>acl</code>, <code>acl_membership</code>, routes, <code>web_routes</code>, scheduled tasks, secrets, network rules. Each is one Go struct registered with the <code>resreg</code> engine. From that single struct the engine serves four surfaces that cannot drift, because they all read the same fields:</p>
+    <ul>
+      <li>REST CRUD at <code>/v1/&lt;name&gt;</code> &mdash; list, create, update, delete.</li>
+      <li>MCP resources for agents.</li>
+      <li>A YAML document for <code>arizuko export</code> / <code>arizuko apply</code>.</li>
+      <li>An OpenAPI 3.1 schema at <a href="../reference/openapi.html"><code>/openapi.json</code></a>.</li>
+    </ul>
+    <p>Declared foreign keys keep the rows honest: deleting a group cascades to its <code>web_routes</code> and <code>route_tokens</code>, so URL routes pinned to a removed group go with it. See <a href="../reference/openapi.html">reference/openapi</a> for the per-daemon endpoints and <a href="../reference/cli.html#manifest">reference/cli</a> for the manifest commands.</p>
+
+    <h2>Standalone usage</h2>
+    <p>Yes. gated is a plain Go binary that needs a data dir and an env file. The arizuko CLI generates a compose file that runs gated next to its adapters, but the daemon does not require compose.</p>
+
+    <pre><code># build
+make build              # produces ./gated
+
+# seed a data dir
+mkdir -p /srv/data/myinstance
+cat &gt; /srv/data/myinstance/.env &lt;&lt;EOF
+CHANNEL_SECRET=$(openssl rand -hex 32)
+STORE_DIR=/srv/data/myinstance/store
+HOST_DATA_DIR=/srv/data/myinstance
+CONTAINER_IMAGE=arizuko-ant:latest
+API_PORT=8080
+EOF
+
+# run
+cd /srv/data/myinstance &amp;&amp; /path/to/gated</code></pre>
+
+    <p>gated reads <code>.env</code> from its working directory (via <code>core.LoadConfig</code>), so always <code>cd</code> into the data dir before launching it. <code>GET /health</code> returns 200 once the API server is up and the DB is reachable.</p>
+
+    <h2>Key env vars</h2>
+    <ul>
+      <li><code>API_PORT</code> &mdash; HTTP listen port (default <code>8080</code>).</li>
+      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with every adapter; signs <code>/v1/*</code> requests.</li>
+      <li><code>STORE_DIR</code> &mdash; directory holding <code>messages.db</code>.</li>
+      <li><code>HOST_DATA_DIR</code> / <code>HOST_APP_DIR</code> &mdash; paths bind-mounted into spawned containers.</li>
+      <li><code>CONTAINER_IMAGE</code> &mdash; image used for per-group agent runs.</li>
+      <li><code>CONTAINER_TIMEOUT</code>, <code>IDLE_TIMEOUT</code>, <code>MAX_CONCURRENT_CONTAINERS</code> &mdash; runner caps.</li>
+    </ul>
+
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><code>gated/README.md</code> &mdash; tables owned, federated <code>/v1/*</code> surface, health signal.</li>
+      <li><code>gateway/README.md</code> &mdash; the poll loop, per-turn XML envelope, mute mode.</li>
+      <li><code>store/README.md</code> &mdash; schema, migrations, public API.</li>
+      <li><code>ARCHITECTURE.md</code> &mdash; full message flow and container lifecycle.</li>
+      <li><a href="../components/webd.html">components/webd</a> &mdash; an adapter that talks to gated like every other.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

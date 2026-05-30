@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slack team agent setup — arizuko</title>
+    <link rel="stylesheet" href="../../assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
+      .callout {
+        border-left: 3px solid var(--accent, #888);
+        padding: 0.4em 0.8em;
+        margin: 1em 0;
+        background: var(--callout-bg, rgba(127, 127, 127, 0.06));
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="../../">arizuko</a> &rsaquo;
+        <a href="../../products/slack-team/">Slack team agent</a> &rsaquo; setup
+      </p>
+      <h1>Slack team agent — setup</h1>
+
+      <p class="lede">
+        Deploy one agent into a Slack channel: arizuko instance, Slack
+        App, OAuth-linked identities, optional per-teammate web chat.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A host with Docker, ports 80/443 reachable behind a TLS terminator (or run with <code>WEB_HOST</code> on a reverse proxy that handles certs).</li>
+        <li>A Slack workspace where you can install a Slack App.</li>
+        <li>The <code>arizuko</code> binary and the <code>arizuko-ant</code> agent image built locally (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access for the in-container agent.</li>
+      </ul>
+
+      <h2>1. seed the instance</h2>
+      <pre><code>arizuko create acme --product slack-team
+cd /srv/data/arizuko_acme
+$EDITOR .env</code></pre>
+      <p>
+        <code>arizuko create --product slack-team</code> seeds the data
+        dir at <code>/srv/data/arizuko_acme/</code> with the slack-team
+        product applied: <code>main</code> group gets the slack-team
+        <code>PERSONA.md</code>, <code>CLAUDE.md</code> overlay, and a
+        starter <code>facts/</code> dir. Plus the default
+        <code>.env</code> and the <code>web/</code> tree copied from
+        <code>template/web/</code>. Without <code>--product</code> the
+        instance comes up with the generic agent persona; the rest of
+        this guide assumes you used the product flag.
+      </p>
+
+      <h2>2. fill in <code>.env</code></h2>
+      <p>The Slack-team product needs at least these keys set:</p>
+      <pre><code># Identity + secrets
+ASSISTANT_NAME=acme              # agent display name
+CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and gated
+AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
+WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
+
+# Slack adapter
+SLACK_BOT_TOKEN=xoxb-…           # from the Slack App "OAuth &amp; Permissions" page
+SLACK_SIGNING_SECRET=…           # from the Slack App "Basic Information" page
+
+# OAuth providers for linked identities (any subset)
+GITHUB_CLIENT_ID=…
+GITHUB_CLIENT_SECRET=…
+GOOGLE_CLIENT_ID=…
+GOOGLE_CLIENT_SECRET=…
+DISCORD_CLIENT_ID=…
+DISCORD_CLIENT_SECRET=…</code></pre>
+      <p>
+        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        See <a href="../../reference/env.html">reference / env</a> for the
+        complete list and the daemons that read each one.
+      </p>
+
+      <h2>3. create the Slack App</h2>
+      <p>In <a href="https://api.slack.com/apps">api.slack.com/apps</a>, create a new app (from scratch) in your workspace, then:</p>
+      <ul>
+        <li><strong>OAuth &amp; Permissions.</strong> Add bot scopes <code>channels:history</code>, <code>channels:read</code>, <code>groups:history</code>, <code>groups:read</code>, <code>im:history</code>, <code>im:read</code>, <code>mpim:history</code>, <code>mpim:read</code>, <code>chat:write</code>, <code>chat:write.public</code>, <code>reactions:read</code>, <code>reactions:write</code>, <code>files:read</code>, <code>files:write</code>, <code>users:read</code>, <code>assistant:write</code> (required for the AI sidebar pane). Install to your workspace and copy the Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>.</li>
+        <li><strong>Event Subscriptions.</strong> Enable, set the request URL to <code>https://&lt;WEB_HOST&gt;/slack/events</code>, subscribe to bot events <code>message.channels</code>, <code>message.groups</code>, <code>message.im</code>, <code>message.mpim</code>, <code>reaction_added</code>, <code>member_joined_channel</code>. Do <em>not</em> subscribe to <code>app_mention</code> &mdash; slakd derives <code>verb=mention</code> from message text and the duplicate event would double-fire.</li>
+        <li><strong>Basic Information.</strong> Copy the Signing Secret into <code>SLACK_SIGNING_SECRET</code>.</li>
+      </ul>
+      <p>
+        The <code>/slack/</code> path is wired into proxyd by
+        <code>template/services/slakd.toml</code> &mdash; nothing to edit in
+        compose generation. Slack's request signature is verified by
+        <code>slakd</code> using the signing secret.
+      </p>
+
+      <h3>enable the AI sidebar (optional)</h3>
+      <p>
+        The AI sidebar is the per-user pane behind Slack&rsquo;s AI
+        icon &mdash; suggested-prompt buttons, a per-pane title, and
+        full channel context. It requires the <code>assistant:write</code>
+        scope (already in the list above). In the Slack App &rarr;
+        <em>Agents &amp; AI Apps</em>, toggle &ldquo;Agent or
+        Assistant&rdquo; on. Step-by-step with screenshots:
+        <a href="../../howto/slack.html#step-8">Slack adapter how-to,
+        step 8</a>. Verify by clicking the AI icon next to the bot in
+        Slack &mdash; a pane should open.
+      </p>
+      <p>
+        The agent steers the pane at runtime via the
+        <code>pane_set_title</code> and <code>pane_set_prompts</code>
+        MCP tools — title and suggested prompts can change per turn,
+        per channel, per context. Branding is the env var
+        <code>ARIZUKO_ASSISTANT_NAME</code> (instance-wide). No
+        static per-folder frontmatter; runtime steering + instance
+        env covers both axes.
+      </p>
+
+      <h2>4. run the instance</h2>
+      <pre><code>arizuko run acme</code></pre>
+      <p>
+        This generates a Docker Compose file in
+        <code>/srv/data/arizuko_acme/compose.yml</code> and runs it.
+        For long-running production, install a systemd unit; see
+        <a href="../../howto/">getting started</a> for the template.
+      </p>
+
+      <h2>5. invite teammates</h2>
+      <p>
+        Plain channel use needs no sign-in. The route rule that maps
+        the Slack channel to an arizuko group is the auth fence:
+        anyone the workspace lets into the channel can talk to the
+        bot, and per-channel grants gate what the agent will do.
+        OAuth login is only needed for surfaces that key off a
+        cross-platform user identity &mdash; the private web chat,
+        per-user secrets (<a href="../../concepts/secrets.html">spec 9/11</a>),
+        and merging memory across Slack + GitHub + Discord. To opt
+        in, a teammate signs in at
+        <code>https://&lt;WEB_HOST&gt;/auth/login</code>; subsequent
+        logins on any linked provider resolve to the same
+        <code>auth_users</code> row.
+      </p>
+      <p>
+        Invite their primary Slack/web identity into the channel group
+        with the <code>invite</code> CLI:
+      </p>
+      <pre><code>arizuko invite acme create 'slack:user/U*'  --max-uses 20 --expires 14d
+arizuko invite acme list</code></pre>
+      <p>
+        Or open access via onboarding: set
+        <code>ONBOARDING_ENABLED=true</code> and
+        <code>ONBOARDING_PLATFORMS=slack</code> in <code>.env</code>.
+        Teammates who DM the bot land in the admission queue; the
+        operator approves from <code>/dash/</code>.
+      </p>
+
+      <h2>6. verify</h2>
+      <ul>
+        <li><code>sudo systemctl status arizuko_acme</code> (or <code>docker compose ps</code>) shows all services up.</li>
+        <li><code>curl -s https://&lt;WEB_HOST&gt;/slack/health</code> returns <code>200</code>. A <code>503 disconnected</code> means slakd is up but the Slack token is rejected &mdash; double-check the bot token and that the app is installed in the workspace.</li>
+        <li>Invite the bot to a channel (<code>/invite @acme</code>), then send <code>@acme hello</code>. The agent replies in-thread.</li>
+        <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator (root) &mdash; you should see the channel as a group with a route.</li>
+      </ul>
+
+      <h2>7. recommended routing default</h2>
+      <p>
+        For a workspace bot, the usual shape is &ldquo;answer every DM,
+        stay quiet in channels and mpims unless @-mentioned.&rdquo; In
+        the root agent (or via <code>/dash/</code> &rarr; Routing):
+      </p>
+      <pre><code>seq  match                                          target
+-2   chat_jid=slack:*/dm/*                          main
+-1   chat_jid=slack:*/channel/* verb=mention        main
+-1   chat_jid=slack:*/group/*   verb=mention        main
+0    chat_jid=slack:*/channel/*                     main#observe
+0    chat_jid=slack:*/group/*                       main#observe</code></pre>
+      <p>
+        Channel chatter still lands in <code>main</code> under
+        <code>#observe</code> so the agent has context on the next
+        mention, but no turn fires until someone calls on it. Full
+        recipe and Discord variant:
+        <a href="../../howto/asymmetric-channels.html#mention-only">asymmetric channels</a>.
+      </p>
+
+      <h2>8. tune per channel</h2>
+      <p>
+        Each Slack channel maps to an arizuko group folder. To
+        customise voice, allowed tools, or skills for one channel,
+        edit its <code>~/CLAUDE.md</code> &mdash; either via WebDAV at
+        <code>https://&lt;WEB_HOST&gt;/dav/&lt;channel&gt;/CLAUDE.md</code>
+        or directly on disk under
+        <code>/srv/data/arizuko_acme/groups/&lt;channel&gt;/</code>.
+      </p>
+      <p>
+        For per-teammate scope (memory file, grants), the agent
+        writes to the channel's <code>users/</code> subfolder
+        automatically &mdash; you do not seed it. Skill toggles and
+        grant rules are managed from <code>/dash/</code> or via the
+        <code>arizuko group grant</code> CLI.
+      </p>
+
+      <div class="callout">
+        <strong>Channel-scoped secrets.</strong> Tool API keys an
+        agent needs in one channel but not another go in the
+        <code>secrets</code> table &mdash; set with
+        <code>arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</code>.
+        They merge into the agent container's env at spawn time;
+        nothing leaks to other channels.
+      </div>
+
+      <h2>9. adding more channels</h2>
+      <p>
+        Each Slack channel becomes its own arizuko group folder.
+        Map a new channel ID to a folder:
+      </p>
+      <pre><code>arizuko group acme add 'slack:T012ABCD/channel/C0HJKL456' eng-support</code></pre>
+      <p>
+        The JID matches the route table (see step 7). For a
+        per-channel persona or skill set, edit
+        <code>~/CLAUDE.md</code> in the new folder &mdash; over
+        WebDAV at
+        <code>https://&lt;WEB_HOST&gt;/dav/eng-support/CLAUDE.md</code>
+        or directly under
+        <code>/srv/data/arizuko_acme/groups/eng-support/</code>.
+      </p>
+      <p>
+        Per-channel grants &mdash; who can run which actions in this
+        folder &mdash; live in the <code>acl</code> table. Operator
+        grants are admin-scoped via
+        <code>arizuko group acme grant &lt;sub&gt; '&lt;pattern&gt;'</code>;
+        finer per-role and per-user rules
+        (<code>interact</code>, <code>mcp:&lt;tool&gt;</code>, deny
+        effects) are managed from <code>/dash/</code> &rarr; Grants
+        today. Full rule shape:
+        <a href="../../concepts/grants.html">grants</a>.
+        CLI reference: <a href="../../reference/cli.html">cli</a>.
+      </p>
+
+      <h3>autoviv (optional)</h3>
+      <p>
+        If you don&rsquo;t want to run <code>arizuko group add</code>
+        for every new channel, set a catch-all route to a tier-1
+        agent (e.g. <code>atlas</code>) and add an autoviv paragraph
+        to that agent&rsquo;s <code>CLAUDE.md</code>. New channels
+        the bot is invited to land in <code>atlas</code> on first
+        message; the agent calls <code>register_group</code> itself
+        and the next message in that channel routes to its own
+        folder. Recipe and limits:
+        <a href="../../concepts/autoviv.html">autoviv</a>.
+      </p>
+
+      <h2>10. multi-workspace</h2>
+      <p>
+        One <code>slakd</code> process talks to one workspace &mdash;
+        the bot token is read once at startup
+        (<code>slakd/main.go</code> calls
+        <code>chanlib.MustEnv("SLACK_BOT_TOKEN")</code>). Two ways
+        to cover more than one workspace.
+      </p>
+
+      <h3>option A &mdash; one arizuko instance, multiple slakd</h3>
+      <p>
+        Drop a second service TOML beside the default
+        <code>slakd.toml</code>. The compose generator picks up every
+        <code>services/*.toml</code> file
+        (<code>compose/compose.go</code> reads <code>services/</code>
+        in lexical order) and names each container
+        <code>arizuko_&lt;file&gt;_&lt;flavor&gt;</code>, so
+        <code>slakd-acme.toml</code> and <code>slakd-beta.toml</code>
+        run side by side. This is the shipped pattern in
+        <a href="https://github.com/kronael/arizuko/blob/main/specs/5/R-multi-account.md">specs/5/R-multi-account.md</a>.
+        Files named <code>&lt;adapter&gt;-&lt;label&gt;.toml</code>
+        share the base adapter's <code>env_file</code> (see
+        <code>envFileFor</code>) &mdash; per-workspace tokens go in
+        the TOML's <code>[environment]</code> block, not in
+        <code>.env</code>.
+      </p>
+      <pre><code># /srv/data/arizuko_acme/services/slakd-beta.toml
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+SLACK_BOT_TOKEN = "xoxb-beta-workspace-token"
+SLACK_SIGNING_SECRET = "beta-signing-secret"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+ASSISTANT_NAME = "${ASSISTANT_NAME}"
+LISTEN_ADDR = ":8080"
+LISTEN_URL = "http://slakd-beta:8080"
+
+[[proxyd_route]]
+path = "/slack-beta/"
+backend = "http://slakd-beta:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pre>
+      <p>
+        Set the second Slack App's Event Subscription URL to
+        <code>https://&lt;WEB_HOST&gt;/slack-beta/events</code> &mdash;
+        distinct path keeps the two webhooks separate. Each
+        workspace's JIDs already carry its team ID
+        (<code>slack:T012/channel/C0HJK</code>, see
+        <code>slakd/jid.go</code>), so route rules and group
+        mappings stay per-workspace without extra plumbing.
+        <code>arizuko run acme</code> then brings both containers
+        up; restart the instance after dropping the file.
+      </p>
+      <p>
+        Pick this when the workspaces belong to the same operator
+        and should share state &mdash; one Anthropic key, one
+        <code>/dash/</code>, one <code>/auth/</code> OAuth setup,
+        one <code>messages.db</code>, one set of users that can
+        sign in across workspaces. The cost is shared spend and
+        shared blast radius: a bad skill or an Anthropic outage
+        hits every workspace at once.
+      </p>
+
+      <h3>option B &mdash; one arizuko instance per workspace</h3>
+      <p>
+        Run <code>arizuko create acme</code> and
+        <code>arizuko create beta</code> as separate instances on
+        the same host. Each gets its own <code>WEB_HOST</code>,
+        its own database, its own systemd unit, its own Anthropic
+        key, its own <code>/dash/</code>. Pick this for
+        per-customer isolation &mdash; one workspace's runaway
+        agent or compromised token can't reach the other.
+      </p>
+
+      <h2>11. webhook ingest (optional)</h2>
+      <p>
+        Bring external events &mdash; GitHub PRs, Linear issues,
+        Sentry alerts &mdash; into a Slack-team agent by minting a
+        <a href="../../concepts/tokens.html">hook token</a> for the
+        folder. Events arrive as messages at
+        <code>hook:&lt;folder&gt;/&lt;source&gt;</code>; the body is
+        delivered verbatim. Full recipe:
+        <a href="../../howto/webhooks.html">webhooks</a>.
+      </p>
+      <p>
+        Quick GitHub example. Mint a hook token for the engineering
+        folder and paste the URL into the repo's webhook config:
+      </p>
+      <pre><code># mint via CLI (operator) or issue_webhook (agent)
+arizuko token issue atlas/eng hook github
+# https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
+
+# in github.com/&lt;repo&gt;/settings/hooks:
+# Payload URL: https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
+# Content-Type: application/json</code></pre>
+      <p>
+        Events arrive in the <code>atlas/eng</code> folder with
+        <code>chat_jid = hook:atlas/eng/github</code> and the full
+        request body and headers preserved. Route from there to your
+        main Slack channel with a normal route rule, or let the
+        <code>atlas/eng</code> agent triage and
+        <code>escalate_group</code> to its parent when something
+        needs human attention. Cross-channel and cross-platform
+        moves use the same MCP tools the agents already share
+        (<a href="../../howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
+      </p>
+      <p>
+        webd delivers GitHub's JSON verbatim with the
+        <code>X-GitHub-Event</code> and signature headers attached.
+        Parsing and (optional) <code>X-Hub-Signature-256</code>
+        verification are skill concerns on the agent side &mdash;
+        the platform is intentionally hands-off. The URL token is
+        the bearer credential; rotate by reissue. See the
+        <a href="../../howto/webhooks.html#security-model">webhooks security model</a>.
+      </p>
+
+      <h3>email ingest</h3>
+      <p>
+        For email-as-webhook (forwarded alerts, mailing-list
+        digests), use the <code>emaid</code> adapter instead of a
+        hook token &mdash; it owns IMAP receive, SMTP send, and
+        threading by Message-ID. See
+        <a href="../../components/emaid.html">emaid</a> for the
+        connection setup. Auth-related env vars (spec 8/17) gate
+        whether inbound is treated as trusted:
+      </p>
+      <pre><code># In .env — required to mark ANY inbound as trusted
+EMAIL_TRUSTED_AUTHSERV=mx.google.com          # your upstream MX authserv-id
+EMAIL_TRUSTED_DOMAINS=mycompany.com,partner.com  # optional; empty = DMARC alone gates
+EMAIL_STRICT_AUTH=false                       # true = drop unauthenticated outright</code></pre>
+      <p>
+        Without <code>EMAIL_TRUSTED_AUTHSERV</code> set, every inbound
+        is shipped with <code>verb=untrusted</code> and the slack-team
+        <code>CLAUDE.md</code> rule routes it to quarantine. Set
+        <code>EMAIL_TRUSTED_AUTHSERV</code> to your provider's
+        authserv-id (Gmail: <code>mx.google.com</code>, Fastmail:
+        <code>mail.fastmail.com</code>) to enable DMARC-pass trust.
+        Full design: <a href="https://github.com/kronael/arizuko/blob/main/specs/8/17-emaid-auth.md">specs/8/17-emaid-auth.md</a>.
+      </p>
+
+      <h2>12. compose with support (optional)</h2>
+      <p>
+        The slack-team product is a generalist agent &mdash; it answers
+        questions, summarizes threads, files issues. For a more
+        focused experience in one particular channel (say
+        <code>#eng-support</code>), compose the
+        <a href="../../products/">support</a> product as a child group
+        under the slack-team root. The result: most channels keep the
+        slack-team persona; <code>#eng-support</code> gets the
+        support persona &mdash; KB-first, cite-or-say-I-don't-know,
+        escalate-when-stuck.
+      </p>
+
+      <h3>why compose, don't replace</h3>
+      <p>
+        Both products ship the same default skillset (diary, facts,
+        recall-memories, users, issues, web). They differ in
+        <code>PERSONA.md</code> + <code>CLAUDE.md</code> only. By
+        running them as sibling groups under one Slack instance you
+        get one bot identity in Slack (operator manages one app,
+        one token, one onboarding flow) but two distinct behaviors,
+        scoped by channel.
+      </p>
+
+      <h3>setup</h3>
+      <p>
+        With slack-team already deployed (sections 1&ndash;6 above
+        done), add a support sub-group:
+      </p>
+      <pre><code># 1. create the sub-group with the support product seed
+arizuko group acme add 'slack:T123/channel/C456' main/support --product support
+
+# 2. populate facts/ &mdash; copy your KB markdown into
+#    /srv/data/arizuko_acme/groups/main/support/facts/
+#    (one file per topic; the support persona's first move is /recall-memories)
+$EDITOR /srv/data/arizuko_acme/groups/main/support/facts/<topic>.md
+
+# 3. (optional) override the auto-seeded route to fire on mention only,
+#    not on every msg. add_route takes ONE 'route' arg with the rule as
+#    JSON (seq lower = higher priority; the bare 'add' above writes
+#    seq=0; -3 wins over it).
+mcpc @s tools-call add_route \
+  route:='"{\"seq\":-3,\"match\":\"chat_jid=slack:T123/channel/C456 verb=mention\",\"target\":\"main/support\"}"'
+mcpc @s tools-call add_route \
+  route:='"{\"seq\":-2,\"match\":\"chat_jid=slack:T123/channel/C456\",\"target\":\"main/support#observe\"}"'</code></pre>
+      <p>
+        After <code>add_route</code> calls the agent has full per-channel
+        scope: messages from <code>C456</code> hit
+        <code>main/support</code>'s session, with its persona, its
+        memory, its <code>facts/</code> dir &mdash; isolated from the
+        rest of slack-team. Threading state is per-group so
+        cross-channel context doesn't leak.
+      </p>
+
+      <h3>what each piece gives you</h3>
+      <ul>
+        <li>
+          <strong>slack-team (root, <code>main</code>):</strong>
+          generalist voice, answers any channel without a more specific
+          route. Persona at
+          <code>groups/main/PERSONA.md</code>.
+        </li>
+        <li>
+          <strong>support (child, <code>main/support</code>):</strong>
+          fact-cite voice, refuses to guess, escalates to the parent
+          group when stuck. Persona at
+          <code>groups/main/support/PERSONA.md</code>. Behavior rules
+          (KB lookup order, escalation procedure, citation format)
+          at <code>groups/main/support/CLAUDE.md</code>.
+        </li>
+        <li>
+          <strong>Routes</strong> are the auth fence: a Slack user
+          who can post in <code>#eng-support</code> talks to the
+          support persona; the same user in <code>#general</code>
+          talks to the slack-team persona. Grants on
+          <code>main/support</code> can further constrain what the
+          support agent will do per-user.
+        </li>
+        <li>
+          <strong>WebDAV</strong>: each group's <code>facts/</code>,
+          <code>PERSONA.md</code>, <code>CLAUDE.md</code> are
+          editable at <code>/dav/main/</code> and
+          <code>/dav/main/support/</code>. Operators tune persona
+          per group in Finder / VS Code without docker exec.
+        </li>
+      </ul>
+
+      <h3>composing more products</h3>
+      <p>
+        Same pattern, different child folder. Add <code>main/eng</code>
+        with <code>--product pm</code> for engineering-channel
+        project-management voice; <code>main/marketing</code> with
+        <code>--product creator</code>; etc. Each child is one
+        <code>arizuko group add</code> + one route. The slack-team
+        parent stays generalist; specialized children inherit nothing
+        from it (group-level isolation by design).
+      </p>
+      <p>
+        Limits: each child runs its own container per agent turn, so
+        spawn budget matters. Tune via the parent's
+        <code>max_children</code> (default 16 from v0.40.1
+        onward) at <code>/dash/groups/main/settings</code>.
+      </p>
+
+      <h3>tradeoff: when to NOT compose</h3>
+      <p>
+        Small teams with one busy channel: the slack-team persona is
+        already capable. Composing support adds a folder, a route, a
+        facts/ to maintain &mdash; only worth it when you can name the
+        channel that needs different behavior. Start with slack-team
+        flat; promote a channel to its own sub-group when you find
+        yourself rewriting <code>main/CLAUDE.md</code> for one
+        channel's quirks.
+      </p>
+
+      <h2>common issues</h2>
+      <dl>
+        <dt><strong>Bot dropped from the channel.</strong></dt>
+        <dd>Slack removes the bot when a channel is archived or an
+        admin kicks it. Re-invite with <code>/invite @acme</code>
+        from inside the channel. No restart needed.</dd>
+
+        <dt><strong>Bot is in the channel but doesn&rsquo;t respond.</strong></dt>
+        <dd>Check two things: (1) the route table matches this
+        channel&rsquo;s JID and target is not <code>#observe</code>
+        for mentions (see step 7); (2) the calling user has at least
+        <code>interact</code> in this folder &mdash; check
+        <code>/dash/</code> &rarr; Grants.</dd>
+
+        <dt><strong>Slack token rejected / <code>/slack/health</code> returns 503.</strong></dt>
+        <dd>Token was rotated or the app was reinstalled. Copy the
+        new Bot User OAuth Token into <code>SLACK_BOT_TOKEN</code>
+        in <code>.env</code> and restart:
+        <code>sudo systemctl restart arizuko_acme</code>.</dd>
+
+        <dt><strong>AI sidebar feels sluggish.</strong></dt>
+        <dd>Slack&rsquo;s <code>assistant.threads.*</code> endpoints
+        are Tier 2 (rate-limited). Grep
+        <code>sudo journalctl -u arizuko_acme | grep 429</code> &mdash;
+        if you see throttle warnings, the agent is calling
+        <code>pane_set_status</code> / <code>pane_set_prompts</code>
+        more often than Slack allows for that workspace.</dd>
+
+        <dt><strong>Per-user memory not updating after OAuth login.</strong></dt>
+        <dd>Linkage didn&rsquo;t complete &mdash; visit
+        <code>https://&lt;WEB_HOST&gt;/auth/login</code> as the user
+        and sign in again with the provider they want linked.
+        Check <code>/dash/</code> &rarr; Users to see the resolved
+        <code>auth_users</code> row and its linked identities.</dd>
+      </dl>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../../products/slack-team/">Slack team agent &mdash; intro</a> &mdash; what teammates see</li>
+        <li><a href="../../howto/slack.html">Slack adapter how-to</a> &mdash; deeper notes on Slack-specific quirks</li>
+        <li><a href="../../concepts/grants.html">grants</a> &mdash; per-user and per-folder action scoping</li>
+        <li><a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
+        <li><a href="../../concepts/slack-pane.html">slack pane</a> &mdash; AI sidebar surface, pane events, suggested prompts</li>
+        <li><a href="../../concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
+        <li><a href="../../components/channels.html">channels (slakd)</a> &mdash; the Slack adapter daemon</li>
+        <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../../assets/hub.js"></script>
+  </body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dashd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; dashd</p>
+    <h1>dashd</h1>
+
+    <h2>What it is</h2>
+    <p>dashd is the operator dashboard: an HTMX server that renders pages over <code>messages.db</code> and allow-listed memory files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on a fixed list of markdown files under each group&rsquo;s folder.</p>
+
+    <p>Routes live at <code>/dash/*</code>. The portal at <code>/dash/</code> links to status, tasks, activity, groups, memory, and profile pages, each rendered server-side as one HTML page plus HTMX partials for live sub-views.</p>
+
+    <h2>Why it exists</h2>
+    <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works but does not scale to non-engineers and does not give a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
+
+    <p>dashd owns no tables of its own. It is an aggregator: it reads from <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, and <code>auth_users</code> &mdash; tables owned by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/V-platform-api.md</code> is to migrate those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs; dashd becomes pure client.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>operator browser
+        |
+        v   /dash/...
+        |
+      proxyd   requireAuth: JWT or refresh-token cookie
+        |      stamp X-User-Sub, X-User-Groups, HMAC sig
+        v
+      dashd    render HTML / HTMX partial
+        |      read: messages.db (today)
+        |      write: PUT|DELETE /dash/memory/{folder}/{rel}
+        v
+      filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
+    </div>
+
+    <p>dashd reads identity from signed headers set by <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
+
+    <p>Two write surfaces today. <strong>Memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, <code>episodes/</code>; reads capped at 1&nbsp;MiB; path joiner blocks symlink escape. <strong>TIER 1 admin</strong> — routes editor, groups CRUD, per-user secrets — gated by the admin check above.</p>
+
+    <h2>Standalone usage</h2>
+    <p>dashd needs a SQLite file and a port. The TIER 1 write surface refuses requests without a signed admin identity; read views still need proxyd&rsquo;s front gate to be safe on the public internet.</p>
+
+    <pre><code>export DATA_DIR=/srv/data/arizuko_demo
+export DASH_PORT=:8080
+export INSTANCE_NAME=demo
+./dashd
+# browse http://localhost:8080/dash/</code></pre>
+
+    <p><code>DATA_DIR</code> resolves the database at <code>$DATA_DIR/store/messages.db</code> and the groups tree at <code>$DATA_DIR/groups/</code>. Set <code>DB_PATH</code> to override the database location independently. <code>INSTANCE_NAME</code> appears in the portal header.</p>
+
+    <p>Health: <code>GET /health</code> returns 200 when the database is reachable. Exposing dashd directly on the public internet skips the auth gate &mdash; do not do this.</p>
+
+    <h2>The page set</h2>
+    <p>Read views (each one HTML the browser renders directly):</p>
+
+    <ul>
+      <li><code>/dash/</code> &mdash; portal index linking the other pages.</li>
+      <li><code>/dash/status/</code> &mdash; groups, sessions, channels at a glance.</li>
+      <li><code>/dash/activity/</code> &mdash; the last 50 messages across all groups.</li>
+      <li><code>/dash/tasks/</code> &mdash; scheduled tasks from <code>scheduled_tasks</code>.</li>
+      <li><code>/dash/groups/</code> &mdash; group folders with their channel routes.</li>
+      <li><code>/dash/memory/</code> &mdash; the editable markdown view per group.</li>
+      <li><code>/dash/profile/</code> &mdash; the calling user&rsquo;s <code>auth_users</code> row.</li>
+    </ul>
+
+    <p>HTMX partials (<code>tasks/x/list</code>, <code>activity/x/recent</code>) feed live sub-views.</p>
+
+    <p>TIER 1 admin surfaces (admin auth + CSRF):</p>
+
+    <ul>
+      <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>
+      <li><code>/dash/groups/new</code> + <code>/dash/groups/{folder}/settings</code> &mdash; group create / settings / delete.</li>
+      <li><code>/dash/me/secrets</code> &mdash; per-user secret set, list, delete.</li>
+      <li><code>/dash/channels/whatsapp/pair</code> &mdash; self-service WhatsApp re-pair page. Requires the <code>**</code> operator super-grant. Calls whapd <code>/v1/pair/start</code>; the pairing code is returned once, expires in 60s, rate-limited to 5/hr. Every start writes an audit row in <code>messages</code>.</li>
+    </ul>
+
+    <h2>The migration to /v1/*</h2>
+    <p>Today every page queries SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table:</p>
+
+    <ul>
+      <li><code>/dash/groups/</code> &rarr; <code>gated/v1/groups</code> + <code>gated/v1/routes</code>.</li>
+      <li><code>/dash/tasks/</code> &rarr; <code>timed/v1/tasks</code> (with a form POST for create).</li>
+      <li><code>/dash/activity/</code> &rarr; <code>gated/v1/messages?limit=50&amp;order=desc</code>.</li>
+      <li><code>/dash/profile/</code> &rarr; <code>onbod/v1/users/{sub}</code>.</li>
+    </ul>
+
+    <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
+
+    <h2>What dashd does not do</h2>
+    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="../components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../reference/env.html#dashd">reference/env &mdash; dashd</a> &mdash; full env var table.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the auth gate that sits in front.</li>
+      <li><code>specs/5/V-platform-api.md</code> &mdash; the <code>/v1/*</code> migration plan.</li>
+      <li><code>specs/4/Q-dash-memory.md</code> &mdash; memory view and edit surface.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

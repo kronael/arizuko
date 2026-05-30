@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>products — arizuko</title>
+    <link rel="stylesheet" href="../assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose li { margin: 0.3em 0; }
+      .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+      .back { font-size: 0.85em; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 1.2em; margin: 1em 0; }
+      @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+      .card {
+        border: 1px solid color-mix(in srgb, var(--dim, #888) 30%, transparent);
+        padding: 0.8em 1em;
+        border-radius: 4px;
+      }
+      .card h3 { margin: 0.1em 0 0.2em; }
+      .card .tag { font-size: 0.85em; color: var(--dim, #888); }
+      .card p { margin: 0.4em 0; }
+      .card a.links { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back"><a href="../">arizuko</a> &rsaquo; products</p>
+      <h1>products</h1>
+      <p class="lede">
+        Preconfigured agent templates: a persona, a skill set, channel
+        wiring, and an operator setup guide. Pick one, run
+        <code>arizuko create</code>, edit from there.
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <h3><a href="../products/slack-team/">Slack team agent</a></h3>
+          <p class="tag">channel: Slack &middot; shared workspace</p>
+          <p>One agent per Slack channel: channel-scoped persona and thread context, per-teammate memory and grants, optional private web chat. Linked identities across Slack, GitHub, Google, Discord, Telegram resolve to one user.</p>
+          <p><a class="links" href="../products/slack-team/">intro</a> &middot; <a class="links" href="../products/slack-team/setup.html">setup</a></p>
+        </div>
+
+        <div class="card">
+          <h3><a href="../products/reality/">Reality agent (Rhias)</a></h3>
+          <p class="tag">channel: Telegram &middot; single-user</p>
+          <p>Long-running personal agent. Holds named threads for ongoing situations across weeks; structured reflection on demand; monthly scheduled sweep over diary + threads to surface what changed.</p>
+          <p><a class="links" href="../products/reality/">intro</a> &middot; <a class="links" href="../products/reality/setup.html">setup</a></p>
+        </div>
+      </div>
+
+      <p class="dim">See <a href="../howto/">getting started</a> for the platform install before picking a product.</p>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../assets/hub.js"></script>
+  </body>
+</html>

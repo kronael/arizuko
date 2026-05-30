@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>timed &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; timed</p>
+    <h1>timed</h1>
+
+    <h2>What it is</h2>
+    <p>timed is the scheduler daemon. One Go binary that ticks every 60 seconds, claims due rows from the <code>scheduled_tasks</code> table, and inserts each task&rsquo;s prompt into <code>messages</code> as if a user had just typed it.</p>
+
+    <p>Once the message lands in the table, gated picks it up through the normal poll loop and routes it to the task&rsquo;s folder. The agent has no idea the prompt came from a clock.</p>
+
+    <h2>Why it exists</h2>
+    <p>Cron, recurring runs, and one-shot reminders all collapse to one need: drop a prompt into a folder at a future time. Keeping that loop inside gated would mix two clocks &mdash; one for inbound polling, one for scheduling &mdash; and tie cron behavior to gateway restarts.</p>
+
+    <p>A separate daemon writing to the same DB means gated stays a pure router. Without timed, no task ever fires. Cron tools (<code>schedule_task</code>, <code>pause_task</code>, &hellip;) still write rows, but nothing claims them.</p>
+
+    <h2>The loop</h2>
+    <p>Each 60-second tick:</p>
+
+    <ol>
+      <li>Atomic <code>UPDATE</code> flips every row where <code>status='active' AND next_run &le; now</code> to <code>status='firing'</code>. Two timed instances cannot double-fire the same task.</li>
+      <li>Select the claimed rows. For each, insert one row into <code>messages</code> with <code>sender='timed'</code> (or <code>timed-isolated:&lt;id&gt;</code> when the task asked for an isolated session) and the task&rsquo;s <code>chat_jid</code>.</li>
+      <li>Compute the next fire: parse the <code>cron</code> column as a 5-field cron expression in the daemon&rsquo;s <code>TZ</code>, or as a millisecond interval, or leave empty for one-shots.</li>
+      <li>Write the new <code>next_run</code> back, flip <code>status</code> to <code>active</code> (or <code>completed</code> for a fired one-shot), and append one row to <code>task_run_logs</code>.</li>
+    </ol>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>agent (or operator)
+   |  schedule_task / pause_task / &hellip;
+   v
+ scheduled_tasks  (rows with cron + next_run)
+   |
+   |  timed ticks every 60s, claims due rows
+   v
+ messages  (one row per fire, sender='timed')
+   |
+   v
+ gated  ---&gt;  routes by chat_jid  ---&gt;  agent run</code></pre>
+    </div>
+
+    <p>Inputs: <code>scheduled_tasks</code> rows written by MCP tools through gated. Outputs: synthetic <code>messages</code> rows and audit rows in <code>task_run_logs</code>.</p>
+
+    <p>Hard deps: read/write access to the same <code>messages.db</code> gated uses. No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
+
+    <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
+
+    <h2>Standalone usage</h2>
+    <p>Yes. timed is a plain Go binary that needs an SQLite file with the <code>scheduled_tasks</code> and <code>task_run_logs</code> tables already migrated &mdash; gated owns the schema, so spin up gated first (or copy its DB).</p>
+
+    <pre><code># build
+make build              # produces ./timed
+
+# run against an existing arizuko data dir
+DATA_DIR=/srv/data/myinstance TZ=Europe/Prague ./timed
+
+# or point at any sqlite DSN directly
+DATABASE=/path/to/messages.db ./timed</code></pre>
+
+    <p><code>GET /health</code> on <code>:8080</code> returns 200 when <code>db.Ping()</code> succeeds. Red flag: no rows appearing in <code>task_run_logs</code> while <code>scheduled_tasks</code> has active rows past their <code>next_run</code>.</p>
+
+    <h2>Key env vars</h2>
+    <ul>
+      <li><code>DATA_DIR</code> &mdash; resolves <code>&lt;DATA_DIR&gt;/store/messages.db</code> when <code>DATABASE</code> is unset.</li>
+      <li><code>DATABASE</code> &mdash; explicit SQLite DSN; wins over <code>DATA_DIR</code>.</li>
+      <li><code>TZ</code> &mdash; timezone used to evaluate cron expressions (default <code>UTC</code>).</li>
+    </ul>
+
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../concepts/tasks.html">concepts/tasks</a> &mdash; row anatomy, triggers, MCP tools, failure model.</li>
+      <li><code>timed/README.md</code> &mdash; tables owned, planned <code>/v1/tasks</code> surface, token contract.</li>
+      <li><code>specs/4/8-scheduler-service.md</code> &mdash; original design.</li>
+      <li><a href="../components/gated.html">components/gated</a> &mdash; the router that picks up every synthetic message.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

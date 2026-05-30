@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tasks</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>tasks</h1>
+    <p class="dim back">scheduled agent runs &middot; <a href="../concepts/">&larr; concepts</a></p>
+
+    <p class="lede">A task is a saved prompt with a schedule. When the schedule says it&rsquo;s time, the prompt lands in a folder as if a user had just typed it, and the agent answers like any other turn.</p>
+
+    <h2>what it is</h2>
+    <p>One row in the <code>scheduled_tasks</code> table = one recurring or one-shot agent run. The body is a prompt string; the trigger is either a cron expression, an interval in milliseconds, or a single future timestamp.</p>
+
+    <h2>mechanism</h2>
+    <p>The <code>timed</code> daemon ticks every 60 seconds. On each tick it claims every row where <code>status='active'</code> and <code>next_run &le; now</code>, flips them to <code>'firing'</code>, then for each claimed row inserts the prompt into the <code>messages</code> table with sender <code>timed</code> (or <code>timed-isolated:&lt;id&gt;</code>) and the task&rsquo;s <code>chat_jid</code>.</p>
+    <p>The gateway polls <code>messages</code> the same way it polls every other inbound source. It sees the new row, routes by <code>chat_jid</code>, and fires a turn. The agent has no idea this prompt came from a clock instead of a person &mdash; same code path.</p>
+    <p>After insert, <code>timed</code> writes the next <code>next_run</code> (parsed from the cron expression or added from the interval), or marks the row <code>'completed'</code> if there is no schedule. Every fire writes one row to <code>task_run_logs</code> with duration and status.</p>
+
+    <h2>triggers</h2>
+    <p>The <code>cron</code> column carries one of three shapes:</p>
+    <ul>
+      <li><strong>Cron expression</strong> &mdash; standard 5-field cron (<code>0 9 * * 1-5</code> for weekday mornings). Parsed by <code>robfig/cron</code> in the task&rsquo;s timezone (the daemon&rsquo;s <code>TZ</code> env, default UTC).</li>
+      <li><strong>Interval</strong> &mdash; a plain integer string of milliseconds. <code>1800000</code> = every 30 minutes. The next <code>next_run</code> is just <code>now + interval</code> after each fire.</li>
+      <li><strong>One-shot</strong> &mdash; empty <code>cron</code>. The row fires once at <code>next_run</code>, then flips to <code>status='completed'</code> and stops being polled. The row stays in the table for audit; nothing deletes it.</li>
+    </ul>
+
+    <h2>anatomy of a task</h2>
+    <p>A task carries who owns it, where it fires, what it says, when it runs, and how it sees the folder around it.</p>
+    <ul>
+      <li><code>Owner</code> &mdash; the folder that owns the task. Used by ACL: an agent can only see and edit tasks whose owner it&rsquo;s authorized for.</li>
+      <li><code>ChatJID</code> &mdash; the chat address the synthetic message will land on. This is what the route table sees, so the same routing rules apply as for a real inbound on that JID.</li>
+      <li><code>Prompt</code> &mdash; the body. Plain text, exactly what the agent receives as message content.</li>
+      <li><code>Cron</code> &mdash; cron expression, interval ms, or empty (see above).</li>
+      <li><code>NextRun</code> &mdash; the next fire time. Always present except on completed one-shots.</li>
+      <li><code>Status</code> &mdash; <code>active</code> (polled), <code>paused</code> (skipped by the claim query), or <code>completed</code> (one-shot already fired).</li>
+      <li><code>ContextMode</code> &mdash; either <code>group</code> (default) or <code>isolated</code>.</li>
+      <li><code>Created</code> &mdash; insertion timestamp, useful for audit and dedup.</li>
+    </ul>
+    <p>Context mode decides what session the agent runs under. With <code>group</code> the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which the gateway treats as its own conversation. Useful for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context.</p>
+
+    <h2>managing tasks</h2>
+    <p>Five MCP tools, exposed to agents whose tier permits scheduling:</p>
+    <ul>
+      <li><code>schedule_task</code> &mdash; create a task. Dedupes on prompt + chat + schedule, so re-running the same call returns the existing task ID rather than stacking duplicates.</li>
+      <li><code>list_tasks</code> &mdash; return every task visible to the calling folder. Plain dump of rows.</li>
+      <li><code>pause_task</code> &mdash; flip <code>status</code> to <code>paused</code>. The row is preserved; <code>timed</code>&rsquo;s claim query ignores it until it&rsquo;s resumed.</li>
+      <li><code>resume_task</code> &mdash; flip <code>status</code> back to <code>active</code>. No effect on already-active or cancelled tasks.</li>
+      <li><code>cancel_task</code> &mdash; permanently delete the row. Not reversible. Use <code>pause_task</code> if the suspension is temporary.</li>
+    </ul>
+    <p>A companion tool, <code>inspect_tasks</code>, joins <code>scheduled_tasks</code> with <code>task_run_logs</code> so the agent can see when each task last fired and whether it succeeded.</p>
+    <p>There is no dedicated <code>arizuko task</code> CLI subcommand today. Operators reach the same rows through the agent (via <code>arizuko chat</code>) or directly with <code>sqlite3</code> on <code>store/messages.db</code>.</p>
+
+    <h2>failure model</h2>
+    <p>If the synthetic message insert itself fails, <code>timed</code> logs an error row to <code>task_run_logs</code> and flips the task back to <code>active</code> without advancing <code>next_run</code>. The next tick will try again.</p>
+    <p>If the insert succeeds but the agent run downstream errors out, <code>timed</code> never knows &mdash; from the scheduler&rsquo;s point of view the fire was successful. <code>next_run</code> advances normally and the task fires again at its scheduled time. There is no automatic retry of the failed turn. The error sits in the gateway&rsquo;s logs and the folder&rsquo;s chat history; an operator (or the agent itself, on its next run) decides what to do.</p>
+    <p>The status field never auto-flips to <code>paused</code> based on failures. A failing recurring task keeps firing until somebody pauses it or fixes the underlying problem.</p>
+
+    <h2>go deeper</h2>
+    <p>Daemon internals and the planned <code>/v1/tasks</code> HTTP surface: <a href="https://github.com/kronael/arizuko/blob/main/timed/README.md">timed/README.md</a>. Full scheduler design: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/8-scheduler-service.md">specs/4/8</a>. How the routed JID becomes a folder: <a href="../concepts/routing.html">routing</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

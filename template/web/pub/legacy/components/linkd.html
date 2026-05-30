@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>linkd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; linkd</p>
+    <h1>linkd</h1>
+
+    <h2>What it is</h2>
+    <p>linkd is the LinkedIn channel adapter. It targets the LinkedIn v2 community-management API for the bot account&rsquo;s own shares and comments &mdash; UGC posts, likes, reshares, comments, deletes. JID prefix is <code>linkedin:</code>.</p>
+
+    <h2>Why it exists</h2>
+    <p>LinkedIn DMs and company-page posting are gated behind partner-only OAuth scopes that arizuko deployments cannot get. linkd carves out the subset that works under <code>w_member_social</code> &mdash; the agent&rsquo;s own UGC posts and the social actions on them &mdash; and returns structured hints for the rest so the agent has a concrete alternative instead of a silent failure.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>LinkedIn (api.linkedin.com)
+        |  poll: own UGC shares + comments, every LINKEDIN_POLL_INTERVAL
+        v
+      linkd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to linkd)
+        v
+      linkd     (REST: /v2/ugcPosts | /v2/socialActions/{urn}/...)
+        |
+        v
+      LinkedIn</code></pre>
+    </div>
+
+    <p>Wired verbs (<code>linkd/client.go</code>): <code>send</code> / <code>reply</code> as comments on a post URN (<code>POST /v2/socialActions/{urn}/comments</code>); when <code>LINKEDIN_AUTO_PUBLISH=true</code>, <code>send</code> with a non-comment JID falls back to publishing a <code>ugcPost</code>. <code>post</code> (<code>/v2/ugcPosts</code>), <code>like</code> (<code>/v2/socialActions/{urn}/likes</code>), <code>delete</code> (<code>DELETE /v2/ugcPosts/{urn}</code> for own posts), <code>repost</code> (<code>/v2/ugcPosts</code> with <code>referenceUgcPost</code>), <code>fetch_history</code> (comments on a post URN). <code>send_file</code>, <code>forward</code>, <code>quote</code>, <code>dislike</code>, <code>edit</code> are 501-with-hint.</p>
+
+    <p>The <code>edit</code> hint exists because UGC edit requires the versioned <code>/rest/posts</code> PARTIAL_UPDATE flow, which is not wired. <code>send_file</code> needs the <code>/assets registerUpload</code> + binary PUT dance; same story.</p>
+
+    <h2>Standalone usage</h2>
+    <p>linkd is a plain Go binary. It needs a reachable gated and a LinkedIn application with member-social scopes. linkd refreshes the access token automatically on 401 via the refresh token.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export LINKEDIN_CLIENT_ID=...
+export LINKEDIN_CLIENT_SECRET=...
+export LINKEDIN_ACCESS_TOKEN=...
+export LINKEDIN_REFRESH_TOKEN=...
+export LINKEDIN_POLL_INTERVAL=300s
+export LINKEDIN_AUTO_PUBLISH=false
+./linkd</code></pre>
+
+    <p>LinkedIn-side setup: register an app at <code>linkedin.com/developers</code>. Required scopes: <code>r_liteprofile</code>, <code>w_member_social</code>. Walk through the OAuth code flow once to mint the initial access + refresh tokens; copy them into env. Company-page posting and DM messaging both need partner approval and are intentionally out of scope.</p>
+
+    <p><code>GET /health</code> returns 503 when the access token is expired and refresh fails.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>linkd/README.md</code> &mdash; verb table, scopes, file map.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

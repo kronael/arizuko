@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; components</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+    table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+    th, td { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.4em 0.7em; text-align: left; vertical-align: top; }
+    th { font-weight: 600; }
+    td.name { white-space: nowrap; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>components</h1>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; components</p>
+
+    <p class="lede">A directory of every daemon in an arizuko deployment. Core daemons ship in every instance. Channel adapters plug platforms in; an instance runs as many as it needs. Each row links to that daemon&rsquo;s page &mdash; some pages are still being written.</p>
+
+    <h2>Core</h2>
+    <table>
+      <thead>
+        <tr><th>name</th><th>role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name"><a href="../components/gated.html">gated</a></td><td>gateway daemon &mdash; HTTP API, MCP host, message loop, owns the SQLite schema</td></tr>
+        <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> surface, MCP endpoint</td></tr>
+        <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
+        <tr><td class="name"><a href="../components/dashd.html">dashd</a></td><td>operator dashboard &mdash; browse groups, grants, messages in a browser</td></tr>
+        <tr><td class="name"><a href="../components/onbod.html">onbod</a></td><td>onboarding daemon &mdash; admission queue, invite tokens, OAuth handshake</td></tr>
+        <tr><td class="name"><a href="../components/timed.html">timed</a></td><td>scheduler &mdash; cron and interval tasks, writes scheduled messages to the DB</td></tr>
+        <tr><td class="name"><a href="../components/ttsd.html">ttsd</a></td><td>text-to-speech proxy &mdash; OpenAI-compatible endpoint for voice replies</td></tr>
+        <tr><td class="name"><a href="../components/davd.html">davd</a></td><td>WebDAV workspace browser &mdash; mount a group&rsquo;s folder in a file manager</td></tr>
+        <tr><td class="name"><a href="../components/tokens.html">route tokens</a></td><td><code>/chat/&lt;token&gt;/</code> visitor chat + <code>/hook/&lt;token&gt;</code> webhook ingest, both served by webd</td></tr>
+        <tr><td class="name"><a href="../crackbox/">crackbox</a></td><td>egress sandbox &mdash; allowlist which hosts a workload can reach</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Channel adapters</h2>
+    <table>
+      <thead>
+        <tr><th>name</th><th>role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="name"><a href="../components/channels.html">channels</a></td><td>overview &mdash; shared shape, common HTTP surface, how to add a new adapter</td></tr>
+        <tr><td class="name"><a href="../components/slakd.html">slakd</a></td><td>Slack &mdash; Events API listener, bot user, threaded replies</td></tr>
+        <tr><td class="name"><a href="../components/teled.html">teled</a></td><td>Telegram &mdash; bot API, groups and DMs, voice and media</td></tr>
+        <tr><td class="name"><a href="../components/discd.html">discd</a></td><td>Discord &mdash; gateway client, server channels, threads</td></tr>
+        <tr><td class="name"><a href="../components/mastd.html">mastd</a></td><td>Mastodon &mdash; streaming API, mentions, replies</td></tr>
+        <tr><td class="name"><a href="../components/bskyd.html">bskyd</a></td><td>Bluesky &mdash; AT Protocol firehose, posts and replies</td></tr>
+        <tr><td class="name"><a href="../components/reditd.html">reditd</a></td><td>Reddit &mdash; subreddit and inbox polling, comments and DMs</td></tr>
+        <tr><td class="name"><a href="../components/emaid.html">emaid</a></td><td>email &mdash; IMAP inbound, SMTP outbound, threading by message-id</td></tr>
+        <tr><td class="name"><a href="../components/linkd.html">linkd</a></td><td>LinkedIn &mdash; messaging API, connection-scoped DMs</td></tr>
+        <tr><td class="name"><a href="../components/whapd.html">whapd</a></td><td>WhatsApp &mdash; TypeScript adapter on whatsapp-web.js, QR pairing</td></tr>
+        <tr><td class="name"><a href="../components/twitd.html">twitd</a></td><td>X / Twitter &mdash; TypeScript adapter, mentions and DMs</td></tr>
+      </tbody>
+    </table>
+
+    <p class="dim">See <a href="https://github.com/kronael/arizuko/blob/main/README.md">README.md</a> for the daemon + library table that drives this page, and <a href="https://github.com/kronael/arizuko/blob/main/ARCHITECTURE.md">ARCHITECTURE.md</a> for how the pieces fit.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

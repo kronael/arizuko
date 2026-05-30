@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; reference &middot; route tokens</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.9em; width: 100%; }
+    .prose th, .prose td { border: 1px solid var(--border, rgba(127,127,127,0.3)); padding: 0.3em 0.5em; text-align: left; vertical-align: top; }
+    .prose th { background: var(--bg-soft, rgba(127,127,127,0.06)); }
+    .prose dl { margin: 0.4em 0 1em; }
+    .prose dt { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; margin: 0.6em 0 0.1em; }
+    .prose dd { margin: 0 0 0.3em 1.2em; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>route tokens</h1>
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../reference/">reference</a> &rsaquo; tokens</p>
+
+    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> (for <code>web:</code> JIDs) and <code>/hook/&lt;token&gt;</code> (for <code>hook:</code> JIDs) &mdash; each URL bound to its JID prefix kind, mechanics shared. SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
+
+    <h2 id="schema">Schema</h2>
+
+    <pre><code>CREATE TABLE route_tokens (
+  token_hash    BLOB PRIMARY KEY,
+  jid           TEXT NOT NULL,
+  owner_folder  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
+
+    <dl>
+      <dt>token_hash</dt><dd>sha256 of the raw token. The raw token is returned exactly once at issuance.</dd>
+      <dt>jid</dt><dd>Destination. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. <code>&lt;folder&gt;</code> is the destination folder, distinct from <code>owner_folder</code> (the issuer).</dd>
+      <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the JID folder.</dd>
+      <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
+    </dl>
+
+    <h2 id="token-format">Token format</h2>
+    <ul>
+      <li>32 random bytes, base64url-encoded (~43 chars, 256 bits of entropy).</li>
+      <li>Stored as sha256; raw value returned exactly once.</li>
+      <li>No expiry. Revocation = delete the row.</li>
+    </ul>
+
+    <h2 id="mint">Mint surface</h2>
+
+    <p>One internal writer (<code>insertRouteToken</code>) reached through two faces, per <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md"><code>specs/5/5-uniform-mcp-rest.md</code></a>.</p>
+
+    <table>
+      <tr><th>Action</th><th>MCP tool</th><th>REST endpoint</th></tr>
+      <tr><td>Issue chat link</td><td><code>issue_chat_link(jid_suffix?)</code></td><td><code>POST /v1/route_tokens/chat</code></td></tr>
+      <tr><td>Issue webhook</td><td><code>issue_webhook(source_label, jid_suffix?)</code></td><td><code>POST /v1/route_tokens/hook</code></td></tr>
+      <tr><td>List</td><td><code>list_route_tokens()</code></td><td><code>GET /v1/route_tokens</code></td></tr>
+      <tr><td>Revoke</td><td><code>revoke_route_token(jid)</code></td><td><code>DELETE /v1/route_tokens/{jid}</code></td></tr>
+    </table>
+
+    <h3 id="rest-body">REST request body</h3>
+    <p>Each <code>POST</code> body carries the same params as the matching MCP tool:</p>
+    <pre><code>POST /v1/route_tokens/chat
+{ "jid_suffix": "support" }                          // optional
+
+POST /v1/route_tokens/hook
+{ "source_label": "github", "jid_suffix": "main" }   // jid_suffix optional</code></pre>
+
+    <p><code>owner_folder</code> is bound from session context (the agent's folder or the caller's grants) and is never a parameter. Tier scope (lower = wider reach):</p>
+
+    <table>
+      <tr><th>Tier</th><th>Mint scope</th></tr>
+      <tr><td>0</td><td>Any folder.</td></tr>
+      <tr><td>1</td><td>Self and descendants. Issued on behalf of a descendant: <code>owner_folder</code> stays at the issuer.</td></tr>
+      <tr><td>2</td><td>Self only.</td></tr>
+      <tr><td>3+</td><td>No mint.</td></tr>
+    </table>
+
+    <h3 id="mint-response">Mint response</h3>
+    <pre><code>{
+  "token": "Yp3v...Q2",
+  "url":   "https://&lt;host&gt;/hook/Yp3v...Q2",
+  "jid":   "hook:acme/eng/github"
+}</code></pre>
+    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ. <code>url</code> is built from <code>WEB_HOST</code> plus the URL bound to the JID prefix kind &mdash; <code>/chat/&lt;token&gt;/</code> for <code>web:</code> JIDs, <code>/hook/&lt;token&gt;</code> for <code>hook:</code> JIDs. Each URL accepts only its bound prefix; the issuance verb picks the URL.</p>
+
+    <h2 id="endpoint">/chat/&lt;token&gt;/ and /hook/&lt;token&gt; &mdash; each URL bound to its JID prefix kind</h2>
+
+    <p>The two URLs share handler internals &mdash; same widget, same POST path, same SSE &mdash; but the binding is enforced at token lookup. A <code>hook:</code> token at <code>/chat/&lt;token&gt;/</code> returns 404; a <code>web:</code> token at <code>/hook/&lt;token&gt;</code> returns 404.</p>
+
+    <table>
+      <tr><th>Method</th><th>Path</th><th>Token JID</th><th>Purpose</th></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/</code></td><td><code>web:</code></td><td>Chat widget (HTML).</td></tr>
+      <tr><td>POST</td><td><code>/chat/{token}/</code></td><td><code>web:</code></td><td>Append body as one inbound at the row's JID. Returns <code>turn_id</code> (browsers open SSE).</td></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td><code>web:</code></td><td>Live SSE for the round.</td></tr>
+      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td><code>web:</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
+      <tr><td>GET</td><td><code>/hook/{token}</code></td><td><code>hook:</code></td><td>Same widget HTML as the <code>/chat/</code> surface.</td></tr>
+      <tr><td>POST</td><td><code>/hook/{token}</code></td><td><code>hook:</code></td><td>Append body verbatim as one inbound at the row's JID. Returns <code>turn_id</code>.</td></tr>
+      <tr><td>GET</td><td><code>/hook/{token}/{turn_id}/sse</code></td><td><code>hook:</code></td><td>Live SSE for the round.</td></tr>
+    </table>
+
+    <p>The token row's JID prefix drives sender attribution and default output style. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="../components/webd.html">components/webd</a>.</p>
+
+    <p>POST body:</p>
+    <pre><code>{"content": "...", "topic": "..."}    # JSON
+content=...&amp;topic=...                  # form
+&lt;any opaque bytes&gt;                      # webhook payloads: body verbatim</code></pre>
+
+    <p>Default JSON response (browser path):</p>
+    <pre><code>{
+  "user":    { "id": "msg_abc", "content": "...", "created_at": "..." },
+  "turn_id": "msg_abc",
+  "status":  "pending"
+}</code></pre>
+
+    <p>For <code>hook:</code> tokens, the inbound message webd writes:</p>
+
+    <pre><code>{
+  "jid":     "hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]",
+  "sender":  "&lt;source&gt;",
+  "body":    "&lt;raw POST body, verbatim&gt;",
+  "headers": { "x-github-event": "push", ... }
+}</code></pre>
+
+    <p><code>sender</code> is the <code>&lt;source&gt;</code> segment of the JID (the value the agent passed as <code>source_label</code> at mint time). <code>headers</code> carries the full request header set as a lowercase-keyed map for skill-side validation (e.g. <code>X-Hub-Signature</code> verification). Body is opaque to webd &mdash; whatever the source POSTed, verbatim, up to 1 MiB.</p>
+
+    <h2 id="rate-limits">Rate limits</h2>
+
+    <table>
+      <tr><th>JID prefix</th><th>Bucket scope</th><th>Default ceiling</th></tr>
+      <tr><td><code>web:</code></td><td>per token, in-memory</td><td>human-typing rate</td></tr>
+      <tr><td><code>hook:</code></td><td>per token, in-memory</td><td>machine-burst rate</td></tr>
+    </table>
+
+    <p>Excess returns 429. Body cap is 1 MiB, env-configurable.</p>
+
+    <h2 id="cli">CLI</h2>
+
+    <pre><code>arizuko token issue &lt;folder&gt; chat                       # mints web:&lt;folder&gt;
+arizuko token issue &lt;folder&gt; chat --suffix support       # mints web:&lt;folder&gt;/support
+arizuko token issue &lt;folder&gt; hook github                 # mints hook:&lt;folder&gt;/github (destination folder)
+arizuko token issue &lt;folder&gt; hook linear --suffix issues # mints hook:&lt;folder&gt;/linear/issues
+arizuko token list
+arizuko token revoke &lt;jid&gt;</code></pre>
+
+    <p>All four commands hit the same REST endpoints listed under <a href="#mint">Mint surface</a>; the CLI does no extra work beyond shaping the JSON and printing the URL.</p>
+
+    <h2 id="related">Related</h2>
+
+    <ul>
+      <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; primitive + bearer model.</li>
+      <li><a href="../components/tokens.html">components/route tokens</a> &mdash; how it fits in the daemon graph.</li>
+      <li><a href="../howto/chat-link.html">how-to: chat link</a>, <a href="../howto/webhooks.html">how-to: webhooks</a>.</li>
+      <li><a href="../reference/jid.html">reference/jid</a> &mdash; <code>web:</code> and <code>hook:</code> JID shapes.</li>
+      <li><a href="../reference/env.html#webd">reference/env &sect; webd</a> &mdash; rate-limit and body-cap env vars.</li>
+      <li>Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

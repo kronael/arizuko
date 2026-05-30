@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>put a chat link on your site — arizuko</title>
+    <link rel="stylesheet" href="../assets/hub.css" />
+    <style>
+      .prose p { margin: 0.6em 0; }
+      .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+      .prose ol { margin: 0.4em 0 0.8em 1.4em; }
+      .prose li { margin: 0.3em 0; }
+      .prose pre { margin: 0.6em 0; }
+      .back { font-size: 0.85em; }
+      .note {
+        background: color-mix(in srgb, var(--accent3) 10%, transparent);
+        border-left: 3px solid var(--accent3);
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <p class="dim back">
+        <a href="../">arizuko</a> &rsaquo;
+        <a href="../howto/">how-to</a> &rsaquo; chat link
+      </p>
+      <h1>put a chat link on your site</h1><p>
+        A chat link is a URL like <code>https://&lt;host&gt;/chat/&lt;token&gt;/</code>.
+        Open it in a browser and you get a small chat page wired up to
+        one folder's agent. No login. Anyone with the URL can talk.
+      </p>
+
+      <p>
+        The primitive is the same one webhooks use &mdash; see
+        <a href="../concepts/tokens.html">route tokens</a> for the
+        full story. This page covers the operator-side recipe for
+        getting one URL onto one website.
+      </p>
+
+      <div class="note">
+        <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code>
+        tokens; presenting a <code>hook:</code> webhook token there
+        returns 404. <code>issue_chat_link</code> always returns a
+        <code>/chat/&lt;token&gt;/</code> URL.
+      </div>
+
+      <h2>use case</h2>
+
+      <p>
+        A tenant runs <code>acme.com</code> and wants a &ldquo;Chat
+        with us&rdquo; link on the marketing site, against the
+        <code>acme</code> agent. No account creation, no Slack
+        invite &mdash; visitors click the link, type, the agent
+        replies in the page.
+      </p>
+
+      <h2>issue the URL</h2>
+
+      <p>From the CLI:</p>
+
+      <pre><code>arizuko token issue acme chat
+# https://acme.fiu.wtf/chat/Yp3v...Q2/</code></pre>
+
+      <p>
+        The CLI prints the URL once. Paste it where the &ldquo;Chat
+        with us&rdquo; button lives on the website. The token is in
+        the URL &mdash; treat the whole URL as a shareable bearer
+        credential.
+      </p>
+
+      <p>An agent inside the folder can mint its own:</p>
+
+      <pre><code>issue_chat_link()
+  &rarr; {
+    "token": "...",
+    "url":   "https://acme.fiu.wtf/chat/.../",
+    "jid":   "web:acme"
+  }</code></pre>
+
+      <h2>what the visitor sees</h2>
+
+      <p>
+        <code>GET /chat/&lt;token&gt;/</code> serves a minimal HTML
+        chat page baked into webd. The visitor types, the page
+        POSTs to the same URL, the response carries a
+        <code>turn_id</code>, and an SSE stream at
+        <code>/chat/&lt;token&gt;/&lt;turn_id&gt;/sse</code> delivers
+        the agent's reply frames as the turn runs.
+      </p>
+
+      <p>
+        Dropped connections reconnect with <code>Last-Event-Id</code>;
+        the server replays missed frames and resumes live. The page
+        works in any modern browser without any account, cookie, or
+        sign-in step.
+      </p>
+
+      <h2>splitting one folder across pages</h2>
+
+      <p>
+        Pass a <code>jid_suffix</code> to put two URLs from the same
+        folder on different pages and tell them apart in routing:
+      </p>
+
+      <pre><code>arizuko token issue acme chat --suffix support
+  &rarr; web:acme/support  (https://.../chat/Sup1.../)
+
+arizuko token issue acme chat --suffix sales
+  &rarr; web:acme/sales    (https://.../chat/Sal2.../)</code></pre>
+
+      <p>
+        Both URLs reach the same <code>acme</code> agent, but the
+        JID prefix lets route rules behave differently &mdash; e.g.
+        a different persona, a different <a href="../concepts/topics.html">topic</a>,
+        or a different scheduled escalation. Suffixes are folder
+        segments, not query params; pick names that read well in
+        the route table.
+      </p>
+
+      <h2>authenticated chat is a different surface</h2>
+
+      <div class="note">
+        <code>/chat/&lt;token&gt;/</code> is the anonymous bearer URL.
+        Signed-in chat (a teammate's private pane against their own
+        folder, OAuth-gated through proxyd) is a separate surface
+        served by <a href="../components/webd.html">webd</a> and not
+        covered here.
+      </div>
+
+      <h2>revocation</h2>
+
+      <pre><code>arizuko token revoke web:acme/support</code></pre>
+
+      <p>
+        The next visitor lands on a 401. Reissue with the same
+        suffix to get a new URL with the same JID and swap it on
+        the site. There is no in-place rotation &mdash; the URL is
+        the credential.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../concepts/tokens.html">concepts/route tokens</a> &mdash; the bearer model and JID encoding.</li>
+        <li><a href="../howto/webhooks.html">how-to: webhooks</a> &mdash; the <code>/hook/</code> sibling for machine ingest.</li>
+        <li><a href="../reference/tokens.html">reference/tokens</a> &mdash; full HTTP surface, POST and SSE shapes, env vars.</li>
+        <li><a href="../components/webd.html">components/webd</a> &mdash; the daemon that hosts <code>/chat/*</code>.</li>
+      </ul>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../assets/hub.js"></script>
+  </body>
+</html>

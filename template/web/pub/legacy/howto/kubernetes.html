@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>deploy on Kubernetes — arizuko</title>
+    <link rel="stylesheet" href="../assets/hub.css" />
+    <style>
+      .prose p {
+        margin: 0.6em 0;
+      }
+      .prose ul {
+        margin: 0.4em 0 0.8em 1.2em;
+      }
+      .prose ol {
+        margin: 0.4em 0 0.8em 1.4em;
+      }
+      .prose li {
+        margin: 0.3em 0;
+      }
+      .prose pre {
+        margin: 0.6em 0;
+      }
+      .prose dt {
+        color: var(--accent3);
+        font-weight: bold;
+        margin-top: 0.6em;
+      }
+      .prose dd {
+        margin: 0.1em 0 0 1.2em;
+      }
+      .back {
+        font-size: 0.85em;
+      }
+      .note {
+        background: color-mix(in srgb, var(--accent3) 10%, transparent);
+        border-left: 3px solid var(--accent3);
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      .warn {
+        background: color-mix(in srgb, #e67e22 10%, transparent);
+        border-left: 3px solid #e67e22;
+        padding: 0.5em 0.8em;
+        margin: 0.8em 0;
+        font-size: 0.92em;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.8em 0 1.2em;
+        font-size: 0.9em;
+      }
+      th {
+        text-align: left;
+        border-bottom: 1px solid var(--dim, #888);
+        padding: 0.3em 0.8em 0.3em 0;
+        font-weight: 600;
+      }
+      td {
+        padding: 0.25em 0.8em 0.25em 0;
+        border-bottom: 1px solid
+          color-mix(in srgb, var(--dim, #888) 25%, transparent);
+      }
+      code {
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hub-container prose">
+      <h1>deploy on Kubernetes</h1>
+      <p class="dim back">
+        <a href="../">&larr; arizuko</a> &middot;
+        <a href="../howto/">&larr; how-to</a>
+      </p>
+
+      <p>
+        arizuko runs fine on a single Linux host under Docker Compose. The main
+        reason to move to Kubernetes is secret management: K8s Secrets live in
+        etcd, which cloud providers encrypt at rest by default, and they
+        integrate natively with Vault, AWS Secrets Manager, and GCP Secret
+        Manager via the External Secrets Operator. No plaintext
+        <code>.env</code> files on disk.
+      </p>
+      <p>
+        This guide covers a single-pod deployment — all daemons in one pod
+        sharing a PersistentVolumeClaim. That&rsquo;s the right starting point
+        because <code>gated</code> and the channel adapters communicate over
+        a Unix socket, and SQLite WAL has a single-writer constraint anyway.
+        Split into separate Deployments only once you have a concrete reason.
+      </p>
+
+      <div class="note">
+        <strong>Known gap &mdash; agent containers:</strong> on a bare Linux
+        host, <code>gated</code> spawns per-group agent containers via the
+        Docker socket. In Kubernetes, mounting <code>docker.sock</code> from
+        a node is discouraged and unreliable. A
+        <code>CONTAINER_BACKEND=kubernetes</code> mode is specced but not yet
+        shipped. Until it lands, the options are: (a) Docker-in-Docker sidecar
+        (easiest to get running, not recommended for production), or (b) KIND
+        inside the pod for dev/test. Treat the agent-spawn path as the one
+        rough edge of a K8s deployment.
+      </div>
+
+      <h2>why Kubernetes for secret management</h2>
+      <p>
+        arizuko needs a handful of long-lived secrets: <code>AUTH_SECRET</code>
+        (also the encryption key for the secrets table), <code>CHANNEL_SECRET</code>,
+        and one or more adapter tokens
+        (<code>TELEGRAM_BOT_TOKEN</code>, <code>SLACK_BOT_TOKEN</code>, etc.).
+        On a single host these live in a mode-0600 <code>.env</code> file
+        &mdash; fine, but manual to rotate and invisible to audit logs.
+      </p>
+      <p>
+        In Kubernetes the same values become K8s Secret objects. Cloud-managed
+        clusters encrypt etcd at rest by default; for tighter guarantees you
+        can add envelope encryption backed by AWS KMS, GCP KMS, or HashiCorp
+        Vault. IRSA (AWS) and Workload Identity (GCP) let pods fetch secrets
+        without any long-lived credential at all &mdash; the node&rsquo;s
+        identity is the proof. The External Secrets Operator then syncs from
+        Vault or Secrets Manager into K8s Secrets automatically on rotation.
+      </p>
+      <p>
+        Rolling deploys are also cleaner: update the Secret, trigger a rollout,
+        old pods drain before new ones start.
+      </p>
+
+      <h2>architecture mapping</h2>
+      <p>
+        The Docker Compose stack maps to Kubernetes like this:
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>compose service</th>
+            <th>K8s resource</th>
+            <th>notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>gated</code></td>
+            <td>container in Pod</td>
+            <td>owns SQLite, IPC socket; must be first to start</td>
+          </tr>
+          <tr>
+            <td><code>timed</code>, <code>onbod</code>, <code>dashd</code></td>
+            <td>containers in same Pod</td>
+            <td>connect to gated over loopback or shared unix socket</td>
+          </tr>
+          <tr>
+            <td><code>proxyd</code>, <code>webd</code></td>
+            <td>containers in same Pod</td>
+            <td>proxyd binds :443/:80; expose via LoadBalancer or Ingress</td>
+          </tr>
+          <tr>
+            <td>adapter (<code>teled</code>, <code>slakd</code>, &hellip;)</td>
+            <td>containers in same Pod</td>
+            <td>one per enabled platform; add to spec as needed</td>
+          </tr>
+          <tr>
+            <td>data dir <code>/srv/data/arizuko_&lt;name&gt;/</code></td>
+            <td>PersistentVolumeClaim (RWO)</td>
+            <td>mounted at the same path in every container</td>
+          </tr>
+          <tr>
+            <td><code>.env</code> non-secret vars</td>
+            <td>ConfigMap &rarr; <code>envFrom</code></td>
+            <td>ASSISTANT_NAME, CONTAINER_IMAGE, WEB_HOST, &hellip;</td>
+          </tr>
+          <tr>
+            <td><code>.env</code> secret vars</td>
+            <td>Secret &rarr; <code>envFrom</code></td>
+            <td>AUTH_SECRET, CHANNEL_SECRET, adapter tokens</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>replicas: 1 only.</strong> SQLite WAL allows multiple readers
+        but only one writer at a time. Running two pods against the same PVC
+        will corrupt the database. If you need high availability, put SQLite
+        on a writable-once volume and front the pod with a readiness probe +
+        PodDisruptionBudget, or migrate to an external database (not currently
+        supported).
+      </div>
+
+      <h2>HOST_APP_DIR in Kubernetes</h2>
+      <p>
+        On a bare host, <code>HOST_APP_DIR</code> points to the checkout of
+        the arizuko repo on the host filesystem. The agent container bind-mounts
+        it to read skills from <code>ant/skills/</code>. In Kubernetes
+        there&rsquo;s no host checkout to bind-mount &mdash; skills are baked
+        into the container image at build time.
+      </p>
+      <p>
+        Set <code>HOST_APP_DIR</code> to the path inside the container where
+        skills land, typically <code>/workspace</code> or wherever the
+        Dockerfile puts them. The agent is the container; the bind-mount
+        becomes a no-op path reference to the image&rsquo;s own filesystem.
+        Check your <code>arizuko-ant</code> Dockerfile for the exact path.
+      </p>
+      <p>
+        <code>HOST_DATA_DIR</code> should still point to the PVC mount path
+        (<code>/srv/data/arizuko_&lt;name&gt;</code>) &mdash; that part is
+        unchanged.
+      </p>
+
+      <h2>step 1 &mdash; PersistentVolumeClaim</h2>
+      <p>
+        One RWO volume holds the entire data dir. Size it generously;
+        SQLite and media attachments grow over time.
+      </p>
+      <pre><code># pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arizuko-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi</code></pre>
+
+      <h2>step 2 &mdash; ConfigMap</h2>
+      <p>Non-secret config. Values here are visible in <code>kubectl get configmap</code>.</p>
+      <pre><code># configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arizuko-config
+data:
+  INSTANCE_NAME: "demo"
+  ASSISTANT_NAME: "Ari"
+  WEB_HOST: "https://demo.example.com"
+  CONTAINER_IMAGE: "arizuko-ant:latest"
+  HOST_DATA_DIR: "/srv/data/arizuko_demo"
+  HOST_APP_DIR: "/workspace"
+  LISTEN_ADDR: ":8080"
+  LOG_LEVEL: "info"</code></pre>
+
+      <h2>step 3 &mdash; Secret</h2>
+      <p>
+        Sensitive vars. If you use the External Secrets Operator, this object
+        is generated automatically from Vault or Secrets Manager &mdash; see
+        <a href="#external-secrets">secret management</a> below. Otherwise
+        create it manually:
+      </p>
+      <pre><code># secret.yaml  (base64-encode every value)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: arizuko-secrets
+type: Opaque
+stringData:
+  AUTH_SECRET: "change-me-32-char-random-string"
+  CHANNEL_SECRET: "change-me-another-32-char-string"
+  TELEGRAM_BOT_TOKEN: "123456:ABC..."   # if using teled
+  SLACK_BOT_TOKEN: "xoxb-..."           # if using slakd
+  SLACK_SIGNING_SECRET: "..."           # if using slakd</code></pre>
+      <div class="warn">
+        <strong>Don&rsquo;t commit secret.yaml to git.</strong>
+        Use <code>kubectl apply -f secret.yaml</code> once, then delete the
+        local file. Better: use External Secrets or Sealed Secrets so the repo
+        never holds plaintext.
+      </div>
+
+      <h2>step 4 &mdash; Deployment</h2>
+      <p>
+        A single Deployment with one Pod. All daemon containers share the
+        PVC and inherit both ConfigMap and Secret as environment variables.
+        Adapt the containers list to match the adapters you&rsquo;ve enabled.
+      </p>
+      <pre><code># deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arizuko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: arizuko
+  template:
+    metadata:
+      labels:
+        app: arizuko
+    spec:
+      initContainers:
+        # seed the data dir on first run
+        - name: init-data
+          image: arizuko:latest
+          command: ["arizuko", "create", "$(INSTANCE_NAME)"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+
+      containers:
+        - name: gated
+          image: arizuko:latest
+          command: ["/usr/local/bin/gated"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+        - name: timed
+          image: arizuko:latest
+          command: ["/usr/local/bin/timed"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+
+        - name: onbod
+          image: arizuko:latest
+          command: ["/usr/local/bin/onbod"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+
+        - name: dashd
+          image: arizuko:latest
+          command: ["/usr/local/bin/dashd"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+
+        - name: proxyd
+          image: arizuko:latest
+          command: ["/usr/local/bin/proxyd"]
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+          ports:
+            - containerPort: 8080
+              name: http
+
+        # add adapter containers here, e.g.:
+        # - name: teled
+        #   image: arizuko-teled:latest
+        #   envFrom: [...]
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: arizuko-data</code></pre>
+
+      <div class="note">
+        The init container runs <code>arizuko create</code>. On subsequent
+        starts the data dir already exists and the command exits cleanly
+        (it skips re-seeding). You can also run <code>create</code> once
+        manually with <code>kubectl run</code> and omit the initContainer.
+      </div>
+
+      <h2>step 5 &mdash; Service</h2>
+      <p>
+        Expose <code>proxyd</code>&rsquo;s port. Use a LoadBalancer for cloud
+        clusters; an Ingress for shared clusters where TLS termination is
+        already handled upstream.
+      </p>
+      <pre><code># service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: arizuko
+spec:
+  selector:
+    app: arizuko
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer</code></pre>
+      <p>
+        If your cluster has an Ingress controller (nginx, Traefik, etc.), use
+        <code>type: ClusterIP</code> here and add an Ingress resource with TLS.
+        <code>proxyd</code> can also handle TLS itself &mdash; set
+        <code>PROXYD_TLS_CERT</code> / <code>PROXYD_TLS_KEY</code> and expose
+        port 443 instead.
+      </p>
+
+      <h2>step 6 &mdash; apply and verify</h2>
+      <pre><code>kubectl apply -f pvc.yaml
+kubectl apply -f configmap.yaml
+kubectl apply -f secret.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+
+# watch the pod come up
+kubectl get pods -w
+
+# check gated is ready
+kubectl logs deploy/arizuko -c gated --tail=30
+
+# hit the health endpoint
+kubectl port-forward svc/arizuko 8080:80 &amp;
+curl -s http://localhost:8080/health</code></pre>
+
+      <h2 id="external-secrets">secret management with External Secrets</h2>
+      <p>
+        The External Secrets Operator syncs a K8s Secret from an external
+        store on a schedule. When you rotate a secret in Vault or Secrets
+        Manager, the operator updates the K8s Secret automatically, and the
+        next pod restart picks it up.
+      </p>
+      <p>Install the operator once per cluster:</p>
+      <pre><code>helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace</code></pre>
+
+      <p>
+        Wire it to your store. This example uses AWS Secrets Manager with IRSA
+        (the pod&rsquo;s ServiceAccount is annotated with an IAM role that has
+        <code>secretsmanager:GetSecretValue</code>):
+      </p>
+      <pre><code># secretstore.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: aws-secrets
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: us-east-1
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: arizuko   # annotated with IAM role ARN</code></pre>
+
+      <pre><code># externalsecret.yaml
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: arizuko-secrets
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets
+    kind: SecretStore
+  target:
+    name: arizuko-secrets   # creates the K8s Secret
+  data:
+    - secretKey: AUTH_SECRET
+      remoteRef:
+        key: arizuko/demo
+        property: AUTH_SECRET
+    - secretKey: CHANNEL_SECRET
+      remoteRef:
+        key: arizuko/demo
+        property: CHANNEL_SECRET
+    - secretKey: TELEGRAM_BOT_TOKEN
+      remoteRef:
+        key: arizuko/demo
+        property: TELEGRAM_BOT_TOKEN</code></pre>
+
+      <p>
+        For HashiCorp Vault, swap the <code>provider</code> block for a Vault
+        provider and point at your KV path. For GCP Secret Manager, use the
+        GCP provider and Workload Identity instead of IRSA. The
+        <code>ExternalSecret</code> shape stays the same.
+      </p>
+      <p>
+        Once this is running, you never create <code>secret.yaml</code>
+        manually again. The operator manages the K8s Secret object; the
+        Deployment reads it; rotation is a push to Vault + a pod restart.
+      </p>
+
+      <h2>agent containers (known gap)</h2>
+      <p>
+        <code>gated</code> spawns a per-group <code>arizuko-ant</code> container
+        for each agent run. On bare Docker it calls
+        <code>docker run</code> via the Docker socket. In Kubernetes the socket
+        isn&rsquo;t reliably available, and even if it is, containers spawned
+        that way land outside the pod&rsquo;s namespace.
+      </p>
+      <p>A <code>CONTAINER_BACKEND=kubernetes</code> mode is planned that will
+        create a Kubernetes Job per agent turn instead, inheriting the same
+        Secret and ConfigMap. It isn&rsquo;t shipped yet. Until then:</p>
+      <ul>
+        <li>
+          <strong>Docker-in-Docker</strong> &mdash; add a <code>dind</code>
+          sidecar container (image: <code>docker:dind</code>) and mount its
+          socket into the <code>gated</code> container as
+          <code>/var/run/docker.sock</code>. Works; not recommended for
+          production because DinD requires <code>privileged: true</code>.
+        </li>
+        <li>
+          <strong>KIND</strong> &mdash; replace DinD with a KIND node for dev
+          and test environments. Same privilege requirement, but easier to
+          snapshot.
+        </li>
+        <li>
+          <strong>Skip agents</strong> &mdash; if you only need the message
+          routing and channel adapter layer without the agent, the rest of the
+          stack runs fine. Route messages to a <code>#observe</code> route or
+          handle them via webhooks.
+        </li>
+      </ul>
+
+      <h2>env vars reference</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>variable</th>
+            <th>goes in</th>
+            <th>notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>AUTH_SECRET</code></td>
+            <td>Secret</td>
+            <td>32-byte random; encrypts the secrets table in SQLite</td>
+          </tr>
+          <tr>
+            <td><code>CHANNEL_SECRET</code></td>
+            <td>Secret</td>
+            <td>bearer token adapters present to gated</td>
+          </tr>
+          <tr>
+            <td><code>TELEGRAM_BOT_TOKEN</code></td>
+            <td>Secret</td>
+            <td>teled adapter; omit if not using Telegram</td>
+          </tr>
+          <tr>
+            <td><code>SLACK_BOT_TOKEN</code></td>
+            <td>Secret</td>
+            <td>slakd adapter; omit if not using Slack</td>
+          </tr>
+          <tr>
+            <td><code>SLACK_SIGNING_SECRET</code></td>
+            <td>Secret</td>
+            <td>slakd adapter</td>
+          </tr>
+          <tr>
+            <td><code>INSTANCE_NAME</code></td>
+            <td>ConfigMap</td>
+            <td>short name; becomes data dir suffix</td>
+          </tr>
+          <tr>
+            <td><code>ASSISTANT_NAME</code></td>
+            <td>ConfigMap</td>
+            <td>shown in chat UIs and pane titles</td>
+          </tr>
+          <tr>
+            <td><code>WEB_HOST</code></td>
+            <td>ConfigMap</td>
+            <td>public URL including scheme; used in invite links</td>
+          </tr>
+          <tr>
+            <td><code>CONTAINER_IMAGE</code></td>
+            <td>ConfigMap</td>
+            <td>agent image name; gated pulls this per agent spawn</td>
+          </tr>
+          <tr>
+            <td><code>HOST_DATA_DIR</code></td>
+            <td>ConfigMap</td>
+            <td>
+              host-side (or pod-side in K8s) path to data dir; passed to agent
+              container as a bind-mount source
+            </td>
+          </tr>
+          <tr>
+            <td><code>HOST_APP_DIR</code></td>
+            <td>ConfigMap</td>
+            <td>
+              in K8s: path inside the container image where skills live (e.g.
+              <code>/workspace</code>); no host bind-mount occurs
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>troubleshooting</h2>
+      <dl>
+        <dt>Pod stuck in <code>Pending</code></dt>
+        <dd>
+          Usually the PVC isn&rsquo;t bound. Check
+          <code>kubectl get pvc</code> &mdash; if it&rsquo;s
+          <code>Pending</code>, the StorageClass may not support RWO or no
+          provisioner is running. On a single-node cluster, use
+          <code>local-path</code> provisioner (Rancher) or set a
+          <code>hostPath</code> PV manually.
+        </dd>
+
+        <dt><code>gated</code> crashloops on startup</dt>
+        <dd>
+          Usually the data dir isn&rsquo;t seeded. Check that the initContainer
+          ran and exited 0. If <code>arizuko create</code> failed, it logs why
+          &mdash; missing env var, permission error, or existing corrupt DB.
+          Check <code>kubectl logs deploy/arizuko -c init-data</code>.
+        </dd>
+
+        <dt>Adapter can&rsquo;t reach gated</dt>
+        <dd>
+          All containers in the same Pod share localhost and the IPC socket
+          path. Confirm <code>ROUTER_URL</code> is set to
+          <code>http://localhost:8080</code> (gated&rsquo;s default
+          <code>LISTEN_ADDR</code>) in the adapter&rsquo;s env.
+        </dd>
+
+        <dt>Secrets not updating after Vault rotation</dt>
+        <dd>
+          External Secrets syncs on <code>refreshInterval</code>. After sync,
+          the K8s Secret is updated but the running pod still has the old env.
+          Restart the pod: <code>kubectl rollout restart deploy/arizuko</code>.
+          To automate this, add the
+          <a href="https://github.com/stakater/Reloader" target="_blank" rel="noopener">Reloader</a>
+          controller, which triggers a rollout when a watched Secret changes.
+        </dd>
+
+        <dt>Agent containers don&rsquo;t spawn</dt>
+        <dd>
+          See the <em>agent containers</em> section above. The
+          <code>CONTAINER_BACKEND=kubernetes</code> path isn&rsquo;t shipped
+          yet; use DinD or skip agents until it is.
+        </dd>
+      </dl>
+    </div>
+    <button class="theme-toggle">&#127769;</button>
+    <script src="../assets/hub.js"></script>
+  </body>
+</html>

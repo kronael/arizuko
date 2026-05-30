@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>emaid &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; emaid</p>
+    <h1>emaid</h1>
+
+    <h2>What it is</h2>
+    <p>emaid is the email channel adapter. It polls IMAP for inbound messages, sends outbound via SMTP, and keeps a local SQLite table mapping email threads (<code>Message-ID</code> + <code>References</code>) to their <code>chat_jid</code> so replies preserve the conversation. From gated&rsquo;s point of view it is a normal channel adapter; the JID prefix is <code>email:</code>.</p>
+
+    <p>Each inbound message is verified against DMARC results in the upstream MTA&rsquo;s <code>Authentication-Results</code> header before it reaches the agent. Verified mail rides <code>verb=message</code>; the rest rides <code>verb=untrusted</code> so route rules can quarantine it.</p>
+
+    <h2>Why it exists</h2>
+    <p>Email is the lowest-common-denominator inbound: every customer, every vendor, every ticket system can reach an arizuko agent if it has an SMTP address. Without emaid there is no IMAP poll loop, no thread table, no sender authentication &mdash; the agent has no way to receive email at all.</p>
+
+    <p>The split between <code>verb=message</code> and <code>verb=untrusted</code> exists because unauthenticated email is a forgery surface: an attacker who can spoof a reply-to-bot must not escalate to <code>verb=mention</code>. Sender authentication has to live at the channel boundary, before routing.</p>
+
+    <h2>The loop</h2>
+    <ol>
+      <li>Poll IMAP <code>INBOX</code> for messages newer than the last seen UID.</li>
+      <li>Parse <code>Authentication-Results</code>. DMARC pass on the configured authserv-id (plus optional <code>From</code>-domain allowlist) &rarr; <code>verb=message</code>. Anything else &rarr; <code>verb=untrusted</code>, optional <code>[UNVERIFIED]</code> subject prefix. <code>EMAIL_STRICT_AUTH=1</code> drops untrusted mail outright.</li>
+      <li>Look up the thread row by <code>Message-ID</code> or <code>References</code>. Hit &rarr; reuse the existing <code>chat_jid</code>. Miss &rarr; mint a new one.</li>
+      <li>POST <code>/v1/messages</code> to gated, signed with <code>CHANNEL_SECRET</code>.</li>
+      <li>On outbound, gated calls back to <code>POST /v1/send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
+    </ol>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>mail server (Gmail, Fastmail, &hellip;)
+        |  IMAP IDLE / poll
+        v
+      emaid     (parse Authentication-Results, classify verb)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to emaid)
+        v
+      emaid     (SMTP submit; In-Reply-To = thread root)
+        |
+        v
+      mail server &rarr; recipient</code></pre>
+    </div>
+
+    <p>Inputs: IMAP traffic on the configured mailbox; HTTP callbacks from gated. Outputs: SMTP submissions; signed POSTs to gated. Hard deps: a reachable gated, an IMAP+SMTP account, and a trusted upstream MTA whose authserv-id is set in <code>EMAIL_TRUSTED_AUTHSERV</code>.</p>
+
+    <h2>Sender authentication</h2>
+    <p>Library: <code>emersion/go-msgauth/authres</code>. emaid does not run its own DMARC validator; it trusts the MTA that delivered the mail. The operator pins which MTA via <code>EMAIL_TRUSTED_AUTHSERV</code> (fail-closed default &mdash; unset value rejects every message). Three classification levers:</p>
+
+    <ul>
+      <li><code>EMAIL_TRUSTED_AUTHSERV</code> &mdash; required. authserv-id whose DMARC verdict to trust (e.g. <code>mx.google.com</code>).</li>
+      <li><code>EMAIL_TRUSTED_DOMAINS</code> &mdash; optional allowlist of <code>From</code>-domains. When set, DMARC pass alone is not enough; the sender domain must also match.</li>
+      <li><code>EMAIL_STRICT_AUTH</code> &mdash; truthy (<code>true</code>/<code>1</code>/<code>yes</code>/<code>on</code>) drops untrusted mail with no agent turn. Default is <code>false</code> &mdash; untrusted mail still reaches the store with <code>verb=untrusted</code>.</li>
+      <li><code>EMAIL_UNVERIFIED_SUBJECT_PREFIX</code> &mdash; truthy adds an <code>[UNVERIFIED]</code> prefix to the subject when the message lands as untrusted.</li>
+    </ul>
+
+    <p>The gateway will not promote an untrusted reply-to-bot to <code>verb=mention</code> (mention-promotion spec). Operators route <code>verb=untrusted</code> to a quarantine sub-group.</p>
+
+    <h2>Standalone usage</h2>
+    <p>emaid is a plain Go binary. It needs a reachable gated, an IMAP+SMTP account, and a writable directory for its thread store.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export DATA_DIR=/srv/data/arizuko_demo
+export EMAIL_IMAP_HOST=imap.fastmail.com EMAIL_IMAP_PORT=993
+export EMAIL_SMTP_HOST=smtp.fastmail.com EMAIL_SMTP_PORT=587
+export EMAIL_ACCOUNT=bot@example.com EMAIL_PASSWORD=...
+export EMAIL_TRUSTED_AUTHSERV=mx.example.com
+./emaid</code></pre>
+
+    <p><code>GET /health</code> returns 503 when IMAP login fails or the poll loop is erroring; 200 once a successful poll completes.</p>
+
+    <h2>Verb support</h2>
+    <p>Email has no native reactions, no edit, no delete. emaid implements <code>send</code> and <code>fetch_history</code>; every other <code>Socializer</code> verb returns <code>chanlib.ErrUnsupported</code> so the agent can pick a different action instead of silently dropping the call.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; the shared adapter shape.</li>
+      <li><code>emaid/README.md</code> &mdash; full env var table, verb support, file map.</li>
+      <li><code>SECURITY.md</code> &mdash; trust model; why untrusted senders cannot escalate.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how to route <code>verb=untrusted</code> to a quarantine sub-group.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

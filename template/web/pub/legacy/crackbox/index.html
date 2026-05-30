@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>crackbox</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>crackbox</h1>
+    <p class="dim back">a sandbox proxy for untrusted code &middot; <a href="../">&larr; hub</a></p>
+
+    <p class="lede">Run an AI agent, a CI script, or any other untrusted command with a tight allowlist of hosts it can reach. Everything else is silently blocked.</p>
+
+    <h2>why</h2>
+    <p>Agents and build scripts want the network. You want them to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not crypto miners shipped in a compromised npm package, not whoever a prompt injection points them at.</p>
+    <p>Browser permission prompts don&rsquo;t fit. Per-process iptables is fiddly. Network-level egress firewalls don&rsquo;t know which process is calling. crackbox is a small proxy you put in front of the workload and tell what hosts are allowed.</p>
+
+    <h2>show me</h2>
+    <pre><code># build the image once (from the arizuko repo root, not crackbox/)
+git clone https://github.com/kronael/arizuko &amp;&amp; cd arizuko
+docker build -t crackbox:latest -f crackbox/Dockerfile .
+
+# allowed -&gt; 200
+crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://github.com
+
+# unlisted -&gt; blocked
+crackbox run --allow github.com -- curl -s -o /dev/null -w '%{http_code}\n' https://example.com
+
+# python image, install one package, nothing else reachable
+crackbox run --image python:3 --allow pypi.org,files.pythonhosted.org -- pip install requests</code></pre>
+    <p>Subdomains match the parent (<code>--allow github.com</code> covers <code>api.github.com</code>). Comma-separated for multiple hosts. <code>--allow</code> is required and must be non-empty; pass an unreachable placeholder like <code>--allow none.invalid</code> to block everything.</p>
+
+    <h2>good for</h2>
+    <ul>
+      <li><strong>AI agents.</strong> An agent that can <code>curl</code> the open internet is one prompt injection away from talking to whoever the attacker wants.</li>
+      <li><strong>CI &amp; build steps.</strong> &ldquo;<code>npm install</code> only talks to the registry&rdquo; is a sentence you can mean.</li>
+      <li><strong>Unfamiliar binaries.</strong> Tutorial repos, LLM-generated scripts, vendor blobs &mdash; whatever they do, they can&rsquo;t exfiltrate to anywhere unexpected.</li>
+    </ul>
+
+    <h2>where do I start</h2>
+    <p>For one-off runs, <code>crackbox run --allow X -- &lt;cmd&gt;</code> is the whole interface. It spins up a private Docker network, runs the proxy on it, runs your workload, tears everything down on exit.</p>
+    <p>For service deployments where short-lived workloads come and go, run the proxy as a long-lived daemon and register each workload with it as it starts. The <a href="../crackbox/reference/">reference</a> covers the daemon, admin API, config file, env vars, and threat model.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

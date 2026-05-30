@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>voice</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .prose table { border-collapse: collapse; margin: 0.6em 0; }
+    .prose th, .prose td { text-align: left; padding: 0.25em 0.8em 0.25em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>voice</h1>
+    <p class="dim back">concepts / voice &middot; <a href="../concepts/">&larr; concepts</a></p>
+
+    <p class="lede">Voice in: a user sends an audio note, Whisper turns it into text before the agent reads anything. Voice out: the agent calls <code>send_voice</code>, the TTS daemon turns text into an ogg file, and the chat platform delivers it as a real voice note.</p>
+
+    <h2>voice in &mdash; transcription</h2>
+    <p>When a voice note arrives at an adapter (Telegram, WhatsApp, Discord), the adapter downloads the audio and hands it to <code>gated</code>. If <code>WHISPER_BASE_URL</code> is set and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, the gateway POSTs the audio to that Whisper server before the agent ever sees the message. The transcript comes back as plain text and gets glued onto the attachment tag the agent sees in its prompt:</p>
+    <pre><code>&lt;attachment path="/home/node/media/20260515/note.ogg"
+            mime="audio/ogg"
+            transcript="hey can you check the inbox"&gt;</code></pre>
+    <p>The agent reads the <code>transcript=</code> like any other text and never re-transcribes. The raw audio is still on disk in <code>media/&lt;date&gt;/</code> if a skill ever needs the bytes.</p>
+
+    <h2>voice out &mdash; synthesis</h2>
+    <p>The agent decides to reply with voice by calling the <code>send_voice</code> MCP tool with the chat&rsquo;s JID, the text, and an optional voice name. <code>gated</code> handles the rest:</p>
+    <ol>
+      <li>Pick the voice. Explicit argument wins; otherwise <code>voice:</code> from the persona&rsquo;s <code>PERSONA.md</code> frontmatter; otherwise <code>TTS_VOICE</code> env.</li>
+      <li>Hash <code>sha256(text + voice + model)</code>. If <code>&lt;data_dir&gt;/tts/&lt;hash&gt;.ogg</code> already exists, reuse it &mdash; no re-synth.</li>
+      <li>On miss, POST to <code>TTS_BASE_URL</code> at the OpenAI-shaped path <code>/v1/audio/speech</code>. The bundled <code>ttsd</code> daemon forwards to a Kokoro-FastAPI container running locally.</li>
+      <li>Hand the ogg file to the channel adapter; it sends it using the platform&rsquo;s native voice primitive.</li>
+    </ol>
+    <p>Text is capped at 5000 characters. The TTS endpoint is OpenAI-compatible, so swapping in Piper, Coqui, or OpenAI cloud is just changing <code>TTS_BACKEND_URL</code> on <code>ttsd</code>.</p>
+
+    <h2>platform support</h2>
+    <table>
+      <tr><th>Platform</th><th>How <code>send_voice</code> is delivered</th></tr>
+      <tr><td>Telegram</td><td><code>sendVoice</code> &mdash; push-to-talk UI</td></tr>
+      <tr><td>WhatsApp</td><td>audio with <code>ptt:true</code> via Baileys</td></tr>
+      <tr><td>Discord</td><td><code>audio/ogg</code> attachment</td></tr>
+      <tr><td>Mastodon, Reddit, Bluesky, LinkedIn, X, email</td><td>Unsupported &mdash; <code>chanlib.ErrUnsupported</code>, agent falls back to <code>send</code></td></tr>
+    </table>
+
+    <h2>when does the agent voice back?</h2>
+    <p>The persona picks. A voice-first persona (think a phone-only assistant) always voices. A text-first persona only voices when the user voiced first &mdash; matching modality is friendlier than auto-converting every message to audio. The agent makes the choice in its prompt logic; the system doesn&rsquo;t auto-convert.</p>
+
+    <h2>failure mode</h2>
+    <p>If <code>ttsd</code> is down, its <code>/health</code> returns 503 and <code>gated</code> flips <code>TTS_ENABLED=false</code> for that turn. <code>send_voice</code> returns <code>chanlib.ErrUnsupported</code>; the agent&rsquo;s wrapper sees that and falls back to a plain text <code>send</code>. The user gets a text reply instead of silence.</p>
+
+    <h2>go deeper</h2>
+    <p>Canonical spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/T-voice-synthesis.md">specs/5/T-voice-synthesis.md</a>. The <code>voice:</code> frontmatter that pins a per-agent voice lives in <code>PERSONA.md</code> &mdash; see <a href="../concepts/ant.html">ant</a> for the folder layout. For how the JIDs in <code>send_voice(chatJid, &hellip;)</code> are shaped, see <a href="../concepts/jid.html">jid</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

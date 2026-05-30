@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>teled &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; teled</p>
+    <h1>teled</h1>
+
+    <h2>What it is</h2>
+    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to gated, and serves outbound calls back to the Bot API. JID prefix is <code>telegram:</code>; per-chat JIDs look like <code>telegram:&lt;chat_id&gt;</code>.</p>
+
+    <h2>Why it exists</h2>
+    <p>Telegram is the workhorse personal channel for arizuko deployments &mdash; it is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy, and the reaction translation that gated does not do itself.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Telegram (api.telegram.org)
+        |  long-poll getUpdates (allowed_updates=[message, message_reaction])
+        v
+      teled     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to teled)
+        v
+      teled     (sendMessage / sendPhoto / setMessageReaction / ...)
+        |
+        v
+      Telegram</code></pre>
+    </div>
+
+    <p>Wired verbs (<code>teled/bot.go</code>): <code>send</code>, <code>send_file</code> (photo / video / document by extension), <code>post</code>, <code>like</code> (<code>setMessageReaction</code>, default <span>&#128077;</span>), <code>delete</code>, <code>forward</code> (true <code>forwardMessage</code> when the source carries <code>chatJid|id</code>), <code>edit</code> (own messages, 48 h window), <code>typing</code> (refreshed every 4 s). <code>dislike</code>, <code>quote</code>, <code>repost</code> are 501-with-hint &mdash; the agent gets a structured pointer to <code>like(emoji='&#128078;')</code> / <code>reply</code> / <code>forward</code>.</p>
+
+    <p>Inbound mention detection: the bot&rsquo;s own user-id is filtered from incoming traffic, but messages from other bots are passed through (fixed in v0.40.5 &mdash; before that, all bot-authored messages were silently dropped). Reply-to-bot and reactions on bot messages are promoted to <code>verb=mention</code> by the gateway.</p>
+
+    <p>Telegram bot-token file URLs are short-lived, so teled proxies them via <code>GET /files/&lt;file_id&gt;</code> for the agent.</p>
+
+    <h2>Standalone usage</h2>
+    <p>teled is a plain Go binary. It needs a reachable gated, a bot token from <code>@BotFather</code>, and a writable data dir for the poll offset.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export TELEGRAM_BOT_TOKEN=123456:ABC-...
+export DATA_DIR=/srv/data/arizuko_demo
+export ASSISTANT_NAME=arizuko
+./teled</code></pre>
+
+    <p>Telegram-side setup: talk to <code>@BotFather</code>, create a bot, grab the token. For group chats: add the bot, then either give it admin or disable privacy mode so it can read non-command messages. No webhook setup required &mdash; teled long-polls.</p>
+
+    <p><code>GET /health</code> returns 200 when connected AND inbound has flowed in the last 5 minutes; 503 with <code>{status:"disconnected"}</code> otherwise.</p>
+
+    <h2>Verb support</h2>
+    <p>Notes from <code>teled/README.md</code>: reactions are bounded by the chat&rsquo;s admin allow-list (off-list emojis 400). <code>delete</code> for other users&rsquo; messages requires <code>can_delete_messages</code>. <code>fetch_history</code> returns <code>source: "unsupported"</code> &mdash; Telegram Bot API has no per-chat history endpoint; the gateway falls back to its local cache.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>teled/README.md</code> &mdash; full env vars, verb table, limitations.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

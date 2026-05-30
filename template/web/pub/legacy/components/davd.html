@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>davd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; davd</p>
+    <h1>davd</h1>
+
+    <h2>What it is</h2>
+    <p>davd is a WebDAV server over each instance&rsquo;s <code>groups/</code> directory. The whole daemon is the <code>sigoden/dufs</code> Rust binary wrapped in an alpine image (for the standard <code>wget</code> healthcheck), launched with <code>--port 8080 /data</code>. The mount point <code>/data</code> is bind-mounted from <code>&lt;data-dir&gt;/groups/</code>.</p>
+
+    <p>davd itself has no notion of identity. Authentication and per-group scoping happen one hop earlier in <a href="../components/proxyd.html">proxyd</a>.</p>
+
+    <h2>Why it exists</h2>
+    <p>The folder davd serves is the folder the agent reads each turn &mdash; <code>PERSONA.md</code>, <code>PERSONA.md</code>, <code>facts/</code>, custom skills, diary entries. Operators need a way to edit those files from a real editor (Finder, vim, VS Code, rclone) without shelling into the host.</p>
+
+    <p>WebDAV gives that for free: standard verbs (<code>PROPFIND</code>, <code>PUT</code>, <code>DELETE</code>, <code>MKCOL</code>) every OS already speaks. Without davd, the only way to edit a group&rsquo;s files is direct filesystem access on the server, or a custom REST surface that re-invents what WebDAV already standardises.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>operator (Finder, vim, rclone, curl)
+   |  WebDAV request to https://&lt;host&gt;/dav/&lt;group&gt;/...
+   v
+ proxyd
+   |  verify JWT (cookie or Bearer)
+   |  check group claim against URL path
+   |  davAllow: reject writes to .env, *.pem, .git/, logs/
+   v
+ davd  (dufs on :8080, serving /data)
+   |
+   v
+ &lt;data-dir&gt;/groups/&lt;group&gt;/&hellip;</code></pre>
+    </div>
+
+    <p>Inputs: WebDAV verbs forwarded by proxyd. Outputs: bytes from (or writes into) the group&rsquo;s folder on disk. The same bytes the agent reads on its next turn &mdash; no deploy, no restart.</p>
+
+    <p>Hard deps: a bind-mount of the data dir at <code>/data</code>, and proxyd in front for any non-local exposure. Direct access to davd is the same as root access to every group folder.</p>
+
+    <p>Concepts: <a href="../concepts/webdav.html">concepts/webdav</a> covers the proxyd write-block guard, the per-group path check, and end-to-end client examples.</p>
+
+    <h2>Standalone usage</h2>
+    <p>Yes, but with a warning: davd has no auth. Never bind it to a public interface without proxyd (or another auth layer) in front.</p>
+
+    <pre><code># run davd against a local directory
+docker run --rm -p 8080:8080 \
+  -v /srv/data/myinstance/groups:/data \
+  arizuko-davd:latest
+
+# probe (read-only PROPFIND on the root)
+curl -s -X PROPFIND -H 'Depth: 1' http://localhost:8080/
+
+# mount it with rclone
+rclone mount :webdav,url=http://localhost:8080: ~/mnt/groups \
+  --vfs-cache-mode writes</code></pre>
+
+    <p><code>GET /</code> returns 200 (the dufs index); the healthcheck probes that with a 3-second <code>wget</code> timeout. There is no <code>/health</code> route specific to davd.</p>
+
+    <h2>Key env vars</h2>
+    <ul>
+      <li>None on davd itself &mdash; the container is launched with fixed flags (<code>--port 8080 /data</code>).</li>
+      <li>The toggles that matter live on the compose generator: <code>WEBDAV_ENABLED</code> turns the daemon on, <code>DAV_ADDR</code> picks the host port. Write-block rules and the <code>/dav/&lt;group&gt;/</code> path check live in proxyd.</li>
+    </ul>
+
+    <p>Full list and defaults in <a href="../reference/env.html">reference/env</a>.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../concepts/webdav.html">concepts/webdav</a> &mdash; auth flow, write-block guard, client recipes.</li>
+      <li><code>davd/README.md</code> &mdash; the wrapper image and dufs invocation.</li>
+      <li><code>specs/5/M-webdav.md</code> &mdash; routing, auth model, write-block rules.</li>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the layer that gates every <code>/dav/</code> request.</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

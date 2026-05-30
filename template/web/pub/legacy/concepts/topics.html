@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>topics</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <h1>topics</h1>
+    <p class="dim back">threads inside one folder &middot; <a href="../concepts/">&larr; concepts</a></p>
+
+    <p class="lede">A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
+
+    <h2>where topics come from</h2>
+    <p>The gateway reads the topic from one of three places:</p>
+    <ul>
+      <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>gated</code>.</li>
+      <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the chat widget chooses it before the request goes out.</li>
+      <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, the gateway strips the prefix and runs the rest under topic <code>#name</code>.</li>
+    </ul>
+
+    <h2>what a topic isolates</h2>
+    <p>The agent keeps one Claude session per <code>(folder, topic)</code> pair. So <code>/new #support</code> resets the support thread without touching anything else in the folder. The store also tracks the last bot message per topic, so reply threading on the platform stays clean &mdash; replies anchor to the right message.</p>
+    <p>For the web channel, the gateway groups inbound messages by topic and runs one agent per topic, one after another.</p>
+
+    <h2>forks</h2>
+    <p>A fork copies the parent topic&rsquo;s Claude Code session file to a fresh session UUID. The child resumes natively from the parent&rsquo;s tail &mdash; every prior turn IS in the child&rsquo;s history, no prompt-injection trickery. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
+    <p>Three triggers all map to one <code>ForkTopic(folder, parent, child)</code> call:</p>
+    <ul>
+      <li><strong>Default fork from main</strong> &mdash; the first turn in a brand-new topic forks the folder&rsquo;s main session.</li>
+      <li><strong>Reply-to-parent</strong> &mdash; when the trigger message is a reply, the parent is the topic of the replied-to message, not main. Reply inside <code>#deploy</code> stays in <code>#deploy</code>; reply to a <code>#triage</code> message from a fresh thread forks from <code>#triage</code>.</li>
+      <li><strong>Explicit <code>fork_topic</code> MCP</strong> &mdash; the agent branches a focused side-conversation. Pass <code>force=true</code> to overwrite an existing child.</li>
+    </ul>
+    <p>On every turn the agent receives a <code>&lt;topic name=&quot;X&quot; /&gt;</code> envelope so it knows what scope it&rsquo;s in. There is no <code>&lt;inherited&gt;</code> block &mdash; the parent&rsquo;s history is already in the child session.</p>
+    <p>The <code>observed_cursor</code> column is per-topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
+
+    <h2>sticky topic</h2>
+    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. Sticky overrides whatever native topic the platform sent.</p>
+
+    <h2>go deeper</h2>
+    <p>Topics ride inside one folder; <a href="../concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. How folders relate to each other and what counts as ambient context: <a href="../concepts/scopes.html">scopes</a>. Full fork mechanics and the per-topic observed cursor: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Resolution order: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

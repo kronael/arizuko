@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>skills</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .lede { font-size: 1.05em; color: var(--fg); margin: 0.4em 0 1em; }
+    .back { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../concepts/">concepts</a> &rsaquo; skills</p>
+    <h1>skills</h1>
+
+    <p class="lede">A skill is a directory of markdown the agent reads when it needs to do a specific job. The agent ships with a built-in set and the operator can drop in more. Skills don&rsquo;t fire on their own &mdash; the agent calls one explicitly through <code>/dispatch</code>.</p>
+
+    <h2>what a skill is</h2>
+    <p>One directory under <code>ant/skills/</code>. Every skill has a <code>SKILL.md</code> with YAML frontmatter and a body:</p>
+    <pre><code>---
+name: skill-name
+description: one-line summary
+triggers: [keyword1, keyword2]
+---
+
+Skill instructions here...</code></pre>
+    <p>Names must match <code>^[a-z0-9\-]+$</code> &mdash; the seeder skips anything else. The body can be markdown plus any reference files (<code>*.md</code>) or executable helpers (<code>*.sh</code>, <code>*.ts</code>) that live next to <code>SKILL.md</code>.</p>
+
+    <h2>built-in vs user skills</h2>
+    <p>Two sources feed the agent&rsquo;s skill list:</p>
+    <ul>
+      <li><strong>Built-in.</strong> Everything under <code>ant/skills/</code> in the arizuko repo &mdash; <code>self</code>, <code>migrate</code>, <code>diary</code>, <code>find</code>, <code>oracle</code>, <code>persona</code>, <code>visual</code>, and around 50 more. These ship inside the <code>arizuko-ant</code> Docker image and are copied into every new group by <code>container.seedSkills()</code>. See <a href="../concepts/onboarding.html">onboarding</a> for the copy mechanism.</li>
+      <li><strong>User.</strong> A group can add its own skills under <code>/home/node/.claude/skills/</code> (the per-group workspace mounted into the container). The agent loads them the same way; the only difference is they live in the group&rsquo;s data dir, not the image.</li>
+    </ul>
+    <p>Built-in skills get refreshed on every <code>/migrate</code> run; user skills are never overwritten.</p>
+
+    <h2>discovery: dispatch is explicit</h2>
+    <p>LLMs do not reliably auto-trigger skills by reading their descriptions. The agent runs <code>/dispatch</code> as the first step on each turn: dispatch scans every skill&rsquo;s <code>description</code> + <code>triggers</code>, matches the current message, and tells the agent which skill to load. Without dispatch, skills sit there unused.</p>
+    <p><code>/reconcile</code> handles the late case &mdash; if the agent produced output and then realized a skill applied, reconcile re-runs the work under the correct skill so the output doesn&rsquo;t contradict the skill&rsquo;s rules.</p>
+
+    <h2>migration and versioning</h2>
+    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code> &mdash; a single integer. Every release that ships skill changes bumps this number. On agent startup, <code>gateway.checkMigrationVersion</code> compares the image&rsquo;s version against the group&rsquo;s last-seen value:</p>
+    <ul>
+      <li>If higher, the agent runs <code>/migrate</code>, which copies new and changed skill files from the image into the group&rsquo;s <code>.claude/skills/</code> &mdash; preserving user skills, replacing built-ins.</li>
+      <li>The same hook fires the release broadcast: the <code>&gt;</code> blockquote at the top of the new <code>CHANGELOG.md</code> entry is extracted and posted into the chat. Skill update and announcement travel together &mdash; bumping the version is the single trigger.</li>
+    </ul>
+    <p>Each version bump has a corresponding <code>ant/skills/self/migrations/NNN-vX.Y.Z-summary.md</code> file. The file&rsquo;s existence is what fires the broadcast; an empty stub body is fine for docs-only releases.</p>
+
+    <h2>go deeper</h2>
+    <p>How a group gets its initial skill set: <a href="../concepts/onboarding.html">onboarding</a>. Format rules and the per-skill layout: <a href="https://github.com/kronael/arizuko/blob/main/specs/1/B-extend-skills.md">specs/1/B-extend-skills.md</a>. The shipping flow that bumps <code>MIGRATION_VERSION</code> and writes a migration file: <a href="https://github.com/kronael/arizuko/blob/main/CLAUDE.md">CLAUDE.md</a> &mdash; &ldquo;Shipping changes&rdquo; section. What ships in each version: <a href="../changelog/">changelog</a>.</p>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

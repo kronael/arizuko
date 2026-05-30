@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mastd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prose p { margin: 0.6em 0; }
+    .prose ul { margin: 0.4em 0 0.8em 1.2em; }
+    .prose li { margin: 0.3em 0; }
+    .prose pre { margin: 0.6em 0; }
+    .back { font-size: 0.85em; }
+    .callout { border: 1px solid var(--border, rgba(127,127,127,0.25)); padding: 0.6em 0.9em; margin: 0.8em 0; border-radius: 4px; background: rgba(127,127,127,0.04); }
+    .callout pre { margin: 0; background: transparent; }
+  </style>
+</head>
+<body>
+  <div class="hub-container prose">
+    <p class="dim back"><a href="../">arizuko</a> &rsaquo; <a href="../components/">components</a> &rsaquo; mastd</p>
+    <h1>mastd</h1>
+
+    <h2>What it is</h2>
+    <p>mastd is the Mastodon channel adapter. It opens the user streaming API on a configured Mastodon instance, filters notifications to mentions and DMs, and posts inbound to gated. Outbound goes through the Mastodon REST API. JID prefix is <code>mastodon:</code>; per-account JIDs are <code>mastodon:&lt;account_id&gt;</code>.</p>
+
+    <h2>Why it exists</h2>
+    <p>Mastodon is the fediverse foothold: one adapter speaks ActivityPub against any Mastodon instance the operator has an account on. Streaming is the only practical way to get low-latency notifications &mdash; polling the public API hits rate limits before the bot becomes useful.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>Mastodon instance
+        |  streaming API: /api/v1/streaming/user (SSE)
+        v
+      mastd     (LISTEN_ADDR=:8080)
+        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        v
+      gated
+        |  POST /v1/send         (callback to mastd)
+        v
+      mastd     (REST: /api/v1/statuses, /favourite, /reblog, ...)
+        |
+        v
+      Mastodon</code></pre>
+    </div>
+
+    <p>Wired verbs (<code>mastd/client.go</code>): <code>send</code> and <code>reply</code> (<code>POST /api/v1/statuses</code>, with <code>in_reply_to_id</code> when set), <code>post</code> (text-only toot), <code>like</code> (<code>/favourite</code>), <code>delete</code>, <code>repost</code> (<code>/reblog</code>), <code>edit</code> (<code>PUT /api/v1/statuses/{id}</code>). <code>forward</code>, <code>quote</code>, <code>dislike</code> are 501-with-hint &mdash; Mastodon has no quote primitive (treated as anti-feature on the network) and no downvote.</p>
+
+    <p><code>send_file</code> is not implemented; the adapter returns <code>NoFileSender</code> until the <code>POST /api/v2/media</code> flow lands. <code>send</code> posts publicly today &mdash; DM semantics require an <code>acct</code> handle plus <code>Toot.Visibility = "direct"</code>, which the current JID format does not carry.</p>
+
+    <h2>Standalone usage</h2>
+    <p>mastd is a plain Go binary. It needs a reachable gated and an access token from a Mastodon application registered on the target instance.</p>
+
+    <pre><code>export ROUTER_URL=http://gated:8080
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export LISTEN_ADDR=:8080
+export MASTODON_INSTANCE_URL=https://mastodon.social
+export MASTODON_ACCESS_TOKEN=...
+./mastd</code></pre>
+
+    <p>Mastodon-side setup: <em>Preferences &rarr; Development &rarr; New application</em> on your instance. Required scopes: <code>read</code>, <code>write</code>, <code>follow</code>. Copy the access token.</p>
+
+    <p><code>GET /health</code> returns 503 when the notification stream is down. Mastodon instances sometimes reset the stream; mastd reconnects automatically &mdash; a persistent 503 points at the instance, not the adapter.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/channels.html">components/channels</a> &mdash; cross-adapter verb matrix.</li>
+      <li><code>mastd/README.md</code> &mdash; verb table, known gaps (DM semantics, media on <code>post</code>).</li>
+    </ul>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
