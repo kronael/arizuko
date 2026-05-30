@@ -250,6 +250,14 @@ conflicts with parallel subs or main-tree edits. Trivial edits
 run on the shared tree. The Agent tool cleans up empty worktrees
 automatically; otherwise it returns the worktree path + branch.
 
+NEVER run multiple code-editing subagents in parallel on the shared
+main tree — they interleave (one reverts another's edits, mid-flight
+commits, reviewers read half-edited files). Run code edits ONE AT A
+TIME unless the user explicitly authorizes parallel overlapping
+changes; for genuine parallel code work, give each sub its own
+`isolation: "worktree"`. Parallel on the shared tree is fine only for
+READ-ONLY subs (verify / review / research).
+
 ## Design principles
 
 ### Simple stays simple, complex goes deeper
