@@ -89,8 +89,22 @@ func main() {
 		},
 	})
 
+	// Soak (spec 5/1 § cutover): when AUTHD_URL is set, additionally accept an
+	// authd-minted ES256 bearer alongside the live HMAC X-User-Sig. Unset →
+	// nil KeySet → StripUnsigned behavior, exactly as before.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var ks *auth.KeySet
+	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
+		var kerr error
+		if ks, kerr = auth.FetchKeys(ctx, authdURL); kerr != nil {
+			slog.Error("fetch authd keys", "err", kerr)
+			os.Exit(1)
+		}
+	}
+
 	mux := http.NewServeMux()
-	stripUnsigned := auth.StripUnsigned(os.Getenv("PROXYD_HMAC_SECRET"))
+	stripUnsigned := auth.StripUnsignedOrBearer(os.Getenv("PROXYD_HMAC_SECRET"), ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
