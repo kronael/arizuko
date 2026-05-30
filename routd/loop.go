@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -39,6 +40,15 @@ type Loop struct {
 	pollEvery  time.Duration
 	runTimeout time.Duration
 	scopes     []types.Scope
+
+	// Proactive interjection (5/33). zero-value cfg (Enabled=false) → the
+	// scan is never driven. modes caches per-group CLAUDE.md proactive mode;
+	// pendingReason carries a fired turn's <proactive_reason> to the prompt
+	// build keyed on turn_id; nextScanAt advances the loop-driven sweep.
+	proactive     ProactiveConfig
+	modes         *modeCache
+	pendingReason sync.Map // turn_id → proactiveResult
+	nextScanAt    time.Time
 }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -52,6 +62,12 @@ type LoopConfig struct {
 	IpcDir     string
 	RunScopes  []types.Scope
 	RoundDone  RoundDoneFn
+
+	// Proactive (5/33). Proactive.Enabled false → no scan ever runs.
+	// GroupsDir is where per-group CLAUDE.md lives (the proactive-mode
+	// source); empty when proactive is disabled.
+	Proactive ProactiveConfig
+	GroupsDir string
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -72,6 +88,10 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		pollEvery:  cfg.PollEvery,
 		runTimeout: cfg.RunTimeout,
 		scopes:     cfg.RunScopes,
+		proactive:  cfg.Proactive,
+	}
+	if cfg.Proactive.Enabled {
+		l.modes = newModeCache(cfg.GroupsDir)
 	}
 	l.q = queue.New(cfg.MaxRuns, cfg.IpcDir)
 	l.q.SetProcessMessagesFn(l.processGroupMessages)
@@ -110,6 +130,9 @@ func (l *Loop) publishRoundDone(folder, turnID string) {
 // un-advanced agent_cursor.
 func (l *Loop) Run(ctx context.Context) {
 	l.recoverPending()
+	if l.proactive.Enabled {
+		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
+	}
 	t := time.NewTicker(l.pollEvery)
 	defer t.Stop()
 	for {
@@ -119,8 +142,21 @@ func (l *Loop) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			l.pollOnce()
+			l.maybeScanProactive(time.Now())
 		}
 	}
+}
+
+// maybeScanProactive runs one proactive sweep when due (spec 5/33 § The
+// proactive sweep): loop-driven, not a free ticker. Advances by
+// ScanInterval with no catch-up — a long iteration just delays the next
+// scan. No-op unless PROACTIVE_ENABLED.
+func (l *Loop) maybeScanProactive(now time.Time) {
+	if !l.proactive.Enabled || now.Before(l.nextScanAt) {
+		return
+	}
+	l.scanProactive(now)
+	l.nextScanAt = now.Add(l.proactive.ScanInterval)
 }
 
 // recoverPending re-enqueues chats with a still-running turn so a crash
@@ -266,6 +302,13 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	topic := last.Topic
 	turnID := last.ID
 	rendered := router.FormatMessages(trigger)
+	// A proactive turn carries one ephemeral <proactive_reason> block ahead
+	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
+	// it is consumed so a re-fed turn does not re-attach a stale reason.
+	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
+		r := v.(proactiveResult)
+		rendered = proactiveReasonBlock(r.check, r.reason) + rendered
+	}
 
 	if err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender); err != nil {
 		return false, err

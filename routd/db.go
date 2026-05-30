@@ -463,6 +463,137 @@ func (d *DB) PutCost(folder, turnID, model string, in, out, cents int) error {
 	return err
 }
 
+// --- proactive interjection (5/33) ---
+
+// proactiveSelfSender is the synthetic inbound's sender. Rows from it never
+// reset the silence clock and never count as recent activity (the trigger
+// must not feed itself). The `timed-` prefix also hits the engagement-skip
+// carve-out in dispatchRun.
+const proactiveSelfSender = "timed-proactive"
+
+// ProactiveChats lists distinct chat jids that carry at least one inbound
+// message — the universe the proactive scan iterates (then filters by the
+// group's cached mode). Bot rows and the proactive synthetic row don't make
+// a chat eligible on their own.
+func (d *DB) ProactiveChats() ([]string, error) {
+	rows, err := d.db.Query(`SELECT DISTINCT chat_jid FROM messages
+		WHERE is_bot_message=0 AND sender<>?`, proactiveSelfSender)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var jid string
+		if err := rows.Scan(&jid); err != nil {
+			return nil, err
+		}
+		out = append(out, jid)
+	}
+	return out, rows.Err()
+}
+
+// LastInboundAt returns the timestamp of the newest real inbound message on
+// a chat (bot rows and the proactive synthetic row excluded), or zero time
+// when none. The silence-debounce clock.
+func (d *DB) LastInboundAt(jid string) time.Time {
+	var ts sql.NullString
+	d.db.QueryRow(`SELECT MAX(timestamp) FROM messages
+		WHERE chat_jid=? AND is_bot_message=0 AND sender<>?`, jid, proactiveSelfSender).Scan(&ts)
+	if !ts.Valid {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339Nano, ts.String)
+	return t
+}
+
+// BotSpokeSince reports whether a bot-authored row exists on a chat at or
+// after since (the BotQuiet veto).
+func (d *DB) BotSpokeSince(jid string, since time.Time) bool {
+	var n int
+	d.db.QueryRow(`SELECT 1 FROM messages WHERE chat_jid=? AND is_bot_message=1
+		AND timestamp>=? LIMIT 1`, jid, since.UTC().Format(time.RFC3339Nano)).Scan(&n)
+	return n == 1
+}
+
+// InboundCountSince counts real inbound rows on a chat at or after since
+// (the RecentActivity floor).
+func (d *DB) InboundCountSince(jid string, since time.Time) int {
+	var n int
+	d.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE chat_jid=?
+		AND is_bot_message=0 AND sender<>? AND timestamp>=?`,
+		jid, proactiveSelfSender, since.UTC().Format(time.RFC3339Nano)).Scan(&n)
+	return n
+}
+
+// LastInbound returns the newest real inbound row on a chat (content +
+// timestamp), used by positive signals. ok=false when the chat has none.
+func (d *DB) LastInbound(jid string) (content string, ts time.Time, ok bool) {
+	var c sql.NullString
+	var t sql.NullString
+	err := d.db.QueryRow(`SELECT content, timestamp FROM messages
+		WHERE chat_jid=? AND is_bot_message=0 AND sender<>?
+		ORDER BY timestamp DESC LIMIT 1`, jid, proactiveSelfSender).Scan(&c, &t)
+	if err != nil || !t.Valid {
+		return "", time.Time{}, false
+	}
+	tt, _ := time.Parse(time.RFC3339Nano, t.String)
+	return c.String, tt, true
+}
+
+// ProactiveLastFired returns when a proactive turn last fired on a chat, or
+// zero time when never (the mandatory 24h cooldown).
+func (d *DB) ProactiveLastFired(jid string) time.Time {
+	var ts sql.NullString
+	d.db.QueryRow("SELECT proactive_last_fired_at FROM chat_proactive WHERE jid=?", jid).Scan(&ts)
+	if !ts.Valid {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339Nano, ts.String)
+	return t
+}
+
+// FireProactive appends the synthetic inbound row AND sets the chat's
+// proactive_last_fired_at in one transaction (spec 5/33 § Fire). The caller
+// dispatches the run only after this commits, so a crash before dispatch
+// leaves the cooldown set — at worst one missed turn, never a double-fire.
+// Returns the synthetic row's id (the turn_id).
+func (d *DB) FireProactive(jid string) (string, error) {
+	id := "proactive-" + randHex(8)
+	now := nowTS()
+	tx, err := d.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	// sender_name + reply_to_id set to '' (not NULL) so scanMessages, which
+	// scans them into plain strings, sees a non-NULL value like PutMessage.
+	if _, err := tx.Exec(`INSERT INTO messages
+		(id, chat_jid, sender, sender_name, content, timestamp, reply_to_id, verb, status)
+		VALUES (?,?,?,'','',?,'','message',?)`,
+		id, jid, proactiveSelfSender, now, core.MessageStatusSent); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(`INSERT INTO chat_proactive(jid, proactive_last_fired_at)
+		VALUES(?,?) ON CONFLICT(jid) DO UPDATE SET proactive_last_fired_at=excluded.proactive_last_fired_at`,
+		jid, now); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// ChatHasRunningTurn reports whether a chat has a turn still in state
+// 'running' — the scan skips it (the per-folder queue serializes; a
+// proactive inbound never steers a live turn).
+func (d *DB) ChatHasRunningTurn(jid string) bool {
+	var n int
+	d.db.QueryRow("SELECT 1 FROM turn_context WHERE chat_jid=? AND state='running' LIMIT 1", jid).Scan(&n)
+	return n == 1
+}
+
 func b2i(b bool) int {
 	if b {
 		return 1

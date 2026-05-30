@@ -70,6 +70,8 @@ func main() {
 		RunScopes: []types.Scope{
 			"messages:send:own_group", "chats:read:own_group",
 		},
+		Proactive: routd.LoadProactiveConfig(os.Getenv),
+		GroupsDir: filepath.Join(dataDir, "groups"),
 	})
 
 	srv := routd.NewServer(db, loop, nil, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
