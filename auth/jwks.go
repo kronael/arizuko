@@ -99,12 +99,21 @@ func subjectFromPayload(payload []byte) (Subject, error) {
 	if err := json.Unmarshal(payload, &c); err != nil {
 		return Subject{}, ErrInvalidToken
 	}
-	now := time.Now().Unix()
-	skew := int64(tokenClockSkew.Seconds())
-	if c.Nbf != 0 && now+skew < c.Nbf {
+	// Pin the issuer — only authd-minted tokens are accepted (specs/5/1).
+	if c.Iss != Issuer {
 		return Subject{}, ErrInvalidToken
 	}
-	if c.Exp != 0 && now > c.Exp+skew {
+	// iat/nbf/exp are required claims; a missing time bound is a reject,
+	// never "no constraint" (no fail-open).
+	if c.Exp == 0 || c.Nbf == 0 {
+		return Subject{}, ErrInvalidToken
+	}
+	now := time.Now().Unix()
+	skew := int64(tokenClockSkew.Seconds())
+	if now+skew < c.Nbf {
+		return Subject{}, ErrInvalidToken
+	}
+	if now > c.Exp+skew {
 		return Subject{}, ErrExpiredToken
 	}
 	return Subject{
