@@ -25,7 +25,7 @@
   // release via the sync workflow (rsync template/web/pub/ → krons
   // re-injects this string from CHANGELOG.md latest [vX.Y.Z] header).
   // Until automated: bumped manually with each release.
-  var ARIZUKO_VERSION = 'v0.45.10';
+  var ARIZUKO_VERSION = 'v0.46.1';
 
   function injectFooter() {
     // Site-wide footer with the version stamp + the two anchors the
@@ -38,7 +38,8 @@
       ARIZUKO_VERSION +
       '</span> · ' +
       '<a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a>' +
-      ' · <a href="https://krons.fiu.wtf/pub/arizuko/">krons.fiu.wtf</a>';
+      ' · <a href="https://krons.fiu.wtf/pub/arizuko/">krons.fiu.wtf</a>' +
+      ' · <a href="https://krons.fiu.wtf/pub/arizuko/legacy/">previous docs</a>';
     document.body.appendChild(f);
   }
 
