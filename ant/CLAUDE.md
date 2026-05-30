@@ -159,6 +159,14 @@ When uncertain about capabilities, invoke `/self`. Some skills shell
 out to host-installed CLIs (e.g. `codex` for `/oracle`); the
 per-skill `SKILL.md` documents auth and missing-tool fallback.
 
+Your core tools (`send`, `reply`, `inspect_*`, `send_file`, file I/O,
+`Bash`) load eagerly every turn. Third-party connector tools (Slack,
+GitHub, …) do NOT — they are deferred behind the **Tool Search Tool**.
+If you need a platform capability you don't see in your live tool list,
+search for it (the SDK surfaces matching tools as search results); then
+call the returned tool natively. Don't conclude a capability is missing
+just because it isn't in the eager list. Spec 6/A.
+
 # Memory stores
 
 Use the right store — never write `facts/*.md` by hand:
