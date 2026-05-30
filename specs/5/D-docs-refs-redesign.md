@@ -109,6 +109,32 @@ hub.css palette, corner radii, dense typography, and theme toggle — the
 shell adds layout classes, never new theme tokens. It borrows the
 three-pane _structure_, never another site's look.
 
+## Two-chrome system (2026-05-30 refinement)
+
+Supersedes the single-shell assumption above: the site uses **exactly two
+reused chromes**, assigned by content shape, plus a no-nav landing. Two
+chromes only — do not invent a third.
+
+- **Three-pane** (`.docs-layout`): navigation-heavy _catalogues_ —
+  `reference/` and `components/`. Left category nav + content + right
+  `.docs-toc` (auto-built by `buildTOC()`).
+- **Guide** (`.guide-layout`): linear _learning_ sections, Go-Tour rhythm —
+  `concepts/`, `howto/`, `products/`. Thin lesson-nav + one readable content
+  column + a prominent prev/next pager; **no right TOC** (pages are short,
+  1–2 min). Reuses `.docs-nav`/`.docs-content`/`.docs-crumb`/`.docs-pager`/
+  `.docs-footer` + the drawer; the only new piece is the 2-col container.
+- **One-pager** (no nav): the landing `index.html` and `security/` — a pitch,
+  not a doc page (dbt's own homepage isn't three-pane either).
+
+Footers (two, on every page): the global `injectFooter()` (hub.js) carries the
+version stamp + GitHub + krons + **previous-docs (legacy)** link; the per-page
+`.docs-footer` carries the edit-this-page link + a git-stamped `<time>` updated
+date. Together they surface version-and-update on every page.
+
+Discovery is conversational (no search box): `injectAskAgent()` /
+`injectSelectionPopup()` open the krons `arizuko/support` agent (which has the
+docs + arizuko code in context); its replies link back into the docs.
+
 ## Adopt from dbt (IA + content rhythm)
 
 1. Breadcrumb above H1 on every page: `arizuko › reference › CLI commands`.
