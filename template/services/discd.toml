@@ -2,7 +2,7 @@ image = "arizuko:latest"
 entrypoint = ["discd"]
 
 [environment]
-ROUTER_URL = "http://routd:8080"
+ROUTER_URL = "http://gated:8080"
 DISCORD_BOT_TOKEN = "${DISCORD_BOT_TOKEN}"
 DISCORD_USER_TOKEN = "${DISCORD_USER_TOKEN}"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"

@@ -2,7 +2,7 @@ image = "arizuko:latest"
 entrypoint = ["linkd"]
 
 [environment]
-ROUTER_URL = "http://routd:8080"
+ROUTER_URL = "http://gated:8080"
 LINKEDIN_CLIENT_ID = "${LINKEDIN_CLIENT_ID}"
 LINKEDIN_CLIENT_SECRET = "${LINKEDIN_CLIENT_SECRET}"
 LINKEDIN_ACCESS_TOKEN = "${LINKEDIN_ACCESS_TOKEN}"
