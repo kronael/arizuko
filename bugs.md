@@ -872,8 +872,38 @@ stage (#48). Detailed repros in the audit transcripts.
   (`AUTHD_KEY_ROTATION_DAYS`), no encryption-at-rest (`store.go:197` raw PKCS8).
 - [nit] kid uses uuid not sortable `<unix>-<hex>` (`server.go:70`); window math
   uses `maxAccessTTL` not `max(accessTTL, jwksCacheTTL)`.
-- ✓ clean: alg-confusion closed, scope math (`*:*` reject + bounding), refresh
-  rotation core, key lifecycle, concurrency, SQLi, UNIQUE constraints.
+- ✓ clean (opus, sequential): scope math (`*:*` reject + bounding), key
+  lifecycle (sequential), SQLi, UNIQUE constraints.
+
+**Codex oracle deeper pass (2026-05-29) — found 4 blockers the opus pass
+missed (mostly concurrency + the remote verify path):**
+
+- [blocker] remote-path alg-confusion — ✓ FIXED (08b3cadd): the RemoteKeySet
+  path called `VerifySignature` directly (no alg check); a poisoned/MITM JWKS
+  with an `oct` key + HS256 token would verify. Now pre-pins ES256.
+- [blocker] emergency-revoke doesn't propagate (`jwks.go:50,85`): RemoteKeySet
+  caches keys + refreshes only on kid-miss, not max-age → a revoked key keeps
+  verifying from a verifier's cache until restart/kid-miss. Breaks the
+  "kill every token now" lever. Fix: verifier max-age refresh, OR formally
+  rely on the short access TTL (≤15m) as the revocation horizon + document it.
+- [blocker] retired-key forgery window (`server.go:60`, `jwks.go:96`): verifiers
+  don't check `token.iat < key.retired_at`; a STOLEN old key mints valid tokens
+  for the entire overlap window (rotation preserves signing authority for the
+  thief, not just overlap for preexisting tokens).
+- [blocker] refresh rotation RACEABLE (`server.go:145`, `store.go:157`):
+  concurrent redeem of one refresh token → both `lookupRefresh` before either
+  writes `used_at` → two live successor chains; family-reuse never fires. Fix:
+  atomic compare-and-set (`UPDATE … WHERE used_at IS NULL`, check rows-affected).
+- [should-fix] audience fail-open (`scope.go:25`): service tokens `aud=""` +
+  verifiers never call `MatchesAudience` → cross-service token replay where
+  scopes overlap (confused deputy). Bind + check aud per daemon at cutover.
+- [should-fix] rotation not atomic + no "exactly one active key" DB constraint
+  (`server.go:69`, migration `0001:11`) → concurrent `Rotate()` → multiple
+  active signers (split authority at the trust root).
+- [should-fix] unbounded request bodies on `/v1/service-token` + `/v1/refresh`
+  (`http.go:70,95`, no `http.MaxBytesReader`) → memory/CPU DoS.
+- [nit] `go.mod` `go 1.25.5` is rejected by older toolchains (codex couldn't run
+  the test suite; our local toolchain is fine) — confirm CI's Go ≥ 1.25.
 
 ### routd (vs 5/E + 5/33)
 
