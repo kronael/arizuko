@@ -222,32 +222,18 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	}
 }
 
-// killRuntime records Kill-by-name calls and runs a caller-supplied Run.
-type killRuntime struct {
-	run    func(ctx context.Context, spec RunSpec) RunResult
-	killed chan string
-}
-
-func (k *killRuntime) Run(ctx context.Context, spec RunSpec) RunResult { return k.run(ctx, spec) }
-func (k *killRuntime) Kill(name string) error {
-	select {
-	case k.killed <- name:
-	default:
-	}
-	return nil
-}
-
-// TestRunTTLKillDeadline: m.runTTL is the intended run ceiling, but
-// runtime.Run gets the raw request ctx. A run that would outlast runTTL must
-// be Kill'd by the deadline timer armed in spawn (gap 1 — without it a
-// CONTAINER_TIMEOUT > RUN_TTL container outruns the ceiling).
-func TestRunTTLKillDeadline(t *testing.T) {
-	exit := make(chan struct{})
-	rt := &killRuntime{killed: make(chan string, 1)}
-	rt.run = func(ctx context.Context, spec RunSpec) RunResult {
-		<-exit // outlive the runTTL until the deadline Kill releases us.
-		return RunResult{Outcome: runedv1.OutcomeError, Error: "timed out"}
-	}
+// TestRunTTLThreadedToRuntime: m.runTTL is the intended run ceiling. The
+// Manager no longer arms a detached kill-timer (which raced container
+// creation); instead it threads the ceiling into RunSpec.RunTTL and the
+// Runtime enforces it from within the run path. This asserts the manager
+// hands its runTTL down on every spawn (gap 1 — the enforcement-relocation
+// contract; the actual kill is covered by TestDockerRuntimeRunTTLKill).
+func TestRunTTLThreadedToRuntime(t *testing.T) {
+	var gotTTL atomic.Int64
+	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
+		gotTTL.Store(int64(spec.RunTTL))
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+	}}
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatalf("open mem db: %v", err)
@@ -257,17 +243,11 @@ func TestRunTTLKillDeadline(t *testing.T) {
 		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
 	})
 
-	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
 
-	select {
-	case name := <-rt.killed:
-		if name == "" {
-			t.Fatalf("deadline Kill got empty container name")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("runTTL deadline never Kill'd the over-ceiling container")
+	if got := time.Duration(gotTTL.Load()); got != 20*time.Millisecond {
+		t.Fatalf("RunSpec.RunTTL=%s want 20ms (manager must thread runTTL to the runtime)", got)
 	}
-	close(exit)
 }
 
 // TestBreakerResetsOnSilent: gated resets the breaker on ANY clean exit

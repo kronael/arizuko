@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -121,6 +122,86 @@ func TestExitCodeMessageCountFlow(t *testing.T) {
 	}
 	if res.Outcome != runedv1.OutcomeError {
 		t.Fatalf("outcome=%q want error", res.Outcome)
+	}
+}
+
+// TestDockerRuntimeRunTTLKill: dockerRuntime.Run enforces RunSpec.RunTTL as a
+// kill-deadline FROM WITHIN the run path. A run that outlives runTTL is Kill'd
+// by name; the kill is armed only once the run is underway and stops when the
+// run returns — no detached manager timer racing container creation (gap 1).
+func TestDockerRuntimeRunTTLKill(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{Status: "error", Error: "timed out", ExitCode: 137},
+	}
+	killed := make(chan string, 4)
+	rt := &dockerRuntime{
+		cfg: &core.Config{}, folders: folders, runner: runner,
+		fed:    NewFederator("http://routd.invalid"),
+		signal: func(string) error { return nil },
+		// The TTL watcher fires this; capture the name and release the run so
+		// it returns (the prod kill would stop the container, ending the run).
+		kill: func(name string) error {
+			select {
+			case killed <- name:
+			default:
+			}
+			select {
+			case <-runner.release:
+			default:
+				close(runner.release)
+			}
+			return nil
+		},
+	}
+
+	res := rt.Run(context.Background(), RunSpec{
+		RunID: "run_ttl", Folder: "demo", ContainerName: "arizuko-test-demo-ttl",
+		MessageBatch: "m", RunTTL: 20 * time.Millisecond,
+		RegisterSteer: func(func(string) bool) {},
+	})
+	select {
+	case name := <-killed:
+		if name != "arizuko-test-demo-ttl" {
+			t.Fatalf("runTTL Kill got name %q want arizuko-test-demo-ttl", name)
+		}
+	default:
+		t.Fatal("runTTL deadline never Kill'd the over-ceiling container")
+	}
+	if res.Outcome != runedv1.OutcomeError {
+		t.Fatalf("outcome=%q want error (the killed run)", res.Outcome)
+	}
+}
+
+// TestDockerRuntimeRunTTLNoKillOnFastRun: a run that finishes inside runTTL is
+// NOT Kill'd, and no kill fires after the run returns — the watcher stops
+// deterministically on completion (gap 2, the late-kill race). RunTTL=0 (no
+// ceiling) likewise never arms.
+func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{Status: "success", ExitCode: 0},
+	}
+	close(runner.release) // run returns immediately.
+	var kills int32
+	rt := &dockerRuntime{
+		cfg: &core.Config{}, folders: folders, runner: runner,
+		fed:    NewFederator("http://routd.invalid"),
+		signal: func(string) error { return nil },
+		kill:   func(string) error { atomic.AddInt32(&kills, 1); return nil },
+	}
+
+	rt.Run(context.Background(), RunSpec{
+		RunID: "run_fast", Folder: "demo", ContainerName: "arizuko-test-demo-fast",
+		MessageBatch: "m", RunTTL: 50 * time.Millisecond,
+		RegisterSteer: func(func(string) bool) {},
+	})
+	// Wait past the (already-disarmed) deadline to prove no late kill fires.
+	time.Sleep(80 * time.Millisecond)
+	if n := atomic.LoadInt32(&kills); n != 0 {
+		t.Fatalf("fast run got %d kills, want 0 (deadline must not fire after completion)", n)
 	}
 }
 

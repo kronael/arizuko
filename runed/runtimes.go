@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/container"
@@ -53,6 +54,10 @@ type dockerRuntime struct {
 	// to `docker kill --signal=SIGUSR1`; tests inject a fake so the prod
 	// steer path is exercised without docker.
 	signal func(name string) error
+	// kill stops + removes a container by name (the runTTL deadline + DELETE
+	// /v1/runs/{id}). Defaults to docker stop→kill→rm -f; tests inject a fake
+	// so the runTTL enforcement path is exercised without docker.
+	kill func(name string) error
 }
 
 // NewDockerRuntime builds the production Runtime around the docker runner +
@@ -64,7 +69,19 @@ func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, fed *Fede
 		signal: func(name string) error {
 			return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
 		},
+		kill: dockerKill,
 	}
+}
+
+// dockerKill stops a live container by name: stop, then docker kill, then
+// rm -f (spec 5/P § DELETE /v1/runs/{id}). Idempotent — every step is a
+// harmless no-op on an already-exited / never-created container, which is
+// what makes the runTTL watcher safe to retry.
+func dockerKill(name string) error {
+	_ = exec.Command(container.Bin, container.StopContainerArgs(name)...).Run()
+	_ = exec.Command(container.Bin, "kill", name).Run()
+	_ = exec.Command(container.Bin, "rm", "-f", name).Run()
+	return nil
 }
 
 // Run spawns one container turn. GatedFns are repointed at the Federator so
@@ -78,6 +95,8 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		ipcDir, _ := d.folders.IpcPath(spec.Folder)
 		spec.RegisterSteer(d.steerInto(ipcDir, spec.ContainerName))
 	}
+	stopTTL := d.armRunTTL(spec.RunTTL, spec.ContainerName)
+	defer stopTTL()
 	gated := d.gatedFns(ctx, spec)
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
 		Name:      spec.ContainerName,
@@ -97,6 +116,43 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		ExitCode:     out.ExitCode,
 		MessageCount: out.MessageCount,
 	}
+}
+
+// runTTLPollInterval is how often the runTTL watcher retries Kill after the
+// deadline elapses — covers a container that hasn't finished `docker run`
+// (not yet killable by name) when the ceiling first fires.
+const runTTLPollInterval = 250 * time.Millisecond
+
+// armRunTTL starts the runTTL kill-deadline watcher and returns a stop func
+// the caller defers. ttl<=0 disarms (returns a no-op stop). Once ttl elapses
+// the watcher Kills the container by name and keeps retrying on an interval
+// until the run returns — so a slow `docker run` that wasn't yet killable when
+// the deadline first fired is still reaped (fixes the single-shot startup
+// race). The stop func closes done and the watcher exits, so NO kill can fire
+// after the run completes (fixes the late-kill-after-Stop()==false race). Kill
+// is idempotent, making the retries harmless.
+func (d *dockerRuntime) armRunTTL(ttl time.Duration, containerName string) func() {
+	if ttl <= 0 || containerName == "" {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+			return
+		case <-time.After(ttl):
+		}
+		for {
+			_ = d.Kill(containerName)
+			select {
+			case <-done:
+				return
+			case <-time.After(runTTLPollInterval):
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 // steerInto returns the steer closure: write the batch as an IPC input file
@@ -124,10 +180,10 @@ func (d *dockerRuntime) Kill(containerName string) error {
 	if containerName == "" {
 		return nil
 	}
-	_ = exec.Command(container.Bin, container.StopContainerArgs(containerName)...).Run()
-	_ = exec.Command(container.Bin, "kill", containerName).Run()
-	_ = exec.Command(container.Bin, "rm", "-f", containerName).Run()
-	return nil
+	if d.kill == nil {
+		return dockerKill(containerName)
+	}
+	return d.kill(containerName)
 }
 
 // writeIPCInput drops one {type:"message",text} file into the container's

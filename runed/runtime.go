@@ -25,6 +25,13 @@ type RunSpec struct {
 	Token         string // brokered capability token (the JWS, in memory only)
 	Isolated      bool
 
+	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
+	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is
+	// armed only once the run is underway and stops deterministically when the
+	// run returns — no detached manager timer racing container creation
+	// (spec 5/P § The queue + container model). Zero = no ceiling.
+	RunTTL time.Duration
+
 	// RegisterSteer is the Manager's hook the Runtime calls ONCE the
 	// container + IPC dir are up, handing back a steer closure (IPC write +
 	// SIGUSR1) so a concurrent POST /v1/runs steers into this live spawn

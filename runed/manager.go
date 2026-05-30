@@ -205,23 +205,23 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	_ = m.db.StartSpawn(runID, sessionID)
 
 	// Enforce runTTL as a kill-deadline: m.runTTL is the intended run ceiling
-	// (broker token TTL), but runtime.Run gets the raw request ctx, so a
-	// CONTAINER_TIMEOUT > runTTL would let the container outrun the ceiling.
-	// Arm a timer that Kills the container by name; stop it on return.
-	deadline := time.AfterFunc(m.runTTL, func() { _ = m.runtime.Kill(containerName) })
-
-	// run the envelope. RegisterSteer wires the steer callback into the
-	// live-run slot once the Runtime's container + IPC are up, so a
-	// concurrent POST /v1/runs steers into it instead of spawning afresh.
+	// (broker token TTL), but a CONTAINER_TIMEOUT > runTTL would let the
+	// container outrun it. The Runtime honors RunTTL from within the run path
+	// (kill armed once the run is underway, stopped when it returns) so no
+	// detached manager timer races container creation.
+	//
+	// RegisterSteer wires the steer callback into the live-run slot once the
+	// Runtime's container + IPC are up, so a concurrent POST /v1/runs steers
+	// into it instead of spawning afresh.
 	res := m.runtime.Run(ctx, RunSpec{
 		RunID: runID, Folder: folder, ContainerName: containerName,
 		Topic: req.Topic, ChatJID: req.ChatJID,
 		SessionID: sessionID, MessageBatch: req.MessageBatch,
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
+		RunTTL:        m.runTTL,
 		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})
-	deadline.Stop()
 
 	state := "exited"
 	failed := res.Outcome == runedv1.OutcomeError
