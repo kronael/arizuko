@@ -1012,3 +1012,37 @@ missed (mostly concurrency + the remote verify path):**
   caused by the authd/routd fix-wave; gateway untouched). Shared-state / timing
   flake among the gateway integration tests. Address in the test-completeness
   stage (#49).
+
+## Codebase-wide oracle bug-hunt (2026-05-30, all new+old .go) — TRIAGE QUEUE
+
+### gateway (core) — correctness
+- gateway.go:1817 transcribeOnce leaks resp.Body on non-200 (defer after status check)
+- gateway.go:788 groupBySender batches across whole slice, not consecutive runs → reorders causality
+- gateway.go:924 processWebTopics regroups whole backlog by topic → interleaved topics reordered
+- gateway.go:1763 downloadFile treats LimitReader exhaustion as success → silent truncate of oversized attachments
+- gateway.go:133/220 SetAudit dropped when Run rebuilds g.gatedFns wholesale (audit wiring lost)
+- gateway.go:1456 sendDocument bypasses SEND_DISABLED_CHANNELS (unlike other senders)
+- gateway.go:141/659/738 engagement precedence split across pollOnce + resolveOrEngaged (state-dependent routing)
+- gateway.go:2168 observeWindow walks all routes, later overrides earlier (contradicts 'first match' comment)
+- spawn.go:49/53 + gateway.go:1923 group create ignores AddRoute error after PutGroup → orphaned groups
+### gateway — minimality/orthogonality
+- tts.go:388 validateVoiceText dead (tested, unused) — wire into sendVoice (also fixes empty/too-long → timeout)
+- commands.go:806 + gateway.go:260 invite creation duplicated (command vs MCP) → policy drift
+### routd — correctness/scoping (beyond the 7 already fixed)
+- routd/db.go:210-214 scan error skipped (row dropped) in core feed → silent message loss/cursor corruption
+- routd/routes_http.go:61-77 list APIs use exact-folder not subtree (inconsistent with ownsFolder)
+- routd/routes_http.go:80-103 full route-replace under own_group = destructive global op w/ broken scope
+- routd/routes_http.go:207-226 + tokens.go:90 route-token op missing folder-ownership check
+- routd/proactive.go:316 + db.go:671 proactive reason only in sync.Map, not persisted → replay incomplete
+- routd/loop.go:288 + db.go:300 cursor 'min floor' vs 'max' precedence mismatch → unnecessary rescans
+### teled (adapters) — correctness
+- teled/bot.go:143,227 b.cancel write/read unsynchronized → data race + missed cancel
+- teled/bot.go:373,648 msg.Photo!=nil insufficient; empty non-nil slice panics → check len>0
+- teled/bot.go:50,140 connected set true once, never cleared → /health lies after auth/poll failure
+- teled/bot.go:591 + main.go:24 fetch_history advertised but always returns unsupported → suppresses DB fallback
+- teled/main.go:30 Caps drift: quote/repost/dislike advertised but Unsupported; unpin impl'd but not advertised
+- teled/bot.go:339 HTML-send fallback drops ReplyToMessageID; bot.go:373 SendFile ignores replyTo
+### teled — minimality (refine targets)
+- teled/bot.go envelope dup (194/239), msg-id parse dup (312..), thread-parse dup, markdown renderer in adapter
+
+Status: 7 shipped-code findings FIXED (e7d52712/890cb24e/6b2d9843). Above = old-code, triage queue for the fix+refine wave.
