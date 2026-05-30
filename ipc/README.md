@@ -74,7 +74,8 @@ Resource ownership map (drives which tools forward):
 Social verbs (chanreg-backed, `*UnsupportedError`-aware):
 
 - `send`, `reply`, `post`, `like`, `dislike`, `delete`, `forward`,
-  `quote`, `repost`, `edit`, `send_file`, `send_voice`
+  `quote`, `repost`, `edit`, `pin_message`, `unpin_message`,
+  `unpin_all`, `send_file`, `send_voice`
 
 (Names are post-rename: `send_message`→`send`, `send_reply`→`reply`,
 `react`→`like`, `score_down`→`dislike`, `delete_post`→`delete`. No
@@ -103,10 +104,11 @@ post-fetch `JIDRoutedToFolder` per row.
 
 ## Public API
 
-- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int) (stop func(), err error)`
+- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string) (stop func(), err error)`
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = ant image's `node` user in prod; ≤0 disables the check for
-  tests).
+  tests). `callerSub` is the agent's auth subject, stamped into audit
+  rows as the actor.
 - `GatedFns` — callbacks into gated (enqueue, register channel, run container, social verbs)
 - `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)
 - `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types
