@@ -373,6 +373,54 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 	}
 }
 
+// Cutover flip-blocker: an ES256-authenticated operator must get the operator
+// `**` grant injected into X-User-Groups from the DB — exactly as the HS256
+// path does. proxyd stays the grant-injector at flip; the ES256 path must NOT
+// stamp only the token claim. Guards that backends (webd/onbod/dashd reading
+// injected headers) see operator scope for ES256 sessions too.
+func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	// Operator grant: bare sub `google:999` holds `**` (cross-folder operator).
+	if err := st.AddACLRow(core.ACLRow{
+		Principal: "google:999", Action: "*", Scope: "**", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	k, ks := es256KeySet(t)
+	s := &server{cfg: config{authSecret: "hs", hmacSecret: "h", authdURL: "http://authd"}, st: st, ks: ks}
+	// ES256 token carries NO groups claim — proxyd must source them from the DB.
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:999", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r2 := s.tryAuth(r)
+	if r2 == nil {
+		t.Fatal("tryAuth nil for ES256 operator bearer")
+	}
+	var groups []string
+	if err := json.Unmarshal([]byte(r2.Header.Get("X-User-Groups")), &groups); err != nil {
+		t.Fatalf("X-User-Groups not valid JSON: %v", err)
+	}
+	found := false
+	for _, g := range groups {
+		if g == "**" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("X-User-Groups = %q; want operator ** for ES256 sub user:google:999", groups)
+	}
+	if r2.Header.Get("X-User-Sig") == "" {
+		t.Error("X-User-Sig must be injected so backends trust the operator groups")
+	}
+}
+
 // Soak step 6: with AUTHD_URL set, /auth/login 302s to authd; query preserved.
 func TestRedirectAuthToAuthd(t *testing.T) {
 	s := &server{cfg: config{authdURL: "https://authd.example"}}
