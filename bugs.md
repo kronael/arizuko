@@ -821,3 +821,25 @@ zero broken links). Fix = repoint to the correct target:
 - `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
 - `specs/5/5-uniform-mcp-rest.md` → `../11/11-crackbox-secrets.md` (×2) — no such file in specs/11 (renamed/removed); find the real secrets-broker spec (6/Y?).
 - `specs/7/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
+
+## resreg (5/36) spec-vs-impl gaps (found 2026-05-29 shipping plan/get; address in finalize)
+
+The engine + 10 resources + apply/export + plan/get + /openapi.json ship and
+test green, but these diverge from the rewritten 5/36 vision — none block the
+engine, all are finalize/refine-stage work:
+- **Scoped apply not wired.** `resreg.Apply` does wholesale `DeleteAll` per
+  resource, not the spec's `DELETE … WHERE folder IN (<manifest scope>)`.
+  `DeleteScope` exists + is unit-tested but unused → a *partial* manifest
+  apply would delete out-of-scope rows (smoke showed seeded rows as removals).
+  Depends on resolving the nested-layout question below.
+- **Nested manifest layout deferred.** Parser/emitter are flat resource-keyed;
+  the spec's group-folder-nested layout is underspecified+self-contradictory
+  (the `acl` example writes `scope:` explicitly — nesting does NOT inject scope
+  — yet §"Secrets in YAML" says folder is inferred from nesting). Sub correctly
+  did not guess. Resolve the nesting→row scope rule before wiring scoped apply.
+- **config_meta migration 0067** uses a bare `version` column, not the spec's
+  `id INTEGER PRIMARY KEY CHECK(id=1)` singleton guard. Functionally fine
+  (single INSERT); minor divergence.
+- Not wired: post-commit `SetupGroup` + `arizuko repair` (§new-group fs prep);
+  group-removal active-state clearing in the apply tx; multi-file `manifest/`
+  composition + PK-collision detection.
