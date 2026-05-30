@@ -92,7 +92,7 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	rc.SetToken("test-token")
 
 	cfg := config{assistantName: "assistant", hmacSecret: testHMACSecret}
-	return newServer(cfg, st, newHub(), rc), mr, st
+	return newServer(cfg, st, newHub(), rc, nil), mr, st
 }
 
 func seedGroup(t *testing.T, st *store.Store, folder, name string) core.Group {

@@ -37,11 +37,14 @@ type server struct {
 	requireUser func(http.HandlerFunc) http.HandlerFunc
 }
 
-func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient) *server {
+func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet) *server {
 	return &server{
 		cfg: cfg, st: st, hub: h, rc: rc,
-		proxyd:      newProxydClient(cfg.proxydURL, cfg.hmacSecret),
-		requireUser: auth.RequireSigned(cfg.hmacSecret),
+		proxyd: newProxydClient(cfg.proxydURL, cfg.hmacSecret),
+		// Soak (spec 5/1 § cutover): accept HMAC X-User-Sig OR an authd ES256
+		// bearer. ks is nil unless AUTHD_URL is set → identical to
+		// RequireSigned(hmacSecret) in the live HMAC-only deployment.
+		requireUser: auth.RequireSignedOrBearer(cfg.hmacSecret, ks),
 	}
 }
 

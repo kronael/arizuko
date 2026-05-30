@@ -42,7 +42,7 @@ func newIntegServer(t *testing.T) *integInst {
 	rc.SetToken("test-token")
 
 	cfg := config{assistantName: "assistant", hmacSecret: testHMACSecret}
-	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc), mr: mr, st: st}
+	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc, nil), mr: mr, st: st}
 }
 
 // TestSlinkWebsocketEcho — adapted to webd's actual SSE transport. Verifies
