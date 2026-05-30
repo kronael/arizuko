@@ -82,6 +82,53 @@ traffic. Suspected fix: port `chanreg.New` + `apiSrv.OnRegister/ChannelLookup`
 + the HTTP `/v1/channels/*` handlers into routd, and construct the real
 `Deliverer` (jid-prefix → registered HTTPChannel) instead of `nil`.
 
+## runed StoreFns federation — deferred tools (2026-05-30, GAP 1.1 closure)
+
+GAP 1.1 wired the agent's read/manage MCP tool surface in the split:
+`runed/runtimes.go` now builds `container.Input.StoreFns` (federated to
+routd / runed-local / from-RunSpec). The StoreFns BELOW are intentionally
+left nil — their post-split backend daemon/tables do not exist yet, so a
+federation would be a forward to a 404. The owning tool no-ops (nil-guard
+returns "not configured"), which is correct until the backend lands:
+
+- **Tasks** — `CreateTask`, `GetTask`, `UpdateTaskStatus`, `DeleteTask`,
+  `ListTasks`, `TaskRunLogs`. `timed` has NO `/v1/tasks` HTTP surface
+  (only `/health` + `/openapi.json`) and still reads `scheduled_tasks`
+  from the legacy `messages.db`. Tools dark in the split: `schedule_task`,
+  `list_tasks`, `pause_task`, `resume_task`, `cancel_task`, task-run-logs.
+  Fix path: `timed` owns `scheduled_tasks`/`task_run_logs` + a `/v1/tasks`
+  CRUD surface; then add a runed StoreFns federating to it (spec P-runed
+  federation table: "list_tasks/pause_task/scheduled-task ops → timed").
+  This is a scheduler-surface concern, not cutover plumbing.
+- **ACL** — `ListACL` (the `list_acl` tool). No `acl`/`acl_membership`
+  tables in any split daemon yet (routd's openapi CLAIMS ownership but the
+  tables/handlers are unported). Authz itself is NOT broken: the MCP gate
+  already verifies the brokered token's scope+folder before any tool runs,
+  so `Authorize` is intentionally NOT federated (token scope is the live
+  authz source). `ListACL` is read-only introspection; defer until acl
+  tables land in routd.
+- **GetIdentityForSub** — the `identity` tool. No `identities` table in
+  the split. The verified Subject (sub/folder/scope) is available at the
+  gate, but a general sub→identity lookup needs the table. Defer.
+- **LogIPCAudit** — no audit table/owner in the split daemons
+  (`audit_log` lived in gated's store). audit is observability, not
+  cutover-critical; the `obs`/OTLP path still captures slog events. Defer
+  until an audit owner is decided.
+
+WIRED now (grounded in real routd/runed APIs): message reads
+(`MessagesBefore`/`MessagesByThread`/`FindMessages` → new routd
+`/v1/messages/{inspect,thread,find}`), routes CRUD
+(`ListRoutes`/`SetRoutes`/`AddRoute`/`DeleteRoute`/`GetRoute` → existing
+`/v1/routes`), web routes (`ListWebRoutes`/`SetWebRoute`/`DelWebRoute`/
+`WebRouteOwner` → existing `/v1/web_routes` + new owner query), routing
+resolution + engagement (`DefaultFolderForJID`/`JIDRoutedToFolder`/
+`EngagedFolder`/`SetEngagement`/`GetLastReplyID`/`ErroredChats` → new
+routd `/v1/routing/*` + `/v1/engagement`), cost (`LogExternalCost` →
+routd `/v1/cost`), and runed-local (`RecentSessions`/`GetSession` →
+runed.db) / from-RunSpec (`CurrentTriggerSender`/`CurrentTopic`).
+`PutMessage`/`SetLastReply`/`BumpEngagement` stay nil — routd owns the
+write-side already inside `/v1/turns/*`; they are not agent-callable.
+
 ## container/ipc bug-hunt sweep (2026-05-28)
 
 Read-only correctness pass over `container/` + `ipc/`. Items below are UNSURE-whether-bug (logged, not fixed per triage protocol). Verified-not-bugs at the end.
