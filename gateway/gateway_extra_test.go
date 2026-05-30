@@ -129,6 +129,10 @@ func TestRegisterGroupIPC_AddRouteError(t *testing.T) {
 	if !strings.Contains(err.Error(), "add route") {
 		t.Errorf("error = %q, want 'add route' context", err.Error())
 	}
+	// The group row must be rolled back — no route-less orphan left behind.
+	if _, ok := s.GroupByFolder("world/x"); ok {
+		t.Fatal("AddRoute failure left an orphan group row (no rollback)")
+	}
 }
 
 func TestSpawnFromPrototype_AddRouteError(t *testing.T) {
@@ -154,6 +158,10 @@ func TestSpawnFromPrototype_AddRouteError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "add route") {
 		t.Errorf("error = %q, want 'add route' context", err.Error())
+	}
+	// The child group row must be rolled back — no un-respawnable orphan.
+	if _, ok := s.GroupByFolder(spawnFolderName(parentFolder, "telegram:888")); ok {
+		t.Fatal("AddRoute failure left an orphan child group row (no rollback)")
 	}
 }
 

@@ -51,6 +51,9 @@ func (g *Gateway) spawnFromPrototype(parentFolder, childJID string) (core.Group,
 	}
 	match := "room=" + core.JidRoom(childJID)
 	if _, err := g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: childFolder}); err != nil {
+		// Roll back the group row so a route-less (unreachable, un-respawnable)
+		// orphan isn't left behind.
+		_ = g.store.DeleteGroup(childFolder)
 		return core.Group{}, fmt.Errorf("add route for %s: %w", childFolder, err)
 	}
 	return child, nil

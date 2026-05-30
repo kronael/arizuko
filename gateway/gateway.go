@@ -1961,6 +1961,9 @@ func (g *Gateway) registerGroupIPC(jid string, group core.Group) error {
 	// string when no platform prefix), target the group folder.
 	match := "room=" + core.JidRoom(jid)
 	if _, err := g.store.AddRoute(core.Route{Seq: 0, Match: match, Target: group.Folder}); err != nil {
+		// Roll back the group row so a route-less (unreachable, un-respawnable)
+		// orphan isn't left behind.
+		_ = g.store.DeleteGroup(group.Folder)
 		return fmt.Errorf("add route for %s: %w", group.Folder, err)
 	}
 	ensureGroupGitRepo(filepath.Join(g.cfg.GroupsDir, group.Folder))
