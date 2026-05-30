@@ -16,6 +16,46 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.48.0] — 2026-05-30
+
+> arizuko v0.48.0 — a correctness pass across the router and every adapter
+>
+> Deep bug-fix sweep: agent audit logging is back on, inbound messages no longer drop on transient failures, /health stops lying after a disconnect, and reply threading is fixed on email + Mastodon.
+>
+> • MCP audit logging restored — agent tool calls are recorded again (was silently off)
+> • No dropped inbound — Bluesky + X stop losing messages on a transient send failure
+> • Honest /health — Telegram/Slack/X report disconnected when the platform link drops
+> • Reply threading fixed on email + Mastodon; adapter capabilities now match reality
+> • 74+ new tests across 13 packages
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- Test coverage: 74+ unit/integration tests across gateway, ipc, queue, container,
+  chanlib, store, the channel adapters, webd, proxyd, dashd, routd, runed, authd.
+- Split-daemon groundwork (authd/routd/runed, dual-verify, compose-wire) lands
+  additively behind the `CUTOVER_SPLIT` flag — dormant; default deployments run gated.
+
+### Fixed
+
+- **gateway**: `SetAudit` preserved across `Run` (per-tool-call MCP audit was silently
+  nil in prod); `transcribeOnce`/`downloadFile` close the body + error on non-200 /
+  oversize (no leak, no silent truncation); `sendDocument`/`sendVoice` honor
+  `SEND_DISABLED_CHANNELS`; `groupBySender`/`processWebTopics` batch consecutive runs
+  (preserve causality); group-create rolls back on `AddRoute` failure (no orphan group);
+  `observeWindow` first-match; `sendVoice` validates text length.
+- **adapters**: cap-map drift corrected + a per-adapter consistency test so it can't
+  recur; **bskyd** marks a notification seen only after delivery succeeds (no inbound
+  loss); **twitd** advances the mention cursor only after router ack (no dropped
+  mentions); `/health` clears on poll/auth failure for **teled/slakd/twitd**; **emaid**
+  `In-Reply-To` + **mastd** `ReplyTo` threading; **teled** cancel race + empty-photo
+  panic + reply-to fallback.
+- **authd/routd/runed** (dormant split): parity, spec-conformance, and dual-verify
+  hardening — additive, behind `CUTOVER_SPLIT`, not active by default.
+
+---
+
 ## [v0.47.0] — 2026-05-30
 
 > arizuko v0.47.0 — docs you can navigate, a chat that remembers
