@@ -8,6 +8,25 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// caps advertises the gated verbs teled implements. quote/repost/dislike are
+// absent: Telegram has no quote/repost-feed primitive, and dislike is an
+// emoji reaction routed through like(emoji='👎') per platform convention —
+// all three keep honest Unsupported hints in bot.go. fetch_history is absent
+// too: the Bot API can't read past messages, so the gateway serves history
+// from its own messages.db cache. The cap↔impl consistency test guards this.
+var caps = map[string]bool{
+	"send_text":  true,
+	"send_file":  true,
+	"send_voice": true,
+	"typing":     true,
+	"post":       true,
+	"fwd":        true,
+	"edit":       true,
+	"like":       true,
+	"delete":     true,
+	"pin":        true,
+}
+
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
@@ -17,21 +36,7 @@ func main() {
 		ListenAddr:    cfg.ListenAddr,
 		ListenURL:     cfg.ListenURL,
 		Prefixes:      []string{"telegram:"},
-		Caps: map[string]bool{
-			"send_text":     true,
-			"send_file":     true,
-			"typing":        true,
-			"fetch_history": true,
-			"post":          true,
-			"fwd":           true,
-			"edit":          true,
-			"like":          true,
-			"delete":        true,
-			"dislike":       true,
-			"quote":         true,
-			"repost":        true,
-			"pin":           true,
-		},
+		Caps:          caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {

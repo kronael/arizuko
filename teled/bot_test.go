@@ -298,20 +298,15 @@ func TestMdToHTMLEscape(t *testing.T) {
 	}
 }
 
-func TestFetchHistoryUnsupported(t *testing.T) {
-	b := &bot{}
-	resp, err := b.FetchHistory(chanlib.HistoryRequest{ChatJID: "telegram:1", Limit: 50})
-	if err != nil {
-		t.Fatalf("FetchHistory error: %v", err)
+// teled must NOT be a HistoryProvider (the Bot API can't read past messages),
+// so the gateway falls back to its own messages.db cache. Advertising
+// fetch_history or implementing FetchHistory would short-circuit that.
+func TestNotAHistoryProvider(t *testing.T) {
+	if _, ok := chanlib.BotHandler(&bot{}).(chanlib.HistoryProvider); ok {
+		t.Error("teled must not implement HistoryProvider; the Bot API has no history API")
 	}
-	if resp.Source != "unsupported" {
-		t.Errorf("source = %q, want unsupported", resp.Source)
-	}
-	if len(resp.Messages) != 0 {
-		t.Errorf("messages = %d, want 0", len(resp.Messages))
-	}
-	if resp.Cap == "" {
-		t.Error("Cap note should explain why history is unsupported")
+	if caps["fetch_history"] {
+		t.Error("fetch_history cap must be false; gateway serves history from cache")
 	}
 }
 

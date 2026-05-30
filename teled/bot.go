@@ -608,13 +608,11 @@ func (b *bot) Unpin(req chanlib.UnpinRequest) error {
 	return nil
 }
 
-func (b *bot) FetchHistory(_ chanlib.HistoryRequest) (chanlib.HistoryResponse, error) {
-	return chanlib.HistoryResponse{
-		Source:   "unsupported",
-		Cap:      "telegram bot API does not expose history",
-		Messages: []chanlib.InboundMsg{},
-	}, nil
-}
+// teled is deliberately NOT a chanlib.HistoryProvider: the Telegram Bot API
+// can't read past messages (getUpdates only streams new ones, getChat returns
+// metadata + the pinned message). With no FetchHistory method, the gateway
+// serves history from its own messages.db cache (fetchPlatformHistory's
+// cache-only fallback) — the honest source of past Telegram messages.
 
 func (b *bot) sendTyping(jid string) bool {
 	id, err := parseChatID(jid)

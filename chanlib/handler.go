@@ -147,12 +147,18 @@ func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported 
 var gatedVerbProbes = map[string]func(BotHandler) error{
 	// Use a .png name so adapters that only accept image blobs (bskyd) take
 	// their real branch instead of an extension-default Unsupported.
-	"send_file":     func(b BotHandler) error { return b.SendFile("", "x.png", "x.png", "", "", "") },
-	"send_voice":    func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
-	"delete":        func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
-	"edit":          func(b BotHandler) error { return b.Edit(EditRequest{}) },
-	"pin":           func(b BotHandler) error { return b.Pin(PinRequest{}) },
-	"fwd":           func(b BotHandler) error { _, e := b.Forward(ForwardRequest{}); return e },
+	"send_file":  func(b BotHandler) error { return b.SendFile("", "x.png", "x.png", "", "", "") },
+	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
+	"delete":     func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
+	"edit":       func(b BotHandler) error { return b.Edit(EditRequest{}) },
+	"pin":        func(b BotHandler) error { return b.Pin(PinRequest{}) },
+	// Non-empty, plausibly-formatted ids so adapters that validate input shape
+	// (teled forward needs "<jid>|<id>") take their real branch, not an
+	// input-shape Unsupported that would look like a stub.
+	"fwd": func(b BotHandler) error {
+		_, e := b.Forward(ForwardRequest{SourceMsgID: "x|1", TargetJID: "x"})
+		return e
+	},
 	"quote":         func(b BotHandler) error { _, e := b.Quote(QuoteRequest{}); return e },
 	"repost":        func(b BotHandler) error { _, e := b.Repost(RepostRequest{}); return e },
 	"dislike":       func(b BotHandler) error { return b.Dislike(DislikeRequest{}) },
