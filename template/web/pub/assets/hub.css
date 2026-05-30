@@ -207,6 +207,20 @@ pre {
   align-items: start;
 }
 
+/* GUIDE layout (Style 2: Go-Tour). Thin lesson-nav + a readable single
+   content column, no right TOC — for linear-learning sections (concepts,
+   howto, products). Reuses .docs-nav/.docs-content/.docs-crumb/.docs-pager/
+   .docs-footer + the drawer JS; the only new piece is this 2-col container. */
+.guide-layout {
+  display: grid;
+  grid-template-columns: 13em minmax(0, 1fr);
+  gap: 2.5em;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 2em 1.5em;
+  align-items: start;
+}
+
 .docs-nav {
   position: sticky;
   top: 1em;
@@ -398,7 +412,7 @@ pre {
 .docs-footer a:hover { color: var(--accent); }
 
 @media (max-width: 1200px) {
-  .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 1.5em 1em; }
+  .docs-layout, .guide-layout { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 1.5em 1em; }
   .docs-topbar { display: flex; }
   .docs-nav {
     position: static;
