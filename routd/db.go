@@ -713,6 +713,19 @@ func (d *DB) LastInboundAt(jid string) time.Time {
 	return t
 }
 
+// LatestSource returns the adapter name that delivered the newest real
+// inbound row on a chat (the messages.source column), used by the Deliverer
+// to route an outbound back to the same adapter the conversation came in on.
+// Empty when the chat has no sourced inbound. Mirrors store.LatestSource.
+func (d *DB) LatestSource(jid string) string {
+	var src string
+	d.db.QueryRow(
+		`SELECT source FROM messages
+		 WHERE chat_jid=? AND source<>'' AND is_bot_message=0
+		 ORDER BY timestamp DESC LIMIT 1`, jid).Scan(&src)
+	return src
+}
+
 // BotSpokeSince reports whether a bot-authored row exists on a chat at or
 // after since (the BotQuiet veto).
 func (d *DB) BotSpokeSince(jid string, since time.Time) bool {

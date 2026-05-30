@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -50,6 +51,14 @@ type Server struct {
 	verify      Verifier
 	engagementT time.Duration
 	webHost     string
+
+	// Channel-registration surface (ported from gated's api). reg==nil leaves
+	// the /v1/channels endpoints unmounted (pure REST tests). on{Register,
+	// Deregister} mirror gated's live-channel hooks so the Deliverer reuses a
+	// per-adapter HTTPChannel and its retry outbox.
+	reg          *chanreg.Registry
+	onRegister   func(name string, ch *chanreg.HTTPChannel)
+	onDeregister func(name string)
 }
 
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
@@ -91,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/turns/{turn_id}/pin", s.handlePin)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/unpin", s.handleUnpin)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/result", s.handleResult)
+	s.mountChannels(mux)
 	return mux
 }
 
