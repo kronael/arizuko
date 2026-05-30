@@ -169,6 +169,13 @@ type Resource struct {
 	// in this state still appear in Export output (metadata only).
 	SkipApplyRebuild bool
 
+	// StampedFields names the Go struct fields a BeforeInsert hook stamps
+	// server-side (created_at, granted_at, added_at, …). Diff ignores them
+	// when comparing payloads, so a hand-written manifest that omits them
+	// reads as `unchanged` against a live stamped row instead of phantom-
+	// updating on every plan (spec 5/36 §"Apply lifecycle" step 3).
+	StampedFields []string
+
 	meta *resourceMeta // populated by Register; reflection-derived
 }
 

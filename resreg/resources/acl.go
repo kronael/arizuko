@@ -29,8 +29,11 @@ func init() {
 		Table:    "acl",
 		RowType:  reflect.TypeOf(ACLRow{}),
 		PKFields: []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
-		Scope:    resreg.ScopeSpec{Field: "Scope"},
-		Hooks: resreg.Hooks{
+		// No folder scope: acl.scope is a glob (`atlas/`, `**`), not column-
+		// equal to a folder (spec 5/36 §"Schema-driven CRUD"/"FK posture").
+		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.
+		StampedFields: []string{"GrantedAt"},
+		Hooks:         resreg.Hooks{
 			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLRow)
 				if r.Effect == "" {

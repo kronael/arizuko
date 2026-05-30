@@ -161,6 +161,47 @@ func TestParseRows_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestParseYAML_StrictRejectsUnknownKey: a typo'd top-level resource key
+// rejects before the DB is touched (spec 5/36 §"Apply lifecycle" step 1).
+func TestParseYAML_StrictRejectsUnknownKey(t *testing.T) {
+	freshEngine(t)
+	manifest := []byte(`
+config_version: 0
+testrowz:
+  - kind: a
+    name: x
+    value: "1"
+`) // "testrowz" is a typo for "testrows"
+	_, _, err := ParseYAML(manifest)
+	if err == nil {
+		t.Fatal("ParseYAML accepted a typo'd resource key")
+	}
+	if !strings.Contains(err.Error(), "unknown resource key") || !strings.Contains(err.Error(), "testrowz") {
+		t.Errorf("err = %v, want unknown-resource-key naming testrowz", err)
+	}
+}
+
+// TestParseYAML_StrictRejectsUnknownField: a bogus row field rejects, so
+// an operator's misspelled column can't silently drop (spec 5/36 step 1).
+func TestParseYAML_StrictRejectsUnknownField(t *testing.T) {
+	freshEngine(t)
+	manifest := []byte(`
+config_version: 0
+testrows:
+  - kind: a
+    name: x
+    value: "1"
+    bogus_field: oops
+`)
+	_, _, err := ParseYAML(manifest)
+	if err == nil {
+		t.Fatal("ParseYAML accepted a bogus row field")
+	}
+	if !strings.Contains(err.Error(), "bogus_field") {
+		t.Errorf("err = %v, want bogus_field named", err)
+	}
+}
+
 func TestYAMLEmit_Deterministic(t *testing.T) {
 	db, _ := freshEngine(t)
 	insertRaw(t, db,
@@ -203,7 +244,7 @@ func TestApply_VersionMismatch(t *testing.T) {
 	// db is at version 0; tell Apply manifest is at version 42 → mismatch.
 	_, err := Apply(context.Background(), db, 42, false, map[string]any{
 		"testrows": []TestRow{{Kind: "a", Name: "x", Value: "1"}},
-	})
+	}, nil)
 	if err == nil {
 		t.Fatalf("Apply: want ErrVersionMismatch, got nil")
 	}
@@ -220,7 +261,7 @@ func TestApply_RoundTrip(t *testing.T) {
 	}
 	v, err := Apply(context.Background(), db, 0, false, map[string]any{
 		"testrows": rows,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -230,7 +271,7 @@ func TestApply_RoundTrip(t *testing.T) {
 	// re-apply with same data + new version → idempotent
 	v2, err := Apply(context.Background(), db, 1, false, map[string]any{
 		"testrows": rows,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}
@@ -247,12 +288,12 @@ func TestApply_RoundTrip(t *testing.T) {
 func TestApply_Force(t *testing.T) {
 	db, _ := freshEngine(t)
 	// version is 0; manifest claims 99; without force → error
-	_, err := Apply(context.Background(), db, 99, false, map[string]any{})
+	_, err := Apply(context.Background(), db, 99, false, map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("want error without force")
 	}
 	// With force → bypass CAS
-	v, err := Apply(context.Background(), db, 99, true, map[string]any{})
+	v, err := Apply(context.Background(), db, 99, true, map[string]any{}, nil)
 	if err != nil {
 		t.Fatalf("Apply --force: %v", err)
 	}
@@ -270,7 +311,7 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 	insertRaw(t, db,
 		TestRow{Kind: "a", Name: "x", Value: "1"}, // update target (payload differs below)
 		TestRow{Kind: "a", Name: "y", Value: "2"}, // unchanged
-		TestRow{Kind: "b", Name: "z", Value: "3"}, // remove (absent from manifest)
+		TestRow{Kind: "a", Name: "z", Value: "3"}, // remove (absent from manifest, scope "a" is mentioned)
 	)
 	manifest := []TestRow{
 		{Kind: "a", Name: "x", Value: "CHANGED"}, // same PK (a,x), new value → update
@@ -290,11 +331,34 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 	if len(d.Unchanged) != 1 {
 		t.Errorf("Unchanged = %v, want one", d.Unchanged)
 	}
-	if len(d.Remove) != 1 || !strings.Contains(d.Remove[0], "b|z|") {
-		t.Errorf("Remove = %v, want one (b,z)", d.Remove)
+	if len(d.Remove) != 1 || !strings.Contains(d.Remove[0], "a|z|") {
+		t.Errorf("Remove = %v, want one (a,z)", d.Remove)
 	}
 	if !d.Changed() {
 		t.Error("Changed() = false, want true")
+	}
+}
+
+// TestDiff_ScopedRemoveLeavesOutOfScope: for a scoped resource, a live
+// row outside the folders the manifest mentions is NOT reported for
+// Remove — apply leaves it alone, so plan must too (spec 5/36 §"Surface").
+// TestRow's scope is "kind"; a manifest touching only kind "a" leaves a
+// kind "b" row untouched.
+func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
+	db, r := freshEngine(t)
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"}, // in-scope, absent from manifest → remove
+		TestRow{Kind: "b", Name: "z", Value: "3"}, // out-of-scope → must NOT remove
+	)
+	manifest := []TestRow{
+		{Kind: "a", Name: "keep", Value: "9"}, // mentions only scope "a"
+	}
+	d, err := r.Diff(db, manifest)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if len(d.Remove) != 1 || !strings.Contains(d.Remove[0], "a|x|") {
+		t.Errorf("Remove = %v, want only (a,x) — (b,z) is out of scope", d.Remove)
 	}
 }
 
@@ -309,7 +373,7 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 			{Kind: "b", Name: "z", Value: "3"},
 		},
 	}
-	if _, err := Apply(context.Background(), db, 0, false, manifest); err != nil {
+	if _, err := Apply(context.Background(), db, 0, false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	deltas, err := Plan(db, manifest)

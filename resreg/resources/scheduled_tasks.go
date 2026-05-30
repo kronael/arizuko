@@ -30,8 +30,11 @@ func init() {
 		Table:    "scheduled_tasks",
 		RowType:  reflect.TypeOf(ScheduledTasksRow{}),
 		PKFields: []string{"ID"},
-		Scope:    resreg.ScopeSpec{Field: "Owner"},
-		Hooks: resreg.Hooks{
+		// No folder scope: owner is system/user:sub and chat_jid is
+		// polymorphic (folder OR typed JID, spec 5/36 §"FK posture") —
+		// neither is column-equal to a folder. Apply rebuilds wholesale.
+		StampedFields: []string{"Created"},
+		Hooks:         resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ScheduledTasksRow)
 				if r.Status == "" {

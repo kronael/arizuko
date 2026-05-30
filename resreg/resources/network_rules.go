@@ -23,8 +23,9 @@ func init() {
 		Name:     "network_rules",
 		Table:    "network_rules",
 		RowType:  reflect.TypeOf(NetworkRulesRow{}),
-		PKFields: []string{"Folder", "Target"},
-		Scope:    resreg.ScopeSpec{Field: "Folder"},
+		PKFields:      []string{"Folder", "Target"},
+		Scope:         resreg.ScopeSpec{Field: "Folder"},
+		StampedFields: []string{"CreatedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*NetworkRulesRow)

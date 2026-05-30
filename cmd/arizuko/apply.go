@@ -17,6 +17,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -65,7 +67,12 @@ func cmdApply(args []string) {
 	if deltas, perr := resreg.Plan(st.DB(), manifest); perr == nil {
 		printPlan(deltas)
 	}
-	newVer, err := resreg.Apply(context.Background(), st.DB(), version, force, manifest)
+	// Apply writes its own single audit_log summary row in-tx (actor +
+	// manifest digest + per-resource counts + final version), spec 5/36
+	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
+	digest := sha256.Sum256(data)
+	opts := &resreg.ApplyOpts{Actor: os.Getenv("USER"), ManifestDigest: hex.EncodeToString(digest[:])}
+	newVer, err := resreg.Apply(context.Background(), st.DB(), version, force, manifest, opts)
 	if err != nil {
 		if errors.Is(err, resreg.ErrVersionMismatch) {
 			fmt.Fprintf(os.Stderr, "config_version mismatch (manifest=%d db=%d). "+
@@ -75,7 +82,6 @@ func cmdApply(args []string) {
 		die("Failed: apply: %v", err)
 	}
 	fmt.Printf("applied %s; config_version: %d -> %d\n", file, fromVer, newVer)
-	auditCLI(st, "apply", []string{file})
 }
 
 func cmdExport(args []string) {
@@ -148,12 +154,21 @@ func cmdPlan(args []string) {
 	}
 }
 
-// printPlan renders the plan delta in catalog order. Resources with no
-// change are summarized as "unchanged"; changed resources list the
-// add/update/remove PK strings.
+// printPlan renders the plan delta in catalog order. Changed resources
+// list the add/update/remove PK strings. SkipApplyRebuild resources
+// (secrets) never mutate via apply, so they print as informational
+// "set/unset" — never actionable +/~/- deltas (spec 5/36 §"Secret
+// safety": plan must agree with apply, which skips them).
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
 	for _, d := range deltas {
+		if d.SkipApplyRebuild {
+			if n := len(d.Add) + len(d.Update) + len(d.Unchanged); n > 0 {
+				any = true
+				fmt.Printf("%s: %d set (not applied — set via `arizuko secret set`)\n", d.Resource, n)
+			}
+			continue
+		}
 		if !d.Changed() {
 			continue
 		}

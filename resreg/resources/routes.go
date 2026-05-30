@@ -24,7 +24,9 @@ func init() {
 		Table:    "routes",
 		RowType:  reflect.TypeOf(RoutesRow{}),
 		PKFields: []string{"Seq", "Match", "Target"},
-		Scope:    resreg.ScopeSpec{Field: "Target"},
+		// No folder scope: routes.target carries #observe/#topic fragments
+		// (spec 5/36 §"FK posture") — not column-equal to a folder, so Apply
+		// rebuilds routes wholesale rather than per-folder.
 		Hooks: resreg.Hooks{
 			ColumnOverride: map[string]resreg.ColumnHook{
 				"ObserveWindowMessages": {

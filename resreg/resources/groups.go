@@ -35,8 +35,9 @@ func init() {
 		Name:     "groups",
 		Table:    "groups",
 		RowType:  reflect.TypeOf(GroupsRow{}),
-		PKFields: []string{"Folder"},
-		Scope:    resreg.ScopeSpec{Field: "Folder"},
+		PKFields:      []string{"Folder"},
+		Scope:         resreg.ScopeSpec{Field: "Folder"},
+		StampedFields: []string{"AddedAt", "UpdatedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*GroupsRow)

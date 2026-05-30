@@ -75,9 +75,8 @@ func main() {
 			}
 			_, _ = w.Write([]byte("ok"))
 		})
-		// timed reads scheduled_tasks but gated owns the table; the doc
-		// is informational so external tooling can discover the daemon.
-		mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", []string{}))
+		// timed owns scheduled_tasks per spec 5/36 resource catalog.
+		mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", []string{"scheduled_tasks"}))
 		if err := http.ListenAndServe(":8080", mux); err != nil {
 			slog.Error("health server", "err", err)
 		}

@@ -23,8 +23,9 @@ func init() {
 		Name:     "web_routes",
 		Table:    "web_routes",
 		RowType:  reflect.TypeOf(WebRoutesRow{}),
-		PKFields: []string{"PathPrefix"},
-		Scope:    resreg.ScopeSpec{Field: "Folder"},
+		PKFields:      []string{"PathPrefix"},
+		Scope:         resreg.ScopeSpec{Field: "Folder"},
+		StampedFields: []string{"CreatedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*WebRoutesRow)

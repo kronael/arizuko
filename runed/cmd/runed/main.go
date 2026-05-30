@@ -96,7 +96,10 @@ func main() {
 
 	srv := runed.NewServer(mgr, db, verify)
 	mux := srv.Handler().(*http.ServeMux)
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", nil))
+	// runed owns no manifest-addressable config rows (spec 5/36 catalog):
+	// its tables are runtime (spawns / session_log / mcp_tokens). Empty
+	// list → zero paths, but still emits the doc for aggregator uniformity.
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", []string{}))
 
 	httpd := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {

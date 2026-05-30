@@ -30,7 +30,8 @@ func init() {
 		Name:     "acl_membership",
 		Table:    "acl_membership",
 		RowType:  reflect.TypeOf(ACLMembershipRow{}),
-		PKFields: []string{"Child", "Parent"},
+		PKFields:      []string{"Child", "Parent"},
+		StampedFields: []string{"AddedAt"},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)

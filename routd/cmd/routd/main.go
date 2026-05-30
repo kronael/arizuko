@@ -18,6 +18,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
+	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
 	"github.com/kronael/arizuko/routd"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
@@ -76,7 +77,11 @@ func main() {
 
 	srv := routd.NewServer(db, loop, nil, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
 	mux := srv.Handler().(*http.ServeMux)
-	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", nil))
+	// routd owns the residual config + conversation tables per spec 5/36
+	// resource catalog (inherits gated's schema authority).
+	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
+		"groups", "routes", "web_routes", "acl", "acl_membership", "secrets", "network_rules",
+	}))
 
 	httpd := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {

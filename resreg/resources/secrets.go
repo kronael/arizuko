@@ -32,8 +32,11 @@ func init() {
 		Name:             "secrets",
 		Table:            "secrets",
 		RowType:          reflect.TypeOf(SecretsRow{}),
-		PKFields:         []string{"ScopeKind", "ScopeID", "Key"},
-		Scope:            resreg.ScopeSpec{Field: "ScopeID"},
+		PKFields: []string{"ScopeKind", "ScopeID", "Key"},
+		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
+		// user, spec 5/36 §"FK posture"). Moot for apply anyway —
+		// SkipApplyRebuild means apply never DELETE+INSERTs this table.
+		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true, // enc_value blobs are set imperatively, never via apply
 	})
 }

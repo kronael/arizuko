@@ -69,7 +69,7 @@ routes:
 	if version != 999 {
 		t.Fatalf("parsed version = %d, want 999", version)
 	}
-	_, err = resreg.Apply(context.Background(), st.DB(), version, false, parsed)
+	_, err = resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
 	if err == nil {
 		t.Fatal("expected CAS reject")
 	}
@@ -92,7 +92,7 @@ routes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	newV, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed)
+	newV, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestApply_FullRebuild(t *testing.T) {
 		"routes": []resources.RoutesRow{
 			{Seq: 0, Match: "", Target: "ops"},
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 			{Seq: 1, Match: "platform=slack", Target: "ops"},
 		},
 	}
-	v1, err := resreg.Apply(context.Background(), st.DB(), v0, false, manifest)
+	v1, err := resreg.Apply(context.Background(), st.DB(), v0, false, manifest, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestApply_RoundTrip_Idempotent(t *testing.T) {
 	if version != v1 {
 		t.Errorf("round-trip version = %d, want %d", version, v1)
 	}
-	v2, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed)
+	v2, err := resreg.Apply(context.Background(), st.DB(), version, false, parsed, nil)
 	if err != nil {
 		t.Fatalf("Apply 2: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestApply_ForceFromVersion(t *testing.T) {
 	v0 := dbConfigVersion(t, st.DB())
 	if _, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "atlas"}},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	dbVer := dbConfigVersion(t, st.DB()) // true pre-apply version
@@ -207,7 +207,7 @@ func TestApply_ForceFromVersion(t *testing.T) {
 	// Force-apply with the stale version; succeeds and bumps from the DB version.
 	newVer, err := resreg.Apply(context.Background(), st.DB(), staleManifest, true, map[string]any{
 		"routes": []resources.RoutesRow{{Seq: 0, Match: "", Target: "ops"}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("force Apply: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 			{Principal: "user:bob", Action: "read", Scope: "atlas/", Effect: "allow"},
 			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestGetRoundTrip_NoOp(t *testing.T) {
 			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
 			{Principal: "user:bob", Action: "tasks:*", Scope: "ops/", Effect: "allow"},
 		},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	frag, err := resreg.GetResource(st.DB(), "acl")
@@ -298,7 +298,7 @@ func TestPlan_MatchesApply(t *testing.T) {
 	if routesDelta == nil || len(routesDelta.Add) != 1 {
 		t.Fatalf("plan routes Add = %+v, want one add", routesDelta)
 	}
-	if _, err := resreg.Apply(context.Background(), st.DB(), dbConfigVersion(t, st.DB()), false, manifest); err != nil {
+	if _, err := resreg.Apply(context.Background(), st.DB(), dbConfigVersion(t, st.DB()), false, manifest, nil); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	deltas2, err := resreg.Plan(st.DB(), manifest)
@@ -309,6 +309,33 @@ func TestPlan_MatchesApply(t *testing.T) {
 		if d.Changed() {
 			t.Errorf("post-apply plan still changes %s: %+v", d.Resource, d)
 		}
+	}
+}
+
+// TestStrictParse_CLIPath: the parse step cmdApply/cmdPlan run (ParseYAML
+// over the real resource registry) rejects a typo'd resource key AND a
+// bogus row field before any DB write (spec 5/36 §"Apply lifecycle" step 1).
+func TestStrictParse_CLIPath(t *testing.T) {
+	typoKey := []byte(`
+config_version: 0
+routez:            # typo: should be "routes"
+  - seq: 0
+    match: ""
+    target: atlas
+`)
+	if _, _, err := resreg.ParseYAML(typoKey); err == nil {
+		t.Error("ParseYAML accepted typo'd resource key 'routez'")
+	}
+	bogusField := []byte(`
+config_version: 0
+routes:
+  - seq: 0
+    match: ""
+    target: atlas
+    targett: typo    # bogus field
+`)
+	if _, _, err := resreg.ParseYAML(bogusField); err == nil {
+		t.Error("ParseYAML accepted bogus row field 'targett'")
 	}
 }
 
