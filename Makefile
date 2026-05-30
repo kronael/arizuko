@@ -1,4 +1,4 @@
-DAEMONS = gated authd onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd slakd ttsd
+DAEMONS = gated authd routd runed onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd slakd ttsd
 # COMPONENTS are sibling tools shipped alongside arizuko (see specs/11/b).
 # They live in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. Each has its own Makefile, README, and image.

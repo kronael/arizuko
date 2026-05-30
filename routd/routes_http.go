@@ -1,0 +1,318 @@
+package routd
+
+import (
+	"encoding/json"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/kronael/arizuko/core"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+)
+
+// buildMessageRow maps the ingress wire Message to a core.Message row.
+func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
+	atts := m.Attachment
+	if len(m.Attachments) > 0 {
+		if raw, err := json.Marshal(m.Attachments); err == nil {
+			atts = string(raw)
+		}
+	}
+	return core.Message{
+		ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Name: m.SenderName,
+		Content: m.Content, Timestamp: ts, ReplyToID: m.ReplyTo,
+		ReplyToText: m.ReplyToText, ReplyToSender: m.ReplyToSender,
+		Topic: m.Topic, Verb: verb, Attachments: atts, ChatName: m.ChatName,
+		Status: core.MessageStatusSent,
+	}
+}
+
+func toWireRoute(r core.Route) apiv1.Route {
+	return apiv1.Route{
+		ID: r.ID, Seq: r.Seq, Match: r.Match, Target: r.Target,
+		ObserveWindowMessages: r.ObserveWindowMessages, ObserveWindowChars: r.ObserveWindowChars,
+	}
+}
+
+func fromWireRoute(r apiv1.Route) core.Route {
+	return core.Route{
+		ID: r.ID, Seq: r.Seq, Match: r.Match, Target: r.Target,
+		ObserveWindowMessages: r.ObserveWindowMessages, ObserveWindowChars: r.ObserveWindowChars,
+	}
+}
+
+func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	routes, err := s.db.Routes()
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	out := make([]apiv1.Route, 0, len(routes))
+	for _, rt := range routes {
+		out = append(out, toWireRoute(rt))
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	id, ok := atoi64(r.PathValue("id"))
+	if !ok {
+		writeErr(w, 400, "bad_request", "non-numeric id")
+		return
+	}
+	routes, _ := s.db.Routes()
+	for _, rt := range routes {
+		if rt.ID == id {
+			writeJSON(w, 200, toWireRoute(rt))
+			return
+		}
+	}
+	writeErr(w, 404, "not_found", "route not found")
+}
+
+func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var body []apiv1.Route
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	routes := make([]core.Route, 0, len(body))
+	for _, r := range body {
+		routes = append(routes, fromWireRoute(r))
+	}
+	n, err := s.db.SetRoutes(routes)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]int{"count": n})
+}
+
+func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var body apiv1.Route
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	id, err := s.db.AddRoute(fromWireRoute(body))
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	body.ID = id
+	writeJSON(w, 201, body)
+}
+
+func (s *Server) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	id, ok := atoi64(r.PathValue("id"))
+	if !ok {
+		writeErr(w, 400, "bad_request", "non-numeric id")
+		return
+	}
+	if err := s.db.DeleteRoute(id); err != nil {
+		writeErr(w, 404, "not_found", "route not found")
+		return
+	}
+	w.WriteHeader(204)
+}
+
+// --- web routes ---
+
+func (s *Server) handleWebRoutesList(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	rows, err := s.db.WebRoutes(r.URL.Query().Get("folder"))
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	out := make([]apiv1.WebRoute, 0, len(rows))
+	for _, x := range rows {
+		out = append(out, apiv1.WebRoute{PathPrefix: x.PathPrefix, Access: x.Access,
+			RedirectTo: x.RedirectTo, Folder: x.Folder, CreatedAt: x.CreatedAt})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) handleWebRoutePut(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var req apiv1.WebRoute
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	err := s.db.PutWebRoute(WebRouteRow{PathPrefix: req.PathPrefix, Access: req.Access,
+		RedirectTo: req.RedirectTo, Folder: req.Folder})
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+func (s *Server) handleWebRouteDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var req apiv1.WebRoute
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	deleted, err := s.db.DeleteWebRoute(req.PathPrefix, req.Folder)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"deleted": deleted})
+}
+
+// --- route tokens (5/W) ---
+
+var segRe = regexp.MustCompile(`^[\w-]+$`)
+
+func descendant(target, owner string) bool {
+	return target == owner || strings.HasPrefix(target, owner+"/")
+}
+
+func (s *Server) handleTokenChat(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var req apiv1.RouteTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if req.TargetFolder == "" {
+		req.TargetFolder = req.OwnerFolder
+	}
+	if !descendant(req.TargetFolder, req.OwnerFolder) {
+		writeErr(w, 400, "bad_target", "target_folder must equal or descend from owner_folder")
+		return
+	}
+	jid := "web:" + req.TargetFolder
+	if req.JIDSuffix != "" {
+		if !segRe.MatchString(req.JIDSuffix) {
+			writeErr(w, 400, "bad_suffix", "jid_suffix must match [\\w-]+")
+			return
+		}
+		jid += "/" + req.JIDSuffix
+	}
+	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 201, apiv1.RouteTokenResponse{Token: token,
+		URL: s.webHost + "/chat/" + token + "/", JID: jid,
+		OwnerFolder: req.OwnerFolder, CreatedAt: created})
+}
+
+func (s *Server) handleTokenHook(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var req apiv1.RouteTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if req.TargetFolder == "" {
+		req.TargetFolder = req.OwnerFolder
+	}
+	if !descendant(req.TargetFolder, req.OwnerFolder) {
+		writeErr(w, 400, "bad_target", "target_folder must equal or descend from owner_folder")
+		return
+	}
+	if !segRe.MatchString(req.SourceLabel) {
+		writeErr(w, 400, "bad_source", "source_label must match [\\w-]+")
+		return
+	}
+	jid := "hook:" + req.TargetFolder + "/" + req.SourceLabel
+	if req.JIDSuffix != "" {
+		if !segRe.MatchString(req.JIDSuffix) {
+			writeErr(w, 400, "bad_suffix", "jid_suffix must match [\\w-]+")
+			return
+		}
+		jid += "/" + req.JIDSuffix
+	}
+	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, 201, apiv1.RouteTokenResponse{Token: token,
+		URL: s.webHost + "/hook/" + token, JID: jid,
+		OwnerFolder: req.OwnerFolder, CreatedAt: created})
+}
+
+func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	rows, err := s.db.ListRouteTokens(r.URL.Query().Get("owner_folder"))
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	out := make([]apiv1.RouteTokenRow, 0, len(rows))
+	for _, x := range rows {
+		out = append(out, apiv1.RouteTokenRow{JID: x.JID, OwnerFolder: x.OwnerFolder, CreatedAt: x.CreatedAt})
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	jid := r.PathValue("jid")
+	owner := r.URL.Query().Get("owner_folder")
+	n, err := s.db.RevokeRouteTokens(jid, owner)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	if n == 0 {
+		writeErr(w, 404, "not_found", "no tokens for jid under owner_folder")
+		return
+	}
+	w.WriteHeader(204)
+}
+
+func (s *Server) handleTokenResolve(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r) {
+		return
+	}
+	var req apiv1.ResolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	jid, owner, err := s.db.ResolveRouteToken(req.Token)
+	if err != nil {
+		writeErr(w, 404, "unknown_token", "token not found")
+		return
+	}
+	writeJSON(w, 200, apiv1.ResolveResponse{JID: jid, OwnerFolder: owner})
+}

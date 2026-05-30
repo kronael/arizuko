@@ -32,6 +32,9 @@ old/
 /arizuko
 bin/
 gated/gated
+authd/authd
+routd/routd
+runed/runed
 onbod/onbod
 dashd/dashd
 proxyd/proxyd
