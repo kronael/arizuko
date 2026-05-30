@@ -1,9 +1,11 @@
 package runed
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -120,5 +122,39 @@ func TestSessionsRequiresScope(t *testing.T) {
 	_ = db
 	if got := req(t, srv.Handler(), "GET", "/v1/sessions?folder=alice"); got.Code != 403 {
 		t.Fatalf("sessions without sessions:read = %d want 403", got.Code)
+	}
+}
+
+// TestRunRequiresScope: POST /v1/runs demands runs:run — a token without it is
+// 403; a wildcard runs:* grant satisfies it (wildcard scope match, not exact).
+func TestRunRequiresScope(t *testing.T) {
+	post := func(scope []string) int {
+		_, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: scope, folder: "demo"})
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/runs",
+			strings.NewReader(`{"folder":"demo","message_batch":"m"}`)))
+		return rec.Code
+	}
+	if got := post([]string{"sessions:read"}); got != 403 {
+		t.Fatalf("run without runs:run = %d want 403", got)
+	}
+	if got := post([]string{"runs:*"}); got == 403 {
+		t.Fatalf("run with runs:* wildcard = 403, want accepted (wildcard scope match broken)")
+	}
+}
+
+// TestFreshSpawnResolvesSessionID: a fresh run (no session_id) must pass the
+// RESOLVED session id into Runtime.Run, not the empty req.SessionID — else the
+// DB/slot advertise one session while the container starts another.
+func TestFreshSpawnResolvesSessionID(t *testing.T) {
+	var got string
+	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
+		got = spec.SessionID
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: spec.SessionID}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if got == "" {
+		t.Fatal("fresh spawn passed empty SessionID to Runtime.Run — resolved id must reach the container")
 	}
 }

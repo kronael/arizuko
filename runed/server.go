@@ -3,8 +3,9 @@ package runed
 import (
 	"encoding/json"
 	"net/http"
-	"slices"
+	"strings"
 
+	"github.com/kronael/arizuko/auth"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -52,9 +53,12 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string)
 		writeErr(w, 401, "unauthorized", err.Error())
 		return "", false
 	}
-	if needScope != "" && !slices.Contains(scope, needScope) {
-		writeErr(w, 403, "forbidden", "missing scope "+needScope)
-		return "", false
+	if needScope != "" {
+		res, verb, _ := strings.Cut(needScope, ":")
+		if !auth.HasScope(scope, res, verb) {
+			writeErr(w, 403, "forbidden", "missing scope "+needScope)
+			return "", false
+		}
 	}
 	return folder, true
 }
@@ -64,16 +68,13 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
 	return ok
 }
 
-// handleRun is the routd→runed contract (POST /v1/runs). Service-to-service
-// only: routd calls it with its service token. Bearer-only by design — unlike
-// the operator/agent surfaces (DELETE /v1/runs, GET /v1/sessions) which gate
-// per-scope (runs:kill / sessions:read), runed is not reachable by agent or
-// human tokens (internal docker-network service), so a valid service bearer is
-// the gate. (When authd grows service:routd in serviceGrants at cutover, this
-// can tighten to a runs:run scope check — the asymmetry is intentional, not a
-// gap.)
+// handleRun is the routd→runed contract (POST /v1/runs). Gated on the runs:run
+// scope: routd's service token carries it, and an operator may be granted it
+// for manual runs. runed is an internal docker-network service, but a scope
+// check (not a bare bearer) is the gate so a stray agent/user token that
+// reaches it cannot start arbitrary runs (spec 5/P § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if _, ok := s.authz(w, r, "runs:run"); !ok {
 		return
 	}
 	var req runedv1.RunRequest
