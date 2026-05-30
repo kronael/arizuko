@@ -1,12 +1,12 @@
-import { RouterClient, type InboundMsg } from './client.js';
+import { RouterClient } from './client.js';
 import { log } from './log.js';
+import { pollMentions } from './poll.js';
 import { startServer } from './server.js';
 import {
   authenticate,
   loadCursors,
   saveCookies,
   saveCursors,
-  snowflakeNewer,
   type CursorState,
   type Scraper,
   type TwitterConfig,
@@ -85,58 +85,13 @@ async function persistCookiesIfPossible(s: Scraper): Promise<void> {
   }
 }
 
-// pollOnce drains mentions / DMs since last cursor and posts to the router.
-// All sources are best-effort — one source failing must not stall the others.
+// pollOnce drains mentions since last cursor and posts to the router.
 async function pollOnce(state: CursorState): Promise<CursorState> {
   if (!scraper) return state;
-  const next: CursorState = { ...state };
-
-  // Mentions → reply / message inbound.
-  try {
-    const m = (
-      scraper as unknown as {
-        getMentions?: (n: number) => AsyncIterable<unknown>;
-      }
-    ).getMentions;
-    if (typeof m === 'function') {
-      const iter = m.call(scraper, 20);
-      for await (const t of iter) {
-        const tw = t as Record<string, unknown>;
-        const id = String(tw['id'] ?? '');
-        if (!id) continue;
-        if (state.mentions && !snowflakeNewer(id, state.mentions)) break;
-        if (!next.mentions || snowflakeNewer(id, next.mentions))
-          next.mentions = id;
-        const sender = String(tw['username'] ?? 'unknown');
-        const inReplyTo = tw['inReplyToStatusId']
-          ? String(tw['inReplyToStatusId'])
-          : undefined;
-        const msg: InboundMsg = {
-          id,
-          chat_jid: 'twitter:home',
-          sender: `twitter:user/${sender}`,
-          sender_name: String(tw['name'] ?? sender),
-          content: String(tw['text'] ?? ''),
-          timestamp: Number(tw['timestamp']) || Math.floor(Date.now() / 1000),
-          verb: inReplyTo ? 'reply' : 'message',
-          ...(inReplyTo ? { reply_to: inReplyTo } : {}),
-          // Mentions/replies on the public timeline are multi-actor;
-          // DM API isn't wired in twitd yet.
-          is_group: true,
-        };
-        try {
-          await rc.sendMessage(msg);
-          lastInboundAt = Math.floor(Date.now() / 1000);
-        } catch (e) {
-          log('error', 'deliver mention failed', { id, err: String(e) });
-        }
-      }
-    }
-  } catch (e) {
-    log('warn', 'mentions poll failed', { err: String(e) });
-  }
-
-  return next;
+  const r = await pollMentions(scraper, rc, state);
+  if (r.connected !== undefined) connected = r.connected;
+  if (r.delivered > 0) lastInboundAt = Math.floor(Date.now() / 1000);
+  return r.state;
 }
 
 async function pollLoop(): Promise<void> {

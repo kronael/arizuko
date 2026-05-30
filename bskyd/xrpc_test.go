@@ -581,6 +581,51 @@ func TestFetchNotifications_Dispatches(t *testing.T) {
 	}
 }
 
+// TestFetchNotifications_NoSeenOnDeliverFailure verifies the message-loss fix:
+// when delivery to the router fails, updateSeen must NOT advance, so the next
+// poll retries the notification instead of silently dropping it.
+func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
+	m := newBskyMock()
+	defer m.close()
+	bc := newTestClient(t, m)
+	if err := bc.createSession(); err != nil {
+		t.Fatal(err)
+	}
+	m.setNotifications([]notification{
+		{
+			URI: "at://did:plc:a/app.bsky.feed.post/x", Reason: "mention",
+			IsRead: false, IndexedAt: "2026-04-17T10:00:00Z",
+			Author: struct {
+				DID         string `json:"did"`
+				Handle      string `json:"handle"`
+				DisplayName string `json:"displayName"`
+			}{DID: "did:plc:a", Handle: "alice.bsky", DisplayName: "Alice"},
+			Record: struct {
+				Text  string `json:"text"`
+				Type  string `json:"$type"`
+				Reply *struct {
+					Parent struct {
+						URI string `json:"uri"`
+					} `json:"parent"`
+				} `json:"reply,omitempty"`
+				Embed *embedRecord `json:"embed,omitempty"`
+			}{Text: "would be lost"},
+		},
+	})
+	mr := newBskyRouterMock()
+	mr.fail = true
+	defer mr.close()
+	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc.SetToken("tok")
+
+	if err := bc.fetchNotifications(rc); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&m.updateSeenHits); got != 0 {
+		t.Errorf("updateSeenHits = %d on delivery failure, want 0 (notification must stay unread)", got)
+	}
+}
+
 func TestHandleNotification_WithImages(t *testing.T) {
 	mr := newBskyRouterMock()
 	defer mr.close()
@@ -655,12 +700,20 @@ type bskyRouter struct {
 	mu   sync.Mutex
 	msgs []chanlib.InboundMsg
 	srv  *httptest.Server
+	fail bool // when set, /v1/messages returns 500 so SendMessage errors
 }
 
 func newBskyRouterMock() *bskyRouter {
 	m := &bskyRouter{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		fail := m.fail
+		m.mu.Unlock()
+		if fail {
+			w.WriteHeader(500)
+			return
+		}
 		var im chanlib.InboundMsg
 		json.NewDecoder(r.Body).Decode(&im)
 		m.mu.Lock()

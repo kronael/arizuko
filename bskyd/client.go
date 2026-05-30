@@ -239,7 +239,12 @@ func (bc *bskyClient) fetchNotifications(rc *chanlib.RouterClient) error {
 		if n.IsRead {
 			continue
 		}
-		bc.handleNotification(n, rc)
+		// Only advance the seen pointer once delivery succeeded — otherwise a
+		// failed deliver gets marked read and is lost forever. A failure here
+		// stops the batch so the next poll retries from this notification.
+		if !bc.handleNotification(n, rc) {
+			return nil
+		}
 		// Advance seen pointer to the just-processed notification's timestamp.
 		// Use IndexedAt as-is so the server's clock is authoritative.
 		if n.IndexedAt != "" {
@@ -267,7 +272,9 @@ func bskyDIDFromJID(jid string) string {
 	return strings.TrimPrefix(jid, "bluesky:")
 }
 
-func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClient) {
+// handleNotification delivers one notification to the router. Returns true on
+// success; false (delivery failed) tells the caller to leave it unseen for retry.
+func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClient) bool {
 	jid := bskyUserJID(n.Author.DID)
 	name := n.Author.DisplayName
 	if name == "" {
@@ -309,10 +316,11 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		IsGroup: true,
 	}); err != nil {
 		slog.Error("deliver failed", "jid", jid, "err", err)
-		return
+		return false
 	}
 	bc.lastInboundAt.Store(time.Now().Unix())
 	slog.Debug("inbound", "chat_jid", jid, "sender_jid", jid, "message_id", uriToKey(n.URI), "content_len", len(content), "verb", verb)
+	return true
 }
 
 func (bc *bskyClient) extractAttachments(n notification) []chanlib.InboundAttachment {
