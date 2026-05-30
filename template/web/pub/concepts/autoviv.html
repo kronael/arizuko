@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; autoviv</p>
 <h1>autoviv</h1>
 
-    <p class="lede">Autoviv is the pattern by which a tier-1 agent registers a child folder the first time a new chat (a Slack channel, a Discord guild, a Telegram group) talks to it. No daemon, no env var, no magic &mdash; just a catch-all route and one MCP tool call.</p>
+    <p class="lede">Onboarding admits a new <em>person</em> into a group. Autoviv handles the other case: a new <em>chat</em> &mdash; a Slack channel, a Discord guild, a Telegram group &mdash; that should get its own folder the first time it talks to you. The point worth noticing is that this needs no new code: it&rsquo;s the same group-creation primitive onboarding uses, triggered by a catch-all route and one MCP tool call instead of an invite. No daemon, no env var, no magic.</p>
 
     <h2>the recipe</h2>
     <p>Three primitives, composed:</p>
@@ -110,7 +110,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

@@ -50,7 +50,7 @@
 
     <h1>skills</h1>
 
-    <p class="lede">A skill is a directory of markdown the agent reads when it needs to do a specific job. The agent ships with a built-in set and the operator can drop in more. Skills don&rsquo;t fire on their own &mdash; the agent calls one explicitly through <code>/dispatch</code>.</p>
+    <p class="lede">A secret is a credential a skill can spend; a skill is the job that spends it. A skill is a directory of markdown the agent reads when it needs to do something specific &mdash; another set of files in the ant, exactly as page one promised. The agent ships with a built-in set and the operator can drop in more. The one thing to internalize: skills don&rsquo;t fire on their own. An LLM won&rsquo;t reliably notice a skill applies, so the agent calls one explicitly through <code>/dispatch</code> &mdash; discovery is a deliberate step, not magic.</p>
 
     <h2>what a skill is</h2>
     <p>One directory under <code>ant/skills/</code>. Every skill has a <code>SKILL.md</code> with YAML frontmatter and a body:</p>
@@ -92,7 +92,7 @@ Skill instructions here...</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/skills.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

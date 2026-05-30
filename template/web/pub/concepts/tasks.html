@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; tasks</p>
 <h1>tasks</h1>
 
-    <p class="lede">A task is a saved prompt with a schedule. When the schedule says it&rsquo;s time, the prompt lands in a folder as if a user had just typed it, and the agent answers like any other turn.</p>
+    <p class="lede">Skills decide what an agent can do when prompted. Tasks decide <em>when</em> a prompt arrives &mdash; including when no human is around to send one. A task is a saved prompt with a schedule. When the schedule says it&rsquo;s time, the prompt lands in a folder as if a user had just typed it, and the agent answers like any other turn. That last part is the trick worth keeping: a scheduled run is not a special code path, just a synthetic message on the same rails everything else rides.</p>
 
     <h2>what it is</h2>
     <p>One row in the <code>scheduled_tasks</code> table = one recurring or one-shot agent run. The body is a prompt string; the trigger is either a cron expression, an interval in milliseconds, or a single future timestamp.</p>
@@ -107,7 +107,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tasks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

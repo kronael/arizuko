@@ -50,7 +50,7 @@
 
     <h1>auth</h1>
 
-    <p class="lede">Every daemon needs to know who is talking to it. <code>auth</code> turns a browser login &mdash; GitHub, Google, Discord, Telegram, or a local password &mdash; into one canonical user id, and carries that id across the daemon graph as a signed HTTP header.</p>
+    <p class="lede">Grants and scopes decide what a principal may do &mdash; but first something has to mint that principal. That&rsquo;s <code>auth</code>. Every daemon needs to know who is talking to it, and arizuko answers once: <code>auth</code> turns a browser login (GitHub, Google, Discord, Telegram, or a local password) into one canonical user id, then carries that id across the daemon graph as a signed HTTP header. The id <code>auth.Authorize</code> checked on the last page is the id this page produces.</p>
 
     <h2>why identity at all</h2>
     <p>arizuko is a bunch of small Go daemons (<code>gated</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>gated</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If the answer were "look at the cookie yourself," every daemon would re-implement login. Instead, exactly one daemon (<code>proxyd</code>) reads the cookie, looks up the user, and writes the answer into headers the others trust.</p>
@@ -111,7 +111,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

@@ -50,7 +50,7 @@
 
     <h1>grants</h1>
 
-    <p class="lede">A grant answers one question: <em>may principal P do action A on scope S?</em> Two SQL tables answer every check &mdash; <code>acl</code> for the rules and <code>acl_membership</code> for "this id belongs to that group." One <code>auth.Authorize()</code> call walks both.</p>
+    <p class="lede">A persona decides how an agent <em>sounds</em>; a grant decides what it&rsquo;s <em>allowed to do</em>. The whole permission model collapses to one question: <em>may principal P do action A on scope S?</em> Two SQL tables answer every check &mdash; <code>acl</code> for the rules and <code>acl_membership</code> for "this id belongs to that group" &mdash; and one <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
 
     <h2>the four words</h2>
     <p>The whole system is built on four nouns. Get these right and the rest is bookkeeping.</p>
@@ -147,7 +147,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-20">2026-05-20</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

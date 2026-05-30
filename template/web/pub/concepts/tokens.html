@@ -50,7 +50,7 @@
 
     <h1>route tokens</h1>
 
-    <p>A route token is a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix encodes routing intent at the data layer &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anywhere else that knows how to POST JSON.</p>
+    <p class="lede">Auth proves a logged-in human. But a public chat box on a website, or a webhook from GitHub, has no one to log in. A route token is the no-login counterpart: a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
 
     <h2>One table, two URL surfaces</h2>
 
@@ -140,7 +140,7 @@ created_at    when it was minted</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

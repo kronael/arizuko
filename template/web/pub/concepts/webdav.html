@@ -50,11 +50,13 @@
 <h1>webdav</h1>
 
       <p class="lede">
-        Each group folder is exposed over WebDAV at
-        <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>. You can mount it
-        from Finder, sync it with <code>rclone</code>, or edit a file in any
-        editor &mdash; and the next agent turn picks up your changes. Step-by-step
-        setup: <a href="../howto/webdav.html">how-to / webdav</a>.
+        Web-native agents serve the folder <em>out</em> to visitors. WebDAV
+        serves the same folder <em>back</em> to you. Each group folder is
+        exposed at <code>https://&lt;host&gt;/dav/&lt;group&gt;/</code>, so you
+        can mount it from Finder, sync it with <code>rclone</code>, or edit a
+        file in any editor &mdash; and because the folder is the ant, the next
+        agent turn simply picks up your changes. No deploy, no reload.
+        Step-by-step setup: <a href="../howto/webdav.html">how-to / webdav</a>.
       </p>
 
       <h2>what davd does</h2>
@@ -176,7 +178,7 @@ vim ~/mnt/&lt;group&gt;/CLAUDE.md</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/webdav.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

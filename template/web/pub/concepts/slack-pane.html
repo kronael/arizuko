@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; slack pane</p>
 <h1>slack pane</h1>
 
-    <p class="lede">Slack ships a dedicated sidebar UI for installed agent apps &mdash; the user clicks the AI icon and gets a split pane with the bot. It&rsquo;s a richer surface than a DM: the bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is currently viewing.</p>
+    <p class="lede">Voice was a modality every platform shares. The Slack pane is the opposite case: an affordance only one platform offers, which the agent can light up when it&rsquo;s there. Slack ships a dedicated sidebar UI for installed agent apps &mdash; the user clicks the AI icon and gets a split pane with the bot. It&rsquo;s richer than a DM: the bot can set a title, suggest follow-up prompts, show a typing indicator, and know which channel the user is currently viewing. Where a platform has no pane, the same tool calls quietly no-op &mdash; the agent doesn&rsquo;t branch on platform.</p>
 
     <h2>what it is</h2>
     <p>The pane is a special Slack thread with a fixed thread_ts opened by Slack on the user&rsquo;s click. Slack delivers two extra events to the app: <code>assistant_thread_started</code> when the user opens the pane, and <code>assistant_thread_context_changed</code> when the user navigates to a different workspace channel while the pane is open. Outbound, the app can call <code>assistant.threads.setStatus</code>, <code>setTitle</code>, and <code>setSuggestedPrompts</code>.</p>
@@ -98,7 +98,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/slack-pane.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

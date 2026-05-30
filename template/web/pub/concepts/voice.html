@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; voice</p>
 <h1>voice</h1>
 
-    <p class="lede">Voice in: a user sends an audio note, Whisper turns it into text before the agent reads anything. Voice out: the agent calls <code>send_voice</code>, the TTS daemon turns text into an ogg file, and the chat platform delivers it as a real voice note.</p>
+    <p class="lede">Every surface so far &mdash; chat, files, the web &mdash; has been text. Voice adds a modality without changing the agent: it stays a text process, and the conversion happens at the edges. Voice in: a user sends an audio note, Whisper turns it into text before the agent reads anything. Voice out: the agent calls <code>send_voice</code>, the TTS daemon turns text into an ogg file, and the chat platform delivers it as a real voice note. The agent never handles audio; it reads and writes text, and the daemons translate on either side.</p>
 
     <h2>voice in &mdash; transcription</h2>
     <p>When a voice note arrives at an adapter (Telegram, WhatsApp, Discord), the adapter downloads the audio and hands it to <code>gated</code>. If <code>WHISPER_BASE_URL</code> is set and <code>VOICE_TRANSCRIPTION_ENABLED=true</code>, the gateway POSTs the audio to that Whisper server before the agent ever sees the message. The transcript comes back as plain text and gets glued onto the attachment tag the agent sees in its prompt:</p>
@@ -92,7 +92,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/voice.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

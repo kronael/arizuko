@@ -49,7 +49,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; scopes</p>
 <h1>scopes</h1>
 
-    <p class="lede">A folder is a scope. Messages inside the folder are the folder&rsquo;s own conversation. Messages stored in a sibling folder leak in as ambient context &mdash; the agent can read them without being asked. Messages deeper in a child folder stay isolated.</p>
+    <p class="lede">A grant names a scope &mdash; the <em>S</em> in &ldquo;may P do A on S.&rdquo; That scope is a folder, and the same folder also decides what an agent can <em>see</em>, not just what it may touch. So a folder is a scope twice over: messages inside it are its own conversation; messages in a sibling folder leak in as ambient context the agent reads unasked; messages deeper in a child folder stay isolated. The hierarchy you build for permissions is the same one that bounds context &mdash; one tree, two jobs.</p>
 
     <h2>folder = scope</h2>
     <p>Every group is a folder under the data dir: <code>solo/inbox</code>, <code>corp/eng/sre</code>, <code>corp/eng/oncall</code>. The folder path doubles as the identity of the agent that runs there and as the scope rules for what it sees. Path depth sets the tier: the instance root (0 slashes, like <code>main</code>) is tier 0; one-slash folders (like <code>corp/eng</code>) are tier 1 &mdash; these are &ldquo;world&rdquo; groups; anything deeper is tier 2+. Siblings share a parent.</p>
@@ -84,7 +84,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/scopes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-19">2026-05-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 
