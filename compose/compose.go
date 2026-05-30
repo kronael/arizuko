@@ -25,7 +25,7 @@ const containerDataMount = "/srv/app/home"
 const containerSrcMount = "/srv/app/arizuko"
 
 // dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
-// gated must be in this group to spawn agent containers as uid 1000.
+// runed must be in this group to spawn agent containers as uid 1000.
 func dockerGID() int {
 	var st syscall.Stat_t
 	if err := syscall.Stat("/var/run/docker.sock", &st); err == nil {
@@ -371,7 +371,7 @@ func Generate(dataDir string) (string, error) {
 		}
 	}
 	// CRACKBOX_ADMIN_API is the master switch for egress: when set, the
-	// crackbox service is emitted and gated gets the per-folder network
+	// crackbox service is emitted and runed gets the per-folder network
 	// derivations it needs. No separate EGRESS_ISOLATION boolean.
 	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
 		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
@@ -438,8 +438,8 @@ func Generate(dataDir string) (string, error) {
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
-	// services/ttsd.toml present → auto-enable TTS on gateway. Operator
-	// opted in by dropping the TOML; no second env-var flip required.
+	// services/ttsd.toml present → auto-enable TTS on the execution plane
+	// (runed). Operator opted in by dropping the TOML; no second env-var flip.
 	// Explicit .env values still win (e.g. external Kokoro / OpenAI cloud
 	// override TTS_BASE_URL).
 	if hasService(services, "ttsd") {
@@ -463,11 +463,12 @@ func Generate(dataDir string) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
-	b.WriteString(gatedService(app, flavor, dataDir, env))
-	// Split daemons (soak phase, spec 5/E + 5/P): authd/routd/runed run
-	// ADDITIVELY alongside gated. They own separate DBs (auth.db / routd.db /
-	// runed.db) so coexistence is clean. Only runed gets docker.sock + crackbox
-	// + the spawn mounts; routd/authd are message-DB-free and docker-free.
+	// Split daemons (spec 5/E + 5/P) are the CANONICAL conversation/auth/
+	// execution plane: authd (auth.db) + routd (routd.db, the router every
+	// adapter/webd/proxyd talks to) + runed (runed.db, the ONLY daemon wired to
+	// docker.sock + crackbox + the per-folder agent networks). gated is no
+	// longer emitted — its orchestration is now this compose wiring plus the
+	// three daemons. The gated/ Go package stays in-tree (wipe is task #65).
 	b.WriteString(authdService(app, flavor, dataDir, env))
 	b.WriteString(routdService(app, flavor, dataDir, env))
 	b.WriteString(runedService(app, flavor, dataDir, env))
@@ -499,7 +500,7 @@ func Generate(dataDir string) (string, error) {
 }
 
 // crackboxService emits the crackbox proxy service. No `agents` network
-// here — folder networks are created at runtime by gated and crackbox is
+// here — folder networks are created at runtime by runed and crackbox is
 // attached to each via `docker network connect`. Crackbox stays on the
 // compose default bridge so it has outbound internet access.
 func crackboxService(app, flavor, dataDir string, env map[string]string) string {
@@ -598,44 +599,9 @@ func writeSvc(def svcDef) string {
 	}
 	dep := def.dependsOn
 	if dep == "" {
-		dep = "gated"
+		dep = "routd"
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
-	b.WriteString(healthBlock)
-	b.WriteString("    restart: on-failure\n")
-	return b.String()
-}
-
-func gatedService(app, flavor, dataDir string, env map[string]string) string {
-	var b strings.Builder
-	b.WriteString("  gated:\n")
-	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
-	b.WriteString("    image: arizuko:latest\n")
-	b.WriteString("    entrypoint: ['gated']\n")
-	// uid 1000 matches agent container so shared data dir files round-trip;
-	// group_add into docker gid grants docker.sock access for spawning agents.
-	b.WriteString("    user: '1000:1000'\n")
-	fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
-	b.WriteString("    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
-	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
-	gatedEnv := map[string]string{
-		"API_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
-		"DATA_DIR": containerDataMount,
-	}
-	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
-		fmt.Fprintf(&b, "      - %s:%s:ro\n", hostApp, containerSrcMount)
-		gatedEnv["APP_SRC_DIR"] = containerSrcMount
-	}
-	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%d'\n", envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort)), core.DefaultAPIPort)
-	b.WriteString("    extra_hosts:\n")
-	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
-	b.WriteString(envFileFor("gated"))
-	// API_PORT override pins gated's internal listen to 8080 (unified).
-	// Host-publish side uses the .env value as external port.
-	b.WriteString("    environment:\n")
-	writeEnv(&b, gatedEnv)
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
@@ -661,16 +627,20 @@ func authdService(app, flavor, dataDir string, env map[string]string) string {
 	return b.String()
 }
 
-// routdService emits the conversation-state daemon. routd.db + adapters
-// (/v1/send) + calls runed; verifies via authd JWKS. NO crackbox, NO docker
-// socket. Depends on authd (verifier keyset) + runed (run dispatch).
+// routdService emits the conversation-state daemon — the canonical router.
+// routd.db + adapters (/v1/send) + calls runed; verifies via authd JWKS. NO
+// crackbox, NO docker socket. Depends on authd (verifier keyset) + runed (run
+// dispatch). Publishes API_PORT:8080 to the host (replacing gated): the host
+// CLI reaches the router's /v1/channels here (arizuko status/send).
 func routdService(app, flavor, dataDir string, env map[string]string) string {
+	apiPort := envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort))
 	return writeSvc(svcDef{
 		name:       "routd",
 		app:        app,
 		flavor:     flavor,
 		entrypoint: "routd",
 		dataDir:    dataDir,
+		ports:      []string{fmt.Sprintf("%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 	})
 }
@@ -730,8 +700,12 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 		dataDir:    dataDir,
 		// Force ONBOARDING_ENABLED=true inside the container regardless of
 		// how the flag is expressed in .env (gate for daemon inclusion was
-		// already decided by Generate's caller).
-		environment: map[string]string{"ONBOARDING_ENABLED": "true"},
+		// already decided by Generate's caller). ROUTER_URL pinned to routd so
+		// onbod's outbound greeting reaches the canonical router.
+		environment: map[string]string{
+			"ONBOARDING_ENABLED": "true",
+			"ROUTER_URL":         routerURL,
+		},
 	})
 }
 
@@ -773,9 +747,9 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 	}
 	// dashd is full-profile only; depending on it in web/standard profiles
 	// yields "depends on undefined service dashd" — a fatal compose error.
-	deps := "gated, webd"
+	deps := "routd, webd"
 	if profile == "full" {
-		deps = "gated, dashd, webd"
+		deps = "routd, dashd, webd"
 	}
 	return writeSvc(svcDef{
 		name:        "proxyd",
@@ -806,19 +780,26 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
-	b.WriteString("    depends_on: [gated]\n")
+	b.WriteString("    depends_on: [routd]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
 
 func webdService(app, flavor, dataDir string, env map[string]string) string {
-	// webd's defaults for WEBD_LISTEN/WEBD_URL/ROUTER_URL resolve to
-	// http://webd:8080 and http://gated:8080 — no compose-side env needed.
+	// webd registers as a channel + posts inbound to the router. The router is
+	// routd (canonical); pin ROUTER_URL explicitly so webd never falls back to
+	// its gated-era code default.
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
 		entrypoint: "webd", dataDir: dataDir,
+		environment: map[string]string{"ROUTER_URL": routerURL},
 	})
 }
+
+// routerURL is the in-network base URL of the canonical router (routd). Every
+// adapter ROUTER_URL is force-pinned to this in the generated compose so a
+// stale data-dir TOML or code default can't dangle at the removed gated.
+const routerURL = "http://routd:8080"
 
 func vitedService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
@@ -864,11 +845,19 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 		for k, v := range cfg.Environment {
 			interped[k] = interpolate(v, env)
 		}
+		// Cutover: the canonical router is routd. Any adapter still carrying a
+		// gated-era ROUTER_URL in its (operator-managed) data-dir TOML gets
+		// force-pinned to routd so an already-deployed instance re-points on
+		// the next regenerate without re-seeding services/. Narrow: only
+		// ROUTER_URL, only when the service already declares it.
+		if _, ok := interped["ROUTER_URL"]; ok {
+			interped["ROUTER_URL"] = routerURL
+		}
 		writeEnv(&b, interped)
 	}
 	deps := cfg.DependsOn
 	if len(deps) == 0 {
-		deps = []string{"gated"}
+		deps = []string{"routd"}
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", strings.Join(deps, ", "))
 	restart := cfg.Restart
