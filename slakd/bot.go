@@ -64,9 +64,9 @@ type bot struct {
 	// next outbound on a pane (keyed by team/user/thread_ts). Consumed
 	// — and cleared — on the first Send into that pane. Also a one-shot
 	// title slot.
-	paneOutMu       sync.Mutex
-	pendingPrompts  map[string][]panePrompt
-	pendingTitle    map[string]string
+	paneOutMu      sync.Mutex
+	pendingPrompts map[string][]panePrompt
+	pendingTitle   map[string]string
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -208,7 +208,31 @@ func (b *bot) start(rc *chanlib.RouterClient) error {
 	b.connected.Store(true)
 	slog.Info("slack connected", "bot_user_id", user, "team_id", team)
 	go b.clearOrphanEyes(context.Background())
+	// Slack's Events API has no persistent socket to watch, so /health would
+	// otherwise report "ok" forever even after the token is revoked. Re-probe
+	// auth.test periodically and flip connected on the result.
+	go b.healthProbe(context.Background(), 60*time.Second)
 	return nil
+}
+
+// healthProbe re-checks Slack reachability with the configured token so
+// /health reflects a revoked/expired token instead of lying "ok".
+func (b *bot) healthProbe(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if _, _, err := b.authTest(ctx); err != nil {
+				b.connected.Store(false)
+				slog.Warn("slack health probe failed", "err", err)
+			} else {
+				b.connected.Store(true)
+			}
+		}
+	}
 }
 
 func (b *bot) stop() {
@@ -887,7 +911,6 @@ func (b *bot) recordPane(teamID, userID, threadTS, channelID string) {
 		slog.Warn("slack: pane upsert failed", "channel", channelID, "err", err)
 	}
 }
-
 
 func (b *bot) Post(req chanlib.PostRequest) (string, error) {
 	return b.Send(chanlib.SendRequest{ChatJID: req.ChatJID, Content: req.Content})

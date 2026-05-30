@@ -20,23 +20,24 @@ import (
 // chat.postMessage, chat.delete, chat.update, reactions.add,
 // files.getUploadURLExternal, files.completeUploadExternal.
 type slackMock struct {
-	srv        *httptest.Server
-	mu         sync.Mutex
-	posted     []map[string]string
-	reacted    []map[string]string
-	unreacted  []map[string]string
-	updated    []map[string]string
-	deleted    []map[string]string
-	completed  []map[string]string
-	statuses   []map[string]string
-	titles     []map[string]string
-	prompts    []map[string]string
-	pinned     []map[string]string
-	unpinned   []map[string]string
-	pinList    []string // ts values returned by pins.list (test seeds this)
+	srv       *httptest.Server
+	mu        sync.Mutex
+	posted    []map[string]string
+	reacted   []map[string]string
+	unreacted []map[string]string
+	updated   []map[string]string
+	deleted   []map[string]string
+	completed []map[string]string
+	statuses  []map[string]string
+	titles    []map[string]string
+	prompts   []map[string]string
+	pinned    []map[string]string
+	unpinned  []map[string]string
+	pinList   []string // ts values returned by pins.list (test seeds this)
 
 	authUserID string
 	authTeamID string
+	authFail   bool // when set, auth.test returns {ok:false}
 
 	// rate-limit one path on first hit, then succeed.
 	rateLimitOnce map[string]bool
@@ -50,6 +51,13 @@ func newSlackMock() *slackMock {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth.test", func(w http.ResponseWriter, _ *http.Request) {
+		m.mu.Lock()
+		fail := m.authFail
+		m.mu.Unlock()
+		if fail {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "invalid_auth"})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"ok": true, "user_id": m.authUserID, "team_id": m.authTeamID,
 		})
@@ -726,6 +734,46 @@ func TestAuthTest_Liveness(t *testing.T) {
 	if user != "Ubot" || team != "T012" {
 		t.Errorf("user=%q team=%q", user, team)
 	}
+}
+
+// healthProbe must flip connected=false when auth.test starts failing (token
+// revoked) and back to true when it recovers — Slack's Events API has no
+// socket, so a periodic probe is the only honest /health signal.
+func TestHealthProbe_FlipsOnAuthFailure(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.connected.Store(true)
+
+	mock.mu.Lock()
+	mock.authFail = true
+	mock.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.healthProbe(ctx, 2*time.Millisecond)
+
+	if !waitFor(500*time.Millisecond, func() bool { return !b.isConnected() }) {
+		t.Fatal("connected did not flip to false after auth failures")
+	}
+
+	mock.mu.Lock()
+	mock.authFail = false
+	mock.mu.Unlock()
+	if !waitFor(500*time.Millisecond, func() bool { return b.isConnected() }) {
+		t.Fatal("connected did not recover to true after auth restored")
+	}
+}
+
+func waitFor(d time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return cond()
 }
 
 // URL verification round-trip through the HTTP server, validating that
