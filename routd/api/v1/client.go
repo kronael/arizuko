@@ -124,6 +124,216 @@ func (c *Client) History(ctx context.Context, turnID, token, jid, before, q stri
 	return out, err
 }
 
+// get issues a token-bearing GET to a non-turn path with query qs.
+func (c *Client) get(ctx context.Context, path string, qs url.Values, token string, out any) error {
+	u := c.BaseURL + path
+	if enc := qs.Encode(); enc != "" {
+		u += "?" + enc
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return c.do(req, out)
+}
+
+// InspectMessages calls GET /v1/messages/inspect (the agent's whole-chat DB read).
+func (c *Client) InspectMessages(ctx context.Context, token, jid, before string, limit int) (MessagesResponse, error) {
+	var out MessagesResponse
+	qs := url.Values{}
+	qs.Set("jid", jid)
+	if before != "" {
+		qs.Set("before", before)
+	}
+	if limit > 0 {
+		qs.Set("limit", strconv.Itoa(limit))
+	}
+	return out, c.get(ctx, "/v1/messages/inspect", qs, token, &out)
+}
+
+// ThreadMessages calls GET /v1/messages/thread (one (jid,topic) slice).
+func (c *Client) ThreadMessages(ctx context.Context, token, jid, topic, before string, limit int) (MessagesResponse, error) {
+	var out MessagesResponse
+	qs := url.Values{}
+	qs.Set("jid", jid)
+	qs.Set("topic", topic)
+	if before != "" {
+		qs.Set("before", before)
+	}
+	if limit > 0 {
+		qs.Set("limit", strconv.Itoa(limit))
+	}
+	return out, c.get(ctx, "/v1/messages/thread", qs, token, &out)
+}
+
+// FindMessages calls GET /v1/messages/find (FTS5 search).
+func (c *Client) FindMessages(ctx context.Context, token, query, scope, sender, since string, limit int) (FindResponse, error) {
+	var out FindResponse
+	qs := url.Values{}
+	qs.Set("query", query)
+	if scope != "" {
+		qs.Set("scope", scope)
+	}
+	if sender != "" {
+		qs.Set("sender", sender)
+	}
+	if since != "" {
+		qs.Set("since", since)
+	}
+	if limit > 0 {
+		qs.Set("limit", strconv.Itoa(limit))
+	}
+	return out, c.get(ctx, "/v1/messages/find", qs, token, &out)
+}
+
+// ResolveRouting calls GET /v1/routing/resolve. folder="" → DefaultFolderForJID
+// (Folder set); folder!="" → JIDRoutedToFolder (Routed set).
+func (c *Client) ResolveRouting(ctx context.Context, token, jid, folder string) (RoutingResolveResponse, error) {
+	var out RoutingResolveResponse
+	qs := url.Values{}
+	qs.Set("jid", jid)
+	if folder != "" {
+		qs.Set("folder", folder)
+	}
+	return out, c.get(ctx, "/v1/routing/resolve", qs, token, &out)
+}
+
+// ErroredChats calls GET /v1/routing/errored.
+func (c *Client) ErroredChats(ctx context.Context, token, folder string) (ErroredChatsResponse, error) {
+	var out ErroredChatsResponse
+	qs := url.Values{}
+	if folder != "" {
+		qs.Set("folder", folder)
+	}
+	return out, c.get(ctx, "/v1/routing/errored", qs, token, &out)
+}
+
+// GetEngagement calls GET /v1/engagement (engaged folder + thread anchor).
+func (c *Client) GetEngagement(ctx context.Context, token, jid, topic string) (EngagementResponse, error) {
+	var out EngagementResponse
+	qs := url.Values{}
+	qs.Set("jid", jid)
+	qs.Set("topic", topic)
+	return out, c.get(ctx, "/v1/engagement", qs, token, &out)
+}
+
+// SetEngagement calls POST /v1/engagement (engage/disengage).
+func (c *Client) SetEngagement(ctx context.Context, token string, r EngagementRequest) error {
+	return c.post(ctx, "/v1/engagement", token, "", r, nil)
+}
+
+// LogCost calls POST /v1/cost (one external-LLM cost_log row).
+func (c *Client) LogCost(ctx context.Context, token string, r CostRequest) error {
+	return c.post(ctx, "/v1/cost", token, "", r, nil)
+}
+
+// GetSession calls GET /v1/sessions (resume session id for (folder,topic)).
+func (c *Client) GetSession(ctx context.Context, token, folder, topic string) (string, error) {
+	var out SessionResponse
+	qs := url.Values{}
+	qs.Set("folder", folder)
+	qs.Set("topic", topic)
+	return out.SessionID, c.get(ctx, "/v1/sessions", qs, token, &out)
+}
+
+// Routes CRUD — the agent's route-management tools federate here.
+
+// ListRoutes calls GET /v1/routes.
+func (c *Client) ListRoutes(ctx context.Context, token string) ([]Route, error) {
+	var out []Route
+	return out, c.get(ctx, "/v1/routes", nil, token, &out)
+}
+
+// GetRoute calls GET /v1/routes/{id}; ok=false on 404.
+func (c *Client) GetRoute(ctx context.Context, token string, id int64) (Route, bool, error) {
+	var out Route
+	err := c.get(ctx, "/v1/routes/"+strconv.FormatInt(id, 10), nil, token, &out)
+	if e, isAPI := err.(*APIError); isAPI && e.Status == http.StatusNotFound {
+		return Route{}, false, nil
+	}
+	return out, err == nil, err
+}
+
+// AddRoute calls POST /v1/routes, returning the assigned id.
+func (c *Client) AddRoute(ctx context.Context, token string, r Route) (int64, error) {
+	var out Route
+	if err := c.post(ctx, "/v1/routes", token, "", r, &out); err != nil {
+		return 0, err
+	}
+	return out.ID, nil
+}
+
+// SetRoutes calls PUT /v1/routes (folder-scoped bulk replace).
+func (c *Client) SetRoutes(ctx context.Context, token string, routes []Route) error {
+	return c.put(ctx, "/v1/routes", token, routes, nil)
+}
+
+// DeleteRoute calls DELETE /v1/routes/{id}.
+func (c *Client) DeleteRoute(ctx context.Context, token string, id int64) error {
+	return c.method(ctx, http.MethodDelete, "/v1/routes/"+strconv.FormatInt(id, 10), token, nil, nil)
+}
+
+// WebRoutes CRUD — the agent's web-route tools federate here.
+
+// ListWebRoutes calls GET /v1/web_routes?folder=.
+func (c *Client) ListWebRoutes(ctx context.Context, token, folder string) ([]WebRoute, error) {
+	var out []WebRoute
+	qs := url.Values{}
+	if folder != "" {
+		qs.Set("folder", folder)
+	}
+	return out, c.get(ctx, "/v1/web_routes", qs, token, &out)
+}
+
+// WebRouteOwner calls GET /v1/web_routes?path_prefix= → owning folder ("" none).
+func (c *Client) WebRouteOwner(ctx context.Context, token, pathPrefix string) (string, error) {
+	var out struct {
+		Owner string `json:"owner"`
+	}
+	qs := url.Values{}
+	qs.Set("path_prefix", pathPrefix)
+	return out.Owner, c.get(ctx, "/v1/web_routes", qs, token, &out)
+}
+
+// PutWebRoute calls PUT /v1/web_routes (set_web_route).
+func (c *Client) PutWebRoute(ctx context.Context, token string, r WebRoute) error {
+	return c.put(ctx, "/v1/web_routes", token, r, nil)
+}
+
+// DeleteWebRoute calls DELETE /v1/web_routes (del_web_route).
+func (c *Client) DeleteWebRoute(ctx context.Context, token string, r WebRoute) (bool, error) {
+	var out struct {
+		Deleted bool `json:"deleted"`
+	}
+	return out.Deleted, c.method(ctx, http.MethodDelete, "/v1/web_routes", token, r, &out)
+}
+
+// put/method are token-bearing JSON requests for the non-POST verbs.
+func (c *Client) put(ctx context.Context, path, token string, body, out any) error {
+	return c.method(ctx, http.MethodPut, path, token, body, out)
+}
+
+func (c *Client) method(ctx context.Context, verb, path, token string, body, out any) error {
+	var rdr *bytes.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rdr = bytes.NewReader(raw)
+	} else {
+		rdr = bytes.NewReader(nil)
+	}
+	req, err := http.NewRequestWithContext(ctx, verb, c.BaseURL+path, rdr)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	return c.do(req, out)
+}
+
 // APIError is a non-2xx response from routd carrying the decoded Err
 // envelope.
 type APIError struct {

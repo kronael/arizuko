@@ -177,6 +177,13 @@ func (s *Server) handleWebRoutesList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// ?path_prefix= → first-claim owner lookup for set_web_route (the
+	// StoreFns.WebRouteOwner pre-check). Returns the owning folder or "".
+	if p := r.URL.Query().Get("path_prefix"); p != "" {
+		owner, _ := s.db.WebRouteOwner(p)
+		writeJSON(w, 200, map[string]string{"owner": owner})
+		return
+	}
 	q := r.URL.Query().Get("folder")
 	if folder != "" { // scoped caller: bind the listing to its own subtree
 		if q == "" {

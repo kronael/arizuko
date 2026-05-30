@@ -212,6 +212,106 @@ type ResolveResponse struct {
 	OwnerFolder string `json:"owner_folder"`
 }
 
+// MessageRow is one full message row of the agent read surface
+// (/v1/messages/{inspect,thread}). It carries the columns runed needs to
+// reconstruct a core.Message for the agent's formatter — richer than
+// HistoryMessage (the turn-scoped history body).
+type MessageRow struct {
+	ID            string `json:"id"`
+	ChatJID       string `json:"chat_jid"`
+	Sender        string `json:"sender"`
+	SenderName    string `json:"sender_name"`
+	Content       string `json:"content"`
+	Timestamp     string `json:"timestamp"`
+	IsFromMe      bool   `json:"is_from_me"`
+	IsBotMsg      bool   `json:"is_bot_message"`
+	ReplyToID     string `json:"reply_to_id"`
+	Topic         string `json:"topic"`
+	RoutedTo      string `json:"routed_to"`
+	Verb          string `json:"verb"`
+	Source        string `json:"source"`
+	Status        string `json:"status"`
+	PlatformID    string `json:"platform_id"`
+	ChatName      string `json:"chat_name"`
+	ForwardedFrom string `json:"forwarded_from"`
+}
+
+// MessagesResponse is GET /v1/messages/{inspect,thread}: full rows + count.
+type MessagesResponse struct {
+	Messages []MessageRow `json:"messages"`
+	Count    int          `json:"count"`
+}
+
+// FoundMessage is one find_messages hit (FTS5 snippet + BM25 rank).
+type FoundMessage struct {
+	ChatJID      string  `json:"chat_jid"`
+	Sender       string  `json:"sender"`
+	Timestamp    string  `json:"timestamp"`
+	IsFromMe     bool    `json:"is_from_me"`
+	IsBotMessage bool    `json:"is_bot_message"`
+	Content      string  `json:"content"`
+	Rank         float64 `json:"rank"`
+}
+
+// FindResponse is GET /v1/messages/find.
+type FindResponse struct {
+	Messages []FoundMessage `json:"messages"`
+	Count    int            `json:"count"`
+}
+
+// RoutingResolveResponse is GET /v1/routing/resolve?jid[&folder]. Folder is
+// the default route target; Routed is set only when folder= is supplied
+// (DefaultFolderForJID vs JIDRoutedToFolder).
+type RoutingResolveResponse struct {
+	Folder string `json:"folder"`
+	Routed bool   `json:"routed"`
+}
+
+// ErroredChat is one row of GET /v1/routing/errored.
+type ErroredChat struct {
+	ChatJID  string `json:"chat_jid"`
+	Count    int    `json:"count"`
+	LastAt   string `json:"last_at"`
+	RoutedTo string `json:"routed_to"`
+}
+
+// ErroredChatsResponse is GET /v1/routing/errored.
+type ErroredChatsResponse struct {
+	Chats []ErroredChat `json:"chats"`
+}
+
+// EngagementResponse is GET /v1/engagement?jid&topic: the engaged folder
+// ("" when none) and the (jid,topic) thread anchor last_reply_id.
+type EngagementResponse struct {
+	Folder      string `json:"folder"`
+	LastReplyID string `json:"last_reply_id"`
+}
+
+// EngagementRequest is POST /v1/engagement (engage/disengage). TTLSeconds<=0
+// clears the engagement (disengage).
+type EngagementRequest struct {
+	JID        string `json:"jid"`
+	Topic      string `json:"topic"`
+	Folder     string `json:"folder"`
+	TTLSeconds int    `json:"ttl_seconds"`
+}
+
+// SessionResponse is GET /v1/sessions?folder&topic: the resume session id
+// for (folder, topic), "" when none.
+type SessionResponse struct {
+	SessionID string `json:"session_id"`
+}
+
+// CostRequest is POST /v1/cost: one external-LLM cost_log row.
+type CostRequest struct {
+	Folder       string `json:"folder"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	CostCents    int    `json:"cost_cents"`
+}
+
 // Err is the uniform JSON error envelope.
 type Err struct {
 	Error   string `json:"error"`
