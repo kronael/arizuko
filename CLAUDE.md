@@ -155,8 +155,9 @@ is in `template/web/CLAUDE.md`.
 We borrow IA + content patterns from external references (Divio
 four-category split, Stripe three-column layout, dbt's reference-page
 rhythm — see `~/facts/technical-guide-structure-patterns.md` on krons),
-but the visual identity stays ours: hub.css palette, 2px corners, dense
-typography, arizuko color twists. External references inform structure
+but the visual identity stays ours: hub.css palette, its corner radii, dense
+typography, arizuko color twists (hub.css is the source of truth, not any
+px figure). External references inform structure
 and tone; the look is the arizuko brand and does not move.
 
 Workflow:

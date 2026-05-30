@@ -256,7 +256,8 @@ that paragraph.
 > **Arizuko visual identity is load-bearing — keep it.** Borrow IA + content
 > patterns from external references (Divio four-category, Stripe three-column,
 > dbt's reference-page rhythm cited 2026-05-25) but **do NOT adopt their
-> visuals**. The hub.css palette, 2px corners, dense typography, and arizuko
+> visuals**. The hub.css palette, its corner radii (6/4/3px today — hub.css
+> is the source of truth, not any px figure), dense typography, and arizuko
 > color twists stay. The job of an external reference is to inform structure
 > and tone; the look is ours.
 

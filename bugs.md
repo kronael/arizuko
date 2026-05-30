@@ -813,7 +813,9 @@ Logged (out of this lens — concurrency, not error/boundary):
   (or make it atomic.Value). Left unfixed: outside the error-handling/boundary
   lens of this sweep, and a synchronization change wants its own focused diff.
 
-## Pre-existing broken spec links (found 2026-05-29 link-scan, NOT regressions)
+## Pre-existing broken spec links — RESOLVED 2026-05-30 (fresh whole-specs link scan = 0 broken; fixed during the restructuring)
+
+<details><summary>stale entries (kept for traceability)</summary>
 
 Surfaced by a whole-tree markdown link scan during the 5/ finalize; all
 predate this session's restructure (the 5/4-delete + 5/A→11/A move added
@@ -821,6 +823,7 @@ zero broken links). Fix = repoint to the correct target:
 - `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
 - `specs/5/5-uniform-mcp-rest.md` → `../11/11-crackbox-secrets.md` (×2) — no such file in specs/11 (renamed/removed); find the real secrets-broker spec (6/Y?).
 - `specs/7/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
+</details>
 
 ## resreg (5/36) spec-vs-impl gaps (found 2026-05-29 shipping plan/get; address in finalize)
 
