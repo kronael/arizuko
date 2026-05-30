@@ -21,6 +21,15 @@ import (
 // mutate an existing platform message without appending. Every call is
 // idempotent on X-Idempotency-Key, serialized per turn_id.
 
+// Scope sets for the turn-callback surface (spec 5/E § MCP tool face).
+// reply/send/document/like/edit/delete/pin/unpin are message writes; history
+// is a read. Each set lists the agent (own_group) scope plus the broader
+// operator/service scopes that also grant it (any-of match).
+var (
+	scopeSend = []string{"messages:send:own_group", "messages:send", "messages:write"}
+	scopeRead = []string{"chats:read:own_group", "chats:read", "messages:read"}
+)
+
 // turnLock serializes append-and-deliver per turn_id so out-of-order
 // arrivals append in receive order (spec § Per-turn callback
 // serialization).
@@ -79,8 +88,13 @@ func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, r
 	status, resp, row := exec(body)
 	raw, _ := json.Marshal(resp)
 	// Persist the row (if any) AND finish the ledger atomically — a crash
-	// between can't leave a permanent in_flight.
-	_ = s.db.AppendAndFinish(row, endpoint, key, status, string(raw))
+	// between can't leave a permanent in_flight. A commit failure means the
+	// bot row + ledger are NOT durable: report store_error, not the success
+	// resp, so the caller (runed) retries on the same key (still in_flight).
+	if err := s.db.AppendAndFinish(row, endpoint, key, status, string(raw)); err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
 	writeJSON(w, status, resp)
 }
 
@@ -104,11 +118,33 @@ func canonicalHash(body []byte) string {
 // that flipped state→done (spec 5/E § Post-terminal callbacks).
 func (s *Server) callbackClosed(tc TurnContext) bool { return tc.RunReturned }
 
+// authzTurn gates a turn-callback handler: the bearer token must carry one of
+// anyScope AND its arz/folder claim must own the turn's folder. The brokered
+// agent token authd mints for a run is bound to that run's group folder, so a
+// token for turn A cannot drive turn B in another folder. Fails CLOSED: an
+// unknown turn under a scoped token is 403 (a valid token must not probe turn
+// existence outside its subtree). verify==nil (local-dev) is open.
+func (s *Server) authzTurn(w http.ResponseWriter, r *http.Request, turnID string, anyScope ...string) bool {
+	_, folder, ok := s.authz(w, r, anyScope...)
+	if !ok {
+		return false
+	}
+	if folder == "" {
+		return true // open mode / unscoped service token
+	}
+	tc, found := s.db.GetTurnContext(turnID)
+	if !found || !ownsFolder(folder, tc.Folder) {
+		writeErr(w, 403, "forbidden", "turn not owned by caller folder")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleReply(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, "POST /v1/turns/reply", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.ReplyRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" {
@@ -119,10 +155,10 @@ func (s *Server) handleReply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, "POST /v1/turns/send", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.ReplyRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" {
@@ -173,10 +209,10 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 }
 
 func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, "POST /v1/turns/document", true, func(body []byte) (int, any, *core.Message) {
 		var req apiv1.DocumentRequest
 		if json.Unmarshal(body, &req) != nil || req.JID == "" || req.Path == "" {
@@ -205,7 +241,8 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeRead...) {
 		return
 	}
 	jid := r.URL.Query().Get("jid")
@@ -237,10 +274,10 @@ func (s *Server) handleLike(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, "POST /v1/turns/edit", false, func(body []byte) (int, any, *core.Message) {
 		if status, errResp := s.guardOpen(turnID); errResp != nil {
 			return status, errResp, nil
@@ -299,10 +336,10 @@ func (s *Server) guardOpen(turnID string) (int, any) {
 }
 
 func (s *Server) mutate(w http.ResponseWriter, r *http.Request, endpoint string, fn func(apiv1.ReactionRequest) error) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
 		if status, errResp := s.guardOpen(turnID); errResp != nil {
 			return status, errResp, nil
@@ -317,10 +354,10 @@ func (s *Server) mutate(w http.ResponseWriter, r *http.Request, endpoint string,
 }
 
 func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint string, fn func(apiv1.TargetRequest) error) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	s.idem(w, r, endpoint, false, func(body []byte) (int, any, *core.Message) {
 		if status, errResp := s.guardOpen(turnID); errResp != nil {
 			return status, errResp, nil
@@ -340,10 +377,10 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint string,
 // may still emit trailing frames until POST /v1/runs returns, and those
 // callbacks stay valid (spec 5/E § Post-terminal callbacks).
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
 		return
 	}
-	turnID := r.PathValue("turn_id")
 	var req apiv1.TurnResult
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())

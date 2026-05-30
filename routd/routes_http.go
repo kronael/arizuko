@@ -43,7 +43,7 @@ func fromWireRoute(r apiv1.Route) core.Route {
 }
 
 func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if !s.authed(w, r, "routes:read", "routes:read:own_group") {
 		return
 	}
 	routes, err := s.db.Routes()
@@ -59,7 +59,7 @@ func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if !s.authed(w, r, "routes:read", "routes:read:own_group") {
 		return
 	}
 	id, ok := atoi64(r.PathValue("id"))
@@ -78,7 +78,8 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var body []apiv1.Route
@@ -87,8 +88,12 @@ func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	routes := make([]core.Route, 0, len(body))
-	for _, r := range body {
-		routes = append(routes, fromWireRoute(r))
+	for _, rt := range body {
+		if !ownsFolder(folder, rt.Target) {
+			writeErr(w, 403, "forbidden", "route target outside caller folder: "+rt.Target)
+			return
+		}
+		routes = append(routes, fromWireRoute(rt))
 	}
 	n, err := s.db.SetRoutes(routes)
 	if err != nil {
@@ -99,12 +104,17 @@ func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var body apiv1.Route
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, body.Target) {
+		writeErr(w, 403, "forbidden", "route target outside caller folder: "+body.Target)
 		return
 	}
 	id, err := s.db.AddRoute(fromWireRoute(body))
@@ -117,13 +127,23 @@ func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	id, ok := atoi64(r.PathValue("id"))
 	if !ok {
 		writeErr(w, 400, "bad_request", "non-numeric id")
 		return
+	}
+	if folder != "" { // scoped caller: the route's target must be in its subtree
+		routes, _ := s.db.Routes()
+		for _, rt := range routes {
+			if rt.ID == id && !ownsFolder(folder, rt.Target) {
+				writeErr(w, 403, "forbidden", "route target outside caller folder: "+rt.Target)
+				return
+			}
+		}
 	}
 	if err := s.db.DeleteRoute(id); err != nil {
 		writeErr(w, 404, "not_found", "route not found")
@@ -135,10 +155,20 @@ func (s *Server) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 // --- web routes ---
 
 func (s *Server) handleWebRoutesList(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
+	if !ok {
 		return
 	}
-	rows, err := s.db.WebRoutes(r.URL.Query().Get("folder"))
+	q := r.URL.Query().Get("folder")
+	if folder != "" { // scoped caller: bind the listing to its own subtree
+		if q == "" {
+			q = folder
+		} else if !ownsFolder(folder, q) {
+			writeErr(w, 403, "forbidden", "folder outside caller subtree: "+q)
+			return
+		}
+	}
+	rows, err := s.db.WebRoutes(q)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -152,12 +182,17 @@ func (s *Server) handleWebRoutesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebRoutePut(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var req apiv1.WebRoute
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, req.Folder) {
+		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+req.Folder)
 		return
 	}
 	err := s.db.PutWebRoute(WebRouteRow{PathPrefix: req.PathPrefix, Access: req.Access,
@@ -170,12 +205,17 @@ func (s *Server) handleWebRoutePut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebRouteDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var req apiv1.WebRoute
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, req.Folder) {
+		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+req.Folder)
 		return
 	}
 	deleted, err := s.db.DeleteWebRoute(req.PathPrefix, req.Folder)
@@ -195,12 +235,17 @@ func descendant(target, owner string) bool {
 }
 
 func (s *Server) handleTokenChat(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var req apiv1.RouteTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, req.OwnerFolder) {
+		writeErr(w, 403, "forbidden", "owner_folder outside caller subtree: "+req.OwnerFolder)
 		return
 	}
 	if req.TargetFolder == "" {
@@ -229,12 +274,17 @@ func (s *Server) handleTokenChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenHook(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	var req apiv1.RouteTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, req.OwnerFolder) {
+		writeErr(w, 403, "forbidden", "owner_folder outside caller subtree: "+req.OwnerFolder)
 		return
 	}
 	if req.TargetFolder == "" {
@@ -267,10 +317,20 @@ func (s *Server) handleTokenHook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
+	if !ok {
 		return
 	}
-	rows, err := s.db.ListRouteTokens(r.URL.Query().Get("owner_folder"))
+	owner := r.URL.Query().Get("owner_folder")
+	if folder != "" { // scoped caller: bind the listing to its own subtree
+		if owner == "" {
+			owner = folder
+		} else if !ownsFolder(folder, owner) {
+			writeErr(w, 403, "forbidden", "owner_folder outside caller subtree: "+owner)
+			return
+		}
+	}
+	rows, err := s.db.ListRouteTokens(owner)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -283,11 +343,20 @@ func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
+	if !ok {
 		return
 	}
 	jid := r.PathValue("jid")
 	owner := r.URL.Query().Get("owner_folder")
+	if folder != "" { // scoped caller: revocation bounded to its own subtree
+		if owner == "" {
+			owner = folder
+		} else if !ownsFolder(folder, owner) {
+			writeErr(w, 403, "forbidden", "owner_folder outside caller subtree: "+owner)
+			return
+		}
+	}
 	n, err := s.db.RevokeRouteTokens(jid, owner)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
@@ -301,7 +370,8 @@ func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenResolve(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	// webd's service token resolves a URL token → jid (spec 5/E § Route tokens).
+	if !s.authed(w, r, "routes:read") {
 		return
 	}
 	var req apiv1.ResolveRequest

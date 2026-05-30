@@ -4,12 +4,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -94,15 +94,62 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
+// authz verifies the bearer token and, when scopes are required, checks the
+// token carries one of them (any-of). Returns the token's sub + arz/folder
+// claim. verify==nil is open (single-tenant / local-dev): ok=true, empty
+// sub/folder. Fails CLOSED — a verify error or a missing scope is denied.
+// Service subs (service:<daemon>) carry the daemon's broad scopes like any
+// other token; there is no implicit bypass.
+func (s *Server) authz(w http.ResponseWriter, r *http.Request, anyScope ...string) (sub, folder string, ok bool) {
 	if s.verify == nil {
-		return true // tests without a verifier
+		return "", "", true // tests / local-dev without a verifier
 	}
-	if _, _, _, err := s.verify.Verify(r); err != nil {
+	sub, scope, folder, err := s.verify.Verify(r)
+	if err != nil {
 		writeErr(w, 401, "unauthorized", err.Error())
-		return false
+		return "", "", false
 	}
-	return true
+	if len(anyScope) > 0 && !hasAnyScope(scope, anyScope) {
+		writeErr(w, 403, "forbidden", "missing scope "+strings.Join(anyScope, " or "))
+		return "", "", false
+	}
+	return sub, folder, true
+}
+
+// hasAnyScope reports whether held grants any of the wanted "resource:verb"
+// scopes. A held "resource:*" covers any verb on that resource (auth.HasScope);
+// an exact string also matches (covers the "resource:verb:own_group" form the
+// spec uses for folder-bound agent scopes, where the folder claim is the bound).
+func hasAnyScope(held, wanted []string) bool {
+	for _, w := range wanted {
+		if i := strings.IndexByte(w, ':'); i > 0 {
+			if auth.HasScope(held, w[:i], w[i+1:]) {
+				return true
+			}
+		}
+		for _, h := range held {
+			if h == w {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ownsFolder reports whether the token's folder claim owns target (equal or
+// ancestor). An empty token folder (open mode) owns everything; an empty
+// target is owned by anyone (no folder-bound resource). Fails CLOSED for a
+// scoped token acting outside its subtree.
+func ownsFolder(tokenFolder, target string) bool {
+	if tokenFolder == "" || target == "" {
+		return true
+	}
+	return descendant(target, tokenFolder)
+}
+
+func (s *Server) authed(w http.ResponseWriter, r *http.Request, anyScope ...string) bool {
+	_, _, ok := s.authz(w, r, anyScope...)
+	return ok
 }
 
 // adapterName extracts the calling adapter's name from its service token
@@ -122,7 +169,7 @@ func (s *Server) adapterName(r *http.Request) string {
 // --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if !s.authed(w, r, "messages:write") {
 		return
 	}
 	var m apiv1.Message
@@ -190,7 +237,7 @@ func (s *Server) replyTargetIsBot(id string) bool {
 }
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if !s.authed(w, r, "messages:write") {
 		return
 	}
 	var req apiv1.OutboundRequest
@@ -238,5 +285,3 @@ func trimWeb(jid string) string {
 	}
 	return jid
 }
-
-var _ = slog.Default
