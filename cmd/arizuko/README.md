@@ -24,6 +24,10 @@ beyond `docker` for `run` and `pair`).
   - `arizuko invite <inst> revoke <token>`
   - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--topic <topic>]` — inject a message into a folder's queue (uses topic for conversation continuity)
   - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
+  - `arizuko apply <inst> <manifest.yaml> [--force]` — restore cold-tier config from a YAML dump in one tx; CAS-checks `config_version` (spec 5/36)
+  - `arizuko plan <inst> <manifest.yaml>` — non-mutating diff of a manifest vs live config
+  - `arizuko get <inst> <resource>` — emit one resource's live rows as a YAML fragment (round-trips to a no-op)
+  - `arizuko export <inst> [out.yaml]` — dump cold-tier config to canonical-ordered YAML
   - `arizuko chat <instance>` — interactive Claude Code session bound to root MCP socket
 
 ## Dependencies

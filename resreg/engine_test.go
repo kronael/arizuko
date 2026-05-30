@@ -261,6 +261,108 @@ func TestApply_Force(t *testing.T) {
 	}
 }
 
+// TestDiff_AddUpdateRemove exercises the non-mutating plan diff: a row
+// only in the manifest is an add, a row only in the DB is a remove, a
+// PK in both with a differing payload is an update, identical is
+// unchanged. Per spec 5/36 §"Apply lifecycle" step 3.
+func TestDiff_AddUpdateRemove(t *testing.T) {
+	db, r := freshEngine(t)
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"}, // update target (payload differs below)
+		TestRow{Kind: "a", Name: "y", Value: "2"}, // unchanged
+		TestRow{Kind: "b", Name: "z", Value: "3"}, // remove (absent from manifest)
+	)
+	manifest := []TestRow{
+		{Kind: "a", Name: "x", Value: "CHANGED"}, // same PK (a,x), new value → update
+		{Kind: "a", Name: "y", Value: "2"},       // identical → unchanged
+		{Kind: "c", Name: "new", Value: "9"},     // absent from DB → add
+	}
+	d, err := r.Diff(db, manifest)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if len(d.Add) != 1 || !strings.Contains(d.Add[0], "c|new|") {
+		t.Errorf("Add = %v, want one (c,new)", d.Add)
+	}
+	if len(d.Update) != 1 || !strings.Contains(d.Update[0], "a|x|") {
+		t.Errorf("Update = %v, want one (a,x)", d.Update)
+	}
+	if len(d.Unchanged) != 1 {
+		t.Errorf("Unchanged = %v, want one", d.Unchanged)
+	}
+	if len(d.Remove) != 1 || !strings.Contains(d.Remove[0], "b|z|") {
+		t.Errorf("Remove = %v, want one (b,z)", d.Remove)
+	}
+	if !d.Changed() {
+		t.Error("Changed() = false, want true")
+	}
+}
+
+// TestPlan_NoChangeAfterApply: applying a manifest then planning the
+// same manifest reports zero changes (idempotent plan, the no-op
+// acceptance criterion's non-mutating half).
+func TestPlan_NoChangeAfterApply(t *testing.T) {
+	db, _ := freshEngine(t)
+	manifest := map[string]any{
+		"testrows": []TestRow{
+			{Kind: "a", Name: "x", Value: "1"},
+			{Kind: "b", Name: "z", Value: "3"},
+		},
+	}
+	if _, err := Apply(context.Background(), db, 0, false, manifest); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	deltas, err := Plan(db, manifest)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	for _, d := range deltas {
+		if d.Changed() {
+			t.Errorf("%s changed after applying same manifest: %+v", d.Resource, d)
+		}
+	}
+}
+
+// TestGetResource_RoundTrip: GetResource emits a fragment whose parsed
+// rows equal the live rows, so re-applying it is a no-op. Per spec 5/36
+// §"arizuko get round-trip".
+func TestGetResource_RoundTrip(t *testing.T) {
+	db, _ := freshEngine(t)
+	insertRaw(t, db,
+		TestRow{Kind: "a", Name: "x", Value: "1"},
+		TestRow{Kind: "b", Name: "z", Value: "3"},
+	)
+	frag, err := GetResource(db, "testrows")
+	if err != nil {
+		t.Fatalf("GetResource: %v", err)
+	}
+	if _, ok := frag["testrows"]; !ok {
+		t.Fatalf("fragment missing testrows key: %v", frag)
+	}
+	if _, ok := frag["config_version"]; ok {
+		t.Error("fragment must not carry config_version")
+	}
+	out, err := EmitYAML(frag)
+	if err != nil {
+		t.Fatalf("EmitYAML: %v", err)
+	}
+	parsed, _, err := ParseYAML(out)
+	if err != nil {
+		t.Fatalf("ParseYAML: %v", err)
+	}
+	r := Lookup("testrows")
+	d, err := r.Diff(db, parsed["testrows"])
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Changed() {
+		t.Errorf("get fragment is not a no-op on re-apply: %+v", d)
+	}
+	if _, err := GetResource(db, "nope"); err == nil {
+		t.Error("GetResource(unknown) should error")
+	}
+}
+
 // TestHooks_BeforeInsert exercises the write-side hook chain.
 func TestHooks_BeforeInsert(t *testing.T) {
 	reset()

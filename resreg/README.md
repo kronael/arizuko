@@ -20,12 +20,22 @@ calling `resreg.Register`. The 10 resources registered today: `acl`,
 Token resources (`invites`, `route_tokens`) are parked out of v1
 manifests — CLI/MCP only.
 
-`arizuko apply <instance> <manifest.yaml>` and `arizuko export
-<instance>` (`cmd/arizuko/apply.go`) are the operator CLI over the
-engine: state-based apply (DELETE+INSERT in one tx), `config_version`
-compare-and-swap to reject stale manifests (`--force` bypasses),
-`export` dumps the store as one canonical-ordered YAML doc. Secrets
-are exempt from `BumpVersion` per spec.
+`arizuko apply`/`plan`/`get`/`export` (`cmd/arizuko/apply.go`) are the
+operator CLI over the engine:
+
+- `apply <instance> <manifest.yaml> [--force]` — state-based apply
+  (DELETE+INSERT in one tx), `config_version` compare-and-swap to
+  reject stale manifests (`--force` bypasses); prints the plan delta
+  before committing.
+- `plan <instance> <manifest.yaml>` — non-mutating diff vs live config
+  (`resreg.Plan`): per-resource add/update/unchanged/remove by PK.
+- `get <instance> <resource>` — emit one resource's live rows as a
+  YAML fragment (`resreg.GetResource`) that re-applies to a no-op.
+- `export <instance> [out.yaml]` — dump the store as one
+  canonical-ordered YAML doc.
+
+Secrets are `SkipApplyRebuild` (export/diff only, never DELETE+INSERTed)
+and excluded from the `config_version` count per spec.
 
 ## Live REST/MCP resources
 

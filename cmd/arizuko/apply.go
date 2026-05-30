@@ -60,6 +60,11 @@ func cmdApply(args []string) {
 	if err != nil {
 		die("Failed: read config_version: %v", err)
 	}
+	// Plan first (non-mutating) so the operator sees the delta the apply
+	// commits — spec 5/36 §"Apply lifecycle" step 5 (print plan + ok).
+	if deltas, perr := resreg.Plan(st.DB(), manifest); perr == nil {
+		printPlan(deltas)
+	}
 	newVer, err := resreg.Apply(context.Background(), st.DB(), version, force, manifest)
 	if err != nil {
 		if errors.Is(err, resreg.ErrVersionMismatch) {
@@ -99,6 +104,100 @@ func cmdExport(args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", args[1], len(out))
 		return
+	}
+	os.Stdout.Write(out)
+}
+
+// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/36
+// §"Apply lifecycle" step 3). Parses + validates, prints the per-resource
+// add/update/unchanged/remove delta, never opens a write tx.
+func cmdPlan(args []string) {
+	if len(args) < 2 {
+		fmt.Println("usage: arizuko plan <instance> <manifest.yaml>")
+		os.Exit(1)
+	}
+	instance := args[0]
+	file := args[1]
+	dataDir := mustInstanceDir(instance)
+	st, err := store.Open(dataDir + "/store")
+	if err != nil {
+		die("Failed: open store: %v", err)
+	}
+	defer st.Close()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		die("Failed: read %s: %v", file, err)
+	}
+	manifest, version, err := resreg.ParseYAML(data)
+	if err != nil {
+		die("Failed: parse %s: %v", file, err)
+	}
+	dbVer, err := resreg.ConfigVersion(st.DB())
+	if err != nil {
+		die("Failed: read config_version: %v", err)
+	}
+	deltas, err := resreg.Plan(st.DB(), manifest)
+	if err != nil {
+		die("Failed: plan: %v", err)
+	}
+	printPlan(deltas)
+	if version != dbVer {
+		fmt.Printf("\nconfig_version: manifest=%d db=%d — apply would reject without --force\n", version, dbVer)
+	} else {
+		fmt.Printf("\nconfig_version: %d (match)\n", dbVer)
+	}
+}
+
+// printPlan renders the plan delta in catalog order. Resources with no
+// change are summarized as "unchanged"; changed resources list the
+// add/update/remove PK strings.
+func printPlan(deltas []resreg.ResourceDelta) {
+	any := false
+	for _, d := range deltas {
+		if !d.Changed() {
+			continue
+		}
+		any = true
+		fmt.Printf("%s:\n", d.Resource)
+		for _, pk := range d.Add {
+			fmt.Printf("  + %s\n", pk)
+		}
+		for _, pk := range d.Update {
+			fmt.Printf("  ~ %s\n", pk)
+		}
+		for _, pk := range d.Remove {
+			fmt.Printf("  - %s\n", pk)
+		}
+	}
+	if !any {
+		fmt.Println("no changes")
+	}
+}
+
+// cmdGet: emit a live-DB manifest fragment for one resource (spec 5/36
+// §"arizuko get round-trip"). The fragment re-applies to a no-op — same
+// shape `apply` accepts. Secret rows emit metadata only (the engine's
+// SELECT omits the enc_value blob, which isn't in SecretsRow).
+func cmdGet(args []string) {
+	if len(args) < 2 {
+		fmt.Println("usage: arizuko get <instance> <resource>")
+		os.Exit(1)
+	}
+	instance := args[0]
+	resource := args[1]
+	dataDir := mustInstanceDir(instance)
+	st, err := store.Open(dataDir + "/store")
+	if err != nil {
+		die("Failed: open store: %v", err)
+	}
+	defer st.Close()
+	frag, err := resreg.GetResource(st.DB(), resource)
+	if err != nil {
+		die("Failed: get %s: %v", resource, err)
+	}
+	out, err := resreg.EmitYAML(frag)
+	if err != nil {
+		die("Failed: emit yaml: %v", err)
 	}
 	os.Stdout.Write(out)
 }

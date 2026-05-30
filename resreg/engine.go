@@ -312,6 +312,22 @@ func (r *Resource) EmitRows(rows any) (*yaml.Node, error) {
 	return node, nil
 }
 
+// pkKey returns the lexicographic PK string for a row value, used by
+// sortByPK (deterministic emit) and Diff (match rows across manifest +
+// live state). When PKFields is empty, falls back to all fields — both
+// callers want a total order, not just the natural key.
+func (r *Resource) pkKey(v reflect.Value) string {
+	fields := r.meta.pkFields
+	if len(fields) == 0 {
+		fields = r.meta.fields
+	}
+	var b strings.Builder
+	for _, fm := range fields {
+		fmt.Fprintf(&b, "%v|", v.Field(fm.idx).Interface())
+	}
+	return b.String()
+}
+
 // sortByPK returns a copy of rv with elements sorted lexicographically
 // by concatenated PK string. When PKFields is empty, sorts by all
 // fields concatenated — defensive determinism.
@@ -319,20 +335,9 @@ func (r *Resource) sortByPK(rv reflect.Value) reflect.Value {
 	n := rv.Len()
 	src := reflect.MakeSlice(rv.Type(), n, n)
 	reflect.Copy(src, rv)
-	fields := r.meta.pkFields
-	if len(fields) == 0 {
-		fields = r.meta.fields
-	}
-	keyOf := func(v reflect.Value) string {
-		var b strings.Builder
-		for _, fm := range fields {
-			fmt.Fprintf(&b, "%v|", v.Field(fm.idx).Interface())
-		}
-		return b.String()
-	}
 	keys := make([]string, n)
 	for i := 0; i < n; i++ {
-		keys[i] = keyOf(src.Index(i))
+		keys[i] = r.pkKey(src.Index(i))
 	}
 	indexes := make([]int, n)
 	for i := range indexes {
@@ -487,6 +492,119 @@ func Export(db *sql.DB) (map[string]any, error) {
 			return nil, err
 		}
 		out[r.Name] = rows
+	}
+	return out, nil
+}
+
+// GetResource emits a single-resource manifest fragment: a map with only
+// the named resource's rows (live `SELECT *`), shaped exactly as Export
+// would nest it so the fragment re-applies to a no-op (spec 5/36
+// §"arizuko get round-trip"). Returns an error for unknown resources or
+// resources without a RowType. No config_version is stamped — a fragment
+// is scoped, not a full dump.
+func GetResource(db *sql.DB, name string) (map[string]any, error) {
+	r := Lookup(name)
+	if r == nil || r.RowType == nil {
+		return nil, fmt.Errorf("resreg: unknown or schema-less resource %q", name)
+	}
+	rows, err := r.ScanAll(db)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{name: rows}, nil
+}
+
+// ResourceDelta is one resource's plan summary: PK strings sorted into
+// add (in manifest, not in DB), update (PK present in both, payload
+// differs), unchanged (PK + payload identical), and remove (in DB, not
+// in manifest). Empty when the manifest omits the resource AND the DB
+// has no rows for it.
+type ResourceDelta struct {
+	Resource  string
+	Add       []string
+	Update    []string
+	Unchanged []string
+	Remove    []string
+}
+
+// Changed reports whether the delta would mutate any row.
+func (d ResourceDelta) Changed() bool {
+	return len(d.Add) > 0 || len(d.Update) > 0 || len(d.Remove) > 0
+}
+
+// Diff computes the ResourceDelta for one resource: manifestRows (a
+// []RowType slice, or nil) vs the live table. Matching is by PK string;
+// payload equality is the full row's reflect.DeepEqual. SkipApplyRebuild
+// resources still diff (so `plan`/`get` report metadata) — the apply
+// path is what skips the write, not the diff.
+func (r *Resource) Diff(db *sql.DB, manifestRows any) (ResourceDelta, error) {
+	d := ResourceDelta{Resource: r.Name}
+	if r.meta == nil {
+		return d, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
+	}
+	live, err := r.ScanAll(db)
+	if err != nil {
+		return d, err
+	}
+	liveByPK := r.byPK(reflect.ValueOf(live))
+	manByPK := map[string]reflect.Value{}
+	if manifestRows != nil {
+		rv := reflect.ValueOf(manifestRows)
+		if rv.Kind() == reflect.Slice {
+			manByPK = r.byPK(rv)
+		}
+	}
+	for pk, mrow := range manByPK {
+		lrow, ok := liveByPK[pk]
+		switch {
+		case !ok:
+			d.Add = append(d.Add, pk)
+		case reflect.DeepEqual(mrow.Interface(), lrow.Interface()):
+			d.Unchanged = append(d.Unchanged, pk)
+		default:
+			d.Update = append(d.Update, pk)
+		}
+	}
+	for pk := range liveByPK {
+		if _, ok := manByPK[pk]; !ok {
+			d.Remove = append(d.Remove, pk)
+		}
+	}
+	sort.Strings(d.Add)
+	sort.Strings(d.Update)
+	sort.Strings(d.Unchanged)
+	sort.Strings(d.Remove)
+	return d, nil
+}
+
+// byPK indexes a []RowType slice by pkKey. Last-writer-wins on duplicate
+// PKs (the manifest parser rejects in-file dupes upstream).
+func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
+	out := map[string]reflect.Value{}
+	if !rv.IsValid() || rv.Kind() != reflect.Slice {
+		return out
+	}
+	for i := 0; i < rv.Len(); i++ {
+		out[r.pkKey(rv.Index(i))] = rv.Index(i)
+	}
+	return out
+}
+
+// Plan diffs a parsed manifest (Resource.Name → []RowType, plus a
+// "config_version" key Diff ignores) against the live DB for every
+// registered resource, in catalog order. Non-mutating. Backs
+// `arizuko plan` (spec 5/36 §"Apply lifecycle" step 3).
+func Plan(db *sql.DB, manifest map[string]any) ([]ResourceDelta, error) {
+	var out []ResourceDelta
+	for _, r := range All() {
+		if r.RowType == nil {
+			continue
+		}
+		d, err := r.Diff(db, manifest[r.Name])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }

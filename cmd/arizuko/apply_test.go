@@ -241,6 +241,77 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
+// TestGetRoundTrip_NoOp: `get <resource>` emits a fragment that, parsed
+// and diffed against the live DB, reports no change — the round-trip
+// honesty acceptance criterion (spec 5/36 §"arizuko get round-trip").
+func TestGetRoundTrip_NoOp(t *testing.T) {
+	_, st := openInstance(t)
+	v0 := dbConfigVersion(t, st.DB())
+	if _, err := resreg.Apply(context.Background(), st.DB(), v0, false, map[string]any{
+		"acl": []resources.ACLRow{
+			{Principal: "user:alice", Action: "read", Scope: "atlas/", Effect: "allow"},
+			{Principal: "user:bob", Action: "tasks:*", Scope: "ops/", Effect: "allow"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	frag, err := resreg.GetResource(st.DB(), "acl")
+	if err != nil {
+		t.Fatalf("GetResource: %v", err)
+	}
+	out, err := resreg.EmitYAML(frag)
+	if err != nil {
+		t.Fatalf("EmitYAML: %v", err)
+	}
+	parsed, _, err := resreg.ParseYAML(out)
+	if err != nil {
+		t.Fatalf("ParseYAML: %v", err)
+	}
+	d, err := resreg.Lookup("acl").Diff(st.DB(), parsed["acl"])
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if d.Changed() {
+		t.Errorf("get acl fragment not a no-op: %+v", d)
+	}
+}
+
+// TestPlan_MatchesApply: a plan against a populated DB reports the adds
+// the subsequent apply commits, then a second plan reports clean.
+func TestPlan_MatchesApply(t *testing.T) {
+	_, st := openInstance(t)
+	manifest := map[string]any{
+		"routes": []resources.RoutesRow{
+			{Seq: 0, Match: "platform=tele", Target: "atlas"},
+		},
+	}
+	deltas, err := resreg.Plan(st.DB(), manifest)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	var routesDelta *resreg.ResourceDelta
+	for i := range deltas {
+		if deltas[i].Resource == "routes" {
+			routesDelta = &deltas[i]
+		}
+	}
+	if routesDelta == nil || len(routesDelta.Add) != 1 {
+		t.Fatalf("plan routes Add = %+v, want one add", routesDelta)
+	}
+	if _, err := resreg.Apply(context.Background(), st.DB(), dbConfigVersion(t, st.DB()), false, manifest); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	deltas2, err := resreg.Plan(st.DB(), manifest)
+	if err != nil {
+		t.Fatalf("Plan 2: %v", err)
+	}
+	for _, d := range deltas2 {
+		if d.Changed() {
+			t.Errorf("post-apply plan still changes %s: %+v", d.Resource, d)
+		}
+	}
+}
+
 // itoa avoids importing strconv in the package init bloat.
 func itoa(n int64) string {
 	if n == 0 {
