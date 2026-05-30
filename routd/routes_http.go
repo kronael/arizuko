@@ -73,7 +73,11 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "non-numeric id")
 		return
 	}
-	routes, _ := s.db.Routes()
+	routes, err := s.db.Routes()
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
 	for _, rt := range routes {
 		if rt.ID == id {
 			if !ownsFolder(folder, rt.Target) { // scoped caller can't GET a route outside its subtree
@@ -147,7 +151,11 @@ func (s *Server) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if folder != "" { // scoped caller: the route's target must be in its subtree
-		routes, _ := s.db.Routes()
+		routes, err := s.db.Routes()
+		if err != nil {
+			writeErr(w, 500, "store_error", err.Error())
+			return
+		}
 		for _, rt := range routes {
 			if rt.ID == id && !ownsFolder(folder, rt.Target) {
 				writeErr(w, 403, "forbidden", "route target outside caller folder: "+rt.Target)

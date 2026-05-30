@@ -503,8 +503,15 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// it as the turn's return address so reply/send/document deliver back to the
 	// origin, not the child folder JID the run addresses (gated deliverTo
 	// override, gateway.go § processSenderBatch).
-	if err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom); err != nil {
+	live, err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom)
+	if err != nil {
 		return false, false, err
+	}
+	if !live {
+		// The turn already completed (a re-fed batch whose run is done). Skip
+		// re-dispatch so a sibling batch's steer doesn't replay finished output;
+		// report no-output/not-steered so the loop advances past it.
+		return false, false, nil
 	}
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 

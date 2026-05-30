@@ -405,7 +405,7 @@ func TestDelegatedReplyReturnsToOrigin(t *testing.T) {
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	_ = db.PutGroup(core.Group{Folder: "root/eng"})
 	// a delegated turn: the run addresses the child folder JID; return_to is the origin.
-	_ = db.PutTurnContext("t-deleg", "root/eng", "", "root/eng", "delegate", "slack:T/C/ORIGIN")
+	db.PutTurnContext("t-deleg", "root/eng", "", "root/eng", "delegate", "slack:T/C/ORIGIN")
 
 	status, _, row := srv.appendAndDeliver("t-deleg", "root/eng", "done", "", true)
 	if status != 200 || row == nil {
@@ -416,5 +416,34 @@ func TestDelegatedReplyReturnsToOrigin(t *testing.T) {
 	}
 	if len(dl.sends) != 1 || dl.sends[0].jid != "slack:T/C/ORIGIN" {
 		t.Fatalf("delivered to %+v want origin slack:T/C/ORIGIN", dl.sends)
+	}
+}
+
+// TestDelegatedReplyEngagesDispatchChat: a delegated reply DELIVERS to the
+// origin (return path) but ENGAGES the dispatch chat (tc.ChatJID), mirroring
+// gated's BumpEngagement(chatJid). Before the fix engagement was bumped on the
+// return-substituted origin JID, so the dispatch chat never engaged and the
+// origin chat engaged a folder that doesn't own it.
+func TestDelegatedReplyEngagesDispatchChat(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, time.Hour, "") // non-zero engagement TTL
+	_ = db.PutGroup(core.Group{Folder: "root/eng"})
+	// dispatch chat = web:root/eng; the run returns to a different origin JID.
+	db.PutTurnContext("t-deleg", "root/eng", "", "web:root/eng", "delegate", "slack:T/C/ORIGIN")
+
+	if status, _, _ := srv.appendAndDeliver("t-deleg", "root/eng", "done", "", true); status != 200 {
+		t.Fatalf("appendAndDeliver status=%d", status)
+	}
+	// engagement is claimed on the DISPATCH chat, not the origin.
+	if f, ok := db.Engaged("web:root/eng", ""); !ok || f != "root/eng" {
+		t.Fatalf("dispatch chat engaged=%q,%v want root/eng,true", f, ok)
+	}
+	if _, ok := db.Engaged("slack:T/C/ORIGIN", ""); ok {
+		t.Fatal("engagement leaked onto the return-substituted origin chat")
 	}
 }

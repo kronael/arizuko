@@ -511,16 +511,30 @@ func (d *DB) LastReplyID(jid, topic string) string {
 // late callbacks resolve their topic from turn_id alone. returnTo is the
 // delegation return-address (the trigger batch's forwarded_from): when set,
 // the callback surface delivers reply/send/document back to it instead of the
-// child folder JID the run addresses (gateway.go § deliverTo override). A
-// re-dispatch resets run_returned to 0 (the new run is live again).
-func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) error {
-	_, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
+// child folder JID the run addresses (gateway.go § deliverTo override).
+//
+// Returns live=false when the turn is ALREADY terminal (state='done') — a
+// re-fed batch whose run completed must NOT be resurrected: when an earlier
+// batch finishes and a later batch in the same poll steers, the cursor doesn't
+// advance, so the next poll re-feeds the completed batch. The ON CONFLICT
+// reset stays clamped to a still-live or 'expired' turn (the legitimate
+// re-dispatch path); a 'done' turn keeps its terminal state and reports
+// live=false so runTurn skips the re-dispatch.
+func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
+	res, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
 		VALUES(?,?,?,?,?,?,?, 'running')
 		ON CONFLICT(turn_id) DO UPDATE SET folder=excluded.folder, topic=excluded.topic,
 		chat_jid=excluded.chat_jid, trigger_sender=excluded.trigger_sender, return_to=excluded.return_to,
-		state='running', run_returned=0`,
+		state='running', run_returned=0
+		WHERE turn_context.state != 'done'`,
 		turnID, folder, topic, chatJID, trigger, returnTo, nowTS())
-	return err
+	if err != nil {
+		return false, err
+	}
+	// A done turn matched the conflict but the WHERE clause suppressed the
+	// reset → zero rows changed → not live.
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // TurnContext is a turn's bound run-start context.

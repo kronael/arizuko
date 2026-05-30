@@ -207,7 +207,11 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 	}
 	_ = s.db.SetLastReply(jid, tc.Topic, msgID, tc.Folder)
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
-		_ = s.db.SetEngagement(jid, tc.Topic, tc.Folder, s.engagementT)
+		// Engagement is claimed on the DISPATCH chat (tc.ChatJID), not the
+		// delegation-substituted delivery target — a delegated reply must engage
+		// the chat that triggered the turn, mirroring gated's BumpEngagement(chatJid)
+		// (gateway.go § dispatch outbound), not the origin JID the reply returns to.
+		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
 	platformID := ""
 	if s.deliver != nil {

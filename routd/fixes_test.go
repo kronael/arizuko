@@ -61,7 +61,7 @@ func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	_ = db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 	h := srv.Handler()
 
 	// submit_turn arrives early (flips state→done, run_returned stays 0).
@@ -289,11 +289,11 @@ func TestSweepExpiredRunning(t *testing.T) {
 	}
 	defer db.Close()
 	// a turn started 2h ago, still running.
-	_ = db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1", "")
+	db.PutTurnContext("old", "demo", "", "slack:T/C/U", "u1", "")
 	db.SQL().Exec("UPDATE turn_context SET started_at=? WHERE turn_id='old'",
 		time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339Nano))
 	// a turn started just now, still running.
-	_ = db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
+	db.PutTurnContext("new", "demo", "", "slack:T/C/U2", "u1", "")
 
 	n, err := db.SweepExpiredRunning(time.Hour)
 	if err != nil {
@@ -359,7 +359,7 @@ func TestMutationDoneGuard(t *testing.T) {
 	dl := &recDeliverer{}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	h := srv.Handler()
-	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
+	db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
 
 	// before run-return: like succeeds.
 	rec := doJSON(t, h, "POST", "/v1/turns/t/like", "",
@@ -391,7 +391,7 @@ func TestAppendAndFinishAtomic(t *testing.T) {
 	defer db.Close()
 	dl := &recDeliverer{pid: "pid-1"}
 	srv := NewServer(db, nil, dl, nil, 0, "")
-	_ = db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
+	db.PutTurnContext("t", "demo", "", "slack:T/C/U", "u1", "")
 	h := srv.Handler()
 
 	rec := doJSONKey(t, h, "POST", "/v1/turns/t/reply", "k1",
@@ -531,5 +531,44 @@ func TestScanMessagesAbortsOnRowError(t *testing.T) {
 	}
 	if hi != "" {
 		t.Fatalf("cursor advanced to %q past the unscanned row", hi)
+	}
+}
+
+// TestRouteGetStoreErrorReturns500: handleRouteGet must surface a Routes()
+// store error as 500, not a spurious 404. Before the fix the error was
+// discarded (`routes, _ :=`) so a transient DB fault looked like "route not
+// found".
+func TestRouteGetStoreErrorReturns500(t *testing.T) {
+	db, h := authSrv(t, nil) // open mode; isolates the store path
+	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "GET", "/v1/routes/1", "", nil)
+	if rec.Code != 500 {
+		t.Fatalf("route get with failing store = %d want 500 body=%s", rec.Code, rec.Body.String())
+	}
+	var e apiv1.Err
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || e.Error != "store_error" {
+		t.Fatalf("error=%q want store_error (body=%s)", e.Error, rec.Body.String())
+	}
+}
+
+// TestRouteDeleteStoreErrorReturns500: a folder-scoped caller's delete must
+// surface a Routes() store error as 500, NOT fall through to an unconditional
+// DeleteRoute. Before the fix the scope-check's `routes, _ :=` swallowed the
+// error → the ownership loop found nothing → a scoped token could delete any
+// route. We assert 500 (the scope-check can no longer be silently bypassed).
+func TestRouteDeleteStoreErrorReturns500(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:a", scope: []string{"routes:write:own_group"}, folder: "a"})
+	if _, err := db.SQL().Exec("DROP TABLE routes"); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, h, "DELETE", "/v1/routes/1", "", nil)
+	if rec.Code != 500 {
+		t.Fatalf("scoped route delete with failing store = %d want 500 body=%s", rec.Code, rec.Body.String())
+	}
+	var e apiv1.Err
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || e.Error != "store_error" {
+		t.Fatalf("error=%q want store_error (body=%s)", e.Error, rec.Body.String())
 	}
 }
