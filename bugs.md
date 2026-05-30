@@ -1046,3 +1046,19 @@ missed (mostly concurrency + the remote verify path):**
 - teled/bot.go envelope dup (194/239), msg-id parse dup (312..), thread-parse dup, markdown renderer in adapter
 
 Status: 7 shipped-code findings FIXED (e7d52712/890cb24e/6b2d9843). Above = old-code, triage queue for the fix+refine wave.
+
+## migrate announce skipped for groups with pre-`/opt/arizuko/ant` skills (2026-05-30, low, mostly self-healing)
+
+On the v0.47.0 deploy (152→153), `krons/rhias` reported `Migration v152 → v153
+blocked. /workspace/self/ unavailable`. Root cause: rhias's per-group migrate
+skill predates the path change to `/opt/arizuko/ant/` and still references the
+dead `/workspace/self/` mount. The CURRENT shipped skill
+(`ant/skills/self/migration.md`) correctly uses `/opt/arizuko/ant/`, and the
+gated-side 3-way merge still advanced rhias's `.claude/skills/self/` to 153 — so
+the group self-heals next cycle. The only loss: rhias (and any similarly-stale
+group) **missed the v0.47.0 announce broadcast** this once. Other krons groups
+(mayai/happy/krons) announced fine. Hardening option (not required): make the
+migrate skill's announce step independent of the file-copy step so a stale-path
+failure can't skip the broadcast — future migrations are unaffected since the
+correct skill is shipped. Manual remedy for rhias: re-trigger `/migrate` once
+the new skill is active. Scope: ant migrate skill / per-group skill staleness.
