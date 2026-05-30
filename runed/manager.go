@@ -171,23 +171,44 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// stamped into the live-run slot before this spawn starts, so a racing
 	// steer sees the real id.
 
+	// Isolated (timed-isolated:*) runs are one-off containers: no session
+	// lineage persisted (no session_log row), matching gated's `if !isolated`
+	// guards in runAgentWithOpts. The spawns row still exists for GET/DELETE.
+	var logID int64
+	if !req.Isolated {
+		logID, _ = m.db.RecordSession(folder, sessionID)
+	}
+
+	// Create the spawns row BEFORE brokering so a returned RunID is always
+	// GET /v1/runs/{id}-able — including the broker-failure path below. The
+	// row carries the token jti only once brokering succeeds.
+	_ = m.db.CreateSpawn(Spawn{
+		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
+		SessionLogID: logID, SessionID: sessionID, State: "queued",
+	})
+
 	// broker the downscoped capability token (spec 5/P § brokering).
 	want := intersect(m.scopes, req.CapabilityScopes)
 	jws, jti, expiresAt, berr := m.broker.Broker(ctx, req.CallerSub, folder, want, m.runTTL)
 	if berr != nil {
-		m.endRun(folder, runID, runedv1.OutcomeError, true)
+		m.db.EndSpawn(runID, "error", runedv1.OutcomeError, -1)
+		if !req.Isolated {
+			m.db.EndSession(logID, "", runedv1.OutcomeError, "broker: "+berr.Error(), 0)
+		}
+		m.endRun(folder, runID, true)
 		return runedv1.RunOutcome{RunID: runID, Outcome: runedv1.OutcomeError, Error: "broker: " + berr.Error()}
 	}
 
-	// session_log + spawns rows.
-	logID, _ := m.db.RecordSession(folder, sessionID)
-	_ = m.db.CreateSpawn(Spawn{
-		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
-		SessionLogID: logID, MCPTokenJTI: jti, SessionID: sessionID, State: "queued",
-	})
 	scopeJSON, _ := json.Marshal(want)
 	_ = m.db.RecordToken(jti, runID, "service:runed", folder, string(scopeJSON), expiresAt)
+	_ = m.db.SetSpawnToken(runID, jti)
 	_ = m.db.StartSpawn(runID, sessionID)
+
+	// Enforce runTTL as a kill-deadline: m.runTTL is the intended run ceiling
+	// (broker token TTL), but runtime.Run gets the raw request ctx, so a
+	// CONTAINER_TIMEOUT > runTTL would let the container outrun the ceiling.
+	// Arm a timer that Kills the container by name; stop it on return.
+	deadline := time.AfterFunc(m.runTTL, func() { _ = m.runtime.Kill(containerName) })
 
 	// run the envelope. RegisterSteer wires the steer callback into the
 	// live-run slot once the Runtime's container + IPC are up, so a
@@ -200,6 +221,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
 		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})
+	deadline.Stop()
 
 	state := "exited"
 	failed := res.Outcome == runedv1.OutcomeError
@@ -211,8 +233,10 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		endSession = res.NewSessionID
 	}
 	m.db.EndSpawn(runID, state, res.Outcome, res.ExitCode)
-	m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount)
-	breakerTripped := m.endRun(folder, runID, res.Outcome, failed)
+	if !req.Isolated {
+		m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount)
+	}
+	breakerTripped := m.endRun(folder, runID, failed)
 
 	out := runedv1.RunOutcome{
 		RunID: runID, Outcome: res.Outcome, SessionID: endSession, Error: res.Error,
@@ -232,7 +256,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 // endRun frees the folder's live-run slot, updates the breaker counter, and
 // drains an admission waiter. Returns true when this exit trips the breaker
 // (failure count reaches the threshold on this run).
-func (m *Manager) endRun(folder, runID, outcome string, failed bool) bool {
+func (m *Manager) endRun(folder, runID string, failed bool) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	fr := m.active[folder]
@@ -243,7 +267,11 @@ func (m *Manager) endRun(folder, runID, outcome string, failed bool) bool {
 	if failed {
 		m.failures[folder]++
 		tripped = m.failures[folder] == circuitBreakerThreshold
-	} else if outcome == runedv1.OutcomeOK {
+	} else {
+		// Any clean exit resets the breaker — silent (agent produced no
+		// output) included, matching gated's runForGroup where a non-error
+		// turn returns success=true → consecutiveFailures=0. A folder
+		// alternating error/silent must never creep to the threshold.
 		m.failures[folder] = 0
 	}
 	delete(m.active, folder)

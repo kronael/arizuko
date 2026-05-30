@@ -156,6 +156,14 @@ func (d *DB) CreateSpawn(s Spawn) error {
 	return err
 }
 
+// SetSpawnToken records the brokered token's jti on a spawn once brokering
+// succeeds (the spawns row is created BEFORE the broker call so a returned
+// run_id is GET-able even on the broker-failure path).
+func (d *DB) SetSpawnToken(runID, jti string) error {
+	_, err := d.db.Exec("UPDATE spawns SET mcp_token_jti=? WHERE run_id=?", jti, runID)
+	return err
+}
+
 // StartSpawn flips a spawn to state=running with its resolved session_id.
 func (d *DB) StartSpawn(runID, sessionID string) error {
 	_, err := d.db.Exec(`UPDATE spawns SET state='running', session_id=?, started_at=? WHERE run_id=?`,

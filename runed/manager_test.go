@@ -222,6 +222,175 @@ func TestCircuitBreakerTripAndReset(t *testing.T) {
 	}
 }
 
+// killRuntime records Kill-by-name calls and runs a caller-supplied Run.
+type killRuntime struct {
+	run    func(ctx context.Context, spec RunSpec) RunResult
+	killed chan string
+}
+
+func (k *killRuntime) Run(ctx context.Context, spec RunSpec) RunResult { return k.run(ctx, spec) }
+func (k *killRuntime) Kill(name string) error {
+	select {
+	case k.killed <- name:
+	default:
+	}
+	return nil
+}
+
+// TestRunTTLKillDeadline: m.runTTL is the intended run ceiling, but
+// runtime.Run gets the raw request ctx. A run that would outlast runTTL must
+// be Kill'd by the deadline timer armed in spawn (gap 1 — without it a
+// CONTAINER_TIMEOUT > RUN_TTL container outruns the ceiling).
+func TestRunTTLKillDeadline(t *testing.T) {
+	exit := make(chan struct{})
+	rt := &killRuntime{killed: make(chan string, 1)}
+	rt.run = func(ctx context.Context, spec RunSpec) RunResult {
+		<-exit // outlive the runTTL until the deadline Kill releases us.
+		return RunResult{Outcome: runedv1.OutcomeError, Error: "timed out"}
+	}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	mgr := NewManager(db, rt, NewStaticBroker("jws", "jti"), ManagerConfig{
+		Instance: "test", MaxConcurrent: 5, RunTTL: 20 * time.Millisecond,
+	})
+
+	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+
+	select {
+	case name := <-rt.killed:
+		if name == "" {
+			t.Fatalf("deadline Kill got empty container name")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runTTL deadline never Kill'd the over-ceiling container")
+	}
+	close(exit)
+}
+
+// TestBreakerResetsOnSilent: gated resets the breaker on ANY clean exit
+// (runForGroup success=true), silent included. A folder alternating
+// error/silent must never creep to the threshold (gap 2 — runed used to
+// reset only on OutcomeOK, so silent left failures>0 and the next error
+// could trip).
+func TestBreakerResetsOnSilent(t *testing.T) {
+	var outcome atomic.Value
+	outcome.Store(runedv1.OutcomeError)
+	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
+		return RunResult{Outcome: outcome.Load().(string)}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+
+	// Two errors, then a silent run, then a third error: without the silent
+	// reset this would be the 3rd consecutive failure and trip.
+	for _, oc := range []string{runedv1.OutcomeError, runedv1.OutcomeError, runedv1.OutcomeSilent} {
+		outcome.Store(oc)
+		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+		if out.BreakerOpen {
+			t.Fatalf("outcome=%q tripped breaker early (silent must reset)", oc)
+		}
+	}
+	outcome.Store(runedv1.OutcomeError)
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if out.BreakerOpen {
+		t.Fatalf("breaker tripped after a silent reset cleared the failure count")
+	}
+}
+
+// TestBrokerFailureRunIDIsGettable: on broker error the returned RunID must
+// resolve via GET /v1/runs/{id} — the spawns row is created BEFORE brokering
+// (gap 3 — RecordSession/CreateSpawn used to run AFTER the broker call, so a
+// broker-failure RunID 404'd).
+func TestBrokerFailureRunIDIsGettable(t *testing.T) {
+	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+		t.Fatal("runtime.Run must not be reached when brokering fails")
+		return RunResult{}
+	}}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	mgr := NewManager(db, rt, errBroker{}, ManagerConfig{Instance: "test", MaxConcurrent: 5})
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if out.Outcome != runedv1.OutcomeError || out.RunID == "" {
+		t.Fatalf("broker-failure outcome=%+v want error with non-empty run_id", out)
+	}
+	sp, err := db.GetSpawn(out.RunID)
+	if err != nil {
+		t.Fatalf("GET %s after broker failure: %v (spawn row missing → 404)", out.RunID, err)
+	}
+	if sp.State != "error" || sp.Outcome != runedv1.OutcomeError {
+		t.Fatalf("broker-failure spawn state=%q outcome=%q want error,error", sp.State, sp.Outcome)
+	}
+}
+
+// errBroker always fails brokering.
+type errBroker struct{}
+
+func (errBroker) Broker(context.Context, types.UserSub, string, []types.Scope, time.Duration) (string, string, string, error) {
+	return "", "", "", context.DeadlineExceeded
+}
+
+// TestIsolatedRunNoSessionLineage: isolated (timed-isolated:*) runs are
+// one-off containers — runed must NOT persist session lineage (no session_log
+// row), matching gated's `if !isolated` guards. A non-isolated run DOES record
+// one (gap 4).
+func TestIsolatedRunNoSessionLineage(t *testing.T) {
+	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+	}}
+	db, mgr := newMgr(t, rt, 5)
+
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{
+		Folder: "demo", MessageBatch: "m", Isolated: true,
+	})
+	if out.Outcome != runedv1.OutcomeOK {
+		t.Fatalf("isolated run outcome=%q want ok", out.Outcome)
+	}
+	if rows, _ := db.RecentSessions("demo", 10); len(rows) != 0 {
+		t.Fatalf("isolated run wrote %d session_log rows, want 0 (no lineage)", len(rows))
+	}
+	// the spawns row still exists for GET/DELETE, with no session_log link.
+	sp, err := db.GetSpawn(out.RunID)
+	if err != nil {
+		t.Fatalf("GET isolated run: %v", err)
+	}
+	if sp.SessionLogID != 0 {
+		t.Fatalf("isolated spawn session_log_id=%d want 0", sp.SessionLogID)
+	}
+
+	// a NON-isolated run does record a session_log row.
+	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	if rows, _ := db.RecentSessions("demo", 10); len(rows) != 1 {
+		t.Fatalf("non-isolated run wrote %d session_log rows, want 1", len(rows))
+	}
+}
+
+// TestTrippingRunEmitsBreakerOpen: the run that pushes a folder to the failure
+// threshold returns BreakerOpen=true on its synchronous response (gap 5 —
+// routd keys the user-notification + session-delete on this signal).
+func TestTrippingRunEmitsBreakerOpen(t *testing.T) {
+	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+
+	for i := 1; i <= circuitBreakerThreshold; i++ {
+		out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+		want := i == circuitBreakerThreshold
+		if out.BreakerOpen != want {
+			t.Fatalf("run %d breaker_open=%v want %v (trips only on the threshold run)", i, out.BreakerOpen, want)
+		}
+		if want && out.Error == "" {
+			t.Fatalf("tripping run carries empty error; want a breaker message")
+		}
+	}
+}
+
 // TestIntersectFailClosed: empty or disjoint requested scope yields the
 // EMPTY brokered scope, never the full ceiling (spec 5/P § brokering;
 // bugs.md should-fix fail-open).
