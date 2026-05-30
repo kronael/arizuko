@@ -843,3 +843,103 @@ engine, all are finalize/refine-stage work:
 - Not wired: post-commit `SetupGroup` + `arizuko repair` (§new-group fs prep);
   group-removal active-state clearing in the apply tx; multi-file `manifest/`
   composition + PK-collision detection.
+
+## Per-component bug-hunt (2026-05-29, pre-cutover, opus audit vs specs)
+
+Each shipped daemon audited vs its spec. ALL are additive/not-yet-live (zero
+current blast radius) — but these MUST be cleared before the HMAC→ES256
+cutover (#46) wires them into the live path. Fix queue for the fix-each-daemon
+stage (#48). Detailed repros in the audit transcripts.
+
+### authd / auth (vs 5/1) — iss/exp ✓ FIXED (2138cedc)
+
+- [blocker] `arz/folder` claim mis-serialized: `es256.go:39` `Extra`→nested
+  `extra.folder`; routd/runed read `Extra["arz/folder"]` (never present) →
+  folder-scope authz SILENTLY ABSENT. `MintForSubject`/`MintNarrower` take no
+  folder arg. Fix: marshal `Extra` as top-level `arz/<key>` + parse back;
+  thread folder through mint.
+- [should-fix] `Refresh` doesn't re-snapshot grants (`server.go:164`) — freezes
+  scope to issuance (spec: re-run snapshot on refresh).
+- [should-fix] DB defaults to `messages.db` not `auth.db` (`main.go:37`).
+- [should-fix] `/v1/service-token` takes secret in body not `Authorization`
+  header; plaintext not SHA-256; not constant-time (`http.go:70`).
+- [should-fix] service grants hard-coded in Go (`http.go:14`) not seeded from
+  a `service_keys` table / per-daemon TOML (violates compose-no-edit).
+- [should-fix, CUTOVER] missing `/v1` surface: `POST /v1/tokens` (downscope),
+  `/v1/keys/rotate`, `DELETE …/accounts/{provider}`, the `/auth/*` OAuth flow.
+  The cutover builds these.
+- [should-fix] no hourly GC (oauth_state/refresh/keys), no scheduled rotation
+  (`AUTHD_KEY_ROTATION_DAYS`), no encryption-at-rest (`store.go:197` raw PKCS8).
+- [nit] kid uses uuid not sortable `<unix>-<hex>` (`server.go:70`); window math
+  uses `maxAccessTTL` not `max(accessTTL, jwksCacheTTL)`.
+- ✓ clean: alg-confusion closed, scope math (`*:*` reject + bounding), refresh
+  rotation core, key lifecycle, concurrency, SQLi, UNIQUE constraints.
+
+### routd (vs 5/E + 5/33)
+
+- [blocker] early `submit_turn` 409s legit trailing callbacks (`turns.go:333`):
+  collapses "submit_turn arrived" vs "run returned" into `done`; a `send` after
+  `submit_turn` before the run-response returns gets `409 turn_done`. Need a
+  separate run-live marker.
+- [should-fix] run-response clobbers `submit_turn`'s session_id (`loop.go:331`)
+  — should prefer submit_turn's.
+- [should-fix] idempotency finish not atomic with message append (`turns.go:74`)
+  → crash between leaves a permanent `409 in_flight`.
+- [should-fix] `POST /v1/messages` ignores `X-Idempotency-Key`, no
+  `ambiguous_idempotency` (`server.go:110`).
+- [should-fix] reaction topic-inheritance missing at ingress (`routes_http.go:15`)
+  — reactions to threads route to the main topic.
+- [should-fix] no `outboundRetryLoop` — `pending` rows never re-dispatched/failed
+  (`turns.go:153`); no `expired` sweep — stale `running` turns re-fed forever
+  (`db.go:402`); `SweepIdempotency` never invoked (`tokens.go:173`).
+- [nit] `outcome:error` treated like ok (no mark-errored/failure-notice);
+  `BreakerOpen` ignored; done-guard absent on document/like/edit/delete/pin/unpin;
+  timestamp-only cursor (same-second drop hazard).
+- ✓ clean: proactive chain + FireProactive atomicity + engagement-skip +
+  malformed-config + the routd↔runed field match.
+
+### runed (vs 5/P) — execution engine has real gaps
+
+- [blocker] per-folder serialization + `MAX_CONCURRENT` cap GONE
+  (`manager.go:75`): two concurrent runs for one idle folder → two containers in
+  one workspace (steer-check + register are separate locked sections); no global
+  cap.
+- [blocker] circuit breaker: wrong trip point (4th call trips; the tripping run
+  never runs) + no reset-on-inbound → stays open forever (`manager.go:131`,
+  `endRun:181`).
+- [blocker] production steer path DEAD — `SetSteer` only called by tests
+  (`manager.go:195`); prod always falls through to a fresh spawn → the
+  steer-into-running-container contract is unreachable.
+- [should-fix] `intersect` broadens scope on empty/disjoint input
+  (`manager.go:213`) — fail-open; should fail closed (empty→empty).
+- [should-fix] endpoint auth does no scope/folder check (`server.go:43`) — any
+  valid token can read any folder's sessions / kill any run.
+- [should-fix] `DELETE /v1/runs/{id}` doesn't stop the container (`server.go:92`)
+  — only flips DB; `Runtime` has no `Kill`.
+- [should-fix] `dockerRuntime` never populates ExitCode/MessageCount
+  (`runtimes.go:66`).
+- [should-fix] graceful shutdown cancels in-flight runs (`cmd/runed/main.go:111`)
+  — spec wants detach + `RUNED_SHUTDOWN_GRACE`.
+- [nit] `RunStatus.Outcome` serializes `""` not `null`; read-tool federation
+  wrong-path/verb in `federate.go` default case.
+- ✓ clean: federation verb→path map, broker isolation (fails closed), DB schema,
+  token delivery (never env var), MCP socket served in prod.
+
+### resreg (vs 5/36) — NEW (beyond the already-logged gaps above)
+
+- [blocker] strict-parse NOT implemented (`engine.go:696,290`) — unknown resource
+  keys AND unknown row fields silently accepted; an operator typo passes
+  validation and the intended config silently doesn't apply. Add
+  `Decoder.KnownFields(true)` + reject unknown top-level keys.
+- [blocker] OpenAPI per-daemon ownership wrong: `timed` passes `[]string{}` → 0
+  paths; routd/runed pass `nil` → all 10 (advertise foreign resources). Live
+  `gated` is correct; routd/runed/timed not yet deployed. (`timed/main.go:80`,
+  `routd/cmd/routd/main.go:79`, `runed/cmd/runed/main.go:98`)
+- [should-fix] `plan` misreports secrets (SkipApplyRebuild) as removals
+  (`engine.go:597`) — plan lies vs apply.
+- [should-fix] `Diff` false-positive update on server-stamped timestamps
+  (`engine.go:562`) — hand-written manifests always churn.
+- [should-fix] `scheduled_tasks` scope `Field:"Owner"` (not folder); `secrets`
+  `Field:"ScopeID"` (polymorphic) — latent wrong-scope once scoped-delete wired.
+- [should-fix] no `audit_log` summary row per apply (`engine.go:412`).
+- [nit] single-file apply only (no `manifest/` dir composition + PK-collision).
