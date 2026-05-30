@@ -12,10 +12,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
@@ -75,17 +77,28 @@ func main() {
 		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
 	}
 
+	// Channel plane (ported from gated): adapters register their egress URL +
+	// owned jid prefixes; the Deliverer resolves them on the way out using the
+	// same order gated used (latest inbound source → registry prefix match).
+	// In-memory registry — adapters re-register on routd restart.
+	reg := chanreg.New(os.Getenv("CHANNEL_SECRET"))
+	deliver, onRegister, onDeregister := routd.NewChannelDeliverer(
+		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
+
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
 		RunTimeout: runTimeout,
 		IpcDir:     filepath.Join(dataDir, "ipc"),
 		RunScopes: []types.Scope{
 			"messages:send:own_group", "chats:read:own_group",
 		},
+		Deliver:   deliver,
 		Proactive: routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir: filepath.Join(dataDir, "groups"),
 	})
 
-	srv := routd.NewServer(db, loop, nil, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
+	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
+	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
 	// routd owns the residual config + conversation tables per spec 5/36
 	// resource catalog (inherits gated's schema authority).
@@ -139,4 +152,16 @@ func durOr(k string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+// parseCSV splits a comma-separated env value into trimmed, non-empty
+// entries (SEND_DISABLED_CHANNELS), mirroring core.parseCSV.
+func parseCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
