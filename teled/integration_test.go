@@ -24,13 +24,14 @@ import (
 // sendChatAction, getFile, and an arbitrary file-path handler. Designed so
 // the adapter's real bot.go can drive a tgbotapi.BotAPI pointed at us.
 type tgMock struct {
-	mu        sync.Mutex
-	srv       *httptest.Server
-	fileSrv   *httptest.Server
-	username  string
-	lastSent  []map[string]any
+	mu          sync.Mutex
+	srv         *httptest.Server
+	fileSrv     *httptest.Server
+	username    string
+	lastSent    []map[string]any
 	fileMethods []string
-	actionHits int32
+	fileReplyTo []string // reply_to_message_id seen on each file-method call
+	actionHits  int32
 	// force an error on the next sendMessage call (for 400 fallback)
 	failMarkdownOnce int32
 	// fail the HTML send (400) once for any chunk whose text contains this
@@ -73,15 +74,16 @@ func newTGMock() *tgMock {
 			}
 			m.mu.Lock()
 			m.lastSent = append(m.lastSent, map[string]any{
-				"chat_id": r.Form.Get("chat_id"),
-				"text":    r.Form.Get("text"),
+				"chat_id":             r.Form.Get("chat_id"),
+				"text":                r.Form.Get("text"),
+				"reply_to_message_id": r.Form.Get("reply_to_message_id"),
 			})
 			idx := len(m.lastSent)
 			m.mu.Unlock()
 			writeTGOK(w, map[string]any{
 				"message_id": idx,
-				"chat": map[string]any{"id": 1},
-				"date": 1700000000,
+				"chat":       map[string]any{"id": 1},
+				"date":       1700000000,
 			})
 		case "sendChatAction":
 			atomic.AddInt32(&m.actionHits, 1)
@@ -95,12 +97,13 @@ func newTGMock() *tgMock {
 			"sendDocument", "sendVoice":
 			m.mu.Lock()
 			m.fileMethods = append(m.fileMethods, method)
+			m.fileReplyTo = append(m.fileReplyTo, r.Form.Get("reply_to_message_id"))
 			idx := len(m.fileMethods)
 			m.mu.Unlock()
 			writeTGOK(w, map[string]any{
 				"message_id": 1000 + idx,
-				"chat": map[string]any{"id": 1},
-				"date": 1700000000,
+				"chat":       map[string]any{"id": 1},
+				"date":       1700000000,
 			})
 		default:
 			writeTGOK(w, map[string]any{})
@@ -296,6 +299,58 @@ func TestBotSend_MultiChunkHTMLFallbackNoDup(t *testing.T) {
 	// chunks plain), duplicating chunk0.
 	if len(m.lastSent) != 2 {
 		t.Fatalf("want 2 sends (no duplicate), got %d: %+v", len(m.lastSent), m.lastSent)
+	}
+}
+
+// TestBotSend_HTMLFallbackPreservesReplyTo locks the fix where the plain-text
+// retry of a chunk that failed HTML parsing dropped the reply target,
+// silently flattening an explicit reply into a fresh message.
+func TestBotSend_HTMLFallbackPreservesReplyTo(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	atomic.StoreInt32(&m.failMarkdownOnce, 1) // first HTML send 400s → plain retry
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "telegram:123", Content: "**bold**", ReplyTo: "77",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.lastSent) != 1 {
+		t.Fatalf("want 1 send (fallback), got %d", len(m.lastSent))
+	}
+	if m.lastSent[0]["reply_to_message_id"] != "77" {
+		t.Errorf("plain fallback reply_to_message_id = %q, want 77",
+			m.lastSent[0]["reply_to_message_id"])
+	}
+}
+
+// TestBotSendFile_ThreadsReplyTo locks SendFile threading the reply target
+// through to the Telegram file-send method (was discarded with `_`).
+func TestBotSendFile_ThreadsReplyTo(t *testing.T) {
+	m := newTGMock()
+	defer m.close()
+	b := newTestBot(t, m, config{Name: "telegram"})
+	defer b.typing.Stop()
+
+	tmp, err := os.CreateTemp("", "teled-replyto-*.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.WriteString("payload")
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", ""); err != nil {
+		t.Fatalf("SendFile: %v", err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.fileReplyTo) != 1 || m.fileReplyTo[0] != "55" {
+		t.Errorf("file reply_to_message_id = %v, want [55]", m.fileReplyTo)
 	}
 }
 

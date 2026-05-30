@@ -130,17 +130,16 @@ type messageReactionUpdated struct {
 	Chat struct {
 		ID int64 `json:"id"`
 	} `json:"chat"`
-	MessageID   int             `json:"message_id"`
-	User        *tgbotapi.User  `json:"user,omitempty"`
-	Date        int64           `json:"date"`
-	OldReaction []reactionType  `json:"old_reaction"`
-	NewReaction []reactionType  `json:"new_reaction"`
+	MessageID   int            `json:"message_id"`
+	User        *tgbotapi.User `json:"user,omitempty"`
+	Date        int64          `json:"date"`
+	OldReaction []reactionType `json:"old_reaction"`
+	NewReaction []reactionType `json:"new_reaction"`
 }
 
 func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 	defer close(b.done)
 	offset := b.loadOffset()
-	ctx, b.cancel = context.WithCancel(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -149,6 +148,9 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 		}
 		updates, err := b.fetchUpdates(offset)
 		if err != nil {
+			// getUpdates failed (token revoked, network) → /health must stop
+			// reporting "ok"; re-affirm connected on the next success.
+			b.connected.Store(false)
 			slog.Warn("getUpdates failed", "err", err)
 			select {
 			case <-ctx.Done():
@@ -157,6 +159,7 @@ func (b *bot) poll(ctx context.Context, rc *chanlib.RouterClient) {
 			}
 			continue
 		}
+		b.connected.Store(true)
 		for _, u := range updates {
 			delivered := true
 			switch {
@@ -327,11 +330,12 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	// across the 4096 limit) retries as plain text on its own — never
 	// re-sending earlier chunks that already landed (which duplicated them).
 	for _, p := range chanlib.Chunk(req.Content, 4096) {
+		chunkReply := replyMsgID // 0 after the first chunk
+		replyMsgID = 0           // only first chunk replies
 		m := tgbotapi.NewMessage(id, mdToHTML(p))
 		m.ParseMode = "HTML"
-		if replyMsgID != 0 {
-			m.ReplyToMessageID = replyMsgID
-			replyMsgID = 0 // only first chunk replies
+		if chunkReply != 0 {
+			m.ReplyToMessageID = chunkReply
 		}
 		if msgThreadID != 0 {
 			m.MessageThreadID = msgThreadID
@@ -340,7 +344,12 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		if err != nil {
 			var tgErr *tgbotapi.Error
 			if errors.As(err, &tgErr) && tgErr.Code == 400 {
+				// Plain-text fallback must carry the same reply target,
+				// otherwise an explicit reply silently flattens to a fresh msg.
 				pm := tgbotapi.NewMessage(id, p)
+				if chunkReply != 0 {
+					pm.ReplyToMessageID = chunkReply
+				}
 				if msgThreadID != 0 {
 					pm.MessageThreadID = msgThreadID
 				}
@@ -358,12 +367,18 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error {
 	id, err := parseChatID(jid)
 	if err != nil {
 		return err
 	}
 	tid := threadMsgID(threadID)
+	reply := 0
+	if replyTo != "" {
+		if n, err := strconv.Atoi(replyTo); err == nil {
+			reply = n
+		}
+	}
 	f := tgbotapi.FilePath(path)
 	ext := strings.ToLower(filepath.Ext(name))
 	if ext == "" {
@@ -375,16 +390,19 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 		p := tgbotapi.NewPhoto(id, f)
 		p.Caption = caption
 		p.MessageThreadID = tid
+		p.ReplyToMessageID = reply
 		m = p
 	case ".mp4", ".mov", ".webm":
 		v := tgbotapi.NewVideo(id, f)
 		v.Caption = caption
 		v.MessageThreadID = tid
+		v.ReplyToMessageID = reply
 		m = v
 	case ".gif":
 		a := tgbotapi.NewAnimation(id, f)
 		a.Caption = caption
 		a.MessageThreadID = tid
+		a.ReplyToMessageID = reply
 		m = a
 	case ".mp3", ".m4a", ".flac", ".ogg":
 		// .ogg goes here as music attachment; voice notes use SendVoice
@@ -392,11 +410,13 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 		a := tgbotapi.NewAudio(id, f)
 		a.Caption = caption
 		a.MessageThreadID = tid
+		a.ReplyToMessageID = reply
 		m = a
 	default:
 		d := tgbotapi.NewDocument(id, f)
 		d.Caption = caption
 		d.MessageThreadID = tid
+		d.ReplyToMessageID = reply
 		m = d
 	}
 	if _, err := b.api.Send(m); err != nil {
@@ -690,7 +710,7 @@ func extractMedia(msg *tgbotapi.Message, listenURL string) mediaResult {
 		}
 	}
 	switch {
-	case msg.Photo != nil:
+	case len(msg.Photo) > 0:
 		p := msg.Photo[len(msg.Photo)-1]
 		return att("[Photo]"+sfx, p.FileID, "image/jpeg", p.FileID+".jpg", int64(p.FileSize))
 	case msg.Video != nil:

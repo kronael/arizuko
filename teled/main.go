@@ -38,7 +38,11 @@ func main() {
 				slog.Error("telegram auth failed", "err", err)
 				return nil, nil, err
 			}
-			go b.poll(ctx, rc)
+			// Derive b.cancel synchronously here — assigning it inside the poll
+			// goroutine raced with stop() reading a still-nil b.cancel.
+			pollCtx, cancel := context.WithCancel(ctx)
+			b.cancel = cancel
+			go b.poll(pollCtx, rc)
 			return newServer(cfg, b, b.isConnected, b.LastInboundAt).handler(), b.stop, nil
 		},
 	})
