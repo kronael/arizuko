@@ -50,7 +50,9 @@ func TestServeTurnMCPSocketLifecycle(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 
-	ipcDir := t.TempDir()
+	// Non-existent nested dir: routd serves before runed mkdirs, so ServeTurnMCP
+	// must create the parent itself (else net.Listen fails on a fresh folder).
+	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
 	if err != nil {
 		t.Fatalf("ServeTurnMCP: %v", err)

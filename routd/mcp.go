@@ -330,6 +330,13 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	tier := auth.Resolve(t.folder).Tier
 	rules := grants.DeriveRules(s.db, t.folder, tier, auth.WorldOf(t.folder))
+	// routd binds the socket BEFORE runed spawns the container, so the per-folder
+	// ipc dir may not exist yet (gated relied on the runner's buildMounts mkdir).
+	// ServeMCP only os.Removes the stale sock + Listens — never mkdirs — so create
+	// the parent here or net.Listen fails on a fresh folder's first turn.
+	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
+		return nil, err
+	}
 	sockPath := groupfolder.IpcSocket(ipcDir)
 	expectedUID := 1000
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
