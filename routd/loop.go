@@ -42,6 +42,15 @@ type Loop struct {
 	runTimeout time.Duration
 	scopes     []types.Scope
 
+	// Prompt-envelope inputs (buildAgentPrompt). instanceName feeds the
+	// autocalls block; observeMessages/observeChars are the cfg-default
+	// observe window (group + route rows override per folder); groupsDir is
+	// where PERSONA.md lives.
+	instanceName    string
+	observeMessages int
+	observeChars    int
+	groupsDir       string
+
 	// Proactive interjection (5/33). zero-value cfg (Enabled=false) → the
 	// scan is never driven. modes caches per-group CLAUDE.md proactive mode;
 	// pendingReason carries a fired turn's <proactive_reason> to the prompt
@@ -70,6 +79,13 @@ type LoopConfig struct {
 	RunScopes  []types.Scope
 	RoundDone  RoundDoneFn
 
+	// Prompt-envelope inputs (buildAgentPrompt). InstanceName feeds the
+	// autocalls <instance> field; ObserveWindowMessages/Chars are the
+	// cfg-default observe window (folder group/route rows override).
+	InstanceName          string
+	ObserveWindowMessages int
+	ObserveWindowChars    int
+
 	// Deliver is the egress half used for the outbound retry loop and the
 	// run-error failure notice; the same Deliverer the Server uses. nil = no
 	// redelivery / no notice (pure REST tests).
@@ -94,14 +110,18 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		cfg.MaxRuns = 5
 	}
 	l := &Loop{
-		db:         db,
-		runner:     runner,
-		deliver:    cfg.Deliver,
-		roundDone:  cfg.RoundDone,
-		pollEvery:  cfg.PollEvery,
-		runTimeout: cfg.RunTimeout,
-		scopes:     cfg.RunScopes,
-		proactive:  cfg.Proactive,
+		db:              db,
+		runner:          runner,
+		deliver:         cfg.Deliver,
+		roundDone:       cfg.RoundDone,
+		pollEvery:       cfg.PollEvery,
+		runTimeout:      cfg.RunTimeout,
+		scopes:          cfg.RunScopes,
+		proactive:       cfg.Proactive,
+		instanceName:    cfg.InstanceName,
+		observeMessages: cfg.ObserveWindowMessages,
+		observeChars:    cfg.ObserveWindowChars,
+		groupsDir:       cfg.GroupsDir,
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
@@ -490,7 +510,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // whole batch after all per-sender/per-topic turns close.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
 	last := trigger[len(trigger)-1]
-	rendered := router.FormatMessages(trigger)
+	rendered := l.buildAgentPrompt(folder, topic, trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead
 	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
 	// it is consumed so a re-fed turn does not re-attach a stale reason.

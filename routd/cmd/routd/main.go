@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -94,6 +95,10 @@ func main() {
 		Deliver:   deliver,
 		Proactive: routd.LoadProactiveConfig(os.Getenv),
 		GroupsDir: filepath.Join(dataDir, "groups"),
+		// Prompt envelope (buildAgentPrompt). Defaults mirror core.LoadConfig.
+		InstanceName:          envOr("ASSISTANT_NAME", "Andy"),
+		ObserveWindowMessages: intOr("OBSERVE_WINDOW_MESSAGES", 10),
+		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
 	})
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
@@ -141,6 +146,15 @@ func (v keysetVerifier) Verify(r *http.Request) (sub string, scope []string, fol
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func intOr(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return def
 }
