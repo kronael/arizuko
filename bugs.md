@@ -1237,3 +1237,17 @@ plane; the next phases must wire them where they belong:
   wire-in (next phase) supplies them so the file-path tools (send_file media,
   vhosts) resolve. ServeTurnMCP is a capability and is NOT yet called from the
   loop, so this is harmless until then.
+
+## /v1/turns HTTP surface — agent-unused post-flip (minimization candidate)
+
+After the routd-owns-MCP-socket flip, the agent reaches its write tools via
+routd's in-process MCP socket (ipc.ServeMCP in routd/mcp.go), NOT the HTTP
+`/v1/turns/{turn_id}/*` callbacks. Those handlers (routd/turns.go) + the
+idempotency ledger (IdemClaim/AppendAndFinish/idempotency_keys) + the
+routd/api/v1 turn-callback client are now exercised only by tests, not by any
+production caller (runed's Federator is deleted). They remain as the bearer-gated
+REST face over the shared appendAndDeliver/recordTurnResult (still live in-process).
+KEPT for now (cheap, tested, REST-uniform). Future minimization: delete the HTTP
+surface + idem ledger + convert the ~6 test files (auth_test, deliver_test,
+authd_integration_test, parity_test, contract_test, fixes_test) to drive the
+in-process MCP path instead. Not done now — test-conversion churn, no functional gain.
