@@ -15,6 +15,8 @@ import (
 type recDeliverer struct {
 	sends    []sentMsg
 	reacts   int
+	posts    int
+	dislikes int
 	failSend bool
 	pid      string
 }
@@ -41,6 +43,13 @@ func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.pid, nil
 }
+func (d *recDeliverer) Post(_, _ string, _ []string) (string, error)       { d.posts++; return d.pid, nil }
+func (d *recDeliverer) Forward(_, _, _ string) (string, error)             { return d.pid, nil }
+func (d *recDeliverer) Quote(_, _, _ string) (string, error)               { return d.pid, nil }
+func (d *recDeliverer) Repost(_, _ string) (string, error)                 { return d.pid, nil }
+func (d *recDeliverer) Dislike(_, _ string) error                          { d.dislikes++; return nil }
+func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
+func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
 
 var errSend = errSendT("send failed")
 

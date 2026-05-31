@@ -246,6 +246,13 @@ func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
+func (d *fakeDeliverer) Post(_, _ string, _ []string) (string, error)       { return d.platformID, nil }
+func (d *fakeDeliverer) Forward(_, _, _ string) (string, error)             { return d.platformID, nil }
+func (d *fakeDeliverer) Quote(_, _, _ string) (string, error)               { return d.platformID, nil }
+func (d *fakeDeliverer) Repost(_, _ string) (string, error)                 { return d.platformID, nil }
+func (d *fakeDeliverer) Dislike(_, _ string) error                          { return nil }
+func (d *fakeDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
+func (d *fakeDeliverer) SetName(_, _ string) error                          { return nil }
 
 func countBots(t *testing.T, db *DB, jid string) int {
 	t.Helper()

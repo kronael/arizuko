@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -32,6 +33,17 @@ type Deliverer interface {
 	// Document delivers a file at path. The file lives on the shared group
 	// volume both routd and the adapter mount.
 	Document(jid, path, name, caption, replyToID, idempotencyKey string) (platformID string, err error)
+	// Extended verbs — the social/feed surface ported from gated's egress.
+	// Post authors a fresh top-level post; Forward/Quote/Repost relay or
+	// amplify an existing message; Dislike is the native-downvote reaction;
+	// SetSuggestions/SetName stage Slack assistant-pane controls.
+	Post(jid, content string, mediaPaths []string) (platformID string, err error)
+	Forward(sourceMsgID, targetJID, comment string) (platformID string, err error)
+	Quote(jid, sourceMsgID, comment string) (platformID string, err error)
+	Repost(jid, sourceMsgID string) (platformID string, err error)
+	Dislike(jid, platformID string) error
+	SetSuggestions(jid string, prompts []core.PanePrompt) error
+	SetName(jid, title string) error
 }
 
 // Verifier offline-verifies inbound bearer tokens (agent capability /

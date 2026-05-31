@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
 )
 
 // chanDeliverer is routd's production Deliverer: it resolves the owning
@@ -173,4 +174,63 @@ func (d *chanDeliverer) Unpin(jid, platformID string, all bool) error {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.Unpin(context.Background(), jid, platformID, all)
+}
+
+func (d *chanDeliverer) Post(jid, content string, mediaPaths []string) (string, error) {
+	if d.disabled(jid) {
+		return "", nil
+	}
+	ch := d.resolve(jid)
+	if ch == nil {
+		return "", fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.Post(context.Background(), jid, content, mediaPaths)
+}
+
+func (d *chanDeliverer) Forward(sourceMsgID, targetJID, comment string) (string, error) {
+	ch := d.resolve(targetJID)
+	if ch == nil {
+		return "", fmt.Errorf("no channel for jid %s", targetJID)
+	}
+	return ch.Forward(context.Background(), sourceMsgID, targetJID, comment)
+}
+
+func (d *chanDeliverer) Quote(jid, sourceMsgID, comment string) (string, error) {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return "", fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.Quote(context.Background(), jid, sourceMsgID, comment)
+}
+
+func (d *chanDeliverer) Repost(jid, sourceMsgID string) (string, error) {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return "", fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.Repost(context.Background(), jid, sourceMsgID)
+}
+
+func (d *chanDeliverer) Dislike(jid, platformID string) error {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.Dislike(context.Background(), jid, platformID)
+}
+
+func (d *chanDeliverer) SetSuggestions(jid string, prompts []core.PanePrompt) error {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.SetSuggestions(context.Background(), jid, prompts)
+}
+
+func (d *chanDeliverer) SetName(jid, title string) error {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return fmt.Errorf("no channel for jid %s", jid)
+	}
+	return ch.SetName(context.Background(), jid, title)
 }

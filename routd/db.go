@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -82,6 +83,63 @@ func (d *DB) GroupExists(folder string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM groups WHERE folder=?", folder).Scan(&n)
 	return n == 1
+}
+
+// AllGroups returns every registered group keyed by folder (mirrors
+// store.AllGroups). Backs the agent's get_groups MCP tool.
+func (d *DB) AllGroups() map[string]core.Group {
+	rows, err := d.db.Query("SELECT folder, added_at, product, model FROM groups")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := map[string]core.Group{}
+	for rows.Next() {
+		var g core.Group
+		var added string
+		if err := rows.Scan(&g.Folder, &added, &g.Product, &g.Model); err != nil {
+			return out
+		}
+		g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
+		out[g.Folder] = g
+	}
+	return out
+}
+
+// SetGroupOpen toggles the group's open flag (ambient turn admission).
+func (d *DB) SetGroupOpen(folder string, open bool) error {
+	_, err := d.db.Exec("UPDATE groups SET open=? WHERE folder=?", b2i(open), folder)
+	return err
+}
+
+// SetGroupObserveWindow overrides the group's observe-window (messages, chars).
+// A negative value clears the column (NULL) so the cfg default wins.
+func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
+	var mv, cv any
+	if msgs >= 0 {
+		mv = msgs
+	}
+	if chars >= 0 {
+		cv = chars
+	}
+	_, err := d.db.Exec(
+		"UPDATE groups SET observe_window_messages=?, observe_window_chars=? WHERE folder=?",
+		mv, cv, folder)
+	return err
+}
+
+// AddGroupWatcher subscribes observer to source's ambient context (idempotent).
+func (d *DB) AddGroupWatcher(observer, source string) error {
+	_, err := d.db.Exec(
+		"INSERT OR IGNORE INTO group_watchers(observer, source) VALUES(?,?)", observer, source)
+	return err
+}
+
+// RemoveGroupWatcher drops the observe_group subscription.
+func (d *DB) RemoveGroupWatcher(observer, source string) error {
+	_, err := d.db.Exec(
+		"DELETE FROM group_watchers WHERE observer=? AND source=?", observer, source)
+	return err
 }
 
 // --- messages (sole appender) ---
@@ -650,6 +708,38 @@ func (d *DB) PutSession(folder, topic, sessionID string) error {
 func (d *DB) DeleteSession(folder, topic string) error {
 	_, err := d.db.Exec("DELETE FROM sessions WHERE group_folder=? AND topic=?", folder, topic)
 	return err
+}
+
+// ForkTopic seeds a fresh session row for child, recording its parent topic +
+// fork time, with observed_cursor=now so the child reads only post-fork context
+// (mirrors store.ForkTopic against routd's sessions table). force overwrites an
+// existing child; otherwise a collision returns core.ErrTopicExists.
+func (d *DB) ForkTopic(folder, parent, child, newSessionID string, force bool) error {
+	if child == "" {
+		return fmt.Errorf("fork: child topic empty")
+	}
+	now := nowTS()
+	if force {
+		_, err := d.db.Exec(
+			`INSERT INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+			 VALUES(?,?,?,?,?,?)
+			 ON CONFLICT(group_folder, topic) DO UPDATE SET
+			   session_id=excluded.session_id, parent_topic=excluded.parent_topic,
+			   forked_at=excluded.forked_at, observed_cursor=excluded.observed_cursor`,
+			folder, child, newSessionID, parent, now, now)
+		return err
+	}
+	res, err := d.db.Exec(
+		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+		 VALUES(?,?,?,?,?,?)`,
+		folder, child, newSessionID, parent, now, now)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return core.ErrTopicExists
+	}
+	return nil
 }
 
 // SessionID returns the persisted session id for (folder, topic).

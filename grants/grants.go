@@ -5,8 +5,14 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
 )
+
+// RouteSource supplies the route source-jids in a world folder so DeriveRules
+// can scope tier-1/2 platform rules to the platforms actually routed there.
+// Both gated's *store.Store and routd's *DB satisfy it.
+type RouteSource interface {
+	RouteSourceJIDsInWorld(worldFolder string) []string
+}
 
 type Rule struct {
 	Deny   bool
@@ -160,7 +166,7 @@ var tier1FixedActions = []string{
 	"inject_message", "invite_create",
 }
 
-func DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string {
+func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []string {
 	jids := func(scope string) []string {
 		if s == nil {
 			return nil

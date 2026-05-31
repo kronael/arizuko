@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -403,15 +404,31 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	tc, ok := s.db.GetTurnContext(turnID)
-	if !ok {
+	if _, ok := s.db.GetTurnContext(turnID); !ok {
 		writeErr(w, 409, "unknown_turn", "no turn context for turn_id")
 		return
 	}
-	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status)
+	first, err := s.recordTurnResult(turnID, req)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
+	}
+	writeJSON(w, 200, apiv1.TurnResultAck{Recorded: first})
+}
+
+// recordTurnResult is the shared turn-completion writer behind both the REST
+// /result twin and the in-process submit_turn MCP method. It records the
+// outcome idempotently, and on the FIRST record persists session_id + per-model
+// cost, flips the turn to done, and publishes round_done. Returns whether this
+// was the first record. The turn context must already exist (the callers check).
+func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, error) {
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		return false, fmt.Errorf("no turn context for turn_id")
+	}
+	first, err := s.db.RecordTurnResult(tc.Folder, turnID, req.SessionID, req.Status)
+	if err != nil {
+		return false, err
 	}
 	if first {
 		if req.SessionID != "" {
@@ -425,5 +442,5 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 			s.loop.publishRoundDone(trimWeb(tc.ChatJID), turnID)
 		}
 	}
-	writeJSON(w, 200, apiv1.TurnResultAck{Recorded: first})
+	return first, nil
 }

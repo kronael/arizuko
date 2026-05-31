@@ -223,6 +223,64 @@ func (d *DB) ErroredChats(folder string, isRoot bool) ([]ErroredChat, error) {
 	return out, rows.Err()
 }
 
+// RouteSourceJIDsInWorld returns the distinct source jids of every route whose
+// target folder is worldFolder or under it (mirrors store.RouteSourceJIDsInWorld
+// against routd's routes table). grants.DeriveRules uses this to scope tier-1/2
+// platform rules to the platforms actually routed into the world.
+func (d *DB) RouteSourceJIDsInWorld(worldFolder string) []string {
+	routes, err := d.Routes()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, r := range routes {
+		f := core.ParseRouteTarget(r.Target).Folder
+		if f != worldFolder && !strings.HasPrefix(f, worldFolder+"/") {
+			continue
+		}
+		for _, jid := range routeSourceJIDs(r.Match) {
+			if _, dup := seen[jid]; dup {
+				continue
+			}
+			seen[jid] = struct{}{}
+			out = append(out, jid)
+		}
+	}
+	return out
+}
+
+// routeSourceJIDs extracts the concrete source jids a route match selects
+// (platform:room or chat_jid), skipping glob/empty values. Mirrors store's
+// routeSourceJIDs.
+func routeSourceJIDs(match string) []string {
+	var platform string
+	var rooms []string
+	for _, tok := range strings.Fields(match) {
+		k, v, ok := strings.Cut(tok, "=")
+		if !ok || v == "" || strings.ContainsAny(v, "*?[") {
+			continue
+		}
+		switch k {
+		case "platform":
+			platform = v
+		case "room":
+			rooms = append(rooms, v)
+		case "chat_jid":
+			rooms = append(rooms, v)
+			return rooms
+		}
+	}
+	if platform == "" {
+		return rooms
+	}
+	out := make([]string, len(rooms))
+	for i, r := range rooms {
+		out[i] = platform + ":" + r
+	}
+	return out
+}
+
 // --- external cost ---
 
 // LogExternalCost records one cost_log row for a non-Anthropic LLM call

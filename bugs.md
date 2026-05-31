@@ -1207,3 +1207,33 @@ and dislike-reactions all break. CLOSE before a feature-complete flip: port the
 verbs (add /v1/turns handlers + Deliverer methods, from ipc/ipc.go + the gated
 Channel/Socializer egress). Core conversation (text reply/send/document/react)
 works without it. Found scoping the channel-plane (ff8b3ca4).
+
+## routd in-process MCP — deferred tools (Phase 2, 2026-05-31, cutover-gap, med)
+
+Phase 2 stood up routd's in-process agent MCP socket (`routd/mcp.go`:
+`buildGatedFns`/`buildStoreFns`/`ServeTurnMCP`), wiring every tool whose state
+routd owns (reply/send/document, social verbs, group controls, route tokens,
+submit_turn, routes/messages/find/errored/web-routes/engagement/cost reads).
+These tools are LEFT NIL because their backing capability lives in another
+plane; the next phases must wire them where they belong:
+
+- **SendVoice** — needs the TTS pipeline (`TTS_BASE_URL` / `ttsd`); a separate
+  capability, not a routd Deliverer verb. Wire when the voice egress moves.
+- **CreateInvite** — no invites table in routd; invites are onbod/authd domain.
+- **SpawnGroup / SetupGroup / FetchPlatformHistory / EnqueueMessageCheck** —
+  need the container runner / onbod / platform adapters; runed/onbod domain.
+  (InjectMessage is wired: the routd loop polls new rows by timestamp, so no
+  explicit EnqueueMessageCheck is required for it.)
+- **Audit** (GatedFns.Audit) — the audit sink is not plumbed into routd yet.
+- **StoreFns tasks** (CreateTask/GetTask/UpdateTaskStatus/DeleteTask/ListTasks/
+  TaskRunLogs) — tasks live in `timed`; federate there.
+- **StoreFns ACL/identity/audit** (ListACL/Authorize/GetIdentityForSub/
+  LogIPCAudit) — operator ACL overlay + identity + ipc_audit move to `authd`.
+  Consequence: `ServeTurnMCP` passes `callerSub=""` (full operator access) and
+  `Authorize` is nil — the row-based grants gate is DEFERRED to authd. Tier-
+  default grant rules (grants.DeriveRules) DO apply.
+- **StoreFns sessions** (RecentSessions/GetSession) — session_log is runed's.
+- **GroupsDir / WebDir** — left empty on the in-process GatedFns; the dispatch
+  wire-in (next phase) supplies them so the file-path tools (send_file media,
+  vhosts) resolve. ServeTurnMCP is a capability and is NOT yet called from the
+  loop, so this is harmless until then.
