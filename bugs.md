@@ -1266,3 +1266,119 @@ service active; channels registering; no container/lifecycle errors; idle.
 ONLY recurring error: whatsapp auto-deregister (503 disconnected) ~every 6min =
 the known whapd pairing issue (memory whapd_pairing_recovery; awaiting user re-pair).
 Not a code bug. Split daemons not deployed (gated default). Baseline = PASS.
+
+# ============================================================
+# SPLIT BUGHUNT 2026-05-31 (4 sonnet subs, post-flip)
+# ============================================================
+
+## Bucket 4 — cross-cutting + dead/backcompat (sub a751cf2d)
+
+### Bugs
+- **A3-1 HIGH (crackbox deployments only)**: `runed/docker.go` builds `container.Input`
+  with a ZERO `Egress` field — `EgressConfig.active()` is false → crackbox network
+  isolation SILENTLY DISABLED on the split; agent containers get unrestricted
+  internet when isolation is expected. Gated builds it from `cfg.*Egress*`
+  (gateway.go:1309-1317); runed never does. Full fix also needs `AllowlistFn`,
+  which derives from grants — runed has no grant DB (→ federate to authd/routd or
+  pass via RunRequest). NEEDS DESIGN. Gated path unaffected.
+- **A2-3 LOW**: `runed/server.go` handleRun checks `runs:run` scope but not the
+  token's arz/folder claim vs requested folder (already logged earlier). Low —
+  broker only mints agent-scoped tokens.
+- **A3-2 COSMETIC**: `container/runner.go:647` `NO_PROXY=...,gated,...` — stale for
+  split (daemon is routd); `gated` DNS won't resolve in split agent containers.
+  Only matters when crackbox active. Change gated→routd. REMOVE-NOW.
+- A2-1/A2-2 SUSPECTED-LOW: service-token boot timing + static fallback; mitigated
+  by compose depends_on/healthcheck + always-set AUTHD_SERVICE_KEY.
+
+### Dead code
+- `runed/api/v1/types.go:73-87` SpawnRequest/SpawnResponse — never mounted, split-only
+  dead. REMOVE-NOW.
+- `routd/api/v1/client.go` Client struct + all methods — production caller (runed
+  Federator) deleted; test-only now. REMOVE-POST-SOAK (removing now breaks tests).
+  Wire TYPES (ReplyRequest/TurnResult/…) must stay.
+- Stale federation comments: routd/server.go:116, routd/reads_http.go:13-14,
+  routd/turns.go:20 ("runed federates …"). REMOVE-NOW (comment cleanup).
+- KEEP: ROUTD/RUNED_SERVICE_TOKEN fallbacks (local-dev load-bearing); /v1/turns
+  surface (REST face, post-soak); container.Input.GatedFns/StoreFns (gated uses).
+
+### Confirmed CORRECT
+socket cross-container share (both mount dataDir→/srv/app/home, uid 1000:1000,
+/run/ipc/gated.sock matches); depends_on ordering; service-key provisioning;
+ES256-only verify in split (no dual-verify wrinkle).
+
+## Bucket 3 — runed execution plane (sub a38300c4) + my verification
+
+- **R-CRIT-1 outcomeFor always Silent (CONFIRMED, I verified)**: clean run →
+  Output{Status:"success"} but HadOutput never set + Result="" (stdout io.Discard).
+  outcomeFor's `!HadOutput && Result==""` branch fires → EVERY clean split run =
+  OutcomeSilent. routd dispatch.go:174 hadOutput=(Outcome!=Silent)=false →
+  queue.go:298/303 consecutiveFailures++ → breaker opens after 3 turns on EVERY
+  folder. BREAKS THE SOAK. FIX: outcomeFor `case Status=="success": OutcomeOK`
+  (output goes out-of-band via the socket now; runed can't see it). TOP PRIORITY.
+- **R-HIGH-2 Model+ContainerConfig+Isolated not forwarded (CONFIRMED, I verified)**:
+  routd/dispatch.go dispatchRun builds RunRequest WITHOUT Model/ContainerConfig/
+  Isolated. Per-group model + container_config + timed-isolation all dead. Needs a
+  routd.DB GroupConfig(folder) reader + PutGroup to write container_config +
+  dispatchRun to set the 3 fields (Isolated = HasPrefix(trigger,"timed-isolated:")).
+- **R-HIGH-3 RegisterSteer before container starts (CONFIRMED-plausible)**: steer is a
+  SIGUSR1 no-op during the docker-run startup window; fallback (queue→fresh spawn)
+  is correct, so it's wasted-container inefficiency not a correctness break. MED really.
+- **R-MED-6 Grants not on container.Input (CONFIRMED)**: runed docker.go never sets
+  Input.Grants → buildMounts share_mount check always false → /var/lib/share never
+  mounted. routd derives grants (ServeTurnMCP) but they don't reach runed. Needs
+  grants in RunRequest OR runed re-derives. share_mount is niche.
+- **R-CRIT-1b token undelivered → RECLASSIFIED DEAD (my analysis)**: the sub called
+  "brokered JWS never reaches agent" CRITICAL. But post-flip the agent uses the
+  in-process socket (SO_PEERCRED), NOT a bearer for tool calls (gated's socket was
+  also uid-gated). The token was for the deleted federation (agent→runed→routd HTTP).
+  So the broker machinery is VESTIGIAL post-flip, not a critical break — nothing the
+  agent does needs it. → remove the per-spawn broker post-soak (verify no agent use).
+- DEAD: runed/db.go RecentSessionRecords, ActiveSpawnForFolder, AppendLog/Logs (no
+  callers; spawn_logs streaming endpoint never implemented); SpawnRequest/Response;
+  routd PutGroup never writes container_config column.
+
+## Bucket 2 — routd agent-tool plane (sub a74d7fea) + my verification
+
+- **A-HIGH-2 jid injection in mcpIssueRouteToken (CONFIRMED)**: REST handlers validate
+  jid_suffix/source_label with segRe=`^[\w-]+$`; mcpIssueRouteToken appends raw →
+  agent can inject `/`/`..` into the stored JID. FIX: share segRe, validate.
+- **A-CRIT-1 nil-deref on mutation closures → DEBUNKED (I verified)**: premise was
+  "Deliverer nil in production" citing a STALE pre-flip bugs.md entry. main.go:86/104/
+  109 wires the real chanDeliverer + SetChannelRegistry. NOT nil. Downgrade to LOW
+  defensive nit (add nil-guards anyway, cheap). The "FLIP-BLOCKER Deliverer-nil +
+  channel-surface-absent" entries from 2026-05-30 are ALREADY FIXED in main.go.
+- **A-HIGH-3 handleDocument no engagement bump → GATED-PARITY (my analysis)**: gated's
+  send_file via internalSend→recordOutbound with platformID="" ALSO skips the bump.
+  Not a split regression. Note only.
+- **A-MED-4 cache tokens dropped → BY-DESIGN (my analysis)**: cost_log has no cache
+  columns in gated either; CacheRead/Write fold into CostCents upstream. Not a bug.
+- **A-MED-6 delegated-turn engagement on delivery-jid → GATED-PARITY**: gated's MCP
+  recordOutbound also bumped the delivery jid. Not a split regression. Note.
+- A-MED-5 invite_create desc "Tier 0-2" vs enforce 0-1 — doc fix (already logged).
+- A-LOW-7 disengage via time.Until(time.Time{}) fragile — works, low.
+
+## Bucket 1 — routd dispatch/socket plane (sub a0c7589a)
+
+- **D-HIGH-1 RoundDone not wired (CONFIRMED-plausible)**: main.go LoopConfig never sets
+  RoundDone → publishRoundDone is a nil-guard no-op → web-chat SSE clients hang
+  waiting for round_done. FIX: wire RoundDoneFn in main.go (resolve web: channel +
+  PostRoundDone). VERIFY main.go.
+- **D-HIGH-2/6 steered turn left state=running (CONFIRMED-plausible)**: on Steered=true,
+  runTurn returns without SetTurnState(done)/SetRunReturned + cursor not advanced →
+  recoverPending re-dispatches on restart (duplicate output) + ChatHasRunningTurn
+  blocks proactive for runTimeout. FIX: on steered, SetTurnState(done) + advance.
+- **D-MED-3 UpdateObservedCursor no-op on new topic (CONFIRMED-plausible)**: cursor
+  UPDATE runs before PutSession creates the sessions row → turns 1-2 both see full
+  observed window (double-consume). FIX: upsert the cursor OR ensure the row exists.
+- D-LOW-4 NewMessages no is_bot filter → bot rows poll through, !hadOutput→breaker++
+  (related to R-CRIT-1; same queue-counts-silent-as-failure root).
+- D-LOW-5 turnLocks sync.Map never cleaned → unbounded growth. FIX: Delete on done.
+
+## Triage for the fix pass (confirmed regressions, not gated-parity)
+P0 outcomeFor (R-CRIT-1) → breaker storm. P1: dispatchRun Model/Config/Isolated
+(R-HIGH-2), RoundDone (D-HIGH-1), steered-turn-state (D-HIGH-2), jid validation
+(A-HIGH-2). P2: observed-cursor (D-MED-3), turnLocks cleanup (D-LOW-5), queue
+silent!=failure (D-LOW-4, overlaps P0). P3 design-needed: Egress/crackbox (A3-1),
+Grants-on-Input (R-MED-6). DEAD-now: SpawnRequest/Response, RecentSessionRecords/
+ActiveSpawnForFolder/AppendLog/Logs, stale federation comments, NO_PROXY gated→routd.
+GATED-PARITY (note, don't touch): doc-engagement, delegated-engagement, cache-tokens.
