@@ -142,6 +142,15 @@ func (s *Server) mcpIssueRouteToken(kind, ownerFolder, targetFolder, sourceLabel
 	if ownerFolder == "" {
 		ownerFolder = targetFolder
 	}
+	// Validate the agent-supplied segments before they enter the JID — the REST
+	// handlers (handleTokenChat/Hook) gate on segRe; the MCP path must too, or an
+	// agent can inject `/` / `..` and corrupt the stored route-token JID.
+	if sourceLabel != "" && !segRe.MatchString(sourceLabel) {
+		return ipc.RouteTokenInfo{}, fmt.Errorf("source_label must match %s", segRe.String())
+	}
+	if jidSuffix != "" && !segRe.MatchString(jidSuffix) {
+		return ipc.RouteTokenInfo{}, fmt.Errorf("jid_suffix must match %s", segRe.String())
+	}
 	var jid, urlPrefix string
 	switch kind {
 	case "chat":

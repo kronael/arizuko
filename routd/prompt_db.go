@@ -81,12 +81,18 @@ func (d *DB) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 
 // UpdateObservedCursor advances a topic's observed cursor to ts (RFC3339Nano
 // UTC), monotonically (only when the new value is strictly greater, or NULL).
+// UPSERT, not UPDATE: buildAgentPrompt advances the cursor BEFORE PutSession
+// creates the (folder,topic) row, so a plain UPDATE matched zero rows on a
+// topic's first two turns → the observed window was re-included both times
+// (bughunt D-MED-3). The inserted row carries session_id='' (= fresh; PutSession
+// fills it post-run without clobbering observed_cursor).
 func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 	_, err := d.db.Exec(
-		`UPDATE sessions SET observed_cursor = ?
-		 WHERE group_folder = ? AND topic = ?
-		   AND (observed_cursor IS NULL OR observed_cursor < ?)`,
-		ts, folder, topic, ts,
+		`INSERT INTO sessions(group_folder, topic, session_id, observed_cursor)
+		 VALUES(?,?,'',?)
+		 ON CONFLICT(group_folder, topic) DO UPDATE SET observed_cursor = excluded.observed_cursor
+		   WHERE sessions.observed_cursor IS NULL OR sessions.observed_cursor < excluded.observed_cursor`,
+		folder, topic, ts,
 	)
 	return err
 }
