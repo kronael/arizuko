@@ -1382,3 +1382,36 @@ silent!=failure (D-LOW-4, overlaps P0). P3 design-needed: Egress/crackbox (A3-1)
 Grants-on-Input (R-MED-6). DEAD-now: SpawnRequest/Response, RecentSessionRecords/
 ActiveSpawnForFolder/AppendLog/Logs, stale federation comments, NO_PROXY gated→routd.
 GATED-PARITY (note, don't touch): doc-engagement, delegated-engagement, cache-tokens.
+
+## P3 SOAK-BLOCKER (krons, crackbox-on): egress isolation + grants not wired to runed
+
+krons has CRACKBOX_ADMIN_API set → egress isolation ACTIVE. But runed/docker.go
+builds container.Input with NO Egress + NO Grants. registerEgress (container/
+egress.go) no-ops unless EgressConfig.active() (needs AdminURL+NetworkPrefix+
+CrackboxContainer+AllowlistFn). So a split spawn is NEVER attached to the crackbox
+network → DEFAULT docker network → OPEN INTERNET. Security regression on the split.
+Also: Input.Grants empty → buildMounts share_mount always false (/var/lib/share
+never mounted).
+
+Root: per-folder authz data (egress allowlist via store.ResolveAllowlist→network_rules
+table store/migrations/0037; grant rules via grants.DeriveRules+ACL) lives in
+gated.db / authd. runed has neither. routd derives grants (ServeTurnMCP) + the
+resreg catalog already lists network_rules as a routd resource, but routd.db has NO
+network_rules migration yet.
+
+DECISION NEEDED (ownership): where does network_rules live in the split?
+  (A) routd owns it (per resreg catalog): add a network_rules migration + a
+      ResolveAllowlist to routd.DB; routd resolves the allowlist + the grant rules
+      at dispatch and passes BOTH in RunRequest (EgressAllowlist []string + Grants
+      []string); runed builds EgressConfig (static fields from its cfg + AllowlistFn
+      returning the passed list) + sets Input.Grants. Clean — routd already owns the
+      authz knowledge; runed stays a pure executor fed everything it needs.
+  (B) runed owns it (per "runed is the only daemon wired to crackbox"): network_rules
+      migration in runed.db + ResolveAllowlist on runed.DB + the `arizuko network`
+      CLI retargets runed.db. runed owns egress end-to-end; grants still need to cross
+      (authd) for share_mount.
+RECOMMEND (A): routd is the authz/conversation plane; runed stays pure. One
+RunRequest grows EgressAllowlist+Grants; runed wires them into container.Input.
+Until done: a krons split soak must run with crackbox OFF, or this lands first.
+NOT a quick fix — own task. The non-crackbox correctness is otherwise soak-ready
+(all confirmed breaker/dispatch/socket regressions fixed this session).
