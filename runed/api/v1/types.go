@@ -70,21 +70,6 @@ type RunStatus struct {
 	EndedAt   string `json:"ended_at"`
 }
 
-// SpawnRequest is POST /v1/runs/{run_id}/spawn: a sub-agent
-// (child/parent) run on runed's own queue. Depth capped at 1.
-type SpawnRequest struct {
-	Relation     string `json:"relation"` // child|parent
-	TargetFolder string `json:"target_folder"`
-	Prompt       string `json:"prompt"`
-	ChatJID      string `json:"chat_jid"`
-}
-
-// SpawnResponse is the 202 ack of POST /v1/runs/{run_id}/spawn.
-type SpawnResponse struct {
-	RunID  string `json:"run_id"`
-	Queued bool   `json:"queued"`
-}
-
 // SessionRow is one GET /v1/sessions entry (session_log, dashd run
 // history).
 type SessionRow struct {

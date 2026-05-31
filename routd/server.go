@@ -116,7 +116,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/route_tokens", s.handleTokenList)
 	mux.HandleFunc("DELETE /v1/route_tokens/{jid}", s.handleTokenRevoke)
 	mux.HandleFunc("POST /v1/route_tokens/resolve", s.handleTokenResolve)
-	// agent read/manage surface (runed federates StoreFns here; spec P-runed)
+	// REST read/manage surface — the twin of routd's in-process MCP StoreFns
+	// (the agent reaches the same data over the socket, humans/tools over HTTP)
 	mux.HandleFunc("GET /v1/messages/inspect", s.handleInspectMessages)
 	mux.HandleFunc("GET /v1/messages/thread", s.handleThreadMessages)
 	mux.HandleFunc("GET /v1/messages/find", s.handleFindMessages)

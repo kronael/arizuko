@@ -10,10 +10,11 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// reads_http.go serves the agent's read/manage surface that runed federates
-// the StoreFns to (spec P-runed § federation: message reads + routing →
-// routd). These are NOT turn-scoped: the agent calls them with its brokered
-// capability token directly; authz bounds reads to the token's folder claim.
+// reads_http.go is routd's REST read/manage surface (message reads + routing +
+// engagement + cost). Post-flip the agent reaches the same data in-process via
+// routd's MCP StoreFns (routd/mcp.go), so this surface is the REST twin for
+// humans / external tools. NOT turn-scoped; authz bounds reads to the bearer
+// token's folder claim.
 
 // scopeRoutesRead/Write match the route-CRUD scopes; engagement is a
 // routing-state write owned by the caller's folder.

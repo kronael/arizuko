@@ -1,9 +1,9 @@
 // Package runed is the execution plane carved out of gated (spec 5/P): the
-// work queue, the per-tenant MCP socket, the per-spawn container lifecycle,
-// and the brokering of downscoped capability tokens. runed never appends a
-// message (routd is the sole appender) and never signs a token (authd is the
-// sole signer) — it brokers one downscoped token per spawn and forwards the
-// agent's conversation tools back to routd's /v1/turns/{turn_id}/*.
+// work queue, the per-spawn container lifecycle, and the brokering of
+// downscoped capability tokens. It is a pure container-spawner — routd hosts
+// the agent MCP socket in-process and is the sole message appender; authd is
+// the sole token signer. runed mounts the ipc dir routd's socket lives in into
+// each spawn (container.Input.ExternalMCP) and manages spawn/steer/kill.
 package runed
 
 import (
@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
 )
@@ -124,43 +123,6 @@ func (d *DB) RecentSessions(folder string, limit int) ([]SessionRow, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-// RecentSessionRecords lists a folder's session_log rows as core.SessionRecord
-// (the shape the agent's inspect_session tool renders), newest first. Backs the
-// runed-local RecentSessions StoreFn in the split.
-func (d *DB) RecentSessionRecords(folder string, limit int) []core.SessionRecord {
-	if limit <= 0 {
-		limit = 10
-	}
-	rows, err := d.db.Query(`SELECT id, group_folder, session_id, started_at,
-		ended_at, result, error, message_count
-		FROM session_log WHERE group_folder=? ORDER BY id DESC LIMIT ?`, folder, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []core.SessionRecord
-	for rows.Next() {
-		var sr core.SessionRecord
-		var startedAt string
-		var endedAt, result, errStr sql.NullString
-		var msgCount sql.NullInt64
-		if err := rows.Scan(&sr.ID, &sr.Folder, &sr.SessionID, &startedAt,
-			&endedAt, &result, &errStr, &msgCount); err != nil {
-			return out
-		}
-		sr.StartedAt, _ = time.Parse(time.RFC3339, startedAt)
-		if endedAt.Valid {
-			t, _ := time.Parse(time.RFC3339, endedAt.String)
-			sr.EndedAt = &t
-		}
-		sr.Result = result.String
-		sr.Error = errStr.String
-		sr.MsgCount = int(msgCount.Int64)
-		out = append(out, sr)
-	}
-	return out
 }
 
 // --- spawns ---

@@ -16,9 +16,10 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// The /v1/turns/{turn_id}/* callback surface — the sole-appender entry
-// point the agent's tools (federated by runed) call back into. reply/send/
-// document append a messages row then deliver; like/edit/delete/pin/unpin
+// The /v1/turns/{turn_id}/* callback surface — the HTTP twin of the agent's
+// in-process MCP write tools (post-flip the agent uses the socket, not this;
+// kept as the REST face + test surface, see bugs.md minimization note). reply/
+// send/document append a messages row then deliver; like/edit/delete/pin/unpin
 // mutate an existing platform message without appending. Every call is
 // idempotent on X-Idempotency-Key, serialized per turn_id.
 

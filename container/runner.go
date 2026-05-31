@@ -644,7 +644,7 @@ func buildArgs(
 		args = append(args,
 			"-e", "HTTP_PROXY="+proxy,
 			"-e", "HTTPS_PROXY="+proxy,
-			"-e", "NO_PROXY=localhost,127.0.0.1,gated,crackbox",
+			"-e", "NO_PROXY=localhost,127.0.0.1,gated,routd,crackbox",
 			"-e", "NODE_OPTIONS=--require=/app/proxy-shim.js")
 	}
 

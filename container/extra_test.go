@@ -139,7 +139,7 @@ func TestBuildArgsWithEgress(t *testing.T) {
 	if !strings.Contains(joined, "HTTP_PROXY=http://crackbox:3128") {
 		t.Errorf("missing HTTP_PROXY: %s", joined)
 	}
-	if !strings.Contains(joined, "NO_PROXY=localhost,127.0.0.1,gated,crackbox") {
+	if !strings.Contains(joined, "NO_PROXY=localhost,127.0.0.1,gated,routd,crackbox") {
 		t.Errorf("missing NO_PROXY: %s", joined)
 	}
 }
