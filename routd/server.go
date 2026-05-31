@@ -44,6 +44,9 @@ type Deliverer interface {
 	Dislike(jid, platformID string) error
 	SetSuggestions(jid string, prompts []core.PanePrompt) error
 	SetName(jid, title string) error
+	// RoundDone notifies the web SSE channel that a turn closed, so a /chat
+	// client stops waiting. folder is the web-chat folder (web: prefix stripped).
+	RoundDone(folder, turnID, status, errMsg string) error
 }
 
 // Verifier offline-verifies inbound bearer tokens (agent capability /

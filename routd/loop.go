@@ -25,12 +25,6 @@ type Runner interface {
 	Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error)
 }
 
-// RoundDoneFn notifies a web SSE channel that a turn closed (the
-// round_done event). folder is the chat JID's folder (web:<folder>
-// trimmed), NOT the routing-target folder — the routed-web-submission
-// gotcha (spec 5/E § turn lifecycle). nil = no web SSE wired.
-type RoundDoneFn func(folder, turnID, status, errMsg string)
-
 // Loop is routd's orchestration loop: poll routd.db for new messages,
 // resolve each chat's owning group, and dispatch a run to runed through
 // the per-folder queue. It is the SOLE driver of turns; routd is the sole
@@ -40,7 +34,6 @@ type Loop struct {
 	q          *queue.GroupQueue
 	runner     Runner
 	deliver    Deliverer
-	roundDone  RoundDoneFn
 	pollEvery  time.Duration
 	runTimeout time.Duration
 	scopes     []types.Scope
@@ -87,7 +80,6 @@ type LoopConfig struct {
 	MaxRuns    int
 	IpcDir     string
 	RunScopes  []types.Scope
-	RoundDone  RoundDoneFn
 
 	// Prompt-envelope inputs (buildAgentPrompt). InstanceName feeds the
 	// autocalls <instance> field; ObserveWindowMessages/Chars are the
@@ -123,7 +115,6 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		db:              db,
 		runner:          runner,
 		deliver:         cfg.Deliver,
-		roundDone:       cfg.RoundDone,
 		pollEvery:       cfg.PollEvery,
 		runTimeout:      cfg.RunTimeout,
 		scopes:          cfg.RunScopes,
@@ -168,10 +159,10 @@ func (l *Loop) StopQueue() {
 // publishRoundDone fans a closed-turn notice to the web SSE channel. The
 // turns.go /result handler calls it on the first terminal signal.
 func (l *Loop) publishRoundDone(folder, turnID string) {
-	if l == nil || l.roundDone == nil {
+	if l == nil || l.deliver == nil {
 		return
 	}
-	l.roundDone(folder, turnID, "success", "")
+	_ = l.deliver.RoundDone(folder, turnID, "success", "")
 }
 
 // Run drives the poll loop until ctx is cancelled. On start it re-feeds

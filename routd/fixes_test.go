@@ -50,6 +50,7 @@ func (d *recDeliverer) Repost(_, _ string) (string, error)                 { ret
 func (d *recDeliverer) Dislike(_, _ string) error                          { d.dislikes++; return nil }
 func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
+func (d *recDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
 
 var errSend = errSendT("send failed")
 

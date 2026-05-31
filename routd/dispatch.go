@@ -145,6 +145,13 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, derr
 	}
 	if out.Steered {
+		// The batch was written into the folder's already-live container; the
+		// original run owns it and will submit_turn under ITS turn_id. Mark THIS
+		// turn_context done so a re-fed poll (or recoverPending after a restart)
+		// sees it terminal and skips re-dispatch — else it re-runs as a fresh
+		// spawn and duplicates the output (bughunt D-HIGH-2/6).
+		_ = l.db.SetTurnState(turnID, "done")
+		_ = l.db.SetRunReturned(turnID)
 		return true, true, nil
 	}
 	if out.BreakerOpen {

@@ -253,6 +253,7 @@ func (d *fakeDeliverer) Repost(_, _ string) (string, error)                 { re
 func (d *fakeDeliverer) Dislike(_, _ string) error                          { return nil }
 func (d *fakeDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *fakeDeliverer) SetName(_, _ string) error                          { return nil }
+func (d *fakeDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
 
 func countBots(t *testing.T, db *DB, jid string) int {
 	t.Helper()
