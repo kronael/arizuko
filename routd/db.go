@@ -3,6 +3,7 @@ package routd
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -69,12 +70,17 @@ func nowTS() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // --- groups ---
 
-// PutGroup upserts a group identity row.
+// PutGroup upserts a group identity row, persisting the per-group model +
+// container_config so dispatchRun can forward them to runed (GroupConfig reads
+// them back). A zero Config marshals to a small JSON object — harmless; runed's
+// round-trip yields the same zero core.GroupConfig.
 func (d *DB) PutGroup(g core.Group) error {
-	_, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, model)
-		VALUES(?,?,?,?)
-		ON CONFLICT(folder) DO UPDATE SET product=excluded.product, model=excluded.model, updated_at=?`,
-		g.Folder, nowTS(), g.Product, g.Model, nowTS())
+	cfgJSON, _ := json.Marshal(g.Config)
+	_, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, model, container_config)
+		VALUES(?,?,?,?,?)
+		ON CONFLICT(folder) DO UPDATE SET product=excluded.product, model=excluded.model,
+			container_config=excluded.container_config, updated_at=?`,
+		g.Folder, nowTS(), g.Product, g.Model, string(cfgJSON), nowTS())
 	return err
 }
 
@@ -83,6 +89,21 @@ func (d *DB) GroupExists(folder string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM groups WHERE folder=?", folder).Scan(&n)
 	return n == 1
+}
+
+// GroupConfig returns the per-group model override + the opaque container_config
+// (parsed from its JSON TEXT column) for dispatchRun to forward to runed. Empty
+// model / nil config when the group is unknown or unset → runed uses the
+// instance defaults.
+func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
+	var m sql.NullString
+	var c sql.NullString
+	d.db.QueryRow("SELECT model, container_config FROM groups WHERE folder=?", folder).Scan(&m, &c)
+	model = m.String
+	if c.Valid && c.String != "" {
+		_ = json.Unmarshal([]byte(c.String), &cfg)
+	}
+	return model, cfg
 }
 
 // AllGroups returns every registered group keyed by folder (mirrors

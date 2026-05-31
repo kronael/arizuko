@@ -228,6 +228,11 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 	if trigger != "" && !strings.HasPrefix(trigger, "timed-") && !strings.HasPrefix(trigger, "system") {
 		caller = types.UserSub(trigger)
 	}
+	// Forward the per-group model + container_config (were dropped → every group
+	// ran the instance default + ignored custom mounts/timeouts) and the
+	// timed-isolated flag (was dropped → one-off runs persisted session lineage
+	// they shouldn't). spec 5/E § run request.
+	model, containerCfg := l.db.GroupConfig(folder)
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:           types.Folder(folder),
 		Topic:            topic,
@@ -238,5 +243,8 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 		CallerSub:        caller,
 		TurnID:           turnID,
 		CapabilityScopes: l.scopes,
+		Model:            model,
+		ContainerConfig:  containerCfg,
+		Isolated:         strings.HasPrefix(trigger, "timed-isolated:"),
 	})
 }
