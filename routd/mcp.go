@@ -43,10 +43,10 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		GroupsDir:     s.groupsDir,
 		WebDir:        s.webDir,
 		SendMessage: func(jid, text string) (string, error) {
-			return s.mcpAppend(t.turnID, jid, text, "", false)
+			return s.mcpDeliver(t.turnID, jid, text, "")
 		},
 		SendReply: func(jid, text, replyTo string) (string, error) {
-			return s.mcpAppend(t.turnID, jid, text, replyTo, true)
+			return s.mcpDeliver(t.turnID, jid, text, replyTo)
 		},
 		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) error {
 			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo)
@@ -102,50 +102,34 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	}
 }
 
-// mcpAppend runs appendAndDeliver and, unlike the HTTP path, persists the bot
-// row directly (no idempotency ledger — the in-process socket call is not
-// retried by an external client). Returns the platform id.
-func (s *Server) mcpAppend(turnID, jid, text, replyTo string, threaded bool) (string, error) {
-	status, resp, row := s.appendAndDeliver(turnID, jid, text, replyTo, threaded)
-	if row != nil {
-		_ = s.db.PutMessage(*row)
+// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer,
+// matching gated's SendReply/SendMessage = deliver-only. The ipc tool layer's
+// recordOutbound persists the bot row + threads (SetLastReply) + bumps
+// engagement, so this must NOT do any of that or the row double-persists.
+// Returns the platform id. returnTarget redirects delegated turns to the origin.
+func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
+	if s.deliver == nil {
+		return "", nil
 	}
-	if status != 200 {
-		return "", fmt.Errorf("send failed: status %d", status)
+	topic := ""
+	if tc, ok := s.db.GetTurnContext(turnID); ok {
+		jid = returnTarget(tc, jid)
+		topic = tc.Topic
 	}
-	sr, _ := resp.(apiv1.SendResult)
-	return sr.PlatformID, nil
+	return s.deliver.Send(jid, text, replyTo, topic, "mcp-"+randHex(8))
 }
 
-// mcpAppendDoc appends a pending bot row, delivers the file, and stamps sent on
-// success — the in-process twin of handleDocument's body.
+// mcpAppendDoc is the in-process send_file: deliver-only (internalSend's
+// recordOutbound persists the row), mirroring mcpDeliver for documents.
 func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) error {
-	unlock := lockTurn(turnID)
-	defer unlock()
-	tc, ok := s.db.GetTurnContext(turnID)
-	if !ok {
-		return fmt.Errorf("no turn context for turn_id")
+	if s.deliver == nil {
+		return nil
 	}
-	if s.callbackClosed(tc) {
-		return fmt.Errorf("turn already terminal")
+	if tc, ok := s.db.GetTurnContext(turnID); ok {
+		jid = returnTarget(tc, jid)
 	}
-	jid = returnTarget(tc, jid)
-	msgID := "out-" + randHex(8)
-	row := core.Message{
-		ID: msgID, ChatJID: jid, Sender: tc.Folder, Content: caption,
-		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
-		Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending,
-	}
-	var derr error
-	if s.deliver != nil {
-		if _, err := s.deliver.Document(jid, path, name, caption, replyTo, msgID); err == nil {
-			row.Status = core.MessageStatusSent
-		} else {
-			derr = err
-		}
-	}
-	_ = s.db.PutMessage(row)
-	return derr
+	_, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
+	return err
 }
 
 // mcpIssueRouteToken maps the ipc.GatedFns five-arg signature onto routd's

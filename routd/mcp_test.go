@@ -8,9 +8,11 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// TestBuildGatedFnsSendReply: SendReply against a seeded turn context appends a
-// bot row and fans the text out to the Deliverer (the in-process MCP write path
-// reuses appendAndDeliver, then persists the row itself — no idem ledger).
+// TestBuildGatedFnsSendReply: SendReply is deliver-only — it fans the text out
+// to the Deliverer and returns the platform id, matching gated's SendReply. It
+// does NOT persist the bot row; that is the ipc tool layer's recordOutbound (not
+// invoked when the closure is called directly). The full socket path including
+// the persist is covered by TestServeTurnMCP_ReplyOverSocket.
 func TestBuildGatedFnsSendReply(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -34,9 +36,6 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 	}
 	if len(deliver.sends) != 1 || deliver.sends[0].text != "answer" {
 		t.Fatalf("deliver.sends=%+v want one 'answer'", deliver.sends)
-	}
-	if n := countBots(t, db, "tg:42"); n != 1 {
-		t.Fatalf("bot rows=%d want 1", n)
 	}
 }
 
