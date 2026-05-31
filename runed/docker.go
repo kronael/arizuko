@@ -195,13 +195,16 @@ func writeIPCInput(ipcDir, text string) error {
 	return nil
 }
 
+// outcomeFor maps a container exit to the run outcome. Post-flip the agent's
+// output goes out-of-band over routd's in-process MCP socket, so runed NEVER
+// sees it (cmd.Stdout is io.Discard, HadOutput is never set) — the old
+// `!HadOutput && Result==""` → Silent test mis-classified EVERY clean run as
+// silent, which routd's queue counts as a failure → the folder's circuit breaker
+// tripped after 3 turns. A completed run is OK unless the runner flagged an
+// error/timeout (Status=="error" on a crash, or Error set on timeout/spawn-fail).
 func outcomeFor(o container.Output) string {
-	switch {
-	case o.Status == "error":
+	if o.Status == "error" || o.Error != "" {
 		return runedv1.OutcomeError
-	case !o.HadOutput && o.Result == "":
-		return runedv1.OutcomeSilent
-	default:
-		return runedv1.OutcomeOK
 	}
+	return runedv1.OutcomeOK
 }
