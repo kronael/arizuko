@@ -1251,3 +1251,18 @@ KEPT for now (cheap, tested, REST-uniform). Future minimization: delete the HTTP
 surface + idem ledger + convert the ~6 test files (auth_test, deliver_test,
 authd_integration_test, parity_test, contract_test, fixes_test) to drive the
 in-process MCP path instead. Not done now — test-conversion churn, no functional gain.
+
+## Eval skill drift (2026-05-31, LOW — eval skill, not split code)
+
+`/eval` (.claude/skills/eval/SKILL.md) check #4 queries `chats.errored` — column
+no longer exists (schema changed; errored tracking moved). Check #10 reads
+`PRAGMA user_version` but db_utils.Migrate tracks applied migrations in its own
+table (user_version stays 0), so the "DB behind" check is a false-negative.
+Fix: update check #4 to the current errored mechanism + check #10 to the
+migrations table. Tangential to the split; do during a docs/skill pass.
+
+## Eval baseline 2026-05-31 11:5x — krons gated v0.48 HEALTHY
+service active; channels registering; no container/lifecycle errors; idle.
+ONLY recurring error: whatsapp auto-deregister (503 disconnected) ~every 6min =
+the known whapd pairing issue (memory whapd_pairing_recovery; awaiting user re-pair).
+Not a code bug. Split daemons not deployed (gated default). Baseline = PASS.
