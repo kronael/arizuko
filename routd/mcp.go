@@ -15,10 +15,11 @@ import (
 
 // mcp.go stands up the per-turn agent MCP socket IN-PROCESS, the same way
 // gated does via ipc.ServeMCP — but wired to routd's own DB + Deliverer
-// instead of federating over HTTP to runed. This is a CAPABILITY for the
-// cutover's next phase: ServeTurnMCP is NOT yet called from the dispatch
-// loop. The tools that need the execution plane (spawn/setup/voice/tasks/
-// ACL/identity) are deferred to runed/authd and left nil (see bugs.md).
+// instead of federating over HTTP to runed. runTurn calls ServeTurnMCP per
+// turn before dispatch (the routd half of the socket-ownership flip; runed
+// still creates its own socket until Phase 3b). The tools that need the
+// execution plane (spawn/setup/voice/tasks/ACL/identity) are deferred to
+// runed/authd and left nil (see bugs.md).
 
 // turnMCP is the per-turn binding the in-process fns close over: which folder/
 // topic/chat/turn the socket serves and what triggered it. It mirrors the
@@ -39,9 +40,8 @@ type turnMCP struct {
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
 		EngagementTTL: s.engagementT,
-		// GroupsDir/WebDir back the file-path tools (send_file, vhosts). routd's
-		// Server doesn't carry them yet; left empty until the dispatch wire-in
-		// supplies them (the next phase passes the cfg dirs through).
+		GroupsDir:     s.groupsDir,
+		WebDir:        s.webDir,
 		SendMessage: func(jid, text string) (string, error) {
 			return s.mcpAppend(t.turnID, jid, text, "", false)
 		},
@@ -321,8 +321,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the
 // folder's tier-default grant rules, then stands up ipc.ServeMCP wired to
 // routd's own DB + Deliverer. expectedUID gates peers (1000 = ant `node` user,
-// or the dev host uid). Returns the stop func (removes the socket). NOT called
-// from dispatch — a capability for the next cutover phase.
+// or the dev host uid). Returns the stop func (removes the socket). Called
+// per-turn from runTurn before dispatch.
 //
 // Operator ACL overlay is DEFERRED: routd has no acl table, so callerSub is ""
 // (full operator access) and StoreFns.Authorize stays nil. The row-based ACL

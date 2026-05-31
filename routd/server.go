@@ -64,6 +64,11 @@ type Server struct {
 	engagementT time.Duration
 	webHost     string
 
+	// groupsDir/webDir back the file-path agent tools (send_file, vhosts) the
+	// in-process MCP socket exposes; set via SetDirs from the cfg dirs.
+	groupsDir string
+	webDir    string
+
 	// Channel-registration surface (ported from gated's api). reg==nil leaves
 	// the /v1/channels endpoints unmounted (pure REST tests). on{Register,
 	// Deregister} mirror gated's live-channel hooks so the Deliverer reuses a
@@ -79,6 +84,13 @@ func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagemen
 		engagementTTL = 30 * time.Minute
 	}
 	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
+}
+
+// SetDirs supplies the group + web roots the in-process MCP file-path tools
+// (send_file, vhosts) resolve against. Set post-construction in main wiring.
+func (s *Server) SetDirs(groupsDir, webDir string) {
+	s.groupsDir = groupsDir
+	s.webDir = webDir
 }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;

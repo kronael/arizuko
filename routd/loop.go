@@ -3,11 +3,14 @@ package routd
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -41,6 +44,13 @@ type Loop struct {
 	pollEvery  time.Duration
 	runTimeout time.Duration
 	scopes     []types.Scope
+
+	// srv stands up the per-turn agent MCP socket in-process (ServeTurnMCP);
+	// set post-construction via BindServer (Loop↔Server is a deliberate cycle).
+	// folders resolves the per-folder ipc dir so routd and runed agree on the
+	// socket path. Both nil-safe: runTurn skips the socket when srv is nil.
+	srv     *Server
+	folders *groupfolder.Resolver
 
 	// Prompt-envelope inputs (buildAgentPrompt). instanceName feeds the
 	// autocalls block; observeMessages/observeChars are the cfg-default
@@ -122,6 +132,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		observeMessages: cfg.ObserveWindowMessages,
 		observeChars:    cfg.ObserveWindowChars,
 		groupsDir:       cfg.GroupsDir,
+		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
@@ -131,6 +142,11 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	l.q.SetFolderForJidFn(l.folderForJid)
 	return l
 }
+
+// BindServer wires the Server post-construction so runTurn can stand up the
+// per-turn MCP socket (the Server holds the DB+Deliverer the in-process tools
+// close over). Server already holds loop; this closes the cycle.
+func (l *Loop) BindServer(s *Server) { l.srv = s }
 
 // Enqueue schedules a chat for processing (called by ingress after a
 // PutMessage). The queue serializes per folder and collapses duplicates.
@@ -162,6 +178,7 @@ func (l *Loop) publishRoundDone(folder, turnID string) {
 // chats whose turn_context is still 'running' (crash recovery) from the
 // un-advanced agent_cursor.
 func (l *Loop) Run(ctx context.Context) {
+	l.sweepOrphanSocks()
 	l.recoverPending()
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
@@ -181,6 +198,25 @@ func (l *Loop) Run(ctx context.Context) {
 			l.maybeScanProactive(time.Now())
 			l.maybeRetryOutbound(time.Now())
 			l.maybeGC(time.Now())
+		}
+	}
+}
+
+// sweepOrphanSocks best-effort removes stale per-folder gated.sock files left
+// by a crashed prior run (ipc.ServeMCP also removes its sock pre-listen, so
+// this only matters for folders that won't get a fresh run this boot).
+func (l *Loop) sweepOrphanSocks() {
+	base := l.folders.IpcDir
+	if base == "" {
+		return
+	}
+	subs, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, s := range subs {
+		if s.IsDir() {
+			_ = os.Remove(groupfolder.IpcSocket(filepath.Join(base, s.Name())))
 		}
 	}
 }
@@ -534,6 +570,21 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return false, false, nil
 	}
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
+
+	// Stand up the per-turn agent MCP socket in-process; stop() removes it when
+	// runTurn returns (dispatchRun is synchronous, so the socket lives for the
+	// whole run). routd and runed agree on the path via folders.IpcPath.
+	if l.srv != nil {
+		if ipcDir, ierr := l.folders.IpcPath(folder); ierr == nil {
+			if stop, serr := l.srv.ServeTurnMCP(turnMCP{
+				folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender,
+			}, ipcDir); serr == nil {
+				defer stop()
+			} else {
+				slog.Warn("serve turn mcp", "folder", folder, "turn_id", turnID, "err", serr)
+			}
+		}
+	}
 
 	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
 	if derr != nil {

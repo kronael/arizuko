@@ -102,6 +102,10 @@ func main() {
 	})
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
+	// Close the Loop↔Server cycle and supply the dirs the in-process MCP
+	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
+	loop.BindServer(srv)
+	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
 	srv.SetChannelRegistry(reg, onRegister, onDeregister)
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
