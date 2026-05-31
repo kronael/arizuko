@@ -96,6 +96,9 @@ type Input struct {
 	Annotations []string         `json:"-"`
 	GatedFns    ipc.GatedFns     `json:"-"`
 	StoreFns    ipc.StoreFns     `json:"-"`
+	// ExternalMCP: the MCP socket is owned by the caller (routd hosts it
+	// in-process); skip the in-container ServeMCP, just mount the ipc dir.
+	ExternalMCP bool `json:"-"`
 
 	Egress EgressConfig `json:"-"`
 
@@ -219,7 +222,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 
 	stopMCP := func() {}
-	if ipcDir != "" {
+	if ipcDir != "" && !in.ExternalMCP {
 		sockPath := groupfolder.IpcSocket(ipcDir)
 		// Expected peer uid for SO_PEERCRED check and socket chown.
 		// Defaults to 1000 (ant image's `node` user). In dev, the host

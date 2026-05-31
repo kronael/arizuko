@@ -219,6 +219,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		SessionID: sessionID, MessageBatch: req.MessageBatch,
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
+		Model: req.Model, ContainerConfig: req.ContainerConfig,
 		RunTTL:        m.runTTL,
 		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})

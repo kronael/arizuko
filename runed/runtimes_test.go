@@ -2,10 +2,6 @@ package runed
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -15,8 +11,6 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/ipc"
-	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -53,7 +47,7 @@ func TestProdSteerPath(t *testing.T) {
 	}
 	var signaled int32
 	rt := &dockerRuntime{
-		cfg: &core.Config{}, folders: folders, runner: runner, fed: NewFederator("http://routd.invalid"),
+		cfg: &core.Config{}, folders: folders, runner: runner,
 		signal: func(name string) error { atomic.AddInt32(&signaled, 1); return nil },
 	}
 
@@ -111,7 +105,7 @@ func TestExitCodeMessageCountFlow(t *testing.T) {
 	}
 	close(runner.release) // don't block.
 	rt := &dockerRuntime{cfg: &core.Config{}, folders: folders, runner: runner,
-		fed: NewFederator("http://routd.invalid"), signal: func(string) error { return nil }}
+		signal: func(string) error { return nil }}
 
 	res := rt.Run(context.Background(), RunSpec{
 		RunID: "run_x", Folder: "demo", ContainerName: "arizuko-test-demo-1", MessageBatch: "m",
@@ -138,7 +132,6 @@ func TestDockerRuntimeRunTTLKill(t *testing.T) {
 	killed := make(chan string, 4)
 	rt := &dockerRuntime{
 		cfg: &core.Config{}, folders: folders, runner: runner,
-		fed:    NewFederator("http://routd.invalid"),
 		signal: func(string) error { return nil },
 		// The TTL watcher fires this; capture the name and release the run so
 		// it returns (the prod kill would stop the container, ending the run).
@@ -188,7 +181,6 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 	var kills int32
 	rt := &dockerRuntime{
 		cfg: &core.Config{}, folders: folders, runner: runner,
-		fed:    NewFederator("http://routd.invalid"),
 		signal: func(string) error { return nil },
 		kill:   func(string) error { atomic.AddInt32(&kills, 1); return nil },
 	}
@@ -205,43 +197,38 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 	}
 }
 
-// TestSubmitTurnForwardsCost: the agent's submit_turn carries per-model token
-// usage + caller_sub on ipc.TurnResult; the federation forward MUST land them
-// on routd's TurnResult so cost_log can persist (Bug 5 — runtimes.go dropped
-// Models + CallerSub, so cost breakdown never reached routd).
-func TestSubmitTurnForwardsCost(t *testing.T) {
-	var got routdv1.TurnResult
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &got)
-		_ = json.NewEncoder(w).Encode(routdv1.TurnResultAck{Recorded: true})
-	}))
-	defer srv.Close()
-
-	rt := &dockerRuntime{
-		cfg: &core.Config{}, folders: &groupfolder.Resolver{},
-		fed: NewFederator(srv.URL), signal: func(string) error { return nil },
+// TestContainerConfigToGroupConfig: the opaque RunRequest.ContainerConfig map
+// round-trips into container.Input.Config (core.GroupConfig) via JSON, and the
+// per-group Model override flows onto Input.Model. routd owns the MCP socket
+// in-process, so runed spawns with ExternalMCP=true (no in-process ServeMCP).
+func TestContainerConfigToGroupConfig(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{Status: "success", ExitCode: 0},
 	}
-	gated := rt.gatedFns(context.Background(), RunSpec{TurnID: "turn-1", Token: "tok"})
+	close(runner.release)
+	rt := &dockerRuntime{cfg: &core.Config{}, folders: folders, runner: runner,
+		signal: func(string) error { return nil }}
 
-	err := gated.SubmitTurn("acme/eng", ipc.TurnResult{
-		TurnID: "turn-1", SessionID: "s-1", Status: "success", Result: "done",
-		CallerSub: "user:42",
-		Models: map[string]ipc.ModelUsage{
-			"claude-opus-4-8": {Input: 1200, Output: 300, CacheRead: 80, CacheWrite: 40, CostCents: 17},
-		},
+	rt.Run(context.Background(), RunSpec{
+		RunID: "run_cfg", Folder: "demo", ContainerName: "arizuko-test-demo-cfg",
+		MessageBatch: "m", Model: "claude-opus-4-8",
+		ContainerConfig: map[string]any{"MaxChildren": 3, "Timeout": int64(90 * time.Second)},
+		RegisterSteer:   func(func(string) bool) {},
 	})
-	if err != nil {
-		t.Fatalf("SubmitTurn: %v", err)
+
+	in := runner.last.Load()
+	if in == nil {
+		t.Fatal("runner never spawned")
 	}
-	if got.CallerSub != "user:42" {
-		t.Fatalf("caller_sub=%q want user:42 (dropped)", got.CallerSub)
+	if !in.ExternalMCP {
+		t.Fatal("Input.ExternalMCP=false want true (routd owns the socket)")
 	}
-	mc, ok := got.Models["claude-opus-4-8"]
-	if !ok {
-		t.Fatalf("models dropped: %+v", got.Models)
+	if in.Model != "claude-opus-4-8" {
+		t.Fatalf("Input.Model=%q want claude-opus-4-8", in.Model)
 	}
-	if mc.Input != 1200 || mc.Output != 300 || mc.CostCents != 17 {
-		t.Fatalf("model cost = %+v want input=1200 output=300 cost_cents=17", mc)
+	if in.Config.MaxChildren != 3 || in.Config.Timeout != 90*time.Second {
+		t.Fatalf("Input.Config=%+v want MaxChildren=3 Timeout=90s", in.Config)
 	}
 }

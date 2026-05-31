@@ -12,18 +12,20 @@ import (
 // agent uses to call back into routd, and the turn_id stamped onto every
 // callback. Mirrors the PINNED POST /v1/runs body (spec 5/P).
 type RunSpec struct {
-	RunID         string
-	Folder        string
-	ContainerName string // the Manager's pinned name; the Runtime spawns + Kills by it
-	Topic         string
-	ChatJID       string
-	SessionID     string // resume; empty = fresh
-	MessageBatch  string // rendered prompt STRING
-	TriggerSender string
-	CallerSub     types.UserSub
-	TurnID        string
-	Token         string // brokered capability token (the JWS, in memory only)
-	Isolated      bool
+	RunID           string
+	Folder          string
+	ContainerName   string // the Manager's pinned name; the Runtime spawns + Kills by it
+	Topic           string
+	ChatJID         string
+	SessionID       string // resume; empty = fresh
+	MessageBatch    string // rendered prompt STRING
+	TriggerSender   string
+	CallerSub       types.UserSub
+	TurnID          string
+	Token           string // brokered capability token (the JWS, in memory only)
+	Isolated        bool
+	Model           string         // per-group model override; empty = instance default
+	ContainerConfig map[string]any // opaque GroupConfig forwarded from groups.container_config
 
 	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
 	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is

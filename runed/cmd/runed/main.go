@@ -34,7 +34,6 @@ func main() {
 	}
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
-	routdURL := envOr("ROUTD_URL", "http://routd:8080")
 	runTTL := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 
 	db, err := runed.Open(cfg.StoreDir)
@@ -79,8 +78,7 @@ func main() {
 	}
 
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-	fed := runed.NewFederator(routdURL)
-	runtime := runed.NewDockerRuntime(cfg, folders, fed, db)
+	runtime := runed.NewDockerRuntime(cfg, folders, db)
 
 	mgr := runed.NewManager(db, runtime, broker, runed.ManagerConfig{
 		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
@@ -112,7 +110,7 @@ func main() {
 
 	httpd := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {
-		slog.Info("runed started", "addr", listenAddr, "db", cfg.StoreDir, "routd", routdURL)
+		slog.Info("runed started", "addr", listenAddr, "db", cfg.StoreDir)
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("http server", "err", err)
 			os.Exit(1)

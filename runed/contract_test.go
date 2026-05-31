@@ -6,10 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 
-	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -30,37 +28,16 @@ func newTestRuned(t *testing.T, rt Runtime) (*DB, *Server) {
 }
 
 // TestContractRun is the spec 5/P § Standalone-ready acceptance: accept a
-// POST /v1/runs, broker a (faked) token, run a FakeRuntime that connects
-// back (here: forwards a reply to a stub routd via the Federator) and
-// submits a turn, and return {run_id, outcome:ok, session_id}.
+// POST /v1/runs, broker a (faked) token, run the (Fake)Runtime with the
+// brokered token + decoded RunRequest, and return {run_id, outcome:ok,
+// session_id}. routd owns the MCP socket in-process now — runed is a pure
+// spawner, so the contract is the spawn outcome, not federated callbacks.
 func TestContractRun(t *testing.T) {
-	// stub routd: records the callback bodies.
-	var replies, results int32
-	stubRoutd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/reply"):
-			atomic.AddInt32(&replies, 1)
-			json.NewEncoder(w).Encode(routdv1.SendResult{MessageID: "out1", PlatformID: "pid1", Status: "sent"})
-		case strings.HasSuffix(r.URL.Path, "/result"):
-			atomic.AddInt32(&results, 1)
-			json.NewEncoder(w).Encode(routdv1.TurnResultAck{Recorded: true})
-		default:
-			w.WriteHeader(404)
-		}
-	}))
-	defer stubRoutd.Close()
-	fed := NewFederator(stubRoutd.URL)
-
-	// FakeRuntime drives the federated callback + submit_turn, the way a
-	// real agent's tools would.
-	rt := FakeRuntime{Fn: func(ctx context.Context, spec RunSpec) RunResult {
-		if spec.Token != "fake.jws" {
-			t.Errorf("agent token=%q want brokered fake.jws", spec.Token)
-		}
-		_, _ = fed.Forward(ctx, "reply", spec.TurnID, spec.Token, "i1",
-			map[string]any{"jid": spec.ChatJID, "text": "ack"})
-		_, _ = fed.Result(ctx, spec.TurnID, spec.Token, "r1", routdv1.TurnResult{
-			TurnID: spec.TurnID, SessionID: "sess-runed", Status: "success"})
+	// FakeRuntime stands in for the spawner: it sees the brokered token + the
+	// fields decoded from RunRequest and returns the run outcome.
+	var sawSpec RunSpec
+	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
+		sawSpec = spec
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "sess-runed"}
 	}}
 
@@ -70,6 +47,8 @@ func TestContractRun(t *testing.T) {
 	rec := doRun(t, h, runedv1.RunRequest{
 		Folder: "demo", ChatJID: "slack:T/C/U", TurnID: "wamid.X",
 		MessageBatch: "rendered prompt", CallerSub: "user:u1",
+		Model:            "claude-opus-4-8",
+		ContainerConfig:  map[string]any{"MaxChildren": 2},
 		CapabilityScopes: []types.Scope{"messages:send:own_group"},
 	})
 	if rec.Code != 200 {
@@ -86,8 +65,20 @@ func TestContractRun(t *testing.T) {
 	if out.RunID == "" {
 		t.Fatal("run_id empty")
 	}
-	if atomic.LoadInt32(&replies) != 1 || atomic.LoadInt32(&results) != 1 {
-		t.Fatalf("callbacks replies=%d results=%d want 1,1", replies, results)
+
+	// the Runtime saw the brokered token + the fields decoded from RunRequest
+	// (Model + ContainerConfig are forwarded, not dropped).
+	if sawSpec.Token != "fake.jws" {
+		t.Fatalf("agent token=%q want brokered fake.jws", sawSpec.Token)
+	}
+	if sawSpec.MessageBatch != "rendered prompt" || sawSpec.ChatJID != "slack:T/C/U" {
+		t.Fatalf("spec not decoded from RunRequest: %+v", sawSpec)
+	}
+	if sawSpec.Model != "claude-opus-4-8" {
+		t.Fatalf("spec.Model=%q want claude-opus-4-8 (dropped)", sawSpec.Model)
+	}
+	if v, _ := sawSpec.ContainerConfig["MaxChildren"]; v != float64(2) {
+		t.Fatalf("spec.ContainerConfig=%+v want MaxChildren=2 (dropped)", sawSpec.ContainerConfig)
 	}
 
 	// the spawn + brokered token were persisted; one session_log row.

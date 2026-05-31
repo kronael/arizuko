@@ -15,16 +15,13 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/ipc"
-	routdv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
 // FakeRuntime backs the contract test + standalone acceptance: it invokes a
-// caller-supplied function with the RunSpec (which can drive the federated
-// callbacks against routd) and returns its outcome. No docker, no socket
-// (spec 5/P § acceptance: FakeRuntime backs unit tests of the envelope
-// without spawning anything).
+// caller-supplied function with the RunSpec and returns its outcome. No
+// docker, no socket (spec 5/P § acceptance: FakeRuntime backs unit tests of
+// the envelope without spawning anything).
 type FakeRuntime struct {
 	Fn func(ctx context.Context, spec RunSpec) RunResult
 }
@@ -40,18 +37,16 @@ func (f FakeRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 // Kill is a no-op for the fake (no container to stop).
 func (FakeRuntime) Kill(string) error { return nil }
 
-// dockerRuntime is the production Runtime: it stands up the per-tenant MCP
-// host (ipc.ServeMCP) with GatedFns repointed at HTTP forwards into routd
-// (the Federator), then spawns the per-turn container via container.Run.
-// The envelope (socket, spawn, stream, teardown) is owned here; frames
-// arrive out-of-band via the federated callbacks. runed never appends.
+// dockerRuntime is the production Runtime: a pure container-spawner. routd
+// hosts the agent MCP socket in-process (Input.ExternalMCP), so runed only
+// mounts the ipc dir and spawns the per-turn container via container.Run.
+// runed still owns the lifecycle envelope: steer-into, runTTL kill, teardown.
 type dockerRuntime struct {
 	cfg     *core.Config
 	folders *groupfolder.Resolver
 	runner  container.Runner
-	fed     *Federator
-	// db is runed's own store, read directly for the runed-local StoreFns
-	// (RecentSessions ← session_log). nil disables those tools (local-dev).
+	// db is runed's own store (session_log). Retained for runed-local reads;
+	// nil in local-dev.
 	db *DB
 	// signal SIGUSR1s a running container by name (steer wakeup). Defaults
 	// to `docker kill --signal=SIGUSR1`; tests inject a fake so the prod
@@ -63,13 +58,11 @@ type dockerRuntime struct {
 	kill func(name string) error
 }
 
-// NewDockerRuntime builds the production Runtime around the docker runner +
-// the federation forward to routd. fed forwards the agent's message tools
-// to routd /v1/turns/{turn_id}/* (the sole appender); db backs the
-// runed-local read StoreFns (session_log).
-func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, fed *Federator, db *DB) Runtime {
+// NewDockerRuntime builds the production Runtime around the docker runner.
+// db backs the runed-local read surface (session_log).
+func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, db *DB) Runtime {
 	return &dockerRuntime{
-		cfg: cfg, folders: folders, runner: container.DockerRunner{}, fed: fed, db: db,
+		cfg: cfg, folders: folders, runner: container.DockerRunner{}, db: db,
 		signal: func(name string) error {
 			return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
 		},
@@ -88,32 +81,35 @@ func dockerKill(name string) error {
 	return nil
 }
 
-// Run spawns one container turn. GatedFns are repointed at the Federator so
-// the agent's reply/send/like/... tool calls forward to routd over HTTP,
-// stamped with this run's turn_id + the brokered token. submit_turn fans to
-// routd's /result twin. Before spawning it registers the steer closure so a
+// Run spawns one container turn. routd owns the MCP socket in-process
+// (ExternalMCP), so runed only mounts the ipc dir — no in-process ServeMCP,
+// no federation. Before spawning it registers the steer closure so a
 // concurrent POST /v1/runs writes into this live container instead of
 // spawning a second (spec 5/P § Steer-into-running-container).
-func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
+func (d *dockerRuntime) Run(_ context.Context, spec RunSpec) RunResult {
 	if spec.RegisterSteer != nil {
 		ipcDir, _ := d.folders.IpcPath(spec.Folder)
 		spec.RegisterSteer(d.steerInto(ipcDir, spec.ContainerName))
 	}
 	stopTTL := d.armRunTTL(spec.RunTTL, spec.ContainerName)
 	defer stopTTL()
-	gated := d.gatedFns(ctx, spec)
-	store := d.storeFns(ctx, spec)
+	var gc core.GroupConfig
+	if len(spec.ContainerConfig) > 0 {
+		b, _ := json.Marshal(spec.ContainerConfig)
+		_ = json.Unmarshal(b, &gc)
+	}
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
-		Name:      spec.ContainerName,
-		Prompt:    spec.MessageBatch,
-		SessionID: spec.SessionID,
-		ChatJID:   spec.ChatJID,
-		Folder:    spec.Folder,
-		Topic:     spec.Topic,
-		MessageID: spec.TurnID,
-		Sender:    spec.TriggerSender,
-		GatedFns:  gated,
-		StoreFns:  store,
+		Name:        spec.ContainerName,
+		Prompt:      spec.MessageBatch,
+		SessionID:   spec.SessionID,
+		ChatJID:     spec.ChatJID,
+		Folder:      spec.Folder,
+		Topic:       spec.Topic,
+		MessageID:   spec.TurnID,
+		Sender:      spec.TriggerSender,
+		Model:       spec.Model,
+		Config:      gc,
+		ExternalMCP: true,
 	})
 	return RunResult{
 		Outcome:      outcomeFor(out),
@@ -214,73 +210,6 @@ func writeIPCInput(ipcDir, text string) error {
 	return nil
 }
 
-// gatedFns builds the federation forward: every message tool the agent
-// calls is HTTP-forwarded to routd, stamped with spec.TurnID + spec.Token.
-// idemKey is per-call; the agent's tool layer is at-least-once, so a stable
-// per-call key keeps the routd ledger honest.
-func (d *dockerRuntime) gatedFns(ctx context.Context, spec RunSpec) ipc.GatedFns {
-	idem := func() string { return "fed-" + randHex(8) }
-	return ipc.GatedFns{
-		SendReply: func(jid, text, replyTo string) (string, error) {
-			r, err := d.fed.Forward(ctx, "reply", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "text": text, "reply_to_id": replyTo})
-			return platformID(r), err
-		},
-		SendMessage: func(jid, text string) (string, error) {
-			r, err := d.fed.Forward(ctx, "send", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "text": text})
-			return platformID(r), err
-		},
-		SendDocument: func(jid, path, name, caption, replyTo, _ string) error {
-			_, err := d.fed.Forward(ctx, "send_file", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "path": path, "name": name, "caption": caption, "reply_to_id": replyTo})
-			return err
-		},
-		Like: func(jid, target, reaction string) error {
-			_, err := d.fed.Forward(ctx, "like", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target, "reaction": reaction})
-			return err
-		},
-		Dislike: func(jid, target string) error {
-			_, err := d.fed.Forward(ctx, "dislike", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target})
-			return err
-		},
-		Edit: func(jid, target, content string) error {
-			_, err := d.fed.Forward(ctx, "edit", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target, "content": content})
-			return err
-		},
-		Delete: func(jid, target string) error {
-			_, err := d.fed.Forward(ctx, "delete", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target})
-			return err
-		},
-		Pin: func(jid, target string) error {
-			_, err := d.fed.Forward(ctx, "pin_message", spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target})
-			return err
-		},
-		Unpin: func(jid, target string, all bool) error {
-			tool := "unpin_message"
-			if all {
-				tool = "unpin_all"
-			}
-			_, err := d.fed.Forward(ctx, tool, spec.TurnID, spec.Token, idem(),
-				map[string]any{"jid": jid, "platform_id": target})
-			return err
-		},
-		SubmitTurn: func(folder string, t ipc.TurnResult) error {
-			_, err := d.fed.Result(ctx, spec.TurnID, spec.Token, "turn-"+spec.TurnID, routdv1.TurnResult{
-				TurnID: spec.TurnID, SessionID: t.SessionID, Status: t.Status,
-				Result: t.Result, Error: t.Error,
-				CallerSub: t.CallerSub, Models: modelCosts(t.Models),
-			})
-			return err
-		},
-	}
-}
-
 func outcomeFor(o container.Output) string {
 	switch {
 	case o.Status == "error":
@@ -290,26 +219,4 @@ func outcomeFor(o container.Output) string {
 	default:
 		return runedv1.OutcomeOK
 	}
-}
-
-func platformID(r any) string {
-	if sr, ok := r.(routdv1.SendResult); ok {
-		return sr.PlatformID
-	}
-	return ""
-}
-
-// modelCosts maps the agent's per-model usage (ipc.ModelUsage) onto routd's
-// cost-log shape (routdv1.ModelCost). routd persists Input/Output/CostCents;
-// the agent's CacheRead/CacheWrite fold into CostCents upstream and are not a
-// cost_log column. nil/empty in → nil out (the cost-less ant path).
-func modelCosts(in map[string]ipc.ModelUsage) map[string]routdv1.ModelCost {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]routdv1.ModelCost, len(in))
-	for model, u := range in {
-		out[model] = routdv1.ModelCost{Input: u.Input, Output: u.Output, CostCents: u.CostCents}
-	}
-	return out
 }
