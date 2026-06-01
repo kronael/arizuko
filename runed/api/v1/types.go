@@ -28,6 +28,14 @@ type RunRequest struct {
 	Model            string         `json:"model"`            // group override; empty = instance default
 	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated         bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
+	// Grants is the per-folder grant ruleset routd derived (tier defaults + ACL);
+	// runed sets it on container.Input so buildMounts (share_mount) + the tier-0/1
+	// egress "*" logic see it. EgressAllowlist is the resolved crackbox allowlist
+	// (network_rules ancestry); runed wires it into the EgressConfig.AllowlistFn so
+	// the spawn is attached to the egress-isolated network. Both empty = no
+	// constraint (runed has neither store; routd is the authz plane — spec 5/E).
+	Grants          []string `json:"grants,omitempty"`
+	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
 }
 
 // RunOutcome is the synchronous response of POST /v1/runs, returned when

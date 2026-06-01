@@ -320,9 +320,18 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // Operator ACL overlay is DEFERRED: routd has no acl table, so callerSub is ""
 // (full operator access) and StoreFns.Authorize stays nil. The row-based ACL
 // gate moves to authd (see bugs.md).
+// deriveFolderGrants is the single grant-rule renderer for a folder: tier
+// defaults (grants.DeriveRules) keyed on the folder's tier + world. Used by both
+// ServeTurnMCP (the in-process MCP tool firewall) and dispatchRun (the rules
+// shipped to runed for buildMounts/egress) so the two can't drift. ACL overlay
+// is deferred (routd has no acl table — see bugs.md).
+func deriveFolderGrants(rs grants.RouteSource, folder string) []string {
+	tier := auth.Resolve(folder).Tier
+	return grants.DeriveRules(rs, folder, tier, auth.WorldOf(folder))
+}
+
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
-	tier := auth.Resolve(t.folder).Tier
-	rules := grants.DeriveRules(s.db, t.folder, tier, auth.WorldOf(t.folder))
+	rules := deriveFolderGrants(s.db, t.folder)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet (gated relied on the runner's buildMounts mkdir).
 	// ServeMCP only os.Removes the stale sock + Listens — never mkdirs — so create

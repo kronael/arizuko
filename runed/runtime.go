@@ -26,6 +26,8 @@ type RunSpec struct {
 	Isolated        bool
 	Model           string         // per-group model override; empty = instance default
 	ContainerConfig map[string]any // opaque GroupConfig forwarded from groups.container_config
+	Grants          []string       // routd-derived grant rules → container.Input.Grants
+	EgressAllowlist []string       // routd-resolved crackbox allowlist → EgressConfig.AllowlistFn
 
 	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
 	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is

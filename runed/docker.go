@@ -94,7 +94,9 @@ func (d *dockerRuntime) Run(_ context.Context, spec RunSpec) RunResult {
 		Sender:      spec.TriggerSender,
 		Model:       spec.Model,
 		Config:      gc,
+		Grants:      spec.Grants,
 		ExternalMCP: true,
+		Egress:      d.egress(spec.EgressAllowlist),
 	})
 	return RunResult{
 		Outcome:      outcomeFor(out),
@@ -102,6 +104,25 @@ func (d *dockerRuntime) Run(_ context.Context, spec RunSpec) RunResult {
 		Error:        out.Error,
 		ExitCode:     out.ExitCode,
 		MessageCount: out.MessageCount,
+	}
+}
+
+// egress builds the per-spawn crackbox EgressConfig from runed's own config +
+// the allowlist routd resolved (RunRequest.EgressAllowlist). AllowlistFn returns
+// that static per-folder list. EgressConfig.active() still gates on the crackbox
+// admin URL/network/container, so on a non-crackbox instance (EgressAPI empty)
+// this is inert; on a crackbox instance registerEgress attaches the spawn to the
+// isolated network with the allowlist. Was the gap that left split spawns on the
+// default network = open internet (bugs.md egress soak-blocker).
+func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
+	return container.EgressConfig{
+		NetworkPrefix:     d.cfg.EgressNetworkPrefix,
+		CrackboxContainer: d.cfg.EgressCrackbox,
+		ParentSubnet:      d.cfg.EgressParentSubnet,
+		ProxyURL:          d.cfg.EgressProxyURL,
+		AdminURL:          d.cfg.EgressAPI,
+		AdminSecret:       d.cfg.EgressAdminSecret,
+		AllowlistFn:       func(string) ([]string, error) { return allowlist, nil },
 	}
 }
 

@@ -240,6 +240,12 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 	// timed-isolated flag (was dropped → one-off runs persisted session lineage
 	// they shouldn't). spec 5/E § run request.
 	model, containerCfg := l.db.GroupConfig(folder)
+	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
+	// authz plane; runed has neither store) and ship them so runed can attach the
+	// spawn to the crackbox network + honor share_mount. nil allowlist on error
+	// is fine — runed treats empty as no-extra-constraint (the base list lives in
+	// network_rules folder='').
+	allowlist, _ := l.db.ResolveAllowlist(folder)
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:           types.Folder(folder),
 		Topic:            topic,
@@ -253,5 +259,7 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 		Model:            model,
 		ContainerConfig:  containerCfg,
 		Isolated:         strings.HasPrefix(trigger, "timed-isolated:"),
+		Grants:           deriveFolderGrants(l.db, folder),
+		EgressAllowlist:  allowlist,
 	})
 }
