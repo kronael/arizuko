@@ -5,6 +5,11 @@ import { submitTurn } from './mcp.js';
 import { loadAgentMcpServers } from './mcp-servers.js';
 import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from './backend/index.js';
 
+// A resumable Claude Code session id is a UUID. arizuko's lineage placeholders
+// (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
+// must be treated as "no session yet" (start fresh), not passed to --resume.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -355,6 +360,17 @@ async function main(): Promise<void> {
     log(`Backend: ${backend.name()}`);
 
     let sessionId = containerInput.sessionId;
+    // arizuko mints a lineage placeholder (core.NewSessionID → "sess-<nano>", or
+    // a hex id from a fork) for a topic that has no real Claude session yet — e.g.
+    // a freshly-forked Slack thread. Claude `--resume` requires a UUID, so resuming
+    // a placeholder errors (error_during_execution) and burns the first turn on the
+    // retry-fresh recovery (the atlas "sometimes fails"). A non-UUID id means "no
+    // resumable session" → start fresh directly. Claude-only: other backends have
+    // their own id format, so don't second-guess theirs.
+    if (backend.name() === 'claude' && sessionId && !UUID_RE.test(sessionId)) {
+      log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
+      sessionId = undefined;
+    }
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
