@@ -63,11 +63,6 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string)
 	return folder, true
 }
 
-func (s *Server) authed(w http.ResponseWriter, r *http.Request) bool {
-	_, ok := s.authz(w, r, "")
-	return ok
-}
-
 // handleRun is the routd→runed contract (POST /v1/runs). Gated on the runs:run
 // scope: routd's service token carries it, and an operator may be granted it
 // for manual runs. runed is an internal docker-network service, but a scope
@@ -96,7 +91,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r) {
+	if _, ok := s.authz(w, r, ""); !ok {
 		return
 	}
 	sp, err := s.db.GetSpawn(r.PathValue("run_id"))

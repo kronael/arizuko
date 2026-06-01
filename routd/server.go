@@ -201,24 +201,19 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request, anyScope ...stri
 }
 
 // adapterName extracts the calling adapter's name from its service token
-// sub (service:<adapter>); "adapter" when there's no verifier (tests). Used
-// to mint <adapter>-<idempotency-key> ids.
-func (s *Server) adapterName(r *http.Request) string {
-	if s.verify == nil {
-		return "adapter"
-	}
-	sub, _, _, err := s.verify.Verify(r)
-	if err == nil {
-		return strings.TrimPrefix(sub, "service:")
-	}
-	return "adapter"
-}
-
 // --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "messages:write") {
+	sub, _, ok := s.authz(w, r, "messages:write")
+	if !ok {
 		return
+	}
+	// adapter name for the minted id is the verified caller (service:<adapter>
+	// → <adapter>); "adapter" when unverified (local-dev). Reuses the authz
+	// Verify above instead of a second Verify call.
+	adapter := strings.TrimPrefix(sub, "service:")
+	if adapter == "" {
+		adapter = "adapter"
 	}
 	var m apiv1.Message
 	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
@@ -239,7 +234,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "ambiguous_idempotency", "send either a stable id or X-Idempotency-Key, not both")
 		return
 	case m.ID == "" && idemKey != "":
-		m.ID = s.adapterName(r) + "-" + idemKey
+		m.ID = adapter + "-" + idemKey
 	case m.ID == "":
 		m.ID = "in-" + randHex(8)
 	}
@@ -326,11 +321,4 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 func atoi64(s string) (int64, bool) {
 	n, err := strconv.ParseInt(s, 10, 64)
 	return n, err == nil
-}
-
-func trimWeb(jid string) string {
-	if strings.HasPrefix(jid, "web:") {
-		return strings.TrimPrefix(jid, "web:")
-	}
-	return jid
 }

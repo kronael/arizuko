@@ -30,9 +30,6 @@ type dockerRuntime struct {
 	cfg     *core.Config
 	folders *groupfolder.Resolver
 	runner  container.Runner
-	// db is runed's own store (session_log). Retained for runed-local reads;
-	// nil in local-dev.
-	db *DB
 	// signal SIGUSR1s a running container by name (steer wakeup). Defaults
 	// to `docker kill --signal=SIGUSR1`; tests inject a fake so the prod
 	// steer path is exercised without docker.
@@ -44,10 +41,9 @@ type dockerRuntime struct {
 }
 
 // NewDockerRuntime builds the production Runtime around the docker runner.
-// db backs the runed-local read surface (session_log).
-func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver, db *DB) Runtime {
+func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver) Runtime {
 	return &dockerRuntime{
-		cfg: cfg, folders: folders, runner: container.DockerRunner{}, db: db,
+		cfg: cfg, folders: folders, runner: container.DockerRunner{},
 		signal: func(name string) error {
 			return exec.Command(container.Bin, "kill", "--signal=SIGUSR1", name).Run()
 		},

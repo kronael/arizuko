@@ -78,7 +78,7 @@ func main() {
 	}
 
 	folders := &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir}
-	runtime := runed.NewDockerRuntime(cfg, folders, db)
+	runtime := runed.NewDockerRuntime(cfg, folders)
 
 	mgr := runed.NewManager(db, runtime, broker, runed.ManagerConfig{
 		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},

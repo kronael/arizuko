@@ -228,42 +228,6 @@ func (d *DB) GetSpawn(runID string) (Spawn, error) {
 	return s, nil
 }
 
-// ActiveSpawnForFolder returns the run_id of a folder's live (running)
-// spawn, or "" when none. Backs the steer-into-running decision.
-func (d *DB) ActiveSpawnForFolder(folder string) string {
-	var runID string
-	d.db.QueryRow(`SELECT run_id FROM spawns WHERE folder=? AND state='running'
-		ORDER BY created_at DESC LIMIT 1`, folder).Scan(&runID)
-	return runID
-}
-
-// --- spawn_logs ---
-
-// AppendLog appends one per-spawn event/output line.
-func (d *DB) AppendLog(runID, kind, line string) error {
-	_, err := d.db.Exec(`INSERT INTO spawn_logs(run_id, ts, kind, line) VALUES(?,?,?,?)`,
-		runID, nowTS(), kind, line)
-	return err
-}
-
-// Logs returns a spawn's event/output lines in order.
-func (d *DB) Logs(runID string) ([]string, error) {
-	rows, err := d.db.Query("SELECT line FROM spawn_logs WHERE run_id=? ORDER BY id", runID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
-			return nil, err
-		}
-		out = append(out, line)
-	}
-	return out, rows.Err()
-}
-
 // --- mcp_tokens ---
 
 // RecordToken persists the REF of the downscoped token runed brokered for a

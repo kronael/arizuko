@@ -440,7 +440,7 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		}
 		_ = s.db.SetTurnState(turnID, "done")
 		if s.loop != nil {
-			s.loop.publishRoundDone(trimWeb(tc.ChatJID), turnID)
+			s.loop.publishRoundDone(strings.TrimPrefix(tc.ChatJID, "web:"), turnID)
 		}
 	}
 	return first, nil

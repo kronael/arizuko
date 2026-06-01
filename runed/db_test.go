@@ -32,14 +32,8 @@ func TestDBSpawnLifecycle(t *testing.T) {
 	if err := db.StartSpawn("run_1", "sess0"); err != nil {
 		t.Fatalf("start spawn: %v", err)
 	}
-	if got := db.ActiveSpawnForFolder("demo"); got != "run_1" {
-		t.Fatalf("active spawn=%q want run_1", got)
-	}
 	if err := db.EndSpawn("run_1", "exited", "ok", 0); err != nil {
 		t.Fatalf("end spawn: %v", err)
-	}
-	if got := db.ActiveSpawnForFolder("demo"); got != "" {
-		t.Fatalf("active spawn after end=%q want empty", got)
 	}
 	if err := db.EndSession(logID, "sess1-new", "ok", "", 3); err != nil {
 		t.Fatalf("end session: %v", err)
