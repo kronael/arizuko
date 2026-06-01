@@ -16,6 +16,55 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.49.0] — 2026-06-01
+
+> arizuko v0.49.0 — sharper replies and an accurate reference site
+>
+> The agent now formats and threads replies correctly across Telegram, Slack and Discord, and the reference docs match the running code again.
+>
+> • Telegram replies render right — bold and headings no longer show raw markdown
+> • Per-channel styles refresh every turn — tone/format fixes actually take effect
+> • Reliable thread replies — the agent resumes Slack/Discord threads instead of restarting
+> • Reactions work while messaging is paused — read-only channels can still react
+> • Reference docs rebuilt to match the code — schema, MCP tiers, env vars, changelog
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **Daemon split flipped to in-process MCP.** routd now hosts the agent's
+  per-turn MCP socket itself; runed is a pure container-spawner (the
+  runed→routd federation is gone). Built and tested behind `CUTOVER_SPLIT`;
+  default deployments still run the gated monolith — nothing changes for live
+  instances yet.
+- **Output styles refresh every spawn** (was skip-existing), so per-channel
+  format/tone edits reach every group. Spec 5/Y.
+- **Docs reconciled to code** — repo docs, per-package READMEs, specs, and the
+  reference site (schema → migration 0071, MCP tool tiers, split env vars,
+  package symbols) all match the running code.
+
+### Fixed
+
+- **Telegram formatting** — `**bold**` and `#` headings render correctly (teled
+  converts markdown→HTML; the per-surface guidance was backwards).
+- **Thread resume** — the agent resumes only valid session UUIDs and treats
+  placeholders as fresh, fixing Slack/Discord threads that sometimes restarted.
+- **SEND_DISABLED** channels still allow reactions/edits/pins while blocking
+  messages (read-only-with-reactions).
+- **routd correctness (dormant split):** breaker no longer trips on clean runs;
+  round_done delivered; steered turns marked done; dispatch forwards
+  model/container-config/isolation; double-persist removed; GetRoute 404-vs-500;
+  route-token JID validation.
+- **invite_create** tool tier description corrected (0-1); **eval** skill
+  queries fixed (errored moved to messages; migration-version source).
+
+### Added
+
+- **Egress allowlist + grants wired to runed spawns** — restores crackbox
+  network isolation on the dormant split.
+
+---
+
 ## [v0.48.0] — 2026-05-30
 
 > arizuko v0.48.0 — a correctness pass across the router and every adapter
