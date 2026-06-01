@@ -45,6 +45,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Fixed
 
+- **Security — dashd memory endpoints now require admin.** `PUT`/`DELETE
+/dash/memory/{folder}/{file}` wrote/deleted any group's `MEMORY.md` /
+  `PERSONA.md` / `CLAUDE.md` with no authorization — any logged-in user could
+  cross-tenant overwrite or delete them (and a logged-in operator could be
+  CSRF'd into it). Both handlers now require an admin grant on the target folder.
+- **Output styles now actually refresh on every spawn** — the new overwrite
+  couldn't replace files left root-owned by a past sudo op; it unlinks before
+  rewriting so the styles update instead of silently staying frozen.
+- **Release announcements deliver again** — the `/migrate` broadcast used the
+  wrong send parameter (`jid` instead of `chatJid`), so version announcements
+  silently never reached any channel.
 - **Telegram formatting** — `**bold**` and `#` headings render correctly (teled
   converts markdown→HTML; the per-surface guidance was backwards).
 - **Thread resume** — the agent resumes only valid session UUIDs and treats
