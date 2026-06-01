@@ -62,6 +62,65 @@ seeding works on the next spawn without waiting for the code redeploy.
 - Not bugs: engagement override `C4P090XU1 → atlas` (by design, spec 5/G); docs
   asset cache served a stale `hub.js` to one curl (on-disk correct).
 
+## 10-sub bug hunt (2026-06-01) — Workflow wf_e4e8d372-820 + auth re-run
+
+10 read-only finders across code+docs; high-severity findings adversarially
+verified. 34 findings + the auth bucket re-run (its finder crashed mid-workflow).
+LIVE/dormant findings below are FINDER-confidence only (just the 3 HIGH were
+refute-checked) — VERIFY before fixing; some overlap older entries.
+
+### FIXED this session
+- **dashd memory write/delete had NO auth gate (HIGH security)** — `handleMemoryWrite`/
+  `handleMemoryDelete` (dashd/main.go:797,839) wrote/deleted any tenant's
+  MEMORY.md/PERSONA.md/CLAUDE.md with no `requireAdmin` and no CSRF guard; any
+  logged-in user could cross-tenant overwrite/delete (verified — tests passed with
+  no X-User-Sub). FIXED: `requireAdmin(folder)` on both + regression test (unauth → 401).
+- **migrate release-broadcast wrong param (HIGH)** — ant/skills/migrate/SKILL.md:279
+  `send jid:=` but the `send` tool requires `chatJid` (ipc.go:869) → every release
+  announce silently failed. FIXED: `jid:=`→`chatJid:=`.
+
+### Confirmed-real LIVE, not fixed (finder-confidence high — triage)
+- **store MatchWebRoute LIKE-injection** (store/web_routes.go:138) — agent-set
+  path_prefix `_`/`%` act as SQL LIKE wildcards → over-broad web-route match. Escape/exact.
+- **slakd reaction sentiment always "like"** (slakd/bot.go:455) — Slack emoji
+  short-names never match the like/dislike classifier; all reactions read as like.
+- **dashd-created scheduled tasks never fire** (dashd/tasks_admin.go:206) — next_run
+  left NULL; timed's claim query excludes NULL → never runs.
+- **linkd fetch_history broken for posts** (linkd/client.go:706) — `linkedin:post/`
+  prefix not stripped before the API call.
+- **gateway always-true `!out.HadOutput` guard** (gateway.go:1354) — deletes the
+  session on errored turns (dead-guard).
+- **mastd favourite/reblog omit ReplyTo** (mastd/client.go:203) — breaks
+  reply-to-bot→mention promotion. **reditd no self-author filter** (reditd/client.go:380)
+  — bot's own posts re-ingested (loop risk).
+- **webd /api/groups + /x/groups + dashd read handlers leak all folder names**
+  (webd/api.go:13, dashd/groups_admin.go:190) unfiltered by caller grant (overlaps a
+  2026-05-28 webd entry).
+
+### Dormant split (cutover-only, no live impact)
+- **authd refresh consumes the token BEFORE the grants snapshot** (authd/server.go:301
+  vs 315) — a transient grants-backend blip during refresh marks the token spent with
+  no successor → next use = reuse → family revoked → user force-logged-out. Fix:
+  snapshot grants before `markRefreshUsed`. (medium; auth re-finder.)
+- routd handleEngagementSet/handleCost write caller folder with no ownsFolder check
+  (reads_http.go:165,207); del_web_route tier-0 deletes zero rows (tokens.go:124).
+- authd loadServiceSecrets keyed by secret → dup secret silently drops a principal
+  (main.go:141); OAuth within-account silent rebind (store.go:120) (low).
+- runed session_log never swept (db.go:243); egress networks never removed
+  (container/network.go:97); handleRunStatus maps all errors→404 (server.go:97) (low).
+
+### Low (live, latent/cosmetic)
+- gateway TTS `.tmp` shared-path race (tts.go:94); voice-len counts bytes not chars
+  (tts.go:139). chanreg FetchHistory raw JID in URL unencoded (httpchan.go:258).
+- ipc issue_chat_link tier desc drift (ipc.go:2163); inject_message tier-1 cross-world
+  (ipc.go:1605). whapd inbound reaction no fromMe guard (main.ts:340); onbod admit
+  ticker stalls if poll <1s (onbod/main.go:145); timed bad-cron hot-loops (main.go:194).
+- docs: ARCHITECTURE.md:229 self-contradiction on MCP-socket host; README:82 stale
+  `tg:` JID prefix; README:182 upstream attribution mismatch.
+
+### Refuted (adversarial verify)
+- `$ARIZUKO_MCP_SOCKET` "never set" → REFUTED: set via ant/Dockerfile:169 ENV.
+
 ## RESOLVED 2026-05-29 (this session — detail in `.diary/20260528.md`/`20260529.md`)
 
 These entries below are now FIXED; superseding their stale open-entries:
