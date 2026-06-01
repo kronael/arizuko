@@ -51,7 +51,9 @@
       <h1>ttsd</h1>
 
     <h2>What it is</h2>
-    <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the OpenAI shape (<code>{model, voice, input, response_format}</code>), forwards the request verbatim to the configured backend, and streams audio bytes back to the caller.</p>
+    <p>In plain terms, ttsd is a translator for voice-making engines &mdash; text goes in, audio comes out, always through one request format. Swap the engine behind it and nothing else has to change.</p>
+
+    <p>ttsd is a thin reverse proxy in front of a text-to-speech backend. It accepts <code>POST /v1/audio/speech</code> in the same request format OpenAI uses (<code>{model, voice, input, response_format}</code>), forwards the request verbatim to the configured backend, and streams audio bytes back to the caller.</p>
 
     <p>It also exposes <code>GET /v1/voices</code> (a passthrough for backends that list voices) and a <code>GET /health</code> that returns 503 when the upstream is unreachable.</p>
 

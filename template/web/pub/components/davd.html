@@ -51,7 +51,9 @@
       <h1>davd</h1>
 
     <h2>What it is</h2>
-    <p>davd is a WebDAV server over each instance&rsquo;s <code>groups/</code> directory. The whole daemon is the <code>sigoden/dufs</code> Rust binary wrapped in an alpine image (for the standard <code>wget</code> healthcheck), launched with <code>--port 8080 /data</code>. The mount point <code>/data</code> is bind-mounted from <code>&lt;data-dir&gt;/groups/</code>.</p>
+    <p>In plain terms, davd is like turning an agent&rsquo;s folder into a network drive you can open in Finder or Explorer. You edit the agent&rsquo;s files from your own machine, no logging into the server.</p>
+
+    <p>davd is a WebDAV server over each instance&rsquo;s <code>groups/</code> directory &mdash; WebDAV is the standard way to expose a folder as a network drive. The whole daemon is the <code>sigoden/dufs</code> Rust binary wrapped in an alpine image (for the standard <code>wget</code> healthcheck), launched with <code>--port 8080 /data</code>. The mount point <code>/data</code> is bind-mounted from <code>&lt;data-dir&gt;/groups/</code>.</p>
 
     <p>davd itself has no notion of identity. Authentication and per-group scoping happen one hop earlier in <a href="../components/proxyd.html">proxyd</a>.</p>
 

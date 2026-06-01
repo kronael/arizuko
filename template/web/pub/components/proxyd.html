@@ -51,6 +51,8 @@
       <h1>proxyd</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, proxyd is the front door. Every request from the outside hits it first, it checks who you are, and only then passes you through to the right service inside &mdash; with a tamper-proof note stapled on that says who you are.</p>
+
     <p>proxyd is the auth-gated reverse proxy at the public edge. It terminates every inbound HTTP request, decides whether the caller is authenticated, and forwards the request to a backend daemon with a signed identity header attached.</p>
 
     <p>Routes are matched by longest path prefix from a table loaded out of <code>PROXYD_ROUTES_JSON</code> on first boot and persisted into the <code>proxyd_routes</code> SQLite table. After the first boot the table is authoritative; operators can mutate it at runtime via <code>/v1/routes</code>.</p>

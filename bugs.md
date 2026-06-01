@@ -5,6 +5,33 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## HIGH (live data-loss) — gated wipes all secrets on every startup (2026-06-01)
+
+Found during the docs persona-audit (CTO lens), confirmed against code.
+
+`SetSecret` (store/secrets.go:63-69) stores the value as **raw plaintext, no
+`v1:` prefix** (encryption was reverted in migration 0047 — "v1 stores
+plaintext"). But `PurgeUnencryptedSecrets` (secrets.go:181-185) runs
+`DELETE FROM secrets WHERE value NOT LIKE 'v1:%'`, and gated calls it on EVERY
+startup: `gated/main.go:54-64` sets `encKey = SecretsKey || AuthSecret`
+(AUTH_SECRET is always set) → `SetSecretKey` → `PurgeUnencryptedSecrets`. Since
+no row carries a `v1:` prefix, **every plaintext secret is deleted on each gated
+restart.** Any folder/user secret an operator sets via `arizuko secret` or
+`/dash/me/secrets` is gone on the next restart.
+
+Live check 2026-06-01: krons/marinade/sloth all have 0 rows in `secrets` —
+consistent with the wipe (can't distinguish from "feature unused", since the
+broker that consumes secrets isn't wired yet). Not in the split path (routd/runed
+never call the purge). The purge is leftover scaffolding from the reverted
+encryption design (it was meant to drop old plaintext AFTER encrypting).
+
+Fix (design choice — flagged, not auto-fixed): either drop the
+`SetSecretKey`+`PurgeUnencryptedSecrets` block from `gated/main.go` (plaintext is
+the v1 model — nothing to purge), OR re-introduce the `v1:` prefix on
+`SetSecret` writes so the purge only removes genuinely-old rows. Docs corrected
+this session (security/index.html + concepts/secrets.html claimed AES-256-GCM
+"shipped"; now state plaintext/deferred).
+
 ## atlas-on-Slack live trace (2026-06-01) — 2 HIGH bugs
 
 Traced marinade/atlas Slack behavior on the user's request. Two real bugs.

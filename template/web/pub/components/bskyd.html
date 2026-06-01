@@ -51,6 +51,8 @@
       <h1>bskyd</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, bskyd is the connector that plugs Bluesky into arizuko, so the agent can read mentions and reply as posts.</p>
+
     <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to gated, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
 
     <h2>Why it exists</h2>

@@ -51,6 +51,8 @@
       <h1>discd</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, discd is the connector that plugs Discord into arizuko, so the agent can read and reply in Discord channels and DMs.</p>
+
     <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to gated, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
 
     <h2>Why it exists</h2>

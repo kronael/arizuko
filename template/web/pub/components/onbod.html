@@ -51,7 +51,9 @@
       <h1>onbod</h1>
 
     <h2>What it is</h2>
-    <p>onbod is the onboarding daemon. It admits a new user &mdash; via invite token, OAuth bind, or a wait in the admission queue &mdash; then builds that user&rsquo;s group folder by calling <code>container.SetupGroup</code>, the one function that creates a group.</p>
+    <p>In plain terms, onbod is the sign-up desk. When a new person arrives, it decides whether to let them in and sets up their own space for the agent to work in.</p>
+
+    <p>onbod is the onboarding daemon. It admits a new user &mdash; via invite token, an OAuth bind (signing in with an existing account like Google), or a wait in the admission queue &mdash; then builds that user&rsquo;s group folder by calling <code>container.SetupGroup</code>, the one function that creates a group.</p>
 
     <p>It owns three tables: <code>invites</code>, <code>onboarding</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
 

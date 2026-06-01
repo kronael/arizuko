@@ -51,6 +51,8 @@
       <h1>route tokens</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, a route token is a secret string in a URL. Hand someone the URL and they reach one specific chat or drop-box &mdash; no login, no account, just the link.</p>
+
     <p>The <code>route_tokens</code> table plus the two URL prefixes that read from it: <code>/chat/&lt;token&gt;/</code> for visitor web chat, <code>/hook/&lt;token&gt;</code> for inbound webhooks. One row per token, four columns (<code>token_hash</code>, <code>jid</code>, <code>owner_folder</code>, <code>created_at</code>). The JID prefix tells webd which surface a token belongs to.</p>
 
     <p>Each token is 32 random bytes, base64url-encoded. Stored as <code>sha256(token)</code>; raw token returned once at issuance.</p>

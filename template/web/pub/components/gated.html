@@ -51,7 +51,9 @@
       <h1>gated</h1>
 
     <h2>What it is</h2>
-    <p>gated is the gateway daemon &mdash; one Go binary that owns <code>messages.db</code>. It runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP unix sockets the in-container agents talk back through.</p>
+    <p>In plain terms, gated is the engine room. It holds the database every message lands in, watches for new ones, and starts an agent running to answer each &mdash; then carries the agent&rsquo;s reply back out.</p>
+
+    <p>gated is the gateway daemon &mdash; one Go binary that owns <code>messages.db</code>. It runs the poll loop that turns inbound rows into agent runs, serves the HTTP API channel adapters register against, and hosts the per-group MCP (the tool protocol agents speak) unix sockets the in-container agents talk back through.</p>
 
     <p>It is the only daemon that runs SQL migrations. Other daemons connect to the same SQLite file but never write to the schema.</p>
 

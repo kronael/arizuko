@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko — self-hosted agent orchestration</title>
+    <title>arizuko — a separate AI agent for each team, self-hosted</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -44,11 +44,39 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Run persistent AI agents on your own host. Each folder is an agent
-        with its own persona, memory, skills, routes, and files. Agents and
-        operators use the same MCP tools and REST endpoints.
-        <code>gated</code> checks every call.
+        Run a separate AI agent for each team or customer, on your own
+        servers. Each one keeps its own memory, its own permissions, and its
+        own chat channels. You decide what each agent can see and do; nothing
+        leaks between them.
       </p>
+      <p>
+        It&rsquo;s for teams and operators who want self-hosted agents for
+        support, ops, and internal work &mdash; agents that remember, follow
+        rules you set, and live where your people already talk.
+      </p>
+
+      <h2>see it</h2>
+      <ul>
+        <li><a href="products/">example deployments</a> &mdash; a Slack team
+          agent, pre-seeded and running in minutes.</li>
+        <li><a href="howto/">setup guide</a> &mdash; install, create an
+          instance, connect a channel, send the first message.</li>
+        <li><a href="https://github.com/kronael/arizuko">source on GitHub</a>
+          &mdash; <code>github.com/kronael/arizuko</code>, MIT.</li>
+      </ul>
+
+      <h2>what you&rsquo;d build</h2>
+      <ul>
+        <li><strong>A support agent with memory.</strong> It remembers every
+          customer it&rsquo;s talked to, answers from that history, and hands a
+          thread to your engineers when it can&rsquo;t solve it.</li>
+        <li><strong>An ops agent that catches alerts.</strong> Alerts and
+          email land in its inbox; it turns them into tracked tasks and
+          follows up on the ones that go quiet.</li>
+        <li><strong>An internal helper per team.</strong> Sales gets one
+          agent, support another, engineering a third &mdash; each with its
+          own notes and its own channels, none reading the others.</li>
+      </ul>
 
       <h2>agents as data</h2>
       <p>
@@ -299,44 +327,30 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
 
       <h2>go deeper</h2>
       <ul>
-        <li>
-          <a href="products/">products</a> &mdash; ready-made setups:
-          Slack team agent, support bot, content pipeline, PM board, and more.
-        </li>
-        <li>
-          <a href="components/">components</a> &mdash; one page per daemon:
-          <code>gated</code>, <code>webd</code>,
-          <code>proxyd</code>, <code>dashd</code>, <code>onbod</code>,
-          <code>timed</code>, plus the channel adapters.
-        </li>
-        <li>
-          <a href="concepts/">concepts</a> &mdash; one page for each
+        <li><a href="products/">products</a> &mdash; ready-made setups:
+          Slack team agent, support bot, content pipeline, PM board, and more.</li>
+        <li><a href="components/">components</a> &mdash; one page per daemon:
+          <code>gated</code>, <code>webd</code>, <code>proxyd</code>,
+          <code>dashd</code>, <code>onbod</code>, <code>timed</code>, plus the
+          channel adapters.</li>
+        <li><a href="concepts/">concepts</a> &mdash; one page for each
           primitive: topics, scopes, routing, grants, auth, jid, tasks,
           secrets, personas, skills, onboarding, slack pane, route tokens,
-          webdav, voice.
-        </li>
-        <li>
-          <a href="reference/">reference</a> &mdash; every configurable
+          webdav, voice.</li>
+        <li><a href="reference/">reference</a> &mdash; every configurable
           surface, grep-verified against source:
           <a href="reference/env.html">env</a> &middot;
           <a href="reference/cli.html">CLI</a> &middot;
           <a href="reference/mcp.html">MCP tools</a> &middot;
           <a href="reference/schema.html">schema</a> &middot;
           <a href="reference/grants.html">grants</a> &middot;
-          <a href="reference/jid.html">JID</a>.
-        </li>
-        <li>
-          <a href="howto/">howto</a> &mdash; deployment guide, first
-          channel, first invite, verification.
-        </li>
-        <li>
-          <a href="components/crackbox.html">crackbox</a> &mdash; the egress-isolation
-          sandbox: per-folder hostname allowlist, HTTPS via CONNECT, DNS
-          filter.
-        </li>
-        <li>
-          <a href="changelog/">changelog</a> &mdash; what shipped, dated.
-        </li>
+          <a href="reference/jid.html">JID</a>.</li>
+        <li><a href="howto/">howto</a> &mdash; deployment guide, first
+          channel, first invite, verification.</li>
+        <li><a href="components/crackbox.html">crackbox</a> &mdash; the
+          egress-isolation sandbox: per-folder hostname allowlist, HTTPS via
+          CONNECT, DNS filter.</li>
+        <li><a href="changelog/">changelog</a> &mdash; what shipped, dated.</li>
         <li>
           <a href="legacy/">previous docs</a> &mdash; the prior docs site,
           archived before this refresh.

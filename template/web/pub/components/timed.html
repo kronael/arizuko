@@ -51,6 +51,8 @@
       <h1>timed</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, timed is the alarm clock. It sends the agent a message at a set time or on a repeating schedule, so things happen without anyone there to type.</p>
+
     <p>timed is the scheduler daemon. One Go binary that ticks every 60 seconds, claims due rows from the <code>scheduled_tasks</code> table, and inserts each task&rsquo;s prompt into <code>messages</code> as if a user had just typed it.</p>
 
     <p>Once the message lands in the table, gated picks it up through the normal poll loop and routes it to the task&rsquo;s folder. The agent has no idea the prompt came from a clock.</p>

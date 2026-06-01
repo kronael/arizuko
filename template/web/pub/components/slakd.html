@@ -51,6 +51,8 @@
       <h1>slakd</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, slakd is the connector that plugs Slack into arizuko, so the agent can read and reply in Slack channels, DMs, and threads.</p>
+
     <p>slakd is the Slack channel adapter. It receives Slack workspace events over the HTTP Events API (proxyd forwards <code>/slack/events</code> to slakd) and posts outbound via the Slack Web API. From gated&rsquo;s point of view it is a normal channel adapter with JID prefix <code>slack:</code> and per-message JIDs of the form <code>slack:&lt;workspace&gt;/&lt;kind&gt;/&lt;id&gt;</code> where <code>kind</code> is <code>channel</code>, <code>dm</code>, or <code>group</code>.</p>
 
     <h2>Why it exists</h2>

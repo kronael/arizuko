@@ -51,6 +51,7 @@
       <h1>channel adapters</h1>
 
 <h2>What they are</h2>
+<p>In plain terms, a channel adapter is a translator between one chat app and arizuko. Each app &mdash; Telegram, Slack, WhatsApp &mdash; has its own way of talking; the adapter turns that into the one format arizuko understands, and turns arizuko&rsquo;s replies back into something the app can post.</p>
 <p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>gated</code> on the right.</p>
 
 <p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code> at <code>/v1/messages</code>. Outbound: <code>gated</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>

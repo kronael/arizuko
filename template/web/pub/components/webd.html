@@ -51,7 +51,9 @@
       <h1>webd</h1>
 
     <h2>What it is</h2>
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events. It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <p>In plain terms, webd is what puts the agent in a web browser. It serves the chat box on a web page and streams each reply back as the agent writes it.</p>
+
+    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
 
     <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
@@ -123,7 +125,7 @@ WEB_HOST=localhost:9001 \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/webd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

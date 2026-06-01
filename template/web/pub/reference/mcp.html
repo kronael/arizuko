@@ -619,7 +619,7 @@
 
     <h3 id="list_routes"><code>list_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Return the routing table rows this group can see. Use for a raw route dump; prefer <code>inspect_routing</code> when you also want JID&rarr;folder resolution or errored-chat context.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1156"><code>ipc/ipc.go:1156</code></a> &middot; Note: <code>tier1FixedActions</code> lists <code>get_routes</code>, but the actual tool name is <code>list_routes</code> &mdash; tier-1 default rules do not match this tool, so today it surfaces only when explicitly granted or at tier 0.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1156"><code>ipc/ipc.go:1156</code></a> &middot; Grant action: <code>list_routes</code> (in <code>tier1FixedActions</code>) &middot; granted by default at tier 1.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"routes": [...]}</code>.</p>
 
     <h3 id="set_routes"><code>set_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
@@ -770,7 +770,7 @@
       <li><strong>Spec 6/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 9/11) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. See <a href="openapi.html">OpenAPI</a> and the <a href="../components/gated.html">gated</a> registry.</li>
-      <li><strong>tier1FixedActions has one stale name.</strong> <code>tier1FixedActions</code> lists <code>get_routes</code> but the registered tool is <code>list_routes</code>; at tier 1 the default rules don't grant it without explicit override. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L154"><code>grants/grants.go:154</code></a>.</li>
+      <li><strong>Route tools are granted at tier 1.</strong> <code>tier1FixedActions</code> lists <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code> &mdash; the names match the registered tools, so tier-1 callers get them by default. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants/grants.go:160</code></a>.</li>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
@@ -779,7 +779,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

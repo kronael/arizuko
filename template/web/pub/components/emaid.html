@@ -51,6 +51,8 @@
       <h1>emaid</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, emaid is the connector that plugs email into arizuko, so the agent can read incoming mail and send replies in the same thread.</p>
+
     <p>emaid is the email channel adapter. It polls IMAP for inbound messages, sends outbound via SMTP, and keeps a local SQLite table mapping email threads (<code>Message-ID</code> + <code>References</code>) to their <code>chat_jid</code> so replies preserve the conversation. From gated&rsquo;s point of view it is a normal channel adapter; the JID prefix is <code>email:</code>.</p>
 
     <p>Each inbound message is verified against DMARC results in the upstream MTA&rsquo;s <code>Authentication-Results</code> header before it reaches the agent. Verified mail rides <code>verb=message</code>; the rest rides <code>verb=untrusted</code> so route rules can quarantine it.</p>

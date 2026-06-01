@@ -143,7 +143,7 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
     <p>The agent calls the <code>add_route</code> MCP tool. Changes take effect immediately (no restart needed).</p>
 
     <h3>via mcpc (shell)</h3>
-    <pre><code>mcpc connect "socat UNIX-CONNECT:/srv/data/arizuko_&lt;inst&gt;/data/ipc/main/gated.sock -" @s
+    <pre><code>mcpc connect "socat UNIX-CONNECT:/srv/data/arizuko_&lt;inst&gt;/ipc/main/gated.sock -" @s
 mcpc @s tools-call add_route match:="platform=discord" target:="main"
 mcpc @s close</code></pre>
 
@@ -258,7 +258,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

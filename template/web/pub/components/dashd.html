@@ -51,6 +51,8 @@
       <h1>dashd</h1>
 
     <h2>What it is</h2>
+    <p>In plain terms, dashd is the control panel for whoever runs the instance. Open it in a browser to see groups, messages, and tasks, and to edit a few of the agent&rsquo;s files.</p>
+
     <p>dashd is the operator dashboard: an HTMX server that renders pages over <code>messages.db</code> and a fixed set of markdown files. Reads are the default; the only write paths are <code>PUT</code> and <code>DELETE</code> on that markdown list under each group&rsquo;s folder.</p>
 
     <p>Routes live at <code>/dash/*</code>. The portal at <code>/dash/</code> links to status, tasks, activity, groups, memory, and profile pages, each rendered server-side as one HTML page plus HTMX partials for live sub-views.</p>
