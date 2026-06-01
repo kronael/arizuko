@@ -1089,8 +1089,16 @@ func cpDirImpl(src, dst string, skipExisting bool) {
 		}
 		if data, err := os.ReadFile(sp); err != nil {
 			slog.Warn("cpDir: read failed", "path", sp, "err", err)
-		} else if err := os.WriteFile(dp, data, 0o644); err != nil {
-			slog.Warn("cpDir: write failed", "path", dp, "err", err)
+		} else {
+			// Unlink an existing dst before writing: a prior root-owned copy
+			// (from a past sudo op) can't be truncate-opened by the uid-1000
+			// daemon, but the uid-1000-owned dir lets us unlink + recreate it.
+			// Without this, cpDirOverwrite silently fails on root-owned files
+			// and the styles stay frozen — the staleness it was meant to cure.
+			os.Remove(dp)
+			if err := os.WriteFile(dp, data, 0o644); err != nil {
+				slog.Warn("cpDir: write failed", "path", dp, "err", err)
+			}
 		}
 	}
 }

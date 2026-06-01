@@ -403,6 +403,29 @@ func TestCpDir(t *testing.T) {
 	}
 }
 
+// TestCpDirOverwriteReadOnlyDst regresses the cpDirOverwrite permission bug:
+// a dst file the daemon can't truncate-open (here mode 0444; in production a
+// root-owned file under the uid-1000-owned dir) must still be refreshed —
+// the daemon owns the directory, so it can unlink + recreate. Pre-fix the
+// truncate-open WriteFile failed and the stale content survived.
+func TestCpDirOverwriteReadOnlyDst(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root ignores file permissions; can't reproduce the truncate-open failure")
+	}
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "style.md"), []byte("new"), 0o644)
+
+	dst := t.TempDir()
+	os.WriteFile(filepath.Join(dst, "style.md"), []byte("stale"), 0o444)
+
+	cpDirOverwrite(src, dst)
+
+	got, err := os.ReadFile(filepath.Join(dst, "style.md"))
+	if err != nil || string(got) != "new" {
+		t.Fatalf("style.md not refreshed: %q err=%v (pre-fix: truncate-open fails on 0444)", got, err)
+	}
+}
+
 func TestBuildArgsCustomUser(t *testing.T) {
 	if os.Getuid() == 1000 {
 		t.Skip("uid is 1000, skip custom user test")
