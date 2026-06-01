@@ -694,10 +694,18 @@ func readSecrets() map[string]string {
 	return s
 }
 
+// seedOutputStyles refreshes the per-surface output-style files into the group's
+// .claude/output-styles on EVERY spawn. cpDirOverwrite (not cpDirFresh): these are
+// platform-managed content, not operator-editable — the agent never edits
+// discord-channel.md. cpDirFresh skipped existing files, so a style tweak (e.g. the
+// repeated discord length/header fixes) only ever reached freshly-created or
+// hand-synced groups and silently regressed everywhere else. Overwrite makes every
+// spawn carry the current source-tree style; a group's own CUSTOM style file (one
+// not present in src) is left untouched (cpDirImpl only copies src entries).
 func seedOutputStyles(cfg *core.Config, claudeDir string) {
 	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "output-styles")
 	dst := filepath.Join(claudeDir, "output-styles")
-	cpDirFresh(src, dst)
+	cpDirOverwrite(src, dst)
 }
 
 func seedSettings(
