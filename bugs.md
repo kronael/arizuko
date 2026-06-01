@@ -52,6 +52,46 @@ New find (open, low): **`invite_create` desc/enforcement mismatch** — desc
 `tier >= 2` (tier 0-1 only). Same shape as the fixed list_acl case; doc-fix
 follow-up.
 
+## RESOLVED 2026-06-01 (verified already-fixed during /fin bug triage)
+
+Triage of the offered "clean fix batch" found 9 of 10 entries + the onbod
+daily-cap were ALREADY fixed in prior fix-waves but never groomed from this
+queue. Verified against current code; these supersede their stale open entries
+below:
+
+- **`invite_create` desc** (the open find just above) — FIXED 2026-06-01: desc
+  "Tier 0-2 only" → "Tier 0-1 only" (`ipc/ipc.go`), matching `AuthorizeStructural`
+  (`auth/policy.go:126` denies tier ≥ 2).
+- **proxyd `snapshot()` err-swallow** — FIXED: `proxyd/resource.go:66-70` logs
+  `slog.Error` + returns nil,nil (visible outage, not silent 404).
+- **gateway `transcribeOnce` body leak** — FIXED: `defer resp.Body.Close()`
+  (gateway.go:1863) precedes the non-200 early return.
+- **gateway `downloadFile` silent truncate** — FIXED: `LimitReader(…, maxBytes+1)`
+  trips `n > maxBytes` → error + `os.Remove(dest)` (gateway.go:1813-1820).
+- **teled empty-photo panic** — FIXED: `case len(msg.Photo) > 0` guard
+  (teled/bot.go:711) before the `[len-1]` index.
+- **teled `/health` lies** — FIXED: `connected` is `atomic.Bool`, set false on
+  poll failure (teled/bot.go:36,153).
+- **teled `b.cancel` race** — NOT A RACE: the field has no writer (only the read
+  at bot.go:231); vestigial dead field. Minor dead-code cleanup if ever touched.
+- **teled cap-map drift** — already correct: quote/repost/dislike/fetch_history
+  intentionally NOT advertised (teled/main.go:11 comment); `unpin` is gated on the
+  `"pin"` cap (chanreg/httpchan.go:335) which teled advertises + implements.
+- **chanlib `RouterClient.token` race** — FIXED: token read/written under `regMu`
+  via a getter (chanlib/chanlib.go:85-93).
+- **reditd missing `delete` cap** — FIXED: `"delete": true` present (reditd/main.go:19).
+- **dashd nested-folder routing** — FIXED: settings/delete/POST use `{folder...}`
+  trailing wildcard (dashd/main.go:167,205,206). (Residual: `{folder}/grants` and
+  `{folder}/tools` still single-segment — nested-folder grants/tools pages, not in
+  the original 2026-05-16 report; separate latent item.)
+- **onbod cross-day daily-cap bypass** — FIXED: migration 0071 added `admitted_at`;
+  `admitFromQueue` counts approvals by `admitted_at` day-range (onbod/main.go:693-694),
+  admission stamps it (main.go:626,719).
+
+Also resolved this session: eval skill drift (chats.errored → messages.errored per
+migration 0030; `PRAGMA user_version` → `migrations` table) fixed in
+`.claude/skills/eval/SKILL.md`.
+
 ## routd has NO production Deliverer + NO channel-registration surface (2026-05-30, CUTOVER FLIP-BLOCKER, high)
 
 Found during the gated→routd compose cutover flip (compose-gen wiring task).

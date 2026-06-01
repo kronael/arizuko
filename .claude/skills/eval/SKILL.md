@@ -66,9 +66,12 @@ Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
 
-# Agent cursors vs latest messages + errored flag
+# Agent cursors vs latest messages + errored count. errored moved to
+# the messages table in migration 0030 — chats.errored no longer exists.
 sudo sqlite3 $DB "
-  SELECT c.jid, c.errored, c.agent_cursor,
+  SELECT c.jid, c.agent_cursor,
+    (SELECT COUNT(*) FROM messages m WHERE m.chat_jid = c.jid AND m.errored = 1)
+    AS errored_msgs,
     (SELECT r.target FROM routes r
      WHERE r.match LIKE '%room=' || substr(c.jid, instr(c.jid, ':') + 1) || '%'
      ORDER BY r.seq LIMIT 1) AS group_folder,
@@ -80,8 +83,8 @@ sudo sqlite3 $DB "
 "
 ```
 
-**Pass**: `agent_cursor` is NULL or within a few minutes of `latest_user_msg`; `errored = 0`.
-**Fail**: cursor many hours behind → message stuck; `errored = 1` → group won't auto-recover.
+**Pass**: `agent_cursor` is NULL or within a few minutes of `latest_user_msg`; `errored_msgs = 0`.
+**Fail**: cursor many hours behind → message stuck; `errored_msgs > 0` → those turns erred and won't auto-recover until cleared.
 
 If cursor is stalled, show the pending messages:
 ```bash
@@ -92,9 +95,9 @@ sudo sqlite3 $DB "
 "
 ```
 
-If `errored = 1` and gated is healthy, clear it to unblock recovery:
+If `errored_msgs > 0` and gated is healthy, clear the errored messages to unblock recovery:
 ```bash
-sudo sqlite3 $DB "UPDATE chats SET errored = 0 WHERE jid = '<jid>';"
+sudo sqlite3 $DB "DELETE FROM messages WHERE chat_jid = '<jid>' AND errored = 1;"
 sudo systemctl restart arizuko_${INSTANCE}
 ```
 
@@ -205,7 +208,9 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
-sudo sqlite3 $DB "PRAGMA user_version;"
+# db_utils.Migrate tracks applied migrations in the `migrations` table
+# (service='store'); PRAGMA user_version stays 0 and is NOT the version.
+sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service = 'store';"
 
 # Expected version (check store/migrations/ for latest)
 ls /home/onvos/app/arizuko/store/migrations/ | sort | tail -3
@@ -489,7 +494,7 @@ If a pattern of failures is found across multiple runs, write or update
 | Channel not registering after gated restart | Adapter holds stale connection | `sudo docker restart arizuko_teled_${INSTANCE}` |
 | Circuit breaker stuck open | 3+ consecutive container failures | Send a new message to the group to reset; check container logs |
 | Agent responds "let me fix this now" then stops | Container killed mid-task by 5s idle timer after final output | User must re-send to trigger another run |
-| `errored = 1` on chat | Container timed out with no output, or stack crashed mid-run | Clear with `UPDATE chats SET errored = 0 WHERE jid = '...'` then restart |
+| Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE chat_jid = '...' AND errored = 1` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
 | gated "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
 | Agent ignores skills, responds generically | Resolve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[resolve]` annotation |

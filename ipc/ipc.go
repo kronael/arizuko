@@ -2078,7 +2078,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	}
 
 	registerRaw("invite_create",
-		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-2 only.",
+		"Issue an invite token granting access to a path glob. The recipient accepts the token via /invite/<token> and gets a user_groups row matching target_glob. Use to onboard new collaborators to a world or sub-folder you own. The agent's authority must cover target_glob — you can't issue access you don't have. Tier 0-1 only.",
 		[]mcp.ToolOption{
 			mcp.WithString("target_glob", mcp.Required()),
 			mcp.WithNumber("max_uses"),
