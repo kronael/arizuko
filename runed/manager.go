@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/container"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -165,7 +165,7 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 // endRun on every exit path.
 func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sessionID string) runedv1.RunOutcome {
 	folder := string(req.Folder)
-	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, safeFolder(folder), time.Now().UnixMilli())
+	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
 
 	// session id (resume or fresh) is resolved by Run under the lock and
 	// stamped into the live-run slot before this spawn starts, so a racing
@@ -396,10 +396,6 @@ func intersect(ceiling, want []types.Scope) []types.Scope {
 		}
 	}
 	return out
-}
-
-func safeFolder(folder string) string {
-	return strings.NewReplacer("/", "-", " ", "-").Replace(folder)
 }
 
 func randHex(n int) string {
