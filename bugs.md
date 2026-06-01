@@ -29,27 +29,32 @@ and self-filed `chat-send-forbidden`. (The gateway's turn-RESULT auto-delivery
 still gets the final text out, so messages DO appear — masking the tool failure;
 inconsistent.)
 
-Fix (code): `authorizeJID` should also pass when `JIDRoutedToFolder(jid,
-id.Folder)` is true — i.e. the caller's folder is ANY route target for the jid,
-including verb-conditioned routes. That helper already exists (`ipc/ipc.go:1371`,
-used elsewhere) but is not wired into `authorizeJID`. Operator workaround: lower
-route 17's seq below the wildcard's 100, or add an explicit send grant.
+Fix — NOT trivial (initial idea was wrong): `JIDRoutedToFolder` does NOT help —
+it also calls `DefaultFolderForJID` (`store/groups.go:188`), so
+`JIDRoutedToFolder(C0B4,"atlas/support")` is false (default resolves to the
+parent `atlas`). A correct fix needs a NEW verb-agnostic resolver: "is
+`id.Folder` (or an ancestor) a target of ANY route matching `jid`, ignoring the
+verb condition?" — `RouteMatches` checks verb, so it needs a verb-skipping
+variant + an authz-broadening + tests. Design it; don't rush. Operator
+workaround (per channel, isolated, semantically OK — support-channel ambient →
+support agent): lower the specific observe route's seq below the wildcard's
+(e.g. route 17 `…C0B4…→atlas/support#observe` 110 → <100). NOTE: other
+mention-only subfolders (atlas/content on C0B63J2RBJ8, etc.) have the same gap;
+the code fix is the general solution, route-seq surgery is per-channel.
 
-### HIGH — cpDirOverwrite can't overwrite root-owned output-style files (regression from 9a2a181a)
+### FIXED 2026-06-01 — cpDirOverwrite can't overwrite root-owned output-style files (regression from 9a2a181a)
 
 The v0.49.0 `seedOutputStyles` change `cpDirFresh`→`cpDirOverwrite` (commit
-9a2a181a) truncate-opens each dest file. 51 output-style files across
-`atlas/{support,strengths,research,martin}` are owned by **root:root** (from a
-2026-05-21 sudo op); the dir is `mivu:mivu` (uid 1000 = gated's container uid).
-gated (uid 1000) can't truncate-open root-owned files → `cpDir: write failed …
-permission denied` on EVERY spawn (logged live 14:49:40) → those styles stay
-frozen — the exact staleness the fix was meant to cure. `cpDirFresh` skipped
-them silently; the overwrite path surfaces the error but still doesn't update.
+9a2a181a) truncate-opened each dest file. Output-style files left **root:root**
+by a 2026-05-21 sudo op (150 across marinade/krons/sloth) in a uid-1000 dir →
+gated (uid 1000) `cpDir: write failed … permission denied` on EVERY spawn → those
+styles stayed frozen, the exact staleness the fix was meant to cure.
 
-Fix (code): in `cpDirImpl`, `os.Remove(dst)` before creating (the dir is
-uid-1000-owned, so unlink succeeds even on root-owned files), instead of
-truncate-open. Operator remedy (immediate): `sudo chown 1000:1000` the 51
-root-owned files under `…/groups/atlas/*/.claude/output-styles/`.
+FIXED (code, **5fb685b9**): `cpDirImpl` now `os.Remove(dst)` before WriteFile
+(the dir is uid-1000-owned, so unlink succeeds even on root-owned files) +
+regression test feeding a 0444 dst. Operator remedy APPLIED 2026-06-01: chowned
+all 150 root-owned files (marinade 51, krons 47, sloth 52) to 1000:1000, so live
+seeding works on the next spawn without waiting for the code redeploy.
 
 ### LOW / noted
 - 1 errored slack turn (2026-06-01 07:22 mention) — container exited code 0 at
