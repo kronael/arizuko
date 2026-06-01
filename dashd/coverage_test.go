@@ -454,25 +454,16 @@ func TestRenderMemorySectionPersona(t *testing.T) {
 }
 
 func TestMemoryWritePersona(t *testing.T) {
-	groups := t.TempDir()
-	folder := "g1"
-	if err := os.MkdirAll(filepath.Join(groups, folder), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	db := testDB(t)
-	defer db.Close()
-	d := &dash{db: db, groupsDir: groups}
-	mux := http.NewServeMux()
-	d.registerRoutes(mux)
+	d, folder, mux := setupMemoryTest(t)
 
 	body := "---\nname: Atlas\n---\nYou are Atlas.\n"
-	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/PERSONA.md", strings.NewReader(body))
+	req := authMemReq("PUT", "/dash/memory/"+folder+"/PERSONA.md", body)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
 	}
-	data, err := os.ReadFile(filepath.Join(groups, folder, "PERSONA.md"))
+	data, err := os.ReadFile(filepath.Join(d.groupsDir, folder, "PERSONA.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

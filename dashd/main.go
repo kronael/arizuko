@@ -800,6 +800,9 @@ func (d *dash) handleMemoryWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
+		return
+	}
 	target, err := d.resolveMemoryFile(folder, rel)
 	if err != nil {
 		slog.Warn("memory write: resolve", "folder", folder, "rel", rel, "err", err)
@@ -840,6 +843,9 @@ func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 	folder, rel := parseMemoryPath(r.URL.Path)
 	if folder == "" {
 		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
+	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
 	target, err := d.resolveMemoryFile(folder, rel)

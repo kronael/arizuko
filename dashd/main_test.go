@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/tests/testutils"
 	_ "modernc.org/sqlite"
 )
 
@@ -589,19 +591,33 @@ func setupMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	if err := os.MkdirAll(filepath.Join(groups, folder, "diary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	db := testDB(t)
-	t.Cleanup(func() { db.Close() })
-	d := &dash{db: db, groupsDir: groups}
+	inst := testutils.NewInstance(t)
+	if err := inst.Store.AddACLRow(core.ACLRow{
+		Principal: "admin@x", Action: "admin", Scope: folder, Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: inst.DB, dbRW: inst.DB, groupsDir: groups}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	return d, folder, mux
+}
+
+// authMemReq builds a memory request authenticated as admin@x (granted admin
+// on the test folder by setupMemoryTest). The memory write/delete handlers
+// require admin on the target folder.
+func authMemReq(method, path, body string) *http.Request {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Host = "example.com"
+	r.Header.Set("X-User-Sub", "admin@x")
+	return r
 }
 
 func TestMemoryWrite(t *testing.T) {
 	d, folder, mux := setupMemoryTest(t)
 
 	body := "hello memory\n"
-	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/MEMORY.md", strings.NewReader(body))
+	req := authMemReq("PUT", "/dash/memory/"+folder+"/MEMORY.md", body)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
@@ -619,7 +635,7 @@ func TestMemoryWrite(t *testing.T) {
 func TestMemoryWriteDiary(t *testing.T) {
 	d, folder, mux := setupMemoryTest(t)
 
-	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/diary/2026-04-19.md", strings.NewReader("entry"))
+	req := authMemReq("PUT", "/dash/memory/"+folder+"/diary/2026-04-19.md", "entry")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
@@ -640,12 +656,32 @@ func TestMemoryWriteRejectsTraversal(t *testing.T) {
 		"/dash/memory/../other/MEMORY.md",
 	}
 	for _, p := range cases {
-		req := httptest.NewRequest("PUT", p, strings.NewReader("x"))
+		req := authMemReq("PUT", p, "x")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 		if w.Code == http.StatusNoContent {
 			t.Errorf("PUT %s should be rejected, got %d", p, w.Code)
 		}
+	}
+}
+
+// TestMemoryWriteRequiresAuth regresses the missing-auth-gate vuln: the memory
+// write/delete handlers must reject an unauthenticated caller (no X-User-Sub),
+// not write to disk. Pre-fix they wrote unconditionally — any logged-in user
+// could overwrite/delete any tenant's MEMORY.md / PERSONA.md / CLAUDE.md.
+func TestMemoryWriteRequiresAuth(t *testing.T) {
+	d, folder, mux := setupMemoryTest(t)
+	for _, m := range []string{"PUT", "DELETE"} {
+		req := httptest.NewRequest(m, "/dash/memory/"+folder+"/MEMORY.md", strings.NewReader("x"))
+		req.Host = "example.com" // no X-User-Sub → unauthenticated
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s unauthenticated: status = %d, want 401", m, w.Code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(d.groupsDir, folder, "MEMORY.md")); !os.IsNotExist(err) {
+		t.Errorf("unauthenticated PUT must not have written the file")
 	}
 }
 
@@ -656,7 +692,7 @@ func TestMemoryDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest("DELETE", "/dash/memory/"+folder+"/MEMORY.md", nil)
+	req := authMemReq("DELETE", "/dash/memory/"+folder+"/MEMORY.md", "")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
@@ -669,7 +705,7 @@ func TestMemoryDelete(t *testing.T) {
 
 func TestMemoryDeleteRejectsTraversal(t *testing.T) {
 	_, folder, mux := setupMemoryTest(t)
-	req := httptest.NewRequest("DELETE", "/dash/memory/"+folder+"/../other/MEMORY.md", nil)
+	req := authMemReq("DELETE", "/dash/memory/"+folder+"/../other/MEMORY.md", "")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code == http.StatusNoContent {
@@ -689,7 +725,7 @@ func TestMemoryRejectsSymlink(t *testing.T) {
 		t.Skip("symlink not supported")
 	}
 
-	req := httptest.NewRequest("PUT", "/dash/memory/"+folder+"/MEMORY.md", strings.NewReader("pwned"))
+	req := authMemReq("PUT", "/dash/memory/"+folder+"/MEMORY.md", "pwned")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code == http.StatusNoContent {
