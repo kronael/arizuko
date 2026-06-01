@@ -97,8 +97,7 @@ type Config struct {
 	// Egress isolation (crackbox). Enabled when EgressAPI is non-empty.
 	// No separate EGRESS_ISOLATION switch — set the API URL or don't.
 	// Per-folder networks are created lazily under EgressNetworkPrefix
-	// with /24s carved from EgressParentSubnet. Egress is enabled when
-	// EgressAPI is non-empty; no separate switch.
+	// with /24s carved from EgressParentSubnet.
 	EgressNetworkPrefix string // e.g. "arizuko_krons" — folder networks are <prefix>_<sanitized-folder>
 	EgressCrackbox      string // crackbox container name (attached to every folder network)
 	EgressAPI           string // crackbox admin HTTP API base URL (e.g. http://crackbox:3129)

@@ -11,10 +11,7 @@ import (
 )
 
 // Cross-boundary identity types live in the top-level types/ package
-// (types.UserSub / Folder / Tier / Scope) — see
-// specs/5/U-genericization.md. The earlier core/types.go stopgap aliases
-// were never adopted (call sites use plain string/int), so they retired
-// when types/ landed.
+// (types.UserSub / Folder / Tier / Scope) — see specs/5/U-genericization.md.
 
 type Message struct {
 	ID            string

@@ -1,9 +1,5 @@
 package runed
 
-// docker.go holds the production docker-execution lifecycle: dockerRuntime
-// (the container-spawner), its runTTL kill-deadline watcher, steer-into, and
-// the IPC input drop. The test seam (FakeRuntime) lives in runtimes.go.
-
 import (
 	"context"
 	"encoding/json"
@@ -51,10 +47,7 @@ func NewDockerRuntime(cfg *core.Config, folders *groupfolder.Resolver) Runtime {
 	}
 }
 
-// dockerKill stops a live container by name: stop, then docker kill, then
-// rm -f (spec 5/P § DELETE /v1/runs/{id}). Idempotent — every step is a
-// harmless no-op on an already-exited / never-created container, which is
-// what makes the runTTL watcher safe to retry.
+// dockerKill is the default Kill: stop → docker kill → rm -f, idempotent.
 func dockerKill(name string) error {
 	_ = exec.Command(container.Bin, container.StopContainerArgs(name)...).Run()
 	_ = exec.Command(container.Bin, "kill", name).Run()

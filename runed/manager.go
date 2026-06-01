@@ -167,13 +167,8 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	folder := string(req.Folder)
 	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
 
-	// session id (resume or fresh) is resolved by Run under the lock and
-	// stamped into the live-run slot before this spawn starts, so a racing
-	// steer sees the real id.
-
-	// Isolated (timed-isolated:*) runs are one-off containers: no session
-	// lineage persisted (no session_log row), matching gated's `if !isolated`
-	// guards in runAgentWithOpts. The spawns row still exists for GET/DELETE.
+	// Isolated (timed-isolated:*) runs are one-off containers: no session_log
+	// row. The spawns row still exists for GET/DELETE.
 	var logID int64
 	if !req.Isolated {
 		logID, _ = m.db.RecordSession(folder, sessionID)
@@ -270,9 +265,7 @@ func (m *Manager) endRun(folder, runID string, failed bool) bool {
 		m.failures[folder]++
 		tripped = m.failures[folder] == circuitBreakerThreshold
 	} else {
-		// Any clean exit resets the breaker — silent (agent produced no
-		// output) included, matching gated's runForGroup where a non-error
-		// turn returns success=true → consecutiveFailures=0. A folder
+		// Any clean exit resets the breaker (silent included); a folder
 		// alternating error/silent must never creep to the threshold.
 		m.failures[folder] = 0
 	}

@@ -1,11 +1,5 @@
 package routd
 
-// dispatch.go holds the per-turn dispatch path: the queue's per-folder worker
-// (processGroupMessages), the single-turn driver (runTurn), the runed POST
-// /v1/runs call (dispatchRun), and the sender/topic batch splitters. Route
-// resolution + the poll loop live in loop.go (shared with the maintenance
-// sweeps).
-
 import (
 	"context"
 	"log/slog"
@@ -58,9 +52,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	}
 
 	// web: chats dispatch one turn per topic in first-seen order; everyone
-	// else batches per distinct sender, one turn each (mirrors gated
-	// processWebTopics / processSenderBatch). The route-pinned topic (r.Topic)
-	// overrides the message's own topic for the non-web path.
+	// else batches per distinct sender, one turn each. The route-pinned topic
+	// (r.Topic) overrides the message's own topic for the non-web path.
 	var groups [][]core.Message
 	if strings.HasPrefix(chatJID, "web:") {
 		groups = groupByTopic(trigger)
@@ -185,8 +178,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 // groupBySender splits msgs into consecutive same-sender runs, preserving
 // causal order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole
-// slice by sender would reorder a conversation's turns (mirrors gated
-// groupBySender).
+// slice by sender would reorder a conversation's turns.
 func groupBySender(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil
@@ -203,8 +195,7 @@ func groupBySender(msgs []core.Message) [][]core.Message {
 
 // groupByTopic splits msgs into consecutive same-topic runs, preserving causal
 // order: A,B,A yields [A],[B],[A], not [A,A],[B]. Regrouping the whole backlog
-// by topic would reorder turns across topics (the web: per-topic dispatch;
-// mirrors gated processWebTopics).
+// by topic would reorder turns across topics (the web: per-topic dispatch).
 func groupByTopic(msgs []core.Message) [][]core.Message {
 	if len(msgs) == 0 {
 		return nil

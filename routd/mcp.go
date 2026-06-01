@@ -14,14 +14,6 @@ import (
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
-// mcp.go stands up the per-turn agent MCP socket IN-PROCESS, the same way
-// gated does via ipc.ServeMCP — but wired to routd's own DB + Deliverer
-// instead of federating over HTTP to runed. runTurn calls ServeTurnMCP per
-// turn before dispatch (the routd half of the socket-ownership flip; runed
-// still creates its own socket until Phase 3b). The tools that need the
-// execution plane (spawn/setup/voice/tasks/ACL/identity) are deferred to
-// runed/authd and left nil (see bugs.md).
-
 // turnMCP is the per-turn binding the in-process fns close over: which folder/
 // topic/chat/turn the socket serves and what triggered it. It mirrors the
 // turn_context routd stores, narrowed to what the MCP fns read.
@@ -34,10 +26,8 @@ type turnMCP struct {
 }
 
 // buildGatedFns wires the write-side agent tools (reply/send/social/group
-// controls/route-tokens/submit_turn) to routd's appendAndDeliver + Deliverer,
-// porting gated's wireFns one tool at a time. Tools whose backing capability
-// lives in the execution plane (runed) or auth authority (authd) stay nil;
-// ipc.ServeMCP registers only the non-nil ones.
+// controls/route-tokens/submit_turn) to routd's Deliverer; execution-plane
+// tools stay nil. ipc.ServeMCP registers only the non-nil ones.
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
 		EngagementTTL: s.engagementT,
@@ -103,11 +93,11 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	}
 }
 
-// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer,
-// matching gated's SendReply/SendMessage = deliver-only. The ipc tool layer's
-// recordOutbound persists the bot row + threads (SetLastReply) + bumps
-// engagement, so this must NOT do any of that or the row double-persists.
-// Returns the platform id. returnTarget redirects delegated turns to the origin.
+// mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer.
+// The ipc tool layer's recordOutbound persists the bot row + threads
+// (SetLastReply) + bumps engagement, so this must NOT do any of that or the row
+// double-persists. Returns the platform id. returnTarget redirects delegated
+// turns to the origin.
 func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -125,7 +115,7 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 }
 
 // mcpAppendDoc is the in-process send_file: deliver-only (internalSend's
-// recordOutbound persists the row), mirroring mcpDeliver for documents.
+// recordOutbound persists the row).
 func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) error {
 	if s.deliver == nil {
 		return nil
@@ -327,10 +317,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // routd's own DB + Deliverer. expectedUID gates peers (1000 = ant `node` user,
 // or the dev host uid). Returns the stop func (removes the socket). Called
 // per-turn from runTurn before dispatch.
-//
-// Operator ACL overlay is DEFERRED: routd has no acl table, so callerSub is ""
-// (full operator access) and StoreFns.Authorize stays nil. The row-based ACL
-// gate moves to authd (see bugs.md).
+
 // deriveFolderGrants is the single grant-rule renderer for a folder: tier
 // defaults (grants.DeriveRules) keyed on the folder's tier + world. Used by both
 // ServeTurnMCP (the in-process MCP tool firewall) and dispatchRun (the rules

@@ -157,8 +157,8 @@ var daemonKeys = map[string][]string{
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 	},
-	// runed: execution plane. The ONLY new daemon wired to docker.sock +
-	// crackbox + the per-folder agent networks; mirrors gated's spawn env.
+	// runed: execution plane. The ONLY daemon wired to docker.sock +
+	// crackbox + the per-folder agent networks.
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",

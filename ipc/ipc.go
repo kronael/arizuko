@@ -741,8 +741,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		all := append([]mcp.ToolOption{mcp.WithDescription(desc)}, opts...)
 		srv.AddTool(mcp.NewTool(name, all...), h)
 	}
-	// emitAuthzDenied records an authorization failure for any tool call.
-	// Called from granted wrapper on grants/authorize denial.
 	emitAuthzDenied := func(tool, actorSub string) {
 		actor := actorSub
 		if actor == "" {
@@ -775,7 +773,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	// emitSys records a system audit event for mutating MCP tool calls.
 	// actorSub is the session caller; params must already be redacted.
 	emitSys := func(tool, targetFolder, actorSub string, params map[string]any, err error) {
 		actor := actorSub
@@ -806,7 +803,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	// authzStructural wraps auth.AuthorizeStructural and logs authz_denied on failure.
 	authzStructural := func(action string, target auth.AuthzTarget) error {
 		err := auth.AuthorizeStructural(identity, action, target)
 		if err != nil {
@@ -815,11 +811,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		return err
 	}
 
-	// log_external_cost — agent reports a non-Anthropic LLM call's cost
-	// (oracle/codex/openai) so the spec 5/34 budget gate covers it. The
-	// oracle skill calls this after parsing `codex exec --json` output.
-	// Anthropic costs are captured automatically via submit_turn; this
-	// tool is for everything else the agent shells out to.
 	if db.LogExternalCost != nil {
 		registerRaw("log_external_cost",
 			"Record one non-Anthropic LLM call against the folder's daily "+
@@ -1258,10 +1249,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		},
 	})
 
-	// pane_set_prompts / pane_set_title — Slack assistant pane (spec 6/D).
-	// Both stage values on the owning adapter; the adapter fires the
-	// assistant.threads.* call after the next outbound into the pane.
-	// Adapters without pane semantics return chanlib.ErrUnsupported.
 	if gated.PaneSetPrompts != nil {
 		registerRaw("pane_set_prompts",
 			"Slack only — stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next pane_set_prompts call. Use after a reply when you can anticipate the user's likely follow-ups (e.g. \"dig deeper\", \"summarise\", \"export\"). Not for sending messages (use `send`). 3-4 prompts is the visible cap.",

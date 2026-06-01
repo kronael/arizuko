@@ -477,9 +477,7 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 		in.Annotations = append(in.Annotations, uc)
 	}
 
-	// PERSONA.md is the canonical persona file (v0.33.25+). SOUL.md is
-	// the legacy name — auto-migrate on first read so existing groups
-	// pick up the rename without operator action.
+	// Auto-migrate the old SOUL.md name to PERSONA.md on read.
 	personaPath := filepath.Join(groupDir, "PERSONA.md")
 	soulPath := filepath.Join(groupDir, "SOUL.md")
 	if _, err := os.Stat(personaPath); err != nil {
@@ -890,7 +888,7 @@ func SetupGroup(cfg *core.Config, folder, prototype string) error {
 	// Per-group web slots — bind-mounted into ~/public_html and ~/private_html
 	// at agent spawn time. Pre-create here so the dirs exist before the first
 	// docker run and inherit the container's uid via chownR in seedGroupDir.
-	// runner.go also MkdirAll-s these defensively at spawn time. Spec 5/V.
+	// Spec 5/V.
 	if cfg.WebDir != "" {
 		os.MkdirAll(filepath.Join(cfg.WebDir, "pub", folder), 0o755)
 		os.MkdirAll(filepath.Join(cfg.WebDir, "priv", folder), 0o755)
