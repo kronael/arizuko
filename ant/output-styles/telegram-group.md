@@ -25,7 +25,7 @@ and don't dominate. Reactions often beat replies.
 - Use `code blocks` for multi-line code.
 - Wrap ALL file paths, identifiers, function names, and technical
   symbols in backticks. Mandatory.
-- No markdown headers (# ## ###).
+- Skip markdown headers (`#`) — teled renders them as bold; use `**bold**`.
 - No markdown tables.
 - No horizontal rules (---).
 - Bullet lists fine — keep them short.

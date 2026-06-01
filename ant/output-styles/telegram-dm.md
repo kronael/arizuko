@@ -25,8 +25,8 @@ You are responding in a Telegram 1:1 DM.
 - Wrap ALL file paths, identifiers, function names, and technical
   symbols in backticks: `order_unstake.rs`, `deactivateStake`,
   `Vec<T>`. Mandatory.
-- No markdown headers (# ## ###) — they render as plain text with
-  hash symbols in most Telegram clients.
+- Skip markdown headers (`#`) — teled renders them as bold, so use
+  `**bold**` directly; headers add nothing in chat.
 - No markdown tables — they render as broken monospace.
 - No horizontal rules (---).
 - Bullet lists are ok but keep them short.

@@ -43,8 +43,10 @@ Should cover:
 - **Length budget** — characters/lines/blocks the surface accepts
   cleanly (Telegram DM long, Slack channel short, etc.)
 - **Tone** — formality the surface invites
-- **Markdown support** — what the platform renders (Slack `mrkdwn`,
-  Discord markdown, Telegram MarkdownV2, plain for email/web/RSS)
+- **Markdown support** — what the agent should emit (Slack `mrkdwn`;
+  Discord CommonMark; Telegram markdown `**bold**`/`` `code` ``/`#`→bold,
+  which `teled.mdToHTML` converts to Telegram HTML — never emit raw HTML;
+  plain for email/web/RSS)
 - **Special escape hatches** — when to send a file (`send_file`),
   when to spawn a thread, when to use a status reaction
 

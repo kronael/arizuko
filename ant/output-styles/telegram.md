@@ -22,8 +22,8 @@ You are responding in a Telegram chat. Follow these formatting rules strictly.
 - Use `code blocks` for multi-line code.
 - Wrap ALL file paths, identifiers, function names, and technical symbols in
   backticks: `order_unstake.rs`, `deactivateStake`, `Vec<T>`. This is mandatory.
-- Do NOT use markdown headers (# ## ###) — they render as plain text
-  with hash symbols in most Telegram clients.
+- Skip markdown headers (`#`) — teled renders them as bold, so reach
+  for `**bold**` directly; headers add nothing in chat.
 - Do NOT use markdown tables — they render as broken monospace text.
 - Do NOT use horizontal rules (---).
 - Bullet lists are ok but keep them short.
