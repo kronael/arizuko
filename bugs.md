@@ -5,6 +5,58 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## atlas-on-Slack live trace (2026-06-01) — 2 HIGH bugs
+
+Traced marinade/atlas Slack behavior on the user's request. Two real bugs.
+
+### HIGH — mention-only sub-folder agents can't reply (send authz resolves to parent)
+
+`atlas/support` is routed mention-only on `slack:T4PNSRSP7/channel/C0B4JMQ8X89`
+(route id 18: `verb=mention → atlas/support`, seq 10) with a wildcard observe
+catch-all (route id 14: `slack:*/channel/* → atlas#observe`, seq 100) and a
+specific observe (route id 17: `…C0B4… → atlas/support#observe`, seq **110**).
+
+When `atlas/support`'s agent calls `reply`/`send`, `authorizeJID`
+(`ipc/ipc.go:603`) authorizes via `DefaultFolderForJID` ONLY. That fn
+(`store/groups.go:188`) resolves with a synthetic `Verb:"message"` — so the
+`verb=mention` route is skipped and the wildcard (seq 100) beats the specific
+observe (seq 110) → `DefaultFolderForJID(C0B4) = "atlas"` (the PARENT).
+`AuthorizeStructural(atlas/support, …, target=atlas)` then denies (child not in
+parent's subtree) → `forbidden: chat … belongs to folder atlas, not in subtree
+of atlas/support`. Observed live 2026-06-01 13:43:20 — the agent computed the
+answer, couldn't deliver via `reply`, saved it to `~/tmp/pending-reply-*.md`,
+and self-filed `chat-send-forbidden`. (The gateway's turn-RESULT auto-delivery
+still gets the final text out, so messages DO appear — masking the tool failure;
+inconsistent.)
+
+Fix (code): `authorizeJID` should also pass when `JIDRoutedToFolder(jid,
+id.Folder)` is true — i.e. the caller's folder is ANY route target for the jid,
+including verb-conditioned routes. That helper already exists (`ipc/ipc.go:1371`,
+used elsewhere) but is not wired into `authorizeJID`. Operator workaround: lower
+route 17's seq below the wildcard's 100, or add an explicit send grant.
+
+### HIGH — cpDirOverwrite can't overwrite root-owned output-style files (regression from 9a2a181a)
+
+The v0.49.0 `seedOutputStyles` change `cpDirFresh`→`cpDirOverwrite` (commit
+9a2a181a) truncate-opens each dest file. 51 output-style files across
+`atlas/{support,strengths,research,martin}` are owned by **root:root** (from a
+2026-05-21 sudo op); the dir is `mivu:mivu` (uid 1000 = gated's container uid).
+gated (uid 1000) can't truncate-open root-owned files → `cpDir: write failed …
+permission denied` on EVERY spawn (logged live 14:49:40) → those styles stay
+frozen — the exact staleness the fix was meant to cure. `cpDirFresh` skipped
+them silently; the overwrite path surfaces the error but still doesn't update.
+
+Fix (code): in `cpDirImpl`, `os.Remove(dst)` before creating (the dir is
+uid-1000-owned, so unlink succeeds even on root-owned files), instead of
+truncate-open. Operator remedy (immediate): `sudo chown 1000:1000` the 51
+root-owned files under `…/groups/atlas/*/.claude/output-styles/`.
+
+### LOW / noted
+- 1 errored slack turn (2026-06-01 07:22 mention) — container exited code 0 at
+  ~9.9 min, `timedOut:false`; cause unclear, single occurrence.
+- Not bugs: engagement override `C4P090XU1 → atlas` (by design, spec 5/G); docs
+  asset cache served a stale `hub.js` to one curl (on-disk correct).
+
 ## RESOLVED 2026-05-29 (this session — detail in `.diary/20260528.md`/`20260529.md`)
 
 These entries below are now FIXED; superseding their stale open-entries:
