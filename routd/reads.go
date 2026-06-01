@@ -158,16 +158,19 @@ func (d *DB) JIDRoutedToFolder(jid, folder string) bool {
 }
 
 // GetRoute returns one route by id; ok=false when absent.
-func (d *DB) GetRoute(id int64) (core.Route, bool) {
+// GetRoute does a point lookup by id. The error is sql.ErrNoRows when the route
+// doesn't exist (caller → 404) vs a real store error (caller → 500) — callers
+// MUST distinguish them with errors.Is so a DB fault isn't reported as not-found.
+func (d *DB) GetRoute(id int64) (core.Route, error) {
 	var r core.Route
 	err := d.db.QueryRow(`SELECT id, seq, match, target,
 		COALESCE(observe_window_messages,0), COALESCE(observe_window_chars,0)
 		FROM routes WHERE id=?`, id).Scan(&r.ID, &r.Seq, &r.Match, &r.Target,
 		&r.ObserveWindowMessages, &r.ObserveWindowChars)
 	if err != nil {
-		return core.Route{}, false
+		return core.Route{}, err
 	}
-	return r, true
+	return r, nil
 }
 
 // WebRouteOwner reports which folder owns an exact path_prefix row, if any

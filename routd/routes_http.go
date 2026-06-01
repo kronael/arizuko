@@ -1,7 +1,10 @@
 package routd
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -71,22 +74,21 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "non-numeric id")
 		return
 	}
-	routes, err := s.db.Routes()
+	rt, err := s.db.GetRoute(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, 404, "not_found", "route not found")
+		return
+	}
 	if err != nil {
+		slog.Error("route lookup failed", "id", id, "err", err)
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
-	for _, rt := range routes {
-		if rt.ID == id {
-			if !ownsFolder(folder, rt.Target) { // scoped caller can't GET a route outside its subtree
-				writeErr(w, 404, "not_found", "route not found")
-				return
-			}
-			writeJSON(w, 200, toWireRoute(rt))
-			return
-		}
+	if !ownsFolder(folder, rt.Target) { // scoped caller can't GET a route outside its subtree
+		writeErr(w, 404, "not_found", "route not found")
+		return
 	}
-	writeErr(w, 404, "not_found", "route not found")
+	writeJSON(w, 200, toWireRoute(rt))
 }
 
 func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {

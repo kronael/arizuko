@@ -139,6 +139,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 
+	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,
+		"chat_jid", chatJID, "trigger", last.Sender)
 	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)

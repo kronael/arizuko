@@ -2,6 +2,7 @@ package routd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -116,7 +117,11 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 		jid = returnTarget(tc, jid)
 		topic = tc.Topic
 	}
-	return s.deliver.Send(jid, text, replyTo, topic, "mcp-"+randHex(8))
+	pid, err := s.deliver.Send(jid, text, replyTo, topic, "mcp-"+randHex(8))
+	if err != nil {
+		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
+	}
+	return pid, err
 }
 
 // mcpAppendDoc is the in-process send_file: deliver-only (internalSend's
@@ -129,6 +134,9 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) 
 		jid = returnTarget(tc, jid)
 	}
 	_, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
+	if err != nil {
+		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
+	}
 	return err
 }
 
@@ -241,7 +249,10 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		SetRoutes:           func(folder string, r []core.Route) error { _, e := s.db.SetRoutes(folder, r); return e },
 		AddRoute:            s.db.AddRoute,
 		DeleteRoute:         s.db.DeleteRoute,
-		GetRoute:            s.db.GetRoute,
+		GetRoute: func(id int64) (core.Route, bool) {
+			rt, err := s.db.GetRoute(id)
+			return rt, err == nil
+		},
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,
 		MessagesBefore: func(jid string, before time.Time, limit int) ([]core.Message, error) {
