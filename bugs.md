@@ -1415,3 +1415,12 @@ RunRequest grows EgressAllowlist+Grants; runed wires them into container.Input.
 Until done: a krons split soak must run with crackbox OFF, or this lands first.
 NOT a quick fix — own task. The non-crackbox correctness is otherwise soak-ready
 (all confirmed breaker/dispatch/socket regressions fixed this session).
+
+## routd disabled() not applied to social verbs (split-vs-gated parity, LOW)
+routd/deliver.go disabled() (SEND_DISABLED_CHANNELS) gates Send/Document/Post only.
+gated's canSendToJID also gates Forward/Quote/Repost/React/Edit/Pin/Voice
+(gateway.go:1520-1559 + tts.go:22). So on the split, SEND_DISABLED_CHANNELS=discord
+suppresses send/reply/document/post but NOT a discord forward/quote/like/edit/pin.
+Fix: apply d.disabled(jid) (or targetJID for Forward) at the top of the other
+chanDeliverer verbs too. Also re-verify the stale bugs.md:1101 sendDocument note
+(gated sendDocument DOES check canSendToJID at gateway.go:1478 now — likely fixed).
