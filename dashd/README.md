@@ -50,7 +50,7 @@ below match the actual `mux.HandleFunc` calls.
 - **Invites — admin** (2): `GET/POST /dash/invites/` — list pending
   invites, create new (admin-gated), revoke by token. (`invites.go`)
 - **Grants viewer — admin** (2): `GET/POST /dash/groups/{folder}/grants`
-  — ACL rows for the folder, add form (all 27 actions), per-row revoke.
+  — ACL rows for the folder, add form (all 32 actions), per-row revoke.
   (`grants_admin.go`)
 - **Model selector**: dropdown in groups settings writes `groups.model`;
   container runner passes `ARIZUKO_MODEL` env var.
@@ -118,6 +118,10 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 - `routes_admin.go` — routes table CRUD (admin-gated).
 - `groups_admin.go` — group create / settings (model, skills, workspace links) / delete (admin-gated).
 - `grants_admin.go` — ACL viewer + add/revoke per folder (admin-gated).
+- `tools_admin.go` — read-only MCP tool browser at `/dash/groups/{folder}/tools`.
+- `tasks_admin.go` — task detail + run logs + pause/resume at `/dash/tasks/{id}`.
+- `route_tokens.go` — `/dash/tokens/` chat/webhook route-token list + issue + revoke.
+- `channels.go` — `/dash/channels/whatsapp/pair` pairing form + live status.
 - `invites.go` — invite list + create + revoke (admin-gated).
 - `profile.go` — `/dash/profile/` view of linked subs for the caller.
 - `authz.go` — `requireAdmin` wrapper around `auth.Authorize`.

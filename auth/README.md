@@ -1,85 +1,81 @@
 # auth
 
-Identity, JWT, OAuth, authorization policy, HTTP middleware.
+Identity, ES256 tokens, JWKS, OAuth, authorization policy, HTTP middleware.
 
 ## Purpose
 
 Shared auth primitives used across daemons. Four concerns: (1) user auth
 (password argon2, JWT sessions, OAuth providers, Telegram widget),
 (2) runtime identity resolution for agents (`Identity` from folder and
-tier), (3) tool-level authorization via `Authorize`, (4) **the canonical
-platform-token format** — every issuer mints through this library, every
-verifier validates through this library. No daemon implements its own
-JWT format.
+tier), (3) authorization — a structural gate (`AuthorizeStructural`) and
+an ACL row-grant gate (`Authorize`), (4) **the canonical platform-token
+format** — authd signs, every backend verifies through this library. No
+daemon implements its own JWT format.
 
-## Platform token (per `specs/5/5-uniform-mcp-rest.md`)
+## Platform token (per `specs/5/5-uniform-mcp-rest.md`, `specs/5/1`)
 
-Single signed JWT shape for all federated `/v1/*` calls and the future
-agent capability token. HS256, signed with `AUTH_SECRET`:
+ES256 signed JWT for all federated `/v1/*` calls and agent capability
+tokens. authd is the **sole signer**; backends only verify against the
+cached public JWKS — they never link the signing path. `TokenClaims`
+(`es256.go`) is the payload:
 
 ```json
 {
-  "sub":    "user:abc123" | "agent:atlas/main" | "key:k_42",
-  "scope":  ["groups:read", "tasks:write", "messages:send", "*:read"],
-  "folder": "atlas/main",
-  "tier":   2,
-  "iat":    1735000000,
-  "exp":    1735003600,
-  "iss":    "proxyd" | "mcp-host" | "onbod"
+  "sub":        "user:abc123" | "service:routd" | "agent:atlas/main",
+  "typ":        "user" | "service" | "downscoped",
+  "scope":      ["groups:read", "tasks:write", "messages:send"],
+  "aud":        "atlas",
+  "iss":        "authd",
+  "iat":        1735000000,
+  "nbf":        1735000000,
+  "exp":        1735003600,
+  "jti":        "<128-bit base64url>",
+  "parent_jti": "<parent token jti, downscoped only>"
 }
 ```
 
-Scopes are `<resource>:<verb>` pairs; `*:*` is root, `tasks:*` matches
-all task verbs. `folder` scopes the token to a subtree (`atlas/main`
-token cannot touch `rhias/*`). `tier` is denormalized from grants for
-fast tier-gated checks. Scopes are minted from grant rules at issuance
-time (snapshot) — revocation is by short TTL until a revocation list
-becomes load-bearing.
+`Extra` (`map[string]string`) round-trips as top-level claims, not a
+nested object — e.g. `arz/folder` is read back as `Subject.Extra["arz/folder"]`.
+Scopes are `<resource>:<verb>` pairs; wildcards are namespace-only
+(`tasks:*`), there is no global `*:*` (operators carry the enumerated
+resource list).
 
-**Permitted issuers** (each calls `auth.Mint(...)`, produces the same
-JWT shape, differs only in scope breadth):
+**Signing** (`SigningKey`, ES256 P-256 keypair; `Kid` rides the JWS
+header for rotation):
 
-- `proxyd` — OAuth login, user session token
-- `mcp-host` — currently `ipc/` inside gated; mints agent capability
-  token at socket bind, embedding `(folder, tier, grants snapshot)`
-- `onbod` — invite redemption / admission, narrow initial-session scope
-- `dashd` (planned) — long-lived API keys for operator automation
+- `(*SigningKey).Sign(c TokenClaims, ttl) (string, error)` — low-level
+  mint; forces `iss=authd`, sets `iat/nbf/exp`, fills `jti`.
+- `(*SigningKey).MintForSubject(targetGrants []string, c, ttl)` —
+  authoritative issuance after OAuth/service-key exchange; granted scope
+  = requested ∩ targetGrants (all of targetGrants if requested empty).
+- `(*SigningKey).MintNarrower(parentScope []string, c, ttl)` — delegated
+  downscope (backs `mint_token` MCP tool); requested scope must be a
+  subset of parent's, else `ErrScopeTooBroad`. Sets `typ=downscoped`.
 
 ## Public API
 
-**Status quo (shipped).**
-
 - Identity: `Identity`, `Resolve(folder string) Identity`, `WorldOf(folder)`, `IsDirectChild(parent, child)`, `CheckSpawnAllowed`
-- Authorization: `Authorize(id Identity, tool string, target AuthzTarget) error`, `AuthzTarget`, `MatchGroups(allowed, folder)`
-- Session JWT (today's shape: `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`
-- OAuth: GitHub, Google, Discord, Telegram widget — shared `createOAuthSession`
-- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`
-- Password: `HashToken`, argon2 verify
+- Structural authz: `AuthorizeStructural(id Identity, tool string, target AuthzTarget) error`, `AuthzTarget`, `MatchGroups(allowed, folder)` — tree-shape invariants (caller-folder prefix, tier bounds, task-owner-must-match).
+- ACL row-grant authz: `Authorize(s *store.Store, caller Caller, action, scope string, params map[string]string) bool` and `AuthorizeWith(..., opts AuthorizeOpts)` — deny-wins row grants with tier-default fallback for `mcp:*` actions. Many tool callsites need both gates.
+- Token verify: `VerifyToken(token string, ks *KeySet) (Subject, error)`, `VerifyHTTP(r *http.Request, ks *KeySet) (Subject, error)`, `HasScope(scope []string, resource, verb string) bool`, `MatchesAudience(sub Subject, aud)`.
+- JWKS: `PublicJWKS(keys ...*SigningKey) ([]byte, error)` (authd's `/v1/keys`); `FetchKeys(ctx, authdURL)` + `KeySet` (backend-side cache).
+- Service bootstrap: `ServiceToken(authdURL, daemon, key) (*TokenSource, error)`; `(*TokenSource).Token(ctx)` returns a live, auto-refreshed `service:<name>` token.
+- Session JWT (legacy HS256, `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`.
+- OAuth: GitHub, Google, Discord, Telegram widget — shared `createOAuthSession`.
+- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`.
+- Password: `HashToken`, argon2 verify.
 - Middleware: `RegisterRoutes(mux, store, cfg)` mounts `/auth/*`;
   `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
-  identity headers (the pre-`/v1/*` trust mechanism)
+  identity headers; `RequireSignedOrBearer(secret, ks)` /
+  `StripUnsignedOrBearer(secret, ks)` accept either a proxyd signature
+  or a Bearer ES256 token.
 
-**Planned (per `specs/5/5-uniform-mcp-rest.md` §"Token model").** Not yet
-implemented; this README is the contract:
-
-- `Mint(secret []byte, c Claims) (string, error)` — single mint entry
-  for every issuer (proxyd, mcp-host, onbod, dashd). Sets `iat`/`exp`,
-  signs HS256.
-- `VerifyHTTP(r *http.Request) (Identity, error)` — extracts
-  `Authorization: Bearer <jwt>`, verifies signature + `exp` + `iss`,
-  returns `Identity{sub, scope, folder, tier}`.
-- `HasScope(id Identity, resource, verb string) bool` — wildcard-aware
-  scope check (`*:*`, `tasks:*`, `*:read`).
-- `MatchesFolder(id Identity, target string) bool` — subtree match;
-  `folder == "*"` or unset = root.
-
-Per-request shape every `/v1/*` handler will use:
+Per-request shape on a `/v1/*` handler:
 
 ```go
-ident, err := auth.VerifyHTTP(r)
-if err != nil                                   { return 401 }
-if !auth.HasScope(ident, "tasks", "write")      { return 403 }
-if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
+sub, err := auth.VerifyHTTP(r, ks)
+if err != nil                              { return 401 }
+if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 ```
 
 ## Dependencies
@@ -88,9 +84,9 @@ if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
 
 ## Configuration
 
-- `AUTH_SECRET` — HS256 signing key for **every** platform token
-  (sessions, agent caps, onbod-issued, dashd-issued). Single source;
-  rotating it invalidates all tokens.
+- `AUTH_SECRET` — HMAC secret for legacy session JWTs + proxyd-signed
+  identity headers. ES256 platform tokens are signed by authd's keypair,
+  not this secret.
 - `AUTH_BASE_URL`
 - `GITHUB_CLIENT_ID/SECRET`, `GITHUB_ALLOWED_ORG`
 - `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_ALLOWED_EMAILS`
@@ -100,9 +96,16 @@ if !auth.MatchesFolder(ident, taskFolder)       { return 403 }
 ## Files
 
 - `identity.go` — tier/world resolution, spawn rules
-- `policy.go` — `Authorize` per tool; `list_acl` dispatched here (tier > 2 → unauthorized; tier 2 → own subtree only)
+- `policy.go` — `AuthorizeStructural` (tree-shape / tier-bound gate)
+- `authorize.go` — `Authorize`/`AuthorizeWith` (ACL row-grant gate, `Caller`)
+- `es256.go` — `TokenClaims`, `Subject`, `SigningKey`, `Sign`/`MintForSubject`/`MintNarrower`
+- `jwks.go` — `KeySet`, `VerifyToken`, `VerifyHTTP`, `PublicJWKS`, `FetchKeys`
+- `scope.go` — `HasScope`, scope intersection/coverage helpers
+- `service.go` — daemon service-token bootstrap (`ServiceToken`, `TokenSource`)
 - `acl.go` — `MatchGroups`, glob ACL
-- `jwt.go`, `middleware.go`, `web.go` — session handling + login routes
+- `routes.go` — `RegisterRoutes` mounts `/auth/*`
+- `link.go` — account link-code redemption; `collide.go` — sub-collision resolution UI
+- `jwt.go`, `middleware.go`, `web.go` — legacy session handling + login routes
 - `oauth.go` — provider dance
 - `hmac.go` — inter-daemon header signing
 

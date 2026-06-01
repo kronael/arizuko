@@ -14,19 +14,22 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 - Register as channel `web` with caps `send_text` + `typing` (`main.go`).
 - Run the SSE hub that fans agent output to subscribers, keyed on
   `folder/topic` (`hub.go`).
-- Serve slink pages: public widget, token-scoped chat (`slink.go`, `pages.go`).
+- Serve guest chat pages: public widget, token-scoped chat at
+  `/chat/<token>/` (`route_token.go`, `pages.go`).
 - Serve the user MCP bridge for authed sessions (`mcp.go`) and the
-  token-only slink-MCP transport at `/slink/<token>/mcp` (`slink_mcp.go`).
+  token-only chat-MCP transport at `/chat/<token>/mcp` (`chat_mcp.go`).
 - Accept signed header forwards from `proxyd` (`PROXYD_HMAC_SECRET`).
 
 ## Tables owned
 
-Per `specs/5/5-uniform-mcp-rest.md`: `web_routes` and the `slink_token`
-column on `groups`. Vhost config lives in `web/vhosts.json` (file, not
-table). webd does not own messages — it writes them as a client of
-`gated/v1/messages` (channel adapter inbound) and today reads them via
-its own `/api/*` paths directly off the shared DB. Once federation lands
-those reads migrate to `gated/v1/messages` (flagged future work).
+Per `specs/5/5-uniform-mcp-rest.md`: `web_routes` and the `route_tokens`
+table (created in migration `0059-route-tokens.sql`, which also dropped
+the legacy `groups.slink_token` column). Vhost config lives in
+`web/vhosts.json` (file, not table). webd does not own messages — it
+writes them as a client of `gated/v1/messages` (channel adapter inbound)
+and today reads them via its own `/api/*` paths directly off the shared
+DB. Once federation lands those reads migrate to `gated/v1/messages`
+(flagged future work).
 
 ## Surface
 
@@ -38,10 +41,16 @@ Shipped today (see `server.go`):
   `GET /api/groups/{folder}/messages` — chat UI JSON reads
   (`api.go`).
 - `GET /x/*` — HTMX partials (`partials.go`).
-- `GET|POST /slink/*` — public unauthenticated guest surface
-  (`slink.go`, `slink_mcp.go`, `turn.go`).
-- `POST|GET|DELETE /mcp` — authed user MCP bridge (`mcp.go`).
-- `GET /static/*` — embedded assets.
+- `GET|POST /chat/{token}/...` — public unauthenticated guest surface:
+  chat widget root + config, message post, history, turn snapshot /
+  status / SSE, and `POST /chat/{token}/mcp` (`route_token.go`,
+  `chat_mcp.go`, `turn.go`). The URL token IS the capability.
+- `GET|POST /slink/{token}/...` — legacy; 301 redirects to `/chat/...`.
+- `GET|POST /me/...` — authed per-user chat console (`me.go`).
+- `POST|GET|DELETE /mcp` — authed user MCP bridge (`mcp.go`); operator
+  `routes.*` tools (`routes_mcp.go`).
+- `GET /openapi.json` — engine-generated OpenAPI doc.
+- `GET /static/*`, `GET /assets/*` — embedded assets.
 - `GET /health`.
 
 Planned per `specs/5/5-uniform-mcp-rest.md`:
@@ -50,15 +59,15 @@ Planned per `specs/5/5-uniform-mcp-rest.md`:
 
 ## Token contract
 
-- `/v1/*` endpoints (current and planned) verify JWTs via
-  `auth.VerifyHTTP`; `auth.Mint` issuance lives at proxyd / MCP host /
-  onbod, never here.
+- Authed surfaces (`/api/*`, `/x/*`, `/me/*`, `/mcp`, root `/`) use
+  `requireUser` / `requireFolder` = `auth.RequireSignedOrBearer(hmacSecret, ks)`:
+  accept either headers signed by `proxyd` (`PROXYD_HMAC_SECRET`) or a
+  Bearer ES256 token verified against authd's JWKS (fetched via
+  `auth.FetchKeys` at boot). webd never signs tokens.
 - `/send`, `/typing`, `/v1/round_done` keep their existing
   `chanlib.Auth(channelSecret)` HMAC contract.
-- `/api/*`, `/x/*`, `/chat/*`, `/mcp` keep `requireUser` /
-  `requireFolder` middleware over headers signed by `proxyd`
-  (`PROXYD_HMAC_SECRET`).
-- `/slink/*` stays unauthenticated; the URL token IS the capability.
+- `/chat/<token>/*` stays unauthenticated; the URL route-token IS the
+  capability (looked up in `route_tokens`).
 
 ## Future work
 
@@ -94,13 +103,16 @@ delivered messages.
 - `main.go`, `server.go` — wiring + routes
 - `hub.go` — SSE fan-out keyed on `folder/topic`
 - `channel.go` — gated→webd callbacks (`/send`, `/v1/round_done`)
-- `slink.go` — slink chat UI + `POST /slink/<token>` (form/SSE/JSON)
-- `slink_mcp.go` — slink-MCP transport at `POST /slink/<token>/mcp`
+- `route_token.go` — `route_tokens` lookup + `/chat/<token>` post/history/stream
+- `chat_mcp.go` — chat-MCP transport at `POST /chat/<token>/mcp`
   (3 tools: send_message, get_round, get_round_status — mirroring
   the REST surface 1:1)
-- `turn.go` — round-handle endpoints (`/slink/<token>/<id>{,/status,/sse}`)
+- `turn.go` — round-handle endpoints (`/chat/<token>/<id>{,/status,/sse}`)
+- `me.go` — authed per-user chat console (`/me/*`)
 - `mcp.go` — authed user MCP bridge at `/mcp`
+- `routes_mcp.go` — operator `routes.*` MCP tools (thin adapter over proxyd `/v1/routes`)
 - `api.go`, `pages.go`, `partials.go` — HTTP surface
+- `assets.go` — embedded static asset serving
 
 ## Related docs
 

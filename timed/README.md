@@ -24,7 +24,8 @@ through timed's API.
 ## Entry points
 
 - Binary: `timed/main.go`
-- Listen: `:8080` (health only today; `/v1/tasks` planned)
+- Listen: `:8080` — `/health` + `GET /openapi.json`
+  (`resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`); `/v1/tasks` planned
 - Config: `DATA_DIR`, `DATABASE`, `TZ`
 
 ## Dependencies
@@ -49,24 +50,24 @@ or via `GET /v1/tasks/runs?task_id=…` filter. Not separately writable.
 
 ## Token contract (planned)
 
-timed validates JWTs minted by `auth.Mint` — no local issuance. The
-same token format is used regardless of issuer:
+timed will verify ES256 tokens signed by authd — no local issuance. It
+caches authd's public JWKS (`auth.FetchKeys` / `KeySet`) and verifies the
+same token format regardless of issuer:
 
 - proxyd-issued user-session tokens (operator hitting dashd → timed)
-- MCP-host-issued agent capability tokens (agent calling
-  `pause_task` over MCP, HTTP-forwarded into timed)
+- agent capability tokens (agent calling `pause_task` over MCP,
+  HTTP-forwarded into timed)
 
 Per request, timed runs:
 
 ```go
-ident, err := auth.VerifyHTTP(r)
-if !auth.HasScope(ident, "tasks", verb) { return 403 }   // read|write
-if !auth.MatchesFolder(ident, taskFolder) { return 403 }
+sub, err := auth.VerifyHTTP(r, ks)
+if !auth.HasScope(sub.Scope, "tasks", verb) { return 403 }   // read|write
 ```
 
-Scopes: `tasks:read` for GET, `tasks:write` for POST/PATCH/DELETE.
-`folder` claim must cover the target task's folder; root tokens
-(`folder: "*"`) bypass.
+Scopes: `tasks:read` for GET, `tasks:write` for POST/PATCH/DELETE. The
+target task's folder is matched against the `arz/folder` claim in
+`sub.Extra`.
 
 ## Cross-daemon flow
 

@@ -39,9 +39,9 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; SQLite schema</p>
 <h1>schema</h1>
 
-    <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0057 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility.</p>
+    <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0071 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility; 0058&ndash;0071 added the engagement column, route tokens, the group model + container config, the CLI / IPC / config audit tables, group watchers, platform IDs, the 0065 orphan-table drops, the unified <code>audit_log</code>, <code>config_meta</code>, FK constraints on web routes and route tokens, full-text search over messages, and the onboarding <code>admitted_at</code> column.</p>
 
-    <p>30 live tables, grouped by concern. Two carry-overs from the 0001 baseline (<code>grants</code>, <code>channels</code>) have no live Go writers and are noted as vestigial.</p>
+    <p>35 live tables, grouped by concern, plus the <code>messages_fts</code> virtual table.</p>
 
     <h2>1. Identity &amp; ACL</h2>
 
@@ -234,7 +234,7 @@
       </table>
       <p class="meta"><strong>PK:</strong> <code>(folder, turn_id)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/turns.go#L15"><code>store/turns.go:15</code></a> (gateway).</p>
-      <p class="meta"><strong>Readers:</strong> webd (round-handle for <code>/slink/&lt;token&gt;/{turn_id}/...</code>).</p>
+      <p class="meta"><strong>Readers:</strong> webd (round-handle for <code>/chat/&lt;token&gt;/{turn_id}/...</code>).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0036-turn-results.sql">0036</a>.</p>
     </div>
 
@@ -551,43 +551,140 @@
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L78">0001</a>.</p>
     </div>
 
-    <h2>9. Vestigial (declared but unused)</h2>
-
-    <p class="meta">Pre-v0.38.0 the schema also carried <code>grants</code>, <code>user_groups</code>, <code>user_jids</code>, and <code>grant_rules</code>. Migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> dropped all four after back-filling <code>acl</code> + <code>acl_membership</code>.</p>
-
     <div class="tablecard">
-      <h3><code>channels</code> <span class="dead">read-only (dashd), not written by live code</span></h3>
-      <p>Intended persistent registry for channel adapter URL lookup; current implementation keeps the registry in memory (<a href="https://github.com/kronael/arizuko/tree/main/chanreg"><code>chanreg/</code></a>). dashd reads counts/rows from this table for the operator dashboard, but no production code writes it.</p>
+      <h3><code>config_meta</code></h3>
+      <p>Single-row optimistic-lock version for YAML config apply (spec 5/36). Each apply bumps <code>version</code> once per transaction; a CAS comparison inside <code>BEGIN IMMEDIATE</code> rejects stale applies. Bootstrap value counts existing config rows so a fresh apply against a populated DB doesn't reject with "version 0".</p>
       <table>
-        <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>name</code></td><td>TEXT PK</td><td>adapter name</td></tr>
-        <tr><td><code>url</code></td><td>TEXT NOT NULL</td><td>backend URL</td></tr>
-        <tr><td><code>jid_prefixes</code></td><td>TEXT NULL</td><td></td></tr>
-        <tr><td><code>capabilities</code></td><td>TEXT NULL</td><td></td></tr>
+        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>version</code></td><td>INTEGER NOT NULL</td><td>0</td><td>monotonic config version</td></tr>
       </table>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql#L13">0009</a>.</p>
+      <p class="meta"><strong>Writers:</strong> gated (YAML apply, inside the config transaction).</p>
+      <p class="meta"><strong>Readers:</strong> gated (CAS on apply).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0067-config-meta.sql">0067</a>.</p>
     </div>
 
     <div class="tablecard">
-      <h3><code>email_threads</code> <span class="dead">declared in messages.db but unused (emaid uses its own emaid.db)</span></h3>
-      <p>0001 defined this table in the shared DB, but the live <code>emaid</code> adapter maintains its own <code>email_threads</code> in <code>emaid.db</code> with a different shape (<a href="https://github.com/kronael/arizuko/blob/main/emaid/store.go#L26"><code>emaid/store.go:26</code></a>). The shared-DB row is dead.</p>
+      <h3><code>group_watchers</code></h3>
+      <p>Directional cross-folder ambient context for the <code>observe_group</code> MCP tool (spec 5/F). One row per (observer, source) pair; the observer receives messages delivered to the source as <code>&lt;observed&gt;</code> context on its next trigger turn.</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
-        <tr><td><code>thread_id</code></td><td>TEXT PK</td><td></td></tr>
-        <tr><td><code>chat_jid</code></td><td>TEXT NOT NULL</td><td></td></tr>
-        <tr><td><code>subject</code></td><td>TEXT NULL</td><td></td></tr>
-        <tr><td><code>last_message_id</code></td><td>TEXT NULL</td><td></td></tr>
+        <tr><td><code>observer</code></td><td>TEXT NOT NULL</td><td>folder receiving context</td></tr>
+        <tr><td><code>source</code></td><td>TEXT NOT NULL</td><td>folder being observed</td></tr>
       </table>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L99">0001</a>.</p>
+      <p class="meta"><strong>PK:</strong> <code>(observer, source)</code>.</p>
+      <p class="meta"><strong>Writers:</strong> ipc (<code>observe_group</code> / <code>unobserve_group</code>).</p>
+      <p class="meta"><strong>Readers:</strong> gateway (context assembly on trigger).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0063-group-watchers.sql">0063</a>.</p>
     </div>
 
-    <h2>10. Tables removed by migrations</h2>
+    <div class="tablecard">
+      <h3><code>cost_log</code></h3>
+      <p>One row per LLM call (Anthropic plus oracle subcalls); the gateway aggregates daily totals for per-folder and per-user budget enforcement (spec 5/34).</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339</td></tr>
+        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td>''</td><td>charged folder</td></tr>
+        <tr><td><code>user_sub</code></td><td>TEXT NOT NULL</td><td>''</td><td>'' = channel-scoped turn</td></tr>
+        <tr><td><code>model</code></td><td>TEXT NOT NULL</td><td></td><td>e.g. <code>claude-opus-4-7</code>, <code>gpt-5</code></td></tr>
+        <tr><td><code>input_tok</code></td><td>INTEGER NOT NULL</td><td>0</td><td>prompt tokens</td></tr>
+        <tr><td><code>cache_read</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cheaper cached input tokens</td></tr>
+        <tr><td><code>cache_write</code></td><td>INTEGER NOT NULL</td><td>0</td><td>cache-creation tokens</td></tr>
+        <tr><td><code>output_tok</code></td><td>INTEGER NOT NULL</td><td>0</td><td>completion tokens</td></tr>
+        <tr><td><code>cents</code></td><td>INTEGER NOT NULL</td><td>0</td><td>precomputed cost</td></tr>
+      </table>
+      <p class="meta"><strong>Indexes:</strong> <code>idx_cost_log_folder_ts</code> on <code>(folder, ts)</code>; <code>idx_cost_log_user_ts</code> on <code>(user_sub, ts)</code>.</p>
+      <p class="meta"><strong>Writers:</strong> gateway (per call).</p>
+      <p class="meta"><strong>Readers:</strong> gateway (daily aggregation for caps), dashd.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0049-cost-log.sql">0049</a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>proxyd_routes</code></h3>
+      <p>Runtime-mutable proxyd route table (spec 6/2), mirroring the in-memory <code>Route</code> struct. proxyd seeds it from <code>PROXYD_ROUTES_JSON</code> on first boot when the table is empty; thereafter the table is authoritative and the env var is ignored.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
+        <tr><td><code>path</code></td><td>TEXT PK</td><td></td><td>route path prefix</td></tr>
+        <tr><td><code>backend</code></td><td>TEXT NOT NULL</td><td></td><td>backend URL</td></tr>
+        <tr><td><code>auth</code></td><td>TEXT NOT NULL</td><td></td><td>'public' | 'user' | 'operator'</td></tr>
+        <tr><td><code>gated_by</code></td><td>TEXT NOT NULL</td><td>''</td><td>grant action gate</td></tr>
+        <tr><td><code>preserve_headers</code></td><td>TEXT NOT NULL</td><td>'[]'</td><td>JSON array</td></tr>
+        <tr><td><code>strip_prefix</code></td><td>INTEGER NOT NULL</td><td>0</td><td>0/1</td></tr>
+      </table>
+      <p class="meta"><strong>Writers:</strong> proxyd (seed + runtime mutation), gated (config apply).</p>
+      <p class="meta"><strong>Readers:</strong> proxyd.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0050-proxyd-routes.sql">0050</a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>audit_log</code></h3>
+      <p>Unified source of truth for security events and state changes across MCP / REST / CLI / gateway / cron / crackbox / agent surfaces (spec 5/I). Round-2 of the audit coverage plan; supersedes the split <code>cli_audit</code> / <code>ipc_audit</code> tables, which stop receiving writes but remain until every writer is on <code>audit.EmitInTx</code>.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>meaning</th></tr>
+        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
+        <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339 (millis)</td></tr>
+        <tr><td><code>category</code></td><td>TEXT NOT NULL</td><td>event category</td></tr>
+        <tr><td><code>action</code></td><td>TEXT NOT NULL</td><td>event action</td></tr>
+        <tr><td><code>actor</code></td><td>TEXT NOT NULL</td><td>acting principal</td></tr>
+        <tr><td><code>actor_sub</code></td><td>TEXT NULL</td><td>OAuth sub when known</td></tr>
+        <tr><td><code>resource</code></td><td>TEXT NULL</td><td>target resource</td></tr>
+        <tr><td><code>scope</code></td><td>TEXT NULL</td><td>scope for multi-level resources</td></tr>
+        <tr><td><code>surface</code></td><td>TEXT NULL</td><td>MCP / REST / CLI / …</td></tr>
+        <tr><td><code>params_summary</code></td><td>TEXT NULL</td><td>redacted call summary</td></tr>
+        <tr><td><code>outcome</code></td><td>TEXT NOT NULL</td><td>'ok' | 'error' | 'denied'</td></tr>
+        <tr><td><code>error_msg</code></td><td>TEXT NULL</td><td></td></tr>
+        <tr><td><code>duration_ms</code></td><td>INTEGER NULL</td><td></td></tr>
+        <tr><td><code>turn_id</code></td><td>TEXT NULL</td><td>correlating turn</td></tr>
+        <tr><td><code>folder</code></td><td>TEXT NULL</td><td>affected folder</td></tr>
+        <tr><td><code>instance</code></td><td>TEXT NULL</td><td>instance name</td></tr>
+        <tr><td><code>request_id</code></td><td>TEXT NULL</td><td>cross-daemon correlation</td></tr>
+        <tr><td><code>source_ip</code></td><td>TEXT NULL</td><td>REST source IP</td></tr>
+      </table>
+      <p class="meta"><strong>Indexes:</strong> <code>audit_log_created_at</code> on <code>created_at</code>; partial <code>audit_log_actor_sub</code> / <code>audit_log_folder</code> (WHERE NOT NULL); <code>audit_log_cat_act</code> on <code>(category, action)</code>.</p>
+      <p class="meta"><strong>Writers:</strong> <code>audit.EmitInTx</code> from every mutating surface.</p>
+      <p class="meta"><strong>Readers:</strong> dashd, the audit JSONL poll, forensic queries.</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>.</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>cli_audit</code> <span class="dead">legacy — no new writes since 0066</span></h3>
+      <p>Per-command CLI audit trail. Round-2 of the audit plan consolidated these rows into <code>audit_log</code> and stopped writing here; the table stays until the JSONL poll cursor migrates.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>meaning</th></tr>
+        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
+        <tr><td><code>ts</code></td><td>DATETIME NOT NULL</td><td>RFC3339 (millis)</td></tr>
+        <tr><td><code>os_user</code></td><td>TEXT NOT NULL</td><td>invoking OS user</td></tr>
+        <tr><td><code>command</code></td><td>TEXT NOT NULL</td><td>subcommand</td></tr>
+        <tr><td><code>args</code></td><td>TEXT NOT NULL</td><td>argument summary</td></tr>
+      </table>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0061-cli-audit.sql">0061</a>; superseded by <code>audit_log</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>).</p>
+    </div>
+
+    <div class="tablecard">
+      <h3><code>ipc_audit</code> <span class="dead">legacy — no new writes since 0066</span></h3>
+      <p>Per-tool MCP mutation audit trail. Like <code>cli_audit</code>, its rows now flow into <code>audit_log</code>; the table is retained until every writer is migrated.</p>
+      <table>
+        <tr><th>column</th><th>type</th><th>meaning</th></tr>
+        <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td></td></tr>
+        <tr><td><code>ts</code></td><td>DATETIME NOT NULL</td><td>RFC3339 (millis)</td></tr>
+        <tr><td><code>folder</code></td><td>TEXT NOT NULL</td><td>calling folder</td></tr>
+        <tr><td><code>sub</code></td><td>TEXT NOT NULL</td><td>calling sub</td></tr>
+        <tr><td><code>tool</code></td><td>TEXT NOT NULL</td><td>MCP tool name</td></tr>
+        <tr><td><code>params</code></td><td>TEXT NOT NULL</td><td>param summary</td></tr>
+        <tr><td><code>outcome</code></td><td>TEXT NOT NULL</td><td>call result</td></tr>
+      </table>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0062-ipc-audit.sql">0062</a>; superseded by <code>audit_log</code> (<a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0066-audit-log.sql">0066</a>).</p>
+    </div>
+
+    <h2>9. Tables removed by migrations</h2>
     <ul>
+      <li><code>grants</code>, <code>user_groups</code>, <code>user_jids</code>, <code>grant_rules</code> &mdash; the pre-v0.38.0 permission tables; migration <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> dropped all four after back-filling <code>acl</code> + <code>acl_membership</code>.</li>
       <li><code>registered_groups</code> &mdash; created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L27">0001</a>, rebuilt in 0007 (dropped <code>trigger_word</code>, <code>requires_trigger</code>), expanded in 0010, dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql">0020</a> after rekeying its contents into <code>groups</code> (by folder) and <code>chats.agent_cursor</code>.</li>
       <li><code>invitations</code> &mdash; created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0028-invitations.sql">0028</a>, dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0032-invites-rewrite.sql">0032</a> after migrating rows to <code>invites</code>.</li>
+      <li><code>channels</code> &mdash; persistent adapter registry created in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql#L13">0009</a>; its last writer was removed in v0.28.0, so the production registry is the in-memory <a href="https://github.com/kronael/arizuko/tree/main/chanreg"><code>chanreg/</code></a>. Dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0065-drop-orphaned-tables.sql">0065</a> along with the orphaned dashd reads.</li>
+      <li><code>email_threads</code> &mdash; shared-DB email thread index defined in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L99">0001</a> but never written; the live <code>emaid</code> adapter keeps its own thread index in <code>emaid.db</code> (<a href="https://github.com/kronael/arizuko/blob/main/emaid/store.go#L26"><code>emaid/store.go:26</code></a>). Dropped in <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0065-drop-orphaned-tables.sql">0065</a>.</li>
     </ul>
 
-    <h2>11. Audit of writers</h2>
+    <h2>10. Audit of writers</h2>
     <p>Schema owner: <code>gated</code> (the <code>//go:embed migrations/*.sql</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a> runs at boot). Every other daemon opens the same DB read/write but never applies migrations. Per-table writer mapping above lists the canonical INSERT/UPDATE/DELETE call sites; multiple readers per table is the norm and noted as "many" where widespread.</p>
 
       <nav class="docs-pager" aria-label="Pager">
@@ -596,7 +693,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

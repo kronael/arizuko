@@ -45,6 +45,30 @@
     </ul>
     <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0470--2026-05-30">CHANGELOG &sect; v0.47.0</a></p>
 
+    <h2>arizuko v0.46.1 <span class="date">&mdash; 29 May 2026</span></h2>
+    <p>The agent stays in the conversation, scheduled tasks fire on time, and a batch of routing, delivery, and auth bugs are gone.</p>
+    <ul>
+      <li><strong>Slack threads</strong> &mdash; the agent auto-attends a thread it started, no re-@mention needed.</li>
+      <li><strong>Auth</strong> &mdash; pin/unpin/pane/inspect tools that were wrongly denied for everyone now work.</li>
+      <li><strong>Scheduled tasks</strong> &mdash; fire correctly even when their next-run carries a non-UTC offset.</li>
+      <li><strong>Onboarding</strong> &mdash; the per-gate daily admission cap now holds across days (counts by <code>admitted_at</code>, migration 0071).</li>
+      <li><strong>Web publishing</strong> &mdash; agents redirect a clean top-level URL into their own slot.</li>
+      <li><strong>Hardened</strong> &mdash; two data races, audit-webhook delivery, per-turn web-chat isolation, and a web/standard deploy break.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0461--2026-05-29">CHANGELOG &sect; v0.46.1</a></p>
+
+    <h2>arizuko v0.46.0 <span class="date">&mdash; 28 May 2026</span></h2>
+    <p>Agents can now search the whole message history, pin/edit/delete messages, and the entire cold-tier config is one reflective engine you export and apply as YAML with an auto-generated OpenAPI doc.</p>
+    <ul>
+      <li><strong><code>find_messages</code></strong> &mdash; FTS5 full-text search over messages (phrases, OR/NOT, prefix, NEAR; bm25-ranked + snippet).</li>
+      <li><strong>Message actions</strong> &mdash; pin / unpin / edit / delete, native per platform.</li>
+      <li><strong>resreg engine + YAML manifests</strong> &mdash; one struct &rarr; SQL + REST + MCP + OpenAPI + YAML; <code>arizuko export</code>/<code>apply</code> round-trip the cold tier.</li>
+      <li><strong><code>GET /openapi.json</code> on every daemon</strong> &mdash; engine-generated, no codegen.</li>
+      <li><strong>Tool deferral</strong> &mdash; connector tools load on demand, not every turn (SDK 0.3.153).</li>
+      <li><strong>Fixes</strong> &mdash; replies/voice/files thread correctly (<code>reply</code> is now the default response tool); FK CASCADE actually enforced.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0460--2026-05-28">CHANGELOG &sect; v0.46.0</a></p>
+
     <h2>arizuko v0.42.0 <span class="date">&mdash; 19 May 2026</span></h2>
     <p>Five new dashd pages, three security fixes, and secrets now encrypted at rest. The operator dashboard is usable for day-to-day ops without touching .env or the DB.</p>
     <ul>

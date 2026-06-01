@@ -1,5 +1,5 @@
 ---
-status: draft
+status: partial
 depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md
 ---
 

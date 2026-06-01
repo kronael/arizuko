@@ -57,7 +57,7 @@ inbox.json` delivers replies/mentions/PMs only, and `/r/<sr>/new.json`
   delivers new submissions. Vote state is only exposed as aggregate
   `score`/`ups`/`likes` counts on polled things, not as discrete events.
   Inbound verbs remain `message`, `reply`, or `post` (`client.go:340`).
-- Outbound file/media upload is not implemented. `post`, `send_reply`,
+- Outbound file/media upload is not implemented. `post`, `reply`,
   and `delete` are wired; `send_file` is not.
 - Outbound `like` / `dislike` map to `/api/vote dir=±1` on the supplied
   thing name (`t1_<id>` for comments, `t3_<id>` for posts).

@@ -17,6 +17,19 @@ depends:
 
 # routd: the conversation state machine (gated split)
 
+> **Status note (2026-05-30).** The build flipped the MCP-host
+> ownership: **routd hosts the per-turn agent MCP socket in-process**
+> (`routd/mcp.go` `ServeTurnMCP` → `ipc.ServeMCP`, called per-turn from
+> `routd/dispatch.go`). `runed` became a **pure container-spawner**
+> (`runed/docker.go`, `container.Input.ExternalMCP:true`) — it hosts no
+> socket and forwards no conversation tools. The "runed federates the
+> conversation tools back to routd's `/v1/turns/*`" HTTP model below was
+> **descoped and never built**. Read every "served via runed's
+> federation" / "Served by: routd (via runed)" / "routd hosts no agent
+> MCP socket" reference as: routd serves the tools in-process; runed
+> only spawns the container. The REST wire contract (`POST /v1/runs`,
+> the `/v1/turns/*` shapes) still documents the real split surface.
+
 **Decided** (operator + oracle, 2026-05-29). `routd` is carved out of
 `gated` and owns **routing rules + the message/event store + the
 orchestration loop + channel ingress/egress**. It is the **sole
@@ -36,9 +49,10 @@ retirement). One coordinated migration: the two daemons carve their
 tables into their own DBs, the monolithic `messages.db` schema-authority
 is deleted, no shared-DB interim, no compat shim
 ([`U-genericization.md`](U-genericization.md) NO BACKWARD COMPATIBILITY).
-The agent MCP socket, tool federation, and capability-token brokering
-live in `runed` ([`P-runed.md`](P-runed.md)) — no separate MCP-host
-daemon.
+The agent MCP socket is hosted **in-process by routd**
+(`ServeTurnMCP`) — no separate MCP-host daemon and no runed federation
+(see Status note). `runed` ([`P-runed.md`](P-runed.md)) only spawns the
+container and mounts the ipc dir routd's socket lives in.
 
 ## What routd owns vs. what it doesn't
 
@@ -48,23 +62,29 @@ daemon.
 | Channel ingress (`POST /v1/messages`) + egress (delivery)  | `routd`                              |
 | Token signing, JWKs, OAuth login                           | `authd`                              |
 | Container lifecycle, per-spawn state, the agent run itself | `runed`                              |
-| Per-tenant MCP socket, tool federation, capability tokens  | `runed` ([`P-runed.md`](P-runed.md)) |
+| Per-turn agent MCP socket (in-process), conversation tools | `routd` (`ServeTurnMCP`)             |
+| Container spawn/steer/teardown, capability tokens          | `runed` ([`P-runed.md`](P-runed.md)) |
 
 Hard boundaries, no overlap:
 
 - **routd never spawns containers.** It calls `runed` over HTTP
   (§ The routd↔runed interface) and never touches Docker.
 - **runed never appends messages.** The agent's `reply`/`send`/`edit`
-  tools (hosted by runed, executed inside the container) call **back**
-  into routd's `/v1/turns/{turn_id}/*` — routd is the sole appender.
+  tools are served by **routd's in-process MCP socket** (`ServeTurnMCP`)
+  and deliver through routd's own Deliverer — routd is the sole
+  appender. (The REST `/v1/turns/{turn_id}/*` shapes below document that
+  same handler's wire face; the originally-specced runed→routd federation
+  forward was descoped — see Status note.)
 - **routd is a token verifier, not a signer.** It offline-verifies agent
   capability tokens against authd's JWKs (§ Auth). Route-tokens (the
   `/chat/`,`/hook/` widget tokens) are a **distinct** credential routd
   owns outright.
-- **routd hosts no agent MCP socket.** The unix socket per folder is
-  runed's. routd's MCP face is the routing-control tools it serves
-  directly plus the conversation-command handlers runed federates (one
-  handler, two faces — § MCP tool face).
+- **routd hosts the per-turn agent MCP socket in-process**
+  (`ServeTurnMCP` → `ipc.ServeMCP`). The unix socket per folder is
+  routd's; runed only spawns the container that connects to it
+  (`ExternalMCP`). routd's MCP face is the routing-control tools **and**
+  the conversation-command tools, all served directly in one process
+  (one handler, two faces — § MCP tool face).
 
 ## routd.db schema
 
@@ -626,8 +646,9 @@ Authz: `routes:write` (operator) or `routes:write:own_group` (agent — the
 
 ### Turn / conversation commands — `/v1/turns/{turn_id}/*`
 
-The conversation tools the agent calls (through runed federation — § MCP
-tool face). Each appends a `messages` row and fans out to the delivering
+The conversation tools the agent calls, served in-process by routd's MCP
+socket — § MCP tool face (these `/v1/*` paths are the REST twin). Each
+appends a `messages` row and fans out to the delivering
 adapter. `turn_id` binds the command to the in-flight run (the triggering
 inbound's message id); routd uses it to seed threading (`SetLastReply`)
 and engagement. **`X-Idempotency-Key` required.** Auth: agent capability
@@ -694,7 +715,7 @@ prior `platform_id`.
 ### Turn lifecycle — `submit_turn` + `turn_results`
 
 The agent calls `submit_turn` once at the end of a run (a hidden JSON-RPC
-method, not in `tools/list`, federated by runed, handled by routd). routd
+method, not in `tools/list`, served + handled in-process by routd). routd
 records the outcome idempotently:
 
 ```jsonc
@@ -816,37 +837,37 @@ table lookup; webd never sees the hash or the table.
 routd is **agent-first**: MCP is canonical, REST is the impedance match.
 Every `/v1/*` handler has an MCP twin where an agent needs it — one
 handler, two faces ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)).
-The conversation tools are **served to the agent via runed's federation**
-(runed hosts the per-folder unix socket and forwards to routd's
-`/v1/turns/{turn_id}/*`); routd is the **handler owner**. routd's own
-process serves the routing-control tools directly.
+The conversation tools are **served to the agent by routd's in-process
+MCP socket** (`ServeTurnMCP` binds the per-folder unix socket and wires
+the tools to routd's own DB + Deliverer); routd is the **handler
+owner**. The same process also serves the routing-control tools. (The
+"via runed's federation" framing in the table below is the descoped
+design — see Status note.)
 
-| MCP tool                                                                         | Face of                                | Served by                   | Scope                        |
-| -------------------------------------------------------------------------------- | -------------------------------------- | --------------------------- | ---------------------------- |
-| `reply`                                                                          | `POST /v1/turns/{id}/reply`            | routd (via runed)           | `messages:send:own_group`    |
-| `send`                                                                           | `POST /v1/turns/{id}/send`             | routd (via runed)           | `messages:send:own_group`    |
-| `send_file`                                                                      | `POST /v1/turns/{id}/document`         | routd (via runed)           | `messages:send:own_group`    |
-| `get_history` / `get_thread`                                                     | `GET /v1/turns/{id}/history`,`/thread` | routd (via runed)           | `chats:read:own_group`       |
-| `like` / `edit` / `delete`                                                       | `POST /v1/turns/{id}/{verb}`           | routd (via runed)           | `messages:send:own_group`    |
-| `dislike` / `pin_message` / `unpin_message` / `unpin_all`                        | mapped paths (§ verb→path exceptions)  | routd (via runed)           | `messages:send:own_group`    |
-| `engage` / `disengage`                                                           | engagement write (5/G)                 | routd (via runed)           | self/owned jid (3-arm authz) |
-| `fork_topic`                                                                     | lineage write (5/F)                    | routd (via runed)           | `messages:send:own_group`    |
-| `set_routes` / `add_route` / `delete_route`                                      | route CRUD                             | routd direct                | `routes:write:own_group`     |
-| `inspect_routing`                                                                | route-table introspection              | routd direct                | `routes:read:own_group`      |
-| `issue_chat_link` / `issue_webhook` / `list_route_tokens` / `revoke_route_token` | `/v1/route_tokens`                     | routd direct (or via runed) | tier-scoped (5/W)            |
+| MCP tool                                                                         | Face of                                | Served by          | Scope                        |
+| -------------------------------------------------------------------------------- | -------------------------------------- | ------------------ | ---------------------------- |
+| `reply`                                                                          | `POST /v1/turns/{id}/reply`            | routd (in-process) | `messages:send:own_group`    |
+| `send`                                                                           | `POST /v1/turns/{id}/send`             | routd (in-process) | `messages:send:own_group`    |
+| `send_file`                                                                      | `POST /v1/turns/{id}/document`         | routd (in-process) | `messages:send:own_group`    |
+| `get_history` / `get_thread`                                                     | `GET /v1/turns/{id}/history`,`/thread` | routd (in-process) | `chats:read:own_group`       |
+| `like` / `edit` / `delete`                                                       | `POST /v1/turns/{id}/{verb}`           | routd (in-process) | `messages:send:own_group`    |
+| `dislike` / `pin_message` / `unpin_message` / `unpin_all`                        | mapped paths (§ verb→path exceptions)  | routd (in-process) | `messages:send:own_group`    |
+| `engage` / `disengage`                                                           | engagement write (5/G)                 | routd (in-process) | self/owned jid (3-arm authz) |
+| `fork_topic`                                                                     | lineage write (5/F)                    | routd (in-process) | `messages:send:own_group`    |
+| `set_routes` / `add_route` / `delete_route`                                      | route CRUD                             | routd (in-process) | `routes:write:own_group`     |
+| `inspect_routing`                                                                | route-table introspection              | routd (in-process) | `routes:read:own_group`      |
+| `issue_chat_link` / `issue_webhook` / `list_route_tokens` / `revoke_route_token` | `/v1/route_tokens`                     | routd (in-process) | tier-scoped (5/W)            |
 
 `reply`/`send` keep distinct names + sharp descriptions (threaded answer
 vs. fresh top-level message), not one tool with a `mode=` param, per the
-project tool-naming rule. The handler is routd's whether federated
-through runed or served direct.
+project tool-naming rule. The handler is routd's, served in-process.
 
-**verb→path exceptions (PINNED, identical in
-[`P-runed.md`](P-runed.md) § federation forward).** Most message tools map
+**verb→path exceptions (PINNED).** Most message tools map
 tool-name → `/v1/turns/{id}/<name>` directly (`reply`→`/reply`,
 `send`→`/send`, `get_history`→`/history`, `get_thread`→`/thread`,
 `like`→`/like`, `edit`→`/edit`, `delete`→`/delete`). Four tools do
-**not** — the tool name is not the path tail, and runed must special-case
-them on forward:
+**not** — the tool name is not the path tail (routd's in-process ipc tool
+layer special-cases them):
 
 - `send_file` → `/document`.
 - `dislike` → `/like` with `reaction="👎"`. There is **no** `/dislike`
@@ -923,14 +944,16 @@ runed's spec is written to match exactly.
   retried; re-attempt is the normal poll re-feed, gated by per-folder
   serialization.
 
-**runed → routd: the agent's conversation tools call back.** The agent's
-`reply`/`send`/`get_history`/… tools (hosted by runed's federation,
-executing inside runed's container) call **back** into routd's
-`/v1/turns/{turn_id}/*` (above). routd is the sole appender; runed never
-writes a `messages` row. The `turn_id` on every callback binds it to the
-run routd started. The full runed→routd obligation set:
+**The agent's conversation tools (REST twin).** The agent's
+`reply`/`send`/`get_history`/… tools are served by routd's in-process MCP
+socket; their REST twins are the `/v1/turns/{turn_id}/*` handlers (above).
+routd is the sole appender; runed never writes a `messages` row. The
+`turn_id` binds each call to the run routd started. (As specced these were
+HTTP callbacks from runed's federation; the flip serves them in-process —
+see Status note. The wire shapes still hold for the REST twin.) The full
+`/v1/turns/{turn_id}/*` surface:
 
-| runed → routd                       | When                  | Auth (every call)               |
+| `/v1/turns/{turn_id}/*`             | When                  | Auth (every call)               |
 | ----------------------------------- | --------------------- | ------------------------------- |
 | `POST /v1/turns/{turn_id}/reply`    | agent `reply`         | agent capability token (Bearer) |
 | `POST /v1/turns/{turn_id}/send`     | agent `send`          | agent capability token          |
@@ -940,19 +963,19 @@ run routd started. The full runed→routd obligation set:
 | `POST /v1/turns/{turn_id}/{verb}`   | like/edit/delete/pin… | agent capability token          |
 | `POST /v1/turns/{turn_id}/result`   | agent `submit_turn`   | agent capability token          |
 
-The last row is the **turn-outcome callback**: runed forwards the agent's
-`submit_turn` to `POST /v1/turns/{turn_id}/result` (REST twin of
-`submit_turn`, § turn lifecycle) carrying the `TurnResult` payload
-(`session_id`, `status`, optional `result`/`error`, and the **cost**
-breakdown runed reports — routd persists it, § cost_log). routd records it
-idempotently into `turn_results` (PK `(folder, turn_id)`); a duplicate
-returns `{recorded:false}`. The token is the same agent capability token as
-the conversation callbacks (offline-verified, scope-checked); runed forwards
-it verbatim, never re-signs.
+The last row is the **turn outcome**: the agent's `submit_turn` is the
+in-process MCP twin of `POST /v1/turns/{turn_id}/result` (§ turn
+lifecycle), carrying the `TurnResult` payload (`session_id`, `status`,
+optional `result`/`error`; the **cost** breakdown is reported on runed's
+`POST /v1/runs` response — routd persists it, § cost_log). routd records
+the result idempotently into `turn_results` (PK `(folder, turn_id)`); a
+duplicate returns `{recorded:false}`. The agent capability token is
+offline-verified + scope-checked by routd; runed never re-signs.
 
 **Invariants.** routd never spawns a container or holds a Docker handle.
-runed never opens `routd.db` or appends a message. The two talk only over
-these HTTP contracts. The `ContainerRuntime` seam
+runed never opens `routd.db` or appends a message. The agent run is
+driven over the `POST /v1/runs` contract; the conversation tools are
+served in-process by routd's MCP socket. The `ContainerRuntime` seam
 ([`U-genericization.md`](U-genericization.md) § ContainerRuntime) lives
 entirely inside runed.
 

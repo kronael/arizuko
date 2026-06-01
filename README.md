@@ -51,7 +51,7 @@ That's what arizuko is today: a single-host, multi-tenant agent router with chan
 
 **Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/7/3](specs/7/3-git-as-truth.md)), with SQLite as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
 
-**Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/5](specs/5/5-uniform-mcp-rest.md)) is one hand-rolled handler per cold-tier resource with two faces — REST for humans + external tools, MCP for in-container agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. The first resource (`proxyd/resource.go`) already runs that pattern; the rest follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/7/5](specs/7/5-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
+**Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/5](specs/5/5-uniform-mcp-rest.md)) is one hand-rolled handler per cold-tier resource with two faces — REST for humans + external tools, MCP for in-container agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. The first resource (`proxyd/resource.go`) already runs that pattern; the rest follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/5/36](specs/5/36-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
 
 Nothing in this direction breaks what already runs. The migration is incremental: resource by resource, daemon by daemon, the surface unifies, the cold tier moves to git, the manifest format absorbs the imperative knobs. Containers, channel adapters, the message bus, the per-folder runtime — all unchanged.
 
@@ -151,7 +151,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 - Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
 - Capability-token auth — the `auth/` library is shipped (offline JWT verify, OAuth, ACL, middleware); per-tenant token minting + revocation and `PROXYD_HMAC_SECRET` / `CHANNEL_SECRET` retirement are the target ([spec](specs/5/1-auth-standalone.md))
-- Daemon genericization — `gated` split into `routd` / `runed` / `mcpd`; capability scopes replace folder-depth tiers ([spec](specs/5/U-genericization.md))
+- Daemon genericization — `gated` split into `routd` / `runed` / `authd` (the per-turn MCP host is folded into routd, not a separate daemon); capability scopes replace folder-depth tiers ([spec](specs/5/U-genericization.md))
 - Uniform MCP+REST across the cold tier — one hand-rolled handler per resource, both faces ([spec](specs/5/5-uniform-mcp-rest.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 

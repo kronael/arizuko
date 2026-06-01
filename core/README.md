@@ -23,7 +23,7 @@ imports nothing else arizuko-internal.
 - `Namer` — optional capability: `SetName(jid, name)` renames an open conversation (Slack pane title, etc.)
 - `PanePrompt` — one suggested-prompt button (`Title`, `Message`)
 - `JidRoom(jid)`, `JidPlatform(jid)` — JID parsing
-- `GenSlinkToken()`, `GenHexToken()`, `MsgID(prefix)`, `NewSessionID()`, `SanitizeInstance(name)`
+- `GenHexToken()`, `MsgID(prefix)`, `NewSessionID()`, `SanitizeInstance(name)`
 
 ## Dependencies
 

@@ -208,7 +208,7 @@ preserve_headers = ["X-Webhook-Sig"]  # optional verbatim-pass list
 
 `compose.go` evaluates `gated_by` against the operator's `.env`, drops
 disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
-proxyd. Reference: `specs/6/2-proxyd-standalone.md`,
+proxyd. Reference: `specs/5/35-proxyd-standalone.md`,
 `template/services/slakd.toml`.
 
 ## Adding an MCP connector
@@ -220,7 +220,7 @@ with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
 registers each through the broker chain. Per-call invocation
 resolves the declared secrets, renders the env template, spawns the
 subprocess, proxies `tools/call`, scrubs the result, tears the
-subprocess down. Spec 9/11 § "Connector declaration".
+subprocess down. Spec `specs/6/Y-secret-broker.md` § "Connector declaration".
 
 ```toml
 [[mcp_connector]]

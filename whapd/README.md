@@ -45,7 +45,7 @@ until scanned.
 
 - Binary: `whapd/dist/main.js` (built via `bun build` or `tsc`)
 - Image: `whapd/Dockerfile`
-- Listen: `$LISTEN_ADDR` (default `:9007`)
+- Listen: `$LISTEN_ADDR` (code default `:9002`; deployment TOML sets `:8080`)
 - Router registration: `whatsapp:` prefix.
 
 ## Dependencies
@@ -67,11 +67,15 @@ ascii art.
 
 ## Files
 
-- `src/main.ts` — Baileys socket, creds backup
+- `src/main.ts` — Baileys socket, creds backup, listen wiring
 - `src/server.ts` — HTTP adapter surface
+- `src/inbound.ts` — pure inbound-dispatch helpers (unit-testable, sink in main.ts)
+- `src/bot.ts` — pair-flow state machine
+- `src/client.ts` — router client (register/inject)
 - `src/queue.ts` — outbound queue
 - `src/reply.ts` — reply metadata extraction
 - `src/typing.ts` — typing refresh
+- `src/log.ts` — slog-style structured logging
 
 ## Related docs
 

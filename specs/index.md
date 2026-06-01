@@ -42,3 +42,4 @@ The combination is the platform thesis arizuko ships toward.
 | [12/](12/) | standalone + reusable — ant, workflows, self-eval                 | planned  |
 | [13/](13/) | future features — pinned, CLI, dynamic channels                   | planned  |
 | [14/](14/) | later — committed direction, not scheduled                        | planned  |
+| [15/](15/) | multiplayer — shared sessions, durable streams, presence          | drafting |

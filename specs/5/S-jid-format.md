@@ -117,8 +117,8 @@ URI shape.
 
 ## Routing
 
-`router/router.go:msgField` keys: `platform`, `chat_jid`, `sender`,
-`verb`. Glob match uses `path.Match` — `*` matches any non-`/`
+`router/router.go:msgField` keys: `platform`, `room`, `chat_jid`,
+`sender`, `verb`. Glob match uses `path.Match` — `*` matches any non-`/`
 sequence (so segments are first-class), `?` one non-`/` char, `[…]`
 character class.
 
@@ -144,11 +144,13 @@ Glob semantics, uniform across all keys:
 
 ## Design discipline
 
-- **No legacy in storage.** Hard cutover. Migration `0038-typed-jids.sql`
+- **No legacy in storage.** Hard cutover. Migration `0042-typed-jids.sql`
   rewrites every JID-shaped value: `messages.chat_jid`,
   `messages.sender`, `messages.reply_to_sender`, `chats.jid` (PK),
   `user_jids.jid`, `grants.jid`, `onboarding.jid`, and the
-  `chat_jid=`/`sender=` predicates inside `routes.match`. Idempotent —
+  `chat_jid=`/`sender=` predicates inside `routes.match`;
+  `0043-typed-jids-tail.sql` does the tail (`routes.match` `room=`
+  predicates + `scheduled_tasks.chat_jid`). Idempotent —
   every UPDATE is guarded by `NOT LIKE` on the new shape.
   `messages.routed_to` is folder paths (not JIDs) — left unchanged.
 - **Discord placeholder.** Legacy rows have no stored guild_id. They

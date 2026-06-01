@@ -259,19 +259,19 @@ Other daemons do not sign; they call `authd /v1/tokens` with the trigger
 context and receive a signed token, or delegate the user-facing flow to
 `authd` directly.
 
-| Trigger surface                 | Triggers on                         | Token shape                        | How                                              |
-| ------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------ |
-| **proxyd**                      | OAuth login                         | user session, scopes from grants   | delegates login to `authd` (it mints)            |
-| **runed** (the execution plane) | Agent container spawn / socket bind | agent capability, folder-scoped    | brokers a downscoped token from `authd` at spawn |
-| **onbod**                       | Invite redemption / admission       | initial user session, narrow scope | requests token from `authd` with invite narrow   |
-| **dashd**                       | API key creation (operator action)  | long-lived, narrow scope           | requests token from `authd` with key narrow      |
+| Trigger surface                 | Triggers on                        | Token shape                        | How                                              |
+| ------------------------------- | ---------------------------------- | ---------------------------------- | ------------------------------------------------ |
+| **proxyd**                      | OAuth login                        | user session, scopes from grants   | delegates login to `authd` (it mints)            |
+| **runed** (the execution plane) | Agent container spawn              | agent capability, folder-scoped    | brokers a downscoped token from `authd` at spawn |
+| **onbod**                       | Invite redemption / admission      | initial user session, narrow scope | requests token from `authd` with invite narrow   |
+| **dashd**                       | API key creation (operator action) | long-lived, narrow scope           | requests token from `authd` with key narrow      |
 
-`runed` ([`P-runed.md`](P-runed.md)) hosts the per-tenant MCP socket and
-brokers the agent token from `authd` at container spawn, embedding
-`(folder, grants snapshot)`. The token is passed into the container as an
-env var or via the MCP socket handshake. Agents use it for any HTTP call
-to a sibling daemon's `/v1/*`. The former `mcpd` is folded into `runed` —
-there is no separate MCP-host daemon.
+`runed` ([`P-runed.md`](P-runed.md)) brokers the agent token from `authd`
+at container spawn, embedding `(folder, grants snapshot)`. The token is
+passed into the container as an env var or via the MCP socket handshake
+(the socket itself is hosted in-process by `routd`, `ServeTurnMCP`).
+Agents use it for any HTTP call to a sibling daemon's `/v1/*`. There is
+no separate MCP-host daemon — the socket lives in `routd`.
 
 `auth.Verify(token, jwks) → Identity{Sub, Scope, Extra}` lives in the
 shared `auth/` library (folder surfaces as `Identity.Extra["folder"]`,
@@ -300,7 +300,7 @@ cross-daemon reaches into another's storage.
 | Daemon     | Owns                                                                                                                                                                       | Serves                                                                                                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **routd**  | groups, routes, messages, sessions, channels, web_routes, route_tokens, grants, acl/user_groups, secrets, network_rules, cost_caps (residual config + conversation tables) | `/v1/groups`, `/v1/routes`, `/v1/messages`, `/v1/sessions`, `/v1/channels`, `/v1/web_routes`, `/v1/route_tokens`, `/v1/grants`, `/v1/acl`, `/v1/secrets`, `/v1/network_rules` |
-| **runed**  | spawns, run history, mcp_tokens (hosts the agent MCP socket)                                                                                                               | `/v1/runs`; federates conversation-command tools back to routd's `/v1/turns/*`                                                                                                |
+| **runed**  | spawns, run history, mcp_tokens (spawns the container; the agent MCP socket is routd's, in-process)                                                                        | `/v1/runs` (spawn/steer a turn). The agent MCP socket + conversation tools are hosted in-process by routd (`ServeTurnMCP`), not runed                                         |
 | **authd**  | signing keys, JWKs, sessions (sole signer)                                                                                                                                 | `/v1/tokens`, `/v1/keys`, `/auth/*` login                                                                                                                                     |
 | **timed**  | scheduled_tasks, task_run_logs                                                                                                                                             | `/v1/tasks`                                                                                                                                                                   |
 | **webd**   | vhosts (reads `web_routes` + `route_tokens` from routd; serves the `/chat`,`/hook` surfaces)                                                                               | `/v1/vhosts` (chat reads stay on existing `/api/*`; web-route CRUD via routd)                                                                                                 |
@@ -311,12 +311,12 @@ cross-daemon reaches into another's storage.
 The first four rows are the products of the `gated` split
 ([`U-genericization.md`](U-genericization.md) Phase C, [`E-routd.md`](E-routd.md),
 [`P-runed.md`](P-runed.md)): `authd` signs (extracted standalone first),
-then `routd` (conversation engine + sole message appender) and `runed`
-(execution plane: queue, container lifecycle, MCP socket — the former
-`mcpd` folded in) carve out in one multi-DB cutover. This spec's
-"single handler, two faces" contract is daemon-placement-agnostic: each
-resource is owned by exactly one of these daemons and reached via both
-its `/v1/*` REST face and the MCP face that `runed` federates.
+then `routd` (conversation engine + sole message appender; also hosts the
+agent MCP socket in-process, `ServeTurnMCP`) and `runed` (execution plane:
+queue + container lifecycle) carve out in one multi-DB cutover. This
+spec's "single handler, two faces" contract is daemon-placement-agnostic:
+each resource is owned by exactly one of these daemons and reached via
+both its `/v1/*` REST face and an MCP face.
 
 `grants` lives with `routd` (it inherits gated's schema authority for the
 conversation tables). If a future split puts grants elsewhere, the
@@ -333,28 +333,26 @@ a routes table; it executes the operator-composed one.
 
 ### MCP federation
 
-The MCP socket terminates in `runed` ([`P-runed.md`](P-runed.md)) — the
-execution plane that hosts the per-tenant socket. `runed` owns no
-resource tables, so every tool that touches a table is an **HTTP
-forward** carrying the agent's capability token: conversation-command
-tools (`reply`/`send`/routes/grants/…) forward to `routd`; tasks forward
-to `timed`; invites to `onbod`:
+The per-turn agent MCP socket terminates in `routd`
+([`E-routd.md`](E-routd.md)) — `routd` hosts it in-process
+(`ServeTurnMCP`). `routd`'s own resources (conversation/routing/grants
+tools) are served **locally** from `routd.db`. Resources owned by
+**another** daemon are reached via a cross-daemon **HTTP forward**
+carrying the agent's capability token: tasks forward to `timed`, invites
+to `onbod`:
 
 ```
-agent → runed MCP socket: tools/call(pause_task, ...)
-       → runed validates token scope (tasks:write)
-       → runed HTTP-PATCH timed/v1/tasks/{id} {status: paused}
+agent → routd MCP socket: tools/call(pause_task, ...)
+       → routd validates token scope (tasks:write)
+       → routd HTTP-PATCH timed/v1/tasks/{id} {status: paused}
               with Authorization: Bearer <agent-token>
        → timed verifies token, checks scope, executes, returns
-       → runed returns result to agent as JSON-RPC
+       → routd returns result to agent as JSON-RPC
 ```
 
-Single MCP socket per agent. `runed` is a thin API gateway for the
-agent — every owned operation is an HTTP forward to the daemon that owns
-the table (`routd` for conversation/routing, `timed` for tasks, `onbod`
-for invites). The forwarder shape is `Resource{Store: nil}` — the
-adapter skips the tx/audit
-dance and the destination daemon writes the audit row.
+Single MCP socket per agent. For resources another daemon owns, the
+forwarder shape is `Resource{Store: nil}` — the adapter skips the
+tx/audit dance and the destination daemon writes the audit row.
 `webd/routes_mcp.go` is the canonical example.
 
 ### Dashboard becomes an aggregator
@@ -641,9 +639,10 @@ affordance over the same ACL rows.
 `groups` is routd's; `invites` is onbod's; `web_routes` is routd's too
 (webd reads it through routd's `/v1/web_routes` and serves the `/chat`,
 `/hook` surfaces, per [`E-routd.md`](E-routd.md)).
-Each registers its own resources. The MCP socket terminates in `runed`
-(which owns no resource tables), so MCP calls to `invites.*` forward to
-onbod over HTTP, `groups.*` to routd, and so on. Pattern (shipped
+Each registers its own resources. The agent MCP socket terminates in
+`routd` (in-process, `ServeTurnMCP`); routd serves its own resources
+locally, and MCP calls to a resource another daemon owns forward over
+HTTP — `invites.*` to onbod, tasks to timed, and so on. Pattern (shipped
 2026-05-25): the forwarder is a `Resource{Store: nil}` whose `Handler`
 does an HTTP call downstream; the adapter skips the tx/audit dance, and
 the destination daemon writes the audit row.

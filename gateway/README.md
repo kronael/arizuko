@@ -35,14 +35,14 @@ on intent.
 | ----------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<autocalls>`                             | `gateway/autocalls.go:53`      | zero-arg facts: `now`, `instance`, `folder`, `tier`, `session`                                                                                                                                                               |
 | `<persona name=…>`                        | `gateway/persona.go:55`        | `PERSONA.md` frontmatter `summary:` re-anchor                                                                                                                                                                                |
-| `<previous_session/>`                     | `gateway/gateway.go:1799`      | last session id/timing on a fresh session                                                                                                                                                                                    |
+| `<previous_session/>`                     | `gateway/gateway.go:2279`      | last session id/timing on a fresh session                                                                                                                                                                                    |
 | `<knowledge layer=…>`                     | `diary/diary.go:36`            | recent diary entries with age labels (today/yesterday/N ago)                                                                                                                                                                 |
 | `<messages>` + `<reply-to>` + `<message>` | `router/router.go:63`/`80`     | inbound batch; `<reply-to>` sibling header above the `<message>`                                                                                                                                                             |
-| `<attachment …/>`                         | `gateway/gateway.go:1350,1353` | inbound media path + optional `transcript=`                                                                                                                                                                                  |
+| `<attachment …/>`                         | `gateway/gateway.go:1769,1772` | inbound media path + optional `transcript=`                                                                                                                                                                                  |
 | `<observed>`                              | `gateway/gateway.go`           | trailing window of `is_observed=1` rows routed to this folder; capped by `OBSERVE_WINDOW_MESSAGES`/`OBSERVE_WINDOW_CHARS` (per-route overrides on `routes.observe_window_*`); per-topic cursor in `sessions.observed_cursor` |
-| `<topic name=…/>`                         | `gateway/gateway.go:891`       | scope envelope on every turn so the agent knows which topic it's in; empty name = main (spec 6/F rev6)                                                                                                                       |
-| `<surface>slack-pane</surface>`           | `gateway/gateway.go:923`       | emitted when trigger arrives via an open Slack assistant pane (spec 6/D)                                                                                                                                                     |
-| `<pane-context jid=…/>`                   | `gateway/gateway.go:925`       | workspace channel the user is viewing while the pane is open (spec 6/D)                                                                                                                                                      |
+| `<topic name=…/>`                         | `gateway/gateway.go:1044`      | scope envelope on every turn so the agent knows which topic it's in; empty name = main (spec 6/F rev6)                                                                                                                       |
+| `<surface>slack-pane</surface>`           | `gateway/gateway.go:1076`      | emitted when trigger arrives via an open Slack assistant pane (spec 6/D)                                                                                                                                                     |
+| `<pane-context jid=…/>`                   | `gateway/gateway.go:1078`      | workspace channel the user is viewing while the pane is open (spec 6/D)                                                                                                                                                      |
 
 Coming per specs (same convention, not yet wired):
 
@@ -65,9 +65,9 @@ without spamming the platform. The agent is **not told** it was muted —
 `BotMsg=1, FromMe=1, Status=sent, RoutedTo=<chat_jid>`. Inbound flows
 through untouched; mute is outbound-only.
 
-Two env vars (CSV, case-insensitive), wired in `core/config.go:140-141`,
-enforced in `gateway/gateway.go:821` (`canSendToGroup`) and
-`gateway/gateway.go:1141` (`canSendToJID`):
+Two env vars (CSV, case-insensitive), wired in `core/config.go:174-175`,
+enforced in `gateway/gateway.go:1461` (`canSendToGroup`) and
+`gateway/gateway.go:1456` (`canSendToJID`):
 
 - `SEND_DISABLED_GROUPS` — folder names. Matches the group folder of
   the outbound row, regardless of which platform it would have hit.

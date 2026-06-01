@@ -12,43 +12,49 @@ depends:
 
 # runed — the execution plane
 
+> **Status note (2026-05-30).** The build descoped runed's MCP-host
+> role. **`routd` hosts the per-turn agent MCP socket in-process**
+> (`ServeTurnMCP`); `runed` is a **pure container-spawner** — it owns the
+> work queue, the container lifecycle (spawn/steer/runTTL/teardown), and
+> capability-token brokering, but hosts **no** socket and forwards **no**
+> conversation tools (`container.Input.ExternalMCP:true`). The "runed
+> owns the per-tenant MCP socket / federates the agent's tool calls back
+> to routd's `/v1/turns/*`" model below was **never built**, and `ipc/`
+> was **not** folded into runed (it backs routd's in-process socket).
+> Read "owns the MCP socket / tool federation" below as routd's; runed
+> owns only the container lifecycle. The `POST /v1/runs` contract still
+> holds.
+
 **Decided.** `runed` is the **execution plane** carved out of `gated`
-([`U-genericization.md`](U-genericization.md) Phase C). It owns the full
-**execution-session envelope** end to end: the work queue, the per-tenant
-MCP socket, the per-spawn container lifecycle, and the brokering of
-downscoped capability tokens for the agents it spawns.
+([`U-genericization.md`](U-genericization.md) Phase C). It owns the
+**container execution envelope**: the work queue, the per-spawn container
+lifecycle (spawn/steer/runTTL/teardown), and the brokering of downscoped
+capability tokens for the agents it spawns. (As originally specced it
+also hosted the per-tenant MCP socket; the build moved that into routd —
+see Status note.)
 
-The former `mcpd` is **folded in** — no separate MCP-host daemon. The
-unix socket, the capability token, the container spawn, and the teardown
-are **one execution session owned wholly by `runed`** (§ The
-execution-session envelope for why this is structural). The
-[`U-genericization.md`](U-genericization.md) Phase C table listing
-`routd`/`runed`/`mcpd` as three daemons is superseded on the `mcpd` row:
-`mcpd`'s charter (per-tenant MCP socket, capability-token brokering, tool
-federation) is `runed`'s.
-
-`status: draft` = code not yet built (the gated split is a later release
-than `authd`), not design-open. The companion spec is
+`status: partial` = code partially built (the gated split is a later
+release than `authd`), not design-open. The companion spec is
 [`E-routd.md`](E-routd.md); the two are written to **one** PINNED
 `POST /v1/runs` + `/v1/turns/{turn_id}/*` contract (§ The routd↔runed
-interface). `routd` decides _whether/where_ a batch runs and renders the
-prompt; `runed` _runs_ it, federating the agent's tool calls back to
-routd out-of-band — `runed` never appends a message and never signs.
+interface). `routd` decides _whether/where_ a batch runs, renders the
+prompt, **and hosts the agent's MCP socket in-process**; `runed` _runs_
+the container — it never appends a message and never signs.
 
 ## Boundaries — owns / brokers / never
 
-| Concern                                     | runed                                                          |
-| ------------------------------------------- | -------------------------------------------------------------- |
-| Work queue (per-folder serialization)       | **owns** (`queue/` carried in)                                 |
-| Per-spawn container lifecycle               | **owns** (`container/` carried in)                             |
-| Per-tenant MCP unix socket + tool host      | **owns** (`ipc/` folded in, was `mcpd`)                        |
-| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`)                 |
-| Session-id LINEAGE (`sessions`, topic fork) | **never** — `routd` (runed produces the id, routd persists it) |
-| Capability tokens for spawned agents        | **brokers** (downscope via `authd`)                            |
-| Routing decisions / rules / events          | **never** — `routd`                                            |
-| Conversation messages (append/history)      | **never** — `routd`, via `/v1/turns/*`                         |
-| Group / route IDENTITY (`groups`, `routes`) | **never** — `routd`                                            |
-| Token **signing**                           | **never** — `authd` (sole signer)                              |
+| Concern                                     | runed                                                                      |
+| ------------------------------------------- | -------------------------------------------------------------------------- |
+| Work queue (per-folder serialization)       | **owns** (`queue/` carried in)                                             |
+| Per-spawn container lifecycle               | **owns** (`container/` carried in)                                         |
+| Per-turn agent MCP unix socket + tool host  | **never** — `routd` (`ServeTurnMCP`, in-process); runed mounts the ipc dir |
+| Per-spawn runtime state + run history       | **owns** (`runed.db`: `spawns`, `session_log`)                             |
+| Session-id LINEAGE (`sessions`, topic fork) | **never** — `routd` (runed produces the id, routd persists it)             |
+| Capability tokens for spawned agents        | **brokers** (downscope via `authd`)                                        |
+| Routing decisions / rules / events          | **never** — `routd`                                                        |
+| Conversation messages (append/history)      | **never** — `routd`, via `/v1/turns/*`                                     |
+| Group / route IDENTITY (`groups`, `routes`) | **never** — `routd`                                                        |
+| Token **signing**                           | **never** — `authd` (sole signer)                                          |
 
 `runed` holds no copy of group↔folder identity — it receives `folder` on
 each `POST /v1/runs` and resolves the on-disk workspace path mechanically
@@ -164,6 +170,12 @@ keeps only the `jti`.
 
 ## The execution-session envelope (the critical section)
 
+> Descoped: the build keeps the socket in `routd` (`ServeTurnMCP`), not
+> `runed` — see Status note. The one-owner argument below is the
+> originally-specced rationale for folding `mcpd` into `runed`; read the
+> "socket creation / MCP host start" steps as routd's, with runed owning
+> the spawn/stream/teardown half.
+
 This is the load-bearing reason `mcpd` is folded into `runed`. One agent
 turn is **one owned sequence** — socket creation, token brokering, MCP
 host start, container spawn, output streaming, teardown — with a single
@@ -236,12 +248,15 @@ IPC message and `SIGUSR1`s the container. **Idle timeout** resets on each
 `[ant]` line, capped at 240 resets (≈4 h). All run inside the one
 envelope; none crosses a daemon boundary.
 
-## MCP host + tool federation
+## MCP host + tool federation (descoped — see Status note)
 
-`runed` hosts the per-tenant MCP socket (the folded-in `mcpd`) and serves
-the in-container agent its tool surface as a **thin API gateway** — local
-in-process calls for runed-owned operations, HTTP forwards for everything
-else ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) § MCP federation):
+This section describes the originally-specced model where `runed` hosted
+the per-tenant MCP socket and forwarded tool calls. **It was never built.**
+In the shipped split, `routd` hosts the socket in-process (`ServeTurnMCP`)
+and serves every tool from its own process — no HTTP forward, no API
+gateway. The table below is retained as the design that was descoped; the
+**Backend** column still names the correct owner of each operation's data,
+which is what routd's in-process tool wiring reads:
 
 | Tool family                                                                                                                                           | Hosted as   | Backend                                                          |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------- |
@@ -418,10 +433,11 @@ through to a fresh **synchronous** spawn (the IPC file is drained by the
 next container at session start) and the response is a normal
 turn-boundary outcome with `steered:false`.
 
-### The agent's callback into routd: `/v1/turns/{turn_id}/*`
+### The agent's message tools: `/v1/turns/{turn_id}/*`
 
-The agent's message tools (hosted by `runed`, § federation) call back into
-`routd` — `runed` **never writes a message**. `routd` serves (PINNED,
+The agent's message tools are served by `routd`'s in-process MCP socket
+(see Status note); the `/v1/turns/{turn_id}/*` shapes below are their REST
+twin. `runed` **never writes a message**. `routd` serves (PINNED,
 [`E-routd.md`](E-routd.md) § Turn / conversation commands;
 `X-Idempotency-Key` required on every call):
 
@@ -452,12 +468,12 @@ Unsupported platform verb → `422 unsupported` (maps
 ### `submit_turn` → `POST /v1/turns/{turn_id}/result`
 
 The agent's per-turn `submit_turn` JSON-RPC method (hidden from
-`tools/list`, `ipc/ipc.go`) is handled by `runed`'s MCP host, which (a)
-records `session_id` + run outcome into `runed.db` (`session_log` via
-`EndSession`, `spawns.outcome`/`spawns.session_id`) — **not cost**, and
-(b) forwards the `TurnResult` (including the per-model **cost** breakdown)
-to `routd /v1/turns/{turn_id}/result` so `routd` (the message + turn
-owner) records delivery + `cost_log` + `round_done` SSE.
+`tools/list`, `ipc/ipc.go`) is served + handled in-process by `routd`'s
+MCP socket (the in-process twin of `POST /v1/turns/{turn_id}/result`),
+which records `session_id` + run outcome and delivery + `cost_log` +
+`round_done` SSE. `runed` reports the per-model **cost** breakdown on its
+`POST /v1/runs` response; `runed.db` carries run outcome (`session_log`
+via `EndSession`, `spawns.outcome`/`spawns.session_id`) — **not cost**.
 **Cost ownership: `routd` persists `cost_log`; `runed` only reports cost
 in the payload** ([`E-routd.md`](E-routd.md) § cost_log). Idempotency is
 enforced by `routd` on `(folder, turn_id)`; a duplicate returns
@@ -678,9 +694,10 @@ MCP registrations are hand-rolled (carried from `ipc/ipc.go`).
 - `container/runner.go` — the per-turn Docker runner: `Run`, mounts,
   egress, idle/soft/hard deadlines. `container/runtime.go` — `Bin`,
   `StopContainerArgs`; the `ContainerRuntime` seam.
-- `ipc/ipc.go` — the MCP host (folded-in `mcpd`): `ServeMCP`, the agent
-  tool surface, `submit_turn`, `SO_PEERCRED` gate. `ipc/connector.go` —
-  MCP-connector subprocess federation.
+- `ipc/ipc.go` — the MCP host: `ServeMCP`, the agent tool surface,
+  `submit_turn`, `SO_PEERCRED` gate. **Hosted in-process by `routd`**
+  (`routd/mcp.go` `ServeTurnMCP` → `ipc.ServeMCP`), not runed — `ipc/` is
+  **not** folded into runed (see Status note).
 - `store/sessions.go` — `session_log` read/write
   (`RecordSession`/`EndSession`/`RecentSessions`; migration source →
   `runed.db`). The `sessions`/topic-lineage methods migrate to `routd`.

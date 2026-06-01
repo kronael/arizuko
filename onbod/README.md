@@ -26,7 +26,9 @@ API rather than touching `auth_users` directly.
 ## Entry points
 
 - Binary: `onbod/main.go`
-- Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`; `/v1/invites`, `/v1/users` planned)
+- Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`); mounts `GET /openapi.json`
+  (`resreg.OpenAPIHandler("onbod", ["onboarding_gates"])`); `/v1/invites`,
+  `/v1/users` planned
 - Disable: `ONBOARDING_ENABLED=0` (exits immediately)
 
 ## Dependencies
@@ -60,30 +62,29 @@ read to `GET onbod/v1/users/{sub}`.
 
 ## Token role
 
-onbod is both a verifier and an issuer, but uses the same `auth/`
-library every other daemon does — it is **not** a special-case auth
-path:
+onbod uses the same `auth/` library every other daemon does — it is
+**not** a special-case auth path. authd is the sole platform-token
+signer; onbod never holds a signing key.
 
-- **Verifier.** `/v1/invites` and `/v1/users` validate incoming JWTs
-  via `auth.VerifyHTTP`, check `users:read` / `invites:write` scope,
-  and folder match — identical pattern to timed and gated.
-- **Issuer.** At invite redemption, onbod calls `auth.Mint(...)` to
-  produce an initial user-session JWT. Same HS256 / `AUTH_SECRET` /
-  claim shape as proxyd's session tokens. Narrower scopes — typically
-  just `users:read` for the user's own `sub`, time-limited (short TTL)
-  — and `iss: "onbod"` so audit can distinguish.
-
-The redemption token is what bootstraps a brand-new user before they
-have a proxyd OAuth session; once they sign in via proxyd they get the
-broader session token from there.
+- **Verifier (today).** onbod fetches authd's JWKS at boot
+  (`auth.FetchKeys` → `KeySet`) and gates routes with
+  `auth.StripUnsignedOrBearer(PROXYD_HMAC_SECRET, ks)` — accepting either
+  a proxyd-signed header or a Bearer ES256 token. `/v1/invites` and
+  `/v1/users` (planned) will additionally check `users:read` /
+  `invites:write` scope via `auth.HasScope` — identical pattern to timed
+  and gated.
+- **Session bootstrap (today).** OAuth callback runs the shared
+  `createOAuthSession` path and sets the onboarding cookies; it does not
+  mint platform ES256 tokens. A brand-new user's first authoritative
+  token comes from authd once they sign in via proxyd
+  (`MintForSubject`), bounded by their grants snapshot.
 
 ## Cross-daemon flow
 
 ```
-new JID → onbod /onboard → OAuth callback → user record created
-       → onbod auth.Mint(sub=user:abc, scope=[users:read self], iss=onbod)
-       → token handed back via redemption page / set-cookie
-       → user hits dashd → dashd verifies token via auth.VerifyHTTP
+new JID → onbod /onboard → OAuth callback → user record + session cookie
+       → user signs in via proxyd → authd MintForSubject(user:abc, grants)
+       → user hits dashd → dashd verifies token via auth.VerifyHTTP(r, ks)
        → dashd renders, fetching identity via GET onbod/v1/users/{sub}
               Authorization: Bearer <user-token>
 ```

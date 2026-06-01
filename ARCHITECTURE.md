@@ -166,8 +166,10 @@ compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
 ```
 
 Hand-wired in `proxyd/main.go` outside this table: `/auth/*`, `/health`,
-`/pub/*` (with optional `PUB_REDIRECT_URL`), `/slink/*` (301→`/chat/<token>/`),
-`/chat/*` and `/hook/*` (route-token bearer), `/dav/*` (`davAllow` + group-scope). All other routes flow
+`/pub/*` (with optional `PUB_REDIRECT_URL`), `/slink/*` (forwarded as an
+ordinary route — the 301→`/chat/<token>/` redirect is issued by webd,
+`handleSlinkRedirect`), `/chat/*` and `/hook/*` (route-token bearer),
+`/dav/*` (`davAllow` + group-scope). All other routes flow
 through the TOML/core declaration → JSON env → dispatcher path. Adding
 an adapter means dropping a TOML with a `[[proxyd_route]]` block; no
 proxyd or compose.go edits.
@@ -198,19 +200,22 @@ both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 The package graph above is today's reality: one `gated` process wires
 core, with adapters and optional daemons around it. The direction
 ([`specs/5/U-genericization.md`](specs/5/U-genericization.md), status
-`partial`) splits `gated` into `routd` (tenants / rules / events),
-`runed` (container lifecycle), `mcpd` (per-tenant MCP
-socket + tool federation), and `authd` (the auth authority — OAuth
+`partial`) splits `gated` into `routd` (tenants / rules / events, and
+the per-turn agent MCP socket hosted in-process), `runed` (a pure
+container spawner; the MCP host is folded into the routd plane, not a
+separate daemon), and `authd` (the auth authority — OAuth
 host, JWT signer, revocation list, JWKs publisher;
 [`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md), status
 `partial`). `auth/` ships today as a Go library (offline JWT verify,
 OAuth, ACL, middleware) and stays the offline verifier; `authd` is the
-central authority it verifies against — `mcpd` and other daemons
+central authority it verifies against — `routd` and other daemons
 call `authd` to mint/downscope tokens rather than minting themselves.
 The shared-secret HMAC (`PROXYD_HMAC_SECRET` / `CHANNEL_SECRET`) retires
 once `authd`-minted JWTs replace it; capability scopes replace the
-folder-depth `tier` int. None of the daemon split is built; treat it as
-the target shape, not current behavior.
+folder-depth `tier` int. The split daemons (`routd`/`runed`/`authd`)
+are built and tested in-tree but dormant: the default compose runs
+`gated`; `CUTOVER_SPLIT=true` opts into the split plane, still under
+soak.
 
 ## Daemon genericization conventions
 

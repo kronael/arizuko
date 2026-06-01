@@ -19,6 +19,11 @@ beyond `docker` for `run` and `pair`).
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
   - `arizuko group <inst> list | add | rm | grant | ungrant | grants`
   - `arizuko gate  <inst> list | add | rm | enable | disable`
+  - `arizuko identity <inst> list | link <sub> [--name N] [--id ID] | unlink <sub>` — manage identity ↔ sub links
+  - `arizuko network <inst> allow|deny <folder> <target> | list | resolve <folder>` — per-folder egress allow/deny rules
+  - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY` — folder-scoped secrets
+  - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
+  - `arizuko token <inst> issue chat <folder> [<suffix>] | issue webhook <folder> <label> | list <folder> | revoke <jid> [<owner_folder>]` — manage `route_tokens` (chat / webhook capability URLs)
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
   - `arizuko invite <inst> revoke <token>`
@@ -36,7 +41,13 @@ beyond `docker` for `run` and `pair`).
 
 ## Files
 
-- `main.go` — command dispatch, each `cmd*` function
+- `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`identity`/`chat`
+- `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/36)
+- `budget.go` — `budget` spend caps
+- `network.go` — `network` egress rules
+- `secret.go` — `secret` + `user-secret`
+- `send.go` — `send` message injection
+- `token.go` — `token` route-token management
 
 ## Related docs
 

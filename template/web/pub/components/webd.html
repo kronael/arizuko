@@ -68,7 +68,7 @@
       <pre><code>browser / curl / MCP client
         |  HTTP + SSE
         v
-      proxyd          (auth for /api/*, /mcp ; strips identity on /slink/*)
+      proxyd          (auth for /api/*, /mcp ; strips identity on /chat/*)
         |
         v
       webd  --POST /v1/messages--&gt;  gated     (CHANNEL_SECRET signed)

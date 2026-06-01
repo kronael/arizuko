@@ -14,7 +14,7 @@ also filter the MCP tool manifest.
 - `Rule`, `ParamRule`, `ParseRule(r string) Rule`
 - `CheckAction(rules []string, action string, params map[string]string) bool`
 - `MatchingRules(rules []string, action string) []string`
-- `DeriveRules(s *store.Store, folder string, tier int, worldFolder string) []string`
+- `DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []string`
 
 ## Dependencies
 
