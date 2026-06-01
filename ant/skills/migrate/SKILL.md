@@ -276,7 +276,7 @@ mcpc @s tools-call refresh_groups | jq -r '.groups[] | .folder' \
     !seen[key]++ { print }
   ' \
   | while read jid; do
-    test -n "$jid" && mcpc @s tools-call send jid:="$jid" text:="$MSG"
+    test -n "$jid" && mcpc @s tools-call send chatJid:="$jid" text:="$MSG"
   done
 ```
 
