@@ -1,0 +1,35 @@
+{{- if .Values.ingress.enabled }}
+{{- $host := .Values.ingress.host | default .Values.config.webHost -}}
+{{- $svc := printf "%s-proxyd" (include "arizuko.fullname" .) -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "arizuko.fullname" . }}
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    # All public traffic enters through proxyd, which auth-gates and fans out
+    # to webd / vited / dashd internally.
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc }}
+                port:
+                  number: 8080
+{{- end }}

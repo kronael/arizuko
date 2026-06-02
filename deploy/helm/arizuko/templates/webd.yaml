@@ -1,0 +1,93 @@
+{{- if and .Values.web.enabled .Values.web.webd.enabled }}
+{{/*
+webd — chat widget, operator panel, /api, /me portal. Registers as a channel
+and posts inbound to the router (ROUTER_URL). Reads the shared DB + web tree
+from the data PVC, so it co-schedules with gated on the single writer node.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-webd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webd
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "webd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "webd") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: webd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["webd"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.secretName" . }}
+          volumeMounts:
+            - name: data
+              mountPath: /srv/app/home
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-webd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webd
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "webd") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

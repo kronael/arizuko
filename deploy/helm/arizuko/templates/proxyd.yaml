@@ -1,0 +1,108 @@
+{{- if and .Values.web.enabled .Values.web.proxyd.enabled }}
+{{/*
+proxyd — the public reverse proxy + auth gate. The Ingress points here.
+Routes are passed as PROXYD_ROUTES_JSON (compose generates this; here we
+build the core route set from coreProxydRoutes in compose.go, pointed at the
+chart's in-cluster Service DNS names). Adapter inbound webhook routes (e.g.
+/slack/) are not auto-added here — add them to PROXYD_ROUTES_JSON if you run
+a webhook-style adapter.
+*/}}
+{{- $full := include "arizuko.fullname" . -}}
+{{- $webd := printf "http://%s-webd:8080" $full -}}
+{{- $dashd := printf "http://%s-dashd:8080" $full -}}
+{{- $vited := printf "http://%s-vited:8080" $full -}}
+{{- $routes := list
+    (dict "path" "/chat/"   "backend" $webd "auth" "public")
+    (dict "path" "/hook/"   "backend" $webd "auth" "public")
+    (dict "path" "/panel/"  "backend" $webd "auth" "user")
+    (dict "path" "/api/"    "backend" $webd "auth" "user")
+    (dict "path" "/me/"     "backend" $webd "auth" "user")
+    (dict "path" "/x/"      "backend" $webd "auth" "user")
+    (dict "path" "/static/" "backend" $webd "auth" "user")
+    (dict "path" "/mcp"     "backend" $webd "auth" "user")
+    (dict "path" "/pub/"    "backend" $vited "auth" "public")
+    (dict "path" "/priv/"   "backend" $vited "auth" "user")
+-}}
+{{- if .Values.dashd.enabled }}
+{{- $routes = append $routes (dict "path" "/dash/" "backend" $dashd "auth" "user") }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-proxyd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxyd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "proxyd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "proxyd") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: proxyd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["proxyd"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.secretName" . }}
+          env:
+            - name: PROXYD_ROUTES_JSON
+              value: {{ toJson $routes | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-proxyd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxyd
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "proxyd") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

@@ -7,7 +7,7 @@ repos:
       - id: end-of-file-fixer
         exclude: ^\.refs/
       - id: check-yaml
-        exclude: ^\.refs/
+        exclude: ^(\.refs/|deploy/helm/.*/templates/)
       - id: check-json
         exclude: ^\.refs/
       - id: check-merge-conflict
@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: prettier
         files: \.(ts|js|json|yaml|yml|md)$
-        exclude: ^(\.refs/|package-lock\.json|ant/|\.claude/|\.diary/|bugs\.md$)
+        exclude: ^(\.refs/|package-lock\.json|ant/|\.claude/|\.diary/|bugs\.md$|deploy/helm/.*/templates/)
 
   - repo: local
     hooks:

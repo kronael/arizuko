@@ -1,0 +1,92 @@
+{{- if .Values.onbod.enabled }}
+{{/*
+onbod — onboarding / admission queue. Served behind proxyd at /onboard.
+ONBOARDING_ENABLED is forced true inside the pod; ROUTER_URL is pinned so its
+outbound greeting reaches the router.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-onbod
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: onbod
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "onbod") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "onbod") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: onbod
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["onbod"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.secretName" . }}
+          env:
+            - name: ONBOARDING_ENABLED
+              value: "true"
+            - name: ROUTER_URL
+              value: {{ include "arizuko.routerURL" . | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /srv/app/home
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-onbod
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: onbod
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "onbod") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

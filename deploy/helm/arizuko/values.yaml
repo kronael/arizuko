@@ -1,0 +1,281 @@
+# Default values for the arizuko chart.
+# This is a STARTER chart: it maps the Docker Compose topology onto k8s for
+# a single-node (docker-runtime) cluster. Read deploy/helm/arizuko/README.md
+# before installing — especially the agent-spawn / docker-socket section.
+
+# ---------------------------------------------------------------------------
+# Images. The repo ships two images:
+#   - arizuko       (multi-binary: gated, webd, proxyd, timed, dashd, teled, …)
+#   - arizuko-ant   (the per-turn agent container gated/runed spawns)
+# Plus a couple of helper images for the web/storage plane.
+# ---------------------------------------------------------------------------
+image:
+  # The multi-binary daemon image. Every core daemon + the Go channel
+  # adapters run from this one image with a different entrypoint.
+  repository: arizuko
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# The agent image gated/runed spawns once per turn via the container runtime.
+# It is NOT a Deployment here — gated launches it through the docker socket
+# (see agentRuntime below). Set to whatever CONTAINER_IMAGE you built.
+agentImage: arizuko-ant:latest
+
+# Helper images for the web/storage plane (built by `make images`).
+viteImage: arizuko-vite:latest # vited — serves the /pub + /priv static tree
+davImage: arizuko-davd:latest # davd  — WebDAV over groups/ (optional)
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Cluster-wide naming / scheduling.
+# arizuko owns a SQLite WAL DB on a single RWO PVC, so the data-plane
+# daemons (gated, webd, proxyd, vited, timed, dashd, onbod, davd) all schedule
+# onto ONE node and share that PVC. replicas are fixed at 1, no HPA.
+# ---------------------------------------------------------------------------
+nameOverride: ''
+fullnameOverride: ''
+
+# Pin the data-plane pods to one node (they share the RWO PVC). Leave empty
+# for single-node clusters; set a hostname for multi-node.
+nodeName: ''
+nodeSelector: {}
+tolerations: []
+
+serviceAccount:
+  create: true
+  name: ''
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# THE HARD PART — agent spawn.
+# gated (monolith) spawns a fresh arizuko-ant container per turn via the
+# node's container-runtime socket. Kubernetes pods have no docker socket by
+# default. v1 approach: hostPath-mount /var/run/docker.sock into the gated
+# pod. This ONLY works on a single-node / docker-runtime cluster where that
+# socket exists and the runtime is docker (not containerd/cri-o without a
+# docker-compatible socket). See README "Agent spawn limitation".
+# ---------------------------------------------------------------------------
+agentRuntime:
+  # Mount the node's docker socket into gated so it can spawn agent
+  # containers. Turn OFF and gated will start but every turn fails to spawn.
+  dockerSocket: true
+  # Host path of the runtime socket. On most docker nodes this is correct.
+  socketPath: /var/run/docker.sock
+  # GID that owns the socket on the node. gated runs as uid 1000 and must be
+  # in the docker group to use the socket. Find it on the node with:
+  #   stat -c '%g' /var/run/docker.sock
+  dockerGid: 999
+
+# ---------------------------------------------------------------------------
+# Persistent data dir — the HOST_DATA_DIR equivalent. Holds the SQLite DB
+# (store/messages.db, WAL), per-group files, ipc sockets, and the web tree.
+# Mounted at /srv/app/home inside every data-plane container (containerDataMount
+# in compose.go). RWO — one writer node.
+# ---------------------------------------------------------------------------
+persistence:
+  enabled: true
+  # Leave empty to let the chart create a PVC; set to use an existing claim.
+  existingClaim: ''
+  storageClass: ''
+  accessMode: ReadWriteOnce
+  size: 20Gi
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Non-secret config — lands in a ConfigMap, mirrored from .env / compose.go.
+# HOST_DATA_DIR is the in-container mount (NOT a host path on k8s).
+# HOST_APP_DIR is the in-image source path (the arizuko image bakes the
+# source under /opt/arizuko — no bind mount needed on k8s).
+# ---------------------------------------------------------------------------
+config:
+  assistantName: arizuko
+  instance: arizuko # ARIZUKO_INSTANCE — OTLP service.instance.id
+  webHost: arizuko.example.com # WEB_HOST — public hostname
+  tz: UTC
+  logLevel: info
+  # Agent spawn knobs (gated → arizuko-ant).
+  containerTimeout: '600000' # CONTAINER_TIMEOUT (ms)
+  idleTimeout: '300000' # IDLE_TIMEOUT (ms)
+  maxConcurrentContainers: '3' # MAX_CONCURRENT_CONTAINERS
+  # Optional OTLP export — leave empty for stderr-only logging.
+  otelEndpoint: '' # OTEL_EXPORTER_OTLP_ENDPOINT
+  # Feature toggles (mirrors compose gated_by env-gates).
+  onboardingEnabled: false # ONBOARDING_ENABLED
+  webdavEnabled: true # WEBDAV_ENABLED (davd)
+
+# ---------------------------------------------------------------------------
+# Secrets. Filled into a Secret object. Anything left empty is omitted.
+# Generate the HMAC/secret values with: openssl rand -hex 32
+# In production, prefer secrets.existingSecret over inlining values here.
+# ---------------------------------------------------------------------------
+secrets:
+  # Use an out-of-band Secret instead of the values below. When set, the
+  # chart references it and renders NO inline Secret. The Secret must carry
+  # the same keys the chart would (CHANNEL_SECRET, AUTH_SECRET, …).
+  existingSecret: ''
+
+  # Platform-wide signing secrets (required).
+  channelSecret: '' # CHANNEL_SECRET   — adapter <-> router HMAC
+  authSecret: '' # AUTH_SECRET      — JWT signing
+  proxydHmacSecret: '' # PROXYD_HMAC_SECRET — proxyd <-> webd identity HMAC
+
+  # Agent LLM auth — gated forwards ONE of these into each spawned
+  # arizuko-ant container (container/runner.go readSecrets). Required for the
+  # agent to call the model.
+  claudeCodeOauthToken: '' # CLAUDE_CODE_OAUTH_TOKEN
+  anthropicApiKey: '' # ANTHROPIC_API_KEY
+
+  # Per-platform tokens. Only the ones for enabled adapters are needed.
+  # Keys mirror compose.go daemonKeys + template/services/*.toml env.
+  telegramBotToken: '' # TELEGRAM_BOT_TOKEN     (teled)
+  discordBotToken: '' # DISCORD_BOT_TOKEN      (discd)
+  slackBotToken: '' # SLACK_BOT_TOKEN        (slakd)
+  slackSigningSecret: '' # SLACK_SIGNING_SECRET   (slakd)
+  mastodonAccessToken: '' # MASTODON_ACCESS_TOKEN  (mastd)
+  mastodonInstanceUrl: '' # MASTODON_INSTANCE_URL  (mastd)
+  blueskyIdentifier: '' # BLUESKY_IDENTIFIER     (bskyd)
+  blueskyPassword: '' # BLUESKY_PASSWORD       (bskyd)
+  redditClientId: '' # REDDIT_CLIENT_ID       (reditd)
+  redditClientSecret: '' # REDDIT_CLIENT_SECRET   (reditd)
+  redditUsername: '' # REDDIT_USERNAME        (reditd)
+  redditPassword: '' # REDDIT_PASSWORD        (reditd)
+  emailImapHost: '' # EMAIL_IMAP_HOST        (emaid)
+  emailSmtpHost: '' # EMAIL_SMTP_HOST        (emaid)
+  emailAccount: '' # EMAIL_ACCOUNT          (emaid)
+  emailPassword: '' # EMAIL_PASSWORD         (emaid)
+  linkedinClientId: '' # LINKEDIN_CLIENT_ID     (linkd)
+  linkedinClientSecret: '' # LINKEDIN_CLIENT_SECRET (linkd)
+  linkedinAccessToken: '' # LINKEDIN_ACCESS_TOKEN  (linkd)
+  linkedinRefreshToken: '' # LINKEDIN_REFRESH_TOKEN (linkd)
+
+# ---------------------------------------------------------------------------
+# Web plane. proxyd is the public entry; webd + vited sit behind it.
+# All listen on :8080 inside the cluster (arizuko convention).
+# ---------------------------------------------------------------------------
+web:
+  enabled: true
+  # proxyd — public reverse proxy + auth gate. The Ingress (below) points here.
+  proxyd:
+    enabled: true
+  # webd — chat widget, panel, API, /me portal.
+  webd:
+    enabled: true
+  # vited — static file server for the /pub + /priv web tree.
+  vited:
+    enabled: true
+
+ingress:
+  enabled: false
+  className: ''
+  annotations: {}
+  # host defaults to config.webHost when empty.
+  host: ''
+  tls: []
+  #  - secretName: arizuko-tls
+  #    hosts:
+  #      - arizuko.example.com
+
+# ---------------------------------------------------------------------------
+# Optional core daemons (compose full-profile extras).
+# ---------------------------------------------------------------------------
+timed:
+  enabled: true # scheduled messages
+dashd:
+  enabled: true # operator dashboard (/dash)
+onbod:
+  enabled: false # onboarding/admission queue
+davd:
+  enabled: false # WebDAV over groups/ (needs config.webdavEnabled too)
+crackbox:
+  enabled: false # egress-isolation proxy (advanced; needs CRACKBOX_* env)
+  image: crackbox:latest
+
+# ---------------------------------------------------------------------------
+# Channel adapters. The chart ranges over this list and renders one
+# Deployment + Service per enabled entry. Each mirrors template/services/*.toml:
+# the same image, entrypoint, and env. `env` values are literal; `secretEnv`
+# maps a container var to a key in the Secret. Add an adapter by appending an
+# entry — no template edits.
+#
+# All Go adapters use image arizuko:latest with entrypoint [<name>] and post
+# inbound to ROUTER_URL=http://<gated-svc>:8080 (wired by the chart).
+#
+# `secretEnv` is a list of Secret keys to inject as env vars of the same name.
+# Those keys live in the chart Secret (see secrets.* above) — set the matching
+# secrets.* value or provide them via secrets.existingSecret.
+# ---------------------------------------------------------------------------
+adapters:
+  - name: teled
+    enabled: false
+    entrypoint: ['teled']
+    secretEnv:
+      - TELEGRAM_BOT_TOKEN
+
+  - name: discd
+    enabled: false
+    entrypoint: ['discd']
+    secretEnv:
+      - DISCORD_BOT_TOKEN
+
+  - name: slakd
+    enabled: false
+    entrypoint: ['slakd']
+    env:
+      SLAKD_USERS_CACHE_TTL: '900'
+    secretEnv:
+      - SLACK_BOT_TOKEN
+      - SLACK_SIGNING_SECRET
+
+  - name: mastd
+    enabled: false
+    entrypoint: ['mastd']
+    secretEnv:
+      - MASTODON_ACCESS_TOKEN
+      - MASTODON_INSTANCE_URL
+
+  - name: bskyd
+    enabled: false
+    entrypoint: ['bskyd']
+    secretEnv:
+      - BLUESKY_IDENTIFIER
+      - BLUESKY_PASSWORD
+
+  - name: reditd
+    enabled: false
+    entrypoint: ['reditd']
+    secretEnv:
+      - REDDIT_CLIENT_ID
+      - REDDIT_CLIENT_SECRET
+      - REDDIT_USERNAME
+      - REDDIT_PASSWORD
+
+  - name: emaid
+    enabled: false
+    entrypoint: ['emaid']
+    secretEnv:
+      - EMAIL_IMAP_HOST
+      - EMAIL_SMTP_HOST
+      - EMAIL_ACCOUNT
+      - EMAIL_PASSWORD
+
+  - name: linkd
+    enabled: false
+    entrypoint: ['linkd']
+    env:
+      LINKEDIN_POLL_INTERVAL: '300s'
+      LINKEDIN_AUTO_PUBLISH: 'false'
+    secretEnv:
+      - LINKEDIN_CLIENT_ID
+      - LINKEDIN_CLIENT_SECRET
+      - LINKEDIN_ACCESS_TOKEN
+      - LINKEDIN_REFRESH_TOKEN
+
+# Resource requests/limits applied to each daemon pod (override per-need).
+resources: {}
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # limits:
+  #   cpu: "1"
+  #   memory: 512Mi

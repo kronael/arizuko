@@ -1,0 +1,82 @@
+{{- if and .Values.web.enabled .Values.web.vited.enabled }}
+{{/*
+vited — static file server for the unified web tree (/pub + /priv). In compose
+it mounts <data>/web; here it reads the web subtree from the data PVC.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-vited
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vited
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "vited") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "vited") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: vited
+          image: {{ .Values.viteImage | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              # vited serves the web subtree of the data dir.
+              mountPath: /web
+              subPath: web
+          livenessProbe:
+            httpGet:
+              path: /@vite/client
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-vited
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vited
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "vited") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

@@ -1,0 +1,82 @@
+{{- if .Values.davd.enabled }}
+{{/*
+davd — WebDAV over the groups/ tree (arizuko-davd = dufs + wget). Served
+behind proxyd at /dav/ (strip-prefix). Reads groups/ from the data PVC.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-davd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: davd
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "davd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "davd") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: davd
+          image: {{ .Values.davImage | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--port", "8080", "--allow-all", "/data"]
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: groups
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-davd
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: davd
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "davd") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

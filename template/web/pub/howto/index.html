@@ -47,20 +47,21 @@
     <ul>
       <li>A Linux host you can <code>sudo</code> on. arizuko is tested on Debian 12.</li>
       <li>Docker (with the <code>docker compose</code> plugin). Every daemon and every agent runs in a container.</li>
-      <li>Go 1.22+ if you build from source. Skip this if you grab a pre-built binary.</li>
+      <li>Go 1.22+ to install the <code>arizuko</code> CLI (<code>go install</code>) or build from source.</li>
       <li>About 4 GB of free disk under <code>/srv/data/</code> per instance.</li>
       <li>A public domain and TLS, only if you want web chat, OAuth login, or inbound webhooks from Slack/Discord. A local-only instance needs neither.</li>
       <li>No ports open to the internet by default. Channel adapters listen on the docker network; <code>webd</code> + <code>proxyd</code> bind <code>:80</code>/<code>:443</code> only when you turn on the web layer.</li>
     </ul>
 
     <h2>2. Install</h2>
-    <p>Clone the repo and build. The Makefile produces <code>./arizuko</code> plus every daemon binary.</p>
+    <p>Clone the repo. A self-hosted deploy needs it either way: the daemon images build from it, and the <code>arizuko</code> directory is bind-mounted into the containers at runtime.</p>
     <pre><code>git clone https://github.com/kronael/arizuko.git
 cd arizuko
 make build
 sudo make images   # build agent + daemon docker images
 sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
-    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter.</p>
+    <p>To grab just the CLI, <code>go install github.com/kronael/arizuko/cmd/arizuko@latest</code> &mdash; handy for the command itself, but a full deploy still needs the repo for the images and the runtime mount.</p>
+    <p>The <code>make images</code> step is the longest (several minutes the first time). It builds <code>arizuko-ant:latest</code>, the per-group agent image, plus one image per shipped adapter. From here, <code>arizuko run</code> generates a Docker Compose file and brings the stack up &mdash; <strong>Docker Compose is the deploy path</strong>. For Kubernetes, see the Helm chart under <code>deploy/helm/arizuko/</code>.</p>
 
     <h2>3. Create your first instance</h2>
     <p>Pick a short name. The name becomes the data directory and the systemd unit name.</p>

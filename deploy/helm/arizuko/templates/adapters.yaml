@@ -1,0 +1,121 @@
+{{/*
+Channel adapters — one Deployment + Service per enabled entry in
+.Values.adapters. Each mirrors template/services/<name>.toml: the same
+arizuko image, entrypoint [<name>], and env. Inbound is posted to ROUTER_URL
+(wired from the ConfigMap). `env` entries are literal; `secretEnv` maps a
+container var to a key in the Secret.
+
+NOTE: WhatsApp (whapd) and X/Twitter (twitd) use separate images + auth-dir
+volumes in compose; they are intentionally NOT in the default adapters list.
+Add them as custom values entries with the right image/volume if you run them.
+*/}}
+{{- $ctx := . -}}
+{{- $full := include "arizuko.fullname" . -}}
+{{- $routerURL := include "arizuko.routerURL" . -}}
+{{- $secretName := include "arizuko.secretName" . -}}
+{{- $configMap := include "arizuko.configMapName" . -}}
+{{- range .Values.adapters }}
+{{- if .enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-{{ .name }}
+  labels:
+    {{- include "arizuko.labels" $ctx | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" $ctx }}
+      {{- with $ctx.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $ctx.Values.nodeName }}
+      nodeName: {{ $ctx.Values.nodeName }}
+      {{- end }}
+      {{- with $ctx.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: {{ .name }}
+          image: "{{ $ctx.Values.image.repository }}:{{ $ctx.Values.image.tag }}"
+          imagePullPolicy: {{ $ctx.Values.image.pullPolicy }}
+          command: {{ toJson .entrypoint }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ $configMap }}
+          env:
+            - name: ROUTER_URL
+              value: {{ $routerURL | quote }}
+            - name: LISTEN_ADDR
+              value: ":8080"
+            # CHANNEL_SECRET is shared by every adapter (router HMAC).
+            # optional:true so a missing key surfaces as a clear adapter
+            # error rather than blocking the whole pod from scheduling.
+            - name: CHANNEL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: CHANNEL_SECRET
+                  optional: true
+            {{- range $k, $v := .env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- range $key := .secretEnv }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ $key }}
+                  optional: true
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          {{- with $ctx.Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-{{ .name }}
+  labels:
+    {{- include "arizuko.labels" $ctx | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" $ctx "daemon" .name) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
+{{- end }}

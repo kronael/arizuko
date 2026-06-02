@@ -1,0 +1,113 @@
+{{/*
+gated — the monolith router + execution plane (compose default, CUTOVER_SPLIT
+off). Owns the SQLite WAL DB, the ipc sockets, and spawns the per-turn agent
+container via the node's docker socket. replicas: 1 — single writer on the
+RWO PVC. See README "Agent spawn limitation".
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-gated
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gated
+spec:
+  replicas: 1
+  strategy:
+    # The PVC is RWO and holds a live SQLite WAL — never run two gated pods.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        # uid 1000 matches the agent container so shared data-dir files
+        # round-trip. The docker gid is added so gated can use the socket.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        {{- if .Values.agentRuntime.dockerSocket }}
+        supplementalGroups:
+          - {{ .Values.agentRuntime.dockerGid }}
+        {{- end }}
+      containers:
+        - name: gated
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["gated"]
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "arizuko.configMapName" . }}
+            - secretRef:
+                name: {{ include "arizuko.secretName" . }}
+          volumeMounts:
+            - name: data
+              mountPath: /srv/app/home
+            {{- if .Values.agentRuntime.dockerSocket }}
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+        {{- if .Values.agentRuntime.dockerSocket }}
+        - name: docker-sock
+          hostPath:
+            path: {{ .Values.agentRuntime.socketPath }}
+            type: Socket
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.routerService" . }}
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gated
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "gated") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

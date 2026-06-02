@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "arizuko.configMapName" . }}
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+data:
+  # Non-secret env shared across daemons (mirrors compose.go commonKeys +
+  # gated env). DATA_DIR / HOST_DATA_DIR point at the in-container PVC mount.
+  # HOST_APP_DIR is the in-image source path — the arizuko image bakes the
+  # source under /opt/arizuko, so no bind mount is needed on k8s.
+  ASSISTANT_NAME: {{ .Values.config.assistantName | quote }}
+  ARIZUKO_INSTANCE: {{ .Values.config.instance | quote }}
+  WEB_HOST: {{ .Values.config.webHost | quote }}
+  TZ: {{ .Values.config.tz | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  API_PORT: "8080"
+  DATA_DIR: /srv/app/home
+  HOST_DATA_DIR: /srv/app/home
+  HOST_APP_DIR: /opt/arizuko
+  APP_SRC_DIR: /opt/arizuko
+  ROUTER_URL: {{ include "arizuko.routerURL" . | quote }}
+  # Agent spawn knobs (gated → arizuko-ant).
+  CONTAINER_IMAGE: {{ .Values.agentImage | quote }}
+  CONTAINER_TIMEOUT: {{ .Values.config.containerTimeout | quote }}
+  IDLE_TIMEOUT: {{ .Values.config.idleTimeout | quote }}
+  MAX_CONCURRENT_CONTAINERS: {{ .Values.config.maxConcurrentContainers | quote }}
+  # Feature toggles.
+  ONBOARDING_ENABLED: {{ .Values.config.onboardingEnabled | quote }}
+  WEBDAV_ENABLED: {{ .Values.config.webdavEnabled | quote }}
+  {{- if .Values.config.otelEndpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
+  {{- end }}

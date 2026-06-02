@@ -1,0 +1,64 @@
+arizuko has been installed as release {{ .Release.Name }}.
+
+Daemons deployed (component label):
+  - gated            router + execution plane (spawns agent containers)
+{{- if and .Values.web.enabled .Values.web.webd.enabled }}
+  - webd             chat widget / panel / api / portal
+{{- end }}
+{{- if and .Values.web.enabled .Values.web.proxyd.enabled }}
+  - proxyd           public reverse proxy + auth gate
+{{- end }}
+{{- if and .Values.web.enabled .Values.web.vited.enabled }}
+  - vited            static web tree (/pub, /priv)
+{{- end }}
+{{- if .Values.timed.enabled }}
+  - timed            scheduled messages
+{{- end }}
+{{- if .Values.dashd.enabled }}
+  - dashd            operator dashboard (/dash)
+{{- end }}
+{{- if .Values.onbod.enabled }}
+  - onbod            onboarding queue (/onboard)
+{{- end }}
+{{- if .Values.davd.enabled }}
+  - davd             WebDAV (/dav)
+{{- end }}
+{{- if .Values.crackbox.enabled }}
+  - crackbox         egress-isolation proxy
+{{- end }}
+{{- range .Values.adapters }}{{- if .enabled }}
+  - {{ .name }}            channel adapter
+{{- end }}{{- end }}
+
+Verify the rollout:
+
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "arizuko.fullname" . }}-gated
+
+Check gated health from inside the cluster:
+
+  kubectl -n {{ .Release.Namespace }} run -it --rm curl --image=curlimages/curl --restart=Never -- \
+    curl -s http://{{ include "arizuko.routerService" . }}:8080/health
+
+{{- if .Values.agentRuntime.dockerSocket }}
+
+AGENT SPAWN: gated mounts the node docker socket ({{ .Values.agentRuntime.socketPath }})
+to spawn the agent image ({{ .Values.agentImage }}). This requires a docker-runtime
+node where that socket exists, and that the arizuko-ant image is present on the node.
+If turns hang, check: `kubectl logs deploy/{{ include "arizuko.fullname" . }}-gated`.
+{{- else }}
+
+WARNING: agentRuntime.dockerSocket is OFF — gated will start but every agent
+turn will FAIL to spawn. Set agentRuntime.dockerSocket=true on a docker-runtime node.
+{{- end }}
+
+{{- if not .Values.ingress.enabled }}
+
+Ingress is disabled. To reach proxyd, either enable ingress.enabled=true or
+port-forward:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "arizuko.fullname" . }}-proxyd 8080:8080
+{{- else }}
+
+Public URL: https://{{ .Values.ingress.host | default .Values.config.webHost }}/
+{{- end }}

@@ -1,0 +1,82 @@
+{{- if .Values.crackbox.enabled }}
+{{/*
+crackbox — egress-isolation proxy (advanced / optional). In compose, runed
+attaches it to each per-folder agent network at runtime. On k8s the per-folder
+network model does not apply (agent spawn already goes through the node docker
+socket); this Deployment is provided for parity but the egress wiring is NOT
+automatic — see README "Agent spawn limitation". You must set the CRACKBOX_*
+env on gated (via config/secrets) to make gated route through it.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arizuko.fullname" . }}-crackbox
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crackbox
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "crackbox") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "crackbox") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "arizuko.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: crackbox
+          image: {{ .Values.crackbox.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["proxy", "serve"]
+          env:
+            - name: CRACKBOX_STATE_PATH
+              value: /data/crackbox/state.json
+          volumeMounts:
+            - name: data
+              mountPath: /data/crackbox
+              subPath: crackbox
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3129
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arizuko.pvcName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "arizuko.fullname" . }}-crackbox
+  labels:
+    {{- include "arizuko.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crackbox
+spec:
+  selector:
+    {{- include "arizuko.selectorLabels" (dict "ctx" . "daemon" "crackbox") | nindent 4 }}
+  ports:
+    - name: proxy
+      port: 3129
+      targetPort: 3129
+{{- end }}
