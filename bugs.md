@@ -38,6 +38,50 @@ the v1 model — nothing to purge), OR re-introduce the `v1:` prefix on
 this session (security/index.html + concepts/secrets.html claimed AES-256-GCM
 "shipped"; now state plaintext/deferred).
 
+## atlas-on-Slack thread/self-reply analysis (2026-06-02)
+
+User: atlas doesn't always "attend" to threads, and replies to its own messages
+(and forwards of them). Traced the mechanism end to end.
+
+### Self-reply (the concrete bug) — own-filter is adapter-only + fragile
+The ONLY guard against atlas processing its own Slack message is slakd's
+`BotUserID` check (`slakd/bot.go:357-362`), where `BotUserID()` is set from
+`auth.test` (`bot.go:202-206`). marinade's Slack token is **user-mode +
+rotating** (`.env`: "will need refresh after ~12h"). When it rotates and
+`auth.test` fails, `BotUserID()` goes stale/empty → with an empty id the filter
+`m.User == ""` no longer matches a real own-message (which carries the actual
+user id) → atlas's own message passes through. There is NO defense-in-depth: the
+gateway/api promotion has no `is_bot`/own-sender guard, and the **5/L promotion**
+(`api/api.go:303`, `IsBotMessageByID` matches `id` OR `platform_id`,
+`store/messages.go:575`) ACTIVELY re-promotes that own message to `verb=mention`
+(its thread_ts resolves to atlas's own root) → atlas replies to itself. Symptom
+is intermittent — correlates with token-rotation windows.
+
+Fix options (pick): (1) slakd fail-closed — when `BotUserID()` is empty, drop
+messages it can't attribute (don't process); (2) persist `BotUserID` so it
+survives a token refresh; (3) slakd dedup its own recently-sent TS (never
+re-ingest an own echo), independent of auth state. (1)+(3) are the robust pair.
+
+### Forwards of own messages — same class
+A human forwarding/quoting atlas's message is authored by the human (is_bot=false,
+not caught by the own-filter), but if it carries atlas's message id as the
+reply/thread reference, `IsBotMessageByID(ReplyTo)` matches → promoted → atlas
+re-responds to its own content. Same defense needed: don't promote when the
+referenced/echoed content is the bot's own AND the new message adds no question,
+or suppress reply-to-bot promotion for forward/share subtypes.
+
+### Thread attendance — mostly by design, one candidate gap
+The promotion works for threads ROOTED at atlas's own messages (IsBotMessageByID
+matches platform_id). Threads rooted at a HUMAN message → atlas attends only via
+explicit `@mention` or active engagement (5/G). So "doesn't always attend" is
+largely by-design: atlas auto-attends threads it started, not arbitrary ones. To
+attend all thread replies in a channel, add a route, not a code fix. CANDIDATE
+real gap: if atlas's message was delivered via the gateway turn-result path
+(not the `reply` tool — happens when the reply tool is authz-blocked, see the
+atlas/support chat-send-forbidden entry below) and that path doesn't store
+platform_id+BotMsg, then thread replies to it never promote → silently missed.
+Verify the turn-result delivery records platform_id with is_bot=1.
+
 ## atlas-on-Slack live trace (2026-06-01) — 2 HIGH bugs
 
 Traced marinade/atlas Slack behavior on the user's request. Two real bugs.
