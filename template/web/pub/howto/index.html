@@ -105,6 +105,14 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <pre><code>sudo journalctl -u arizuko_demo --since "2 min ago" --no-pager | grep -iE 'mention|spawn|reply'</code></pre>
     <p>Red flags in the log: <code>error in message loop</code>, <code>container timeout</code>, <code>circuit breaker open</code>, <code>pull access denied for arizuko-ant</code> (means <code>make images</code> never ran on this host).</p>
 
+    <h2>8. Back up &amp; restore the setup</h2>
+    <p>An agent is data, so the configuration is too. Export the whole instance config to one YAML manifest, keep it in git as a backup, and re-apply it to rebuild &mdash; on this host or another.</p>
+    <pre><code>arizuko export demo &gt; demo.yaml   # groups, routes, grants, ACL, web routes, schedules…
+git add demo.yaml &amp;&amp; git commit -m "demo config"
+arizuko plan demo demo.yaml         # dry-run: what would change
+arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
+    <p>The export/import round-trip is exact &mdash; apply a manifest to a fresh DB and re-export it, and you get the same config back (tested in <code>resreg/engine_test.go</code>). The agent's <em>files</em> &mdash; persona, memory, skills, diary under <code>groups/&lt;folder&gt;/</code> &mdash; are plain files; back them up with <code>git</code> or any file copy. Together the manifest plus the group folder are the whole agent.</p>
+
     <h2>Further reading</h2>
     <p>Vocabulary:</p>
     <dl>
@@ -148,7 +156,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-02">2026-06-02</time>
       </div>
     </main>
 

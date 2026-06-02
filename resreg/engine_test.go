@@ -285,6 +285,43 @@ func TestApply_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestExportApply_FullRoundTrip is the import/export contract end to end:
+// export a configured DB, apply that manifest to a fresh DB, re-export, and
+// the config data must be identical. This is the "agent is data" backup/restore
+// guarantee — `arizuko export` → git → `arizuko apply` reproduces the config
+// exactly (config_version is metadata that legitimately differs, excluded).
+func TestExportApply_FullRoundTrip(t *testing.T) {
+	db1, _ := freshEngine(t)
+	insertRaw(t, db1,
+		TestRow{Kind: "a", Name: "x", Value: "1"},
+		TestRow{Kind: "a", Name: "y", Value: "2"},
+		TestRow{Kind: "b", Name: "z", Value: "3"},
+	)
+	m1, err := Export(db1)
+	if err != nil {
+		t.Fatalf("Export db1: %v", err)
+	}
+
+	db2, _ := freshEngine(t) // fresh empty DB; registry re-registers testrows
+	if _, err := Apply(context.Background(), db2, 0, false, map[string]any{
+		"testrows": m1["testrows"],
+	}, nil); err != nil {
+		t.Fatalf("Apply exported manifest to a fresh DB: %v", err)
+	}
+	m2, err := Export(db2)
+	if err != nil {
+		t.Fatalf("Export db2: %v", err)
+	}
+
+	delete(m1, "config_version")
+	delete(m2, "config_version")
+	y1, _ := yaml.Marshal(m1)
+	y2, _ := yaml.Marshal(m2)
+	if string(y1) != string(y2) {
+		t.Errorf("export→apply→export not stable:\n--- exported ---\n%s\n--- re-exported ---\n%s", y1, y2)
+	}
+}
+
 // TestApply_EmptyScopedListClears: a manifest mentioning a scoped resource
 // with an EMPTY list wipes all its rows — the declarative way to remove a
 // scoped resource entirely. A resource ABSENT from the manifest is left
