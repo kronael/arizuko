@@ -116,8 +116,9 @@ type Config struct {
 	// miss branch to whichever folder most recently spoke there.
 	EngagementTTL time.Duration
 
-	// SecretsKey overrides AUTH_SECRET as the AES-256-GCM encryption key for
-	// the secrets table. Empty: falls back to AUTH_SECRET; both empty: no encryption.
+	// SecretsKey, when set, is the AES-256-GCM encryption key for the secrets
+	// table (spec 6/Y). Empty: secrets stored plaintext. No AUTH_SECRET
+	// fallback — it must be set explicitly to enable encryption at rest.
 	SecretsKey string
 }
 

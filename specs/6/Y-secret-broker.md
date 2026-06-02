@@ -3,7 +3,7 @@ status: partial
 depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
 
-> Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped. M7 encryption at rest DECIDED (opt-in via `SECRETS_KEY`, AES-256-GCM, migrate-not-purge — see ## Storage), not yet implemented. BUG to clear first: `gated/main.go`'s `SetSecretKey`+`PurgeUnencryptedSecrets` is dead scaffolding that wipes every plaintext secret on each startup (`bugs.md`) — remove it; M7 replaces it with the enable-migration.
+> Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped. M7 encryption at rest SHIPPED (opt-in via `SECRETS_KEY`, AES-256-GCM, idempotent encrypt-in-place migrate — see ## Storage). The startup-wipe bug is fixed (the destructive purge + `AUTH_SECRET` fallback are gone).
 
 # Tool-level secret brokering
 
@@ -69,10 +69,10 @@ runs a one-time encrypt-in-place migrate, idempotent (skips `v2:`) — never a
 `DELETE`. No `AUTH_SECRET` fallback. A key on the DB's own disk only beats a
 leaked backup / partial dump; for disk theft, source `SECRETS_KEY` out-of-band.
 
-Bug to clear first: `gated/main.go` runs `PurgeUnencryptedSecrets`
-(`DELETE … WHERE value NOT LIKE 'v1:%'`) every startup, but writes never wrote a
-`v1:` prefix — so it wipes every secret on each restart. Remove it; the
-enable-migrate replaces it.
+Implemented in `store/secrets.go` (`seal`/`open`/`storeValue`/
+`EncryptPlaintextSecrets`) + `gated/main.go` (runs the migrate when `SECRETS_KEY`
+is set). This replaced `PurgeUnencryptedSecrets`, which `DELETE`d plaintext rows
+on every startup and so wiped every secret — that data-loss bug is gone.
 
 ## Tool declaration
 

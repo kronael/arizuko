@@ -1,9 +1,121 @@
 package store
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key string) string {
+	t.Helper()
+	var v string
+	if err := s.db.QueryRow(
+		`SELECT value FROM secrets WHERE scope_kind=? AND scope_id=? AND key=?`,
+		string(scope), scopeID, key,
+	).Scan(&v); err != nil {
+		t.Fatalf("rawSecretValue: %v", err)
+	}
+	return v
+}
+
+func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKey([]byte("test-secrets-key"))
+
+	if err := s.SetSecret(ScopeFolder, "atlas", "TOKEN", "sk-secret-xyz"); err != nil {
+		t.Fatal(err)
+	}
+	raw := rawSecretValue(t, s, ScopeFolder, "atlas", "TOKEN")
+	if !strings.HasPrefix(raw, "v2:") {
+		t.Errorf("stored value not encrypted: %q", raw)
+	}
+	if strings.Contains(raw, "sk-secret-xyz") {
+		t.Error("plaintext leaked into stored value")
+	}
+	got, err := s.GetSecret(ScopeFolder, "atlas", "TOKEN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Value != "sk-secret-xyz" {
+		t.Errorf("decrypted Value = %q, want plaintext", got.Value)
+	}
+}
+
+func TestSecret_NoKey_PlaintextAtRest(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	if err := s.SetSecret(ScopeUser, "u1", "K", "plainval"); err != nil {
+		t.Fatal(err)
+	}
+	if raw := rawSecretValue(t, s, ScopeUser, "u1", "K"); raw != "plainval" {
+		t.Errorf("no-key stored = %q, want plaintext", raw)
+	}
+	if got, _ := s.GetSecret(ScopeUser, "u1", "K"); got.Value != "plainval" {
+		t.Errorf("Value = %q", got.Value)
+	}
+}
+
+func TestSecret_LegacyPlaintext_ReadsThrough(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	if err := s.SetSecret(ScopeFolder, "atlas", "OLD", "legacy-plain"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKey([]byte("k")) // key configured AFTER the plaintext write
+	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Value != "legacy-plain" {
+		t.Errorf("legacy read = %q, want legacy-plain", got.Value)
+	}
+}
+
+func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	if err := s.SetSecret(ScopeFolder, "atlas", "A", "aaa"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecret(ScopeUser, "u1", "B", "bbb"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKey([]byte("mig-key"))
+	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rawB := rawSecretValue(t, s, ScopeUser, "u1", "B")
+	if !strings.HasPrefix(rawSecretValue(t, s, ScopeFolder, "atlas", "A"), "v2:") || !strings.HasPrefix(rawB, "v2:") {
+		t.Error("rows not migrated to v2:")
+	}
+	if got, _ := s.GetSecret(ScopeFolder, "atlas", "A"); got.Value != "aaa" {
+		t.Errorf("A reads = %q", got.Value)
+	}
+	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil { // idempotent
+		t.Fatal(err)
+	}
+	if rawSecretValue(t, s, ScopeUser, "u1", "B") != rawB {
+		t.Error("migrate not idempotent: a v2: row was re-encrypted")
+	}
+	if got, _ := s.GetSecret(ScopeUser, "u1", "B"); got.Value != "bbb" {
+		t.Errorf("B reads = %q after 2nd migrate", got.Value)
+	}
+}
+
+func TestSecret_WrongKeyFails(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKey([]byte("key-A"))
+	if err := s.SetSecret(ScopeFolder, "atlas", "K", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKey([]byte("key-B")) // wrong key, no re-encrypt
+	if _, err := s.GetSecret(ScopeFolder, "atlas", "K"); err == nil {
+		t.Error("GetSecret under the wrong key should fail to decrypt")
+	}
+}
 
 func TestSetGetSecret_RoundTrip(t *testing.T) {
 	s, _ := OpenMem()

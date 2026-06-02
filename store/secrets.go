@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +14,65 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 )
+
+// secretV2Prefix marks an AES-256-GCM-encrypted secret value (spec 6/Y
+// "Encryption at rest"). Stored form: "v2:" + base64(nonce||ciphertext).
+// A value without this prefix is legacy plaintext (v1), read as-is.
+const secretV2Prefix = "v2:"
+
+// seal encrypts plaintext under s.secretKey. Only valid when secretKey != nil.
+func (s *Store) seal(plaintext string) (string, error) {
+	gcm, err := s.gcm()
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ct := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return secretV2Prefix + base64.StdEncoding.EncodeToString(ct), nil
+}
+
+// open decrypts a "v2:" value; legacy plaintext (no prefix) is returned as-is.
+func (s *Store) open(stored string) (string, error) {
+	if s.secretKey == nil || !strings.HasPrefix(stored, secretV2Prefix) {
+		return stored, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(stored[len(secretV2Prefix):])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := s.gcm()
+	if err != nil {
+		return "", err
+	}
+	if len(raw) < gcm.NonceSize() {
+		return "", errors.New("secret ciphertext too short")
+	}
+	pt, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(pt), nil
+}
+
+func (s *Store) gcm() (cipher.AEAD, error) {
+	block, err := aes.NewCipher(s.secretKey[:])
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
+}
+
+// storeValue returns the at-rest form of plaintext: encrypted when a key is
+// configured, plaintext otherwise.
+func (s *Store) storeValue(plaintext string) (string, error) {
+	if s.secretKey == nil {
+		return plaintext, nil
+	}
+	return s.seal(plaintext)
+}
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
 // or an auth user sub. See specs/11/11-crackbox-secrets.md.
@@ -54,6 +117,10 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
 	}
+	stored, err := s.storeValue(value)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -66,7 +133,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
 		   value = excluded.value,
 		   created_at = excluded.created_at`,
-		string(scope), scopeID, key, value, time.Now().UTC().Format(time.RFC3339),
+		string(scope), scopeID, key, stored, time.Now().UTC().Format(time.RFC3339),
 	); err != nil {
 		return err
 	}
@@ -84,7 +151,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 		Folder:   folder,
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
-			"value": value,
+			"encrypted": s.secretKey != nil,
 		},
 	}); err != nil {
 		return err
@@ -105,6 +172,10 @@ func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error
 	if errors.Is(err, sql.ErrNoRows) {
 		return Secret{}, ErrSecretNotFound
 	}
+	if err != nil {
+		return Secret{}, err
+	}
+	value, err = s.open(value)
 	if err != nil {
 		return Secret{}, err
 	}
@@ -133,6 +204,10 @@ func (s *Store) ListSecrets(scope SecretScope, scopeID string) ([]Secret, error)
 	for rows.Next() {
 		var key, value, createdAt string
 		if err := rows.Scan(&key, &value, &createdAt); err != nil {
+			return nil, err
+		}
+		value, err = s.open(value)
+		if err != nil {
 			return nil, err
 		}
 		t, _ := time.Parse(time.RFC3339, createdAt)
@@ -176,14 +251,46 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 	return tx.Commit()
 }
 
-// PurgeUnencryptedSecrets removes secrets not prefixed with "v1:" (plaintext
-// rows). Called on startup when a key is configured; no-op without a key.
-func (s *Store) PurgeUnencryptedSecrets(ctx context.Context) error {
+// EncryptPlaintextSecrets encrypts every legacy-plaintext row in place under
+// the configured key (spec 6/Y "Encryption at rest"). Idempotent: rows already
+// "v2:" are skipped. No-op without a key. Never deletes — it replaces the old
+// PurgeUnencryptedSecrets, which DELETEd plaintext rows and so wiped every
+// secret on each startup (writes never wrote the prefix it kept).
+func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
 	if s.secretKey == nil {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE value NOT LIKE 'v1:%'`)
-	return err
+	rows, err := s.db.QueryContext(ctx, `SELECT rowid, value FROM secrets WHERE value NOT LIKE 'v2:%'`)
+	if err != nil {
+		return err
+	}
+	type todo struct {
+		rowid int64
+		value string
+	}
+	var pending []todo
+	for rows.Next() {
+		var t todo
+		if err := rows.Scan(&t.rowid, &t.value); err != nil {
+			rows.Close()
+			return err
+		}
+		pending = append(pending, t)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, t := range pending {
+		sealed, err := s.seal(t.value)
+		if err != nil {
+			return err
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE secrets SET value = ? WHERE rowid = ?`, sealed, t.rowid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // folderAncestors returns folder paths for resolution, deepest first, ending with "root".

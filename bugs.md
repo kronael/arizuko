@@ -5,7 +5,13 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
-## HIGH (live data-loss) — gated wipes all secrets on every startup (2026-06-01)
+## FIXED 2026-06-01 — gated wiped all secrets on every startup (was HIGH live data-loss)
+
+Fixed with the M7 encryption-at-rest impl: removed the `PurgeUnencryptedSecrets`
+DELETE (replaced by an idempotent encrypt-in-place migrate), dropped the
+`AUTH_SECRET` fallback so the purge no longer ran with an always-set key. Secrets
+are now plaintext by default, AES-256-GCM when `SECRETS_KEY` is set. Tests in
+`store/secrets_test.go`. Original report below for the record.
 
 Found during the docs persona-audit (CTO lens), confirmed against code.
 

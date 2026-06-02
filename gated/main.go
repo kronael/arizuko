@@ -51,14 +51,14 @@ func main() {
 	}
 	defer s.Close()
 
-	encKey := cfg.SecretsKey
-	if encKey == "" {
-		encKey = cfg.AuthSecret
-	}
-	if encKey != "" {
-		s.SetSecretKey([]byte(encKey))
-		if purgeErr := s.PurgeUnencryptedSecrets(context.Background()); purgeErr != nil {
-			slog.Error("secrets purge-plaintext", "err", purgeErr)
+	// Encryption at rest is opt-in via SECRETS_KEY only — no AUTH_SECRET
+	// fallback (poor key separation, and an always-set fallback is what made
+	// the old purge wipe every plaintext secret on each startup). When set,
+	// migrate existing plaintext rows in place; never delete (spec 6/Y).
+	if cfg.SecretsKey != "" {
+		s.SetSecretKey([]byte(cfg.SecretsKey))
+		if migErr := s.EncryptPlaintextSecrets(context.Background()); migErr != nil {
+			slog.Error("secrets encrypt-at-rest migrate", "err", migErr)
 			os.Exit(1)
 		}
 	}
