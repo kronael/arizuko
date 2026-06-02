@@ -3,7 +3,7 @@ status: partial
 depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
 ---
 
-> Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped.
+> Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped. M7 encryption at rest DECIDED (opt-in via `SECRETS_KEY`, AES-256-GCM, migrate-not-purge — see ## Storage), not yet implemented. BUG to clear first: `gated/main.go`'s `SetSecretKey`+`PurgeUnencryptedSecrets` is dead scaffolding that wipes every plaintext secret on each startup (`bugs.md`) — remove it; M7 replaces it with the enable-migration.
 
 # Tool-level secret brokering
 
@@ -57,9 +57,43 @@ column renamed by `0047-secrets-plaintext.sql`:
 `(scope_kind, scope_id, key)`. `scope_kind ∈ {folder, user}`;
 `scope_id` is folder path or `auth_users.sub`.
 
-v1 stores plaintext in `value` (operator-trusted disk + FS perms).
-AES-GCM was removed in this release; if encryption at rest becomes
-required, add it back behind a future spec.
+v1 default: plaintext in `value` (operator-trusted disk + FS perms). The
+broker is the real boundary — a per-user secret never enters the container
+(resolved at tool-call time on the host), so at-rest encryption is defense
+in depth, not the primary control.
+
+### Encryption at rest — DECIDED (opt-in, `SECRETS_KEY`)
+
+Supersedes the earlier "add it back behind a future spec" deferral. Encryption
+at rest is an operator opt-in, off by default.
+
+- **Off (default):** `SECRETS_KEY` unset → plaintext. **No `AUTH_SECRET`
+  fallback.** Reusing the session-HMAC key for at-rest encryption is poor key
+  separation, and an always-set fallback is exactly what made the old startup
+  purge destructive (below).
+- **On:** `SECRETS_KEY` set (32 bytes, base64 or hex) → AES-256-GCM, a fresh
+  random 12-byte nonce per value, stored as `v2:` + base64(`nonce‖ciphertext`).
+  - Write: encrypt → `v2:…`. Read: `v2:` → decrypt; a bare / `v1:` value is
+    returned as-is (legacy plaintext, still readable during migration).
+  - Enable migration: on first boot with `SECRETS_KEY` set, encrypt existing
+    plaintext rows **in place** (`UPDATE … SET value = seal(value)`), idempotent
+    (skip rows already `v2:`). **Never `DELETE`.** The removed
+    `PurgeUnencryptedSecrets` did `DELETE … WHERE value NOT LIKE 'v1:%'` on every
+    gated startup, but writes never wrote a `v1:`/`v2:` prefix — so it wiped
+    every secret on each restart. The enable-migration replaces it.
+  - Rotation: re-`seal` all rows under the new key in one tx; no automatic
+    rotation schedule in v2.
+- **Threat model (honest):** this protects a leaked `messages.db` (a backup
+  shipped without the key, a partial DB dump) and satisfies "secrets not stored
+  in plaintext" compliance checks. It does **not** defend against full-host
+  compromise or full-disk theft when `SECRETS_KEY` sits in the data-dir `.env`
+  on the same disk. For that, the operator sources `SECRETS_KEY` out-of-band
+  (systemd `LoadCredential`, a secret manager, an env injected at runtime) and
+  never commits it beside the DB.
+
+`store/secrets.go` keeps `SetSecret`/`GetSecret`/`ListSecrets` as the single
+encode/decode chokepoint (one `seal`/`open` pair gated on `s.secretKey`);
+`gated/main.go` runs the idempotent enable-migration, not the old purge.
 
 ## Tool declaration
 
