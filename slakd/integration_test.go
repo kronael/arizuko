@@ -467,6 +467,33 @@ func TestInbound_BotIDOnlySkipped(t *testing.T) {
 	}
 }
 
+// Own-echo dropped by sent-TS even when the message's author looks like a
+// human (Uhuman) — i.e. the identity filter would NOT catch it. This is the
+// robustness guard: Slack re-delivering our own post, or a stale botUserID,
+// can't turn into a self-reply because we drop any TS we just sent.
+func TestInbound_OwnEchoSkippedByTS(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	b.markSent("1700000666.000100") // we posted this TS ourselves
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel": "C0HJK",
+	    "user": "Uhuman",
+	    "text": "echo of our own post",
+	    "ts": "1700000666.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+	if got := rm.snapshot(); len(got) != 0 {
+		t.Errorf("own-echo (by sent TS) should be skipped, got %d", len(got))
+	}
+}
+
 // Reaction → Verb=like for thumbsup, Verb=dislike for thumbsdown.
 // Observed-failure anchor: custom-emoji passthrough (workspace-custom).
 func TestInbound_ReactionDislike(t *testing.T) {

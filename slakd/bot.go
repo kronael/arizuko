@@ -59,6 +59,10 @@ type bot struct {
 	lastInboundAt atomic.Int64
 	lastMsgTS     sync.Map // jid → Slack TS of last inbound message
 	activeEyesTS  sync.Map // jid → Slack TS that currently has 👀 on it
+	sentTS        sync.Map // our own outbound Slack TS → unix sent-time. Slack
+	// echoes the bot's own posts back through the Events API; dropping any
+	// inbound carrying a TS we just sent stops self-replies regardless of
+	// token mode or a stale botUserID (the identity filter's blind spot).
 
 	// pendingPrompts holds prompts the agent staged via MCP for the
 	// next outbound on a pane (keyed by team/user/thread_ts). Consumed
@@ -77,6 +81,33 @@ func (b *bot) BotUserID() string {
 		return v
 	}
 	return ""
+}
+
+// markSent records one of our own outbound Slack TS so its platform echo
+// (Slack re-delivers the bot's own posts via the Events API) is dropped on
+// the inbound path — see isOwnEcho.
+func (b *bot) markSent(ts string) {
+	if ts != "" {
+		b.sentTS.Store(ts, time.Now().Unix())
+	}
+}
+
+// isOwnEcho reports whether ts is one we sent ourselves recently.
+func (b *bot) isOwnEcho(ts string) bool {
+	_, ok := b.sentTS.Load(ts)
+	return ok
+}
+
+// pruneSentTS drops sent-TS records older than maxAge (echoes arrive within
+// seconds, so this only bounds memory).
+func (b *bot) pruneSentTS(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge).Unix()
+	b.sentTS.Range(func(k, v any) bool {
+		if t, ok := v.(int64); ok && t < cutoff {
+			b.sentTS.Delete(k)
+		}
+		return true
+	})
 }
 
 func (b *bot) TeamID() string {
@@ -232,6 +263,7 @@ func (b *bot) healthProbe(ctx context.Context, interval time.Duration) {
 			} else {
 				b.connected.Store(true)
 			}
+			b.pruneSentTS(10 * time.Minute)
 		}
 	}
 }
@@ -361,6 +393,12 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		return
 	}
 	if m.Channel == "" || m.TS == "" {
+		return
+	}
+	// Drop the platform echo of our own post (Slack re-delivers the bot's own
+	// messages). Independent of the identity checks above, so a stale botUserID
+	// or a token-mode quirk can't turn an own-message into a self-reply.
+	if b.isOwnEcho(m.TS) {
 		return
 	}
 
@@ -734,6 +772,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("slack send: %s", resp.Error)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
+	b.markSent(resp.TS)
 	b.applyPanePending(parts.ID)
 	return resp.TS, nil
 }

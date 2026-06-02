@@ -57,10 +57,21 @@ gateway/api promotion has no `is_bot`/own-sender guard, and the **5/L promotion*
 (its thread_ts resolves to atlas's own root) → atlas replies to itself. Symptom
 is intermittent — correlates with token-rotation windows.
 
-Fix options (pick): (1) slakd fail-closed — when `BotUserID()` is empty, drop
-messages it can't attribute (don't process); (2) persist `BotUserID` so it
-survives a token refresh; (3) slakd dedup its own recently-sent TS (never
-re-ingest an own echo), independent of auth state. (1)+(3) are the robust pair.
+Data check (2026-06-02): ZERO inbound rows carry atlas's own user id
+(U0B47GYRMLZ) — the identity own-filter works in steady state, AND botUserID is
+set once at start() and never cleared, so it doesn't actually go empty mid-run.
+So the active self-reply isn't reproduced in the recorded window; the exposure is
+the edges (a wrong botUserID at start, an unusual own-message shape, the echo
+arriving author-less).
+
+FIXED (slakd dedup-own-TS): `Send` marks each posted TS (`markSent`); inbound
+drops any TS we sent (`isOwnEcho`), pruned in the health probe. Independent of
+identity, so a stale/wrong botUserID or token-mode quirk can't make an own post a
+self-reply. Test `TestInbound_OwnEchoSkippedByTS`. (Did NOT fail-closed on empty
+botUserID — that would drop real user messages during a token gap; the TS dedup
+is the targeted guard.) NOT fixed: a human FORWARD of atlas's content is a
+genuine human message (new TS, human author) — suppressing it is ambiguous
+intent, not clearly fixable.
 
 ### Forwards of own messages — same class
 A human forwarding/quoting atlas's message is authored by the human (is_bot=false,
