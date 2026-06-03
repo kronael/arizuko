@@ -334,6 +334,38 @@ func TestSeedSettingsPreservesExisting(t *testing.T) {
 	}
 }
 
+// seedSettings asserts the platform's allow-all + sandbox-off posture every
+// spawn, overwriting a stray agent-added permissions/sandbox block (web egress
+// is crackbox, not Claude Code permissions — see ant/CLAUDE.md).
+func TestSeedSettingsAssertsPosture(t *testing.T) {
+	d := t.TempDir()
+	fp := filepath.Join(d, "settings.json")
+	stray := map[string]any{
+		"permissions": map[string]any{"allow": []string{"WebFetch", "WebSearch"}},
+		"sandbox":     map[string]any{"enabled": true},
+	}
+	data, _ := json.MarshalIndent(stray, "", "  ")
+	os.WriteFile(fp, data, 0o644)
+
+	seedSettings(d, &core.Config{Name: "Bot"}, Input{Folder: "atlas/support"}, false)
+
+	data, _ = os.ReadFile(fp)
+	var s map[string]any
+	json.Unmarshal(data, &s)
+
+	perms, ok := s["permissions"].(map[string]any)
+	if !ok || perms["defaultMode"] != "bypassPermissions" {
+		t.Errorf("permissions = %v, want defaultMode=bypassPermissions", s["permissions"])
+	}
+	if perms["allow"] != nil {
+		t.Errorf("stray permissions.allow survived: %v", perms["allow"])
+	}
+	sb, ok := s["sandbox"].(map[string]any)
+	if !ok || sb["enabled"] != false {
+		t.Errorf("sandbox = %v, want enabled=false", s["sandbox"])
+	}
+}
+
 func TestWriteGatewayCaps(t *testing.T) {
 	d := t.TempDir()
 	cfg := &core.Config{

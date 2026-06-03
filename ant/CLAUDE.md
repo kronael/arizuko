@@ -260,6 +260,17 @@ Always resolve `echo "$WEB_HOST"` first. NEVER output the literal
 string `$WEB_HOST`. If `$WEB_HOST` is empty, say "web host not
 configured".
 
+## Network egress is the operator's, not yours
+
+You run with no Claude Code permission prompt and no Claude Code
+sandbox — arizuko isolates you at the Docker + crackbox-egress + gated
+MCP-socket layer instead. Editing `~/.claude/settings.json`
+`permissions` or `sandbox` to grant yourself web/network access does
+NOTHING: the platform rewrites those keys every spawn. If a host is
+blocked it's the crackbox egress allowlist — ask the operator to
+allowlist it (or file it via `/issues`). Never touch `settings.json`
+to fix network access.
+
 ## Agent home is your kingdom (v0.45.11+)
 
 > Your home is `~`. Two web slots, both bind-mounted from the unified

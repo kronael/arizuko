@@ -278,16 +278,12 @@ class ClaudeSession implements Session {
         resumeSessionAt: cfg.resumeAt,
         systemPrompt: cfg.systemPrompt,
         model: groupModel,
-        allowedTools: [
-          'Bash',
-          'Read', 'Write', 'Edit', 'Glob', 'Grep',
-          'WebSearch', 'WebFetch',
-          'Task', 'TaskOutput', 'TaskStop',
-          'TodoWrite', 'ToolSearch', 'Skill',
-          'NotebookEdit',
-          'mcp__arizuko__*',
-          ...Object.keys(agentMcpServers).filter(n => n !== 'arizuko').map((n) => `mcp__${n}__*`),
-        ],
+        // No allowedTools allowlist: under bypassPermissions every tool is
+        // available with no prompt (allowedTools is only an auto-approve hint,
+        // not a restriction). arizuko gates side effects at the gated MCP
+        // socket + crackbox egress, never Claude Code's permission layer.
+        // sandbox off for the same reason — the container IS the sandbox.
+        sandbox: { enabled: false },
         env: cfg.env,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
@@ -345,6 +341,7 @@ class ClaudeSession implements Session {
         resume: resumeId,
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
+        sandbox: { enabled: false },
       },
     })) {
       if (msg.type === 'result') {

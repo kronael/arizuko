@@ -764,6 +764,16 @@ func seedSettings(
 	}
 	settings["env"] = env
 
+	// Claude Code's permission + sandbox layer is asserted by the platform,
+	// not the agent. arizuko already isolates via crackbox egress + Docker +
+	// the gated MCP socket, so the agent runs with all tools allowed and the
+	// SDK's own sandbox off. Write both authoritatively every spawn: a stray
+	// agent-added permissions block (web egress lives in crackbox, never here)
+	// must not accumulate, and a future SDK default can't silently re-enable
+	// the sandbox.
+	settings["permissions"] = map[string]any{"defaultMode": "bypassPermissions"}
+	settings["sandbox"] = map[string]any{"enabled": false}
+
 	servers, _ := settings["mcpServers"].(map[string]any)
 	if servers == nil {
 		servers = map[string]any{}
