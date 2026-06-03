@@ -1958,8 +1958,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			target := req.GetString("folder", "")
 			host := req.GetString("host", "")
-			if host == "" {
-				return toolErr("host required")
+			if !validHostname(host) {
+				return toolErr("host must be a bare hostname, e.g. example.com (no scheme or path)")
 			}
 			if err := authzStructural("network_allow", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())

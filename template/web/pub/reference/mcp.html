@@ -55,6 +55,7 @@
         <li><a href="#sessions">sessions &amp; work</a></li>
         <li><a href="#scheduling">scheduling</a></li>
         <li><a href="#routing">routing</a></li>
+        <li><a href="#egress">egress</a></li>
         <li><a href="#grants-tools">grants</a></li>
         <li><a href="#invites">invites</a></li>
         <li><a href="#web">web routes &amp; vhosts</a></li>
@@ -632,6 +633,44 @@
       </tbody>
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
+
+    <h2 id="egress">egress</h2>
+    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three gate on <code>auth.AuthorizeStructural</code>: tier 0 (root) is unrestricted; tier 1 is confined to its own folder and descendants; tier 2+ cannot manage egress. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md">5/5</a> (<code>egress_allowlist</code>). A REST <code>/v1/network_rules</code> twin is documented in the OpenAPI doc but not yet mounted &mdash; only the MCP tools work today.</p>
+
+    <h3 id="network_allow"><code>network_allow</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Append an allowlist rule so <code>folder</code> and every descendant can reach <code>host</code>. Use when an agent needs a host the default-deny proxy blocks &mdash; a vendor API, say. <code>host</code> is a bare hostname (no scheme, no path), e.g. <code>example.com</code>. The rule cascades to all children.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1950"><code>ipc/ipc.go:1950</code></a> &middot; Grant action: <code>network_allow</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>; <code>host</code> validated by <code>validHostname</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder the rule applies to; covers this folder and all descendants.</td></tr>
+        <tr><td class="name">host</td><td class="type">string</td><td class="req req-y">yes</td><td>Bare hostname, e.g. <code>example.com</code> &mdash; no scheme or path.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"allowed": true, "folder": "&lt;f&gt;", "host": "&lt;host&gt;"}</code>.</p>
+
+    <h3 id="network_deny"><code>network_deny</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Remove an allowlist rule set on <code>folder</code> itself, closing access to <code>host</code>. Only drops a rule owned by this folder &mdash; a host inherited from an ancestor must be removed at that ancestor, not here.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1976"><code>ipc/ipc.go:1976</code></a> &middot; Grant action: <code>network_deny</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder the rule was set on.</td></tr>
+        <tr><td class="name">host</td><td class="type">string</td><td class="req req-y">yes</td><td>Host to remove from this folder's own rules.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"denied": true, "folder": "&lt;f&gt;", "host": "&lt;host&gt;"}</code>.</p>
+
+    <h3 id="network_list"><code>network_list</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Read the egress allowlist for <code>folder</code>. <code>resolved</code> is every host the folder can reach &mdash; its own rules, those inherited from ancestors, and the instance base. <code>own</code> is only the rules set on <code>folder</code> itself. Use to see why a host is reachable (own rule vs inherited) before adding or removing one.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2001"><code>ipc/ipc.go:2001</code></a> &middot; Grant action: <code>network_list</code> &middot; <code>auth.AuthorizeStructural</code> on <code>folder</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder to read.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"folder": "&lt;f&gt;", "resolved": [...], "own": [...]}</code>.</p>
 
     <h2 id="grants-tools">acl</h2>
 

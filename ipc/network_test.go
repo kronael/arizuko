@@ -85,6 +85,16 @@ func TestServeMCP_NetworkAllowList(t *testing.T) {
 	if got := rules["world/a"]; len(got) != 0 {
 		t.Fatalf("rules after deny = %v, want empty", got)
 	}
+
+	// Invalid host (scheme/path) is rejected before it can persist.
+	if _, errText := callTool(t, sock, "network_allow", map[string]any{
+		"folder": "world/a", "host": "https://evil.com/x",
+	}); errText == "" {
+		t.Fatal("expected network_allow with a non-bare host to be rejected")
+	}
+	if got := rules["world/a"]; len(got) != 0 {
+		t.Fatalf("invalid host must not persist; rules = %v", got)
+	}
 }
 
 // A tier-2 caller (folder world/a/b) must not manage egress — for its own

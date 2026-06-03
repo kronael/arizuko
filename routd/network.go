@@ -6,7 +6,7 @@ import (
 )
 
 // NetworkRule is one explicit egress allowlist row (routd-local; mirrors
-// store.NetworkRule pre-split).
+// store.NetworkRule).
 type NetworkRule struct {
 	Folder    string
 	Target    string
@@ -54,7 +54,6 @@ func (d *DB) ListNetworkRules(folder string) ([]NetworkRule, error) {
 // target for the folder and all its ancestors (the folder=” base inherited by
 // all). routd resolves this at dispatch and ships it to runed in
 // RunRequest.EgressAllowlist, which runed wires into the crackbox EgressConfig.
-// Ported from store.ResolveAllowlist (gated owned network_rules pre-split).
 func (d *DB) ResolveAllowlist(folder string) ([]string, error) {
 	folders := folderAncestry(folder)
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(folders)), ",")
