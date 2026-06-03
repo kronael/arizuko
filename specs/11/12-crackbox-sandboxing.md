@@ -223,4 +223,9 @@ downstream specs or deferred to later passes:
   Specified in [`6/Y`](../6/Y-secret-broker.md); not yet implemented.
 - **`gated` Docker→KVM backend switch** — `gated` currently uses the
   Docker backend. Switching to `crackbox/pkg/host/` as its backend
-  is tracked under [8/c — sandd](c-sandd.md) (phase 8).
+  is tracked under [8/c — sandd](c-sandd.md) (phase 8). Today's shipped
+  arizuko consumer (one shared egred per instance, per-spawn
+  register/unregister with the resolved allowlist) is described in
+  [`9-crackbox-standalone`](9-crackbox-standalone.md) and
+  [`SECURITY.md`](../../SECURITY.md); the per-spawn execution path is
+  [`specs/5/P-runed.md`](../5/P-runed.md).

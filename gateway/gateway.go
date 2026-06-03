@@ -460,7 +460,21 @@ func (g *Gateway) wireFns() {
 			}
 			return auth.AuthorizeWith(g.store, caller, action, folder, params, opts)
 		},
-		LogIPCAudit: g.store.LogIPCAudit,
+		LogIPCAudit:       g.store.LogIPCAudit,
+		AddNetworkRule:    g.store.AddNetworkRule,
+		RemoveNetworkRule: g.store.RemoveNetworkRule,
+		ResolveAllowlist:  g.store.ResolveAllowlist,
+		ListNetworkRules: func(folder string) ([]ipc.NetworkRule, error) {
+			rows, err := g.store.ListNetworkRules(folder)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]ipc.NetworkRule, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.NetworkRule{Folder: r.Folder, Target: r.Target, CreatedBy: r.CreatedBy}
+			}
+			return out, nil
+		},
 	}
 }
 

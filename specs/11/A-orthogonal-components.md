@@ -168,9 +168,10 @@ egred container in compose; the host library will be imported by
 sandd when KVM backend lands. The proxy half is consumer-side
 shipped today; the host library is planned (next phase).
 
-[`specs/11/10-crackbox-arizuko.md`](10-crackbox-arizuko.md)
-covers the today-and-tomorrow consumer pattern and the planned
-[`sandd`](c-sandd.md) extraction. KVM lands as one backend
+[`specs/11/9-crackbox-standalone.md`](9-crackbox-standalone.md)
+covers the today consumer pattern and
+[`specs/11/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md)
+the planned [`sandd`](c-sandd.md) extraction. KVM lands as one backend
 behind the `ContainerRuntime` seam — see
 [`specs/5/U-genericization.md`](../5/U-genericization.md) §
 _ContainerRuntime — pluggable sandbox backends_.

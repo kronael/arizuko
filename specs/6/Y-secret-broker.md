@@ -1,6 +1,6 @@
 ---
 status: partial
-depends: [9-crackbox-standalone, 10-crackbox-arizuko, 5/5-uniform-mcp-rest]
+depends: [9-crackbox-standalone, 5/5-uniform-mcp-rest]
 ---
 
 > Partial — M2–M6 shipped (schema, dashd UI, CLI, spawn-env drop, connector spawner). M0/M1 broker middleware (`injectSecretsAdapter`, `secret_use_log`) not yet shipped. M7 encryption at rest SHIPPED (opt-in via `SECRETS_KEY`, AES-256-GCM, idempotent encrypt-in-place migrate — see ## Storage). The startup-wipe bug is fixed (the destructive purge + `AUTH_SECRET` fallback are gone).
@@ -307,7 +307,7 @@ No proxy changes. No CA. No TLS termination. No
   GitHub token flow, the canonical v1 user.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.
-- [`specs/11/10-crackbox-arizuko.md`](../11/10-crackbox-arizuko.md) — egred
+- [`specs/11/9-crackbox-standalone.md`](../11/9-crackbox-standalone.md) — egred
   keeps CONNECT-splice + per-source allowlists; untouched by this spec.
 - [`specs/11/14-surrogate-oauth.md`](../11/14-surrogate-oauth.md) — OAuth
   dance + refresh wrapper; writer-side feed into the `secrets` table

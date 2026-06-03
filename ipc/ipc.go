@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
@@ -27,46 +25,48 @@ import (
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/router"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/robfig/cron/v3"
 	"golang.org/x/sys/unix"
 )
 
 type GatedFns struct {
-	SendMessage         func(jid, text string) (string, error)
-	SendReply           func(jid, text, replyToId string) (string, error)
-	SendDocument        func(jid, path, filename, caption, replyTo, threadID string) error
-	SendVoice           func(jid, text, voice, folder, threadID string) (string, error)
-	Post                func(jid, content string, mediaPaths []string) (string, error)
-	Like                func(jid, targetID, reaction string) error
-	Delete              func(jid, targetID string) error
-	Forward             func(sourceMsgID, targetJID, comment string) (string, error)
-	Quote               func(jid, sourceMsgID, comment string) (string, error)
-	Repost              func(jid, sourceMsgID string) (string, error)
-	Dislike             func(jid, targetID string) error
-	Edit                func(jid, targetID, content string) error
-	Pin                 func(jid, targetID string) error
-	Unpin               func(jid, targetID string, all bool) error
-	ClearSession        func(folder string)
-	ForkTopic           func(folder, parent, child string, force bool) error
-	InjectMessage       func(jid, content, sender, senderName string) (string, error)
-	RegisterGroup       func(jid string, group core.Group) error
-	SetupGroup          func(folder string) error
-	GetGroups           func() map[string]core.Group
-	EnqueueMessageCheck func(jid string)
-	SpawnGroup          func(parentFolder, childJID string) (core.Group, error)
+	SendMessage          func(jid, text string) (string, error)
+	SendReply            func(jid, text, replyToId string) (string, error)
+	SendDocument         func(jid, path, filename, caption, replyTo, threadID string) error
+	SendVoice            func(jid, text, voice, folder, threadID string) (string, error)
+	Post                 func(jid, content string, mediaPaths []string) (string, error)
+	Like                 func(jid, targetID, reaction string) error
+	Delete               func(jid, targetID string) error
+	Forward              func(sourceMsgID, targetJID, comment string) (string, error)
+	Quote                func(jid, sourceMsgID, comment string) (string, error)
+	Repost               func(jid, sourceMsgID string) (string, error)
+	Dislike              func(jid, targetID string) error
+	Edit                 func(jid, targetID, content string) error
+	Pin                  func(jid, targetID string) error
+	Unpin                func(jid, targetID string, all bool) error
+	ClearSession         func(folder string)
+	ForkTopic            func(folder, parent, child string, force bool) error
+	InjectMessage        func(jid, content, sender, senderName string) (string, error)
+	RegisterGroup        func(jid string, group core.Group) error
+	SetupGroup           func(folder string) error
+	GetGroups            func() map[string]core.Group
+	EnqueueMessageCheck  func(jid string)
+	SpawnGroup           func(parentFolder, childJID string) (core.Group, error)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	SubmitTurn           func(folder string, t TurnResult) error
 	// Per-group ambient controls (spec 6/F).
-	SetGroupOpen           func(folder string, open bool) error
-	SetGroupObserveWindow  func(folder string, msgs, chars int) error
-	GroupObserveWindow     func(folder string) (msgs, chars int)
+	SetGroupOpen          func(folder string, open bool) error
+	SetGroupObserveWindow func(folder string, msgs, chars int) error
+	GroupObserveWindow    func(folder string) (msgs, chars int)
 	// observe_group cross-folder subscriptions (spec 5/F).
 	AddGroupWatcher    func(observer, source string) error
 	RemoveGroupWatcher func(observer, source string) error
-	AcceptURLBase        string // base URL where /invite/<token> is served (e.g. https://app.example.com)
-	GroupsDir            string
-	WebDir               string
+	AcceptURLBase      string // base URL where /invite/<token> is served (e.g. https://app.example.com)
+	GroupsDir          string
+	WebDir             string
 
 	// Slack assistant-pane controls (spec 6/D). Both stage values on the
 	// owning adapter; values fire after the next outbound into the pane.
@@ -81,9 +81,9 @@ type GatedFns struct {
 	// Route tokens (spec 5/W). Shared writer for chat-link / webhook
 	// issuance from both MCP and REST surfaces. IssueRouteToken returns
 	// the raw token exactly once.
-	IssueRouteToken    func(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (RouteTokenInfo, error)
-	ListRouteTokens    func(ownerFolder string) []RouteTokenInfo
-	RevokeRouteToken   func(jid, ownerFolder string) (bool, error)
+	IssueRouteToken  func(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (RouteTokenInfo, error)
+	ListRouteTokens  func(ownerFolder string) []RouteTokenInfo
+	RevokeRouteToken func(jid, ownerFolder string) (bool, error)
 	// Audit receives system events for mutating MCP tool calls. Nil = no-op.
 	Audit *audit.Audit
 }
@@ -173,7 +173,7 @@ type StoreFns struct {
 	// BumpEngagement upserts engaged_until + engaged_folder. Callers MUST
 	// skip the call when the triggering inbound sender is timed-* (spec
 	// 5/G: scheduled / autonomous turns do not extend engagement).
-	BumpEngagement func(jid, topic, folder string, until time.Time) error
+	BumpEngagement      func(jid, topic, folder string, until time.Time) error
 	ListACL             func(principal string) []core.ACLRow
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
@@ -229,6 +229,23 @@ type StoreFns struct {
 
 	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
+
+	// Egress allowlist (network_rules). AddNetworkRule appends one target for
+	// folder; RemoveNetworkRule drops it; ResolveAllowlist returns the inherited
+	// set (folder + ancestors + base); ListNetworkRules returns folder's own
+	// explicit rows. Spec 5/5 egress_allowlist.
+	AddNetworkRule    func(folder, target, by string) error
+	RemoveNetworkRule func(folder, target string) error
+	ResolveAllowlist  func(folder string) ([]string, error)
+	ListNetworkRules  func(folder string) ([]NetworkRule, error)
+}
+
+// NetworkRule mirrors store/routd NetworkRule for the ipc layer (ipc must not
+// import store). One explicit egress allowlist row.
+type NetworkRule struct {
+	Folder    string `json:"folder"`
+	Target    string `json:"target"`
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // FoundMessage mirrors store.FoundMessage for the ipc layer
@@ -1084,7 +1101,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		jidArg   string   // arg name used for grant-check; defaults to args[0]
 		optional map[string]bool
 		call     func(a map[string]string) (string, error) // id may be ""
-		idOut    bool                                       // true → JSON {ok,id}; false → "ok"
+		idOut    bool                                      // true → JSON {ok,id}; false → "ok"
 		// record, when set, returns the text logged via recordOutbound after a
 		// successful call — for verbs that author new content on the agent's
 		// own feed (quote, repost) so the agent later sees its own IDs and
@@ -1178,8 +1195,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	})
 
 	regSocial(socialAct{
-		name:  "quote",
-		desc:  "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
+		name:   "quote",
+		desc:   "Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only — Mastodon has no quote primitive and returns unsupported with a hint to use `post(content=..., source_url=...)`. Not for in-chat threaded replies (`reply`) or simple amplification (`repost`).",
 		args:   []string{"chatJid", "sourceMsgId", "comment"},
 		idOut:  true,
 		record: func(a map[string]string) string { return a["comment"] },
@@ -1192,8 +1209,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	})
 
 	regSocial(socialAct{
-		name:  "repost",
-		desc:  "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
+		name:   "repost",
+		desc:   "Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (`quote`) or sending a copy to a different chat (`forward`).",
 		args:   []string{"chatJid", "sourceMsgId"},
 		idOut:  true,
 		record: func(a map[string]string) string { return "" },
@@ -1930,6 +1947,80 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
 		})
 
+	granted("network_allow",
+		"Open egress to `host` for `folder` and every descendant by appending an allowlist rule. "+
+			"Use when an agent needs to reach a host the default-deny proxy blocks (e.g. a vendor API). "+
+			"`host` is a bare domain (no scheme/port), e.g. 'example.com'. A rule at a parent folder cascades to all children.",
+		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required()), mcp.WithString("host", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.AddNetworkRule == nil {
+				return toolErr("network_allow not configured")
+			}
+			target := req.GetString("folder", "")
+			host := req.GetString("host", "")
+			if host == "" {
+				return toolErr("host required")
+			}
+			if err := authzStructural("network_allow", auth.AuthzTarget{TargetFolder: target}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.AddNetworkRule(target, host, callerSub); err != nil {
+				emitSys("network_allow", target, callerSub, map[string]any{"host": host}, err)
+				return toolErr(err.Error())
+			}
+			emitSys("network_allow", target, callerSub, map[string]any{"host": host}, nil)
+			slog.Info("egress allowed", "folder", target, "host", host)
+			return toolJSON(map[string]any{"allowed": true, "folder": target, "host": host})
+		})
+
+	granted("network_deny",
+		"Remove an egress allowlist rule: close access to `host` for `folder`. "+
+			"Only drops a rule set on `folder` itself; a host inherited from an ancestor must be removed at that ancestor.",
+		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required()), mcp.WithString("host", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.RemoveNetworkRule == nil {
+				return toolErr("network_deny not configured")
+			}
+			target := req.GetString("folder", "")
+			host := req.GetString("host", "")
+			if host == "" {
+				return toolErr("host required")
+			}
+			if err := authzStructural("network_deny", auth.AuthzTarget{TargetFolder: target}); err != nil {
+				return toolErr(err.Error())
+			}
+			if err := db.RemoveNetworkRule(target, host); err != nil {
+				emitSys("network_deny", target, callerSub, map[string]any{"host": host}, err)
+				return toolErr(err.Error())
+			}
+			emitSys("network_deny", target, callerSub, map[string]any{"host": host}, nil)
+			slog.Info("egress denied", "folder", target, "host", host)
+			return toolJSON(map[string]any{"denied": true, "folder": target, "host": host})
+		})
+
+	granted("network_list",
+		"List the egress allowlist for `folder`: `resolved` is every host the folder can reach "+
+			"(its own rules plus those inherited from ancestors and the instance base); `own` is only the rules set on `folder` itself.",
+		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required())},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if db.ResolveAllowlist == nil || db.ListNetworkRules == nil {
+				return toolErr("network_list not configured")
+			}
+			target := req.GetString("folder", "")
+			if err := authzStructural("network_list", auth.AuthzTarget{TargetFolder: target}); err != nil {
+				return toolErr(err.Error())
+			}
+			resolved, err := db.ResolveAllowlist(target)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			own, err := db.ListNetworkRules(target)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"folder": target, "resolved": resolved, "own": own})
+		})
+
 	granted("schedule_task",
 		"Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
 		[]mcp.ToolOption{
@@ -2381,11 +2472,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				Surface:  audit.SurfaceMCP,
 				Folder:   folder,
 				ParamsSummary: map[string]any{
-					"query":  query,
-					"scope":  scope,
-					"sender": sender,
-					"since":  since,
-					"limit":  limitVal,
+					"query":        query,
+					"scope":        scope,
+					"sender":       sender,
+					"since":        since,
+					"limit":        limitVal,
 					"result_count": len(filtered),
 				},
 			})

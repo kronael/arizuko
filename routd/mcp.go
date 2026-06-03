@@ -236,9 +236,9 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			r, _ := s.db.Routes()
 			return r
 		},
-		SetRoutes:           func(folder string, r []core.Route) error { _, e := s.db.SetRoutes(folder, r); return e },
-		AddRoute:            s.db.AddRoute,
-		DeleteRoute:         s.db.DeleteRoute,
+		SetRoutes:   func(folder string, r []core.Route) error { _, e := s.db.SetRoutes(folder, r); return e },
+		AddRoute:    s.db.AddRoute,
+		DeleteRoute: s.db.DeleteRoute,
 		GetRoute: func(id int64) (core.Route, bool) {
 			rt, err := s.db.GetRoute(id)
 			return rt, err == nil
@@ -310,6 +310,20 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
+		AddNetworkRule:       s.db.AddNetworkRule,
+		RemoveNetworkRule:    s.db.RemoveNetworkRule,
+		ResolveAllowlist:     s.db.ResolveAllowlist,
+		ListNetworkRules: func(folder string) ([]ipc.NetworkRule, error) {
+			rows, err := s.db.ListNetworkRules(folder)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]ipc.NetworkRule, len(rows))
+			for i, r := range rows {
+				out[i] = ipc.NetworkRule{Folder: r.Folder, Target: r.Target, CreatedBy: r.CreatedBy}
+			}
+			return out, nil
+		},
 	}
 }
 

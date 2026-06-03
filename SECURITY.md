@@ -202,7 +202,7 @@ upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.
 **Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
 `container.Run` to `docker create`) under
-`specs/10/10-crackbox-arizuko.md`; today agent containers still use
+`specs/11/15-crackbox-dns-filter.md`; today agent containers still use
 the default Docker resolver, so the DNS path is additive defense
 rather than the primary gate. The HTTP/CONNECT 403 in
 `crackbox/pkg/proxy/` remains the enforced path.

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [9-crackbox-standalone, 10-crackbox-arizuko]
+depends: [9-crackbox-standalone, 12-crackbox-sandboxing]
 ---
 
 # Crackbox DNS filter — NXDOMAIN for non-allowlisted hostnames
@@ -37,7 +37,7 @@ consumer changes are out of scope here, each owns its own change:
   `HTTPS_PROXY` but never resolves it to an IP
   ([`container/egress.go:13-44`](../../container/egress.go),
   [`container/network.go:177`](../../container/network.go)).
-  Tracked as a follow-up under [`10/10`](10-crackbox-arizuko.md).
+  Tracked as a follow-up under [`11/12`](12-crackbox-sandboxing.md).
 - **transparent-mode rebinding boundary**: see below.
 
 Inside scope: a UDP/53 listener bundled with `crackbox proxy serve`
@@ -145,7 +145,7 @@ to the user container's create args.
 
 The arizuko-side change is **not** one-line and is **not** part of
 this spec. It needs `EgressConfig.CrackboxIPOnNetwork(folder)` or
-equivalent. Owned by [`10/10`](10-crackbox-arizuko.md).
+equivalent. Owned by [`11/12`](12-crackbox-sandboxing.md).
 
 ## Config
 
@@ -252,9 +252,9 @@ allows all. No new wildcard syntax.
   - `.../dns.mjs` (porting the shape, hardening the forwarder).
 - [`10/9-crackbox-standalone.md`](9-crackbox-standalone.md) — daemon
   shape, env naming, no-supervision rule.
-- [`10/10-crackbox-arizuko.md`](10-crackbox-arizuko.md) — consumer.
-  Discovering the per-folder crackbox IP and adding `--dns` is
-  follow-up work owned there.
+- [`11/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md) — the
+  arizuko egress consumer + gated backend. Discovering the per-folder
+  crackbox IP and adding `--dns` is follow-up work owned there.
 - [`6/Y-secret-broker.md`](../6/Y-secret-broker.md) — tool-level
   broker. Independent of egress; DNS filter and broker do not share
   state.

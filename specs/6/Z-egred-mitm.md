@@ -585,9 +585,9 @@ Rust binaries.
 - [`specs/6/Y-secret-broker.md`](Y-secret-broker.md) — the preferred
   path for tool-mediated secrets. This spec is the safety net for what
   Y doesn't cover.
-- [`specs/11/10-crackbox-arizuko.md`](../11/10-crackbox-arizuko.md) —
-  egred's existing per-source allowlist surface, which this spec
-  extends.
+- [`specs/11/12-crackbox-sandboxing.md`](../11/12-crackbox-sandboxing.md) —
+  arizuko's per-folder allowlist consumer + gated egress backend, which
+  registers the per-source allowlist this spec extends.
 - [`specs/11/9-crackbox-standalone.md`](../11/9-crackbox-standalone.md) —
   crackbox's standalone shape (admin API at `:3129`); MITM rides the
   same surface.

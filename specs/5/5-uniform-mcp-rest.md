@@ -406,17 +406,17 @@ Backing-table owners are the post-split daemons (see "Daemon ownership of
 config tables (`grants`, `secrets`, `acl`/`user_groups`, `network_rules`)
 land in `routd`, which inherits gated's schema authority.
 
-| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                 | Backing tables                                                    |
-| ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                                  |
-| `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                                  |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/6/Y`](../6/Y-secret-broker.md)) | `secrets` (routd)                                                 |
-| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (timed)                                         |
-| `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                                |
-| `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                                  |
-| `egress_allowlist`  | operator | operator | —                | agent                                                             | crackbox register ([`specs/11/10`](../11/10-crackbox-arizuko.md)) |
-| `user_groups` (ACL) | operator | operator | —                | —                                                                 | `user_groups` (routd)                                             |
-| `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                        | `invites` (onbod)                                                 |
+| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                 | Backing tables                                        |
+| ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
+| `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                      |
+| `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                      |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/6/Y`](../6/Y-secret-broker.md)) | `secrets` (routd)                                     |
+| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (timed)                             |
+| `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                    |
+| `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                      |
+| `egress_allowlist`  | operator | operator | agent (tier ≤1)  | agent (tier ≤1)                                                   | `network_allow`/`network_deny`/`network_list` (routd) |
+| `user_groups` (ACL) | operator | operator | —                | —                                                                 | `user_groups` (routd)                                 |
+| `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                        | `invites` (onbod)                                     |
 
 Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
 both axes — the agent can't reach into its own ACL or topology; that's
@@ -424,9 +424,10 @@ the trust boundary. `secrets:write:own_group` is user-via-dashboard
 only; the agent never reads or rotates secrets (invariant in
 [`specs/6/Y`](../6/Y-secret-broker.md); the broker resolves
 folder/user secrets inside the tool handler on the host, the container
-never sees them). `egress_allowlist:write:own_group` lets the
-agent add a host to its own allowlist (today's crackbox register
-pattern). `chats:write:own_group` is blank — agent uses send/reply/post
+never sees them). `egress_allowlist:write:own_group` lets a tier-≤1
+agent open egress for its own subtree via the `network_allow`/
+`network_deny`/`network_list` MCP tools (`ipc/ipc.go`); tier 2+ stay
+CLI-only. `chats:write:own_group` is blank — agent uses send/reply/post
 verbs, not direct `chats` writes (those are a separate resource family,
 not in this matrix).
 
@@ -507,22 +508,22 @@ Every store write below is a candidate for `resreg` exposure. Columns:
 **Today** = where it's invoked from; **MCP** = is there an existing
 MCP tool; **REST** = is there an existing endpoint.
 
-| Operation                           | Store call                                                     | Today                           | MCP                                                          | REST          |
-| ----------------------------------- | -------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------ | ------------- |
-| Group create                        | `PutGroup` (`store/groups.go:20`)                              | onbod/SetupGroup, CLI           | `register_group`                                             | —             |
-| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                           | CLI                             | —                                                            | —             |
-| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)       | CLI, agent MCP, dashd           | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —             |
-| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                        | CLI (`arizuko grant`)           | —                                                            | —             |
-| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                             | agent MCP                       | `set_grants`                                                 | —             |
-| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)             | dashd (`/dash/me/secrets`), CLI | —                                                            | dashd-private |
-| Invite create / revoke              | `CreateInvite`/`RevokeInvite` (`store/invites.go`)             | CLI, onbod                      | —                                                            | onbod         |
-| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`) | CLI                             | —                                                            | —             |
-| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)    | CLI                             | —                                                            | —             |
-| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)      | crackbox register, CLI          | partial (register)                                           | —             |
-| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)            | agent MCP                       | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —             |
-| Scheduled tasks                     | `schedule_task` family                                         | agent MCP                       | `schedule_task`+                                             | —             |
-| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)           | CLI                             | —                                                            | —             |
-| ACL rows (per 4/9)                  | (`acl` table writes)                                           | n/a (new)                       | —                                                            | —             |
+| Operation                           | Store call                                                     | Today                             | MCP                                                          | REST          |
+| ----------------------------------- | -------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ | ------------- |
+| Group create                        | `PutGroup` (`store/groups.go:20`)                              | onbod/SetupGroup, CLI             | `register_group`                                             | —             |
+| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                           | CLI                               | —                                                            | —             |
+| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)       | CLI, agent MCP, dashd             | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —             |
+| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                        | CLI (`arizuko grant`)             | —                                                            | —             |
+| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                             | agent MCP                         | `set_grants`                                                 | —             |
+| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)             | dashd (`/dash/me/secrets`), CLI   | —                                                            | dashd-private |
+| Invite create / revoke              | `CreateInvite`/`RevokeInvite` (`store/invites.go`)             | CLI, onbod                        | —                                                            | onbod         |
+| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`) | CLI                               | —                                                            | —             |
+| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)    | CLI                               | —                                                            | —             |
+| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)      | crackbox register, CLI, agent MCP | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | —             |
+| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)            | agent MCP                         | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —             |
+| Scheduled tasks                     | `schedule_task` family                                         | agent MCP                         | `schedule_task`+                                             | —             |
+| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)           | CLI                               | —                                                            | —             |
+| ACL rows (per 4/9)                  | (`acl` table writes)                                           | n/a (new)                         | —                                                            | —             |
 
 Columns with `—` are the gap. Most operator concepts are either
 CLI-only with direct store calls (`cmd/arizuko/*.go`) or MCP-only with
@@ -537,18 +538,18 @@ is a small struct literal. Catalog of new resources:
 Owning daemon is the post-split owner; `routd` holds the residual config +
 conversation tables that were gated's.
 
-| Resource          | Actions                                                                         | Owning daemon                                     | Scope predicates                                                |
-| ----------------- | ------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
-| `groups`          | list/get/create/update/delete                                                   | routd                                             | `admin` at scope ⊇ folder; `*` operator                         |
-| `acl`             | list/get/create/delete                                                          | routd                                             | `admin` at scope ⊇ row.scope; `*` operator                      |
-| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved) | routd                                             | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
-| `invites`         | list/get/create/revoke                                                          | onbod                                             | `admin` at scope ⊇ targetGlob                                   |
-| `identities`      | list/get/create/link/unlink                                                     | onbod                                             | self for own sub; `*` for cross-user link                       |
-| `gates`           | list/get/put/delete/enable                                                      | onbod                                             | `*` operator                                                    |
-| `network_rules`   | list/get/create/delete                                                          | routd                                             | folder-`admin` at scope                                         |
-| `cost_caps`       | list/get/set                                                                    | routd                                             | `*` operator; self-read for own user                            |
-| `scheduled_tasks` | (already partial — finish symmetry)                                             | timed                                             | folder-`admin` at scope                                         |
-| `web_routes`      | (already MCP — add REST mirror)                                                 | routd (served via webd read; see ownership table) | folder-`admin` at scope                                         |
+| Resource          | Actions                                                                                                   | Owning daemon                                     | Scope predicates                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| `groups`          | list/get/create/update/delete                                                                             | routd                                             | `admin` at scope ⊇ folder; `*` operator                         |
+| `acl`             | list/get/create/delete                                                                                    | routd                                             | `admin` at scope ⊇ row.scope; `*` operator                      |
+| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved)                           | routd                                             | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
+| `invites`         | list/get/create/revoke                                                                                    | onbod                                             | `admin` at scope ⊇ targetGlob                                   |
+| `identities`      | list/get/create/link/unlink                                                                               | onbod                                             | self for own sub; `*` for cross-user link                       |
+| `gates`           | list/get/put/delete/enable                                                                                | onbod                                             | `*` operator                                                    |
+| `network_rules`   | list/get/create/delete (MCP shipped as `network_allow`/`network_deny`/`network_list`; REST CRUD to mount) | routd                                             | folder-`admin` at scope                                         |
+| `cost_caps`       | list/get/set                                                                                              | routd                                             | `*` operator; self-read for own user                            |
+| `scheduled_tasks` | (already partial — finish symmetry)                                                                       | timed                                             | folder-`admin` at scope                                         |
+| `web_routes`      | (already MCP — add REST mirror)                                                                           | routd (served via webd read; see ownership table) | folder-`admin` at scope                                         |
 
 New action = one struct literal addition + one handler function. The
 handler is the only behavior; everything else is registration. Authz
@@ -669,22 +670,22 @@ Resources to verify uniform coverage on (refine during implementation;
 the live state is in `resreg/resources/*.go` after the 5/36 engine
 landed):
 
-| Resource           | MCP tool                                           | REST endpoint          | Engine-managed? |
-| ------------------ | -------------------------------------------------- | ---------------------- | --------------- |
-| `groups`           | `groups.list`, `groups.get`, ...                   | `/v1/groups`           | yes (5/36)      |
-| `acl`              | `acl.list`, `acl.add`, ...                         | `/v1/acl`              | yes (5/36)      |
-| `acl_membership`   | `acl_membership.add`, ...                          | `/v1/acl_membership`   | yes (5/36)      |
-| `routes`           | `routes.list`, `routes.add`, ...                   | `/v1/routes`           | yes (5/36)      |
-| `web_routes`       | `web_routes.set`, ...                              | `/v1/web_routes`       | yes (5/36)      |
-| `scheduled_tasks`  | `tasks.create`, `tasks.list`, ...                  | `/v1/scheduled_tasks`  | yes (5/36)      |
-| `secrets`          | `secrets.list`, `secrets.add`, ...                 | `/v1/secrets`          | yes (5/36)      |
-| `network_rules`    | `network_rules.add`, ...                           | `/v1/network_rules`    | yes (5/36)      |
-| `proxyd_routes`    | `proxyd_routes.list`, ...                          | `/v1/proxyd_routes`    | yes (5/36)      |
-| `onboarding_gates` | `gates.list`, `gates.enable`, ...                  | `/v1/onboarding_gates` | yes (5/36)      |
-| `invites`          | `invites.create`, `invites.list`, `invites.revoke` | `/v1/invites`          | imperative      |
-| `route_tokens`     | `tokens.create`, `tokens.list`, `tokens.revoke`    | `/v1/route_tokens`     | imperative      |
-| `chats`            | `chats.list`, `chats.get`, ...                     | `/v1/chats`            | runtime query   |
-| `messages`         | per [`C-message-mcp.md`](C-message-mcp.md)         | `/v1/messages`         | runtime query   |
+| Resource           | MCP tool                                                     | REST endpoint                                           | Engine-managed?              |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------- | ---------------------------- |
+| `groups`           | `groups.list`, `groups.get`, ...                             | `/v1/groups`                                            | yes (5/36)                   |
+| `acl`              | `acl.list`, `acl.add`, ...                                   | `/v1/acl`                                               | yes (5/36)                   |
+| `acl_membership`   | `acl_membership.add`, ...                                    | `/v1/acl_membership`                                    | yes (5/36)                   |
+| `routes`           | `routes.list`, `routes.add`, ...                             | `/v1/routes`                                            | yes (5/36)                   |
+| `web_routes`       | `web_routes.set`, ...                                        | `/v1/web_routes`                                        | yes (5/36)                   |
+| `scheduled_tasks`  | `tasks.create`, `tasks.list`, ...                            | `/v1/scheduled_tasks`                                   | yes (5/36)                   |
+| `secrets`          | `secrets.list`, `secrets.add`, ...                           | `/v1/secrets`                                           | yes (5/36)                   |
+| `network_rules`    | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | `/v1/network_rules` (OpenAPI doc; CRUD not yet mounted) | resreg row + hand-rolled MCP |
+| `proxyd_routes`    | `proxyd_routes.list`, ...                                    | `/v1/proxyd_routes`                                     | yes (5/36)                   |
+| `onboarding_gates` | `gates.list`, `gates.enable`, ...                            | `/v1/onboarding_gates`                                  | yes (5/36)                   |
+| `invites`          | `invites.create`, `invites.list`, `invites.revoke`           | `/v1/invites`                                           | imperative                   |
+| `route_tokens`     | `tokens.create`, `tokens.list`, `tokens.revoke`              | `/v1/route_tokens`                                      | imperative                   |
+| `chats`            | `chats.list`, `chats.get`, ...                               | `/v1/chats`                                             | runtime query                |
+| `messages`         | per [`C-message-mcp.md`](C-message-mcp.md)                   | `/v1/messages`                                          | runtime query                |
 
 Engine-managed resources get both surfaces automatically per
 [`36-yaml-manifests.md`](36-yaml-manifests.md): one `resreg.Resource`

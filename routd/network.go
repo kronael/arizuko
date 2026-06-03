@@ -1,9 +1,57 @@
 package routd
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
+
+// NetworkRule is one explicit egress allowlist row (routd-local; mirrors
+// store.NetworkRule pre-split).
+type NetworkRule struct {
+	Folder    string
+	Target    string
+	CreatedBy string
+}
+
+// AddNetworkRule appends one egress allowlist target for folder (idempotent).
+// folder="" is the instance-wide base. Mirrors store.AddNetworkRule.
+func (d *DB) AddNetworkRule(folder, target, by string) error {
+	_, err := d.db.Exec(
+		`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
+		 VALUES (?, ?, ?, ?)`,
+		folder, target, time.Now().UTC().Format(time.RFC3339), by)
+	return err
+}
+
+// RemoveNetworkRule drops one egress allowlist target for folder. No error if absent.
+func (d *DB) RemoveNetworkRule(folder, target string) error {
+	_, err := d.db.Exec(`DELETE FROM network_rules WHERE folder = ? AND target = ?`, folder, target)
+	return err
+}
+
+// ListNetworkRules returns the explicit rules for folder only (not the resolved
+// ancestry — use ResolveAllowlist for the inherited set).
+func (d *DB) ListNetworkRules(folder string) ([]NetworkRule, error) {
+	rows, err := d.db.Query(
+		`SELECT folder, target, created_by FROM network_rules WHERE folder = ? ORDER BY target`,
+		folder)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NetworkRule
+	for rows.Next() {
+		var r NetworkRule
+		if err := rows.Scan(&r.Folder, &r.Target, &r.CreatedBy); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
 
 // ResolveAllowlist returns the egress allowlist for folder: every network_rules
-// target for the folder and all its ancestors (the folder='' base inherited by
+// target for the folder and all its ancestors (the folder=” base inherited by
 // all). routd resolves this at dispatch and ships it to runed in
 // RunRequest.EgressAllowlist, which runed wires into the crackbox EgressConfig.
 // Ported from store.ResolveAllowlist (gated owned network_rules pre-split).
@@ -33,7 +81,7 @@ func (d *DB) ResolveAllowlist(folder string) ([]string, error) {
 }
 
 // folderAncestry returns "", then each ancestor path down to folder, so a
-// folder inherits the instance base ('') + every ancestor's network rules.
+// folder inherits the instance base (”) + every ancestor's network rules.
 func folderAncestry(folder string) []string {
 	out := []string{""}
 	if folder == "" {

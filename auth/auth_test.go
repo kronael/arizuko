@@ -552,6 +552,30 @@ func TestAuthorizeRouteTools(t *testing.T) {
 	}
 }
 
+func TestAuthorizeNetworkTools(t *testing.T) {
+	for _, tool := range []string{"network_allow", "network_deny", "network_list"} {
+		// Root (tier 0) may manage egress for any folder.
+		if err := AuthorizeStructural(Resolve("w"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
+			t.Errorf("%s: root should manage any folder: %v", tool, err)
+		}
+		// Tier 1 may manage its own folder and descendants.
+		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/a"}); err != nil {
+			t.Errorf("%s: tier 1 own folder should work: %v", tool, err)
+		}
+		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err != nil {
+			t.Errorf("%s: tier 1 descendant should work: %v", tool, err)
+		}
+		// Tier 1 may NOT manage a sibling/escaping folder.
+		if err := AuthorizeStructural(Resolve("w/a"), tool, AuthzTarget{TargetFolder: "w/b"}); err == nil {
+			t.Errorf("%s: tier 1 sibling folder should be denied", tool)
+		}
+		// Tier 2+ may not manage egress at all.
+		if err := AuthorizeStructural(Resolve("w/a/b"), tool, AuthzTarget{TargetFolder: "w/a/b"}); err == nil {
+			t.Errorf("%s: tier 2 should be denied", tool)
+		}
+	}
+}
+
 func TestAuthorizeScheduleTask(t *testing.T) {
 	if err := AuthorizeStructural(Resolve("w"), "schedule_task", AuthzTarget{TaskOwner: "w/a"}); err != nil {
 		t.Fatal("tier 0 should schedule any task")

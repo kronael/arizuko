@@ -77,6 +77,19 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized")
 		}
 		return nil
+	case "network_allow", "network_deny", "network_list":
+		// Egress allowlist management: tier 0/1 only. Tier 0 (root)
+		// unrestricted; tier 1 confined to its own subtree (own folder or a
+		// descendant). Tier 2+ cannot touch egress.
+		if id.Tier >= 2 {
+			return fmt.Errorf("unauthorized: tier %d cannot manage egress", id.Tier)
+		}
+		if id.Tier == 1 &&
+			target.TargetFolder != id.Folder &&
+			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
+			return fmt.Errorf("unauthorized: egress target outside own subtree")
+		}
+		return nil
 	case "schedule_task", "pause_task", "resume_task", "cancel_task":
 		if id.Tier == 3 {
 			return fmt.Errorf("unauthorized")
