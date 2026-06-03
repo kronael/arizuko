@@ -97,6 +97,17 @@ Verify the turn-result delivery records platform_id with is_bot=1.
 
 Traced marinade/atlas Slack behavior on the user's request. Two real bugs.
 
+### FIXED 2026-06-03 (commit 2ba0f5e1) — mention-only sub-folder agents can't reply (send authz resolved to parent)
+
+Fixed exactly as the analysis below prescribed: added `router.RouteMatchesIgnoreVerb`
++ `store.JIDRoutableToFolder` (verb-agnostic "is `id.Folder` or a descendant a route
+target for `jid` under ANY verb?"), and `authorizeJID` falls back to it when the
+default `DefaultFolderForJID` resolution denies. Routing/observe untouched — the
+route-seq workaround was REJECTED because it collapses the parent's observe stream
+(the operator wants sub-folders to keep observing). Fixes ALL mention-only
+sub-folders at once (atlas/support, atlas/content, atlas/search). Tests: authorizeJID
+mention-only allow + sibling-deny regression; RouteMatchesIgnoreVerb; JIDRoutableToFolder.
+
 ### HIGH — mention-only sub-folder agents can't reply (send authz resolves to parent)
 
 `atlas/support` is routed mention-only on `slack:T4PNSRSP7/channel/C0B4JMQ8X89`
@@ -129,6 +140,42 @@ support agent): lower the specific observe route's seq below the wildcard's
 (e.g. route 17 `…C0B4…→atlas/support#observe` 110 → <100). NOTE: other
 mention-only subfolders (atlas/content on C0B63J2RBJ8, etc.) have the same gap;
 the code fix is the general solution, route-seq surgery is per-channel.
+
+### FIXED 2026-06-03 (commit 2ba0f5e1) — reply-tool sends break thread re-attendance (empty platform_id)
+
+`recordOutbound` (`ipc/ipc.go`) stored the sent message's own platform id in
+`reply_to_id` and left `platform_id` empty, violating the contract documented at
+`store/messages.go` IsBotMessageByID (matches `id OR platform_id`, never
+`reply_to_id`). So a human reply to a reply-tool (`mcp-*`) message never matched →
+the reply-to-bot → `verb=mention` promotion (spec 6/J, `api/api.go:304`) missed →
+atlas silently dropped threads it had answered via the `reply` tool. Live evidence:
+100% of `mcp-*` rows have empty platform_id (atlas 442/442, atlas/support 67/67).
+The gateway turn-result (`out-*`) path was already correct via MarkMessageDelivered.
+Fixed: store the sent TS in `platform_id`. Test: recordOutbound platform_id +
+PutMessage→IsBotMessageByID promotability. (The earlier eval mistook this for "100%
+expected" — it is the bug, not a baseline.)
+
+## atlas-on-Slack full-group eval (2026-06-03) — triage queue (NOT yet fixed)
+
+Swept all atlas groups on marinade. The two platform CODE bugs above are fixed +
+deployed. The rest are agent-behavior / operator-data / external — logged here for
+the operator to prioritise, NOT auto-fixed (triage protocol):
+
+- **Slack mrkdwn dialect** (atlas, atlas/support): agent emits `**bold**`
+  (CommonMark) not `*bold*`; `[t](url)` not `<url|t>`. Agent output-style concern
+  (slakd does not server-side convert like teled). Recurring since 2026-05-26.
+- **`/resolve` + `/recall-memories` skip on session start / context loss** (atlas,
+  atlas/content): subagents jump to execution; resolve doesn't semantic-search on
+  lost context. Skill-discipline (ant/skills), not platform.
+- **eyes 👀 reaction not cleared after processing** (atlas, 2026-06-03): slakd
+  reaction lifecycle. Minor, non-blocking. Verify before fixing.
+- **web access method wrong in settings.json** (atlas, 2026-06-03): operator data
+  (the group's own settings), not platform code.
+- **Telegram 4096-char overflow / no split** (atlas/content): agent message-length
+  awareness. Agent-side.
+- **historical Slack/web 502s** (2026-05-15/20/25): not in last 48h; transient infra.
+- **SAM delegation priority inverted**: EXTERNAL (Marinade off-chain bot), not arizuko.
+- 11 `failed` rows = stale `atlas/tom` (removed 2026-05-25) → telegram. Not actionable.
 
 ### FIXED 2026-06-01 — cpDirOverwrite can't overwrite root-owned output-style files (regression from 9a2a181a)
 
