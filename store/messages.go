@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/router"
 )
 
 func (s *Store) PutMessage(m core.Message) error {
@@ -675,6 +676,25 @@ func (s *Store) JIDRoutedToFolder(jid, folder string) bool {
 		return false
 	}
 	return target == folder || strings.HasPrefix(target, folder+"/")
+}
+
+// JIDRoutableToFolder reports whether folder (or a descendant) is the target of
+// any route matching jid when the verb predicate is ignored. Unlike
+// JIDRoutedToFolder — which only sees the default verb="message" resolution —
+// this recognizes a sub-folder that handles jid solely under a verb-scoped
+// route (e.g. verb=mention), so a mention-only agent may reply to its own chat.
+func (s *Store) JIDRoutableToFolder(jid, folder string) bool {
+	msg := core.Message{ChatJID: jid}
+	for _, r := range s.AllRoutes() {
+		if !router.RouteMatchesIgnoreVerb(r, msg) {
+			continue
+		}
+		t := core.ParseRouteTarget(r.Target).Folder
+		if t == folder || strings.HasPrefix(t, folder+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // FoundMessage is one row of FindMessages output. Content is the

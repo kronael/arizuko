@@ -179,6 +179,7 @@ type StoreFns struct {
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
 	FindMessages        func(query, scope, sender, since string, limit int) ([]FoundMessage, error)
 	JIDRoutedToFolder   func(jid, folder string) bool
+	JIDRoutableToFolder func(jid, folder string) bool
 	ErroredChats        func(folder string, isRoot bool) []ErroredChat
 	TaskRunLogs         func(taskID string, limit int) []TaskRunLog
 	RecentSessions      func(folder string, n int) []core.SessionRecord
@@ -542,10 +543,17 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			Timestamp: time.Now(),
 			FromMe:    true,
 			BotMsg:    true,
-			ReplyToID: platformID,
-			RoutedTo:  jid,
-			Topic:     topic,
-			Status:    core.MessageStatusSent,
+			// Store the sent message's own platform id in platform_id (the
+			// contract in store IsBotMessageByID): a later human reply to this
+			// message carries this id in reply_to, and the reply-to-bot →
+			// verb=mention promotion (spec 6/J) matches it. The gateway
+			// turn-result path does the same via MarkMessageDelivered; reply-
+			// tool sends were dropping it (platform_id empty) → threads rooted
+			// on a tool reply never re-promoted.
+			PlatformID: platformID,
+			RoutedTo:   jid,
+			Topic:      topic,
+			Status:     core.MessageStatusSent,
 		})
 	}
 }
@@ -605,14 +613,22 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	if db.DefaultFolderForJID != nil {
 		target = db.DefaultFolderForJID(jid)
 	}
-	if err := auth.AuthorizeStructural(id, action, auth.AuthzTarget{TargetFolder: target}); err != nil {
-		if target == "" {
-			return fmt.Errorf("forbidden: chat %s has no route in this instance", jid)
-		}
-		return fmt.Errorf("forbidden: chat %s belongs to folder %s, not in subtree of %s",
-			jid, target, id.Folder)
+	if err := auth.AuthorizeStructural(id, action, auth.AuthzTarget{TargetFolder: target}); err == nil {
+		return nil
 	}
-	return nil
+	// The default resolution forces verb="message", so a sub-folder that handles
+	// this chat only under a verb-scoped route (e.g. mention-only) resolves to an
+	// ancestor and is wrongly denied. Authorize when id.Folder (or a descendant)
+	// is a route target for jid ignoring verb — matching authorizeOutbound's
+	// subtree-containment rule. Bug: mention-only sub-folder can't reply.
+	if db.JIDRoutableToFolder != nil && db.JIDRoutableToFolder(jid, id.Folder) {
+		return nil
+	}
+	if target == "" {
+		return fmt.Errorf("forbidden: chat %s has no route in this instance", jid)
+	}
+	return fmt.Errorf("forbidden: chat %s belongs to folder %s, not in subtree of %s",
+		jid, target, id.Folder)
 }
 
 func routeTargetWithin(target, owner string) bool {

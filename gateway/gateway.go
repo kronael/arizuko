@@ -385,7 +385,8 @@ func (g *Gateway) wireFns() {
 			}
 			return out, nil
 		},
-		JIDRoutedToFolder: g.store.JIDRoutedToFolder,
+		JIDRoutedToFolder:   g.store.JIDRoutedToFolder,
+		JIDRoutableToFolder: g.store.JIDRoutableToFolder,
 		ErroredChats: func(folder string, isRoot bool) []ipc.ErroredChat {
 			rows := g.store.ErroredChats(folder, isRoot)
 			out := make([]ipc.ErroredChat, len(rows))

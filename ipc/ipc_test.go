@@ -1098,7 +1098,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 			return nil
 		},
 		PutMessage: func(m core.Message) error {
-			putIDs = append(putIDs, m.ReplyToID)
+			putIDs = append(putIDs, m.PlatformID)
 			return nil
 		},
 	}
@@ -1141,7 +1141,7 @@ func TestServeMCP_FeedVerbs_RecordOutbound(t *testing.T) {
 		t.Fatalf("SetLastReply ids = %v, want %v (forward must not record)", lastReplyIDs, wantRecorded)
 	}
 	if !reflect.DeepEqual(putIDs, wantRecorded) {
-		t.Fatalf("PutMessage replyTo ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
+		t.Fatalf("PutMessage platform ids = %v, want %v (forward must not record)", putIDs, wantRecorded)
 	}
 }
 

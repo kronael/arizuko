@@ -313,9 +313,24 @@ func msgField(msg core.Message, key string) string {
 //   - key=         value is absent (empty)
 //   - omit key     unconstrained — no filter on this field
 func RouteMatches(r core.Route, msg core.Message) bool {
+	return routeMatches(r, msg, false)
+}
+
+// RouteMatchesIgnoreVerb is RouteMatches with the verb predicate skipped, so a
+// verb-scoped route (e.g. verb=mention) matches regardless of msg.Verb. Used by
+// send-authorization to recognize a sub-folder that handles a chat only under a
+// specific verb as a legitimate sender (see store.JIDRoutableToFolder).
+func RouteMatchesIgnoreVerb(r core.Route, msg core.Message) bool {
+	return routeMatches(r, msg, true)
+}
+
+func routeMatches(r core.Route, msg core.Message, ignoreVerb bool) bool {
 	for _, f := range strings.Fields(r.Match) {
 		k, pat, ok := strings.Cut(f, "=")
 		if !ok || k == "" {
+			continue
+		}
+		if ignoreVerb && k == "verb" {
 			continue
 		}
 		val := msgField(msg, k)

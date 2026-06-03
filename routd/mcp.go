@@ -245,6 +245,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,
+		JIDRoutableToFolder: s.db.JIDRoutableToFolder,
 		MessagesBefore: func(jid string, before time.Time, limit int) ([]core.Message, error) {
 			return s.db.MessagesBefore(jid, beforeStr(before), limit)
 		},

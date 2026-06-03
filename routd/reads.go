@@ -157,6 +157,27 @@ func (d *DB) JIDRoutedToFolder(jid, folder string) bool {
 	return target == folder || strings.HasPrefix(target, folder+"/")
 }
 
+// JIDRoutableToFolder reports whether folder (or a descendant) is the target of
+// any route matching jid when the verb predicate is ignored (mirrors
+// store.JIDRoutableToFolder). Lets a mention-only sub-folder agent reply.
+func (d *DB) JIDRoutableToFolder(jid, folder string) bool {
+	routes, err := d.Routes()
+	if err != nil {
+		return false
+	}
+	msg := core.Message{ChatJID: jid}
+	for _, r := range routes {
+		if !router.RouteMatchesIgnoreVerb(r, msg) {
+			continue
+		}
+		t := core.ParseRouteTarget(r.Target).Folder
+		if t == folder || strings.HasPrefix(t, folder+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // GetRoute returns one route by id; ok=false when absent.
 // GetRoute does a point lookup by id. The error is sql.ErrNoRows when the route
 // doesn't exist (caller → 404) vs a real store error (caller → 500) — callers
