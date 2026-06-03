@@ -1715,3 +1715,70 @@ suppresses send/reply/document/post but NOT a discord forward/quote/like/edit/pi
 Fix: apply d.disabled(jid) (or targetJID for Forward) at the top of the other
 chanDeliverer verbs too. Also re-verify the stale bugs.md:1101 sendDocument note
 (gated sendDocument DOES check canSendToJID at gateway.go:1478 now — likely fixed).
+
+## specs/5 audit (2026-06-03) — 4-opus-sub review (status + docs + bugs)
+
+Reviewed all 35 specs/5 in 4 buckets. Findings are FINDER-confidence (cited
+file:line, not all independently re-verified) — VERIFY before fixing, per triage
+protocol. The `network_rules`/egress surface was excluded (impl in flight).
+
+### LIVE (deployed gated path) — verify + fix candidates
+- **MEDIUM send_file thread-reattendance** — `ipc/ipc.go:580` internalSend calls
+  `recordOutbound(...,platformID="",...)` for files (SendDocument returns no id),
+  so file-message bot rows have empty platform_id → reply-to-bot promotion misses
+  (same class as 2ba0f5e1, still live for files). Needs SendDocument to return the
+  platform id.
+- **MEDIUM webhook no rate limit** — spec 5/W §"Rate limits" mandates a per-token
+  in-memory bucket (prefix-based ceiling); webd has none (`webd/route_token.go`
+  only caps body size). Public bearer `/hook/` + `/chat/` unthrottled.
+- **HIGH (secrets) connector tools get nil secrets** — `ipc/ipc.go:896`
+  CallConnectorTool(...,nil); `ipc.injectSecretsAdapter` named in
+  `container/runner.go:250` does NOT exist; `store.FolderSecretsResolved` has no
+  production caller → folder/user secrets never injected into connector/MCP calls.
+  (spec 5/32 Phase C + 9/11.)
+- **MEDIUM user-scope secrets write-only** — `store.ScopeUser` secrets set via
+  `cmd/arizuko/secret.go` but never read/overlaid at resolution (spec 5/32 folder∪user).
+- **MEDIUM (unconfirmed) proxyd /pub→/priv traversal** — `proxyd/main.go:547,587`
+  lack the `..`/`%2e%2e`/`%2f` reject the vhost branch has (`:503-505`); sibling
+  web/pub|web/priv dirs → possible auth-gate bypass. No test. Needs runtime check.
+- **MEDIUM proxyd routes MCP unmounted** — `proxyd/resource.go:305-334` declares
+  routes.* MCP tools but `resreg.RegisterMCP` is called nowhere; proxyd has no MCP
+  socket. REST `/v1/routes` works, MCP half doesn't (uniform-MCP-REST violation).
+- **MEDIUM tier-0 /var/lib/www RO vs spec V rw** — `container/runner.go:592` hardcodes
+  RO for all tiers; spec V mandates tier-0 rw to stage content for any group.
+- **HIGH (feature) O-otlp turn correlation dead** — `obs.WithTurn`/`InjectTraceparent`/
+  `ExtractTraceparent` have zero prod callers; deterministic per-turn TraceID never
+  happens. Frontmatter `shipped` overclaims (→ partial).
+- **MEDIUM I-tool-call-logging Layer B unstructured** — `container/runner.go:300` logs
+  `[ant] [tool]` JSON as raw `line=`, never lifts to `tool=`/`surface=`/`duration_ms=`;
+  `journalctl|grep tool=Bash` acceptance fails. `ant/src/tool-log.ts:78` sets
+  turn_id=sessionId (wrong). Frontmatter `shipped` overclaims.
+
+### DORMANT (split, CUTOVER_SPLIT) — bite at cutover
+- routd `GET /v1/turns/{id}/thread` unmounted (`routd/server.go`); get_thread routes to
+  `/v1/messages/thread` instead — REST twin path drift.
+- routd agent outbound no pending/retry: in-process recordOutbound writes Status=sent
+  only on success, drops on transient delivery fail, omits turn_id — diverges from REST
+  twin appendAndDeliver (two-renderers-drift).
+- routd `/openapi.json` advertises groups/acl/secrets/network_rules CRUD it doesn't serve.
+- **HIGH-dormant** `auth/middleware.go:25` ES256 stamps prefixed `user:<sub>` into
+  X-User-Sub; downstream (dashd me_secrets.go:25,54; audit) expects bare sub →
+  user-secret + audit corruption on ES256 soak path (only when AUTHD_URL set). Must strip prefix.
+- `authd/server.go:235` Downscope skips TTL cap when parent already expired (latent).
+
+### DOCS gaps / drift
+- ENGAGEMENT_TTL: `concepts/engagement.html:62` + `reference/env.html:457` say 10m;
+  code `core/config.go:203` is 20m. (Spec 5/G self-contradicts; docs copied wrong value.) EASY.
+- No `components/routd.html` / `components/runed.html`; components/index lists gated 5×,
+  split 0×. ARCHITECTURE.md:205 vs :229 self-contradict (routd vs runed hosts MCP).
+- mention-promotion (5/L) + proactive-interjection (5/33) undocumented in web docs.
+- arizuko-client.js still primary-targets deprecated `/slink/` (works via 301).
+
+### Spec frontmatter accuracy (flag to owner, not code bugs)
+- `32-tenant-self-service` marked shipped but Phase C (secrets resolution) incomplete,
+  Phase D diverged (chats.kind→is_group). `D-docs-refs-redesign` draft but shipped.
+  `K-ant-backend-codex` draft but shipped. `33-proactive` draft but shipped-in-routd.
+  `I`/`O` shipped but partial. `1-auth-standalone` accurately partial (schema/endpoints
+  diverge materially: no encryption-at-rest, /v1/keys/rotate, unlink, account-linking).
+- Stale `specs/6/...` citations: `store/migrations/0054` (→5/B), `api/api.go:297` (→5/L),
+  `0034-secrets` cites 7/35.
