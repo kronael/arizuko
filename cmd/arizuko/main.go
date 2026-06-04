@@ -239,8 +239,14 @@ func cmdCreate(args []string) {
 		if _, err := rand.Read(secret); err != nil {
 			die("Failed: crypto/rand: %v", err)
 		}
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nCHANNEL_SECRET=%s\n",
-			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(secret))
+		// SECRETS_KEY is required by gated (secrets encrypted at rest); generate
+		// one so a fresh instance starts. Rotate by comma-prepending a new key.
+		secretsKey := make([]byte, 32)
+		if _, err := rand.Read(secretsKey); err != nil {
+			die("Failed: crypto/rand: %v", err)
+		}
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nCHANNEL_SECRET=%s\nSECRETS_KEY=%s\n",
+			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(secret), hex.EncodeToString(secretsKey))
 		// 0600: .env holds CHANNEL_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {

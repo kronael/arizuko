@@ -20,9 +20,10 @@ import (
 // A value without this prefix is legacy plaintext (v1), read as-is.
 const secretV2Prefix = "v2:"
 
-// seal encrypts plaintext under s.secretKey. Only valid when secretKey != nil.
+// seal encrypts plaintext under the active key (secretKeys[0]). Only valid when
+// the keyring is non-empty.
 func (s *Store) seal(plaintext string) (string, error) {
-	gcm, err := s.gcm()
+	gcm, err := s.gcm(s.secretKeys[0])
 	if err != nil {
 		return "", err
 	}
@@ -34,41 +35,44 @@ func (s *Store) seal(plaintext string) (string, error) {
 	return secretV2Prefix + base64.StdEncoding.EncodeToString(ct), nil
 }
 
-// open decrypts a "v2:" value; legacy plaintext (no prefix) is returned as-is.
+// open decrypts a "v2:" value, trying each keyring key until one authenticates
+// (so a value sealed under a now-retired key still reads during rotation).
+// Legacy plaintext (no prefix) is returned as-is.
 func (s *Store) open(stored string) (string, error) {
-	if s.secretKey == nil || !strings.HasPrefix(stored, secretV2Prefix) {
+	if len(s.secretKeys) == 0 || !strings.HasPrefix(stored, secretV2Prefix) {
 		return stored, nil
 	}
 	raw, err := base64.StdEncoding.DecodeString(stored[len(secretV2Prefix):])
 	if err != nil {
 		return "", err
 	}
-	gcm, err := s.gcm()
-	if err != nil {
-		return "", err
+	for _, key := range s.secretKeys {
+		gcm, err := s.gcm(key)
+		if err != nil {
+			return "", err
+		}
+		if len(raw) < gcm.NonceSize() {
+			return "", errors.New("secret ciphertext too short")
+		}
+		if pt, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil); err == nil {
+			return string(pt), nil
+		}
 	}
-	if len(raw) < gcm.NonceSize() {
-		return "", errors.New("secret ciphertext too short")
-	}
-	pt, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(pt), nil
+	return "", errors.New("secret decrypt failed: no configured key authenticates this value")
 }
 
-func (s *Store) gcm() (cipher.AEAD, error) {
-	block, err := aes.NewCipher(s.secretKey[:])
+func (s *Store) gcm(key [32]byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
 }
 
-// storeValue returns the at-rest form of plaintext: encrypted when a key is
-// configured, plaintext otherwise.
+// storeValue returns the at-rest form of plaintext: encrypted when the keyring
+// is configured, plaintext otherwise (CLI/test paths without a key).
 func (s *Store) storeValue(plaintext string) (string, error) {
-	if s.secretKey == nil {
+	if len(s.secretKeys) == 0 {
 		return plaintext, nil
 	}
 	return s.seal(plaintext)
@@ -151,7 +155,7 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 		Folder:   folder,
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
-			"encrypted": s.secretKey != nil,
+			"encrypted": len(s.secretKeys) > 0,
 		},
 	}); err != nil {
 		return err
@@ -257,7 +261,7 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 // PurgeUnencryptedSecrets, which DELETEd plaintext rows and so wiped every
 // secret on each startup (writes never wrote the prefix it kept).
 func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
-	if s.secretKey == nil {
+	if len(s.secretKeys) == 0 {
 		return nil
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT rowid, value FROM secrets WHERE value NOT LIKE 'v2:%'`)
@@ -347,7 +351,11 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 		}
 		d := depthOf[scopeID]
 		if cur, ok := best[key]; !ok || d > cur.depth {
-			best[key] = kv{val: value, depth: d}
+			plain, err := s.open(value)
+			if err != nil {
+				return nil, err
+			}
+			best[key] = kv{val: plain, depth: d}
 		}
 	}
 	if err := rows.Err(); err != nil {

@@ -51,16 +51,21 @@ func main() {
 	}
 	defer s.Close()
 
-	// Encryption at rest is opt-in via SECRETS_KEY only — no AUTH_SECRET
-	// fallback (poor key separation, and an always-set fallback is what made
-	// the old purge wipe every plaintext secret on each startup). When set,
-	// migrate existing plaintext rows in place; never delete (spec 6/Y).
-	if cfg.SecretsKey != "" {
-		s.SetSecretKey([]byte(cfg.SecretsKey))
-		if migErr := s.EncryptPlaintextSecrets(context.Background()); migErr != nil {
-			slog.Error("secrets encrypt-at-rest migrate", "err", migErr)
-			os.Exit(1)
-		}
+	// Secrets are encrypted at rest — SECRETS_KEY is required (no AUTH_SECRET
+	// fallback: poor key separation, and an always-set fallback is what made the
+	// old purge wipe every plaintext secret on each startup). Comma-separate to
+	// rotate: the first is the active seal key, the rest decrypt-only. On boot,
+	// migrate any plaintext rows in place under the active key; never delete
+	// (spec 6/Y).
+	keyring := core.SecretKeyring(cfg.SecretsKey)
+	if len(keyring) == 0 {
+		slog.Error("SECRETS_KEY required: secrets are encrypted at rest; set a strong value (comma-separate to retain retired keys during rotation)")
+		os.Exit(1)
+	}
+	s.SetSecretKeys(keyring...)
+	if migErr := s.EncryptPlaintextSecrets(context.Background()); migErr != nil {
+		slog.Error("secrets encrypt-at-rest migrate", "err", migErr)
+		os.Exit(1)
 	}
 
 	gw := gateway.New(cfg, s)

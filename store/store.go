@@ -17,15 +17,24 @@ var migrationFS embed.FS
 const serviceName = "store"
 
 type Store struct {
-	db        *sql.DB
-	secretKey *[32]byte
+	db *sql.DB
+	// secretKeys is the AES-256 keyring for the secrets table. keys[0] is the
+	// active key used to seal new writes; the rest are decrypt-only, retained
+	// so an operator can rotate the active key without losing access to values
+	// sealed under an older one (set the new key first, old ones after, then a
+	// startup re-seal migrates them). Empty = encryption disabled.
+	secretKeys [][32]byte
 }
 
-// SetSecretKey derives a 32-byte AES key from raw via SHA-256 and stores it
-// for encrypt/decrypt of secrets table values. Call after Open.
-func (s *Store) SetSecretKey(raw []byte) {
-	h := sha256.Sum256(raw)
-	s.secretKey = &h
+// SetSecretKeys derives a 32-byte AES key from each raw value via SHA-256.
+// raws[0] becomes the active (seal) key; the rest are decrypt-only retired
+// keys for rotation. Call after Open. No raws = encryption disabled.
+func (s *Store) SetSecretKeys(raws ...[]byte) {
+	keys := make([][32]byte, 0, len(raws))
+	for _, r := range raws {
+		keys = append(keys, sha256.Sum256(r))
+	}
+	s.secretKeys = keys
 }
 
 func Open(dir string) (*Store, error) {

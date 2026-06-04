@@ -22,7 +22,7 @@ func rawSecretValue(t *testing.T, s *Store, scope SecretScope, scopeID, key stri
 func TestSecret_EncryptionAtRest_RoundTrip(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	s.SetSecretKey([]byte("test-secrets-key"))
+	s.SetSecretKeys([]byte("test-secrets-key"))
 
 	if err := s.SetSecret(ScopeFolder, "atlas", "TOKEN", "sk-secret-xyz"); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestSecret_LegacyPlaintext_ReadsThrough(t *testing.T) {
 	if err := s.SetSecret(ScopeFolder, "atlas", "OLD", "legacy-plain"); err != nil {
 		t.Fatal(err)
 	}
-	s.SetSecretKey([]byte("k")) // key configured AFTER the plaintext write
+	s.SetSecretKeys([]byte("k")) // key configured AFTER the plaintext write
 	got, err := s.GetSecret(ScopeFolder, "atlas", "OLD")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
 	if err := s.SetSecret(ScopeUser, "u1", "B", "bbb"); err != nil {
 		t.Fatal(err)
 	}
-	s.SetSecretKey([]byte("mig-key"))
+	s.SetSecretKeys([]byte("mig-key"))
 	if err := s.EncryptPlaintextSecrets(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -107,13 +107,59 @@ func TestSecret_EncryptPlaintextMigrate_Idempotent(t *testing.T) {
 func TestSecret_WrongKeyFails(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
-	s.SetSecretKey([]byte("key-A"))
+	s.SetSecretKeys([]byte("key-A"))
 	if err := s.SetSecret(ScopeFolder, "atlas", "K", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	s.SetSecretKey([]byte("key-B")) // wrong key, no re-encrypt
+	s.SetSecretKeys([]byte("key-B")) // wrong key, no re-encrypt
 	if _, err := s.GetSecret(ScopeFolder, "atlas", "K"); err == nil {
 		t.Error("GetSecret under the wrong key should fail to decrypt")
+	}
+}
+
+// Rotation: a value sealed under the old key still reads once the keyring is
+// {new, old}; new writes seal under the active (first) key; dropping the
+// retired key makes the old-sealed value unreadable.
+func TestSecret_KeyringRotation(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("key-old"))
+	if err := s.SetSecret(ScopeFolder, "atlas", "K", "sealed-under-old"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKeys([]byte("key-new"), []byte("key-old")) // rotate: new active, old retained
+	if got, err := s.GetSecret(ScopeFolder, "atlas", "K"); err != nil || got.Value != "sealed-under-old" {
+		t.Fatalf("rotated read = %q, %v; want sealed-under-old via retired key", got.Value, err)
+	}
+	if err := s.SetSecret(ScopeFolder, "atlas", "K2", "sealed-under-new"); err != nil {
+		t.Fatal(err)
+	}
+	s.SetSecretKeys([]byte("key-new")) // drop the retired key
+	if got, _ := s.GetSecret(ScopeFolder, "atlas", "K2"); got.Value != "sealed-under-new" {
+		t.Errorf("K2 under new-only = %q, want sealed-under-new", got.Value)
+	}
+	if _, err := s.GetSecret(ScopeFolder, "atlas", "K"); err == nil {
+		t.Error("old-sealed value should be unreadable once the retired key is dropped")
+	}
+}
+
+// FolderSecretsResolved must return DECRYPTED plaintext, not the v2: ciphertext.
+func TestFolderSecretsResolved_Decrypts(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("resolve-key"))
+	if err := s.SetSecret(ScopeFolder, "atlas/eng", "TOKEN", "sk-plain"); err != nil {
+		t.Fatal(err)
+	}
+	if raw := rawSecretValue(t, s, ScopeFolder, "atlas/eng", "TOKEN"); !strings.HasPrefix(raw, "v2:") {
+		t.Fatalf("not encrypted at rest: %q", raw)
+	}
+	got, err := s.FolderSecretsResolved("atlas/eng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["TOKEN"] != "sk-plain" {
+		t.Errorf("resolved TOKEN = %q, want decrypted sk-plain (not ciphertext)", got["TOKEN"])
 	}
 }
 

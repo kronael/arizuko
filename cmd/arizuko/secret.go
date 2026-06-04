@@ -17,9 +17,14 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Use the same SECRETS_KEY keyring as gated so CLI-written secrets are
+	// readable by the daemon (they share the secrets table). AUTH_SECRET is a
+	// different key — sealing values under it left gated unable to decrypt them.
 	cfg, err := core.LoadConfigFrom(dataDir)
-	if err == nil && cfg.AuthSecret != "" {
-		s.SetSecretKey([]byte(cfg.AuthSecret))
+	if err == nil {
+		if kr := core.SecretKeyring(cfg.SecretsKey); len(kr) > 0 {
+			s.SetSecretKeys(kr...)
+		}
 	}
 	return s, nil
 }

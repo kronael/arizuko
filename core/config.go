@@ -116,10 +116,24 @@ type Config struct {
 	// miss branch to whichever folder most recently spoke there.
 	EngagementTTL time.Duration
 
-	// SecretsKey, when set, is the AES-256-GCM encryption key for the secrets
-	// table (spec 6/Y). Empty: secrets stored plaintext. No AUTH_SECRET
-	// fallback — it must be set explicitly to enable encryption at rest.
+	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 6/Y).
+	// Required by gated — secrets are encrypted at rest, no plaintext mode and no
+	// AUTH_SECRET fallback. Comma-separate to rotate: the first key seals new
+	// writes, the rest decrypt-only (retired). Parse with SecretKeyring.
 	SecretsKey string
+}
+
+// SecretKeyring splits a SECRETS_KEY value into its keyring: comma-separated,
+// the first non-empty entry is the active seal key and the rest are decrypt-only
+// (rotation/migration). Returns nil when raw is empty/blank.
+func SecretKeyring(raw string) [][]byte {
+	var out [][]byte
+	for _, p := range strings.Split(raw, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, []byte(p))
+		}
+	}
+	return out
 }
 
 func LoadConfigFrom(dir string) (*Config, error) {
