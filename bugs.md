@@ -1830,3 +1830,30 @@ logged above (DOCS gaps).
   tense without a "planned" marker.
 - No named buyer / no business posture stated anywhere (CEO kill-shot: operability
   gap × no SaaS = narrow market). Positioning rewrite in critique-ceo memo.
+
+## SPLIT (CUTOVER_SPLIT) deploy validation — empirical, 2026-06-04
+
+User: "the split should already be live." Stood up a throwaway split instance on
+krons (fresh DBs, torn down after). FINDING: the split does NOT survive first boot.
+This is the never-done end-to-end validation. The code BUILDS (go build ./routd/...
+./runed/... ./authd/... = exit 0) and the compose TOPOLOGY generates correctly
+(authd+routd+runed, no gated), but runtime fails:
+
+- **authd/routd/runed SQLITE_CANTOPEN (code 14)** opening auth.db/routd.db/runed.db.
+  Split daemons run `user 1000:1000` (compose.go:681 authdService etc.) against the
+  freshly-created root-owned data dir → can't create their DBs. The gated monolith
+  works in the same mount, so the gap is split-specific DB-dir creation/ownership in
+  `arizuko create` / compose (ensure the split daemons' DB path is 1000-writable).
+- **routd host-port collision** — routdService (compose.go:702) publishes
+  `API_PORT:8080`; fresh instance defaults API_PORT=8080, already held on the shared
+  host (arizuko_gated_sloth). Multi-instance hosts need distinct API_PORT per instance.
+- **No data migration messages.db -> {auth,routd,runed}.db** (confirmed: no split
+  daemon opens messages.db — only comments noting they're separate, runed/README.md:27,
+  authd/main.go:40). Flipping CUTOVER_SPLIT on an EXISTING instance = fresh empty DBs =
+  total loss of history/groups/routes/grants. NO rollback shim (spec U "no backward compat").
+
+To make the split live: (1) fix split DB-dir ownership in create/compose; (2) fix
+per-instance port handling; (3) build the messages.db->split migrator; (4) validate
+boot+turn end-to-end on a fresh instance; (5) backup + cutover (krons first). Steps 3
++ the cutover are the real program; the split-flip is a one-way production-topology
+decision. E-routd/P-runed status stays partial until this lands.
