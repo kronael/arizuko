@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vited &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="gated.html">gated</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="vited.html">vited</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; vited</p>
+      <h1>vited</h1>
+
+    <h2>What it is</h2>
+    <p>vited is a Vite static-file server that hands out the instance&rsquo;s web tree &mdash; the docs site under <code>/pub/</code>, web assets, and the static pages each group publishes &mdash; sitting behind <a href="../components/proxyd.html">proxyd</a>.</p>
+
+    <p>It is not a Go daemon and there is no <code>vited/</code> package in the repo. It is a service that compose generation writes into the docker-compose file (<code>compose/compose.go:873</code>, the <code>vitedService</code> function). The container runs the <code>arizuko-vite:latest</code> image, which is plain <a href="https://vite.dev/">Vite</a> in dev mode serving a mounted directory. You can tell it&rsquo;s Vite from any served page: it injects a <code>/@vite/client</code> script.</p>
+
+    <h2>Why it exists</h2>
+    <p>proxyd is a reverse proxy &mdash; it routes requests but serves no files of its own. Something behind it has to be the origin for static content. That origin is vited. In the route table, <code>/*</code> matches against the DB-backed <code>web_routes</code> table by longest prefix, and anything that doesn&rsquo;t match falls through, auth-gated, to vited (<code>ARCHITECTURE.md:131</code>, <code>:165</code>).</p>
+
+    <p>Without vited those routes have no backend. The public docs at <code>/pub/</code> would 502, group-published pages would have nowhere to come from, and the default web route would point at nothing. proxyd would still verify JWTs and sign headers, but the request would arrive at an empty seat.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>browser
+        |  HTTP request for a static path
+        v
+      proxyd     auth check, longest-prefix route match
+        |        ( /pub/* public ; default auth-gated )
+        v
+      vited      arizuko-vite:latest, serves the mounted dir
+        ^
+        |  bind mount  &lt;data-dir&gt;/web : /web
+      &lt;data-dir&gt;/web/pub/   (the docs + group pages)</code></pre>
+    </div>
+
+    <p>The config source is <code>compose/compose.go:873</code> (<code>vitedService</code>). It writes a service named <code>vited</code>, container name <code>&lt;app&gt;_vited_&lt;flavor&gt;</code>, image <code>arizuko-vite:latest</code>, and one volume: the instance data dir&rsquo;s <code>web/</code> folder mounted at <code>/web</code> inside the container. There are no published ports &mdash; proxyd reaches it over the docker network &mdash; and no environment block; vited reads no arizuko config.</p>
+
+    <p>Vite has no <code>/health</code> route, so the healthcheck probes <code>/@vite/client</code> instead, which Vite always answers with 200 in dev mode. Inputs: HTTP from proxyd. Output: file bytes from <code>&lt;data-dir&gt;/web</code>. Hard dep: proxyd in front of it; on its own it serves files but nobody routes to it.</p>
+
+    <h2>Standalone usage</h2>
+    <p>vited is, underneath, just Vite serving a directory &mdash; so running it outside arizuko means running Vite and pointing proxyd (or any reverse proxy) at it. It is a static origin, nothing more.</p>
+
+    <p>Its config is generated, not hand-written. The <code>vitedService</code> function in <code>compose/compose.go</code> emits the compose block; the Vite config itself is baked into the <code>arizuko-vite</code> image and is not something you edit per instance. To serve a different tree, change what gets mounted at <code>/web</code>, not the config.</p>
+
+    <pre><code># the shape of what the container runs: Vite serving a static dir
+vite --host 0.0.0.0 --port 8080
+# the dir comes from the bind mount &lt;data-dir&gt;/web : /web</code></pre>
+
+    <p>vited reads no arizuko env vars &mdash; the <code>vitedService</code> compose block declares no environment. See <a href="../reference/env.html">reference/env</a> for the variables the daemons in front of and beside it use.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../components/proxyd.html">components/proxyd</a> &mdash; the reverse proxy that routes to vited and gates its auth.</li>
+      <li><a href="../components/webd.html">components/webd</a> &mdash; the other web-facing backend, for chat rather than static files.</li>
+      <li><code>ARCHITECTURE.md</code> &mdash; the route table where <code>/*</code> falls through to vited.</li>
+      <li><code>compose/compose.go</code> &mdash; <code>vitedService</code>, the source of truth for the container, image, and mount.</li>
+    </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="ttsd.html">&larr; ttsd</a>
+        <a rel="next" href="webd.html">webd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/vited.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
