@@ -132,7 +132,7 @@ post, quote, repost, like, dislike, delete, edit</code></pre>
 
     <h3>tier1FixedActions</h3>
     <pre><code>schedule_task, register_group, escalate_group, delegate_group,
-get_routes, set_routes, add_route, delete_route,
+list_routes, set_routes, add_route, delete_route,
 list_tasks, pause_task, resume_task, cancel_task</code></pre>
 
     <h2>6. Structural gate (<code>AuthorizeStructural</code>)</h2>
@@ -148,7 +148,7 @@ list_tasks, pause_task, resume_task, cancel_task</code></pre>
       <tr><td><code>register_group</code></td><td>tier &lt; 2</td><td>tier 0 &rArr; target must contain "/" (worlds are CLI-only); tier 1 &rArr; child must be direct child of own folder</td></tr>
       <tr><td><code>escalate_group</code></td><td>tier &ge; 2</td><td>&mdash;</td></tr>
       <tr><td><code>delegate_group</code></td><td>tier &ne; 3</td><td>target must be strictly inside <code>id.Folder</code></td></tr>
-      <tr><td><code>get_routes, set_routes, add_route, delete_route</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; route target inside own folder</td></tr>
+      <tr><td><code>list_routes, set_routes, add_route, delete_route</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; route target inside own folder</td></tr>
       <tr><td><code>schedule_task, pause_task, resume_task, cancel_task</code></td><td>tier &ne; 3</td><td>tier 2 &rArr; task owner == own folder; tier 1 &rArr; task owner in same world</td></tr>
       <tr><td><code>list_acl</code></td><td>tier &le; 2</td><td>tier 2 &rArr; own subtree only; tier &gt; 2 &rArr; unauthorized</td></tr>
       <tr><td><code>invite_create</code></td><td>tier &lt; 2</td><td>tier 1 &rArr; target in same world</td></tr>
@@ -211,7 +211,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
       </div>
     </main>
 

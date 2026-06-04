@@ -86,12 +86,12 @@ local:alice</code></pre>
     <ol>
       <li>The request arrives at <code>proxyd</code> on port 443. It looks for the <code>Authorization: Bearer</code> header (or, on web pages, the refresh-token cookie).</li>
       <li><code>proxyd.tryAuth</code> verifies the JWT signature with <code>AUTH_SECRET</code>. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>.</li>
-      <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>CHANNEL_SECRET</code>.</li>
+      <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>PROXYD_HMAC_SECRET</code>.</li>
       <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
       <li><code>dashd</code> wraps its handlers in <code>auth.RequireSigned(CHANNEL_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
       <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
     </ol>
-    <div class="callout"><strong>Why two secrets?</strong> <code>AUTH_SECRET</code> signs the JWT the browser holds. <code>CHANNEL_SECRET</code> signs the header <code>proxyd</code> stamps for backends. They are different boundaries: browser&hairsp;&harr;&hairsp;proxyd vs proxyd&hairsp;&harr;&hairsp;backend.</div>
+    <div class="callout"><strong>Why two secrets?</strong> <code>AUTH_SECRET</code> signs the JWT the browser holds. <code>PROXYD_HMAC_SECRET</code> signs the header <code>proxyd</code> stamps for backends. They are different boundaries: browser&hairsp;&harr;&hairsp;proxyd vs proxyd&hairsp;&harr;&hairsp;backend.</div>
 
     <h2>collision &mdash; logged in as A, OAuth as B</h2>
     <p>You are logged in as <code>google:114alice</code> and you click "Link GitHub." The callback gets a fresh sub <code>github:48291744</code>. Three cases the code handles cleanly:</p>

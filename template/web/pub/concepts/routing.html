@@ -59,7 +59,7 @@
 0      platform=telegram                      atlas/content
 0      platform=discord room=dm/*             atlas/dm
 0      platform=reddit verb=post              atlas/posts
-0      chat_jid=web:acme                      solo/chat
+0      chat_jid=slack:acme/eng                solo/chat
 0      chat_jid=hook:acme/eng/github          acme/eng#observe
 0      platform=discord                       atlas/{sender}
 9999   (empty)                                atlas              # catchall</code></pre>
@@ -92,7 +92,7 @@
     <p>The inline <code>@name</code>/<code>#topic</code> prefix is handled separately before the route table, so it can override a default route without touching sticky state.</p>
 
     <h2>editing live</h2>
-    <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>get_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser. Changes take effect on the next inbound message &mdash; no restart.</p>
+    <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser. Changes take effect on the next inbound message &mdash; no restart.</p>
 
     <h2 id="modes">modes and topic pinning</h2>
     <p>A <code>target</code> may end with <code>#...</code>. That tail tells the gateway what to do <em>after</em> the message lands in the folder. <code>#observe</code> is the one reserved tail &mdash; it sets a mode. Every other tail is a <a href="../concepts/topics.html">topic name</a> pinned for the routed message.</p>

@@ -166,8 +166,8 @@
         </li>
         <li>
           <strong>Channel-scoped secrets.</strong> API keys for tools the agent
-          calls live in the <code>secrets</code> table (plaintext at rest;
-          operator trusts disk + FS perms). Folder-scoped values are merged into
+          calls live in the <code>secrets</code> table, AES-256-GCM encrypted
+          at rest under <code>SECRETS_KEY</code>. Folder-scoped values are merged into
           the container's spawn env; Slack channels get folder secrets only
           (per-user overlay is 1:1-chat only).
         </li>

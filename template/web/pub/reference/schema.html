@@ -438,13 +438,13 @@
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Plaintext at rest (operator trusts disk + FS perms per <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a>).</p>
+      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; gated refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">9/11</a>).</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
         <tr><td><code>scope_id</code></td><td>TEXT NOT NULL</td><td>folder path or auth_users.sub</td></tr>
         <tr><td><code>key</code></td><td>TEXT NOT NULL</td><td>env-var name</td></tr>
-        <tr><td><code>value</code></td><td>BLOB NOT NULL</td><td>plaintext (renamed from <code>enc_value</code> in 0047)</td></tr>
+        <tr><td><code>value</code></td><td>BLOB NOT NULL</td><td>AES-256-GCM ciphertext, <code>v2:</code>-prefixed (column renamed from <code>enc_value</code> in 0047)</td></tr>
         <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
       </table>
       <p class="meta"><strong>PK:</strong> <code>(scope_kind, scope_id, key)</code>.</p>
@@ -693,7 +693,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 
