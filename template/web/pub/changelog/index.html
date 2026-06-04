@@ -22,6 +22,19 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.49.0 <span class="date">&mdash; 1 June 2026</span></h2>
+    <p>The agent now formats and threads replies correctly across Telegram, Slack and Discord, and the reference docs match the running code again.</p>
+    <ul>
+      <li><strong>Telegram replies render right</strong> &mdash; bold and headings no longer show raw markdown.</li>
+      <li><strong>Per-channel styles refresh every turn</strong> &mdash; tone/format fixes actually take effect.</li>
+      <li><strong>Reliable thread replies</strong> &mdash; the agent resumes Slack/Discord threads instead of restarting.</li>
+      <li><strong>Reactions work while messaging is paused</strong> &mdash; read-only channels can still react.</li>
+      <li><strong>Reference docs rebuilt to match the code</strong> &mdash; schema, MCP tiers, env vars, changelog.</li>
+      <li><strong>Security</strong> &mdash; dashd memory endpoints now require an admin grant on the target folder.</li>
+      <li><strong>Under the hood</strong> &mdash; the daemon split flips to in-process MCP behind <code>CUTOVER_SPLIT</code> (dormant; default still runs gated).</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0490--2026-06-01">CHANGELOG &sect; v0.49.0</a></p>
+
     <h2>arizuko v0.48.0 <span class="date">&mdash; 30 May 2026</span></h2>
     <p>A correctness pass across the router and every adapter &mdash; agent audit logging restored, inbound messages no longer drop on transient failures, and reply threading fixed on email + Mastodon.</p>
     <ul>
