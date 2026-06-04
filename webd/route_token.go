@@ -171,6 +171,13 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	}
 	folder := jidFolder(row.JID)
 
+	if !s.limiter.allow(row.JID) {
+		slog.Warn("route-token rate limit", "folder", folder,
+			"token_hash", chanlib.ShortHash(r.PathValue("token")))
+		http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
 	content, topic, err := parseChatBody(r)
 	if err != nil {
@@ -256,6 +263,12 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 	row, ok := s.lookupRouteToken(w, r)
 	if !ok {
+		return
+	}
+	if !s.limiter.allow(row.JID) {
+		slog.Warn("hook rate limit", "folder", jidFolder(row.JID),
+			"token_hash", chanlib.ShortHash(r.PathValue("token")))
+		http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, routeTokenBodyMax)

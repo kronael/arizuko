@@ -21,15 +21,17 @@ import (
 )
 
 type config struct {
-	listenAddr    string
-	listenURL     string
-	routerURL     string
-	proxydURL     string
-	channelSecret string
-	hmacSecret    string
-	storeDir      string
-	assistantName string
-	authdURL      string // soak: dual-accept ES256 bearers alongside HMAC; unset → HMAC-only
+	listenAddr     string
+	listenURL      string
+	routerURL      string
+	proxydURL      string
+	channelSecret  string
+	hmacSecret     string
+	storeDir       string
+	assistantName  string
+	authdURL       string // soak: dual-accept ES256 bearers alongside HMAC; unset → HMAC-only
+	rateHookPerMin int    // per-token req/min ceiling for hook: JIDs
+	rateWebPerMin  int    // per-token req/min ceiling for web: JIDs
 }
 
 func loadConfig() config {
@@ -39,15 +41,17 @@ func loadConfig() config {
 		os.Exit(1)
 	}
 	return config{
-		listenAddr:    chanlib.EnvOr("WEBD_LISTEN", ":8080"),
-		listenURL:     chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
-		routerURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
-		proxydURL:     chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"),
-		channelSecret: chanlib.EnvOr("CHANNEL_SECRET", ""),
-		hmacSecret:    loadHMACSecret(),
-		storeDir:      coreCfg.StoreDir,
-		assistantName: chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
-		authdURL:      strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
+		listenAddr:     chanlib.EnvOr("WEBD_LISTEN", ":8080"),
+		listenURL:      chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
+		routerURL:      chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
+		proxydURL:      chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"),
+		channelSecret:  chanlib.EnvOr("CHANNEL_SECRET", ""),
+		hmacSecret:     loadHMACSecret(),
+		storeDir:       coreCfg.StoreDir,
+		assistantName:  chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
+		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
+		rateHookPerMin: chanlib.EnvInt("WEBHOOK_RATE_HOOK", 60),
+		rateWebPerMin:  chanlib.EnvInt("WEBHOOK_RATE_WEB", 20),
 	}
 }
 

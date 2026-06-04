@@ -35,6 +35,7 @@ type server struct {
 	rc          *chanlib.RouterClient
 	proxyd      *proxydClient
 	requireUser func(http.HandlerFunc) http.HandlerFunc
+	limiter     *rateLimiter
 }
 
 func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet) *server {
@@ -45,6 +46,7 @@ func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks
 		// bearer. ks is nil unless AUTHD_URL is set → identical to
 		// RequireSigned(hmacSecret) in the live HMAC-only deployment.
 		requireUser: auth.RequireSignedOrBearer(cfg.hmacSecret, ks),
+		limiter:     newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
 	}
 }
 
