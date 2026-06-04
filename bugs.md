@@ -1782,3 +1782,51 @@ protocol. The `network_rules`/egress surface was excluded (impl in flight).
   diverge materially: no encryption-at-rest, /v1/keys/rotate, unlink, account-linking).
 - Stale `specs/6/...` citations: `store/migrations/0054` (→5/B), `api/api.go:297` (→5/L),
   `0034-secrets` cites 7/35.
+
+## CEO/CTO critique + live docs audit (2026-06-04) — NOT yet fixed
+
+Adversarial CEO + CTO assessment (.ship/critique-{ceo,cto}-20260604.md), live
+browser pass over krons /pub/arizuko/, codex second-opinion on the new
+primitive framing (specs/5/A). New finds below; ENGAGEMENT_TTL drift already
+logged above (DOCS gaps).
+
+### Security (HIGH — defense-in-depth)
+- **dashd trusts unsigned `X-User-Sub`** (`dashd/me_secrets.go:25`, `dashd/profile.go:24`):
+  no `RequireSigned` anywhere in dashd; relies entirely on proxyd being the sole
+  ingress. webd DOES verify (`RequireSignedOrBearer`, webd/server.go) — asymmetry.
+  One published dashd port / SSRF from a co-resident container / compose slip →
+  operator takeover via `curl -H "X-User-Sub: github:operator"`, nothing to forge.
+  Fix-path: wrap dashd mux in `auth.RequireSigned(PROXYD_HMAC_SECRET)` like webd.
+  By-design today, but a real defense-in-depth gap per CLAUDE.md trust-boundary rule.
+
+### Docs vs code (HIGH — docs describe a protection/route the code doesn't)
+- `concepts/auth.html:89,91,94` names **`CHANNEL_SECRET`** for proxyd's identity-sig;
+  code uses **`PROXYD_HMAC_SECRET`** (proxyd/main.go:53,798). Wrong var — an operator
+  matching CHANNEL_SECRET across daemons configures the wrong secret.
+- `concepts/auth.html:91` claims dashd does `auth.RequireSigned(CHANNEL_SECRET)` +
+  HMAC recompute. It does NOT (see security finding). Doc describes a guard that
+  isn't there.
+- `concepts/routing.html:62` teaches `chat_jid=web:acme → solo/chat`; code REJECTS
+  web: route predicates at insert (`store/routes.go:48,101` ErrWebJIDRouted).
+
+### Docs vs code (MED/LOW)
+- `reference/mcp.html:84,97` send/reply guidance BACKWARDS vs code: reply is the
+  default (`ipc/ipc.go:928`), send is the exception (`ipc/ipc.go:900`).
+- `reference/schema.html:441,447` + `products/slack-team/index.html:169` say secrets
+  "plaintext at rest"; encrypted AES-256-GCM now (`store/secrets.go:18`). Stale.
+- `get_routes` phantom MCP tool in `concepts/routing.html:95`, `concepts/autoviv.html:100`,
+  `reference/grants.html:135,151` — retired; only list/set/add/delete_routes exist.
+- `reference/mcp.html` + `reference/env.html` source anchors (`ipc/ipc.go#L…`,
+  `core/config.go#L182`) ~+400 lines stale — generate them, don't hand-maintain.
+- No `components/vited.html` despite vited named core in CLAUDE.md.
+
+### CEO credibility / live staleness (deploy-the-docs)
+- Live landing footer `v0.48.0` (`index.html:369`) vs CHANGELOG `v0.49.0`; live
+  `/changelog/` omits v0.49.0 entirely. (Internal links fine: 77/77 resolve 200.)
+- `/products/` ships 2 cards (reality, slack-team); CLI offers 9 templates
+  (`cmd/arizuko/main.go:193`); landing promises "and more." Thin catalog vs pitch.
+- README "Direction" + landing forward surfaces present `CUTOVER_SPLIT`/git-as-truth
+  (unshipped: compose/compose.go:31 default-off; specs/7/3 drafting) in present
+  tense without a "planned" marker.
+- No named buyer / no business posture stated anywhere (CEO kill-shot: operability
+  gap × no SaaS = narrow market). Positioning rewrite in critique-ceo memo.
