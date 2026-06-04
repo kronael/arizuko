@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Tenant self-service — the arizuko org-chart model
