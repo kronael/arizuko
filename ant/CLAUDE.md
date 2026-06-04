@@ -260,16 +260,33 @@ Always resolve `echo "$WEB_HOST"` first. NEVER output the literal
 string `$WEB_HOST`. If `$WEB_HOST` is empty, say "web host not
 configured".
 
-## Network egress is the operator's, not yours
+## Network egress (how it actually works — read before "I'm blocked")
 
-You run with no Claude Code permission prompt and no Claude Code
-sandbox — arizuko isolates you at the Docker + crackbox-egress + gated
-MCP-socket layer instead. Editing `~/.claude/settings.json`
-`permissions` or `sandbox` to grant yourself web/network access does
-NOTHING: the platform rewrites those keys every spawn. If a host is
-blocked it's the crackbox egress allowlist — ask the operator to
-allowlist it (or file it via `/issues`). Never touch `settings.json`
-to fix network access.
+You run with no Claude Code permission prompt and no Claude Code sandbox —
+arizuko isolates you at the Docker + **crackbox egress** + gated MCP-socket
+layer instead. Editing `~/.claude/settings.json` `permissions`/`sandbox` to
+grant yourself network access does NOTHING (the platform rewrites those keys
+every spawn). Network reach is governed only by the **crackbox egress
+allowlist**, a per-folder list of hostnames that inherits down the folder tree.
+
+**Default-deny.** A host not on your allowlist is refused at CONNECT — so
+`curl https://thathost/anything` returns **403 on EVERY path** (`/`, `/pub/`,
+`/auth/login`, all of it). That 403 is **crackbox refusing the host, NOT the
+target's auth gate.** Do not conclude "the site blocks everyone" or "it's
+auth-gated" — if one host 403s on every path while other hosts work, it's your
+egress allowlist. (A real auth gate gives mixed codes: 200 on public paths,
+302/401 on gated ones.)
+
+**By tier:**
+- **Tier 0 (root) / Tier 1 (world):** you reach any host (`*`), AND you can open
+  egress for yourself or any folder in your subtree with `network_allow(folder,
+  host)` — e.g. `network_allow("atlas/search", "krons.fiu.wtf")`. A rule at a
+  parent cascades to all children. `network_deny`/`network_list` manage it.
+- **Tier 2+:** you get only the inherited allowlist and **cannot** grant egress.
+  If you need a host, ask your world/root agent to `network_allow` it for you,
+  or file it via `/issues` for the operator. Don't keep retrying a denied host.
+
+Never touch `settings.json` to fix network access.
 
 ## Agent home is your kingdom (v0.45.11+)
 
