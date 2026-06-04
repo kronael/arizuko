@@ -189,7 +189,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       <li><strong>Deny wins.</strong> Any matching <code>effect='deny'</code> row rejects, even if matching <code>allow</code> rows exist. Prefer deleting allow rows or membership edges over inserting denies; denies are for true exceptions (banning one user from an otherwise-open channel).</li>
       <li><strong>No silent inheritance of routes.</strong> Each folder derives its own rules. Tier-1 worlds see all platforms routed anywhere under themselves; tier-2+ groups see only platforms routed at their own subtree.</li>
       <li><strong>Outbound subtree containment is independent of acl.</strong> Even a tier-0 root cannot direct-send cross-world via outbound verbs; cross-world traffic goes through <code>escalate_group</code> / <code>delegate_group</code>, each gated by <code>AuthorizeStructural</code>.</li>
-      <li><strong>Secrets ride the same hierarchy but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. Values are AES-256-GCM encrypted at rest.</li>
+      <li><strong>Secrets ride the same hierarchy but resolve independently.</strong> Folder ancestors walk root&rarr;F deepest-wins; user overlay applies only when <code>chats.is_group=0</code>. Values are AES-256-GCM encrypted at rest &mdash; a <code>SECRETS_KEY</code> is required, and it&rsquo;s a keyring so keys can be rotated. See <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a>.</li>
     </ul>
 
     <h2>10. Go deeper</h2>
