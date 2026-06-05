@@ -3,6 +3,7 @@ package routd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -257,6 +258,9 @@ func (d *fakeDeliverer) Dislike(_, _ string) error                          { re
 func (d *fakeDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *fakeDeliverer) SetName(_, _ string) error                          { return nil }
 func (d *fakeDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
+func (d *fakeDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
+	return nil, fmt.Errorf("no history")
+}
 
 func countBots(t *testing.T, db *DB, jid string) int {
 	t.Helper()

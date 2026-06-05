@@ -31,7 +31,20 @@ type DB struct {
 	// sibling_db.go.
 	msgs    *sql.DB // messages.db — scheduled_tasks (timed), pane_sessions (slakd)
 	runedDB *sql.DB // runed.db — session_log (runed)
+
+	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands
+	// to the sibling *store.Store via SetSecretKeys so FolderSecretsResolved
+	// decrypts `v2:` values. Empty → no key set → encrypted rows read back as
+	// ciphertext (no plaintext leak; the connector just gets nothing usable).
+	// routd never writes the secrets table (gated/a future secrets daemon owns
+	// the encrypt-at-rest write path); this keyring is decrypt-only here.
+	secretKeyring [][]byte
 }
+
+// SetSecretKeys supplies the SECRETS_KEY keyring (raw values; the active seal
+// key first, retired keys after) so secret reads off the sibling messages.db
+// decrypt. Mirrors store.SetSecretKeys. Empty/no-call → reads stay ciphertext.
+func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
 // Open opens routd.db at dir/routd.db (WAL, FK on), runs the routd migration
 // sequence, and attaches read-only handles to the sibling DBs in dir.

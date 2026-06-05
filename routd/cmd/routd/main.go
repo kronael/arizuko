@@ -17,8 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanreg"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
@@ -46,6 +48,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// SECRETS_KEY keyring: decrypt-only here. routd reads folder/user secrets RO
+	// from the sibling messages.db for connector + secret-requiring tool calls;
+	// it never writes the secrets table (gated/a future secrets daemon owns the
+	// encrypt-at-rest write path). Unset → secret reads stay ciphertext (no leak).
+	if kr := core.SecretKeyring(os.Getenv("SECRETS_KEY")); len(kr) > 0 {
+		db.SetSecretKeys(kr...)
+	} else {
+		slog.Warn("SECRETS_KEY unset; connector/scoped secrets will not decrypt")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -134,6 +146,21 @@ func main() {
 		filepath.Join(dataDir, "tts"),
 	))
 	srv.SetChannelRegistry(reg, onRegister, onDeregister)
+	// Audit writer for mutating MCP tool calls (GatedFns.Audit). Writes
+	// audit-system.jl in DATA_DIR — observability only, never the messages.db
+	// audit_log table (gated's store owns that). AUDIT_ENABLED unset → noop.
+	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))
+	// MCP connectors (spec 9/11 M6): load <DATA_DIR>/connectors.toml (or
+	// $CONNECTORS_TOML), spawn each once to harvest its tool catalog, register
+	// through every per-turn MCP socket. Missing file is fine; a bad file is a
+	// boot failure (fail-fast, same as gated).
+	if conns, cerr := routd.LoadConnectors(ctx, dataDir); cerr != nil {
+		slog.Error("connectors: load failed", "err", cerr)
+		os.Exit(1)
+	} else if len(conns) > 0 {
+		srv.SetConnectors(conns)
+		slog.Info("connectors loaded", "tools", len(conns))
+	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
 	// routd owns the residual config + conversation tables per spec 5/36

@@ -222,6 +222,15 @@ type StoreFns struct {
 	// Empty/nil disables the connector path. Spec 9/11 M6.
 	Connectors []ConnectorTool
 
+	// ResolveConnectorSecrets returns the folder/user-scoped secret values a
+	// connector call needs, narrowed to the connector's declared `required`
+	// names. buildMCPServer calls it per connector invocation and hands the
+	// result to CallConnectorTool — which expands `{secret:KEY}` into the
+	// subprocess env AND scrubs those values from the result. Nil → no
+	// injection (the connector sees the placeholders literally), matching the
+	// pre-injection behaviour. Spec 9/11 / 11/11.
+	ResolveConnectorSecrets func(folder string, required []string) map[string]string
+
 	// Authorize checks whether sub may call action (e.g. "mcp:send") with
 	// params in the context of folder. Used by ServeMCP when callerSub != ""
 	// (ARIZUKO_LOCAL_SUB). Nil means no row-based check (full operator access).
@@ -894,7 +903,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		}
 		granted(tool.LocalName, tool.Description, opts,
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				return CallConnectorTool(ctx, tool, req.GetArguments(), nil)
+				var secrets map[string]string
+				if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
+					secrets = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
+				}
+				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
 			})
 	}
 

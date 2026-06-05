@@ -20,6 +20,11 @@ type recDeliverer struct {
 	dislikes int
 	failSend bool
 	pid      string
+	// history is the canned HistoryResponse JSON the FetchHistory fake returns;
+	// historyErr forces the adapter-failed branch (→ cache fallback). Empty
+	// history + nil err → an empty-but-valid response.
+	history    []byte
+	historyErr error
 }
 
 type sentMsg struct {
@@ -60,6 +65,9 @@ func (d *recDeliverer) Dislike(_, _ string) error                          { d.d
 func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
 func (d *recDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
+func (d *recDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
+	return d.history, d.historyErr
+}
 
 var errSend = errSendT("send failed")
 

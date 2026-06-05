@@ -9,9 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -51,6 +53,11 @@ type Deliverer interface {
 	// RoundDone notifies the web SSE channel that a turn closed, so a /chat
 	// client stops waiting. folder is the web-chat folder (web: prefix stripped).
 	RoundDone(folder, turnID, status, errMsg string) error
+	// FetchHistory proxies to the owning adapter's GET /v1/history (the
+	// fetch_history MCP tool's platform-truth source). Returns the raw JSON
+	// HistoryResponse bytes. (chanreg.ErrNoChannel, nil) when no adapter owns
+	// the jid or it lacks the cap → the caller falls back to the local DB.
+	FetchHistory(jid string, before time.Time, limit int) ([]byte, error)
 }
 
 // Verifier offline-verifies inbound bearer tokens (agent capability /
@@ -82,6 +89,19 @@ type Server struct {
 	// via SetTTS from the cmd layer.
 	tts ttsConfig
 
+	// audit receives system events for mutating MCP tool calls (GatedFns.Audit).
+	// It appends to routd's own audit-system.jl in DATA_DIR — observability only,
+	// never the messages.db audit_log table (gated's store owns that). nil →
+	// slog-only (the audit.noop value EmitSystem treats as disabled). Set via
+	// SetAudit from the cmd layer; mirrors gateway.SetAudit.
+	audit *audit.Audit
+
+	// connectors is the discovered MCP-connector tool catalog (connectors.toml),
+	// loaded once at boot and registered through every per-turn MCP socket.
+	// nil/empty leaves the connector path off, exactly like gated with no file.
+	// Set via SetConnectors from the cmd layer; mirrors gateway.storeFns.Connectors.
+	connectors []ipc.ConnectorTool
+
 	// Channel-registration surface (ported from gated's api). reg==nil leaves
 	// the /v1/channels endpoints unmounted (pure REST tests). on{Register,
 	// Deregister} mirror gated's live-channel hooks so the Deliverer reuses a
@@ -109,6 +129,16 @@ func (s *Server) SetDirs(groupsDir, webDir string) {
 // SetTTS supplies the send_voice synthesis config. Set post-construction in
 // main wiring; the zero value leaves voice off (faithful to gated).
 func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
+
+// SetAudit injects the audit writer so mutating MCP tool calls emit
+// audit-system.jl events (GatedFns.Audit). Mirrors gateway.SetAudit; routd's
+// audit is observability (slog + .jl webhook stream), never a cross-DB write to
+// the messages.db audit_log table.
+func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
+
+// SetConnectors supplies the discovered connector-tool catalog (LoadConnectors).
+// Every per-turn MCP socket registers it; nil/empty leaves the path off.
+func (s *Server) SetConnectors(c []ipc.ConnectorTool) { s.connectors = c }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.

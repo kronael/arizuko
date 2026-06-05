@@ -10,6 +10,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
+	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -128,7 +129,51 @@ func (d *DB) aclStore() *store.Store {
 	if d.msgs == nil {
 		return nil
 	}
-	return store.New(d.msgs)
+	s := store.New(d.msgs)
+	if len(d.secretKeyring) > 0 {
+		s.SetSecretKeys(d.secretKeyring...)
+	}
+	return s
+}
+
+// FolderSecrets resolves the folder/user-scoped secret set for `folder`,
+// reading the sibling messages.db `secrets` table and DECRYPTING `v2:` values
+// via the SECRETS_KEY keyring. Reuses store.FolderSecretsResolved verbatim
+// through aclStore() (same deepest-wins folder-ancestry precedence gated uses).
+// nil sibling handle / SECRETS_KEY unset / read error → empty map (no hard
+// fail; the caller treats absent secrets as "inject nothing"). routd is
+// read-only here — the encrypt-at-rest WRITE path (store.EncryptPlaintextSecrets)
+// stays with a secrets-owning daemon (gated today; unresolved in the pure split).
+func (d *DB) FolderSecrets(folder string) map[string]string {
+	s := d.aclStore()
+	if s == nil {
+		return map[string]string{}
+	}
+	out, err := s.FolderSecretsResolved(folder)
+	if err != nil {
+		return map[string]string{}
+	}
+	return out
+}
+
+// ConnectorSecrets narrows the folder's resolved secrets to the `required`
+// names a connector declares (its [[mcp_connector]] secrets= list), mirroring
+// gated's requires=/RequiresSecrets intersection: a connector only ever sees
+// the keys it asked for, never the folder's full secret set. Missing keys are
+// omitted (renderEnv leaves their placeholder empty; the scrubber skips empty
+// values). nil/empty required → empty map.
+func (d *DB) ConnectorSecrets(folder string, required []string) map[string]string {
+	if len(required) == 0 {
+		return map[string]string{}
+	}
+	all := d.FolderSecrets(folder)
+	out := make(map[string]string, len(required))
+	for _, k := range required {
+		if v, ok := all[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // ListACL returns acl rows from the sibling messages.db, optionally filtered
@@ -168,6 +213,56 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	}
 	rules := grants.DeriveRules(d, folder, id.Tier, id.World)
 	return grants.CheckAction(rules, tool, params)
+}
+
+// SiblingIdentityForSub resolves a platform sub to its canonical identity and
+// the full set of subs that identity claims, reading the identities/
+// identity_claims tables in the sibling messages.db (gated's store). Reuses
+// store.GetIdentityForSub verbatim via aclStore() so the lookup matches gated's
+// exactly. Returns the ipc shape directly (routd imports ipc anyway). nil
+// handle / unclaimed sub → (zero, nil, false) — the inspect_identity tool then
+// renders the {identity:null, subs:[]} unclaimed shape.
+func (d *DB) SiblingIdentityForSub(sub string) (ipc.Identity, []string, bool) {
+	s := d.aclStore()
+	if s == nil {
+		return ipc.Identity{}, nil, false
+	}
+	idn, subs, ok := s.GetIdentityForSub(sub)
+	if !ok {
+		return ipc.Identity{}, nil, false
+	}
+	return ipc.Identity{ID: idn.ID, Name: idn.Name, CreatedAt: idn.CreatedAt}, subs, true
+}
+
+// SiblingGetTask reads one scheduled_tasks row from messages.db (timed's
+// table) by id, for the inspect_tasks per-task authz check. Reuses
+// store.GetTask via aclStore(). nil handle / no row → (zero, false).
+func (d *DB) SiblingGetTask(id string) (core.Task, bool) {
+	s := d.aclStore()
+	if s == nil {
+		return core.Task{}, false
+	}
+	return s.GetTask(id)
+}
+
+// SiblingTaskRunLogs reads task_run_logs rows from messages.db (timed's table)
+// for the inspect_tasks per-task run history. Reuses store.TaskRunLogs via
+// aclStore(), translating store.TaskRunLog → ipc.TaskRunLog. nil handle → nil.
+func (d *DB) SiblingTaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
+	s := d.aclStore()
+	if s == nil {
+		return nil
+	}
+	rows := s.TaskRunLogs(taskID, limit)
+	out := make([]ipc.TaskRunLog, len(rows))
+	for i, r := range rows {
+		out[i] = ipc.TaskRunLog{
+			ID: r.ID, TaskID: r.TaskID, RunAt: r.RunAt,
+			DurationMS: r.DurationMS, Status: r.Status,
+			Result: r.Result, Error: r.Error,
+		}
+	}
+	return out
 }
 
 // SiblingRecentSessions reads the n most recent session_log rows from runed.db

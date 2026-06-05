@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
@@ -242,6 +243,20 @@ func (d *chanDeliverer) SetName(jid, title string) error {
 		return fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.SetName(context.Background(), jid, title)
+}
+
+// FetchHistory resolves the owning adapter for jid and proxies to its GET
+// /v1/history (the fetch_history platform-truth source). No adapter / no
+// fetch_history cap → error; the caller (Server.fetchPlatformHistory) then
+// falls back to the local DB, matching gated.fetchPlatformHistory.
+func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([]byte, error) {
+	ch := d.resolve(jid)
+	if ch == nil {
+		return nil, fmt.Errorf("no channel for jid %s", jid)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ch.FetchHistory(ctx, jid, before, limit)
 }
 
 // RoundDone posts the turn-closed notice to the web adapter owning the folder's

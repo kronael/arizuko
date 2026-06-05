@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/groupfolder"
@@ -31,9 +33,11 @@ type turnMCP struct {
 // tools stay nil. ipc.ServeMCP registers only the non-nil ones.
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
-		EngagementTTL: s.engagementT,
-		GroupsDir:     s.groupsDir,
-		WebDir:        s.webDir,
+		EngagementTTL:        s.engagementT,
+		GroupsDir:            s.groupsDir,
+		WebDir:               s.webDir,
+		Audit:                s.audit,
+		FetchPlatformHistory: s.fetchPlatformHistory,
 		SendMessage: func(jid, text string) (string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, "")
 		},
@@ -250,6 +254,47 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	return err
 }
 
+// fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter
+// owning jid (Deliverer.FetchHistory → GET /v1/history), decode the
+// HistoryResponse, cache rows in routd.db (dedup by ID via PutMessage), and
+// return the decoded messages. Faithful port of gateway.fetchPlatformHistory:
+// on no-adapter/decode failure it returns source:"cache"/"cache-only" with
+// whatever the local DB holds. routd is the sole appender, so the cache write
+// stays on routd.db (its own table) — no cross-DB write.
+func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {
+	fallback := func(source string) (ipc.PlatformHistory, error) {
+		msgs, err := s.db.MessagesBefore(jid, beforeStr(before), limit)
+		if err != nil {
+			return ipc.PlatformHistory{}, err
+		}
+		return ipc.PlatformHistory{Source: source, Messages: msgs}, nil
+	}
+	if s.deliver == nil {
+		return fallback("cache-only")
+	}
+	raw, err := s.deliver.FetchHistory(jid, before, limit)
+	if err != nil {
+		slog.Warn("fetch_history: adapter failed, falling back to cache", "jid", jid, "err", err)
+		return fallback("cache")
+	}
+	var resp chanlib.HistoryResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fallback("cache")
+	}
+	out := ipc.PlatformHistory{Source: resp.Source, Cap: resp.Cap}
+	for _, m := range resp.Messages {
+		cm := core.Message{
+			ID: m.ID, ChatJID: m.ChatJID, Sender: m.Sender, Content: m.Content,
+			Timestamp: time.Unix(m.Timestamp, 0).UTC(), ReplyToID: m.ReplyTo,
+		}
+		if cm.ID != "" {
+			_ = s.db.PutMessage(cm)
+		}
+		out.Messages = append(out.Messages, cm)
+	}
+	return out, nil
+}
+
 // beforeStr renders an ipc time bound as the RFC3339Nano string routd's read
 // methods expect; a zero time is the empty string (no bound → now).
 func beforeStr(t time.Time) string {
@@ -259,12 +304,43 @@ func beforeStr(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// buildStoreFns wires the read/manage agent tools to routd.DB. Every backing
-// method already exists on the DB (reads.go + db.go). Tools whose state lives
-// elsewhere are deferred nil: tasks → timed, ACL/Authorize/identity/audit →
-// authd, session_log → runed (see bugs.md).
+// errTaskFederation is returned by the task WRITE tools (schedule_task,
+// pause_task, resume_task, cancel_task). routd reads scheduled_tasks RO from
+// the sibling messages.db (timed owns the write side); a cross-DB write would
+// corrupt timed's table, so the write path errors clearly instead of faking
+// success until timed exposes a /v1/tasks CRUD surface (bugs.md "runed StoreFns
+// federation").
+var errTaskFederation = fmt.Errorf("task scheduling runs in timed (federation pending)")
+
+// buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
+// state lives in a sibling DB read RO via the sibling handles (tasks/identity →
+// messages.db, session_log → runed.db; graceful-absent → empty). Task WRITE
+// tools dispatch errTaskFederation (no cross-DB write to timed's table).
+// Deferred nil: LogIPCAudit (audit_log lives in messages.db, owned elsewhere —
+// see buildGatedFns.Audit for routd's ownership-correct slog/.jl path).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	return ipc.StoreFns{
+		// Task reads: scheduled_tasks + task_run_logs live in the sibling
+		// messages.db (timed's tables). RO via aclStore(); nil handle → empty.
+		ListTasks: s.db.SiblingTasks,
+		GetTask:   s.db.SiblingGetTask,
+		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
+			return s.db.SiblingTaskRunLogs(taskID, limit)
+		},
+		// Task writes: federation-pending. inspect_tasks registers pause/resume/
+		// cancel only when GetTask != nil; their exec is UpdateTaskStatus/
+		// DeleteTask, and CreateTask backs schedule_task — all error clearly
+		// rather than write timed's table cross-DB.
+		CreateTask:       func(core.Task) error { return errTaskFederation },
+		UpdateTaskStatus: func(string, string) error { return errTaskFederation },
+		DeleteTask:       func(string) error { return errTaskFederation },
+		// Session reads: current session_id from routd.db (own table); recent
+		// session_log rows from the sibling runed.db (runed's table).
+		GetSession:     s.db.GetSession,
+		RecentSessions: s.db.SiblingRecentSessions,
+		// Identity reads: identities/identity_claims live in the sibling
+		// messages.db (gated's store). RO via aclStore(); nil handle → unclaimed.
+		GetIdentityForSub: s.db.SiblingIdentityForSub,
 		ListRoutes: func(_ string, _ bool) []core.Route {
 			r, _ := s.db.Routes()
 			return r
@@ -343,6 +419,14 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
+		// MCP connectors (spec 9/11 M6): the discovered catalog + the per-call
+		// secret resolver. ResolveConnectorSecrets reads folder/user secrets RO
+		// from the sibling messages.db, decrypts via SECRETS_KEY, and narrows to
+		// the connector's declared secrets= list — so CallConnectorTool both
+		// injects them into the subprocess env AND scrubs their values from the
+		// result (the nil resolver would leave the connector unscrubbed).
+		Connectors:              s.connectors,
+		ResolveConnectorSecrets: s.db.ConnectorSecrets,
 		// ACL: list_acl reads the operator rows from the sibling messages.db;
 		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub
 		// is set. Both nil-safe (absent messages.db → no rows / deny).
