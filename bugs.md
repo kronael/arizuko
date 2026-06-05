@@ -1857,3 +1857,17 @@ per-instance port handling; (3) build the messages.db->split migrator; (4) valid
 boot+turn end-to-end on a fresh instance; (5) backup + cutover (krons first). Steps 3
 + the cutover are the real program; the split-flip is a one-way production-topology
 decision. E-routd/P-runed status stays partial until this lands.
+
+## DEPLOY LANDMINE: SECRETS_KEY-required crashes pre-existing instances (2026-06-05, HIGH ops)
+
+Rebuilding the arizuko image from current code (post-259893fd "secrets require SECRETS_KEY")
+and restarting an instance whose .env LACKS SECRETS_KEY => gated FATALs
+"SECRETS_KEY required" and crash-loops => full outage (channels can't register, /pub 502).
+Hit LIVE on krons this session; recovered by appending SECRETS_KEY=<64 hex> to
+/srv/data/arizuko_krons/.env + `docker restart arizuko_gated_krons` (gated reads the
+mounted .env; plaintext secrets auto-encrypt in place on start, no data loss).
+FLEET RISK: marinade + sloth + any instance created before SECRETS_KEY-gen landed in
+`arizuko create` will ALSO crash-loop gated on their next image redeploy. BEFORE
+redeploying any of them: set SECRETS_KEY in the instance .env first (64 hex chars =
+hex(32 random bytes), matching `arizuko create`). Hardening options: gated warn-not-fatal
+for one release grace; `arizuko` backfills SECRETS_KEY on upgrade.
