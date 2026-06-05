@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -29,16 +30,10 @@ const (
 func main() {
 	defer obs.Setup("authd", os.Getenv("ARIZUKO_INSTANCE"))()
 
-	dsn := os.Getenv("DATABASE")
-	if dsn == "" {
-		dataDir := os.Getenv("DATA_DIR")
-		if dataDir == "" {
-			slog.Error("DATABASE or DATA_DIR env required")
-			os.Exit(1)
-		}
-		// authd owns auth.db and runs its own migrations; it must NOT migrate
-		// gated's messages.db (CLAUDE.md DB-ownership rule).
-		dsn = filepath.Join(dataDir, "auth.db")
+	dsn, err := resolveDSN(os.Getenv("DATABASE"), os.Getenv("DATA_DIR"))
+	if err != nil {
+		slog.Error("resolve db path", "err", err)
+		os.Exit(1)
 	}
 	listenAddr := os.Getenv("LISTEN_ADDR")
 	if listenAddr == "" {
@@ -134,6 +129,28 @@ func main() {
 	defer cancel()
 	_ = httpd.Shutdown(ctx)
 }
+
+// resolveDSN picks authd's SQLite path. An explicit DATABASE wins; otherwise
+// the DB is <DATA_DIR>/store/auth.db — under store/ alongside routd.db /
+// runed.db / messages.db so a single `store/` chown to the container uid makes
+// every daemon's DB writable on a fresh root-owned data dir. authd owns auth.db
+// and runs its own migrations; it must NOT migrate gated's messages.db
+// (CLAUDE.md DB-ownership rule).
+func resolveDSN(database, dataDir string) (string, error) {
+	if database != "" {
+		return database, nil
+	}
+	if dataDir == "" {
+		return "", errMissingDB
+	}
+	storeDir := filepath.Join(dataDir, "store")
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(storeDir, "auth.db"), nil
+}
+
+var errMissingDB = errors.New("DATABASE or DATA_DIR env required")
 
 // loadServiceSecrets parses AUTHD_SERVICE_KEYS — a comma-separated list of
 // `principal=secret` pairs — into secret→principal. Compose generation writes

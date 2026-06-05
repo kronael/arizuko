@@ -254,11 +254,18 @@ func cmdCreate(args []string) {
 		}
 	}
 
-	s, err := store.Open(filepath.Join(dataDir, "store"))
+	storeDir := filepath.Join(dataDir, "store")
+	s, err := store.Open(storeDir)
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
 	defer s.Close()
+	// Daemons run as uid 1000 (compose `user: '1000:1000'`) but `sudo arizuko
+	// create` makes the tree root-owned, so uid 1000 can't open the SQLite DBs
+	// under store/ (SQLITE_CANTOPEN). chown store/ — and only store/ — to 1000
+	// so every daemon's DB is writable; the data-dir root and .env stay
+	// root-owned (matches the working krons layout).
+	chownStore(storeDir)
 	if err := s.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
@@ -286,6 +293,29 @@ func cmdCreate(args []string) {
 			fmt.Printf("skills: %s\n", strings.Join(manifest.Skills, ", "))
 		}
 		fmt.Printf("\nnext: populate %s/groups/main/facts/ then: arizuko run %s\n", dataDir, name)
+	}
+}
+
+// containerUID/GID is the uid every compose service runs as (`user:
+// '1000:1000'`). Hardcoded to match compose; not a config knob.
+const containerUID, containerGID = 1000, 1000
+
+// chownStore best-effort chowns store/ (and its contents) to the container uid
+// so uid-1000 daemons can open their SQLite DBs in a root-owned tree. Non-root
+// callers can't chown to another uid (EPERM); warn and continue rather than
+// fail create — on a user-writable /srv/data the operator-owned dir is already
+// fine.
+func chownStore(storeDir string) {
+	err := filepath.Walk(storeDir, func(p string, _ os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		return os.Chown(p, containerUID, containerGID)
+	})
+	if err != nil {
+		slog.Warn("could not chown store dir to container uid; run as root or fix manually",
+			"dir", storeDir, "uid", containerUID, "err", err,
+			"fix", fmt.Sprintf("sudo chown -R %d:%d %s", containerUID, containerGID, storeDir))
 	}
 }
 

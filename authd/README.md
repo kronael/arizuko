@@ -51,7 +51,8 @@ created by authd's own migrations in `authd/migrations/`. authd owns
 
 ## Configuration
 
-- `DATABASE` / `DATA_DIR` — `auth.db` DSN (DATA_DIR resolves `<dir>/auth.db`)
+- `DATABASE` / `DATA_DIR` — `auth.db` DSN (DATA_DIR resolves `<dir>/store/auth.db`,
+  alongside routd.db/runed.db/messages.db so one `store/` chown covers all DBs)
 - `AUTHD_SERVICE_KEY` — authd's own bootstrap secret (self-mint identity)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
 - `GRANTS_URL` — gated grants fetcher; unset → sessions are empty-scope
