@@ -68,6 +68,12 @@ type config struct {
 	AssistantName string
 	MediaMaxBytes int64
 	CacheTTL      time.Duration
+	// StaleSeconds: inbound silence beyond this marks the link dead (/health 503,
+	// watchdog recovery). WatchdogEvery: how often the watchdog re-checks.
+	// StaleFailLimit: consecutive stale checks (after re-probe) before os.Exit(1).
+	StaleSeconds   int64
+	WatchdogEvery  time.Duration
+	StaleFailLimit int
 	// StoreDir is the directory containing messages.db (the parent of the
 	// db file). Empty disables pane-session persistence. Derived from
 	// DB_PATH (preferred) or DATA_DIR/store.
@@ -76,17 +82,20 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Name:          chanlib.EnvOr("CHANNEL_NAME", "slack"),
-		BotToken:      chanlib.MustEnv("SLACK_BOT_TOKEN"),
-		SigningSecret: chanlib.MustEnv("SLACK_SIGNING_SECRET"),
-		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("SLAKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
-		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":8080"),
-		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
-		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),
-		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
-		CacheTTL:      time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
-		StoreDir:      storeDirFromEnv(),
+		Name:           chanlib.EnvOr("CHANNEL_NAME", "slack"),
+		BotToken:       chanlib.MustEnv("SLACK_BOT_TOKEN"),
+		SigningSecret:  chanlib.MustEnv("SLACK_SIGNING_SECRET"),
+		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
+		ChannelSecret:  chanlib.EnvOr("SLAKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
+		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
+		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
+		AssistantName:  chanlib.EnvOr("ASSISTANT_NAME", ""),
+		MediaMaxBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		CacheTTL:       time.Duration(chanlib.EnvInt("SLAKD_USERS_CACHE_TTL", 900)) * time.Second,
+		StoreDir:       storeDirFromEnv(),
+		StaleSeconds:   int64(chanlib.EnvInt("SLAKD_STALE_SECONDS", 300)),
+		WatchdogEvery:  time.Duration(chanlib.EnvInt("SLAKD_WATCHDOG_SECONDS", 60)) * time.Second,
+		StaleFailLimit: chanlib.EnvInt("SLAKD_STALE_FAIL_LIMIT", 5),
 	}
 }
 

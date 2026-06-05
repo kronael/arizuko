@@ -1165,6 +1165,133 @@ func TestSend_NonPaneNoPromptCall(t *testing.T) {
 	}
 }
 
+// ===== watchdog / stale-inbound recovery (2026-06-05 silent-death fix) =====
+
+// /health returns 503 (not 200) when inbound has gone stale, through the full
+// server chain — the bug that let an 11h outage report "healthy".
+func TestHealth_StaleReturns503(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.connected.Store(true)
+	b.lastInboundAt.Store(time.Now().Add(-30 * time.Minute).Unix())
+
+	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh", ChannelSecret: "chsec"}
+	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("stale /health code = %d, want 503", w.Code)
+	}
+	var body map[string]any
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["status"] != "stale" {
+		t.Errorf("status = %v, want stale", body["status"])
+	}
+}
+
+// Fresh inbound keeps /health at 200 — happy path must not regress.
+func TestHealth_FreshReturns200(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.connected.Store(true)
+	b.lastInboundAt.Store(time.Now().Unix())
+
+	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh", ChannelSecret: "chsec"}
+	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	s.handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("fresh /health code = %d, want 200", w.Code)
+	}
+}
+
+// The watchdog re-probes auth.test when inbound is stale — the only recovery
+// action slakd can take (Slack pushes events; there is no socket to re-dial).
+// On a recovered probe the connected flag is restored to true.
+func TestWatchdog_ReprobesOnStale(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.cfg.StaleSeconds = 1
+	b.cfg.WatchdogEvery = 2 * time.Millisecond
+	b.cfg.StaleFailLimit = 1_000_000 // huge so the backstop never exits during the test
+	b.lastInboundAt.Store(time.Now().Add(-time.Hour).Unix())
+	b.connected.Store(false) // watchdog must flip this back on a healthy probe
+
+	mock.mu.Lock()
+	before := mock.authCalls
+	mock.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.watchdog(ctx)
+
+	if !waitFor(500*time.Millisecond, func() bool {
+		mock.mu.Lock()
+		defer mock.mu.Unlock()
+		return mock.authCalls > before
+	}) {
+		t.Fatal("watchdog did not re-probe auth.test on stale inbound")
+	}
+	if !waitFor(500*time.Millisecond, func() bool { return b.isConnected() }) {
+		t.Fatal("watchdog did not restore connected=true after a healthy probe")
+	}
+}
+
+// A fresh stream means the watchdog stays quiet — no probe, no exit.
+func TestWatchdog_QuietWhenFresh(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.cfg.StaleSeconds = 300
+	b.cfg.WatchdogEvery = 2 * time.Millisecond
+	b.cfg.StaleFailLimit = 3
+	b.lastInboundAt.Store(time.Now().Unix())
+
+	mock.mu.Lock()
+	before := mock.authCalls
+	mock.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go b.watchdog(ctx)
+	time.Sleep(40 * time.Millisecond) // several intervals
+	cancel()
+
+	mock.mu.Lock()
+	after := mock.authCalls
+	mock.mu.Unlock()
+	if after != before {
+		t.Errorf("watchdog probed a fresh stream: %d -> %d", before, after)
+	}
+}
+
+// The restart-backstop decision: exit only when currently stale AND the stale
+// streak has reached the limit; a recovered tick (stale=false) never exits and
+// resets the streak.
+func TestWatchdogShouldExit(t *testing.T) {
+	cases := []struct {
+		stale bool
+		fails int
+		limit int
+		want  bool
+	}{
+		{stale: true, fails: 5, limit: 5, want: true},   // hit the limit
+		{stale: true, fails: 6, limit: 5, want: true},   // past the limit
+		{stale: true, fails: 4, limit: 5, want: false},  // not yet
+		{stale: false, fails: 9, limit: 5, want: false}, // recovered ⇒ never exit
+		{stale: true, fails: 1, limit: 1, want: true},   // limit of 1
+	}
+	for _, c := range cases {
+		if got := watchdogShouldExit(c.stale, c.fails, c.limit); got != c.want {
+			t.Errorf("watchdogShouldExit(%v,%d,%d) = %v, want %v", c.stale, c.fails, c.limit, got, c.want)
+		}
+	}
+}
+
 // ===== helpers =====
 
 func writeFile(t *testing.T, path string, data []byte) {

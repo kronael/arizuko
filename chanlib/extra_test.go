@@ -517,4 +517,48 @@ func TestHandlerHealthDefaultThreshold(t *testing.T) {
 	if resp["status"] != "stale" {
 		t.Error("telegram 6-min-old should be stale (threshold=5min)")
 	}
+	// Non-strict adapters keep stale as an informational 200.
+	if w.Code != 200 {
+		t.Errorf("telegram stale code = %d, want 200 (non-strict)", w.Code)
+	}
+}
+
+// strictStale adapters (slack) return 503 when stale so Docker's healthcheck
+// can mark the container unhealthy — the 2026-06-05 outage regression guard.
+func TestHandlerHealthStrictStaleReturns503(t *testing.T) {
+	last := time.Now().Add(-6 * time.Minute).Unix()
+	h := NewAdapterMux("slack", "sec", []string{"slack:"}, &mockBot{},
+		func() bool { return true }, func() int64 { return last })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 503 {
+		t.Fatalf("slack stale code = %d, want 503", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "stale" {
+		t.Errorf("status = %v, want stale (body must still diagnose staleness)", resp["status"])
+	}
+	if _, ok := resp["stale_seconds"]; !ok {
+		t.Error("stale_seconds missing from strict-stale body")
+	}
+}
+
+// A fresh strict-stale adapter still returns 200 — the happy path must not regress.
+func TestHandlerHealthStrictFreshReturns200(t *testing.T) {
+	last := time.Now().Unix()
+	h := NewAdapterMux("slack", "sec", []string{"slack:"}, &mockBot{},
+		func() bool { return true }, func() int64 { return last })
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("slack fresh code = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "ok" {
+		t.Errorf("status = %v, want ok", resp["status"])
+	}
 }

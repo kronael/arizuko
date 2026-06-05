@@ -244,7 +244,73 @@ func (b *bot) start(ctx context.Context, rc *chanlib.RouterClient) error {
 	// auth.test periodically and flip connected on the result. Bound the probe
 	// to the Start ctx so the goroutine exits on shutdown.
 	go b.healthProbe(ctx, 60*time.Second)
+	go b.watchdog(ctx)
 	return nil
+}
+
+// staleConfig captures the watchdog thresholds with sane fallbacks so a
+// zero-value config (tests, missing env) still behaves.
+func (b *bot) staleConfig() (staleSec int64, every time.Duration, limit int) {
+	staleSec, every, limit = b.cfg.StaleSeconds, b.cfg.WatchdogEvery, b.cfg.StaleFailLimit
+	if staleSec <= 0 {
+		staleSec = 300
+	}
+	if every <= 0 {
+		every = 60 * time.Second
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	return
+}
+
+// watchdog detects a silently-dead inbound stream and recovers it. slakd has no
+// socket to reconnect — Slack PUSHES events to /slack/events — so when delivery
+// stops while auth.test still succeeds (Slack-side subscription pause, app
+// reinstall, repeated non-2xx disabling the subscription) there is nothing to
+// re-dial. The honest recovery is to re-probe auth.test (refresh /health) and,
+// if inbound stays stale past the fail limit, os.Exit(1) so the on-failure
+// restart policy re-creates the container and clears the transient Slack-side
+// state. Costs an 11h outage on 2026-06-05 when nothing detected the freeze.
+func (b *bot) watchdog(ctx context.Context) {
+	staleSec, every, limit := b.staleConfig()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	fails := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			age := time.Now().Unix() - b.lastInboundAt.Load()
+			stale := age > staleSec
+			if stale {
+				// Re-probe so /health and a genuine token death surface fast;
+				// also gives Slack a round-trip to recover before we count it.
+				if _, _, err := b.authTest(ctx); err != nil {
+					b.connected.Store(false)
+				} else {
+					b.connected.Store(true)
+				}
+				fails++
+				slog.Warn("slack inbound stale", "stale_seconds", age, "consecutive", fails, "limit", limit)
+			} else {
+				fails = 0
+			}
+			if watchdogShouldExit(stale, fails, limit) {
+				slog.Error("slack inbound dead past deadline; exiting for restart",
+					"stale_seconds", age, "consecutive_fails", fails, "limit", limit)
+				os.Exit(1)
+			}
+		}
+	}
+}
+
+// watchdogShouldExit is the restart-backstop decision, factored out so it can be
+// tested without a real os.Exit. Exit only when currently stale AND the stale
+// streak has reached the limit (a single recovered tick resets the streak).
+func watchdogShouldExit(stale bool, consecutiveFails, limit int) bool {
+	return stale && consecutiveFails >= limit
 }
 
 // healthProbe re-checks Slack reachability with the configured token so

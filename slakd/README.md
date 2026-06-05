@@ -116,6 +116,9 @@ LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
+SLAKD_STALE_SECONDS=300       inbound silence past this ⇒ /health 503 + watchdog
+SLAKD_WATCHDOG_SECONDS=60     watchdog re-check interval
+SLAKD_STALE_FAIL_LIMIT=5      consecutive stale checks before os.Exit(1) restart
 ```
 
 `SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` on the
@@ -149,9 +152,23 @@ registration auth (not yet implemented; a different value will cause 401).
 ## Health signal
 
 `GET /health` returns 503 when `auth.test` has not succeeded (token
-revoked, network outage, Slack down). Reconnect = restart the process;
-slakd doesn't long-poll, so transient Slack outages are observed only
-on the next outbound call.
+revoked, network outage, Slack down) — body `{"status":"disconnected"}`.
+
+It also returns 503 when **inbound has gone stale**: Slack pushes events
+to `/slack/events`, so a healthy token with a silently-paused event
+subscription (app reinstall, repeated non-2xx disabling delivery,
+Slack-side pause) would otherwise report 200 forever — the bug that hid
+an 11h outage (2026-06-05). When the last inbound is older than
+`SLAKD_STALE_SECONDS` the body reads `{"status":"stale","stale_seconds":N}`
+and the code is 503, so Docker's healthcheck marks the container
+unhealthy.
+
+A watchdog goroutine (`SLAKD_WATCHDOG_SECONDS` cadence) re-probes
+`auth.test` while stale — the only recovery slakd can self-perform,
+since there is no socket to reconnect — and after `SLAKD_STALE_FAIL_LIMIT`
+consecutive stale checks calls `os.Exit(1)` so the `restart: on-failure`
+policy re-creates the container and clears the transient Slack-side
+state. A single inbound message resets the streak.
 
 ## Threat model
 
