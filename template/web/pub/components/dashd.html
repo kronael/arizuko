@@ -78,12 +78,12 @@
       filesystem: &lt;groups&gt;/&lt;folder&gt;/MEMORY.md, diary/*.md, ...</code></pre>
     </div>
 
-    <p>dashd reads identity from signed headers set by <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard. Read views still depend on proxyd alone for the front gate.</p>
+    <p>dashd reads identity from signed headers set by <a href="../components/proxyd.html">proxyd</a>&rsquo;s <code>requireAuth</code>, and it checks the signature itself: every <code>/dash/*</code> handler &mdash; read views included &mdash; runs through <code>guard</code>, which calls <code>auth.RequireSigned(PROXYD_HMAC_SECRET)</code>. A request that skips proxyd carries no valid <code>X-User-Sig</code>, so it never reaches a handler. Only <code>/health</code>, <code>/openapi.json</code>, and the htmx asset stay public. Write verbs go further: every TIER 1 mutation runs <code>requireAdmin</code>, which calls <code>auth.Authorize</code> with action <code>admin</code> against the caller&rsquo;s groups, plus a same-origin CSRF guard.</p>
 
     <p>Two write paths today. The <strong>memory editor</strong> accepts <code>MEMORY.md</code>, <code>.claude/CLAUDE.md</code>, and flat <code>*.md</code> under <code>diary/</code>, <code>facts/</code>, <code>users/</code>, and <code>episodes/</code>. Reads are capped at 1&nbsp;MiB, and the path joiner blocks any symlink that escapes the group folder. <strong>TIER 1 admin</strong> &mdash; routes editor, groups CRUD, per-user secrets &mdash; sits behind the admin check above.</p>
 
     <h2>Standalone usage</h2>
-    <p>dashd needs a SQLite file and a port. The TIER 1 write paths refuse requests without a signed admin identity; read views still need proxyd&rsquo;s front gate to be safe on the public internet.</p>
+    <p>dashd needs a SQLite file and a port. Set <code>PROXYD_HMAC_SECRET</code> to the same value proxyd uses and dashd verifies every <code>/dash/*</code> request&rsquo;s signature itself &mdash; an unsigned request gets redirected to login. Leave it unset for local dev and the guard passes through, which is why you still front dashd with proxyd on the public internet: proxyd terminates TLS, runs the login flow, and stamps the signed headers dashd trusts.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export DASH_PORT=:8080
@@ -93,7 +93,7 @@ export INSTANCE_NAME=demo
 
     <p><code>DATA_DIR</code> resolves the database at <code>$DATA_DIR/store/messages.db</code> and the groups tree at <code>$DATA_DIR/groups/</code>. Set <code>DB_PATH</code> to override the database location independently. <code>INSTANCE_NAME</code> appears in the portal header.</p>
 
-    <p>Health: <code>GET /health</code> returns 200 when the database is reachable. Exposing dashd directly on the public internet skips the auth gate &mdash; do not do this.</p>
+    <p>Health: <code>GET /health</code> returns 200 when the database is reachable. With <code>PROXYD_HMAC_SECRET</code> set, exposing dashd directly still rejects unsigned requests &mdash; but proxyd owns TLS and the login flow, so front it with proxyd anyway.</p>
 
     <h2>The page set</h2>
     <p>Read views (each one HTML the browser renders directly):</p>
@@ -149,7 +149,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

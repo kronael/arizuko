@@ -88,7 +88,7 @@ local:alice</code></pre>
       <li><code>proxyd.tryAuth</code> verifies the JWT signature with <code>AUTH_SECRET</code>. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>.</li>
       <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>PROXYD_HMAC_SECRET</code>.</li>
       <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
-      <li><code>dashd</code> wraps its handlers in <code>auth.RequireSigned(CHANNEL_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
+      <li><code>dashd</code> wraps every <code>/dash/*</code> handler in <code>auth.RequireSigned(PROXYD_HMAC_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
       <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
     </ol>
     <div class="callout"><strong>Why two secrets?</strong> <code>AUTH_SECRET</code> signs the JWT the browser holds. <code>PROXYD_HMAC_SECRET</code> signs the header <code>proxyd</code> stamps for backends. They are different boundaries: browser&hairsp;&harr;&hairsp;proxyd vs proxyd&hairsp;&harr;&hairsp;backend.</div>
@@ -111,7 +111,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
       </div>
     </main>
 

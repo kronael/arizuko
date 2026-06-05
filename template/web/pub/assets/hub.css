@@ -305,10 +305,19 @@ pre {
 .docs-content .note { font-size: 0.85em; color: var(--dim); }
 
 .docs-content .callout {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
   border-left: 3px solid var(--accent);
-  padding: 0.4em 0.8em;
-  margin: 0.8em 0;
-  background: var(--card);
+  border-radius: 4px;
+  padding: 0.7em 1em;
+  margin: 1em 0;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+}
+.docs-content .callout > strong:first-child {
+  display: inline-block;
+  margin-right: 0.4em;
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .docs-content .tablecard {

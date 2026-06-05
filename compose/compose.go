@@ -689,6 +689,9 @@ func authdService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString(envFileFor("authd"))
 	b.WriteString("    environment:\n")
 	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
+	// authd snapshots login/refresh scopes by calling routd's ACL owner
+	// (GET /v1/users/{sub}/scopes). Unset -> empty-scope sessions (spec 5/5).
+	b.WriteString("      GRANTS_URL: 'http://routd:8080'\n")
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
