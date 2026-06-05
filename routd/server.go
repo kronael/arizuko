@@ -266,7 +266,6 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request, anyScope ...stri
 	return ok
 }
 
-// adapterName extracts the calling adapter's name from its service token
 // --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {

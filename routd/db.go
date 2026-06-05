@@ -293,9 +293,7 @@ func (d *DB) MessageExists(id string) bool {
 // NewMessages returns rows with timestamp > since across all chats, plus
 // the new high-water mark. Mirrors store.NewMessages (the pollOnce feed).
 func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
-	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name, forwarded_from
+	rows, err := d.db.Query(`SELECT `+msgReadCols+`
 		FROM messages WHERE timestamp > ? ORDER BY timestamp ASC`, since)
 	if err != nil {
 		return nil, since, err
@@ -307,9 +305,7 @@ func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
 
 // MessagesSince returns one chat's rows with timestamp > since.
 func (d *DB) MessagesSince(chatJID, since string) ([]core.Message, error) {
-	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name, forwarded_from
+	rows, err := d.db.Query(`SELECT `+msgReadCols+`
 		FROM messages WHERE chat_jid=? AND timestamp > ? ORDER BY timestamp ASC`, chatJID, since)
 	if err != nil {
 		return nil, err
@@ -325,9 +321,7 @@ func (d *DB) History(chatJID, before string, limit int) ([]core.Message, error) 
 	if limit <= 0 {
 		limit = 50
 	}
-	q := `SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-		is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id, status,
-		platform_id, chat_name, forwarded_from FROM messages WHERE chat_jid=?`
+	q := `SELECT ` + msgReadCols + ` FROM messages WHERE chat_jid=?`
 	args := []any{chatJID}
 	if before != "" {
 		q += " AND timestamp < ?"
@@ -405,9 +399,7 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := d.db.Query(`SELECT id, chat_jid, sender, sender_name, content, timestamp,
-		is_from_me, is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id,
-		status, platform_id, chat_name, forwarded_from
+	rows, err := d.db.Query(`SELECT `+msgReadCols+`
 		FROM messages WHERE status='pending' AND is_bot_message=1 AND timestamp <= ?
 		ORDER BY timestamp ASC LIMIT ?`, cutoff.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
