@@ -25,16 +25,27 @@ const serviceName = "routd"
 // (spec 5/E). Times are RFC3339Nano UTC, computed in Go.
 type DB struct {
 	db *sql.DB
+
+	// Read-only handles to the sibling DBs in the same store/ dir, owned
+	// (written) by other split daemons; nil when the file is absent. See
+	// sibling_db.go.
+	msgs    *sql.DB // messages.db — scheduled_tasks (timed), pane_sessions (slakd)
+	runedDB *sql.DB // runed.db — session_log (runed)
 }
 
-// Open opens routd.db at dir/routd.db (WAL, FK on) and runs the routd
-// migration sequence.
+// Open opens routd.db at dir/routd.db (WAL, FK on), runs the routd migration
+// sequence, and attaches read-only handles to the sibling DBs in dir.
 func Open(dir string) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	return open(dsn)
+	d, err := open(dsn)
+	if err != nil {
+		return nil, err
+	}
+	d.msgs, d.runedDB = openSiblings(dir)
+	return d, nil
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name
@@ -61,7 +72,15 @@ func open(dsn string) (*DB, error) {
 	return &DB{db: sqldb}, nil
 }
 
-func (d *DB) Close() error { return d.db.Close() }
+func (d *DB) Close() error {
+	if d.msgs != nil {
+		d.msgs.Close()
+	}
+	if d.runedDB != nil {
+		d.runedDB.Close()
+	}
+	return d.db.Close()
+}
 
 // SQL returns the raw handle for callers that need it (tests).
 func (d *DB) SQL() *sql.DB { return d.db }

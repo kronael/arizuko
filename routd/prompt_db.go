@@ -56,6 +56,18 @@ func (d *DB) FlushSysMsgs(folder string) string {
 	return b.String()
 }
 
+// EnqueueSysMsg appends one system_messages row for folder. emitSystemEvents
+// is the producer; FlushSysMsgs (above) is the consumer. routd's columns are
+// (source, kind, body) — gated's EnqueueSysMsg(folder, origin, event, body)
+// maps origin→source, event→kind. Port of store.EnqueueSysMsg.
+func (d *DB) EnqueueSysMsg(folder, source, kind, body string) error {
+	_, err := d.db.Exec(
+		`INSERT INTO system_messages (folder, source, kind, body, created)
+		 VALUES (?, ?, ?, ?, ?)`,
+		folder, source, kind, body, nowTS())
+	return err
+}
+
 // TopicLineage returns the lineage row for (folder, topic); the prompt path
 // consumes only ObservedCursor (parent + forked_at are audit metadata).
 // ok=false when no row exists.

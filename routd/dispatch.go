@@ -3,9 +3,13 @@ package routd
 import (
 	"context"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -92,6 +96,10 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // whole batch after all per-sender/per-topic turns close.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
 	last := trigger[len(trigger)-1]
+	// Enqueue new_day / new_session system messages BEFORE building the prompt
+	// so buildAgentPrompt's FlushSysMsgs renders them this turn (gated order:
+	// emitSystemEvents → buildAgentPrompt, gateway.go § processSenderBatch).
+	l.emitSystemEvents(folder, chatJID)
 	rendered := l.buildAgentPrompt(folder, topic, trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead
 	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
@@ -130,6 +138,19 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 				slog.Warn("serve turn mcp", "folder", folder, "turn_id", turnID, "err", serr)
 			}
 		}
+	}
+
+	// Write the per-spawn snapshots the in-container agent reads (current_tasks
+	// / available_groups JSON) right before dispatch, mirroring gated's call
+	// site (gateway.go § spawn). Root sees all tasks + groups; a child sees
+	// only its own tasks and no groups list. scheduled_tasks is timed's table
+	// in messages.db, read RO via the sibling handle (sibling_db.go). Skip when
+	// no ipc dir is configured (no spawn target — REST/unit tests) so the write
+	// doesn't resolve to a relative path under cwd.
+	if l.folders != nil && l.folders.IpcDir != "" {
+		isRoot := groupfolder.IsRoot(folder)
+		container.WriteTasksSnapshot(l.folders, folder, isRoot, l.db.SiblingTasks(folder, isRoot))
+		container.WriteGroupsSnapshot(l.folders, folder, isRoot, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 
 	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,

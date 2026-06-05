@@ -44,15 +44,44 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 	if len(observed) > 0 {
 		rules += "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
 	}
-	// pane_sessions not in routd.db; Slack-pane hints deferred (bugs.md).
-	// previous-session XML omitted: session_log lives in runed; continuity hint deferred.
-	envelope := `<topic name="` + topic + `" />` + "\n"
+	envelope := `<topic name="` + topic + `" />` + "\n" + l.paneHints(trigger)
 	return sysMsgs +
 		l.autocallsBlock(folder, topic) +
 		l.personaBlock(folder) +
 		rules +
 		envelope +
 		router.FormatMessages(trigger, observed)
+}
+
+// paneHints emits <surface>slack-pane</surface> and an optional
+// <pane-context jid="..."/> when the trigger originated in an open Slack
+// assistant pane. Hash-keyed on the chat_jid's DM channel id (slack: prefix
+// only); other surfaces yield empty. Spec 6/D. Port of gateway paneHints —
+// pane_sessions is slakd's table in messages.db, read RO via the sibling
+// handle (sibling_db.go), so the data source is faithful to gated.
+func (l *Loop) paneHints(trigger []core.Message) string {
+	if l.db == nil || len(trigger) == 0 {
+		return ""
+	}
+	jid := trigger[0].ChatJID
+	const prefix = "slack:"
+	if !strings.HasPrefix(jid, prefix) {
+		return ""
+	}
+	// jid shape: slack:<team>/<kind>/<id>
+	parts := strings.SplitN(jid[len(prefix):], "/", 3)
+	if len(parts) != 3 || parts[2] == "" {
+		return ""
+	}
+	ctxJID, ok := l.db.SiblingPaneContextJID(parts[2])
+	if !ok {
+		return ""
+	}
+	out := "<surface>slack-pane</surface>\n"
+	if ctxJID != "" {
+		out += `<pane-context jid="` + ctxJID + `" />` + "\n"
+	}
+	return out
 }
 
 var personaFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
@@ -180,4 +209,53 @@ func (l *Loop) observeWindow(folder string) (int, int) {
 		break // first route with an override wins (spec 6/F)
 	}
 	return maxN, maxC
+}
+
+// emitSystemEvents enqueues new_day / new_session system messages for
+// (folder, chatJID) before the prompt is built; FlushSysMsgs renders them
+// into the next turn's envelope. Port of gateway emitSystemEvents (called per
+// dispatch in runTurn, the routd twin of gated's processSenderBatch). new_day
+// fires when the chat's cursor crossed midnight; new_session fires when no
+// live session_id is recorded and carries the prior session's tail. Run
+// BEFORE buildAgentPrompt so the flush picks the rows up the same turn.
+func (l *Loop) emitSystemEvents(folder, chatJID string) {
+	today := time.Now().Format("2006-01-02")
+
+	if cur := l.db.GetAgentCursor(chatJID); cur != "" {
+		if t, err := time.Parse(time.RFC3339Nano, cur); err == nil &&
+			t.Format("2006-01-02") != today {
+			_ = l.db.EnqueueSysMsg(folder, "gateway", "new_day",
+				fmt.Sprintf("Date changed to %s", today))
+		}
+	}
+
+	if l.db.SessionID(folder, "") == "" {
+		body := previousSessionXML(l.db.SiblingRecentSessions(folder, 1))
+		_ = l.db.EnqueueSysMsg(folder, "gateway", "new_session", body)
+	}
+}
+
+// previousSessionXML renders the most recent session_log row as a
+// <previous_session> tag for the new_session continuity hint. Empty input →
+// "" (no prior run on file). Port of gateway previousSessionXML — exact tag
+// shape, the agent parses it.
+func previousSessionXML(sessions []core.SessionRecord) string {
+	if len(sessions) == 0 {
+		return ""
+	}
+	s := sessions[0]
+	result, ended := s.Result, ""
+	if result == "" {
+		result = "unknown"
+	}
+	if s.EndedAt != nil {
+		ended = s.EndedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	sid := s.SessionID
+	if len(sid) > 8 {
+		sid = sid[:8]
+	}
+	return fmt.Sprintf(
+		`<previous_session id=%q started=%q ended=%q msgs="%d" result=%q/>`,
+		sid, s.StartedAt.Format("2006-01-02T15:04:05Z07:00"), ended, s.MsgCount, result)
 }
