@@ -22,8 +22,6 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-const oauthStateCookie = "oauth_state"
-
 // oauth carries everything the /auth/* handlers need: the signer (authd), the
 // provider config, the CSRF-state HMAC key, and the optional grants fetcher for
 // the login-time scope snapshot.
