@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -342,9 +343,14 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
-		AddNetworkRule:       s.db.AddNetworkRule,
-		RemoveNetworkRule:    s.db.RemoveNetworkRule,
-		ResolveAllowlist:     s.db.ResolveAllowlist,
+		// ACL: list_acl reads the operator rows from the sibling messages.db;
+		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub
+		// is set. Both nil-safe (absent messages.db → no rows / deny).
+		ListACL:           s.db.ListACL,
+		Authorize:         s.db.Authorize,
+		AddNetworkRule:    s.db.AddNetworkRule,
+		RemoveNetworkRule: s.db.RemoveNetworkRule,
+		ResolveAllowlist:  s.db.ResolveAllowlist,
 		ListNetworkRules: func(folder string) ([]ipc.NetworkRule, error) {
 			rows, err := s.db.ListNetworkRules(folder)
 			if err != nil {
@@ -366,13 +372,33 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // per-turn from runTurn before dispatch.
 
 // deriveFolderGrants is the single grant-rule renderer for a folder: tier
-// defaults (grants.DeriveRules) keyed on the folder's tier + world. Used by both
-// ServeTurnMCP (the in-process MCP tool firewall) and dispatchRun (the rules
-// shipped to runed for buildMounts/egress) so the two can't drift. ACL overlay
-// is deferred (routd has no acl table — see bugs.md).
-func deriveFolderGrants(rs grants.RouteSource, folder string) []string {
+// defaults (grants.DeriveRules) keyed on the folder's tier + world, then the
+// per-folder operator ACL overlay. Used by both ServeTurnMCP (the in-process
+// MCP tool firewall) and dispatchRun (the rules shipped to runed for
+// buildMounts/egress) so the two can't drift. Faithful port of gateway's
+// runAgentWithOpts overlay (gateway.go): operator overrides for this folder's
+// agent live as acl rows with principal=folder:<folder> and action=mcp:<tool>;
+// append them onto the tier-derived rules so the grants check sees both
+// layers. deny precedence is preserved by the rule evaluator (grants.CheckAction
+// last-match-wins; a !rule denies). The acl rows live in the sibling messages.db
+// (read-only — operator/authd owns writes); absent handle → tier defaults only.
+func deriveFolderGrants(d *DB, folder string) []string {
 	tier := auth.Resolve(folder).Tier
-	return grants.DeriveRules(rs, folder, tier, auth.WorldOf(folder))
+	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
+	for _, r := range d.ListACL("folder:" + folder) {
+		if !strings.HasPrefix(r.Action, "mcp:") {
+			continue
+		}
+		rule := strings.TrimPrefix(r.Action, "mcp:")
+		if r.Params != "" {
+			rule += "(" + r.Params + ")"
+		}
+		if r.Effect == "deny" {
+			rule = "!" + rule
+		}
+		rules = append(rules, rule)
+	}
+	return rules
 }
 
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
@@ -389,5 +415,13 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
 		expectedUID = uid
 	}
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, "")
+	// Per-call row-ACL: pass the canonical in-container agent principal so
+	// ipc's authorizeCall runs auth.AuthorizeWith against the overlaid acl
+	// rows instead of short-circuiting (the G10 gap). spec 4/9 §Principals:
+	// the folder agent is principal=folder:<path> (matches the ListACL key in
+	// deriveFolderGrants + gated's StoreFns.Authorize caller). Empty when no
+	// acl table is present → callerSub still set but Authorize returns false
+	// only on an explicit deny; tier-default fallback covers the no-row case.
+	callerSub := "folder:" + t.folder
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub)
 }
