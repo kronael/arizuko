@@ -191,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/engagement", s.handleEngagementGet)
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
+	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	// turn callbacks (the sole-appender surface)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
@@ -363,6 +364,31 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// handleUserScopes serves the login-time scope snapshot authd pulls at session
+// issuance (spec 5/5 § routd owns acl). It evaluates {sub}'s scopes against
+// routd's OWN acl rows (UserScopes → store.UserScopes, membership-expanded).
+// 200 {"scope":[...],"folder":"..."} when the sub holds grants; 404
+// {"error":"no_grants"} when it holds none (authd maps that to ErrNoGrants).
+// Bearer-gated by grants:read (authd's service:authd token carries it).
+func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "grants:read") {
+		return
+	}
+	sub := r.PathValue("sub")
+	scope := s.db.UserScopes(sub)
+	if len(scope) == 0 {
+		writeErr(w, 404, "no_grants", "no grants for sub "+sub)
+		return
+	}
+	// folder is the single-subtree bound for the minted token: the lone scope
+	// when the sub holds exactly one, else empty (no single bound to claim).
+	folder := ""
+	if len(scope) == 1 {
+		folder = scope[0]
+	}
+	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
 }
 
 func randHex(n int) string {

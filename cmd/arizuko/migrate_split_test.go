@@ -50,6 +50,11 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_folder)
 		VALUES('tg:1','','m1','main')`)
 	exec(`INSERT INTO group_watchers(observer, source) VALUES('main','main/trading')`)
+	// acl + acl_membership: routd OWNS these now → copied to routd.db.
+	exec(`INSERT INTO acl(principal, action, scope, effect, granted_at)
+		VALUES('folder:main','mcp:send','main','allow','2026-01-01T00:00:00Z')`)
+	exec(`INSERT INTO acl_membership(child, parent, added_at)
+		VALUES('tg:1','role:operator','2026-01-01T00:00:00Z')`)
 
 	// transform: system_messages (group_id→folder, origin→source, event→kind, created_at→created; attrs dropped)
 	exec(`INSERT INTO system_messages(group_id, origin, event, attrs, body, created_at)
@@ -107,6 +112,8 @@ func TestMigrateSplit(t *testing.T) {
 		// network_rules: routd seeds 2 base rows (folder='') + our 1 → 3.
 		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
 		"system_messages": 1, "cost_log": 1,
+		// acl: our 1 seeded row + the role:operator row migration 0053 seeds = 2.
+		"acl": 2, "acl_membership": 1,
 	} {
 		if got := count(t, r, tbl); got != want {
 			t.Errorf("routd.%s: got %d rows, want %d", tbl, got, want)
@@ -159,6 +166,18 @@ func TestMigrateSplit(t *testing.T) {
 	if cf != "main" || cTurn != "" || cModel != "claude" || cin != 100 || cout != 50 || cents != 12 || cRecorded != "2026-01-04T00:00:00Z" {
 		t.Errorf("cost_log remap wrong: folder=%q turn=%q model=%q in=%d out=%d cents=%d at=%q",
 			cf, cTurn, cModel, cin, cout, cents, cRecorded)
+	}
+
+	// acl: copied to routd.db (routd OWNS it now) with columns intact.
+	var aclPrin, aclAction, aclScope, aclEffect string
+	if err := r.QueryRow(
+		`SELECT principal, action, scope, effect FROM acl WHERE principal='folder:main'`).
+		Scan(&aclPrin, &aclAction, &aclScope, &aclEffect); err != nil {
+		t.Fatalf("read routd.acl: %v", err)
+	}
+	if aclPrin != "folder:main" || aclAction != "mcp:send" || aclScope != "main" || aclEffect != "allow" {
+		t.Errorf("acl row wrong: principal=%q action=%q scope=%q effect=%q",
+			aclPrin, aclAction, aclScope, aclEffect)
 	}
 
 	// orphan: secrets must NOT have been created in routd.db.

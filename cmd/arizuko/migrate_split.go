@@ -15,8 +15,9 @@ import (
 // cmdMigrateSplit populates routd.db + runed.db from an existing instance's
 // messages.db for the CUTOVER_SPLIT topology. messages.db stays ALIVE: timed
 // (scheduled_tasks), slakd (pane_sessions) and dashd keep writing it, and
-// routd sibling-reads acl/secrets/identities/tasks/pane out of it. So this
-// migrator only COPIES the conversation/routing/run state into the new DBs;
+// routd sibling-reads secrets/identities/tasks/pane out of it. ACL moved to
+// routd's own DB (routd 0007), so acl/acl_membership are COPIED, not left. So
+// this migrator COPIES the conversation/routing/run/acl state into the new DBs;
 // auth.db starts fresh; the orphan tables stay where they are. It is
 // idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
@@ -99,6 +100,14 @@ var routdSpecs = []copySpec{
 	{dst: "group_watchers", src: "group_watchers",
 		cols: "observer, source",
 		sel:  "observer, source"},
+	// acl + acl_membership: routd now OWNS these (routd migration 0007 mirrors
+	// store 0052). Straight copies — identical schema both sides.
+	{dst: "acl", src: "acl",
+		cols: "principal, action, scope, effect, params, predicate, granted_by, granted_at",
+		sel:  "principal, action, scope, effect, params, predicate, granted_by, granted_at"},
+	{dst: "acl_membership", src: "acl_membership",
+		cols: "child, parent, added_by, added_at",
+		sel:  "child, parent, added_by, added_at"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
@@ -125,7 +134,7 @@ var runedSpecs = []copySpec{
 // other daemons own the rest; auth.db starts fresh (auth_* not migrated).
 // Listed so the summary tells the operator messages.db is NOT retired.
 var orphanTables = []string{
-	"acl", "acl_membership", "secrets", "secret_use_log",
+	"secrets", "secret_use_log",
 	"identities", "identity_claims", "identity_codes",
 	"scheduled_tasks", "task_run_logs", "pane_sessions",
 	"audit_log", "router_state", "onboarding", "onboarding_gates",
@@ -182,7 +191,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (timed/slakd/dashd keep writing messages.db; routd sibling-reads acl/secrets/identities/tasks/pane; auth.db starts fresh.)")
+	fmt.Println("  (timed/slakd/dashd keep writing messages.db; routd sibling-reads secrets/identities/tasks/pane; acl copied to routd.db; auth.db starts fresh.)")
 	return nil
 }
 

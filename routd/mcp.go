@@ -464,8 +464,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 // agent live as acl rows with principal=folder:<folder> and action=mcp:<tool>;
 // append them onto the tier-derived rules so the grants check sees both
 // layers. deny precedence is preserved by the rule evaluator (grants.CheckAction
-// last-match-wins; a !rule denies). The acl rows live in the sibling messages.db
-// (read-only — operator/authd owns writes); absent handle → tier defaults only.
+// last-match-wins; a !rule denies). The acl rows live in routd's OWN routd.db
+// (spec 5/5 § Daemon ownership); an empty table → tier defaults only.
 func deriveFolderGrants(d *DB, folder string) []string {
 	tier := auth.Resolve(folder).Tier
 	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))

@@ -4,12 +4,10 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
@@ -25,6 +23,9 @@ import (
 // with the writers; routd never mutates these tables. A missing file leaves
 // the handle nil and every accessor returns the empty result — same shape as
 // gated against an empty store, no hard dependency on the sibling daemon.
+//
+// ACL (acl/acl_membership) is NOT a sibling read: routd owns those tables in
+// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval.
 
 // openSiblings opens read-only handles to the sibling DBs in dir, if present.
 // Absent file → nil handle (the owning daemon may not run in this deployment).
@@ -118,13 +119,20 @@ func (d *DB) SiblingPaneContextJID(channelID string) (string, bool) {
 	return ctx.String, true
 }
 
+// aclEval wraps routd's OWN routd.db handle as a *store.Store so the ACL
+// evaluator (auth.AuthorizeWith) + readers (store.ListACL, store.UserScopes)
+// run against routd.db's acl/acl_membership tables — routd owns them (spec 5/5
+// § Daemon ownership). Same overlay precedence, deny-wins, membership
+// expansion. routd.db always has the acl tables (migration 0007), so this is
+// never nil; an empty table yields tier-default behaviour, same as gated
+// against an empty store.
+func (d *DB) aclEval() *store.Store { return store.New(d.db) }
+
 // aclStore wraps the sibling messages.db handle as a *store.Store so routd
-// reuses gated's exact ACL evaluator (auth.AuthorizeWith) + readers
-// (store.ListACL) verbatim — same overlay precedence, deny-wins, membership
-// expansion. The acl/acl_membership rows are owned (written) by the operator
-// via `arizuko grant` / authd; routd only reads. nil handle → nil store and
-// every accessor returns the empty result (no acl table in this deployment →
-// tier-default behaviour, same as gated against an empty store).
+// reuses gated's exact readers verbatim for the cross-DB sibling tables it
+// still depends on (secrets, identities, scheduled tasks). The acl/acl_membership
+// rows are NOT read through this handle — those moved to routd's own DB (aclEval).
+// nil handle → nil store and every accessor returns the empty result.
 func (d *DB) aclStore() *store.Store {
 	if d.msgs == nil {
 		return nil
@@ -176,43 +184,32 @@ func (d *DB) ConnectorSecrets(folder string, required []string) map[string]strin
 	return out
 }
 
-// ListACL returns acl rows from the sibling messages.db, optionally filtered
-// by principal. Read-only port of store.ListACL; used for the mcp:<tool>
-// operator overlay (deriveFolderGrants) and the list_acl tool. nil handle →
-// nil.
+// ListACL returns acl rows from routd's OWN routd.db, optionally filtered by
+// principal. Port of store.ListACL; used for the mcp:<tool> operator overlay
+// (deriveFolderGrants) and the list_acl tool.
 func (d *DB) ListACL(principal string) []core.ACLRow {
-	s := d.aclStore()
-	if s == nil {
-		return nil
-	}
-	return s.ListACL(principal)
+	return d.aclEval().ListACL(principal)
+}
+
+// UserScopes returns the distinct allow-scopes a sub has against routd's OWN
+// acl rows, expanding membership transitively. Backs the
+// GET /v1/users/{sub}/scopes surface authd snapshots at login. Port of
+// store.UserScopes.
+func (d *DB) UserScopes(sub string) []string {
+	return d.aclEval().UserScopes(sub)
 }
 
 // Authorize is the per-call row-ACL check for an in-container agent tool
-// call, evaluated against the sibling messages.db acl rows. Faithful to
-// gated's StoreFns.Authorize (gateway.go): same Caller, same tier-default
-// fallback config. sub is the canonical agent principal (folder:<folder>).
-//
-// When the sibling messages.db is absent (no acl table in this deployment),
-// there are no operator rows, so authorization reduces to the tier-default
-// fallback — exactly auth.AuthorizeWith's step 5 for mcp:* actions on the
-// agent's own folder. We run that branch directly because AuthorizeWith
-// returns false on a nil store. Non-mcp actions deny (no structural surface
-// reaches routd's MCP firewall — those tools resolve via authorizeJID/
-// AuthorizeStructural, not this row check).
+// call, evaluated against routd's OWN routd.db acl rows. Faithful to gated's
+// StoreFns.Authorize (gateway.go): same Caller, same tier-default fallback
+// config. sub is the canonical agent principal (folder:<folder>). With no
+// operator rows present, auth.AuthorizeWith's step 5 reduces to the
+// tier-default fallback for mcp:* actions on the agent's own folder.
 func (d *DB) Authorize(sub, folder, action string, params map[string]string) bool {
 	id := auth.Resolve(folder)
-	if s := d.aclStore(); s != nil {
-		caller := auth.Caller{Principal: sub}
-		opts := auth.AuthorizeOpts{Folder: folder, WorldFolder: id.World, Tier: id.Tier}
-		return auth.AuthorizeWith(s, caller, action, folder, params, opts)
-	}
-	tool, ok := strings.CutPrefix(action, "mcp:")
-	if !ok {
-		return false
-	}
-	rules := grants.DeriveRules(d, folder, id.Tier, id.World)
-	return grants.CheckAction(rules, tool, params)
+	caller := auth.Caller{Principal: sub}
+	opts := auth.AuthorizeOpts{Folder: folder, WorldFolder: id.World, Tier: id.Tier}
+	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
 }
 
 // SiblingIdentityForSub resolves a platform sub to its canonical identity and

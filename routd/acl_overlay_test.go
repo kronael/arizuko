@@ -32,12 +32,18 @@ func attachACLSibling(t *testing.T, d *DB) *store.Store {
 	return store.New(h)
 }
 
-func addACL(t *testing.T, s *store.Store, principal, action, scope, effect string) {
+// addACL seeds an operator acl row into routd's OWN routd.db — routd owns the
+// acl tables (spec 5/5), so the evaluator (deriveFolderGrants / db.Authorize /
+// db.UserScopes) reads them from there, not the sibling messages.db. A raw
+// INSERT (not store.AddACLRow) so it doesn't depend on the audit_log table the
+// operator ACL-WRITE path needs — that write path is a separate follow-up.
+func addACL(t *testing.T, d *DB, principal, action, scope, effect string) {
 	t.Helper()
-	if err := s.AddACLRow(core.ACLRow{
-		Principal: principal, Action: action, Scope: scope, Effect: effect,
-	}); err != nil {
-		t.Fatalf("AddACLRow %s %s %s: %v", principal, action, scope, err)
+	if _, err := d.SQL().Exec(
+		`INSERT OR IGNORE INTO acl(principal, action, scope, effect, granted_at)
+		 VALUES(?,?,?,?,?)`,
+		principal, action, scope, effect, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatalf("seed acl %s %s %s: %v", principal, action, scope, err)
 	}
 }
 
@@ -51,11 +57,10 @@ func TestDeriveFolderGrants_Overlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
 
 	const folder = "w/a/b/c" // tier 3: defaults = reply, send_file, like, edit
-	addACL(t, s, "folder:"+folder, "mcp:send", folder, "allow")
-	addACL(t, s, "folder:"+folder, "mcp:reply", folder, "deny")
+	addACL(t, db, "folder:"+folder, "mcp:send", folder, "allow")
+	addACL(t, db, "folder:"+folder, "mcp:reply", folder, "deny")
 
 	rules := deriveFolderGrants(db, folder)
 	if !slices.Contains(rules, "send") {
@@ -80,7 +85,6 @@ func TestDBAuthorize_RowOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
 
 	const folder = "w/a/b/c" // tier 3: reply allowed by default, send denied
 	const sub = "folder:" + folder
@@ -94,22 +98,22 @@ func TestDBAuthorize_RowOverrides(t *testing.T) {
 	}
 
 	// Operator allow row grants a tool the tier default denies.
-	addACL(t, s, sub, "mcp:send", folder, "allow")
+	addACL(t, db, sub, "mcp:send", folder, "allow")
 	if !db.Authorize(sub, folder, "mcp:send", nil) {
 		t.Error("operator allow row should grant mcp:send")
 	}
 
 	// Operator deny row blocks a tool the tier default allows (deny wins).
-	addACL(t, s, sub, "mcp:reply", folder, "deny")
+	addACL(t, db, sub, "mcp:reply", folder, "deny")
 	if db.Authorize(sub, folder, "mcp:reply", nil) {
 		t.Error("operator deny row should block mcp:reply (deny wins)")
 	}
 }
 
-// TestDBAuthorize_NoSiblingTierDefault: with no messages.db (no acl table),
-// Authorize reduces to the tier-default fallback for mcp:* on the own folder
-// — the existing in-process MCP path must keep working unchanged.
-func TestDBAuthorize_NoSiblingTierDefault(t *testing.T) {
+// TestDBAuthorize_EmptyACLTierDefault: with an empty acl table (no operator
+// rows), Authorize reduces to the tier-default fallback for mcp:* on the own
+// folder — the in-process MCP path keeps working unchanged.
+func TestDBAuthorize_EmptyACLTierDefault(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +131,45 @@ func TestDBAuthorize_NoSiblingTierDefault(t *testing.T) {
 	}
 }
 
+// TestACLReadsOwnDBNotSibling proves routd evaluates ACL against its OWN
+// routd.db, not the sibling messages.db: a row seeded ONLY in the sibling has
+// NO effect (the sibling-read for ACL is gone), while the same row seeded in
+// routd.db DOES apply. Covers deriveFolderGrants + db.Authorize.
+func TestACLReadsOwnDBNotSibling(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sib := attachACLSibling(t, db) // messages.db sibling, owned elsewhere
+
+	const folder = "w/a/b/c" // tier 3: reply allowed by default
+	const sub = "folder:" + folder
+
+	// Seed a deny ONLY in the sibling messages.db. If routd still sibling-read
+	// ACL, this would block reply; it must NOT.
+	if err := sib.AddACLRow(core.ACLRow{
+		Principal: sub, Action: "mcp:reply", Scope: folder, Effect: "deny",
+	}); err != nil {
+		t.Fatalf("seed sibling acl: %v", err)
+	}
+	if !db.Authorize(sub, folder, "mcp:reply", nil) {
+		t.Error("sibling-only deny row must NOT block reply (ACL reads routd.db, not messages.db)")
+	}
+	if slices.Contains(deriveFolderGrants(db, folder), "!reply") {
+		t.Error("deriveFolderGrants must ignore the sibling-only deny row")
+	}
+
+	// The same deny in routd's OWN db DOES apply (deny wins).
+	addACL(t, db, sub, "mcp:reply", folder, "deny")
+	if db.Authorize(sub, folder, "mcp:reply", nil) {
+		t.Error("routd.db deny row should block reply (deny wins)")
+	}
+	if !slices.Contains(deriveFolderGrants(db, folder), "!reply") {
+		t.Error("deriveFolderGrants must apply the routd.db deny row")
+	}
+}
+
 // TestServeTurnMCP_OperatorDenyBlocksTool drives the wired socket: an
 // operator deny row on mcp:reply blocks the reply tool the tier default
 // would allow. Proves the overlay + per-call Authorize fire over the real
@@ -137,7 +180,6 @@ func TestServeTurnMCP_OperatorDenyBlocksTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
 
 	const folder = "w/a/b/c"
 	const jid = "slack:team/channel/c1"
@@ -145,7 +187,7 @@ func TestServeTurnMCP_OperatorDenyBlocksTool(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", folder, "", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	addACL(t, s, "folder:"+folder, "mcp:reply", folder, "deny")
+	addACL(t, db, "folder:"+folder, "mcp:reply", folder, "deny")
 
 	srv := NewServer(db, nil, &recDeliverer{pid: "pid-x"}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", folder)
@@ -173,7 +215,6 @@ func TestServeTurnMCP_OperatorAllowGrantsTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
 
 	const folder = "w/a/b/c"
 	const jid = "slack:team/channel/c1"
@@ -181,7 +222,7 @@ func TestServeTurnMCP_OperatorAllowGrantsTool(t *testing.T) {
 	if _, err := db.PutTurnContext("t1", folder, "", jid, "u1", ""); err != nil {
 		t.Fatal(err)
 	}
-	addACL(t, s, "folder:"+folder, "mcp:send", folder, "allow")
+	addACL(t, db, "folder:"+folder, "mcp:send", folder, "allow")
 
 	deliver := &recDeliverer{pid: "pid-x"}
 	srv := NewServer(db, nil, deliver, nil, 0, "")
@@ -206,20 +247,19 @@ func TestServeTurnMCP_OperatorAllowGrantsTool(t *testing.T) {
 
 // TestServeTurnMCP_ListACL returns the operator acl rows scoped to the
 // folder. StoreFns.ListACL was nil in routd → the list_acl tool was dark;
-// it now reads the sibling messages.db.
+// it now reads routd's OWN routd.db acl table.
 func TestServeTurnMCP_ListACL(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
 
 	const folder = "w" // tier 0: list_acl is tier 0-1 only
-	addACL(t, s, "folder:"+folder, "mcp:send", folder, "allow")
-	addACL(t, s, "folder:"+folder, "mcp:reply", folder, "deny")
+	addACL(t, db, "folder:"+folder, "mcp:send", folder, "allow")
+	addACL(t, db, "folder:"+folder, "mcp:reply", folder, "deny")
 	// A row in a different scope must NOT appear (tool filters on scope==folder).
-	addACL(t, s, "folder:other", "mcp:send", "other", "allow")
+	addACL(t, db, "folder:other", "mcp:send", "other", "allow")
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", folder)
