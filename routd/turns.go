@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/router"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -181,11 +182,15 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appendAndDeliver builds the bot row status=pending, attempts delivery, and
-// on success stamps platform_id+sent BEFORE returning the row to idem for the
-// atomic append+ledger-finish. threaded replies thread to the active topic's
-// last_reply_id when reply_to_id is empty. Writes SetLastReply (always) +
-// BumpEngagement (unless timed-* trigger). Returns the row to persist.
+// appendAndDeliver renders the agent's raw output then appends + delivers it.
+// One renderer, the same point gated applies it (gateway.makeOutputCallback):
+// strip <think>, surface each <status> as a separate "⏳ ..." progress message,
+// then FormatOutbound the remainder as the threaded reply. A pure-think / silent
+// output produces no reply row (200, nil). Status rows are persisted inline
+// (auxiliary progress); the reply row is returned to idem for the atomic
+// append+ledger-finish. threaded replies thread to the active topic's
+// last_reply_id when reply_to_id is empty. SEND_DISABLED_GROUPS folders persist
+// the row status=sent but skip the platform send (gateway.canSendToGroup).
 func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded bool) (int, any, *core.Message) {
 	unlock := lockTurn(turnID)
 	defer unlock()
@@ -197,17 +202,27 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		return 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}, nil
 	}
 	jid = returnTarget(tc, jid)
+
+	stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
+	// Interim progress notices: delivered + persisted out-of-band, not threaded
+	// and not the returned reply row (gated putAndDeliver per status block).
+	for _, st := range statuses {
+		row := s.outboundRow(tc, jid, "⏳ "+st, "")
+		s.deliverRow(tc, jid, &row)
+		_ = s.db.PutMessage(row)
+	}
+
+	clean := router.FormatOutbound(stripped)
+	if clean == "" {
+		// Pure <think> / silent refusal: nothing user-visible to send.
+		return 200, apiv1.SendResult{Status: core.MessageStatusSent}, nil
+	}
+
 	if threaded && replyToID == "" {
 		replyToID = s.db.LastReplyID(jid, tc.Topic)
 	}
-	msgID := "out-" + randHex(8)
-	row := core.Message{
-		ID: msgID, ChatJID: jid, Sender: tc.Folder, Content: text,
-		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
-		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
-		TurnID: turnID, Status: core.MessageStatusPending,
-	}
-	_ = s.db.SetLastReply(jid, tc.Topic, msgID, tc.Folder)
+	row := s.outboundRow(tc, jid, clean, replyToID)
+	_ = s.db.SetLastReply(jid, tc.Topic, row.ID, tc.Folder)
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
 		// Engagement is claimed on the DISPATCH chat (tc.ChatJID), not the
 		// delegation-substituted delivery target — a delegated reply must engage
@@ -215,15 +230,35 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		// (gateway.go § dispatch outbound), not the origin JID the reply returns to.
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
-	platformID := ""
-	if s.deliver != nil {
-		if pid, err := s.deliver.Send(jid, text, replyToID, tc.Topic, msgID); err == nil {
-			platformID = pid
-			row.PlatformID = pid
-			row.Status = core.MessageStatusSent
-		}
+	s.deliverRow(tc, jid, &row)
+	return 200, apiv1.SendResult{MessageID: row.ID, PlatformID: row.PlatformID, Status: row.Status}, &row
+}
+
+// outboundRow builds a fresh pending bot row for the turn's folder/topic.
+func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) core.Message {
+	return core.Message{
+		ID: "out-" + randHex(8), ChatJID: jid, Sender: tc.Folder, Content: content,
+		Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
+		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
+		TurnID: tc.TurnID, Status: core.MessageStatusPending,
 	}
-	return 200, apiv1.SendResult{MessageID: msgID, PlatformID: platformID, Status: row.Status}, &row
+}
+
+// deliverRow attempts the platform send and stamps platform_id+sent on success.
+// A SEND_DISABLED_GROUPS folder skips the send entirely but still lands the row
+// status=sent so the poll loop never retries it (gateway.canSendToGroup mute).
+func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message) {
+	if s.mutedGroup(tc.Folder) {
+		row.Status = core.MessageStatusSent
+		return
+	}
+	if s.deliver == nil {
+		return
+	}
+	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, tc.Topic, row.ID); err == nil {
+		row.PlatformID = pid
+		row.Status = core.MessageStatusSent
+	}
 }
 
 func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {

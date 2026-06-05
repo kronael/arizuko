@@ -116,6 +116,9 @@ func main() {
 		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
 		// Pre-spawn budget gate (spec 5/34); default-on, mirrors core.LoadConfig.
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
+		// Spawn-time stale-session reset threshold (default 2 days, matching
+		// gateway.sessionIdleExpiry). SESSION_IDLE_EXPIRY overrides.
+		SessionIdle: durOr("SESSION_IDLE_EXPIRY", 0),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(
@@ -134,6 +137,10 @@ func main() {
 	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
 	loop.BindServer(srv)
 	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
+	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
+	// (gateway.canSendToGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
+	// Deliverer; this is the group-folder mute applied in appendAndDeliver.
+	srv.SetDisabledGroups(parseCSV(os.Getenv("SEND_DISABLED_GROUPS")))
 	// send_voice synthesis config (TTS_* env). Defaults mirror core.LoadConfig;
 	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts (gated
 	// memoizes under ProjectRoot/tts).

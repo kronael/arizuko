@@ -437,9 +437,38 @@ func (d *DB) MarkChatErrored(chatJID string) error {
 	return err
 }
 
+// MarkMessagesErrored flags a failed run's trigger rows errored=1 so the
+// circuit breaker can prune them (DeleteErroredMessages). Mirrors
+// store.MarkMessagesErrored. The rows stay visible to a later successful run
+// until the breaker trips. Empty list is a no-op.
+func (d *DB) MarkMessagesErrored(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range ids {
+		if _, err := tx.Exec("UPDATE messages SET errored=1 WHERE id=?", id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteErroredMessages drops a chat's errored=1 rows. The circuit-breaker
+// handler calls it so the next inbound starts the chat from a clean batch
+// (mirrors store.DeleteErroredMessages + gateway.onCircuitBreakerOpen).
+func (d *DB) DeleteErroredMessages(chatJID string) error {
+	_, err := d.db.Exec("DELETE FROM messages WHERE chat_jid=? AND errored=1", chatJID)
+	return err
+}
+
 // CountErroredChats counts chats flagged errored — the /status surface. Mirrors
-// store.CountErroredChats, reading routd's own chats.errored (gated keyed off
-// messages.errored, which routd does not carry; routd tracks errored per chat).
+// store.CountErroredChats, reading routd's chats.errored (the coarse per-chat
+// flag; messages.errored is the row-level prune target for the breaker).
 func (d *DB) CountErroredChats() int {
 	var n int
 	d.db.QueryRow("SELECT COUNT(*) FROM chats WHERE errored=1").Scan(&n)

@@ -78,6 +78,12 @@ type Server struct {
 	engagementT time.Duration
 	webHost     string
 
+	// disabledGroups is SEND_DISABLED_GROUPS: muted folders whose outbound is
+	// persisted (the row lands status=sent) but NOT delivered to the platform,
+	// mirroring gateway.canSendToGroup. SEND_DISABLED_CHANNELS (jid-prefix mute)
+	// stays in the Deliverer; this is the group-folder mute. Set via SetDisabledGroups.
+	disabledGroups []string
+
 	// groupsDir/webDir back the file-path agent tools (send_file, vhosts) the
 	// in-process MCP socket exposes; set via SetDirs from the cfg dirs.
 	groupsDir string
@@ -124,6 +130,21 @@ func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagemen
 func (s *Server) SetDirs(groupsDir, webDir string) {
 	s.groupsDir = groupsDir
 	s.webDir = webDir
+}
+
+// SetDisabledGroups supplies SEND_DISABLED_GROUPS: muted folders whose outbound
+// persists but is not delivered (gateway.canSendToGroup). Set post-construction.
+func (s *Server) SetDisabledGroups(folders []string) { s.disabledGroups = folders }
+
+// mutedGroup reports whether folder is in SEND_DISABLED_GROUPS — outbound for it
+// persists (the row lands status=sent) but is never delivered to the platform.
+func (s *Server) mutedGroup(folder string) bool {
+	for _, f := range s.disabledGroups {
+		if strings.EqualFold(f, folder) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetTTS supplies the send_voice synthesis config. Set post-construction in

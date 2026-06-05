@@ -85,6 +85,12 @@ type Loop struct {
 	// env). Disabled (Enabled=false) → enrichAttachments is a no-op, exactly
 	// like gated with MEDIA_ENABLED off.
 	media mediaConfig
+
+	// sessionIdle is the spawn-time stale-session threshold (SESSION_IDLE_EXPIRY,
+	// default sessionIdleExpiry = 2 days, matching gateway.sessionIdleExpiry).
+	// A folder whose chat cursor is older than this gets its session reset on
+	// the next spawn so a long-idle conversation starts fresh.
+	sessionIdle time.Duration
 }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -131,6 +137,11 @@ type LoopConfig struct {
 	// env). Zero value (Enabled=false) leaves inbound media un-downloaded and
 	// voice un-transcribed, faithful to gated with MEDIA_ENABLED off.
 	Media mediaConfig
+
+	// SessionIdle is the spawn-time stale-session reset threshold
+	// (SESSION_IDLE_EXPIRY). Zero falls back to sessionIdleExpiry (2 days),
+	// matching gateway.sessionIdleExpiry.
+	SessionIdle time.Duration
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -143,6 +154,9 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	if cfg.MaxRuns == 0 {
 		cfg.MaxRuns = 5
+	}
+	if cfg.SessionIdle == 0 {
+		cfg.SessionIdle = sessionIdleExpiry
 	}
 	l := &Loop{
 		db:              db,
@@ -159,6 +173,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		appSrcDir:       cfg.AppSrcDir,
 		costCapsEnabled: cfg.CostCapsEnabled,
 		media:           cfg.Media,
+		sessionIdle:     cfg.SessionIdle,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
 	}
 	if cfg.Proactive.Enabled {
@@ -538,4 +553,39 @@ func directFolder(jid string) string {
 // poll loop doesn't re-feed it.
 func (l *Loop) advance(chatJID string, last core.Message) {
 	_ = l.db.SetAgentCursor(chatJID, last.Timestamp.UTC().Format(time.RFC3339Nano))
+}
+
+// sessionIdleExpiry is the default spawn-time stale-session threshold, matching
+// gateway.sessionIdleExpiry. SESSION_IDLE_EXPIRY overrides it (LoopConfig.SessionIdle).
+const sessionIdleExpiry = 2 * 24 * time.Hour
+
+// sessionIdleExpired reports whether the chat's last activity (its agent_cursor,
+// an RFC3339Nano timestamp) is older than the idle threshold. A zero/empty or
+// unparseable cursor is never expired (fresh chat — no session to reset anyway),
+// mirroring gateway.sessionIdleExpired.
+func (l *Loop) sessionIdleExpired(chatJID string) bool {
+	cur := l.db.GetAgentCursor(chatJID)
+	if cur == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339Nano, cur)
+	if err != nil || t.IsZero() {
+		return false
+	}
+	return time.Since(t) > l.sessionIdle
+}
+
+// onCircuitBreakerOpen prunes the chat's errored rows and clears the folder's
+// root session when the breaker trips, mirroring gateway.onCircuitBreakerOpen.
+// A broken session is poison: dropping the failed batch + resetting the session
+// gives the next inbound a clean spawn instead of replaying the same failure.
+// The chat-visible failure notice is sent by the OutcomeError path (runTurn);
+// the breaker rides on that same run, so this is the prune+reset half only.
+func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
+	if err := l.db.DeleteErroredMessages(chatJID); err != nil {
+		slog.Warn("prune errored messages failed", "jid", chatJID, "err", err)
+	}
+	if folder != "" {
+		_ = l.db.DeleteSession(folder, "")
+	}
 }

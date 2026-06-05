@@ -184,6 +184,19 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		container.WriteGroupsSnapshot(l.folders, folder, isRoot, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 
+	// Reset a long-idle session before the spawn reads it: a folder whose chat
+	// cursor is older than the idle threshold resumes from a stale Claude session
+	// the agent has long forgotten, so start fresh instead (mirrors gateway
+	// runAgentWithOpts § session idle reset). Isolated (timed) runs carry no
+	// session lineage, so skip them as gated does.
+	if !strings.HasPrefix(last.Sender, "timed-isolated:") {
+		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
+			slog.Info("session: resetting on idle expiry",
+				"folder", folder, "topic", topic, "jid", chatJID, "threshold", l.sessionIdle)
+			_ = l.db.DeleteSession(folder, topic)
+		}
+	}
+
 	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,
 		"chat_jid", chatJID, "trigger", last.Sender)
 	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
@@ -201,21 +214,30 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.db.SetRunReturned(turnID)
 		return true, true, nil
 	}
-	if out.BreakerOpen {
-		slog.Warn("circuit breaker open", "folder", folder, "turn_id", turnID)
-	}
 	// POST /v1/runs has returned: close the callback surface so a late frame
 	// 409s, even if an early submit_turn already flipped state→done.
 	_ = l.db.SetRunReturned(turnID)
 	if out.Outcome == runedv1.OutcomeError {
-		// The run definitively failed. Flag the chat errored and notify it —
+		// The run definitively failed. Flag the chat errored, mark the trigger
+		// batch errored (so the breaker can prune it), and notify the chat —
 		// don't treat a failed run as a silent success (spec 5/E § outcome).
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error)
 		_ = l.db.MarkChatErrored(chatJID)
+		ids := make([]string, len(trigger))
+		for i, m := range trigger {
+			ids[i] = m.ID
+		}
+		_ = l.db.MarkMessagesErrored(ids)
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "fail-"+turnID)
 		}
 		_ = l.db.SetTurnState(turnID, "done")
+		// The breaker rides only on the run that trips it (runed reports
+		// BreakerOpen on that run's outcome). When set, prune the chat's errored
+		// rows + clear the folder session, mirroring gateway.onCircuitBreakerOpen.
+		if out.BreakerOpen {
+			l.onCircuitBreakerOpen(chatJID, folder)
+		}
 		return false, false, nil
 	}
 	// Clean turn-boundary outcome: persist session_id backstop UNLESS
