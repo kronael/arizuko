@@ -312,7 +312,12 @@ func (a *Authd) Refresh(ctx context.Context, raw string) (access, newRefresh str
 	// outage fails CLOSED (mint nothing) rather than reusing stale scope.
 	scope := r.scope
 	if a.grants != nil {
-		snap, gerr := a.grants.FetchGrants(ctx, bareSub(r.sub))
+		// r.sub is ALREADY the bare canonical sub (issueSession stores it bare,
+		// spec 5/1 "sub prefix rule"). For an OAuth sub the canonical form IS
+		// "google:<id>" (9-acl-unified.md), so re-stripping at ":" would query
+		// the wrong principal "<id>" → empty scope. Query r.sub as-is, matching
+		// the login snapshot.
+		snap, gerr := a.grants.FetchGrants(ctx, r.sub)
 		switch {
 		case gerr == nil:
 			scope = snap.Scope

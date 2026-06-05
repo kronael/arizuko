@@ -76,8 +76,12 @@ func TestMintModesStampTyp(t *testing.T) {
 	}
 }
 
-// Issuer mint stamps the requested typ (here "service") on the target token.
-func TestIssuerMintStampsRequestedTyp(t *testing.T) {
+// Issuer mint coerces the minted typ to "user" regardless of the caller-supplied
+// typ. A request asking for typ="service" is a privilege-escalation attempt;
+// spec 5/1 § POST /v1/tokens: "An invite mints user, never service. Delegation,
+// never escalation." (Subsumes the former TestIssuerMintStampsRequestedTyp,
+// which asserted the now-closed escalation hole.)
+func TestIssuerMintForcesUserTyp(t *testing.T) {
 	db := testDB(t)
 	a := newTestAuthd(t, db)
 	srv := &server{a: a, grants: fakeGrants{
@@ -93,8 +97,8 @@ func TestIssuerMintStampsRequestedTyp(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("issuer mint status %d: %v", resp.StatusCode, out)
 	}
-	if got := decodeTyp(t, out["token"].(string)); got != "service" {
-		t.Fatalf("issuer mint typ = %q want service", got)
+	if got := decodeTyp(t, out["token"].(string)); got != "user" {
+		t.Fatalf("issuer mint must coerce typ to user, got %q (privilege escalation)", got)
 	}
 }
 

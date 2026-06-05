@@ -21,9 +21,85 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	_ "modernc.org/sqlite"
 )
+
+// recordingGrants captures the principal FetchGrants is queried with so a test
+// can assert the refresh path passes the full canonical sub, not a re-stripped
+// one.
+type recordingGrants struct {
+	queried string
+	snap    GrantsSnapshot
+}
+
+func (g *recordingGrants) FetchGrants(_ context.Context, principal string) (GrantsSnapshot, error) {
+	g.queried = principal
+	return g.snap, nil
+}
+
+// Bug 1: refresh for an OAuth sub "google:<id>" must query grants with the FULL
+// canonical principal "google:<id>" (9-acl-unified.md), not a re-stripped "<id>".
+// refresh_tokens stores the sub bare, and for an OAuth identity the bare
+// canonical form already carries the "google:" provider prefix; re-stripping at
+// ":" queried the wrong principal → empty scope on every refreshed token.
+func TestRefreshUsesFullOAuthPrincipal(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	g := &recordingGrants{snap: GrantsSnapshot{Scope: []string{"tasks:read", "tasks:write"}}}
+	a.grants = g
+
+	// issueSession stores the bare canonical sub; for OAuth that is "google:<id>".
+	const oauthSub = "google:114019283746"
+	r0, err := a.IssueRefresh(oauthSub, []string{"tasks:read", "tasks:write"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	access, _, err := a.Refresh(context.Background(), r0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.queried != oauthSub {
+		t.Fatalf("refresh must query grants with the full canonical principal %q, got %q", oauthSub, g.queried)
+	}
+	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !auth.HasScope(sub.Scope, "tasks", "read") || !auth.HasScope(sub.Scope, "tasks", "write") {
+		t.Fatalf("refreshed token must preserve the snapshot scope, got %v", sub.Scope)
+	}
+	if sub.Sub != "user:"+oauthSub {
+		t.Fatalf("refreshed access sub = %q want user:%s", sub.Sub, oauthSub)
+	}
+}
+
+// Bug 2: authd emits audit into auth.db, which only has audit_log because
+// authd's own migration set (0003) creates it — store/migrations/0066 lands in
+// messages.db, which authd never migrates. An emitted event must persist (no
+// "no such table" drop).
+func TestAuditLandsInAuthDB(t *testing.T) {
+	db := testDB(t)
+	audit.Init(db, "test")
+	id := audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Outcome:  audit.OutcomeOK,
+	})
+	if id == 0 {
+		t.Fatal("audit emit returned id 0 — event dropped (audit_log missing from auth.db)")
+	}
+	var action string
+	if err := db.QueryRow(`SELECT action FROM audit_log WHERE id = ?`, id).Scan(&action); err != nil {
+		t.Fatalf("audit row not persisted in auth.db: %v", err)
+	}
+	if action != "daemon.start" {
+		t.Fatalf("persisted action = %q want daemon.start", action)
+	}
+}
 
 // concurrentDB opens a real file-backed WAL DB so goroutines genuinely run in
 // parallel (a shared-cache memory DB needs MaxOpenConns(1), which serializes

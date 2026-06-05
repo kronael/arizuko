@@ -200,7 +200,7 @@ func (s *server) handleTokens(w http.ResponseWriter, r *http.Request) {
 		auth.HasScope(caller.Scope, "tokens", "mint") && req.Sub != "" && req.Sub != caller.Sub
 	var m minted
 	if issuer {
-		m, err = s.issuerMint(r.Context(), req.Typ, req.Sub, req.Scope, req.Aud, ttl)
+		m, err = s.issuerMint(r.Context(), req.Sub, req.Scope, req.Aud, ttl)
 	} else {
 		m, err = s.a.Downscope(caller, req.Scope, req.Folder, ttl)
 	}
@@ -236,10 +236,12 @@ var errGrantsUnavailable = errors.New("grants backend unavailable")
 // grants fetcher wired (the additive-step default) it fails closed — authd
 // cannot evaluate the required ceiling, so it must not mint (spec 5/1: issuer
 // mint is bounded by the target's grants, never the caller's scope).
-func (s *server) issuerMint(ctx context.Context, typ, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
-	if typ == "" {
-		typ = "user"
-	}
+func (s *server) issuerMint(ctx context.Context, sub string, requested []string, aud string, ttl time.Duration) (minted, error) {
+	// Invites mint USER tokens only — never service (spec 5/1 § POST /v1/tokens:
+	// "An invite mints user, never service. Delegation, never escalation").
+	// typ is forced here, ignoring the caller's body, to close the
+	// privilege-escalation hole where a caller asks for typ="service".
+	const typ = "user"
 	if s.grants == nil {
 		return minted{}, errGrantsUnavailable
 	}
