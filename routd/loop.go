@@ -2,6 +2,7 @@ package routd
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/queue"
@@ -54,6 +56,11 @@ type Loop struct {
 	observeChars    int
 	groupsDir       string
 
+	// appSrcDir is the in-container source root (APP_SRC_DIR, falling back to
+	// HOST_APP_DIR). checkMigrationVersion reads the upstream MIGRATION_VERSION
+	// under it. Empty disables the auto-migrate check.
+	appSrcDir string
+
 	// Proactive interjection (5/33). zero-value cfg (Enabled=false) → the
 	// scan is never driven. modes caches per-group CLAUDE.md proactive mode;
 	// pendingReason carries a fired turn's <proactive_reason> to the prompt
@@ -98,6 +105,12 @@ type LoopConfig struct {
 	// source); empty when proactive is disabled.
 	Proactive ProactiveConfig
 	GroupsDir string
+
+	// AppSrcDir is the in-container source root holding ant/skills/self/
+	// MIGRATION_VERSION (APP_SRC_DIR, falling back to HOST_APP_DIR). The
+	// startup auto-migrate check reads the upstream version from it; empty
+	// disables the check.
+	AppSrcDir string
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -123,6 +136,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		observeMessages: cfg.ObserveWindowMessages,
 		observeChars:    cfg.ObserveWindowChars,
 		groupsDir:       cfg.GroupsDir,
+		appSrcDir:       cfg.AppSrcDir,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
 	}
 	if cfg.Proactive.Enabled {
@@ -171,6 +185,7 @@ func (l *Loop) publishRoundDone(folder, turnID string) {
 func (l *Loop) Run(ctx context.Context) {
 	l.sweepOrphanSocks()
 	l.recoverPending()
+	l.checkMigrationVersion()
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
 	}
@@ -291,6 +306,49 @@ func (l *Loop) recoverPending() {
 	}
 	for _, tc := range tcs {
 		l.Enqueue(tc.ChatJID)
+	}
+}
+
+// checkMigrationVersion enqueues a /migrate system message for every root
+// group whose on-disk skill version is behind the upstream MIGRATION_VERSION
+// (ported from gateway.checkMigrationVersion). Bumping MIGRATION_VERSION is
+// the single trigger for both skill updates AND release broadcasts; without
+// this, a release stops migrating agents post-cutover. routd is the sole
+// appender, so it both writes the row and enqueues the turn. Child groups get
+// skills seeded at container start; the root's /migrate skill fans out, so
+// only roots are triggered here.
+func (l *Loop) checkMigrationVersion() {
+	if l.appSrcDir == "" {
+		return
+	}
+	latest := container.MigrationVersion(
+		filepath.Join(l.appSrcDir, "ant", "skills", "self", "MIGRATION_VERSION"))
+	if latest == 0 {
+		return
+	}
+	for folder := range l.db.AllGroups() {
+		if !groupfolder.IsRoot(folder) {
+			continue
+		}
+		agent := container.MigrationVersion(
+			filepath.Join(l.groupsDir, folder, ".claude", "skills", "self", "MIGRATION_VERSION"))
+		if agent >= latest {
+			continue
+		}
+		slog.Info("auto-migrate: version behind, triggering /migrate",
+			"group", folder, "agent", agent, "latest", latest)
+		prompt := fmt.Sprintf("/migrate\n\nSystem update: skills v%d → v%d.", agent, latest)
+		if err := l.db.PutMessage(core.Message{
+			ID:        core.MsgID("auto-migrate-" + folder),
+			ChatJID:   folder,
+			Sender:    "system",
+			Content:   prompt,
+			Timestamp: time.Now(),
+		}); err != nil {
+			slog.Warn("auto-migrate: put message", "group", folder, "err", err)
+			continue
+		}
+		l.Enqueue(folder)
 	}
 }
 
