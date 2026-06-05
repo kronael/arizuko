@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
@@ -125,8 +126,17 @@ func main() {
 
 	appDir := os.Getenv("HOST_APP_DIR")
 
+	// proxyd signs X-User-Sig with PROXYD_HMAC_SECRET; dashd verifies it so a
+	// request reaching dashd while bypassing proxyd cannot forge an operator
+	// identity via a raw X-User-Sub. Unset (local dev) → guard is a no-op and
+	// dashd stays open, matching proxyd/webd behavior.
+	hmacSecret := os.Getenv("PROXYD_HMAC_SECRET")
+	if hmacSecret == "" {
+		slog.Warn("PROXYD_HMAC_SECRET unset in dashd — signed-identity verification disabled, dashd open (local dev)")
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir, appDir: appDir}
+	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -146,78 +156,97 @@ func main() {
 }
 
 type dash struct {
-	db        *sql.DB
-	dbRW      *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
-	dbPath    string
-	groupsDir string
-	appDir    string // HOST_APP_DIR; used to enumerate stock skills
+	db         *sql.DB
+	dbRW       *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
+	dbPath     string
+	groupsDir  string
+	appDir     string // HOST_APP_DIR; used to enumerate stock skills
+	hmacSecret string // PROXYD_HMAC_SECRET; "" → guard open (local dev / tests)
+}
+
+// guard verifies proxyd's signed X-User-Sig before letting a handler see the
+// identity headers. An empty hmacSecret (local dev / tests) passes through
+// unchecked, matching proxyd/webd. A set secret rejects forged/unsigned
+// X-User-Sub (auth.RequireSigned redirects to /auth/login on failure).
+func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
+	if d.hmacSecret == "" {
+		return next
+	}
+	return auth.RequireSigned(d.hmacSecret)(next)
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
+	// Public — no signed identity required. /health is the container
+	// healthcheck target; /openapi.json is mounted before auth by contract;
+	// the htmx asset is a static file. Guarding any of these breaks the
+	// healthcheck or the unauthenticated doc/asset surface.
 	mux.HandleFunc("GET /health", d.handleHealth)
-	// dashd serves the HTMX operator UI; no cold-tier resources are
-	// owned here (routes/groups CRUD happens via gated). The doc
-	// advertises the static health endpoint plus a future /v1/* surface.
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("dashd", []string{}))
 	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
-	mux.HandleFunc("GET /dash/", d.handlePortal)
-	mux.HandleFunc("GET /dash/status/", d.handleStatus)
-	mux.HandleFunc("GET /dash/tasks/", d.handleTasks)
-	mux.HandleFunc("GET /dash/activity/", d.handleActivity)
-	mux.HandleFunc("GET /dash/groups/{folder...}", d.dispatchGroupsGet)
-	mux.HandleFunc("GET /dash/memory/", d.handleMemory)
-	mux.HandleFunc("GET /dash/profile/", d.handleProfile)
-	mux.HandleFunc("PUT /dash/memory/", d.handleMemoryWrite)
-	mux.HandleFunc("DELETE /dash/memory/", d.handleMemoryDelete)
-	mux.HandleFunc("GET /dash/tasks/x/list", d.handleTasksPartial)
-	mux.HandleFunc("GET /dash/activity/x/recent", d.handleActivityPartial)
+
+	// Everything below is operator UI / mutations — every handler reads the
+	// proxyd-signed X-User-Sub. guard verifies proxyd's X-User-Sig (no-op when
+	// PROXYD_HMAC_SECRET is unset for local dev) so a request bypassing proxyd
+	// cannot forge an operator identity.
+	g := d.guard
+	mux.HandleFunc("GET /dash/", g(d.handlePortal))
+	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
+	mux.HandleFunc("GET /dash/tasks/", g(d.handleTasks))
+	mux.HandleFunc("GET /dash/activity/", g(d.handleActivity))
+	mux.HandleFunc("GET /dash/groups/{folder...}", g(d.dispatchGroupsGet))
+	mux.HandleFunc("GET /dash/memory/", g(d.handleMemory))
+	mux.HandleFunc("GET /dash/profile/", g(d.handleProfile))
+	mux.HandleFunc("PUT /dash/memory/", g(d.handleMemoryWrite))
+	mux.HandleFunc("DELETE /dash/memory/", g(d.handleMemoryDelete))
+	mux.HandleFunc("GET /dash/tasks/x/list", g(d.handleTasksPartial))
+	mux.HandleFunc("GET /dash/activity/x/recent", g(d.handleActivityPartial))
 
 	// Task detail, actions, create.
-	mux.HandleFunc("GET /dash/tasks/{id}", d.handleTaskDetail)
-	mux.HandleFunc("POST /dash/tasks/", d.handleTaskCreate)
-	mux.HandleFunc("POST /dash/tasks/{id}/{action}", d.handleTaskAction)
+	mux.HandleFunc("GET /dash/tasks/{id}", g(d.handleTaskDetail))
+	mux.HandleFunc("POST /dash/tasks/", g(d.handleTaskCreate))
+	mux.HandleFunc("POST /dash/tasks/{id}/{action}", g(d.handleTaskAction))
 
 	// /dash/me/secrets — per-user secret CRUD. Identity-bound to signed-in
 	// X-User-Sub (proxyd-verified). CSRF on writes via same-origin check.
-	mux.HandleFunc("GET /dash/me/secrets", d.handleMeSecrets)
-	mux.HandleFunc("POST /dash/me/secrets", d.handleMeSecretCreate)
-	mux.HandleFunc("PATCH /dash/me/secrets/{key}", d.handleMeSecretUpdate)
-	mux.HandleFunc("DELETE /dash/me/secrets/{key}", d.handleMeSecretDelete)
+	mux.HandleFunc("GET /dash/me/secrets", g(d.handleMeSecrets))
+	mux.HandleFunc("POST /dash/me/secrets", g(d.handleMeSecretCreate))
+	mux.HandleFunc("PATCH /dash/me/secrets/{key}", g(d.handleMeSecretUpdate))
+	mux.HandleFunc("DELETE /dash/me/secrets/{key}", g(d.handleMeSecretDelete))
 
 	// WhatsApp re-pair — operator-only (** super-grant). Spec 8/15.
-	mux.HandleFunc("GET /dash/channels/whatsapp/pair", d.handleWhatsappPair)
-	mux.HandleFunc("GET /dash/channels/whatsapp/pair/status", d.handleWhatsappPairStatus)
-	mux.HandleFunc("POST /dash/channels/whatsapp/pair/start", d.handleWhatsappPairStart)
+	mux.HandleFunc("GET /dash/channels/whatsapp/pair", g(d.handleWhatsappPair))
+	mux.HandleFunc("GET /dash/channels/whatsapp/pair/status", g(d.handleWhatsappPairStatus))
+	mux.HandleFunc("POST /dash/channels/whatsapp/pair/start", g(d.handleWhatsappPairStart))
 
 	// Routes editor — admin-gated CRUD against the `routes` table.
-	mux.HandleFunc("GET /dash/routes/", d.handleRoutes)
-	mux.HandleFunc("POST /dash/routes/", d.handleRouteCreate)
-	mux.HandleFunc("PATCH /dash/routes/{id}", d.handleRouteUpdate)
-	mux.HandleFunc("DELETE /dash/routes/{id}", d.handleRouteDelete)
-	mux.HandleFunc("POST /dash/routes/{id}/delete", d.handleRouteDelete)
+	mux.HandleFunc("GET /dash/routes/", g(d.handleRoutes))
+	mux.HandleFunc("POST /dash/routes/", g(d.handleRouteCreate))
+	mux.HandleFunc("PATCH /dash/routes/{id}", g(d.handleRouteUpdate))
+	mux.HandleFunc("DELETE /dash/routes/{id}", g(d.handleRouteDelete))
+	mux.HandleFunc("POST /dash/routes/{id}/delete", g(d.handleRouteDelete))
 
 	// Group create / delete / settings — admin-gated. Settings + delete use
 	// trailing-wildcard ({folder...}) dispatchers so nested folders like
 	// "corp/eng/sre" (multi-segment) address correctly; Go's single-segment
 	// {folder} would let them fall through to the list/other handlers.
-	mux.HandleFunc("GET /dash/groups/new", d.handleGroupNewForm)
-	mux.HandleFunc("POST /dash/groups/new", d.handleGroupCreate)
-	mux.HandleFunc("POST /dash/groups/{folder...}", d.dispatchGroupsPost)
-	mux.HandleFunc("DELETE /dash/groups/{folder...}", d.handleGroupDelete)
-	mux.HandleFunc("GET /dash/groups/{folder}/tools", d.handleGroupTools)
-	mux.HandleFunc("GET /dash/groups/{folder}/grants", d.handleGroupGrants)
-	mux.HandleFunc("POST /dash/groups/{folder}/grants", d.handleGroupGrantAdd)
-	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", d.handleGroupGrantRevoke)
+	mux.HandleFunc("GET /dash/groups/new", g(d.handleGroupNewForm))
+	mux.HandleFunc("POST /dash/groups/new", g(d.handleGroupCreate))
+	mux.HandleFunc("POST /dash/groups/{folder...}", g(d.dispatchGroupsPost))
+	mux.HandleFunc("DELETE /dash/groups/{folder...}", g(d.handleGroupDelete))
+	mux.HandleFunc("GET /dash/groups/{folder}/tools", g(d.handleGroupTools))
+	mux.HandleFunc("GET /dash/groups/{folder}/grants", g(d.handleGroupGrants))
+	mux.HandleFunc("POST /dash/groups/{folder}/grants", g(d.handleGroupGrantAdd))
+	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", g(d.handleGroupGrantRevoke))
 
 	// Route tokens — issue/revoke per folder.
-	mux.HandleFunc("GET /dash/tokens/{folder}/", d.handleTokensFolder)
-	mux.HandleFunc("POST /dash/tokens/{folder}/", d.handleTokensFolder)
-	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", d.handleTokensRevoke)
+	mux.HandleFunc("GET /dash/tokens/{folder}/", g(d.handleTokensFolder))
+	mux.HandleFunc("POST /dash/tokens/{folder}/", g(d.handleTokensFolder))
+	mux.HandleFunc("POST /dash/tokens/{folder}/{jid}/revoke", g(d.handleTokensRevoke))
 
 	// Invite management — operator-gated.
-	mux.HandleFunc("GET /dash/invites/", d.handleInvites)
-	mux.HandleFunc("POST /dash/invites/", d.handleInviteCreate)
-	mux.HandleFunc("POST /dash/invites/{token}/revoke", d.handleInviteRevoke)
+	mux.HandleFunc("GET /dash/invites/", g(d.handleInvites))
+	mux.HandleFunc("POST /dash/invites/", g(d.handleInviteCreate))
+	mux.HandleFunc("POST /dash/invites/{token}/revoke", g(d.handleInviteRevoke))
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {

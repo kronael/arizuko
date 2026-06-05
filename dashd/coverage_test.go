@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
 	_ "modernc.org/sqlite"
 )
 
@@ -472,13 +473,15 @@ func TestMemoryWritePersona(t *testing.T) {
 	}
 }
 
-// --- auth header pass-through: dashd trusts X-User-Sub from proxyd,
-// but does not gate on it. Ensure handlers process requests with it set. ---
+// --- signed-identity gate: when PROXYD_HMAC_SECRET is set, dashd VERIFIES
+// proxyd's X-User-Sig. A raw/forged X-User-Sub with no valid sig (a request
+// that bypassed proxyd) must be REJECTED — it can no longer impersonate an
+// operator. This is the proof the defense-in-depth gap is closed. ---
 
-func TestDashHandlersIgnoreXAuthHeaders(t *testing.T) {
+func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir()}
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: "test-proxyd-secret"}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -489,9 +492,55 @@ func TestDashHandlersIgnoreXAuthHeaders(t *testing.T) {
 		req.Header.Set("X-Auth-Provider", "forged")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
-		if w.Code != 200 {
-			t.Errorf("%s: status = %d (dashd trusts proxyd, must not validate)", p, w.Code)
+		// RequireSigned redirects unverified callers to /auth/login (303).
+		if w.Code == 200 {
+			t.Errorf("%s: status = 200 — forged X-User-Sub was trusted (impersonation gap open)", p)
 		}
+	}
+}
+
+// signLikeProxyd sets the X-User-* headers and the matching HMAC X-User-Sig
+// exactly as proxyd does (auth.SignHMAC over auth.UserSigMessage), so a request
+// passes dashd's guard.
+func signLikeProxyd(r *http.Request, secret, sub, name, groupsJSON string) {
+	r.Header.Set("X-User-Sub", sub)
+	r.Header.Set("X-User-Name", name)
+	r.Header.Set("X-User-Groups", groupsJSON)
+	r.Header.Set("X-User-Sig", auth.SignHMAC(secret, auth.UserSigMessage(sub, name, groupsJSON)))
+}
+
+// A validly-signed request passes the guard and reaches the handler (200).
+func TestDashAcceptsSignedXUserSub(t *testing.T) {
+	const secret = "test-proxyd-secret"
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: secret}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/dash/status/", nil)
+	signLikeProxyd(req, secret, "op@example.com", "Op", "[]")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("signed request: status = %d, want 200 (body=%q)", w.Code, w.Body.String())
+	}
+}
+
+// /health MUST stay reachable with NO signature — the container healthcheck
+// hits it. Guarding it would mark the container unhealthy in prod.
+func TestDashHealthExemptFromGuard(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: "test-proxyd-secret"}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("/health with no sig: status = %d, want 200 (healthcheck must not be guarded)", w.Code)
 	}
 }
 
