@@ -57,6 +57,7 @@ func main() {
 		fmt.Println("  plan     <instance> <manifest.yaml>  — non-mutating diff vs live config")
 		fmt.Println("  get      <instance> <resource>       — emit one resource as a YAML fragment")
 		fmt.Println("  export   <instance> [output.yaml]")
+		fmt.Println("  migrate-split <instance> [--dry-run]  — populate routd.db + runed.db from messages.db (CUTOVER_SPLIT)")
 		os.Exit(1)
 	}
 
@@ -81,6 +82,7 @@ func main() {
 		"plan":        cmdPlan,   // spec 5/36
 		"get":         cmdGet,    // spec 5/36
 		"export":      cmdExport, // spec 5/36
+		"migrate-split": cmdMigrateSplit,
 	}
 	fn, ok := cmds[os.Args[1]]
 	if !ok {
