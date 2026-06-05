@@ -83,6 +83,18 @@ func (d *DB) SiblingTasks(folder string, isRoot bool) []core.Task {
 	return out
 }
 
+// CountActiveTasks counts active scheduled_tasks in messages.db (timed's
+// table) for the /status surface. Port of store.CountActiveTasks. nil handle
+// → 0 (timed may not run in this deployment).
+func (d *DB) CountActiveTasks() int {
+	if d.msgs == nil {
+		return 0
+	}
+	var n int
+	d.msgs.QueryRow("SELECT COUNT(*) FROM scheduled_tasks WHERE status=?", core.TaskActive).Scan(&n)
+	return n
+}
+
 // SiblingPaneContextJID reads pane_sessions from messages.db (slakd's table)
 // and returns (contextJID, true) when a Slack assistant pane exists for the DM
 // channelID. Port of store.GetPaneByChannel, narrowed to the field paneHints

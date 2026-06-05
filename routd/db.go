@@ -110,6 +110,34 @@ func (d *DB) GroupExists(folder string) bool {
 	return n == 1
 }
 
+// GroupByFolder returns the full group identity (Config decoded from the
+// container_config JSON TEXT) for folder, or (zero, false) when absent.
+// Mirrors store.GroupByFolder; spawn-on-delegation reads the parent's
+// Config.MaxChildren through it.
+func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
+	var g core.Group
+	var added string
+	var c sql.NullString
+	err := d.db.QueryRow(
+		"SELECT folder, added_at, product, model, container_config FROM groups WHERE folder=?",
+		folder).Scan(&g.Folder, &added, &g.Product, &g.Model, &c)
+	if err != nil {
+		return core.Group{}, false
+	}
+	g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
+	if c.Valid && c.String != "" {
+		_ = json.Unmarshal([]byte(c.String), &g.Config)
+	}
+	return g, true
+}
+
+// DeleteGroup removes a group identity row (spawn-on-delegation rollback when
+// the route insert fails — never leave a route-less orphan).
+func (d *DB) DeleteGroup(folder string) error {
+	_, err := d.db.Exec("DELETE FROM groups WHERE folder=?", folder)
+	return err
+}
+
 // GroupConfig returns the per-group model override + the opaque container_config
 // (parsed from its JSON TEXT column) for dispatchRun to forward to runed. Empty
 // model / nil config when the group is unknown or unset → runed uses the
@@ -385,6 +413,15 @@ func (d *DB) MarkChatErrored(chatJID string) error {
 	_, err := d.db.Exec(`INSERT INTO chats(jid, errored) VALUES(?,1)
 		ON CONFLICT(jid) DO UPDATE SET errored=1`, chatJID)
 	return err
+}
+
+// CountErroredChats counts chats flagged errored — the /status surface. Mirrors
+// store.CountErroredChats, reading routd's own chats.errored (gated keyed off
+// messages.errored, which routd does not carry; routd tracks errored per chat).
+func (d *DB) CountErroredChats() int {
+	var n int
+	d.db.QueryRow("SELECT COUNT(*) FROM chats WHERE errored=1").Scan(&n)
+	return n
 }
 
 // --- chat cursor + sticky ---
@@ -827,6 +864,37 @@ func (d *DB) PutCost(folder, turnID, model string, in, out, cents int) error {
 	_, err := d.db.Exec(`INSERT OR IGNORE INTO cost_log(folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
 		VALUES(?,?,?,?,?,?,?)`, folder, turnID, model, in, out, cents, nowTS())
 	return err
+}
+
+// FolderCap returns the per-day spend cap for a folder in cents. Zero means
+// uncapped (the default). Mirrors store.FolderCap against routd's own groups
+// table (groups.cost_cap_cents_per_day).
+func (d *DB) FolderCap(folder string) (int, error) {
+	var cents int
+	err := d.db.QueryRow(
+		"SELECT COALESCE(cost_cap_cents_per_day, 0) FROM groups WHERE folder=?", folder).Scan(&cents)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return cents, err
+}
+
+// SpendTodayFolder sums cost_log.cost_cents for a folder since the UTC start
+// of today — the pre-spawn budget gate's spend view. Mirrors
+// store.SpendTodayFolder against routd's own cost_log (logged by PutCost).
+func (d *DB) SpendTodayFolder(folder string) (int, error) {
+	var cents int
+	err := d.db.QueryRow(
+		`SELECT COALESCE(SUM(cost_cents), 0) FROM cost_log WHERE folder=? AND recorded_at >= ?`,
+		folder, startOfTodayUTC()).Scan(&cents)
+	return cents, err
+}
+
+// startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the
+// budget window's lower bound (mirrors store.startOfTodayUTC).
+func startOfTodayUTC() string {
+	now := time.Now().UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
 }
 
 // --- proactive interjection (5/33) ---

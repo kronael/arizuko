@@ -96,6 +96,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // whole batch after all per-sender/per-topic turns close.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
 	last := trigger[len(trigger)-1]
+	// Spec 5/34 pre-spawn budget gate. If today's folder spend hits the cap,
+	// deliver a channel-visible refusal (no run dispatched) and consume the
+	// batch — return hadOutput=true so processGroupMessages advances the cursor
+	// past it, exactly as gated's runAgentWithOpts short-circuits before spawn.
+	if msg := l.budgetGate(folder); msg != "" {
+		if l.deliver != nil {
+			_, _ = l.deliver.Send(chatJID, msg, "", topic, "budget-"+turnID)
+		}
+		return true, false, nil
+	}
 	// Enqueue new_day / new_session system messages BEFORE building the prompt
 	// so buildAgentPrompt's FlushSysMsgs renders them this turn (gated order:
 	// emitSystemEvents → buildAgentPrompt, gateway.go § processSenderBatch).

@@ -102,6 +102,8 @@ func main() {
 		InstanceName:          envOr("ASSISTANT_NAME", "Andy"),
 		ObserveWindowMessages: intOr("OBSERVE_WINDOW_MESSAGES", 10),
 		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
+		// Pre-spawn budget gate (spec 5/34); default-on, mirrors core.LoadConfig.
+		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 	})
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)

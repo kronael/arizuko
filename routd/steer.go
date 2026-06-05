@@ -1,11 +1,14 @@
 package routd
 
 import (
+	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 )
@@ -82,11 +85,14 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	return false
 }
 
-// --- slash commands (routd-serviceable subset) ---
+// --- slash commands (port of gateway/commands.go) ---
 //
-// routd owns messages/routes/sessions/sticky, NOT gates/invites/containers, so
-// only the routing/session commands port: /new (session reset), /chatid. The
-// gated container/gate/invite commands stay in gated.
+// Output text matches gated verbatim (operators rely on the exact responses).
+// routd owns messages/routes/sessions/sticky/chats and reaches containers via
+// its queue + tasks via the sibling messages.db, so /new /chatid /ping /status
+// /stop /root /approve /reject port in full. /invite and /gate need onbod-owned
+// tables (invites + onboarding_gates) routd cannot reach in-process — they
+// dispatch a "needs federation" notice rather than silently dropping.
 
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
@@ -128,12 +134,147 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	switch head {
 	case "/new":
 		l.cmdNew(chatJID, folder, arg)
-		return true
 	case "/chatid":
 		l.ack(chatJID, chatJID)
-		return true
+	case "/ping":
+		l.cmdPing(chatJID, folder)
+	case "/stop":
+		l.cmdStop(chatJID)
+	case "/status":
+		l.cmdStatus(chatJID, folder)
+	case "/root":
+		l.cmdRoot(chatJID, folder, arg)
+	case "/invite":
+		l.cmdInvite(chatJID, folder, arg)
+	case "/gate":
+		l.cmdGate(chatJID, folder, arg)
+	case "/approve", "/reject":
+		l.ack(chatJID, "HITL not configured")
+	default:
+		return false
 	}
-	return false
+	return true
+}
+
+// cmdPing reports the resolved folder, its session prefix, the count of live
+// runs in routd's queue, and the registered-group count (port of
+// gateway.cmdPing; "active containers" is routd's in-flight run count — the
+// container itself runs in runed, but the queue's active count is the
+// equivalent live-run gauge).
+func (l *Loop) cmdPing(chatJID, folder string) {
+	sessID, _ := l.db.GetSession(folder, "")
+	nGroups := len(l.db.AllGroups())
+	active := l.q.ActiveCount()
+	sess := "none"
+	if sessID != "" {
+		sess = sessID[:min(8, len(sessID))]
+	}
+	l.ack(chatJID, fmt.Sprintf(
+		"pong\ngroup: %s\nsession: %s\nactive containers: %d\nregistered groups: %d",
+		folder, sess, active, nGroups))
+}
+
+// cmdStop stops the chat's live run via the queue (port of gateway.cmdStop).
+// FEDERATION NOTE: in the split topology the container is owned by runed, not
+// routd; the queue's StopProcess only kills a container routd itself launched.
+// Without a runed stop-run RPC this can't reach the runed-managed spawn — it
+// reports "No active container" when routd holds no local process for the chat.
+func (l *Loop) cmdStop(chatJID string) {
+	if l.q.StopProcess(chatJID) {
+		l.ack(chatJID, "Container stopped.")
+	} else {
+		l.ack(chatJID, "No active container for this chat.")
+	}
+}
+
+// cmdStatus reports instance-wide counts, root-group only (port of
+// gateway.cmdStatus). Channels come from the channel registry (held by the
+// Server); errored chats + active tasks from routd's chats table + the timed
+// sibling DB.
+func (l *Loop) cmdStatus(chatJID, folder string) {
+	if auth.Resolve(folder).Tier != 0 {
+		l.ack(chatJID, "Permission denied: root only.")
+		return
+	}
+	nChannels := 0
+	if l.srv != nil && l.srv.reg != nil {
+		nChannels = len(l.srv.reg.All())
+	}
+	nGroups := len(l.db.AllGroups())
+	active := l.q.ActiveCount()
+	errored := l.db.CountErroredChats()
+	tasks := l.db.CountActiveTasks()
+	l.ack(chatJID, fmt.Sprintf(
+		"status\nchannels: %d\ngroups: %d\nactive containers: %d\nerrored chats: %d\nactive tasks: %d",
+		nChannels, nGroups, active, errored, tasks))
+}
+
+// cmdRoot delegates a message up to the world-root group (port of
+// gateway.cmdRoot). Tier>1 is denied; a bare /root usage-prompts; an already-
+// root or missing-root group short-circuits.
+func (l *Loop) cmdRoot(chatJID, folder, arg string) {
+	if auth.Resolve(folder).Tier > 1 {
+		l.ack(chatJID, "Permission denied.")
+		return
+	}
+	if arg == "" {
+		l.ack(chatJID, "Usage: /root <message>")
+		return
+	}
+	rootFolder := strings.SplitN(folder, "/", 2)[0]
+	if rootFolder == folder {
+		l.ack(chatJID, "Already in root group.")
+		return
+	}
+	if !l.db.GroupExists(rootFolder) {
+		l.ack(chatJID, "Root group not found.")
+		return
+	}
+	if err := l.delegateViaMessage(rootFolder, arg, chatJID, 0); err != nil {
+		slog.Warn("cmdRoot: delegate failed", "jid", chatJID, "target", rootFolder, "err", err)
+	}
+}
+
+// cmdInvite is dispatched but cannot be fully wired in routd: onboarding
+// invites live in onbod's tables (store.CreateInvite against messages.db),
+// which routd does not own and reaches only read-only. It validates the
+// tier-0 gate + arg shape exactly as gated, then reports the federation gap
+// instead of minting a (storage-less) token.
+func (l *Loop) cmdInvite(chatJID, folder, arg string) {
+	if auth.Resolve(folder).Tier != 0 {
+		l.ack(chatJID, "Permission denied: root group only.")
+		return
+	}
+	if arg != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(arg)); err != nil || n < 1 {
+			l.ack(chatJID, "Usage: /invite [max_uses]")
+			return
+		}
+	}
+	l.ack(chatJID, "Invites are managed by onbod; run `arizuko invite` or ask onbod (routd cannot mint invites).")
+}
+
+// cmdGate is dispatched but cannot be fully wired in routd: the
+// onboarding_gates table is onbod-owned (store.ListGates/PutGate/... against
+// messages.db) and not reachable from routd in-process. It validates the
+// tier-0 gate + subcommand shape exactly as gated, then reports the federation
+// gap instead of mutating a table it doesn't own.
+func (l *Loop) cmdGate(chatJID, folder, arg string) {
+	if auth.Resolve(folder).Tier != 0 {
+		l.ack(chatJID, "Permission denied: root only.")
+		return
+	}
+	parts := strings.Fields(arg)
+	action := ""
+	if len(parts) > 0 {
+		action = parts[0]
+	}
+	switch action {
+	case "", "list", "add", "rm", "enable", "disable":
+		l.ack(chatJID, "Gates are managed by onbod; use the onbod surface (routd cannot read/mutate onboarding gates).")
+	default:
+		l.ack(chatJID, "Usage: /gate [list|add|rm|enable|disable]")
+	}
 }
 
 // cmdNew clears the resolved folder's session (root or #topic) AND reinjects any
@@ -277,21 +418,55 @@ func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string
 
 // delegate writes a delegation message to the target group's folder JID and
 // enqueues it. ForwardedFrom carries the origin chat as the return address so
-// the child's reply-to-bot routes back. routd does NOT spawn a missing target
-// (container/group provisioning is gated/onbod's job) — an unknown target is
-// dropped with a warning.
+// the child's reply-to-bot routes back. When the target is unknown but its
+// parent exists with a prototype/ dir, it is spawned on the fly (port of
+// gateway.delegateViaMessage's spawn-on-delegation). Depth-0 entry.
 func (l *Loop) delegate(targetFolder, prompt, originJID string) {
-	if !l.db.GroupExists(targetFolder) {
-		slog.Warn("delegate target not found (no spawn in routd)", "target", targetFolder)
-		return
+	if err := l.delegateViaMessage(targetFolder, prompt, originJID, 0); err != nil {
+		slog.Warn("delegate failed", "target", targetFolder, "err", err)
 	}
+}
+
+// delegateViaMessage writes the delegation row and triggers the target's
+// queue. On an unknown target whose parent group exists, it spawns a child
+// from the parent's prototype/ dir and recurses once (depth guard). The
+// child's reply routes back to forwardedFrom — overridden to the escalation
+// worker jid when the prompt carries an <escalation_origin/> tag. Faithful
+// port of gateway.delegateViaMessage.
+func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string, depth int) error {
+	if depth > 1 {
+		return fmt.Errorf("delegation depth exceeded")
+	}
+
+	fwdFrom := originJID
+	if worker := escalationWorker(prompt); worker != "" {
+		fwdFrom = worker
+	}
+
+	if !l.db.GroupExists(targetFolder) {
+		sep := strings.LastIndex(targetFolder, "/")
+		if sep > 0 {
+			parentFolder := targetFolder[:sep]
+			if l.db.GroupExists(parentFolder) {
+				spawned, err := l.spawnFromPrototype(parentFolder, originJID)
+				if err == nil {
+					return l.delegateViaMessage(spawned.Folder, prompt, originJID, depth+1)
+				}
+				slog.Warn("delegate: spawn from prototype failed",
+					"parent", parentFolder, "target", targetFolder, "err", err)
+			}
+		}
+		return fmt.Errorf("delegate target not found: %s", targetFolder)
+	}
+
 	_ = l.db.PutMessage(core.Message{
 		ID:            core.MsgID("delegate"),
 		ChatJID:       targetFolder,
 		Sender:        "delegate",
 		Content:       prompt,
 		Timestamp:     time.Now().UTC(),
-		ForwardedFrom: originJID,
+		ForwardedFrom: fwdFrom,
 	})
 	l.Enqueue(targetFolder)
+	return nil
 }

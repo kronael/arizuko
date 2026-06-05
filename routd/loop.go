@@ -75,6 +75,11 @@ type Loop struct {
 	// hourly GC (expired stale running turns + idempotency-ledger sweep).
 	nextRetryAt time.Time
 	nextGCAt    time.Time
+
+	// costCapsEnabled drives the pre-spawn budget gate (spec 5/34). False
+	// bypasses the gate entirely (the operator escape hatch). When true,
+	// dispatchRun refuses a turn whose folder is at/over its daily cost cap.
+	costCapsEnabled bool
 }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -111,6 +116,11 @@ type LoopConfig struct {
 	// startup auto-migrate check reads the upstream version from it; empty
 	// disables the check.
 	AppSrcDir string
+
+	// CostCapsEnabled toggles the pre-spawn budget gate (spec 5/34,
+	// COST_CAPS_ENABLED). When true, dispatchRun refuses a turn whose folder
+	// is at/over its daily cost cap. Default-on at the cmd layer.
+	CostCapsEnabled bool
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -137,6 +147,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		observeChars:    cfg.ObserveWindowChars,
 		groupsDir:       cfg.GroupsDir,
 		appSrcDir:       cfg.AppSrcDir,
+		costCapsEnabled: cfg.CostCapsEnabled,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
 	}
 	if cfg.Proactive.Enabled {
