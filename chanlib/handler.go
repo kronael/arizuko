@@ -26,7 +26,7 @@ type SendRequest struct {
 // embed NoVoiceSender; those without social verbs embed NoSocial.
 type BotHandler interface {
 	Send(req SendRequest) (string, error)
-	SendFile(jid, path, name, caption, replyTo, threadID string) error
+	SendFile(jid, path, name, caption, replyTo, threadID string) (string, error)
 	SendVoice(jid, audioPath, caption, threadID string) (string, error)
 	Typing(jid string, on bool)
 	Post(req PostRequest) (string, error)
@@ -147,7 +147,7 @@ func (NoSocial) Unpin(UnpinRequest) error               { return ErrUnsupported 
 var gatedVerbProbes = map[string]func(BotHandler) error{
 	// Use a .png name so adapters that only accept image blobs (bskyd) take
 	// their real branch instead of an extension-default Unsupported.
-	"send_file":  func(b BotHandler) error { return b.SendFile("", "x.png", "x.png", "", "", "") },
+	"send_file":  func(b BotHandler) error { _, e := b.SendFile("", "x.png", "x.png", "", "", ""); return e },
 	"send_voice": func(b BotHandler) error { _, e := b.SendVoice("", "", "", ""); return e },
 	"delete":     func(b BotHandler) error { return b.Delete(DeleteRequest{}) },
 	"edit":       func(b BotHandler) error { return b.Edit(EditRequest{}) },
@@ -238,8 +238,8 @@ type HistoryProvider interface {
 
 type NoFileSender struct{}
 
-func (NoFileSender) SendFile(_, _, _, _, _, _ string) error {
-	return Unsupported("send_file", "", "this adapter does not support file uploads")
+func (NoFileSender) SendFile(_, _, _, _, _, _ string) (string, error) {
+	return "", Unsupported("send_file", "", "this adapter does not support file uploads")
 }
 
 type NoVoiceSender struct{}
@@ -397,11 +397,8 @@ func handleSendFile(bot BotHandler) http.HandlerFunc {
 		defer cleanup()
 		replyTo := r.FormValue("reply_to")
 		threadID := r.FormValue("thread_id")
-		if err := bot.SendFile(jid, localPath, name, caption, replyTo, threadID); err != nil {
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		WriteJSON(w, map[string]any{"ok": true})
+		id, err := bot.SendFile(jid, localPath, name, caption, replyTo, threadID)
+		writeBotResult(w, id, err)
 	}
 }
 

@@ -865,19 +865,19 @@ func (b *bot) setPanePending(team, user, thread string, prompts []panePrompt, ti
 	}
 }
 
-func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {
 	parts, err := parseJID(jid)
 	if err != nil {
-		return err
+		return "", err
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("slack open file: %w", err)
+		return "", fmt.Errorf("slack open file: %w", err)
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("slack stat file: %w", err)
+		return "", fmt.Errorf("slack stat file: %w", err)
 	}
 	if name == "" {
 		name = filepath.Base(path)
@@ -892,23 +892,23 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error
 	form.Set("filename", name)
 	form.Set("length", strconv.FormatInt(st.Size(), 10))
 	if err := b.postForm(context.Background(), "/files.getUploadURLExternal", form, &get); err != nil {
-		return fmt.Errorf("slack upload url: %w", err)
+		return "", fmt.Errorf("slack upload url: %w", err)
 	}
 	if !get.OK {
-		return fmt.Errorf("slack upload url: %s", get.Error)
+		return "", fmt.Errorf("slack upload url: %s", get.Error)
 	}
 	req, err := http.NewRequestWithContext(context.Background(), "POST", get.UploadURL, f)
 	if err != nil {
-		return fmt.Errorf("slack upload req: %w", err)
+		return "", fmt.Errorf("slack upload req: %w", err)
 	}
 	req.ContentLength = st.Size()
 	upResp, err := b.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("slack upload: %w", err)
+		return "", fmt.Errorf("slack upload: %w", err)
 	}
 	defer upResp.Body.Close()
 	if upResp.StatusCode/100 != 2 {
-		return fmt.Errorf("slack upload: status %d", upResp.StatusCode)
+		return "", fmt.Errorf("slack upload: status %d", upResp.StatusCode)
 	}
 	files, _ := json.Marshal([]map[string]string{{"id": get.FileID, "title": name}})
 	complete := url.Values{}
@@ -925,12 +925,14 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error
 		Error string `json:"error"`
 	}
 	if err := b.postForm(context.Background(), "/files.completeUploadExternal", complete, &done); err != nil {
-		return fmt.Errorf("slack complete upload: %w", err)
+		return "", fmt.Errorf("slack complete upload: %w", err)
 	}
 	if !done.OK {
-		return fmt.Errorf("slack complete upload: %s", done.Error)
+		return "", fmt.Errorf("slack complete upload: %s", done.Error)
 	}
-	return nil
+	// files.completeUploadExternal returns file ids, not the channel message
+	// ts that a reply would target — return "" (no usable message id).
+	return "", nil
 }
 
 // Typing adds (on=true) or removes (on=false) the 👀 reaction on the trigger

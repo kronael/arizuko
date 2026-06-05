@@ -734,7 +734,7 @@ func TestOutbound_SendFile(t *testing.T) {
 	writeFile(t, path, []byte("PNGDATA"))
 
 	// threadID set → file must complete into that thread_ts (was the leak).
-	if err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", "1716900000.001"); err != nil {
+	if _, err := b.SendFile("slack:T012/channel/C0HJK", path, "hello.png", "caption", "", "1716900000.001"); err != nil {
 		t.Fatal(err)
 	}
 	mock.mu.Lock()

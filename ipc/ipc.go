@@ -34,7 +34,7 @@ import (
 type GatedFns struct {
 	SendMessage          func(jid, text string) (string, error)
 	SendReply            func(jid, text, replyToId string) (string, error)
-	SendDocument         func(jid, path, filename, caption, replyTo, threadID string) error
+	SendDocument         func(jid, path, filename, caption, replyTo, threadID string) (string, error)
 	SendVoice            func(jid, text, voice, folder, threadID string) (string, error)
 	Post                 func(jid, content string, mediaPaths []string) (string, error)
 	Like                 func(jid, targetID, reaction string) error
@@ -591,10 +591,11 @@ func internalSend(gated GatedFns, db StoreFns, folder, jid, text string, files [
 		return fmt.Errorf("send_file not configured")
 	}
 	for _, f := range files {
-		if err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID); err != nil {
+		platformID, err := gated.SendDocument(jid, f.LocalPath, f.Filename, text, f.ReplyTo, f.ThreadID)
+		if err != nil {
 			return err
 		}
-		recordOutbound(gated, db, jid, text, "", folder)
+		recordOutbound(gated, db, jid, text, platformID, folder)
 	}
 	return nil
 }

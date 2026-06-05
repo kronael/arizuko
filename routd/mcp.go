@@ -39,7 +39,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		SendReply: func(jid, text, replyTo string) (string, error) {
 			return s.mcpDeliver(t.turnID, jid, text, replyTo)
 		},
-		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) error {
+		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) (string, error) {
 			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo)
 		},
 		Like: func(jid, target, reaction string) error {
@@ -115,19 +115,20 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 }
 
 // mcpAppendDoc is the in-process send_file: deliver-only (internalSend's
-// recordOutbound persists the row).
-func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) error {
+// recordOutbound persists the row, keyed on the returned platform id so a
+// later human reply re-promotes — spec 6/J).
+func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) (string, error) {
 	if s.deliver == nil {
-		return nil
+		return "", nil
 	}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		jid = returnTarget(tc, jid)
 	}
-	_, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
+	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
-	return err
+	return pid, err
 }
 
 // mcpIssueRouteToken maps the ipc.GatedFns five-arg signature onto routd's

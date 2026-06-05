@@ -138,14 +138,14 @@ func (f *FakeChannel) Send(jid, text, replyTo, threadID, turnID string) (string,
 	return fmt.Sprintf("fake-%d", len(f.SentMessages)), nil
 }
 
-func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID string) error {
+func (f *FakeChannel) SendFile(jid, path, name, caption, _, threadID string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.SendErr != nil {
-		return f.SendErr
+		return "", f.SendErr
 	}
 	f.SentFiles = append(f.SentFiles, SentFile{jid, path, name, caption, threadID})
-	return nil
+	return fmt.Sprintf("fake-file-%d", len(f.SentFiles)), nil
 }
 
 // VoiceCall records a SendVoice invocation; SentVoices is the table

@@ -111,7 +111,7 @@ func TestSendFile_NonImageReturnsUnsupported(t *testing.T) {
 	bc := &bskyClient{}
 	cases := []string{"clip.mp4", "audio.mp3", "doc.pdf", "spreadsheet.csv", "noext"}
 	for _, name := range cases {
-		err := bc.SendFile("bluesky:abc", "/tmp/x", name, "caption", "", "")
+		_, err := bc.SendFile("bluesky:abc", "/tmp/x", name, "caption", "", "")
 		if err == nil {
 			t.Errorf("%s: want error, got nil", name)
 			continue

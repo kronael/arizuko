@@ -130,10 +130,8 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, idempotenc
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	// chanreg.SendFile returns only an error, so no platform id surfaces (the
-	// Deliverer interface tolerates an empty platformID for documents). The
-	// Deliverer carries no threadID for files, matching the interface.
-	return "", ch.SendFile(jid, path, name, caption, replyToID, "")
+	// The Deliverer carries no threadID for files, matching the interface.
+	return ch.SendFile(jid, path, name, caption, replyToID, "")
 }
 
 func (d *chanDeliverer) React(jid, platformID, reaction string) error {

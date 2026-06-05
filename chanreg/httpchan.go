@@ -123,24 +123,28 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
-func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID string) error {
+func (h *HTTPChannel) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {
 	return h.SendFileCtx(context.Background(), jid, path, name, caption, replyTo, threadID)
 }
 
-func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID string) error {
+func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption, replyTo, threadID string) (string, error) {
 	if !h.entry.HasCap("send_file") {
-		return fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
+		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
 	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID)
 	if err == nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			return nil
+			var r struct {
+				ID string `json:"id"`
+			}
+			json.NewDecoder(resp.Body).Decode(&r)
+			return r.ID, nil
 		}
 		err = fmt.Errorf("status %d", resp.StatusCode)
 	}
 	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID})
-	return fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
+	return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 }
 
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
@@ -435,7 +439,7 @@ func (h *HTTPChannel) DrainOutbox() {
 	for _, m := range q {
 		var err error
 		if m.IsFile {
-			err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
+			_, err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
 		} else {
 			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
 		}

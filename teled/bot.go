@@ -367,10 +367,10 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	return firstID, nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error {
+func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (string, error) {
 	id, err := parseChatID(jid)
 	if err != nil {
-		return err
+		return "", err
 	}
 	tid := threadMsgID(threadID)
 	reply := 0
@@ -419,10 +419,11 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) error
 		d.ReplyToMessageID = reply
 		m = d
 	}
-	if _, err := b.api.Send(m); err != nil {
-		return fmt.Errorf("telegram sendfile: %w", err)
+	sent, err := b.api.Send(m)
+	if err != nil {
+		return "", fmt.Errorf("telegram sendfile: %w", err)
 	}
-	return nil
+	return strconv.Itoa(sent.MessageID), nil
 }
 
 // threadMsgID parses a Telegram forum-topic id; 0 means no thread.

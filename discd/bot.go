@@ -373,14 +373,14 @@ func (b *bot) SendVoice(jid, audioPath, caption, threadID string) (string, error
 	return "", nil
 }
 
-func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
+func (b *bot) SendFile(jid, path, name, caption, _, threadID string) (string, error) {
 	chID := chanID(jid)
 	if threadID != "" {
 		chID = threadID
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("discord open file: %w", err)
+		return "", fmt.Errorf("discord open file: %w", err)
 	}
 	defer f.Close()
 	if name == "" {
@@ -390,7 +390,7 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 	// ContentType. Setting it explicitly here so the rich-media bubble
 	// fires even when the upstream filename has an ambiguous/missing
 	// extension (.bin, no ext, etc).
-	_, err = b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+	msg, err := b.session.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
 		Content: caption,
 		Files: []*discordgo.File{{
 			Name:        name,
@@ -399,9 +399,12 @@ func (b *bot) SendFile(jid, path, name, caption, _, threadID string) error {
 		}},
 	})
 	if err != nil {
-		return fmt.Errorf("discord sendfile: %w", err)
+		return "", fmt.Errorf("discord sendfile: %w", err)
 	}
-	return nil
+	if msg != nil {
+		return msg.ID, nil
+	}
+	return "", nil
 }
 
 // discordMimeFor maps known extensions to MIME types so Discord's UI

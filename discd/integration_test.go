@@ -357,8 +357,12 @@ func TestSendFile(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", ""); err != nil {
+	id, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if id != "f1" {
+		t.Errorf("id = %q, want f1 (platform message id must round-trip)", id)
 	}
 	if atomic.LoadInt32(&hitCount) != 1 {
 		t.Errorf("hits = %d", hitCount)
@@ -389,7 +393,7 @@ func TestSendFile_ThreadOverridesChannel(t *testing.T) {
 	os_WriteFile(t, path, []byte("hi"))
 
 	b := &bot{session: newTestSession(t)}
-	if err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "thread-99"); err != nil {
+	if _, err := b.SendFile("discord:ch-1", path, "hello.txt", "caption", "", "thread-99"); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -401,7 +405,7 @@ func TestSendFile_ThreadOverridesChannel(t *testing.T) {
 
 func TestSendFile_OpenFails(t *testing.T) {
 	b := &bot{session: newTestSession(t)}
-	err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "", "")
+	_, err := b.SendFile("discord:ch-1", "/nonexistent/path", "x", "c", "", "")
 	if err == nil {
 		t.Fatal("expected open error")
 	}

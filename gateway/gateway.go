@@ -1489,14 +1489,14 @@ func (g *Gateway) sendMessageReply(jid, text, replyTo, threadID string) (string,
 	return ch.Send(jid, text, replyTo, threadID, "")
 }
 
-func (g *Gateway) sendDocument(jid, path, name, caption, replyTo, threadID string) error {
+func (g *Gateway) sendDocument(jid, path, name, caption, replyTo, threadID string) (string, error) {
 	if !g.canSendToJID(jid) {
 		slog.Debug("doc send suppressed by SEND_DISABLED_CHANNELS", "jid", jid)
-		return nil
+		return "", nil
 	}
 	ch := g.findChannelForJID(jid)
 	if ch == nil {
-		return fmt.Errorf("no channel for jid %s", jid)
+		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
 	return ch.SendFile(jid, path, name, caption, replyTo, threadID)
 }

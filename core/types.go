@@ -154,7 +154,7 @@ type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
 	Send(jid, text, replyTo, threadID, turnID string) (string, error)
-	SendFile(jid, path, name, caption, replyTo, threadID string) error
+	SendFile(jid, path, name, caption, replyTo, threadID string) (string, error)
 	// SendVoice delivers a synthesized voice message. Adapters that don't
 	// support a native voice/PTT primitive return chanlib.ErrUnsupported.
 	// threadID posts into the active thread (same semantics as Send);

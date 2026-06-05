@@ -20,7 +20,7 @@ import (
 func TestBuildMCPServer(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -37,7 +37,7 @@ func TestBuildMCPServer(t *testing.T) {
 func TestBuildMCPServer_NoTools(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -96,7 +96,7 @@ func TestRouteTargetWithin(t *testing.T) {
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:         func(jid, text string) (string, error) { return "", nil },
-		SendDocument:        func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
+		SendDocument:        func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:        func(f string) {},
 		GetGroups:           func() map[string]core.Group { return nil },
 		EnqueueMessageCheck: func(jid string) {},
@@ -171,7 +171,7 @@ func TestSocialActionsRegistered(t *testing.T) {
 func TestSendReply(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
 		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
@@ -189,7 +189,7 @@ func TestRefreshGroups(t *testing.T) {
 	}
 	gated := GatedFns{
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) error { return nil },
+		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		GetGroups:     func() map[string]core.Group { return groups },
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
@@ -825,7 +825,9 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	const wantPlatformID = "doc-platform-99"
 	var sentThreadID string
+	var recordedPlatformID string
 	db := StoreFns{
 		CurrentTopic: func(folder string) string {
 			if folder == "world" {
@@ -834,14 +836,14 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 			return ""
 		},
 		SetLastReply:        func(jid, topic, replyID, folder string) error { return nil },
-		PutMessage:          func(m core.Message) error { return nil },
+		PutMessage:          func(m core.Message) error { recordedPlatformID = m.PlatformID; return nil },
 		DefaultFolderForJID: func(jid string) string { return "world" },
 	}
 	gated := GatedFns{
 		GroupsDir: dir,
-		SendDocument: func(jid, path, name, caption, replyTo, threadID string) error {
+		SendDocument: func(jid, path, name, caption, replyTo, threadID string) (string, error) {
 			sentThreadID = threadID
-			return nil
+			return wantPlatformID, nil
 		},
 	}
 	stop, err := ServeMCP(sock, gated, db, "world", []string{"*"}, 0, "")
@@ -860,6 +862,12 @@ func TestServeMCP_SendFile_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	if sentThreadID != wantTopic {
 		t.Fatalf("SendDocument threadID = %q, want %q (empty = the parent-channel leak)", sentThreadID, wantTopic)
+	}
+	// The recorded outbound must carry the platform id SendDocument returned,
+	// not "". A human reply to this file lands here via reply_to → the
+	// reply-to-bot → verb=mention promotion (spec 6/J) only fires when this is set.
+	if recordedPlatformID != wantPlatformID {
+		t.Fatalf("recorded PlatformID = %q, want %q (empty = the send_file empty-platform_id bug)", recordedPlatformID, wantPlatformID)
 	}
 }
 

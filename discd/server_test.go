@@ -48,9 +48,9 @@ func (sb *stubBot) Send(req chanlib.SendRequest) (string, error) {
 	return "stub-id", nil
 }
 
-func (sb *stubBot) SendFile(jid, _, name, _, _, _ string) error {
+func (sb *stubBot) SendFile(jid, _, name, _, _, _ string) (string, error) {
 	sb.files = append(sb.files, stubFile{jid, name})
-	return nil
+	return "", nil
 }
 
 func (sb *stubBot) Typing(_ string, on bool) {

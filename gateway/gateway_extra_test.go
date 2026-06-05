@@ -41,7 +41,7 @@ func TestSendDocument_ChannelSendDisabled(t *testing.T) {
 	gw.AddChannel(ch)
 	gw.cfg.SendDisabledChannels = []string{"telegram"}
 
-	if err := gw.sendDocument("telegram:12345", "/tmp/x.pdf", "x.pdf", "", "", ""); err != nil {
+	if _, err := gw.sendDocument("telegram:12345", "/tmp/x.pdf", "x.pdf", "", "", ""); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if n := ch.getFiles(); n != 0 {
@@ -50,7 +50,7 @@ func TestSendDocument_ChannelSendDisabled(t *testing.T) {
 
 	// Enabled channel still sends.
 	gw.cfg.SendDisabledChannels = nil
-	if err := gw.sendDocument("telegram:12345", "/tmp/x.pdf", "x.pdf", "", "", ""); err != nil {
+	if _, err := gw.sendDocument("telegram:12345", "/tmp/x.pdf", "x.pdf", "", "", ""); err != nil {
 		t.Errorf("unexpected error on enabled send: %v", err)
 	}
 	if n := ch.getFiles(); n != 1 {

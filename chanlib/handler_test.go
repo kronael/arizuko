@@ -17,6 +17,7 @@ type mockBot struct {
 	sendErr    error
 	fileJID    string
 	fileName   string
+	fileID     string
 	fileErr    error
 	voiceJID   string
 	voicePath  string
@@ -33,10 +34,10 @@ func (m *mockBot) Send(req SendRequest) (string, error) {
 	return m.sendID, m.sendErr
 }
 
-func (m *mockBot) SendFile(jid, _, name, _, _, _ string) error {
+func (m *mockBot) SendFile(jid, _, name, _, _, _ string) (string, error) {
 	m.fileJID = jid
 	m.fileName = name
-	return m.fileErr
+	return m.fileID, m.fileErr
 }
 
 func (m *mockBot) SendVoice(jid, audioPath, caption, _ string) (string, error) {
@@ -150,7 +151,7 @@ func TestHandlerSendAuth(t *testing.T) {
 }
 
 func TestHandlerSendFile(t *testing.T) {
-	bot := &mockBot{}
+	bot := &mockBot{fileID: "file-1"}
 	h := mux(bot)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -171,6 +172,11 @@ func TestHandlerSendFile(t *testing.T) {
 	}
 	if bot.fileJID != "test:1" || bot.fileName != "pic.jpg" {
 		t.Errorf("file = %q %q", bot.fileJID, bot.fileName)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["id"] != "file-1" {
+		t.Errorf("id = %v, want file-1 (platform message id must round-trip)", resp["id"])
 	}
 }
 

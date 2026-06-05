@@ -260,7 +260,7 @@ func TestBotSendFile_DispatchesByExtension(t *testing.T) {
 					t.Fatalf("SendVoice: %v", err)
 				}
 			} else {
-				if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", "", ""); err != nil {
+				if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "", "", ""); err != nil {
 					t.Fatalf("SendFile: %v", err)
 				}
 			}
@@ -344,7 +344,7 @@ func TestBotSendFile_ThreadsReplyTo(t *testing.T) {
 	tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	if err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", ""); err != nil {
+	if _, err := b.SendFile("telegram:123", tmp.Name(), filepath.Base(tmp.Name()), "cap", "55", ""); err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
 	m.mu.Lock()
