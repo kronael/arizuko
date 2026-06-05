@@ -100,6 +100,16 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// so buildAgentPrompt's FlushSysMsgs renders them this turn (gated order:
 	// emitSystemEvents → buildAgentPrompt, gateway.go § processSenderBatch).
 	l.emitSystemEvents(folder, chatJID)
+	// Spec 6/F: the first turn in a previously-unseen topic auto-forks lineage
+	// from the topic of the message it replies to (the natural "branch from
+	// here"), falling back to "" (main). Copies the parent topic's Claude
+	// session so the child resumes from its tail instead of starting cold
+	// (mirrors gateway.processSenderBatch's ensureTopicWithFork call site).
+	parent := ""
+	if last.ReplyToID != "" {
+		parent = l.db.TopicByID(last.ReplyToID)
+	}
+	l.ensureTopicWithFork(folder, topic, parent)
 	rendered := l.buildAgentPrompt(folder, topic, trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead
 	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
@@ -195,6 +205,47 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 	_ = l.db.SetTurnState(turnID, "done")
 	return out.Outcome != runedv1.OutcomeSilent, false, nil
+}
+
+// ensureTopicWithFork ensures (folder, topic) has a sessions row and, when
+// newly inserted, copies the parent topic's Claude Code session file so the
+// child resumes from the parent's tail (mirrors gateway.ensureTopicWithFork;
+// spec 6/F triggers 2 & 3). Failures are logged but never block the turn —
+// the child simply starts fresh. parent="" forks from main.
+func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
+	childUUID := core.NewSessionID()
+	inserted, err := l.db.EnsureTopicLineage(folder, topic, parent, childUUID)
+	if err != nil {
+		slog.Warn("ensureTopicWithFork: lineage insert failed",
+			"folder", folder, "topic", topic, "err", err)
+		return
+	}
+	if !inserted {
+		return
+	}
+	l.copyParentSession(folder, parent, childUUID)
+}
+
+// copyParentSession looks up the parent topic's session_id and copies its
+// Claude Code session jsonl to childUUID (mirrors gateway.copyParentSession).
+// No-op when the parent has no session yet (cold-start main: child gets a
+// fresh session). Failures log WARN and proceed — the agent runs fine without
+// forked context.
+func (l *Loop) copyParentSession(folder, parent, childUUID string) {
+	parentUUID, ok := l.db.GetSession(folder, parent)
+	if !ok || parentUUID == "" {
+		return
+	}
+	groupDir, err := l.folders.GroupPath(folder)
+	if err != nil {
+		slog.Warn("copyParentSession: group path", "folder", folder, "err", err)
+		return
+	}
+	if err := container.CopySession(groupDir, parentUUID, childUUID); err != nil {
+		slog.Warn("copyParentSession: cp failed",
+			"folder", folder, "parent", parent,
+			"parentUUID", parentUUID, "childUUID", childUUID, "err", err)
+	}
 }
 
 // groupBySender splits msgs into consecutive same-sender runs, preserving

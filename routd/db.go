@@ -743,6 +743,36 @@ func (d *DB) PutSession(folder, topic, sessionID string) error {
 	return err
 }
 
+// GetSession returns the persisted session id for (folder, topic) and whether
+// a row exists (mirrors store.GetSession). copyParentSession reads the parent
+// topic's session id through this before copying its jsonl.
+func (d *DB) GetSession(folder, topic string) (string, bool) {
+	var id sql.NullString
+	err := d.db.QueryRow("SELECT session_id FROM sessions WHERE group_folder=? AND topic=?", folder, topic).Scan(&id)
+	return id.String, err == nil
+}
+
+// EnsureTopicLineage inserts a sessions row for (folder, topic) with lineage if
+// none exists yet (mirrors store.EnsureTopicLineage). Idempotent: a no-op when
+// the row already exists. parentTopic="" forks from main; main topic "" is
+// skipped (main has no parent). Returns inserted=true when a new row was
+// created — the caller then copies the parent session file (spec 6/F).
+func (d *DB) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) (bool, error) {
+	if topic == "" {
+		return false, nil
+	}
+	now := nowTS()
+	res, err := d.db.Exec(
+		`INSERT OR IGNORE INTO sessions(group_folder, topic, session_id, parent_topic, forked_at, observed_cursor)
+		 VALUES(?,?,?,?,?,?)`,
+		folder, topic, newSessionID, parentTopic, now, now)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // DeleteSession drops the persisted session for (folder, topic) — the /new
 // command's session reset.
 func (d *DB) DeleteSession(folder, topic string) error {

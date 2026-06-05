@@ -66,7 +66,17 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		PaneSetTitle:   func(jid, title string) error { return s.deliver.SetName(jid, title) },
 		ClearSession:   func(folder string) { _ = s.db.DeleteSession(folder, t.topic) },
 		ForkTopic: func(folder, parent, child string, force bool) error {
-			return s.db.ForkTopic(folder, parent, child, randHex(16), force)
+			childUUID := core.NewSessionID()
+			if err := s.db.ForkTopic(folder, parent, child, childUUID, force); err != nil {
+				return err
+			}
+			// Copy the parent topic's Claude session jsonl so the child resumes
+			// from the parent's tail instead of cold (spec 6/F; mirrors
+			// gateway.forkTopic). loop is nil in pure REST tests — skip then.
+			if s.loop != nil {
+				s.loop.copyParentSession(folder, parent, childUUID)
+			}
+			return nil
 		},
 		SetGroupOpen:          s.db.SetGroupOpen,
 		SetGroupObserveWindow: s.db.SetGroupObserveWindow,
