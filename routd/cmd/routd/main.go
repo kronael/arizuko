@@ -104,6 +104,17 @@ func main() {
 		ObserveWindowChars:    intOr("OBSERVE_WINDOW_CHARS", 4000),
 		// Pre-spawn budget gate (spec 5/34); default-on, mirrors core.LoadConfig.
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
+		// Inbound media enrichment (download + Whisper transcription). Defaults
+		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
+		Media: routd.MediaConfig(
+			envOr("MEDIA_ENABLED", "false") == "true",
+			int64(intOr("MEDIA_MAX_FILE_BYTES", 20*1024*1024)),
+			envOr("WHISPER_BASE_URL", "http://localhost:8080"),
+			envOr("WHISPER_MODEL", "turbo"),
+			envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
+			envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
+			os.Getenv("CHANNEL_SECRET"),
+		),
 	})
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
@@ -111,6 +122,17 @@ func main() {
 	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
 	loop.BindServer(srv)
 	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
+	// send_voice synthesis config (TTS_* env). Defaults mirror core.LoadConfig;
+	// unset TTS_ENABLED leaves voice off. Cache lives under DATA_DIR/tts (gated
+	// memoizes under ProjectRoot/tts).
+	srv.SetTTS(routd.TTSConfig(
+		envOr("TTS_ENABLED", "false") == "true",
+		envOr("TTS_BASE_URL", "http://ttsd:8880"),
+		envOr("TTS_VOICE", "af_bella"),
+		envOr("TTS_MODEL", "kokoro"),
+		durOr("TTS_TIMEOUT", 15*time.Second),
+		filepath.Join(dataDir, "tts"),
+	))
 	srv.SetChannelRegistry(reg, onRegister, onDeregister)
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)

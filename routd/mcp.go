@@ -42,6 +42,9 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) (string, error) {
 			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo)
 		},
+		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
+			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, threadID)
+		},
 		Like: func(jid, target, reaction string) error {
 			return s.deliver.React(jid, target, reaction)
 		},
@@ -137,6 +140,24 @@ func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) 
 	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
+	}
+	return pid, err
+}
+
+// mcpSendVoice is the in-process send_voice: synthesize text → Opus via the
+// TTS service (tts.go) and deliver as a voice note. deliver-only (the ipc tool
+// layer's recordOutbound persists the bot row). Redirects a delegated turn to
+// its origin chat, mirroring mcpDeliver.
+func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string) (string, error) {
+	if tc, ok := s.db.GetTurnContext(turnID); ok {
+		jid = returnTarget(tc, jid)
+		if threadID == "" {
+			threadID = tc.Topic
+		}
+	}
+	pid, err := s.sendVoice(jid, text, voice, folder, threadID)
+	if err != nil {
+		slog.Warn("mcp send voice failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
 	return pid, err
 }

@@ -80,6 +80,11 @@ type Loop struct {
 	// bypasses the gate entirely (the operator escape hatch). When true,
 	// dispatchRun refuses a turn whose folder is at/over its daily cost cap.
 	costCapsEnabled bool
+
+	// media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
+	// env). Disabled (Enabled=false) → enrichAttachments is a no-op, exactly
+	// like gated with MEDIA_ENABLED off.
+	media mediaConfig
 }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -121,6 +126,11 @@ type LoopConfig struct {
 	// COST_CAPS_ENABLED). When true, dispatchRun refuses a turn whose folder
 	// is at/over its daily cost cap. Default-on at the cmd layer.
 	CostCapsEnabled bool
+
+	// Media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
+	// env). Zero value (Enabled=false) leaves inbound media un-downloaded and
+	// voice un-transcribed, faithful to gated with MEDIA_ENABLED off.
+	Media mediaConfig
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -148,6 +158,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		groupsDir:       cfg.GroupsDir,
 		appSrcDir:       cfg.AppSrcDir,
 		costCapsEnabled: cfg.CostCapsEnabled,
+		media:           cfg.Media,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
 	}
 	if cfg.Proactive.Enabled {

@@ -120,6 +120,17 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		parent = l.db.TopicByID(last.ReplyToID)
 	}
 	l.ensureTopicWithFork(folder, topic, parent)
+	// Download inbound media + transcribe voice/video into the trigger before
+	// the prompt is built (gated enriches at the same point, keyed on the
+	// resolved folder; gateway.go § processSenderBatch). Rewrites each row's
+	// content + persists via EnrichMessage so later turns' observed context
+	// sees the transcript too. No-op when MEDIA_ENABLED is off.
+	if l.media.Enabled {
+		ctx := context.Background()
+		for i := range trigger {
+			l.enrichAttachments(ctx, &trigger[i], folder)
+		}
+	}
 	rendered := l.buildAgentPrompt(folder, topic, trigger)
 	// A proactive turn carries one ephemeral <proactive_reason> block ahead
 	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after

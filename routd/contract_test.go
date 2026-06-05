@@ -246,6 +246,9 @@ func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
+func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {
+	return d.platformID, nil
+}
 func (d *fakeDeliverer) Post(_, _ string, _ []string) (string, error)       { return d.platformID, nil }
 func (d *fakeDeliverer) Forward(_, _, _ string) (string, error)             { return d.platformID, nil }
 func (d *fakeDeliverer) Quote(_, _, _ string) (string, error)               { return d.platformID, nil }

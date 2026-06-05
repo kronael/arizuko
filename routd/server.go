@@ -33,6 +33,10 @@ type Deliverer interface {
 	// Document delivers a file at path. The file lives on the shared group
 	// volume both routd and the adapter mount.
 	Document(jid, path, name, caption, replyToID, idempotencyKey string) (platformID string, err error)
+	// SendVoice delivers a synthesized audio file (Opus/Ogg) as a voice note,
+	// threaded under threadID. routd synthesizes via TTS first (tts.go), then
+	// hands the cached audio path here for the owning adapter to upload.
+	SendVoice(jid, audioPath, caption, threadID string) (platformID string, err error)
 	// Extended verbs — the social/feed surface ported from gated's egress.
 	// Post authors a fresh top-level post; Forward/Quote/Repost relay or
 	// amplify an existing message; Dislike is the native-downvote reaction;
@@ -72,6 +76,12 @@ type Server struct {
 	groupsDir string
 	webDir    string
 
+	// tts carries the send_voice synthesis config (TTS_* env). Zero-value
+	// (Enabled=false) leaves the send_voice MCP tool returning the
+	// not-configured/unsupported error, exactly like gated with TTS off. Set
+	// via SetTTS from the cmd layer.
+	tts ttsConfig
+
 	// Channel-registration surface (ported from gated's api). reg==nil leaves
 	// the /v1/channels endpoints unmounted (pure REST tests). on{Register,
 	// Deregister} mirror gated's live-channel hooks so the Deliverer reuses a
@@ -95,6 +105,10 @@ func (s *Server) SetDirs(groupsDir, webDir string) {
 	s.groupsDir = groupsDir
 	s.webDir = webDir
 }
+
+// SetTTS supplies the send_voice synthesis config. Set post-construction in
+// main wiring; the zero value leaves voice off (faithful to gated).
+func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.

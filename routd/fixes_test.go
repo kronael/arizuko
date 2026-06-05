@@ -14,6 +14,7 @@ import (
 // recDeliverer records every egress call and optionally fails Send.
 type recDeliverer struct {
 	sends    []sentMsg
+	voices   []sentVoice
 	reacts   int
 	posts    int
 	dislikes int
@@ -23,6 +24,10 @@ type recDeliverer struct {
 
 type sentMsg struct {
 	jid, text, replyTo, threadID, idem string
+}
+
+type sentVoice struct {
+	jid, audioPath, caption, threadID string
 }
 
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, idem string) (string, error) {
@@ -41,6 +46,10 @@ func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
+	return d.pid, nil
+}
+func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
+	d.voices = append(d.voices, sentVoice{jid, audioPath, caption, threadID})
 	return d.pid, nil
 }
 func (d *recDeliverer) Post(_, _ string, _ []string) (string, error)       { d.posts++; return d.pid, nil }

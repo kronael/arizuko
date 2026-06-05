@@ -238,6 +238,15 @@ func putMessage(x execer, m core.Message) error {
 // log).
 func (d *DB) PutMessage(m core.Message) error { return putMessage(d.db, m) }
 
+// EnrichMessage replaces a message's content with the media-enriched body and
+// clears its attachments (the raw refs are now downloaded + inlined). Mirror
+// of store.EnrichMessage — called by the inbound media-enrich pass so the
+// observed-context render on later turns sees the transcript, not the refs.
+func (d *DB) EnrichMessage(id, content string) error {
+	_, err := d.db.Exec(`UPDATE messages SET content=?, attachments='' WHERE id=?`, content, id)
+	return err
+}
+
 // AppendAndFinish appends the bot row AND finishes the idempotency ledger row
 // in ONE tx (spec 5/E § Idempotency step 2). A crash between the two cannot
 // leave a permanent in_flight ledger row: either both commit or neither does,
