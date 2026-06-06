@@ -167,3 +167,66 @@ func TestSiblingFolders_RootHasNone(t *testing.T) {
 		t.Errorf("root sibling list = %v, want []", got)
 	}
 }
+
+// SetGroupMaxChildren uses a single json_set write into container_config so it
+// can't lose a concurrent SetGroupModel/PutGroup update (no read-modify-write).
+// This pins both halves: the value round-trips through GroupByFolder, and a
+// prior SetGroupModel on the same row survives the json_set (one column, two
+// independent fields).
+func TestSetGroupMaxChildren_JSONSetPreservesOtherFields(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "main")
+
+	if err := s.SetGroupModel("main", "claude-opus-4-8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGroupMaxChildren("main", 7); err != nil {
+		t.Fatal(err)
+	}
+
+	g, ok := s.GroupByFolder("main")
+	if !ok {
+		t.Fatal("group not found")
+	}
+	if g.Config.MaxChildren != 7 {
+		t.Errorf("MaxChildren = %d, want 7 (json_set round-trip)", g.Config.MaxChildren)
+	}
+	if g.Model != "claude-opus-4-8" {
+		t.Errorf("Model = %q, want claude-opus-4-8 (json_set must not clobber the model column)", g.Model)
+	}
+
+	// Overwrite: a second json_set updates the same key, no duplication.
+	if err := s.SetGroupMaxChildren("main", 3); err != nil {
+		t.Fatal(err)
+	}
+	g2, _ := s.GroupByFolder("main")
+	if g2.Config.MaxChildren != 3 {
+		t.Errorf("MaxChildren after re-set = %d, want 3", g2.Config.MaxChildren)
+	}
+}
+
+// On a row with no container_config (NULL), SetGroupMaxChildren must still
+// land the value — the COALESCE(container_config,'{}') seeds the JSON doc.
+func TestSetGroupMaxChildren_FromNullConfig(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	putBareGroup(t, s, "solo")
+
+	if err := s.SetGroupMaxChildren("solo", 4); err != nil {
+		t.Fatal(err)
+	}
+	g, ok := s.GroupByFolder("solo")
+	if !ok {
+		t.Fatal("group not found")
+	}
+	if g.Config.MaxChildren != 4 {
+		t.Errorf("MaxChildren from NULL config = %d, want 4", g.Config.MaxChildren)
+	}
+}

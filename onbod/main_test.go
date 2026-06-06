@@ -158,30 +158,6 @@ func TestTokenLandingInvalid(t *testing.T) {
 	}
 }
 
-// TestTokenLandingWrongDatetimeFormat: regression test for the bug where
-// token_expires stored in wrong format (space-separated vs RFC3339) causes
-// SQL string comparison to fail. SQLite compares lexicographically:
-// "2026-04-28T08:00:00Z" > "2026-04-28 18:00:00" is TRUE because 'T' > ' '.
-// This means a valid future token appears expired.
-func TestTokenLandingWrongDatetimeFormat(t *testing.T) {
-	db := testDB(t)
-	// Wrong format: space instead of T, no timezone. This is what a future
-	// date looks like in some datetime formats (e.g. Python's default str()).
-	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
-		VALUES ('telegram:1', 'awaiting_message', 'abc123', '2099-01-01 00:00:00', '2026-01-01')`)
-
-	cfg := config{authBaseURL: "https://example.com"}
-	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
-	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, db, cfg)
-
-	// BUG DEMONSTRATION: with wrong format, valid token is rejected.
-	// If this test starts failing (returns 303), the bug is fixed at query level.
-	if w.Code != http.StatusOK {
-		t.Logf("Got %d - format validation may have been added", w.Code)
-	}
-}
-
 func TestDashboardLinksJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, token_expires, created)
