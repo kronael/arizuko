@@ -111,6 +111,31 @@ func TestConsumeInviteHappyPath(t *testing.T) {
 	}
 }
 
+// ConsumeInviteNoGrant (the split twin) increments used_count + audits but does
+// NOT write the acl grant — acl is routd-OWNED in the split, so onbod writes it
+// to routd.db separately.
+func TestConsumeInviteNoGrantSkipsACL(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	inv, _ := s.CreateInvite("alice", "github:alice", 2, nil)
+	got, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob")
+	if err != nil {
+		t.Fatalf("ConsumeInviteNoGrant: %v", err)
+	}
+	if got.UsedCount != 1 {
+		t.Errorf("used_count = %d, want 1", got.UsedCount)
+	}
+
+	// No acl row written by the no-grant path.
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM acl WHERE principal=? AND scope=?`,
+		"github:bob", "alice").Scan(&n)
+	if n != 0 {
+		t.Errorf("acl rows for bob/alice = %d, want 0 (no-grant)", n)
+	}
+}
+
 func TestConsumeInviteExhausted(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

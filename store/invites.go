@@ -147,8 +147,21 @@ func (s *Store) RevokeInvite(token string) error {
 
 // ConsumeInvite atomically increments used_count (guarding max_uses and expiry)
 // and inserts an acl admin row in one transaction. Concurrent callers race on
-// the UPDATE — only the first max_uses succeed.
+// the UPDATE — only the first max_uses succeed. Use in the monolith where
+// invites + acl share one DB; the split (acl in routd.db, invites in onbod.db)
+// uses ConsumeInviteNoGrant + a separate routd-side acl write.
 func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
+	return s.consumeInvite(token, userSub, true)
+}
+
+// ConsumeInviteNoGrant is the split twin: same atomic used_count increment +
+// audit, but it does NOT write the acl grant — acl is routd-OWNED in the split,
+// so the caller writes that row to routd.db separately (audit-free PutACLRow).
+func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
+	return s.consumeInvite(token, userSub, false)
+}
+
+func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")
 	}
@@ -176,7 +189,7 @@ func (s *Store) ConsumeInvite(token, userSub string) (*Invite, error) {
 	}
 	// Subgroup-create invites (trailing slash) do not grant folder access yet —
 	// the acl row is added after username selection in handleCreateWorld.
-	if !strings.HasSuffix(inv.TargetGlob, "/") {
+	if grantACL && !strings.HasSuffix(inv.TargetGlob, "/") {
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO acl
 			 (principal, action, scope, effect, params, predicate, granted_at, granted_by)

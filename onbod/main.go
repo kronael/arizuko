@@ -66,25 +66,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)")
-	if err != nil {
-		slog.Error("open db", "err", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		slog.Warn("set WAL mode", "err", err)
-	}
-
-	// obdb holds onbod's OWNED tables (onboarding/invites/onboarding_gates).
-	// Split (ONBOD_DB_PATH set): a separate onbod.db so onbod stops sibling-
-	// writing gated's messages.db. Monolith (unset): obdb == db, every owned-
-	// table query stays in the shared messages.db exactly as before. audit.Init
-	// targets obdb so the invite/gate store writers' in-tx audit rows land in
-	// the same DB as the mutation (onbod.db owns its own audit_log; monolith
-	// reuses messages.db's).
-	obdb := db
+	// Two handles, dual-path (spec 5/5):
+	//   obdb — onbod's OWNED tables (onboarding/invites/onboarding_gates).
+	//   xdb  — the CROSS tables (acl/acl_membership/groups/auth_users/routes), all
+	//          routd-OWNED in the split.
+	// Monolith (ONBOD_DB_PATH unset): both are the shared messages.db — every
+	// owned- and cross-table query stays exactly as before. Split (set): obdb is a
+	// separate onbod.db and xdb is routd.db, opened straight from the mounted data
+	// dir (same FS-access discipline as dashd's dbRoutd; no token plumbing) so
+	// onbod stops touching messages.db entirely. audit.Init targets obdb so the
+	// invite/gate store writers' in-tx audit rows land with the mutation (onbod.db
+	// owns its own audit_log; monolith reuses messages.db's).
+	var obdb, xdb *sql.DB
 	if cfg.ownDSN != "" {
 		obdb, err = openOwnedDB(cfg.ownDSN)
 		if err != nil {
@@ -93,6 +86,30 @@ func main() {
 		}
 		defer obdb.Close()
 		slog.Info("onbod owns split DB", "path", cfg.ownDSN)
+
+		// Split implies the split topology: routd OWNS the cross tables in
+		// routd.db. A missing routd.db is a misconfigured split (not a fallback
+		// case), so a failure to open is fatal — onbod must not silently
+		// cross-read an empty DB, and it opens NO messages.db in the split.
+		routdPath := filepath.Join(filepath.Dir(cfg.dsn), "routd.db")
+		xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+		if err != nil {
+			slog.Error("open routd.db", "path", routdPath, "err", err)
+			os.Exit(1)
+		}
+		defer xdb.Close()
+		slog.Info("onbod cross-reads routd.db", "path", routdPath)
+	} else {
+		db, derr := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)")
+		if derr != nil {
+			slog.Error("open db", "err", derr)
+			os.Exit(1)
+		}
+		defer db.Close()
+		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			slog.Warn("set WAL mode", "err", err)
+		}
+		obdb, xdb = db, db
 	}
 
 	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
@@ -130,13 +147,13 @@ func main() {
 	})
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", []string{"onboarding_gates"}))
 	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, db, obdb, cfg)
+		handleOnboard(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, db, obdb, cfg)
+		handleOnboardPost(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, db, obdb, cfg)
+		handleInvite(w, r, xdb, obdb, cfg)
 	}))
 
 	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
@@ -809,13 +826,14 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 		return
 	}
 
-	// invites is onbod-OWNED → read/consume through obdb. NOTE: ConsumeInvite
-	// also inserts the redemption's acl admin row in the SAME tx; acl is
-	// routd-owned in the split, so when obdb != db (split) that acl write lands
-	// in onbod.db, not routd.db. Monolith (obdb == db) is correct end-to-end.
-	// FLAGGED: split invite REDEMPTION needs the acl grant federated to routd —
-	// out of scope here (this pass federates the OWNED tables + writer surfaces).
+	// invites is onbod-OWNED → read/consume through obdb. The redemption's acl
+	// admin row is routd-OWNED: in the monolith (db == obdb) ConsumeInvite writes
+	// invites + acl in one atomic tx on the shared messages.db. In the split
+	// (db != obdb) ConsumeInviteNoGrant touches only onbod.db's invites; the acl
+	// grant is written separately to routd.db (db here = xdb) via the audit-free
+	// PutACLRow — same FS-direct discipline as dashd's routd.db writers.
 	st := store.New(obdb)
+	split := db != obdb
 
 	inv, err := st.GetInvite(token)
 	if err != nil {
@@ -833,7 +851,11 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 		return
 	}
 
-	consumed, err := st.ConsumeInvite(token, userSub)
+	consume := st.ConsumeInvite
+	if split {
+		consume = st.ConsumeInviteNoGrant
+	}
+	consumed, err := consume(token, userSub)
 	if err != nil {
 		slog.Warn("invite invalid", "reason", "exhausted",
 			"token_hash", chanlib.ShortHash(token), "user", userSub, "err", err)
@@ -843,6 +865,18 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 	}
 
 	target := consumed.TargetGlob
+
+	// Split: write the redemption's acl grant to routd.db (db = xdb). Mirrors
+	// ConsumeInvite's in-tx insert — non-subgroup invites (no trailing slash)
+	// grant admin on the target folder; subgroup invites defer to create_world.
+	if split && !strings.HasSuffix(target, "/") {
+		if perr := store.New(db).PutACLRow(core.ACLRow{
+			Principal: userSub, Action: "admin", Scope: target,
+			Effect: "allow", GrantedBy: "invite",
+		}); perr != nil {
+			slog.Error("invite acl grant", "user", userSub, "scope", target, "err", perr)
+		}
+	}
 
 	slog.Info("invite accepted", "token_hash", chanlib.ShortHash(token),
 		"target_glob", target, "user", userSub)
