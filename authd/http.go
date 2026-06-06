@@ -36,6 +36,11 @@ var serviceGrants = map[string][]string{
 	// federates the /invite + /gate slash commands to onbod (invites:write +
 	// gates:write → onbod's /v1/invites + /v1/gates; onbod OWNS those tables).
 	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
+	// service:runed is the broker ceiling for per-turn agent tokens: it downscopes
+	// its own service:runed token to the agent's capabilities, so it must hold at
+	// least that set (runed ManagerConfig.Scopes / routd RunScopes). Missing this
+	// entry → empty ceiling → every agent turn 403s on downscope (scope_exceeds_parent).
+	"service:runed": {"messages:send:own_group", "chats:read:own_group"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
