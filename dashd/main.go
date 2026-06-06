@@ -397,14 +397,16 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 	var erroredCount, failedTasks int
 	var scanErrs []string
+	// messages stay on messages.db; task_run_logs is routd-owned (adminDB()).
 	for _, q := range []struct {
 		sql string
+		db  *sql.DB
 		dst *int
 	}{
-		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
-		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, &failedTasks},
+		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, d.db, &erroredCount},
+		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, d.adminDB(), &failedTasks},
 	} {
-		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
+		if err := q.db.QueryRow(q.sql).Scan(q.dst); err != nil {
 			slog.Warn("portal: scan", "sql", q.sql, "err", err)
 			scanErrs = append(scanErrs, err.Error())
 		}
@@ -539,7 +541,7 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) writeTaskRows(w http.ResponseWriter) {
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
 		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
 	if err != nil {

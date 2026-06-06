@@ -470,8 +470,9 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		if req.SessionID != "" {
 			_ = s.db.PutSession(tc.Folder, tc.Topic, req.SessionID)
 		}
+		userSub := callerSubOfMsg(tc.Trigger)
 		for model, c := range req.Models {
-			_ = s.db.PutCost(tc.Folder, turnID, model, c.Input, c.Output, c.CostCents)
+			_ = s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents)
 		}
 		_ = s.db.SetTurnState(turnID, "done")
 		if s.loop != nil {

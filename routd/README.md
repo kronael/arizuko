@@ -31,7 +31,9 @@ Spec: `specs/5/E`.
 tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
 `turn_context`, `turn_results`, `cost_log`, `web_routes`, `route_tokens`,
 `network_rules`, `acl`, `acl_membership`, `secrets`, `secret_use_log`,
-`scheduled_tasks`, `task_run_logs`, `pane_sessions`, plus supporting state.
+`scheduled_tasks`, `task_run_logs`, `pane_sessions`, `auth_users` (the
+per-user cost-cap column only; authd owns the full identity record), plus
+supporting state.
 Migrations in `routd/migrations/`. routd opens NO sibling DB — every table it
 reads is its own; cross-daemon data arrives over HTTP (authd identity, runed
 session_log).

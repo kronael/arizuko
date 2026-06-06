@@ -36,6 +36,16 @@ CREATE TABLE routes (
 CREATE TABLE route_tokens (
   token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL,
   owner_folder TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE scheduled_tasks (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
+  prompt TEXT NOT NULL, cron TEXT, next_run TEXT,
+  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
+  context_mode TEXT NOT NULL DEFAULT 'group');
+CREATE TABLE task_run_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+  run_at TEXT NOT NULL, duration_ms INTEGER, status TEXT NOT NULL,
+  result TEXT, error TEXT);
 `
 
 // splitAdminDash wires a dash with DISTINCT messages.db (db/dbRW) and routd.db
@@ -243,6 +253,82 @@ func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
 	if n := count(t, msg, `SELECT COUNT(*) FROM route_tokens`); n != 0 {
 		t.Errorf("messages.db route_token rows = %d, want 0", n)
 	}
+}
+
+// TestTaskCreate_TargetsRoutdDB: creating a scheduled task inserts the row into
+// routd.db, not messages.db (routd OWNS scheduled_tasks in the split topology).
+func TestTaskCreate_TargetsRoutdDB(t *testing.T) {
+	d, msg, routd := splitAdminDash(t, "alice@x")
+	mux := newMux(d)
+
+	form := url.Values{
+		"owner": {"team"}, "chat_jid": {"web:team"},
+		"prompt": {"do the thing"}, "cron": {"0 9 * * *"},
+	}.Encode()
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tasks/", form, "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST tasks = %d body=%q", w.Code, w.Body.String())
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='team' AND prompt='do the thing'`); n != 1 {
+		t.Errorf("routd.db scheduled_tasks rows = %d, want 1", n)
+	}
+	if n := count(t, msg, `SELECT COUNT(*) FROM scheduled_tasks WHERE owner='team'`); n != 0 {
+		t.Errorf("messages.db scheduled_tasks rows = %d, want 0 (must not write the monolith)", n)
+	}
+}
+
+// TestTaskAction_TargetsRoutdDB: pausing a task updates its status in routd.db.
+func TestTaskAction_TargetsRoutdDB(t *testing.T) {
+	d, msg, routd := splitAdminDash(t, "alice@x")
+	// Seed the same task id in BOTH DBs; only routd's row should flip to paused.
+	for _, db := range []*sql.DB{msg, routd} {
+		if _, err := db.Exec(
+			`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
+			 VALUES ('t-1', 'team', 'web:team', 'p', 'active', '')`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tasks/t-1/pause", "", "alice@x"))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("POST task pause = %d body=%q", w.Code, w.Body.String())
+	}
+	if got := statusOf(t, routd, "t-1"); got != "paused" {
+		t.Errorf("routd.db task status = %q, want paused", got)
+	}
+	if got := statusOf(t, msg, "t-1"); got != "active" {
+		t.Errorf("messages.db task status = %q, want active (must not touch the monolith)", got)
+	}
+}
+
+// TestTaskList_ReadsRoutdDB: the tasks list renders a task seeded into routd.db.
+func TestTaskList_ReadsRoutdDB(t *testing.T) {
+	d, _, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, status, created_at)
+		 VALUES ('t-live', 'liveowner', 'web:team', 'p', 'active', '')`); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/tasks/x/list", "", "alice@x"))
+	if w.Code != 200 {
+		t.Fatalf("GET tasks list = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "t-live") {
+		t.Errorf("tasks list missing routd.db row t-live")
+	}
+}
+
+func statusOf(t *testing.T, db *sql.DB, id string) string {
+	t.Helper()
+	var s string
+	if err := db.QueryRow(`SELECT status FROM scheduled_tasks WHERE id=?`, id).Scan(&s); err != nil {
+		t.Fatalf("status of %s: %v", id, err)
+	}
+	return s
 }
 
 // TestRouteTokenRevoke_TargetsRoutdDB: revoking a token deletes it from routd.db.

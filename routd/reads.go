@@ -313,5 +313,7 @@ func routeSourceJIDs(match string) []string {
 // (folder,turn_id,model), and PutCost is INSERT OR IGNORE). Mirrors gated's
 // logCost external path.
 func (d *DB) LogExternalCost(folder, provider, model string, inputTok, outputTok, costCents int) error {
-	return d.PutCost(folder, "ext-"+randHex(8), provider+":"+model, inputTok, outputTok, costCents)
+	// Channel-scoped (user_sub ""): the external subcall isn't attributed to a
+	// caller, matching gated's logCost external path (userSub "").
+	return d.PutCost(folder, "ext-"+randHex(8), "", provider+":"+model, inputTok, outputTok, costCents)
 }

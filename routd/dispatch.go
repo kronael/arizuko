@@ -100,7 +100,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// deliver a channel-visible refusal (no run dispatched) and consume the
 	// batch — return hadOutput=true so processGroupMessages advances the cursor
 	// past it, exactly as gated's runAgentWithOpts short-circuits before spawn.
-	if msg := l.budgetGate(folder); msg != "" {
+	if msg := l.budgetGate(folder, callerSubOfMsg(last.Sender)); msg != "" {
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "budget-"+turnID)
 		}

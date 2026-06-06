@@ -12,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -894,10 +895,12 @@ func (d *DB) SessionID(folder, topic string) string {
 // --- cost ---
 
 // PutCost writes one cost_log row per model under the (folder,turn_id)
-// dedup; a duplicate submit_turn does not double-charge.
-func (d *DB) PutCost(folder, turnID, model string, in, out, cents int) error {
-	_, err := d.db.Exec(`INSERT OR IGNORE INTO cost_log(folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at)
-		VALUES(?,?,?,?,?,?,?)`, folder, turnID, model, in, out, cents, nowTS())
+// dedup; a duplicate submit_turn does not double-charge. userSub is the
+// JWT-derived caller (callerSubOfMsg of the turn's trigger sender; "" for
+// adapter/anon/system turns) so SpendTodayUser can aggregate per-user spend.
+func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) error {
+	_, err := d.db.Exec(`INSERT OR IGNORE INTO cost_log(folder, turn_id, user_sub, model, input_tokens, output_tokens, cost_cents, recorded_at)
+		VALUES(?,?,?,?,?,?,?,?)`, folder, turnID, userSub, model, in, out, cents, nowTS())
 	return err
 }
 
@@ -924,6 +927,30 @@ func (d *DB) SpendTodayFolder(folder string) (int, error) {
 		folder, startOfTodayUTC()).Scan(&cents)
 	return cents, err
 }
+
+// SpendTodayUser sums cost_log.cost_cents for a user_sub since the UTC start of
+// today — the per-user half of the budget gate. Mirrors store.SpendTodayUser
+// against routd's own cost_log (rows logged by PutCost with the caller sub).
+func (d *DB) SpendTodayUser(userSub string) (int, error) {
+	var cents int
+	err := d.db.QueryRow(
+		`SELECT COALESCE(SUM(cost_cents), 0) FROM cost_log WHERE user_sub=? AND recorded_at >= ?`,
+		userSub, startOfTodayUTC()).Scan(&cents)
+	return cents, err
+}
+
+// UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped
+// (the default). Reuses store.UserCap against routd's OWN auth_users table
+// (migration 0011 mirrors the gated cap column) — the SAME source gated reads.
+func (d *DB) UserCap(userSub string) (int, error) {
+	return d.userStore().UserCap(userSub)
+}
+
+// userStore wraps routd's OWN routd.db handle as a *store.Store so the per-user
+// cap reader/writer (store.UserCap/SetUserCap/CreateAuthUser) runs verbatim
+// against routd.db's auth_users (migration 0011). Reads only the cap column;
+// authd owns the full identity record.
+func (d *DB) userStore() *store.Store { return store.New(d.db) }
 
 // startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the
 // budget window's lower bound (mirrors store.startOfTodayUTC).

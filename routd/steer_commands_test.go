@@ -465,7 +465,7 @@ func TestBudgetGateRefusesOverCap(t *testing.T) {
 	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=100 WHERE folder='demo'"); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "claude", 0, 0, 150)
+	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 150)
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "expensive question", Timestamp: time.Now().UTC()})
 
@@ -496,7 +496,7 @@ func TestBudgetGateAllowsUnderCap(t *testing.T) {
 	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=1000 WHERE folder='demo'"); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "claude", 0, 0, 150)
+	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 150)
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "cheap question", Timestamp: time.Now().UTC()})
 
@@ -514,7 +514,7 @@ func TestBudgetGateZeroCapUncapped(t *testing.T) {
 	db, loop, rr := recLoop(t)
 	loop.costCapsEnabled = true
 	_ = db.PutGroup(core.Group{Folder: "demo"}) // cap defaults to 0
-	_ = db.PutCost("demo", "t-prior", "claude", 0, 0, 9999)
+	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 9999)
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "q", Timestamp: time.Now().UTC()})
 
@@ -535,7 +535,7 @@ func TestBudgetGateDisabledBypasses(t *testing.T) {
 	if _, err := db.SQL().Exec("UPDATE groups SET cost_cap_cents_per_day=10 WHERE folder='demo'"); err != nil {
 		t.Fatal(err)
 	}
-	_ = db.PutCost("demo", "t-prior", "claude", 0, 0, 9999)
+	_ = db.PutCost("demo", "t-prior", "", "claude", 0, 0, 9999)
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "q", Timestamp: time.Now().UTC()})
 

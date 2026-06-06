@@ -21,7 +21,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	var owner, chatJID, prompt, status, createdAt string
 	var cron, nextRun, contextMode sql.NullString
-	err := d.db.QueryRow(
+	err := d.adminDB().QueryRow(
 		`SELECT owner, chat_jid, COALESCE(prompt,''), cron, next_run, status, created_at,
 		        context_mode
 		 FROM scheduled_tasks WHERE id = ?`, id,
@@ -82,7 +82,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Last 20 run logs.
 	fmt.Fprint(w, `<h2>Run history</h2>`)
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT run_at, status, COALESCE(duration_ms,0), COALESCE(error,'')
 		 FROM task_run_logs WHERE task_id = ? ORDER BY run_at DESC LIMIT 20`, id)
 	if err != nil {
@@ -127,7 +127,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -145,7 +145,7 @@ func (d *dash) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := d.dbRW.Exec(
+	res, err := d.adminDB().Exec(
 		`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, newStatus, id)
 	if err != nil {
 		slog.Warn("task action: update", "id", id, "action", action, "err", err)
@@ -177,7 +177,7 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -196,14 +196,14 @@ func (d *dash) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Generate a short unique ID (timestamp-based like timed does).
 	var id string
-	if err := d.dbRW.QueryRow(`SELECT lower(hex(randomblob(6)))`).Scan(&id); err != nil {
+	if err := d.adminDB().QueryRow(`SELECT lower(hex(randomblob(6)))`).Scan(&id); err != nil {
 		slog.Warn("task create: gen id", "err", err)
 		http.Error(w, "id gen failed", http.StatusInternalServerError)
 		return
 	}
 	id = "t-" + id
 
-	_, err := d.dbRW.Exec(
+	_, err := d.adminDB().Exec(
 		`INSERT INTO scheduled_tasks (id, owner, chat_jid, prompt, cron, status, created_at)
 		 VALUES (?, ?, ?, ?, ?, 'active', datetime('now'))`,
 		id, owner, chatJID, prompt, cron)
