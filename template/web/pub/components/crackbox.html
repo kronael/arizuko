@@ -51,17 +51,17 @@
       <h1>crackbox</h1>
 
     <h2>What it is</h2>
-    <p>In plain terms, crackbox is a doorman for an agent&rsquo;s internet access. You hand it a short list of sites the agent is allowed to reach; it blocks every other connection &mdash; so even if the agent gets tricked, it can&rsquo;t phone anywhere you didn&rsquo;t approve.</p>
-    <p>crackbox is an egress sandbox: a small forward proxy you put in front of an untrusted workload and tell which hosts it may reach. Everything off the allowlist is silently blocked. Wrap an AI agent, a CI script, or any other command in a tight list of reachable hosts and no other way out.</p>
+    <p>crackbox is the sandbox an agent runs inside &mdash; the containment boundary for one agent run. A compromised agent can reach exactly the hosts you allowed and nothing else, because the only way out of its box is through crackbox, and crackbox drops everything off the allowlist.</p>
+    <p>The shipped mechanism of that containment is <code>egred</code>: a forward HTTP/HTTPS proxy that is the agent&rsquo;s sole route to the network. The agent literally runs in a jail &mdash; its own container, a Docker network with no default route, egress only via crackbox. You hand crackbox a short list of reachable hosts; everything else is silently blocked. The same jail works for a CI script, a vendor binary, or any other command you don&rsquo;t fully trust.</p>
 
     <h2>Why it exists</h2>
-    <p>Agents and build scripts want the network. You want them to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points them. Browser permission prompts don't fit a headless workload. Per-process iptables is fiddly. A network-level egress firewall doesn't know which process is calling. crackbox sits in the one place that does: the proxy the workload talks through.</p>
-    <p>In arizuko it's the optional egress isolation layer for agent containers &mdash; one of the capability hooks a deployment can turn on. arizuko still uses Docker for the sandbox itself; crackbox guards what that sandbox can reach.</p>
+    <p>An agent runs generated code with the network open. You want it to reach <code>github.com</code> and <code>api.anthropic.com</code> &mdash; not your internal services, not a crypto miner shipped in a compromised npm package, not wherever a prompt injection points it. Browser permission prompts don&rsquo;t fit a headless workload. Per-process iptables is fiddly. A network-level egress firewall doesn&rsquo;t know which process is calling. crackbox is the box the agent runs in, so it sits in the one place that does: the only path the workload has out.</p>
+    <p>In arizuko, crackbox is the containment boundary every agent container runs within &mdash; one of the capability hooks a deployment turns on. Today that box is a Docker container on a per-group <code>internal: true</code> network whose only egress is the crackbox proxy. Stronger isolation &mdash; the agent running inside a crackbox-spawned KVM micro-VM (<code>pkg/host/</code>) rather than a shared-kernel container &mdash; is the next phase, not yet wired into the agent spawn. See <a href="https://github.com/kronael/arizuko/blob/main/specs/11/12-crackbox-sandboxing.md"><code>specs/11/12</code></a>.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
-      <strong>workload &rarr; crackbox proxy &rarr; allowed hosts only.</strong>
-      The workload sets <code>HTTPS_PROXY=http://crackbox:3128</code> (or is redirected transparently with iptables). crackbox reads the destination, checks it against the workload's allowlist, and splices the connection on a match &mdash; or drops it.
+      <strong>agent (in its box) &rarr; crackbox proxy &rarr; allowed hosts only.</strong>
+      The container sets <code>HTTPS_PROXY=http://crackbox:3128</code> (or is redirected transparently with iptables), and the box has no other route out. crackbox reads the destination, checks it against the agent&rsquo;s allowlist, and splices the connection on a match &mdash; or drops it.
     </div>
     <p>The registry is <code>source-IP &rarr; (id, allowlist)</code>. One pure <code>matchHost</code> function decides every connection: host name only &mdash; exact, subdomain-aware (<code>--allow github.com</code> covers <code>api.github.com</code>), case-insensitive, trailing dot stripped. No IP rules, no path rules, no per-method rules.</p>
 
@@ -160,7 +160,7 @@ import "github.com/kronael/arizuko/crackbox/pkg/client"  // admin HTTP client</c
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/crackbox.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 
