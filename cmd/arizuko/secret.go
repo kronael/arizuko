@@ -46,13 +46,11 @@ func cmdSecret(args []string) {
 
 	switch action {
 	case "set":
-		fs := flag.NewFlagSet("secret set", flag.ExitOnError)
-		value := fs.String("value", "", "secret value (required)")
-		fs.Parse(args[2:])
-		if fs.NArg() < 2 {
-			die("usage: arizuko secret <instance> set <folder> KEY --value V")
+		scopeID, key, value, err := parseSecretSet("secret set", args[2:])
+		if err != nil {
+			die("usage: arizuko secret <instance> set <folder> KEY --value|-v V: %v", err)
 		}
-		if err := runSecretSet(s, store.ScopeFolder, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
+		if err := runSecretSet(s, store.ScopeFolder, scopeID, key, value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "list":
@@ -85,13 +83,11 @@ func cmdUserSecret(args []string) {
 
 	switch action {
 	case "set":
-		fs := flag.NewFlagSet("user-secret set", flag.ExitOnError)
-		value := fs.String("value", "", "secret value (required)")
-		fs.Parse(args[2:])
-		if fs.NArg() < 2 {
-			die("usage: arizuko user-secret <instance> set <user_sub> KEY --value V")
+		scopeID, key, value, err := parseSecretSet("user-secret set", args[2:])
+		if err != nil {
+			die("usage: arizuko user-secret <instance> set <user_sub> KEY --value|-v V: %v", err)
 		}
-		if err := runSecretSet(s, store.ScopeUser, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
+		if err := runSecretSet(s, store.ScopeUser, scopeID, key, value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "list":
@@ -107,6 +103,24 @@ func cmdUserSecret(args []string) {
 	default:
 		die("unknown user-secret action: %s", action)
 	}
+}
+
+// parseSecretSet parses `secret set` / `user-secret set` args via flexParse so
+// --value (-v) works in any position relative to the <scope_id> KEY positionals.
+// It requires EXACTLY two positionals — extra or missing ones error rather than
+// silently dropping a misplaced flag (the std-flag footgun). name labels the
+// FlagSet for error messages (e.g. "secret set" vs "user-secret set").
+func parseSecretSet(name string, args []string) (scopeID, key, value string, err error) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.StringVar(&value, "value", "", "secret value (required)")
+	fs.StringVar(&value, "v", "", "secret value (required)")
+	if err = flexParse(fs, args); err != nil {
+		return "", "", "", err
+	}
+	if fs.NArg() != 2 {
+		return "", "", "", fmt.Errorf("expected <scope_id> KEY")
+	}
+	return fs.Arg(0), fs.Arg(1), value, nil
 }
 
 func runSecretSet(s *store.Store, scope store.SecretScope, scopeID, key, value string, w io.Writer) error {
