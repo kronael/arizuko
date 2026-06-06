@@ -5,6 +5,19 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## ✅ SPLIT VERIFIED WORKING ON KRONS (2026-06-06)
+
+`CUTOVER_SPLIT=true` is live on krons and proven end-to-end: operator-inject →
+routd poll/dispatch → runed service-token bootstrap via authd + crackbox egress →
+container spawn → agent `reply` tool → bot message stored in routd.db → round_done
+→ clean exit. teled (telegram) healthy; all 5 split daemons healthy; gated absent.
+Zero NULL-scan / failing-closed / forbidden / breaker / ERROR in steady state.
+The six blockers below + the four FIXED-2026-06-06 sections are all resolved.
+whapd crash-loops on the pre-existing WhatsApp re-pair (401, operator action) but
+still registers with routd — split adapter wiring is fine. NEXT: "remove gated
+feature by feature" is now UNBLOCKED (gated is the revert valve until then —
+`CUTOVER_SPLIT=false` + restart restores it; messages.db preserved).
+
 ## FIXED 2026-06-06 — split shipped without adapters/onbod as service principals (A1+A2, was HIGH live outage)
 
 The gated→authd/routd/runed split (spec 5/1) wired routd/runed/timed as service
