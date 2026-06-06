@@ -130,6 +130,18 @@ func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
 	return res.RowsAffected()
 }
 
+// DeleteRouteRow removes a route by id WITHOUT emitting an audit_log row — the
+// audit-free twin of DeleteRoute for an audit_log-less DB (routd.db, which OWNS
+// routes in the split topology — spec 5/5). Returns rows affected (0 → not
+// found). Mirrors the audit-free discipline of PutRouteRow.
+func (s *Store) DeleteRouteRow(id int64) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM routes WHERE id = ?`, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // matchesWebJID reports whether a route's Match expression includes a
 // chat_jid predicate that begins with "web:". Such routes can never
 // fire — the gateway addresses web JIDs directly — and silently mask

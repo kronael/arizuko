@@ -1,72 +1,151 @@
 ---
-status: active
+status: drafting
 ---
 
-# specs/8 — products
+# specs/7 — platform program: MCP+REST unification, data model, git-as-truth
 
-Launching products built on arizuko: persona templates, packaging,
-and the publish surface that lets operators deploy a configured agent
-out of the box.
+The platform thesis crystallized in the 2026-05-23 framing session.
+This phase carries it from positioning to mechanism.
 
-## Infrastructure
+## The framing (one paragraph)
 
-| Spec                                             | Status      | Hook                                                                                    |
-| ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
-| [P-product-templates.md](P-product-templates.md) | draft       | Template authoring conventions: persona, skills, seed files per product.                |
-| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
-| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                              |
-| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.               |
-| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.         |
-| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.        |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.           |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases. |
-| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.  |
+arizuko is an **agentic product platform** with two surfaces and one
+discipline. The surfaces: **MCP+REST** (the operations + runtime
+protocol, agent-first, REST as impedance match) and **git** (the
+serialized representation, the audit trail, the fork primitive, the
+distribution channel). The discipline: **agent is data** — persona,
+skills, ACL, routes, products, secrets-pointers, decisions, memory,
+diary are all values, versioned in git, mutated through the
+MCP+REST gate, projected into running containers at HEAD. Like
+"code is data" became cloud and infrastructure-as-code, now we have
+_agents as data_ — and agents managing agents on top of it.
 
-Platform/API surface moved to [specs/6/](../6/) — products consume the
-control API; the API design ships before the products that depend on it.
+## Why this is a phase, not a feature
 
-## Product catalog
+Each of the three actions is independently shippable. Together they
+are the platform thesis. Out of order they don't compose. Pre-ordered:
 
-Each product ships as `ant/examples/<name>/` and installs via
-`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
+1. **MCP+REST unification** — finish what `specs/5/5-uniform-mcp-rest.md`
+   started. One hand-rolled handler per resource, both protocols,
+   identical scopes + auth gate. Without this, the operator + agent
+   surfaces drift and the "git as truth" reconcile loop has two
+   masters to chase.
+2. **Data model improvements** — sharpen the entities (chats, routes,
+   grants, secrets, products, deployments) so they can be cleanly
+   serialized to git files. Many tables today are operational shapes,
+   not authoritative state — that boundary needs explicit lines
+   drawn before the git move can be principled.
+3. **Git as truth** — move what we can put in git easily _now_
+   into a per-instance git repo. Cold tier (ACL, routes, persona,
+   skills, MEMORY.md, .diary/) goes synchronously, written direct
+   to working tree; commits gate at turn boundary. Hard parts
+   (secrets blob location, chats split, inbound digest) stay in
+   SQLite until their own sub-specs land. Pragmatic, not
+   maximalist. Audit, history, fork, distribute — native git
+   verbs for everything that does migrate.
 
-Developer capabilities are embedded in each product that needs them
-(oracle + bash grants, scoped per deployment) — not a separate product.
+## Design principles (carried)
 
-| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
-| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
-| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
-| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
-| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
-| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
-| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
-| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
-| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
+- **One renderer, many sinks** (CLAUDE.md) — MCP+REST unification IS
+  this principle applied to the platform's external surface.
+- **Strict, not magical** (CLAUDE.md) — git is strict by construction
+  (commit or it didn't happen); no silent fallbacks for missing data,
+  no parent-folder inheritance for things the operator didn't write.
+- **Boring tech** (CLAUDE.md) — git is the most-known versioned-data
+  primitive on the planet; reach for it before inventing event logs,
+  CRDTs, or bespoke audit tables.
+- **Minimality and orthogonality** (CLAUDE.md) — three concerns, three
+  spec files, no cross-mixing. Don't smuggle git semantics into the
+  MCP/REST unification spec; don't smuggle data-model changes into
+  the git move.
 
-## Arizuko features required per product
+## What this phase is NOT
 
-| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
-| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
-| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
-| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
-| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
-| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
+- Not a runtime rewrite. Containers, channel adapters, daemon shape
+  unchanged.
+- Not a bespoke event-sourcing system. ActiveGraph
+  (arxiv:2605.21997) inspired the direction; git replaces the
+  bespoke event log + projection + fork machinery. Adopt the
+  discipline, not the runtime.
+- Not Kubernetes / multi-node. Single-host operator footprint stays.
+- Not a product registry (that's `specs/8/...` / future-phase 8 work).
+- ~~Not the `agents.toml` declarative composer~~ — resolved
+  in [5/36-yaml-manifests.md](../5/36-yaml-manifests.md): the carrier
+  format is YAML, not TOML, and lives in this phase. Product
+  composition / mixin semantics remain open (7/4 Q2).
 
-## Products in spec only (not yet in ant/examples/)
+## Sequencing
 
-Specced in this directory but no template folder shipped yet:
+Action 1 unblocks Action 2 (data model can target the unified
+surface). Actions 1+2 unblock Action 3 (clean entities + clean
+surface = clean git serialization). Within each action, ship the
+smallest viable version first; iterate behind that surface.
 
-| Spec                                           | Value prop                                                        |
-| ---------------------------------------------- | ----------------------------------------------------------------- |
-| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
-| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
-| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |
+Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
+(folder/user-scope secrets layering) — the BYOA primitive. Without
+secrets-as-references-resolvable-at-spawn, Action 3 can't ship
+safely.
+
+Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
+(audit log for warm tier), `specs/6/E-encryption-at-rest.md`
+(secrets stay encrypted in SQLite, never leak into git),
+`specs/6/Y-secret-broker.md` (per-call audit at the secret edge),
+`specs/6/H-per-daemon-secrets.md` (adapter-side compartments).
+
+## Specs in this phase
+
+- [2-data-model.md](2-data-model.md) — entity sharpening,
+  serialization-friendly shapes.
+- [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
+  writer; dual-write event-sourcing-lite; SQLite as cache; fork via
+  `git worktree`; audit via `git log`.
+- [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
+  — open questions: how ingestion, curation, and eventing fit the
+  agent-is-data + git-as-truth thesis. Status: open-questions; no
+  mechanism proposed.
+- [5/36-yaml-manifests.md](../5/36-yaml-manifests.md) — declarative YAML
+  carrier for cold-tier intent; flat resource namespace dispatched
+  through resreg; supersedes the `agents.toml` placeholder in
+  3/4. Status: draft.
+- [6-functions.md](6-functions.md) — lambda/function primitive:
+  agent-authored scripts on host, triggered transiently by webhook /
+  cron / function-chain / manual via `systemd-run --transient` under
+  per-folder cgroup slice; host-side `fnspd` spawner bridges
+  containerized gated to host systemd-user manager. Status: draft.
+- [7-configurable-autocalls.md](7-configurable-autocalls.md) —
+  operator-extensible `<autocalls>` block: a DB-backed, resreg-managed
+  resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
+  builtins. Two bounded kinds — `template` (pure, zero-I/O over
+  `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
+  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/31's
+  planned `unread`/`errors` entries; "agent is data" applied to what
+  the agent passively sees. Status: draft.
+
+## Open questions (referenced from each spec)
+
+These are real and unresolved at phase-open. Each child spec carries
+its own subset; the index keeps the master list.
+
+1. Inbound message storage — per-day JSONL in git, or hot-only in
+   SQLite?
+2. Crash recovery between SQLite write and git commit — replay
+   protocol?
+3. Fork lifecycle — does forked branch get its own container, same
+   DB, separate cache?
+4. Operator UX — `arizuko log/diff/revert` wrappers vs raw git?
+5. dashd tier-1 write — commit→apply, or commit-immediate-apply?
+6. Tracing granularity vs audit granularity — sidecar JSON enough,
+   or per-event commits on a side branch?
+7. Term "GitOps" — adopt (familiar to ops buyers) or substitute
+   "git-native" (cleaner for non-K8s audience)?
+
+## Pointers
+
+- Framing session diary: `.diary/20260523.md` (afternoon blocks
+  ~14:00–15:30).
+- Competitive sweep + ActiveGraph honesty check: same diary entry.
+- Three-lens synthesis (agent-is-data, agent-first, agent-is-graph
+  scoped to organizational layer): same diary.
+- Memory pointers: `~/.claude/projects/-home-onvos-app-arizuko/memory/`
+  (no permanent memory file yet; this index doubles as canonical
+  framing reference until POSITIONING.md exists at repo root).

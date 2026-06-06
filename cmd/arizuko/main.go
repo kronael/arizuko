@@ -44,6 +44,7 @@ func main() {
 		fmt.Println("  invite   <instance> revoke <token>")
 		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
+		fmt.Println("  route    <instance> list | add <match> <target> [--seq N] | rm <id>")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
 		fmt.Println("  token    <instance> list <folder>")
@@ -74,6 +75,7 @@ func main() {
 		"status":   cmdStatus,
 		"pair":     cmdPair,
 		"network":     cmdNetwork,
+		"route":       cmdRoute,
 		"secret":      cmdSecret,
 		"user-secret": cmdUserSecret,
 		"budget":      cmdBudget,

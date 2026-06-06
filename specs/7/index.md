@@ -1,151 +1,62 @@
 ---
-status: drafting
+status: active
 ---
 
-# specs/7 — platform program: MCP+REST unification, data model, git-as-truth
+# specs/6 — enterprise hardening: trust primitives on top of phase 5
 
-The platform thesis crystallized in the 2026-05-23 framing session.
-This phase carries it from positioning to mechanism.
+The trust layer. Hardening that makes arizuko credible to regulated
+buyers and enterprise security reviews:
 
-## The framing (one paragraph)
+- **Encryption at rest** — `messages.db` + `secrets` table (`E`)
+- **Audit stream** — `ipc_audit` for MCP mutations + proxyd access
+  log + cli_audit (`F`)
+- **Per-daemon secrets** — channel-secret separation; leaking one
+  adapter's bearer does not compromise others (`H`)
+- **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
+  Code; JIT provisioning + SCIM deprovisioning (`X`)
+- **Tool-level secret broker** — `injectSecretsAdapter`,
+  `secret_use_log`, `/dash/me/secrets`, connector spawner;
+  per-call audit (`Y`)
+- **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
+  placeholder swap, per-instance CA; catches opaque HTTP clients
+  the broker can't (`Z`)
 
-arizuko is an **agentic product platform** with two surfaces and one
-discipline. The surfaces: **MCP+REST** (the operations + runtime
-protocol, agent-first, REST as impedance match) and **git** (the
-serialized representation, the audit trail, the fork primitive, the
-distribution channel). The discipline: **agent is data** — persona,
-skills, ACL, routes, products, secrets-pointers, decisions, memory,
-diary are all values, versioned in git, mutated through the
-MCP+REST gate, projected into running containers at HEAD. Like
-"code is data" became cloud and infrastructure-as-code, now we have
-_agents as data_ — and agents managing agents on top of it.
+## Where this leads
 
-## Why this is a phase, not a feature
+Phase 6 hardening composes with phase 7's git-as-truth into the
+platform thesis:
 
-Each of the three actions is independently shippable. Together they
-are the platform thesis. Out of order they don't compose. Pre-ordered:
+- **Audit stream** (`F`) provides the SQLite audit log that
+  pairs with git history for warm-tier decisions; phase 7's
+  per-turn decision sidecar references the same actor identities.
+- **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
+  while phase 7 explicitly keeps secrets OUT of git (refs only).
+- **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
+  the secret access surface that phase 7 references via
+  `(scope, name)` tuples in `agents.toml`.
+- **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
+  asks; they don't depend on phase 7 but make the same buyer
+  ready to adopt it.
 
-1. **MCP+REST unification** — finish what `specs/5/5-uniform-mcp-rest.md`
-   started. One hand-rolled handler per resource, both protocols,
-   identical scopes + auth gate. Without this, the operator + agent
-   surfaces drift and the "git as truth" reconcile loop has two
-   masters to chase.
-2. **Data model improvements** — sharpen the entities (chats, routes,
-   grants, secrets, products, deployments) so they can be cleanly
-   serialized to git files. Many tables today are operational shapes,
-   not authoritative state — that boundary needs explicit lines
-   drawn before the git move can be principled.
-3. **Git as truth** — move what we can put in git easily _now_
-   into a per-instance git repo. Cold tier (ACL, routes, persona,
-   skills, MEMORY.md, .diary/) goes synchronously, written direct
-   to working tree; commits gate at turn boundary. Hard parts
-   (secrets blob location, chats split, inbound digest) stay in
-   SQLite until their own sub-specs land. Pragmatic, not
-   maximalist. Audit, history, fork, distribute — native git
-   verbs for everything that does migrate.
+## Scope notes
 
-## Design principles (carried)
+Two specs in this phase are channel-flavored historical exceptions
+(D-slack-agent-pane, G-slack-multi-workspace) that bled in before
+the phase 5/6 split was clean. Per-platform adapter behavior
+generally lives next to daemon code (`slakd/`, `teled/`, etc.),
+not as spec files. Future channel-specific items get a per-daemon
+README rather than a phase-6 spec.
 
-- **One renderer, many sinks** (CLAUDE.md) — MCP+REST unification IS
-  this principle applied to the platform's external surface.
-- **Strict, not magical** (CLAUDE.md) — git is strict by construction
-  (commit or it didn't happen); no silent fallbacks for missing data,
-  no parent-folder inheritance for things the operator didn't write.
-- **Boring tech** (CLAUDE.md) — git is the most-known versioned-data
-  primitive on the planet; reach for it before inventing event logs,
-  CRDTs, or bespoke audit tables.
-- **Minimality and orthogonality** (CLAUDE.md) — three concerns, three
-  spec files, no cross-mixing. Don't smuggle git semantics into the
-  MCP/REST unification spec; don't smuggle data-model changes into
-  the git move.
-
-## What this phase is NOT
-
-- Not a runtime rewrite. Containers, channel adapters, daemon shape
-  unchanged.
-- Not a bespoke event-sourcing system. ActiveGraph
-  (arxiv:2605.21997) inspired the direction; git replaces the
-  bespoke event log + projection + fork machinery. Adopt the
-  discipline, not the runtime.
-- Not Kubernetes / multi-node. Single-host operator footprint stays.
-- Not a product registry (that's `specs/8/...` / future-phase 8 work).
-- ~~Not the `agents.toml` declarative composer~~ — resolved
-  in [5/36-yaml-manifests.md](../5/36-yaml-manifests.md): the carrier
-  format is YAML, not TOML, and lives in this phase. Product
-  composition / mixin semantics remain open (7/4 Q2).
-
-## Sequencing
-
-Action 1 unblocks Action 2 (data model can target the unified
-surface). Actions 1+2 unblock Action 3 (clean entities + clean
-surface = clean git serialization). Within each action, ship the
-smallest viable version first; iterate behind that surface.
-
-Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
-(folder/user-scope secrets layering) — the BYOA primitive. Without
-secrets-as-references-resolvable-at-spawn, Action 3 can't ship
-safely.
-
-Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
-(audit log for warm tier), `specs/6/E-encryption-at-rest.md`
-(secrets stay encrypted in SQLite, never leak into git),
-`specs/6/Y-secret-broker.md` (per-call audit at the secret edge),
-`specs/6/H-per-daemon-secrets.md` (adapter-side compartments).
-
-## Specs in this phase
-
-- [2-data-model.md](2-data-model.md) — entity sharpening,
-  serialization-friendly shapes.
-- [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
-  writer; dual-write event-sourcing-lite; SQLite as cache; fork via
-  `git worktree`; audit via `git log`.
-- [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
-  — open questions: how ingestion, curation, and eventing fit the
-  agent-is-data + git-as-truth thesis. Status: open-questions; no
-  mechanism proposed.
-- [5/36-yaml-manifests.md](../5/36-yaml-manifests.md) — declarative YAML
-  carrier for cold-tier intent; flat resource namespace dispatched
-  through resreg; supersedes the `agents.toml` placeholder in
-  3/4. Status: draft.
-- [6-functions.md](6-functions.md) — lambda/function primitive:
-  agent-authored scripts on host, triggered transiently by webhook /
-  cron / function-chain / manual via `systemd-run --transient` under
-  per-folder cgroup slice; host-side `fnspd` spawner bridges
-  containerized gated to host systemd-user manager. Status: draft.
-- [7-configurable-autocalls.md](7-configurable-autocalls.md) —
-  operator-extensible `<autocalls>` block: a DB-backed, resreg-managed
-  resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
-  builtins. Two bounded kinds — `template` (pure, zero-I/O over
-  `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
-  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/31's
-  planned `unread`/`errors` entries; "agent is data" applied to what
-  the agent passively sees. Status: draft.
-
-## Open questions (referenced from each spec)
-
-These are real and unresolved at phase-open. Each child spec carries
-its own subset; the index keeps the master list.
-
-1. Inbound message storage — per-day JSONL in git, or hot-only in
-   SQLite?
-2. Crash recovery between SQLite write and git commit — replay
-   protocol?
-3. Fork lifecycle — does forked branch get its own container, same
-   DB, separate cache?
-4. Operator UX — `arizuko log/diff/revert` wrappers vs raw git?
-5. dashd tier-1 write — commit→apply, or commit-immediate-apply?
-6. Tracing granularity vs audit granularity — sidecar JSON enough,
-   or per-event commits on a side branch?
-7. Term "GitOps" — adopt (familiar to ops buyers) or substitute
-   "git-native" (cleaner for non-K8s audience)?
-
-## Pointers
-
-- Framing session diary: `.diary/20260523.md` (afternoon blocks
-  ~14:00–15:30).
-- Competitive sweep + ActiveGraph honesty check: same diary entry.
-- Three-lens synthesis (agent-is-data, agent-first, agent-is-graph
-  scoped to organizational layer): same diary.
-- Memory pointers: `~/.claude/projects/-home-onvos-app-arizuko/memory/`
-  (no permanent memory file yet; this index doubles as canonical
-  framing reference until POSITIONING.md exists at repo root).
+| Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
+| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [A-hierarchical-skills.md](A-hierarchical-skills.md)     | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all SKILL.md frontmatters. Per-turn cost O(depth) not O(N).                                                                            |
+| [D-slack-agent-pane.md](D-slack-agent-pane.md)           | shipped | Full Slack AI sidebar support: pane_sessions table; assistant_thread_started/\_context_changed event handlers; setTitle on open; setSuggestedPrompts after every reply; pane_context surfaced to agent prompt; PERSONA.md frontmatter. |
+| [E-encryption-at-rest.md](E-encryption-at-rest.md)       | partial | Encrypt `secrets` table + `messages.db` at rest; filesystem-attacker threat model. Shipped: AES-256-GCM on `secrets.value`. Deferred: `messages.db` content columns.                                                                   |
+| [F-audit-stream.md](F-audit-stream.md)                   | spec    | Audit log: `ipc_audit` table for MCP mutations + `cli_audit` (existing) + slog for proxyd access. No file export.                                                                                                                      |
+| [G-slack-multi-workspace.md](G-slack-multi-workspace.md) | draft   | Slack OAuth install flow + multi-workspace support in slakd.                                                                                                                                                                           |
+| [H-per-daemon-secrets.md](H-per-daemon-secrets.md)       | shipped | Per-daemon channel secrets: each adapter reads `<DAEMON>_CHANNEL_SECRET` with fallback to `CHANNEL_SECRET` so a leaked per-platform bearer does not compromise the others.                                                             |
+| [N-oauth-services.md](N-oauth-services.md)               | draft   | Third-party OAuth services (Gmail/Linear/GitHub/Notion/…) as agent capabilities. Index spec — mechanism ships via `6/Y` broker + `11/14` surrogate-OAuth + `ipc/connector.go`. Moved from `5/N` (depends on phase-6 broker).           |
+| [X-sso-saml.md](X-sso-saml.md)                           | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code, on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                                                            |
+| [Y-secret-broker.md](Y-secret-broker.md)                 | partial | Tool-level secret broker: `injectSecretsAdapter`, `secret_use_log`, `/dash/me/secrets`, connector spawner. M0/M1 (broker middleware) not yet shipped; M2–M6 (schema, CLI, dashd, spawn-env drop) shipped.                              |
+| [Z-egred-mitm.md](Z-egred-mitm.md)                       | draft   | HTTPS-MITM on egred: per-source TLS termination, `$VAR` placeholder swap on Authorization-class headers, CA per instance. Additive to Y — catches opaque HTTP clients (curl, requests, bash-grant scripts) the broker can't.           |
+| [00-finalise-plan.md](00-finalise-plan.md)               | draft   | Historical: bucket-6 finalisation plan from the pre-split era. Most referenced specs now live in [specs/5/](../5/).                                                                                                                    |

@@ -2,61 +2,71 @@
 status: active
 ---
 
-# specs/6 — enterprise hardening: trust primitives on top of phase 5
+# specs/8 — products
 
-The trust layer. Hardening that makes arizuko credible to regulated
-buyers and enterprise security reviews:
+Launching products built on arizuko: persona templates, packaging,
+and the publish surface that lets operators deploy a configured agent
+out of the box.
 
-- **Encryption at rest** — `messages.db` + `secrets` table (`E`)
-- **Audit stream** — `ipc_audit` for MCP mutations + proxyd access
-  log + cli_audit (`F`)
-- **Per-daemon secrets** — channel-secret separation; leaking one
-  adapter's bearer does not compromise others (`H`)
-- **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
-  Code; JIT provisioning + SCIM deprovisioning (`X`)
-- **Tool-level secret broker** — `injectSecretsAdapter`,
-  `secret_use_log`, `/dash/me/secrets`, connector spawner;
-  per-call audit (`Y`)
-- **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
-  placeholder swap, per-instance CA; catches opaque HTTP clients
-  the broker can't (`Z`)
+## Infrastructure
 
-## Where this leads
+| Spec                                             | Status      | Hook                                                                                    |
+| ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
+| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
+| [P-product-templates.md](P-product-templates.md) | draft       | Template authoring conventions: persona, skills, seed files per product.                |
+| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
+| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
+| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
+| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                              |
+| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.               |
+| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.         |
+| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.        |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.           |
+| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases. |
+| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.  |
 
-Phase 6 hardening composes with phase 7's git-as-truth into the
-platform thesis:
+Platform/API surface moved to [specs/6/](../6/) — products consume the
+control API; the API design ships before the products that depend on it.
 
-- **Audit stream** (`F`) provides the SQLite audit log that
-  pairs with git history for warm-tier decisions; phase 7's
-  per-turn decision sidecar references the same actor identities.
-- **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
-  while phase 7 explicitly keeps secrets OUT of git (refs only).
-- **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
-  the secret access surface that phase 7 references via
-  `(scope, name)` tuples in `agents.toml`.
-- **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
-  asks; they don't depend on phase 7 but make the same buyer
-  ready to adopt it.
+## Product catalog
 
-## Scope notes
+Each product ships as `ant/examples/<name>/` and installs via
+`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
 
-Two specs in this phase are channel-flavored historical exceptions
-(D-slack-agent-pane, G-slack-multi-workspace) that bled in before
-the phase 5/6 split was clean. Per-platform adapter behavior
-generally lives next to daemon code (`slakd/`, `teled/`, etc.),
-not as spec files. Future channel-specific items get a per-daemon
-README rather than a phase-6 spec.
+Developer capabilities are embedded in each product that needs them
+(oracle + bash grants, scoped per deployment) — not a separate product.
 
-| Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
-| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-hierarchical-skills.md](A-hierarchical-skills.md)     | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all SKILL.md frontmatters. Per-turn cost O(depth) not O(N).                                                                            |
-| [D-slack-agent-pane.md](D-slack-agent-pane.md)           | shipped | Full Slack AI sidebar support: pane_sessions table; assistant_thread_started/\_context_changed event handlers; setTitle on open; setSuggestedPrompts after every reply; pane_context surfaced to agent prompt; PERSONA.md frontmatter. |
-| [E-encryption-at-rest.md](E-encryption-at-rest.md)       | partial | Encrypt `secrets` table + `messages.db` at rest; filesystem-attacker threat model. Shipped: AES-256-GCM on `secrets.value`. Deferred: `messages.db` content columns.                                                                   |
-| [F-audit-stream.md](F-audit-stream.md)                   | spec    | Audit log: `ipc_audit` table for MCP mutations + `cli_audit` (existing) + slog for proxyd access. No file export.                                                                                                                      |
-| [G-slack-multi-workspace.md](G-slack-multi-workspace.md) | draft   | Slack OAuth install flow + multi-workspace support in slakd.                                                                                                                                                                           |
-| [H-per-daemon-secrets.md](H-per-daemon-secrets.md)       | shipped | Per-daemon channel secrets: each adapter reads `<DAEMON>_CHANNEL_SECRET` with fallback to `CHANNEL_SECRET` so a leaked per-platform bearer does not compromise the others.                                                             |
-| [N-oauth-services.md](N-oauth-services.md)               | draft   | Third-party OAuth services (Gmail/Linear/GitHub/Notion/…) as agent capabilities. Index spec — mechanism ships via `6/Y` broker + `11/14` surrogate-OAuth + `ipc/connector.go`. Moved from `5/N` (depends on phase-6 broker).           |
-| [X-sso-saml.md](X-sso-saml.md)                           | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code, on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                                                            |
-| [Y-secret-broker.md](Y-secret-broker.md)                 | partial | Tool-level secret broker: `injectSecretsAdapter`, `secret_use_log`, `/dash/me/secrets`, connector spawner. M0/M1 (broker middleware) not yet shipped; M2–M6 (schema, CLI, dashd, spawn-env drop) shipped.                              |
-| [Z-egred-mitm.md](Z-egred-mitm.md)                       | draft   | HTTPS-MITM on egred: per-source TLS termination, `$VAR` placeholder swap on Authorization-class headers, CA per instance. Additive to Y — catches opaque HTTP clients (curl, requests, bash-grant scripts) the broker can't.           |
-| [00-finalise-plan.md](00-finalise-plan.md)               | draft   | Historical: bucket-6 finalisation plan from the pre-split era. Most referenced specs now live in [specs/5/](../5/).                                                                                                                    |
+| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
+| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
+| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
+| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
+| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
+| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
+| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
+| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
+| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
+| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
+
+## Arizuko features required per product
+
+| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
+| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
+| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
+| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
+| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
+| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
+| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
+| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
+| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
+
+## Products in spec only (not yet in ant/examples/)
+
+Specced in this directory but no template folder shipped yet:
+
+| Spec                                           | Value prop                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
+| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
+| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |
