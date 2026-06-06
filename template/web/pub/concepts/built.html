@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; how it&rsquo;s built</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .loop { list-style: none; margin: 0.6em 0 1.2em; padding: 0; }
+    .loop li { margin: 0.7em 0; }
+    .loop .step { font-weight: 600; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html" aria-current="page">How it&rsquo;s built</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; how it&rsquo;s built</p>
+      <h1>how it&rsquo;s built</h1>
+
+      <p class="lede">A change to arizuko is an agent&rsquo;s work, kept as
+        files: the same parts that route a Slack message &mdash; specs, skills,
+        file-based memory, ephemeral turns &mdash; are the ones used to add a
+        feature. This page is the build loop, not the runtime &mdash; for the
+        parts themselves see
+        <a href="primitives.html">primitives</a>, <a href="ant.html">the ant</a>,
+        and <a href="skills.html">skills</a>.</p>
+
+      <h2>Agents do the work</h2>
+      <p>The work is done by arizuko-shaped agents: Claude Code sessions with
+        durable file memory and bounded subagents. Non-trivial changes &mdash; a
+        migration, a cross-package refactor &mdash; run in a
+        <code>git worktree</code>-isolated subagent so parallel work
+        doesn&rsquo;t collide. Edits to the shared tree go one at a time, the
+        same serialization a <a href="primitives.html">turn</a> gives a single
+        folder.</p>
+
+      <h2>The build loop</h2>
+      <p>Each step is a concrete artifact on disk:</p>
+      <ul class="loop">
+        <li><span class="step">Design is a spec.</span> It lands as a file under
+          <code>specs/</code> with a tracked <code>status:</code> (draft,
+          partial, ready, shipped) &mdash; reviewable and diffable, not buried in
+          a chat log.</li>
+        <li><span class="step">A second opinion is one command.</span>
+          <code>codex exec</code> asks an independent model to check a non-obvious
+          design before it&rsquo;s committed.</li>
+        <li><span class="step">The decision is written down.</span>
+          <code>/diary</code> records it to <code>.diary/&lt;date&gt;.md</code> at
+          the moment it&rsquo;s made.</li>
+        <li><span class="step">The next session remembers.</span>
+          <code>/recall-memories</code> reads the diary and a file-based memory
+          store to recover context &mdash; the same durable
+          <a href="primitives.html">state</a> primitive an agent uses in
+          production, files rather than a context window.</li>
+      </ul>
+
+      <h2>Built on the four layers</h2>
+      <p>The <a href="primitives.html">primitives &rarr; components &rarr; daemons
+        &rarr; products</a> stack is the build path, not only the architecture. A
+        concept starts as a spec (a primitive made explicit), becomes a Go
+        package (a <a href="../components/">component</a>), bundles into a daemon,
+        and surfaces as an installable product. The tool-level secret broker
+        began as a spec, became the secret-resolution code in
+        <code>store</code> and <code>ipc</code>, ships inside <code>gated</code>,
+        and shows up as folder- and user-scoped <a href="secrets.html">secrets</a>
+        a product can declare.</p>
+      <p>So a new requirement is a spec edit, a package, and a route &mdash; files
+        on a host you control, changed with an edit and a commit, not a vendor
+        ticket.</p>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="primitives.html">&larr; Primitives</a>
+        <a rel="next" href="ant.html">The ant &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/built.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
