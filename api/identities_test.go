@@ -8,7 +8,7 @@ import (
 func TestDeliverMessage_ConsumesLinkCode(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	idn, err := s.CreateIdentity("alice")
 	if err != nil {
@@ -41,7 +41,7 @@ func TestDeliverMessage_ConsumesLinkCode(t *testing.T) {
 func TestDeliverMessage_NonCodeContentIgnored(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	w := postJSON(h, "/v1/messages", messageReq{
 		ChatJID: "tg:123", Sender: "tg:456",
@@ -58,7 +58,7 @@ func TestDeliverMessage_NonCodeContentIgnored(t *testing.T) {
 func TestDeliverMessage_StaleCodeIgnored(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	idn, _ := s.CreateIdentity("alice")
 	code, _ := s.MintLinkCode(idn.ID, -1*time.Second) // already expired

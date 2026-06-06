@@ -42,6 +42,12 @@ test:
 	$(foreach d,$(DAEMONS),make -C $(d) test;)
 	$(foreach c,$(COMPONENTS),make -C $(c) test;)
 
+# test-race: race detector on the concurrency-critical packages only.
+# Kept out of `make test` because -race is ~10x slower; run before tagging.
+test-race:
+	go test -race -count=1 ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
+.PHONY: test-race
+
 # test-e2e: release-only end-to-end tests. Drive a real round through the
 # slink HTTP/MCP surface (POST /slink/<token>, /slink/stream, /send agent
 # callback) against an in-memory store + fake gated. Slow (≤ 5 min) and

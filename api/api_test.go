@@ -68,7 +68,7 @@ func TestRegisterChannel(t *testing.T) {
 
 	w := postJSON(h, "/v1/channels/register", registerReq{
 		Name:        "telegram",
-		URL:         "http://tg:9001",
+		URL:         "http://127.0.0.1:9001",
 		JIDPrefixes: []string{"tg:"},
 		Capabilities: map[string]bool{
 			"send_text": true,
@@ -94,7 +94,7 @@ func TestRegisterBadSecret(t *testing.T) {
 	h := srv.Handler()
 
 	w := postJSON(h, "/v1/channels/register", registerReq{
-		Name: "telegram", URL: "http://tg:9001", JIDPrefixes: []string{"tg:"},
+		Name: "telegram", URL: "http://127.0.0.1:9001", JIDPrefixes: []string{"tg:"},
 	}, "wrong-secret")
 
 	if w.Code != 401 {
@@ -119,7 +119,7 @@ func TestDeliverMessage(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	w := postJSON(h, "/v1/messages", messageReq{
 		ChatJID:    "tg:123",
@@ -154,7 +154,7 @@ func TestDeliverMessage(t *testing.T) {
 func TestDeliverMessage_PromoteReplyToBot(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	// Plant a bot-authored parent message. Mirror production shape:
 	// gateway-assigned synthetic id ("out-..."), platform id ("plat-")
@@ -229,7 +229,7 @@ func TestDeliverMessage_MentionWritesEngagement(t *testing.T) {
 	srv, reg, s := setup(t)
 	srv.SetEngagementTTL(10 * time.Minute)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	now := time.Now()
 	w := postJSON(h, "/v1/messages", messageReq{
@@ -263,7 +263,7 @@ func TestDeliverMessage_MentionWritesEngagedFolder(t *testing.T) {
 	srv, reg, s := setup(t)
 	srv.SetEngagementTTL(10 * time.Minute)
 	h := srv.Handler()
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	// Seed a route so DefaultFolderForJID resolves.
 	if _, err := s.AddRoute(core.Route{
@@ -294,7 +294,7 @@ func TestDeliverMessage_PersistsIsGroup(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	w := postJSON(h, "/v1/messages", messageReq{
 		ChatJID: "tg:-100", Content: "hi", IsGroup: true,
@@ -335,7 +335,7 @@ func TestDeliverMessageMissingFields(t *testing.T) {
 	srv, reg, _ := setup(t)
 	h := srv.Handler()
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	w := postJSON(h, "/v1/messages", messageReq{
 		ChatJID: "tg:123",
@@ -354,7 +354,7 @@ func TestDeregister(t *testing.T) {
 	var deregistered string
 	srv.OnDeregister(func(name string) { deregistered = name })
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	w := postJSON(h, "/v1/channels/deregister", nil, token)
 	if w.Code != 200 {
@@ -372,8 +372,8 @@ func TestListChannels(t *testing.T) {
 	srv, reg, _ := setup(t)
 	h := srv.Handler()
 
-	reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
-	reg.Register("discord", "http://discord:9002", []string{"discord:"}, nil)
+	reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
+	reg.Register("discord", "http://127.0.0.1:9002", []string{"discord:"}, nil)
 
 	w := getJSON(h, "/v1/channels", "test-secret")
 	if w.Code != 200 {
@@ -408,7 +408,7 @@ func TestRegisterCallbackCreatesChannel(t *testing.T) {
 
 	w := postJSON(h, "/v1/channels/register", registerReq{
 		Name:        "telegram",
-		URL:         "http://tg:9001",
+		URL:         "http://127.0.0.1:9001",
 		JIDPrefixes: []string{"tg:"},
 	}, "test-secret")
 
@@ -424,7 +424,7 @@ func TestDeliverMessageWithAttachments(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	body := messageReq{
 		ChatJID:    "tg:123",
@@ -619,7 +619,7 @@ func TestDeliverReaction_InheritsTopicFromParent(t *testing.T) {
 	srv, reg, s := setup(t)
 	h := srv.Handler()
 
-	token, _ := reg.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
+	token, _ := reg.Register("tg", "http://127.0.0.1:9001", []string{"tg:"}, nil)
 
 	// Store a parent message that belongs to a thread (has a Topic).
 	if err := s.PutMessage(core.Message{
@@ -665,7 +665,7 @@ func TestNoSecretAllowsAll(t *testing.T) {
 
 	w := postJSON(h, "/v1/channels/register", registerReq{
 		Name:        "tg",
-		URL:         "http://tg:9001",
+		URL:         "http://127.0.0.1:9001",
 		JIDPrefixes: []string{"tg:"},
 	}, "")
 
