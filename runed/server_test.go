@@ -292,3 +292,24 @@ func TestFreshSpawnResolvesSessionID(t *testing.T) {
 		t.Fatal("fresh spawn passed empty SessionID to Runtime.Run — resolved id must reach the container")
 	}
 }
+
+// TestRunStatusStoreErrorReturns500: GET /v1/runs/{id} must surface a real
+// store failure as 500, NOT mask it as 404 unknown_run. Before the fix every
+// GetSpawn error collapsed to 404; a dropped/locked spawns table would lie
+// "no such run" instead of reporting the failure (matches handleRunKill's
+// ErrNotFound→404 / other→500 split).
+func TestRunStatusStoreErrorReturns500(t *testing.T) {
+	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"runs:run"}})
+	h := srv.Handler()
+	// A genuinely-absent run is 404.
+	if got := req(t, h, "GET", "/v1/runs/nope"); got.Code != 404 {
+		t.Fatalf("absent run = %d want 404", got.Code)
+	}
+	// Force a real store error: drop the spawns table so GetSpawn fails hard.
+	if _, err := db.SQL().Exec("DROP TABLE spawns"); err != nil {
+		t.Fatal(err)
+	}
+	if got := req(t, h, "GET", "/v1/runs/anything"); got.Code != 500 {
+		t.Fatalf("store failure = %d want 500", got.Code)
+	}
+}

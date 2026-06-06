@@ -122,8 +122,11 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sp, err := s.db.GetSpawn(r.PathValue("run_id"))
-	if err != nil {
+	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
+		return
+	} else if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
 	writeJSON(w, 200, runedv1.RunStatus{

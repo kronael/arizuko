@@ -286,11 +286,12 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 			Content: req.Caption, Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 			Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending}
 		if s.deliver != nil {
-			if _, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
+			if pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
+				row.PlatformID = pid
 				row.Status = core.MessageStatusSent
 			}
 		}
-		return 200, apiv1.SendResult{MessageID: msgID, Status: row.Status}, &row
+		return 200, apiv1.SendResult{MessageID: msgID, PlatformID: row.PlatformID, Status: row.Status}, &row
 	})
 }
 

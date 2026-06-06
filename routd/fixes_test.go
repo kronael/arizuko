@@ -599,3 +599,43 @@ func TestRouteDeleteStoreErrorReturns500(t *testing.T) {
 		t.Fatalf("error=%q want store_error (body=%s)", e.Error, rec.Body.String())
 	}
 }
+
+// TestDocumentStampsPlatformID: the /document REST twin must persist the
+// platform id the Deliverer returns onto the stored bot row AND echo it in the
+// SendResult. Before the fix it discarded the returned pid (`if _, err := ...`)
+// so the document row landed with empty platform_id, breaking later
+// edit/delete/pin targeting that message. Mirrors how /reply + /send already
+// capture pid (turns.go appendAndDeliver).
+func TestDocumentStampsPlatformID(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &fakeDeliverer{platformID: "doc-pid-99"}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/document", "doc-1",
+		apiv1.DocumentRequest{JID: "slack:T/C/U", Path: "/srv/x.pdf", Name: "x.pdf"})
+	if rec.Code != 200 {
+		t.Fatalf("document status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out apiv1.SendResult
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.PlatformID != "doc-pid-99" {
+		t.Fatalf("SendResult.PlatformID=%q want doc-pid-99", out.PlatformID)
+	}
+	if out.Status != core.MessageStatusSent {
+		t.Fatalf("SendResult.Status=%q want sent", out.Status)
+	}
+	// The stored bot row must carry the platform id for later mutations to resolve.
+	var pid string
+	db.SQL().QueryRow(
+		"SELECT COALESCE(platform_id,'') FROM messages WHERE chat_jid=? AND is_bot_message=1",
+		"slack:T/C/U").Scan(&pid)
+	if pid != "doc-pid-99" {
+		t.Fatalf("stored document row platform_id=%q want doc-pid-99", pid)
+	}
+}
