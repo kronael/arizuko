@@ -411,6 +411,21 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	// acl (scope) and routes (target) have NO FK to groups — the groups DELETE
+	// above cascades nothing. Purge the folder's grant + route rows in the same
+	// flow so a re-created folder does not silently inherit stale admin grants or
+	// routing targets. Covers the subtree (X/...) and the X/**-style glob scope.
+	// Audit-free direct writes (routd.db has no audit_log) — same discipline as
+	// handleGroupCreate's raw INSERT.
+	if _, err := d.adminDB().Exec(
+		`DELETE FROM acl WHERE scope = ? OR scope LIKE ?||'/%'`, folder, folder); err != nil {
+		slog.Warn("group delete: purge acl", "folder", folder, "err", err)
+	}
+	if _, err := d.adminDB().Exec(
+		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
+		folder, folder, folder); err != nil {
+		slog.Warn("group delete: purge routes", "folder", folder, "err", err)
+	}
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryMutation,
 		Action:   "group.delete",
