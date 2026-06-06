@@ -59,6 +59,20 @@ func (d *DB) SetPaneContext(channelID, contextJID string) error {
 	return d.paneStore().SetPaneContextByChannel(channelID, contextJID)
 }
 
+// UpsertPane creates/refreshes the pane row keyed by (team, user, thread) into
+// routd's OWN routd.db (behind POST /v1/pane upsert=open). Audit-free; reuses
+// store.UpsertPane. slakd calls this over HTTP instead of opening messages.db.
+func (d *DB) UpsertPane(teamID, userID, threadTS, channelID string) error {
+	return d.paneStore().UpsertPane(teamID, userID, threadTS, channelID)
+}
+
+// SetPaneContextByTriple updates the pane's workspace-channel context keyed by
+// (team, user, thread) — slakd's context-change path, served by POST /v1/pane.
+// Audit-free; reuses store.SetPaneContext. Empty contextJID clears it.
+func (d *DB) SetPaneContextByTriple(teamID, userID, threadTS, contextJID string) error {
+	return d.paneStore().SetPaneContext(teamID, userID, threadTS, contextJID)
+}
+
 // aclEval wraps routd's OWN routd.db handle as a *store.Store so the ACL
 // evaluator (auth.AuthorizeWith) + readers (store.ListACL, store.UserScopes)
 // run against routd.db's acl/acl_membership tables — routd owns them (spec 5/5
@@ -159,6 +173,27 @@ func (d *DB) ListACL(principal string) []core.ACLRow {
 // store.UserScopes.
 func (d *DB) UserScopes(sub string) []string {
 	return d.aclEval().UserScopes(sub)
+}
+
+// AddACLRow inserts one acl row into routd's OWN routd.db (behind POST /v1/acl).
+// Audit-free (routd.db has no audit_log table); reuses store.PutACLRow.
+func (d *DB) AddACLRow(row core.ACLRow) error { return d.aclEval().PutACLRow(row) }
+
+// RemoveACLRow deletes one acl row from routd's OWN routd.db (behind
+// DELETE /v1/acl). Audit-free; reuses store.RemoveACLRowBare.
+func (d *DB) RemoveACLRow(row core.ACLRow) error { return d.aclEval().RemoveACLRowBare(row) }
+
+// AddMembership inserts one (child→parent) acl_membership edge into routd's OWN
+// routd.db (the operator `**` grant maps to role:operator membership). Audit-free;
+// reuses store.PutMembership (same self/cycle rejection).
+func (d *DB) AddMembership(child, parent, addedBy string) error {
+	return d.aclEval().PutMembership(child, parent, addedBy)
+}
+
+// RemoveMembership deletes one acl_membership edge from routd's OWN routd.db.
+// Audit-free; reuses store.RemoveMembershipBare.
+func (d *DB) RemoveMembership(child, parent string) error {
+	return d.aclEval().RemoveMembershipBare(child, parent)
 }
 
 // Authorize is the per-call row-ACL check for an in-container agent tool

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -61,6 +62,33 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// OpenRoutd opens routd.db at dir/routd.db (WAL, FK on) and wraps it as a
+// *Store WITHOUT running store's migrations — routd owns that file and already
+// created its tables (acl/secrets/tasks/pane via routd's own migration set).
+// The host-admin CLI (arizuko grant/secret/user-secret) writes acl + secrets
+// here in the split topology instead of opening messages.db, since those tables
+// now live in routd.db (spec 5/5 § Daemon ownership). Strict: errors if routd.db
+// has no acl table (routd never booted to migrate it) rather than silently
+// creating a divergent schema.
+func OpenRoutd(dir string) (*Store, error) {
+	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	var n int
+	if err := db.QueryRow(
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='acl'").Scan(&n); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("routd.db at %s has no acl table (routd must boot to migrate it first): %w", dir, err)
+	}
+	return &Store{db: db}, nil
 }
 
 func OpenMem() (*Store, error) {

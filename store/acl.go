@@ -103,6 +103,46 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 	return tx.Commit()
 }
 
+// PutACLRow inserts an acl row idempotently WITHOUT emitting an audit_log row —
+// the audit-free twin of AddACLRow for a DB that has no audit_log table (routd.db,
+// which OWNS acl in the split topology — spec 5/5). Same INSERT OR IGNORE on the
+// (principal, action, scope, params, predicate, effect) key; callers that own
+// messages.db keep using the audited AddACLRow.
+func (s *Store) PutACLRow(row core.ACLRow) error {
+	if row.Effect == "" {
+		row.Effect = "allow"
+	}
+	if row.GrantedAt == "" {
+		row.GrantedAt = time.Now().Format(time.RFC3339)
+	}
+	var grantedBy any
+	if row.GrantedBy != "" {
+		grantedBy = row.GrantedBy
+	}
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO acl
+		  (principal, action, scope, effect, params, predicate, granted_by, granted_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		row.Principal, row.Action, row.Scope, row.Effect,
+		row.Params, row.Predicate, grantedBy, row.GrantedAt)
+	return err
+}
+
+// RemoveACLRowBare deletes an acl row WITHOUT emitting an audit_log row — the
+// audit-free twin of RemoveACLRow for an audit_log-less DB (routd.db).
+func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
+	if row.Effect == "" {
+		row.Effect = "allow"
+	}
+	_, err := s.db.Exec(
+		`DELETE FROM acl
+		 WHERE principal = ? AND action = ? AND scope = ?
+		   AND params = ? AND predicate = ? AND effect = ?`,
+		row.Principal, row.Action, row.Scope,
+		row.Params, row.Predicate, row.Effect)
+	return err
+}
+
 func scanACLRow(rows *sql.Rows) (core.ACLRow, error) {
 	var r core.ACLRow
 	var grantedBy sql.NullString

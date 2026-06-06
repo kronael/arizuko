@@ -12,14 +12,16 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
+// openStoreWithKey opens routd.db (which OWNS the secrets table in the split
+// topology — spec 5/5) wrapped as a *store.Store, with the SECRETS_KEY keyring
+// set so CLI-written secrets seal under the SAME key routd decrypts with at read
+// time. The host-admin CLI writes here directly (filesystem access), no token
+// plumbing — same discipline it used for messages.db before the split.
 func openStoreWithKey(dataDir string) (*store.Store, error) {
-	s, err := store.Open(filepath.Join(dataDir, "store"))
+	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
 	if err != nil {
 		return nil, err
 	}
-	// Use the same SECRETS_KEY keyring as gated so CLI-written secrets are
-	// readable by the daemon (they share the secrets table). AUTH_SECRET is a
-	// different key — sealing values under it left gated unable to decrypt them.
 	cfg, err := core.LoadConfigFrom(dataDir)
 	if err == nil {
 		if kr := core.SecretKeyring(cfg.SecretsKey); len(kr) > 0 {
@@ -53,7 +55,6 @@ func cmdSecret(args []string) {
 		if err := runSecretSet(s, store.ScopeFolder, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "secret set", []string{fs.Arg(0), fs.Arg(1), "--value", *value})
 	case "list":
 		need(args, 3, "arizuko secret <instance> list <folder>")
 		if err := runSecretList(s, store.ScopeFolder, args[2], os.Stdout); err != nil {
@@ -64,7 +65,6 @@ func cmdSecret(args []string) {
 		if err := runSecretDelete(s, store.ScopeFolder, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "secret delete", []string{args[2], args[3]})
 	default:
 		die("unknown secret action: %s", action)
 	}
@@ -94,7 +94,6 @@ func cmdUserSecret(args []string) {
 		if err := runSecretSet(s, store.ScopeUser, fs.Arg(0), fs.Arg(1), *value, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "user-secret set", []string{fs.Arg(0), fs.Arg(1), "--value", *value})
 	case "list":
 		need(args, 3, "arizuko user-secret <instance> list <user_sub>")
 		if err := runSecretList(s, store.ScopeUser, args[2], os.Stdout); err != nil {
@@ -105,7 +104,6 @@ func cmdUserSecret(args []string) {
 		if err := runSecretDelete(s, store.ScopeUser, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "user-secret delete", []string{args[2], args[3]})
 	default:
 		die("unknown user-secret action: %s", action)
 	}
@@ -118,7 +116,9 @@ func runSecretSet(s *store.Store, scope store.SecretScope, scopeID, key, value s
 	if !keyValid(key) {
 		return fmt.Errorf("key must match ^[A-Z][A-Z0-9_]*$")
 	}
-	if err := s.SetSecret(scope, scopeID, key, value); err != nil {
+	// Audit-free: routd.db (the secrets owner now) has no audit_log table — same
+	// discipline as routd's POST /v1/secrets endpoint.
+	if err := s.PutSecretRow(scope, scopeID, key, value); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "set %s/%s/%s\n", scope, scopeID, key)
@@ -143,7 +143,7 @@ func runSecretList(s *store.Store, scope store.SecretScope, scopeID string, w io
 }
 
 func runSecretDelete(s *store.Store, scope store.SecretScope, scopeID, key string, w io.Writer) error {
-	if err := s.DeleteSecret(scope, scopeID, key); err != nil {
+	if err := s.DeleteSecretRow(scope, scopeID, key); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "deleted %s/%s/%s\n", scope, scopeID, key)

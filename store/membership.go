@@ -99,6 +99,58 @@ func (s *Store) RemoveMembership(child, parent string) error {
 	})
 }
 
+// PutMembership inserts (child → parent) idempotently WITHOUT emitting an
+// audit_log row — the audit-free twin of AddMembership for a DB that has no
+// audit_log table (routd.db, which OWNS acl_membership in the split topology —
+// spec 5/5). Same self/cycle rejection; callers that own messages.db keep using
+// the audited AddMembership.
+func (s *Store) PutMembership(child, parent, addedBy string) error {
+	if child == parent {
+		return ErrSelfMembership
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var hits int
+	err = tx.QueryRow(
+		`WITH RECURSIVE up(p) AS (
+		   SELECT ? UNION
+		   SELECT acl_membership.parent FROM acl_membership
+		     JOIN up ON acl_membership.child = up.p
+		 )
+		 SELECT COUNT(*) FROM up WHERE p = ?`,
+		parent, child,
+	).Scan(&hits)
+	if err != nil {
+		return err
+	}
+	if hits > 0 {
+		return ErrCycle
+	}
+	var grantedBy any
+	if addedBy != "" {
+		grantedBy = addedBy
+	}
+	if _, err := tx.Exec(
+		`INSERT OR IGNORE INTO acl_membership (child, parent, added_by, added_at)
+		 VALUES (?, ?, ?, ?)`,
+		child, parent, grantedBy, time.Now().Format(time.RFC3339),
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RemoveMembershipBare deletes (child → parent) WITHOUT emitting an audit_log
+// row — the audit-free twin of RemoveMembership for an audit_log-less DB (routd.db).
+func (s *Store) RemoveMembershipBare(child, parent string) error {
+	_, err := s.db.Exec(
+		`DELETE FROM acl_membership WHERE child = ? AND parent = ?`, child, parent)
+	return err
+}
+
 // Members returns direct children of `parent`.
 func (s *Store) Members(parent string) []string {
 	rows, err := s.db.Query(

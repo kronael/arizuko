@@ -412,24 +412,28 @@ func cmdGroup(args []string) {
 
 	case "grant":
 		need(args, 4, "arizuko group <instance> grant <sub> <pattern>")
-		if err := runGrant(s, args[2], args[3], os.Stdout); err != nil {
+		acl := mustOpenACL(dataDir)
+		defer acl.Close()
+		if err := runGrant(acl, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: grant: %v", err)
 		}
-		auditCLI(s, "group grant", args[2:4])
 
 	case "ungrant":
 		need(args, 4, "arizuko group <instance> ungrant <sub> <pattern>")
-		if err := runUngrant(s, args[2], args[3], os.Stdout); err != nil {
+		acl := mustOpenACL(dataDir)
+		defer acl.Close()
+		if err := runUngrant(acl, args[2], args[3], os.Stdout); err != nil {
 			die("Failed: ungrant: %v", err)
 		}
-		auditCLI(s, "group ungrant", args[2:4])
 
 	case "grants":
 		sub := ""
 		if len(args) >= 3 {
 			sub = args[2]
 		}
-		if err := runGrants(s, sub, os.Stdout); err != nil {
+		acl := mustOpenACL(dataDir)
+		defer acl.Close()
+		if err := runGrants(acl, sub, os.Stdout); err != nil {
 			die("Failed: grants: %v", err)
 		}
 
@@ -440,19 +444,33 @@ func cmdGroup(args []string) {
 
 var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
 
+// mustOpenACL opens routd.db wrapped as a *store.Store for the acl/membership
+// write path. In the split topology routd OWNS acl + acl_membership (spec 5/5),
+// so the host-admin CLI writes there directly — same filesystem-access
+// discipline as it wrote messages.db before the split, no token plumbing.
+func mustOpenACL(dataDir string) *store.Store {
+	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
+	if err != nil {
+		die("Failed: open routd.db: %v", err)
+	}
+	return s
+}
+
+// runGrant writes acl rows audit-free (routd.db has no audit_log table — same
+// discipline as routd's own grant endpoint).
 func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
 	if sub == "" || pat == "" {
 		return errEmptyGrant
 	}
 	if pat == "**" {
 		// Operator grant: add to role:operator instead of a per-folder row.
-		if err := s.AddMembership(sub, "role:operator", "arizuko grant"); err != nil {
+		if err := s.PutMembership(sub, "role:operator", "arizuko grant"); err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "granted %s -> role:operator\n", sub)
 		return nil
 	}
-	if err := s.AddACLRow(core.ACLRow{
+	if err := s.PutACLRow(core.ACLRow{
 		Principal: sub, Action: "admin", Scope: pat,
 		Effect: "allow", GrantedBy: "arizuko grant",
 	}); err != nil {
@@ -467,13 +485,13 @@ func runUngrant(s *store.Store, sub, pat string, w io.Writer) error {
 		return errEmptyGrant
 	}
 	if pat == "**" {
-		if err := s.RemoveMembership(sub, "role:operator"); err != nil {
+		if err := s.RemoveMembershipBare(sub, "role:operator"); err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "ungranted %s -> role:operator\n", sub)
 		return nil
 	}
-	if err := s.RemoveACLRow(core.ACLRow{
+	if err := s.RemoveACLRowBare(core.ACLRow{
 		Principal: sub, Action: "admin", Scope: pat, Effect: "allow",
 	}); err != nil {
 		return err

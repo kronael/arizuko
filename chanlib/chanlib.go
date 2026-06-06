@@ -93,6 +93,11 @@ func (r *RouterClient) getToken() string {
 	return r.token
 }
 
+// Token returns the current registered service token for adapters that need to
+// authenticate side calls to routd beyond message delivery (e.g. slakd's pane
+// writes to POST /v1/pane). Empty until Register/SetToken runs.
+func (r *RouterClient) Token() string { return r.getToken() }
+
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
 	slog.Info("registering channel", "name", name, "url", url)
 	var resp struct {

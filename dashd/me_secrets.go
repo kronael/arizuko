@@ -56,12 +56,13 @@ func (d *dash) handleMeSecrets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.dbRW == nil {
+	db := d.secretsDB()
+	if db == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	rows, err := d.dbRW.Query(
+	rows, err := db.Query(
 		`SELECT key, created_at FROM secrets
 		 WHERE scope_kind = 'user' AND scope_id = ?
 		 ORDER BY key`, sub)
@@ -119,7 +120,8 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	if d.dbRW == nil {
+	db := d.secretsDB()
+	if db == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -132,7 +134,7 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
-	if _, err := d.dbRW.Exec(
+	if _, err := db.Exec(
 		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
 		 VALUES ('user', ?, ?, ?, ?)
 		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
@@ -168,7 +170,8 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	if d.dbRW == nil {
+	db := d.secretsDB()
+	if db == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -186,7 +189,7 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: body key must match path", http.StatusBadRequest)
 		return
 	}
-	res, err := d.dbRW.Exec(
+	res, err := db.Exec(
 		`UPDATE secrets SET value = ?, created_at = ?
 		 WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
 		body.Value, time.Now().UTC().Format(time.RFC3339), sub, key)
@@ -225,7 +228,8 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	if d.dbRW == nil {
+	db := d.secretsDB()
+	if db == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -234,7 +238,7 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
-	res, err := d.dbRW.Exec(
+	res, err := db.Exec(
 		`DELETE FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
 		sub, key)
 	if err != nil {

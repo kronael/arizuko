@@ -32,12 +32,13 @@ const (
 	defaultCacheTTL = 15 * time.Minute
 )
 
-// paneStore is the subset of *store.Store slakd needs for pane sessions.
+// paneStore is the READ subset of *store.Store slakd needs for pane sessions —
+// the channel→triple lookup that backs prompt/title staging. In the split
+// topology pane WRITES go to routd over HTTP (POST /v1/pane via paneWrite); reads
+// stay local against routd.db (slakd opens routd.db, which OWNS pane_sessions).
 // Kept narrow so tests can stub it without dragging the DB in.
 type paneStore interface {
-	UpsertPane(teamID, userID, threadTS, channelID string) error
 	GetPaneByChannel(channelID string) (store.PaneSession, bool)
-	SetPaneContext(teamID, userID, threadTS, contextJID string) error
 }
 
 type bot struct {
@@ -645,10 +646,10 @@ func (b *bot) handleAssistantThreadStarted(teamID string, raw json.RawMessage) {
 	}
 	team := cmp.Or(teamID, b.TeamID())
 	b.recordPane(team, at.UserID, at.ThreadTS, at.ChannelID)
-	if ctx := at.Context.ChannelID; ctx != "" && b.store != nil {
+	if ctx := at.Context.ChannelID; ctx != "" {
 		ctxTeam := cmp.Or(at.Context.TeamID, team)
 		ctxJID := chanlib.FormatSlackJID(ctxTeam, "channel", ctx)
-		_ = b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID)
+		_ = b.paneWrite("context", team, at.UserID, at.ThreadTS, "", ctxJID)
 	}
 
 	go b.setPaneTitle(at.ChannelID, at.ThreadTS, b.paneTitle())
@@ -683,7 +684,7 @@ func (b *bot) handleAssistantThreadContextChanged(teamID string, raw json.RawMes
 		return
 	}
 	at := ev.AssistantThread
-	if at.UserID == "" || at.ThreadTS == "" || b.store == nil {
+	if at.UserID == "" || at.ThreadTS == "" {
 		return
 	}
 	team := cmp.Or(teamID, b.TeamID())
@@ -691,7 +692,7 @@ func (b *bot) handleAssistantThreadContextChanged(teamID string, raw json.RawMes
 	if ctx := at.Context.ChannelID; ctx != "" {
 		ctxJID = chanlib.FormatSlackJID(cmp.Or(at.Context.TeamID, team), "channel", ctx)
 	}
-	if err := b.store.SetPaneContext(team, at.UserID, at.ThreadTS, ctxJID); err != nil {
+	if err := b.paneWrite("context", team, at.UserID, at.ThreadTS, "", ctxJID); err != nil {
 		slog.Warn("slack: pane context update failed", "err", err)
 	}
 }
@@ -1007,15 +1008,38 @@ func (b *bot) Typing(jid string, on bool) {
 	go b.setTypingReaction(jid, on)
 }
 
+// paneWrite POSTs one pane mutation to routd's POST /v1/pane (routd OWNS
+// pane_sessions in the split topology — spec 5/5), authed with slakd's
+// registered channel token. op is "open" (UpsertPane) or "context"
+// (SetPaneContext). routd routes the write to routd.db; slakd never opens
+// messages.db for pane writes.
+func (b *bot) paneWrite(op, teamID, userID, threadTS, channelID, jid string) error {
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	body := map[string]any{
+		"op": op, "team_id": teamID, "user_id": userID, "thread_ts": threadTS,
+		"channel_id": channelID, "jid": jid,
+	}
+	if err := b.rc.Post("/v1/pane", body, b.rc.Token(), &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("pane %s: %s", op, resp.Error)
+	}
+	return nil
+}
+
 // recordPane persists a pane session triggered by an inbound carrying
 // assistant_thread.action_token. teamID and userID are required for the
 // PK; an empty user (rare — pane messages always have a user_id from
 // Slack) skips persistence rather than write an unkeyable row.
 func (b *bot) recordPane(teamID, userID, threadTS, channelID string) {
-	if b.store == nil || teamID == "" || userID == "" || threadTS == "" || channelID == "" {
+	if teamID == "" || userID == "" || threadTS == "" || channelID == "" {
 		return
 	}
-	if err := b.store.UpsertPane(teamID, userID, threadTS, channelID); err != nil {
+	if err := b.paneWrite("open", teamID, userID, threadTS, channelID, ""); err != nil {
 		slog.Warn("slack: pane upsert failed", "channel", channelID, "err", err)
 	}
 }

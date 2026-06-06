@@ -135,8 +135,23 @@ func main() {
 		slog.Warn("PROXYD_HMAC_SECRET unset in dashd — signed-identity verification disabled, dashd open (local dev)")
 	}
 
+	// routd.db OWNS the secrets table in the split topology (spec 5/5); dashd
+	// mounts the data dir, so it points its /dash/me/secrets SQL straight at
+	// routd.db (no token plumbing — same FS-access discipline as messages.db).
+	// Best-effort: an absent routd.db (gated topology / fresh instance) leaves
+	// dbSec nil → secretsDB() falls back to messages.db.
+	var dbSec *sql.DB
+	if routdPath := filepath.Join(filepath.Dir(dsn), "routd.db"); routdPath != dsn {
+		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err == nil {
+			dbSec = s
+			defer dbSec.Close()
+		} else {
+			slog.Warn("open routd.db for secrets", "path", routdPath, "err", err)
+		}
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
+	d := &dash{db: db, dbRW: db, dbSec: dbSec, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -156,12 +171,24 @@ func main() {
 }
 
 type dash struct {
-	db         *sql.DB
-	dbRW       *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
+	db    *sql.DB
+	dbRW  *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
+	dbSec *sql.DB // routd.db handle for the user-secrets table (split topology — routd
+	// OWNS secrets, spec 5/5). Falls back to dbRW when unset (single-DB / tests).
 	dbPath     string
 	groupsDir  string
 	appDir     string // HOST_APP_DIR; used to enumerate stock skills
 	hmacSecret string // PROXYD_HMAC_SECRET; "" → guard open (local dev / tests)
+}
+
+// secretsDB returns the handle the /dash/me/secrets paths read+write. In the
+// split topology routd OWNS the secrets table, so dashd points its secret SQL at
+// routd.db (dbSec) instead of messages.db. Falls back to dbRW (single-DB / tests).
+func (d *dash) secretsDB() *sql.DB {
+	if d.dbSec != nil {
+		return d.dbSec
+	}
+	return d.dbRW
 }
 
 // guard verifies proxyd's signed X-User-Sig before letting a handler see the

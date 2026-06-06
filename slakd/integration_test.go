@@ -240,16 +240,22 @@ func newSlackMock() *slackMock {
 
 func (m *slackMock) Close() { m.srv.Close() }
 
-// routerMock captures inbound messages from the bot (rc.SendMessage).
+// routerMock captures inbound messages from the bot (rc.SendMessage) and serves
+// POST /v1/pane against a shared store — the split-topology pane-write surface
+// (routd OWNS pane_sessions). st backs the pane handler so slakd's HTTP pane
+// writes land where b.store reads them (read-after-write coherence).
 type routerMock struct {
-	srv  *httptest.Server
-	mu   sync.Mutex
-	msgs []chanlib.InboundMsg
+	srv      *httptest.Server
+	mu       sync.Mutex
+	msgs     []chanlib.InboundMsg
+	st       *store.Store
+	paneOps  []string // op of each POST /v1/pane hit, in order
+	paneAuth []string // Authorization header of each POST /v1/pane hit
 }
 
-func newRouterMock(t *testing.T) *routerMock {
+func newRouterMock(t *testing.T, st *store.Store) *routerMock {
 	t.Helper()
-	r := &routerMock{}
+	r := &routerMock{st: st}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/channels/register", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "token": "tok"})
@@ -260,6 +266,35 @@ func newRouterMock(t *testing.T) *routerMock {
 		r.mu.Lock()
 		r.msgs = append(r.msgs, im)
 		r.mu.Unlock()
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+	// Mirrors routd's POST /v1/pane: op=open → UpsertPane, op=context →
+	// SetPaneContext (by triple). Persists into the shared store.
+	mux.HandleFunc("POST /v1/pane", func(w http.ResponseWriter, req *http.Request) {
+		var b struct {
+			Op       string `json:"op"`
+			TeamID   string `json:"team_id"`
+			UserID   string `json:"user_id"`
+			ThreadTS string `json:"thread_ts"`
+			Channel  string `json:"channel_id"`
+			JID      string `json:"jid"`
+		}
+		json.NewDecoder(req.Body).Decode(&b)
+		r.mu.Lock()
+		r.paneOps = append(r.paneOps, b.Op)
+		r.paneAuth = append(r.paneAuth, req.Header.Get("Authorization"))
+		r.mu.Unlock()
+		var err error
+		switch b.Op {
+		case "open":
+			err = r.st.UpsertPane(b.TeamID, b.UserID, b.ThreadTS, b.Channel)
+		case "context":
+			err = r.st.SetPaneContext(b.TeamID, b.UserID, b.ThreadTS, b.JID)
+		}
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	r.srv = httptest.NewServer(mux)
@@ -278,7 +313,12 @@ func (r *routerMock) snapshot() []chanlib.InboundMsg {
 
 func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	t.Helper()
-	rm := newRouterMock(t)
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	rm := newRouterMock(t, st)
 	cfg := config{
 		Name:          "slack",
 		BotToken:      "xoxb-test",
@@ -291,11 +331,6 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
 	b.store = st
 	rc := chanlib.NewRouterClient(rm.srv.URL, "chsec")
 	rc.SetToken("tok")
@@ -1065,8 +1100,8 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	defer mock.Close()
 	b, rm := setupBot(t, mock)
 
-	// Seed a pane row.
-	if err := b.store.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+	// Seed a pane row directly in the shared store (pane writes go via HTTP).
+	if err := rm.st.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1094,15 +1129,52 @@ func TestAssistantThreadContextChanged(t *testing.T) {
 	}
 }
 
+// TestPaneWritesGoViaRoutdHTTP: slakd's pane open+context writes hit routd's
+// POST /v1/pane (NOT a local messages.db write), carrying the registered token.
+func TestPaneWritesGoViaRoutdHTTP(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "assistant_thread_started",
+	    "assistant_thread": {
+	      "user_id": "U99",
+	      "channel_id": "D0XY",
+	      "thread_ts": "1700.7",
+	      "context": {"channel_id": "C42", "team_id": "T012"}
+	    }
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	rm.mu.Lock()
+	ops := append([]string(nil), rm.paneOps...)
+	auth := append([]string(nil), rm.paneAuth...)
+	rm.mu.Unlock()
+	// One open (recordPane) + one context (the started context) over HTTP.
+	if len(ops) != 2 || ops[0] != "open" || ops[1] != "context" {
+		t.Fatalf("pane ops over HTTP = %v, want [open context]", ops)
+	}
+	for i, a := range auth {
+		if a != "Bearer tok" {
+			t.Errorf("pane call %d auth = %q, want Bearer tok", i, a)
+		}
+	}
+}
+
 // Send into a pane channel drains staged prompts/title and fires
 // setSuggestedPrompts + setTitle. Send into a non-pane channel doesn't.
 func TestSend_PaneStagedPromptsFire(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.Close()
-	b, _ := setupBot(t, mock)
+	b, rm := setupBot(t, mock)
 
 	// Seed pane row + stage prompts.
-	if err := b.store.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
+	if err := rm.st.UpsertPane("T012", "U99", "1700.001", "D0XY"); err != nil {
 		t.Fatal(err)
 	}
 	b.setPanePending("T012", "U99", "1700.001",

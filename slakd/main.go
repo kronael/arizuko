@@ -39,7 +39,10 @@ func main() {
 				return nil, nil, err
 			}
 			if cfg.StoreDir != "" {
-				st, err := store.Open(cfg.StoreDir)
+				// Pane reads hit routd.db — routd OWNS pane_sessions in the split
+				// topology (spec 5/5), and slakd writes panes there via routd HTTP
+				// (paneWrite). Reading from the same DB keeps read-after-write coherent.
+				st, err := store.OpenRoutd(cfg.StoreDir)
 				if err != nil {
 					slog.Error("slack store open failed", "dir", cfg.StoreDir, "err", err)
 					return nil, nil, err

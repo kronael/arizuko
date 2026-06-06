@@ -236,6 +236,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
+	mux.HandleFunc("POST /v1/acl", s.handleACLAdd)
+	mux.HandleFunc("DELETE /v1/acl", s.handleACLRemove)
 	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
 	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
@@ -439,6 +441,109 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
 }
 
+// aclWriteBody is the POST/DELETE /v1/acl payload: grant or revoke one
+// principal's access to a scope. The operator `**` pattern maps to role:operator
+// membership (the same semantic the CLI `arizuko group grant ** ` uses), so one
+// principal, one scope covers both per-folder admin rows AND the operator role.
+// action/effect default to admin/allow (the grant shape); set them for a
+// non-default rule. routd OWNS acl + acl_membership (spec 5/5; migration 0007),
+// so this is the split-topology write surface the agent's grant tools + any HTTP
+// caller reach instead of opening messages.db.
+type aclWriteBody struct {
+	Principal string `json:"principal"`
+	Scope     string `json:"scope"`
+	Action    string `json:"action"`
+	Effect    string `json:"effect"`
+	GrantedBy string `json:"granted_by"`
+}
+
+// handleACLAdd grants one acl row (or operator membership for scope=="**") into
+// routd's OWN routd.db (routd owns acl — spec 5/5 § Daemon ownership). Audit-free
+// (routd.db has no audit_log table — same discipline as the secrets/pane
+// endpoints). Bearer-gated by acl:write.
+func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "acl:write") {
+		return
+	}
+	var body aclWriteBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.Principal == "" || body.Scope == "" {
+		writeErr(w, 400, "missing_field", "principal and scope required")
+		return
+	}
+	grantedBy := body.GrantedBy
+	if grantedBy == "" {
+		grantedBy = "routd"
+	}
+	if body.Scope == "**" {
+		if err := s.db.AddMembership(body.Principal, "role:operator", grantedBy); err != nil {
+			writeErr(w, 400, "invalid", err.Error())
+			return
+		}
+		writeJSON(w, 200, apiv1.OK{OK: true})
+		return
+	}
+	action := body.Action
+	if action == "" {
+		action = "admin"
+	}
+	effect := body.Effect
+	if effect == "" {
+		effect = "allow"
+	}
+	if err := s.db.AddACLRow(core.ACLRow{
+		Principal: body.Principal, Action: action, Scope: body.Scope,
+		Effect: effect, GrantedBy: grantedBy,
+	}); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// handleACLRemove revokes one acl row (or operator membership for scope=="**")
+// from routd's OWN routd.db. Audit-free. Bearer-gated by acl:write.
+func (s *Server) handleACLRemove(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "acl:write") {
+		return
+	}
+	var body aclWriteBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.Principal == "" || body.Scope == "" {
+		writeErr(w, 400, "missing_field", "principal and scope required")
+		return
+	}
+	if body.Scope == "**" {
+		if err := s.db.RemoveMembership(body.Principal, "role:operator"); err != nil {
+			writeErr(w, 500, "db_error", err.Error())
+			return
+		}
+		writeJSON(w, 200, apiv1.OK{OK: true})
+		return
+	}
+	action := body.Action
+	if action == "" {
+		action = "admin"
+	}
+	effect := body.Effect
+	if effect == "" {
+		effect = "allow"
+	}
+	if err := s.db.RemoveACLRow(core.ACLRow{
+		Principal: body.Principal, Action: action, Scope: body.Scope, Effect: effect,
+	}); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
 // secretWriteBody is the POST /v1/secrets payload: the operator sets one
 // folder- or user-scoped secret. scope is "folder" or "user"; scope_id is the
 // folder path or user sub; key is an ENV-style name; value is the plaintext
@@ -498,22 +603,26 @@ func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// paneSetBody is the POST /v1/pane payload: slakd sets the workspace-channel
-// context the user is viewing while a Slack assistant pane is open. channel_id
-// is the DM channel that keys the pane (GetPaneByChannel reads it back); jid is
-// the workspace-channel context (empty clears it). routd OWNS pane_sessions
-// (spec 5/5; migration 0010), so this is the split-topology write surface slakd
-// will call instead of opening messages.db.
+// paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes,
+// served from routd's OWN routd.db (routd owns pane_sessions — spec 5/5;
+// migration 0010) so slakd never opens messages.db. op selects the write:
+//   - "open": UpsertPane(team,user,thread,channel) — creates/refreshes the row.
+//   - "context": SetPaneContext(team,user,thread, jid) — updates the workspace
+//     channel the user is viewing (empty jid clears it).
+//   - "" (default): SetPaneContextByChannel(channel, jid) — the by-channel
+//     context update (back-compat for callers that key by channel_id alone).
 type paneSetBody struct {
+	Op        string `json:"op"`
+	TeamID    string `json:"team_id"`
+	UserID    string `json:"user_id"`
+	ThreadTS  string `json:"thread_ts"`
 	ChannelID string `json:"channel_id"`
 	JID       string `json:"jid"`
 }
 
-// handlePaneSet upserts the pane context for channel_id into routd's OWN
-// routd.db (routd owns pane_sessions — spec 5/5 § Daemon ownership). Audit-free
-// (pane writes never touched audit_log). Bearer-gated by messages:write (the
-// scope slakd's adapter token carries). No-op when no pane row matches the
-// channel (slakd opens the pane first via its own UpsertPane path).
+// handlePaneSet performs slakd's pane write against routd's OWN routd.db.
+// Audit-free (pane writes never touched audit_log). Bearer-gated by
+// messages:write (the scope slakd's adapter token carries).
 func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:write") {
 		return
@@ -523,11 +632,28 @@ func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	if body.ChannelID == "" {
-		writeErr(w, 400, "missing_field", "channel_id required")
-		return
+	var err error
+	switch body.Op {
+	case "open":
+		if body.TeamID == "" || body.UserID == "" || body.ThreadTS == "" || body.ChannelID == "" {
+			writeErr(w, 400, "missing_field", "team_id, user_id, thread_ts, channel_id required for open")
+			return
+		}
+		err = s.db.UpsertPane(body.TeamID, body.UserID, body.ThreadTS, body.ChannelID)
+	case "context":
+		if body.TeamID == "" || body.UserID == "" || body.ThreadTS == "" {
+			writeErr(w, 400, "missing_field", "team_id, user_id, thread_ts required for context")
+			return
+		}
+		err = s.db.SetPaneContextByTriple(body.TeamID, body.UserID, body.ThreadTS, body.JID)
+	default:
+		if body.ChannelID == "" {
+			writeErr(w, 400, "missing_field", "channel_id required")
+			return
+		}
+		err = s.db.SetPaneContext(body.ChannelID, body.JID)
 	}
-	if err := s.db.SetPaneContext(body.ChannelID, body.JID); err != nil {
+	if err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
