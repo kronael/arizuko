@@ -497,7 +497,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, c
 
 	var qGate, qAt string
 	if obdb.QueryRow(
-		`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
+		`SELECT COALESCE(gate,''), COALESCE(queued_at,'') FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
 		userSub).Scan(&qGate, &qAt) == nil {
 		renderQueuePosition(w, obdb, qGate, qAt)
 		return
