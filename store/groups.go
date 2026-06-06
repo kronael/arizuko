@@ -85,6 +85,10 @@ func (s *Store) AllGroups() map[string]core.Group {
 			out[g.Folder] = g
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("AllGroups iteration failed; failing closed", "err", err)
+		return nil
+	}
 	return out
 }
 
@@ -401,23 +405,15 @@ func (s *Store) SetGroupModel(folder, model string) error {
 	return err
 }
 
-// SetGroupMaxChildren updates max_children inside the container_config JSON blob.
+// SetGroupMaxChildren updates MaxChildren inside the container_config JSON blob
+// with a single json_set write — no read-modify-write, so it can't lose a
+// concurrent SetGroupModel/PutGroup update. Key is "MaxChildren": core.GroupConfig
+// has no JSON tags, so json.Marshal emits the Go field name verbatim.
 func (s *Store) SetGroupMaxChildren(folder string, n int) error {
-	var raw *string
-	if err := s.db.QueryRow(
-		`SELECT container_config FROM groups WHERE folder = ?`, folder,
-	).Scan(&raw); err != nil {
-		return err
-	}
-	var cfg core.GroupConfig
-	if raw != nil {
-		_ = json.Unmarshal([]byte(*raw), &cfg)
-	}
-	cfg.MaxChildren = n
-	b, err := json.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`UPDATE groups SET container_config = ? WHERE folder = ?`, string(b), folder)
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET container_config = json_set(COALESCE(container_config, '{}'), '$.MaxChildren', ?)
+		 WHERE folder = ?`,
+		n, folder)
 	return err
 }

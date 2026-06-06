@@ -28,7 +28,13 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
-	if _, err := s.db.Exec(
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO secret_use_log
 		 (ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -43,7 +49,7 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 		out = audit.OutcomeError
 		errMsg = r.Status
 	}
-	_, err := audit.EmitDB(context.Background(), s.db, audit.Event{
+	if err := audit.EmitInTx(ctx, tx, audit.Event{
 		Category:   audit.CategorySecret,
 		Action:     "secret.read",
 		Actor:      r.CallerSub,
@@ -59,8 +65,10 @@ func (s *Store) LogSecretUse(r SecretUseRow) error {
 			"tool":     r.Tool,
 			"spawn_id": r.SpawnID,
 		},
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // LookupSecret returns the value for (scope, scopeID, key) or "" + false

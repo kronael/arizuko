@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -80,25 +81,33 @@ func (s *Store) LinkSubToCanonical(newSub, name, canonical string) error {
 	if newSub == "" || canonical == "" || newSub == canonical {
 		return errInvalidLink
 	}
-	c, ok := s.AuthUserBySub(canonical)
-	if !ok || c.LinkedToSub != "" {
-		return errInvalidLink
-	}
-	if existing, ok := s.AuthUserBySub(newSub); ok {
-		if existing.LinkedToSub == canonical {
-			return nil
-		}
-		_, err := s.db.Exec(
-			`UPDATE auth_users SET linked_to_sub = ?, name = ? WHERE sub = ?`,
-			canonical, name, newSub)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec(
+	defer tx.Rollback()
+	var canonicalLink sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT linked_to_sub FROM auth_users WHERE sub = ?`, canonical,
+	).Scan(&canonicalLink); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errInvalidLink
+		}
+		return err
+	}
+	if canonicalLink.Valid && canonicalLink.String != "" {
+		return errInvalidLink
+	}
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO auth_users (sub, username, hash, name, created_at, linked_to_sub)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(sub) DO UPDATE SET linked_to_sub = excluded.linked_to_sub, name = excluded.name`,
 		newSub, newSub, "", name, time.Now().Format(time.RFC3339), canonical,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) LinkedSubs(canonical string) []string {

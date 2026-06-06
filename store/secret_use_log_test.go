@@ -43,6 +43,41 @@ func TestLogSecretUse_RoundTrip(t *testing.T) {
 	}
 }
 
+// One LogSecretUse call must produce BOTH the secret_use_log row and its
+// audit_log row in one transaction — the "every event has an audit row"
+// invariant. They commit together or not at all.
+func TestLogSecretUse_AuditPairAtomic(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	row := SecretUseRow{
+		SpawnID: "spawn-9", CallerSub: "github:bob", Folder: "atlas/eng",
+		Tool: "github_pr", Key: "GITHUB_TOKEN", Scope: "user", Status: "ok",
+	}
+	if err := s.LogSecretUse(row); err != nil {
+		t.Fatalf("LogSecretUse: %v", err)
+	}
+
+	var nUse int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM secret_use_log`).Scan(&nUse); err != nil {
+		t.Fatal(err)
+	}
+	if nUse != 1 {
+		t.Errorf("secret_use_log rows: want 1, got %d", nUse)
+	}
+
+	var nAudit int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_log WHERE action = 'secret.read' AND actor_sub = ?`,
+		"github:bob",
+	).Scan(&nAudit); err != nil {
+		t.Fatal(err)
+	}
+	if nAudit != 1 {
+		t.Errorf("audit_log rows: want 1, got %d (audit pair not atomic)", nAudit)
+	}
+}
+
 func TestLogSecretUse_AutoTimestamp(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

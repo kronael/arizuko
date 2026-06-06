@@ -105,13 +105,10 @@ func (s *Store) RescheduleTask(id, nextRun, status string) error {
 // normalizes RFC3339 offsets to UTC so a non-UTC next_run still orders right.
 func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
 	nowStr := now.Format(time.RFC3339)
-	if _, err := s.db.Exec(
-		`UPDATE scheduled_tasks SET status = 'firing'
-		 WHERE status = 'active' AND datetime(next_run) <= datetime(?)`, nowStr); err != nil {
-		return nil, err
-	}
 	rows, err := s.db.Query(
-		`SELECT ` + taskCols + ` FROM scheduled_tasks WHERE status = 'firing'`)
+		`UPDATE scheduled_tasks SET status = 'firing'
+		 WHERE status = 'active' AND datetime(next_run) <= datetime(?)
+		 RETURNING `+taskCols, nowStr)
 	if err != nil {
 		return nil, err
 	}

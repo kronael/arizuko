@@ -1931,3 +1931,21 @@ No single source of truth for "is this the split topology?"; each call site
 re-derives it from a different signal. Future-cleanup: one explicit signal (env
 var or a probed helper in `core`/`store`) every daemon consults, so topology
 detection is uniform and a half-configured split fails loudly in one place.
+
+## DB robustness (deferred — separate from tx-correctness)
+
+These are orthogonal to the tx-correctness sweep (atomicity/upserts) and were
+deliberately left out of it. Logged for later, not fixed:
+
+- `store/audit_helpers.go:19` (`runAudited`) + many call sites —
+  `context.Background()` instead of request-ctx threading. Invasive
+  cross-cutting change (every audited mutation + its callers); separate concern
+  from making the mutation atomic.
+- `store/membership.go:28,111` — `db.Begin()` should be `BeginTx(ctx, nil)` for
+  ctx plumbing. Deferred with the same ctx-threading concern above.
+- `store/messages.go:263` (`Topics`), `store/sessions.go:230`
+  (`RecentSessions`), `store/tasks.go:141` (`ListTasks`),
+  `store/groups.go:120` (`PendingChatJIDs`) — scan/`rows.Err()` robustness on
+  non-security query funcs (a truncated result is a display/listing glitch, not
+  a misroute or authz bypass). Lower priority than the security-relevant
+  rows.Err() fixes already applied to `AllGroups` + the ACL list funcs.

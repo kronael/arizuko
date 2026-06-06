@@ -332,16 +332,24 @@ func (s *Store) EncryptPlaintextSecrets(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	if len(pending) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	for _, t := range pending {
 		sealed, err := s.seal(t.value)
 		if err != nil {
 			return err
 		}
-		if _, err := s.db.ExecContext(ctx, `UPDATE secrets SET value = ? WHERE rowid = ?`, sealed, t.rowid); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE secrets SET value = ? WHERE rowid = ?`, sealed, t.rowid); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // folderAncestors returns folder paths for resolution, deepest first, ending with "root".

@@ -3,6 +3,9 @@ package store
 import (
 	"strconv"
 	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
 )
 
 func TestSeedDefaultTasks(t *testing.T) {
@@ -70,5 +73,45 @@ func TestSeedDefaultTasks(t *testing.T) {
 	if prompt != defaultTasks[0].prompt || cron != defaultTasks[0].cron {
 		t.Errorf("alice-mem-0 got (%q,%q), want (%q,%q)",
 			prompt, cron, defaultTasks[0].prompt, defaultTasks[0].cron)
+	}
+}
+
+// DueTasks must claim each due task exactly once: the UPDATE...RETURNING
+// flips status='active'→'firing' atomically, so a second poll over the same
+// due set returns nothing (no two pollers fire the same task).
+func TestDueTasks_ClaimsOnce(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	past := time.Now().Add(-time.Hour)
+	if err := s.PutTaskRow(core.Task{
+		ID: "t1", Owner: "alice", ChatJID: "alice", Prompt: "/ping",
+		NextRun: &past, Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	first, err := s.DueTasks(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].ID != "t1" {
+		t.Fatalf("first claim: want [t1], got %v", first)
+	}
+	if first[0].Status != "firing" {
+		t.Errorf("claimed task status: want firing, got %q", first[0].Status)
+	}
+
+	// Second poll of the same due set claims nothing — t1 is already 'firing'.
+	second, err := s.DueTasks(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second claim: want none, got %v (double-fire)", second)
 	}
 }

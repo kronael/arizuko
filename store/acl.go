@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -182,6 +183,10 @@ func (s *Store) ACLRowsFor(principals []string) []core.ACLRow {
 			out = append(out, r)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("ACLRowsFor iteration failed; failing closed", "err", err)
+		return nil
+	}
 	return out
 }
 
@@ -234,6 +239,10 @@ func (s *Store) ListACLByScope(scope string) []core.ACLRow {
 			out = append(out, r)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("ListACLByScope iteration failed; failing closed", "err", err)
+		return nil
+	}
 	return out
 }
 
@@ -259,6 +268,10 @@ func (s *Store) ListACL(principal string) []core.ACLRow {
 			out = append(out, r)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("ListACL iteration failed; failing closed", "err", err)
+		return nil
+	}
 	return out
 }
 
@@ -278,6 +291,10 @@ func (s *Store) ACLWildcardRows() []core.ACLRow {
 		if err == nil {
 			out = append(out, r)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("ACLWildcardRows iteration failed; failing closed", "err", err)
+		return nil
 	}
 	return out
 }

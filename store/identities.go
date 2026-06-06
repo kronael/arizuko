@@ -189,8 +189,12 @@ func (s *Store) ConsumeLinkCode(code, sub string) (string, error) {
 
 	exp, _ := time.Parse(time.RFC3339, expires)
 	if !exp.IsZero() && time.Now().After(exp) {
-		_, _ = tx.Exec(`DELETE FROM identity_codes WHERE code = ?`, code)
-		_ = tx.Commit()
+		if _, err := tx.Exec(`DELETE FROM identity_codes WHERE code = ?`, code); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			return "", errors.Join(ErrLinkCodeInvalid, err)
+		}
 		return "", ErrLinkCodeInvalid
 	}
 

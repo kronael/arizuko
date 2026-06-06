@@ -123,7 +123,8 @@ func OpenMem() (*Store, error) {
 	// connection that sees an empty DB. `cache=shared` makes the in-memory
 	// DB shared across connections in the same process. File-backed Open()
 	// doesn't have this constraint.
-	db, err := sql.Open("sqlite", "file::memory:?cache=shared&_pragma=foreign_keys(on)")
+	dsn := "file::memory:?cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
