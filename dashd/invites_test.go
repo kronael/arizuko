@@ -55,6 +55,7 @@ func TestHandleInvitesEmpty(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/dash/invites/", nil)
 	req.Header.Set("X-User-Sub", "github:operator")
+	req.Header.Set("X-User-Groups", `["**"]`)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

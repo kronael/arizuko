@@ -24,7 +24,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		if _, ok := requireUser(w, r); !ok {
+		if !d.requireVisible(w, r, folder) {
 			return
 		}
 	}

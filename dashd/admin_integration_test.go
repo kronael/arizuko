@@ -380,7 +380,7 @@ func TestDash_TaskCreate(t *testing.T) {
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	taskID := strings.TrimPrefix(loc, "/dash/tasks/")
-	detailReq := httptest.NewRequest("GET", "/dash/tasks/"+taskID, nil)
+	detailReq := asOperator(httptest.NewRequest("GET", "/dash/tasks/"+taskID, nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, detailReq)
 	if w.Code != http.StatusOK {
@@ -516,7 +516,7 @@ func TestDash_TaskDetail_RunLogs(t *testing.T) {
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/tasks/t4", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/t4", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -544,7 +544,7 @@ func TestDash_TasksPage_PromptColumn(t *testing.T) {
 		groupsDir: filepath.Join(inst.Tmp, "groups")}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/tasks/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

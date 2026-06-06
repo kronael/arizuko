@@ -63,7 +63,7 @@ func TestTasksPartialRows(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/tasks/x/list", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -88,7 +88,7 @@ func TestTasksPartialXSS(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/tasks/x/list", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
@@ -111,7 +111,7 @@ func TestActivityFullPage(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/activity/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/activity/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -143,7 +143,7 @@ func TestActivityPartialRows(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/activity/x/recent", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/activity/x/recent", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
@@ -203,7 +203,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/groups/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -227,7 +227,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/groups/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if !strings.Contains(w.Body.String(), "no routes") {
@@ -269,7 +269,7 @@ func TestHandleMemoryDropdown(t *testing.T) {
 	d := &dash{db: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/memory/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/memory/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
@@ -304,7 +304,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 	d := &dash{db: db, groupsDir: groups}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/memory/?group="+folder, nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/memory/?group="+folder, nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
@@ -581,7 +581,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 	d := &dash{db: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
-	req := httptest.NewRequest("GET", "/dash/", nil)
+	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()

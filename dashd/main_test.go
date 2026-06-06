@@ -324,7 +324,9 @@ func TestHandleMemoryURLEncodedTraversal(t *testing.T) {
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
-	req := httptest.NewRequest("GET", "/dash/memory/?group=..%2F..%2Fetc", nil)
+	// Operator identity so the traversal reaches the path guard (a non-operator
+	// is 403'd by folder-scoping first; this test exercises the guard itself).
+	req := asOperator(httptest.NewRequest("GET", "/dash/memory/?group=..%2F..%2Fetc", nil))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {

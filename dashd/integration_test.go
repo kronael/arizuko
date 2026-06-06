@@ -33,6 +33,30 @@ func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	return srv, inst, groupsDir
 }
 
+// opGet performs a GET against a live dash server as an operator (`**` in the
+// signed X-User-Groups). dashd read pages are folder-scoped (each agent owns
+// its dashboard); these legacy tests assert the full-instance view, which only
+// an operator sees.
+func opGet(t *testing.T, url string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-User-Sub", "op@x")
+	req.Header.Set("X-User-Groups", `["**"]`)
+	return http.DefaultClient.Do(req)
+}
+
+// asOperator stamps an operator identity (`**` in the signed X-User-Groups)
+// onto an in-process httptest request so a folder-scoped read page renders the
+// full-instance view.
+func asOperator(r *http.Request) *http.Request {
+	r.Header.Set("X-User-Sub", "op@x")
+	r.Header.Set("X-User-Groups", `["**"]`)
+	return r
+}
+
 // TestMemoryEndpoint: seed a group with MEMORY.md on disk + a group row
 // in DB, GET /dash/memory/?group=<folder>, assert HTML contains the
 // memory content.
@@ -55,7 +79,7 @@ func TestMemoryEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := http.Get(srv.URL + "/dash/memory/?group=" + folder)
+	resp, err := opGet(t, srv.URL+"/dash/memory/?group="+folder)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +111,7 @@ func TestGroupList(t *testing.T) {
 		}
 	}
 
-	resp, err := http.Get(srv.URL + "/dash/groups/")
+	resp, err := opGet(t, srv.URL+"/dash/groups/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +156,7 @@ func TestGroupListUsage(t *testing.T) {
 		}
 	}
 
-	resp, err := http.Get(srv.URL + "/dash/groups/")
+	resp, err := opGet(t, srv.URL+"/dash/groups/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +204,7 @@ func TestTaskList(t *testing.T) {
 		}
 	}
 
-	resp, err := http.Get(srv.URL + "/dash/tasks/")
+	resp, err := opGet(t, srv.URL+"/dash/tasks/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +224,7 @@ func TestTaskList(t *testing.T) {
 	}
 
 	// HTMX partial renders the same rows without the page chrome.
-	respP, err := http.Get(srv.URL + "/dash/tasks/x/list")
+	respP, err := opGet(t, srv.URL+"/dash/tasks/x/list")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -207,12 +207,12 @@ func (d *dash) setSkillDisabled(folder, skill string, disable bool) error {
 
 // GET /dash/groups/{folder}/settings — show current state. POST persists.
 func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
-		return
-	}
 	folder := groupFromPath(r, "/settings")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
+		return
+	}
+	if !d.requireVisible(w, r, folder) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

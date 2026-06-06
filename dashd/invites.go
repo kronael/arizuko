@@ -16,7 +16,7 @@ import (
 // POST /dash/invites/ creates a new invite.
 // POST /dash/invites/{token}/revoke deletes an invite.
 func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
+	if !d.requireOperator(w, r) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

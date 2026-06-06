@@ -328,28 +328,45 @@ func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
 	w.Write(htmxJS)
 }
 
-// navLinks: nav order + href + label. Path-prefix match decides which
-// gets aria-current. /dash/ is special-cased so child pages don't all
-// light up the home link.
-var navLinks = []struct{ Href, Label string }{
-	{"/dash/", "arizuko"},
-	{"/dash/status/", "status"},
-	{"/dash/tasks/", "tasks"},
-	{"/dash/activity/", "activity"},
-	{"/dash/groups/", "groups"},
-	{"/dash/routes/", "routes"},
-	{"/dash/invites/", "invites"},
-	{"/dash/memory/", "memory"},
-	{"/dash/profile/", "profile"},
+// navLinks: nav order + href + label + operator-only flag. Path-prefix match
+// decides which gets aria-current. /dash/ is special-cased so child pages
+// don't all light up the home link. Operator-only links (invites) render only
+// for callers holding `**`; the scoped links (status/tasks/activity/groups/
+// routes/memory/profile) always show — their pages filter to visible folders.
+var navLinks = []struct {
+	Href, Label string
+	operator    bool
+}{
+	{"/dash/", "arizuko", false},
+	{"/dash/status/", "status", false},
+	{"/dash/tasks/", "tasks", false},
+	{"/dash/activity/", "activity", false},
+	{"/dash/groups/", "groups", false},
+	{"/dash/routes/", "routes", false},
+	{"/dash/invites/", "invites", true},
+	{"/dash/memory/", "memory", false},
+	{"/dash/profile/", "profile", false},
 }
 
-// dashNavFor renders the top nav with aria-current="page" on the link
-// whose href is a prefix of urlPath. urlPath "" or "/dash/" lights the
-// home link only.
-func dashNavFor(urlPath string) string {
+// dashNavFor renders the top nav with aria-current="page" on the link whose
+// href is a prefix of the request path. urlPath "" or "/dash/" lights the home
+// link only. Operator-only links are hidden from non-operators (`**` absent
+// from the signed X-User-Groups).
+func dashNavFor(r *http.Request) string {
+	urlPath := r.URL.Path
+	operator := false
+	for _, g := range callerGroups(r) {
+		if g == "**" {
+			operator = true
+			break
+		}
+	}
 	var b strings.Builder
 	b.WriteString(`<nav hx-boost="true" hx-target="#content" hx-swap="innerHTML" hx-indicator="#global-spinner">`)
 	for _, l := range navLinks {
+		if l.operator && !operator {
+			continue
+		}
 		active := false
 		if l.Href == "/dash/" {
 			active = urlPath == "" || urlPath == "/dash/" || urlPath == "/dash"
@@ -394,30 +411,13 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	allowed, operator := d.callerScope(r)
 
-	var erroredCount, failedTasks int
-	var scanErrs []string
-	// messages stay on messages.db; task_run_logs is routd-owned (adminDB()).
-	for _, q := range []struct {
-		sql string
-		db  *sql.DB
-		dst *int
-	}{
-		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, d.db, &erroredCount},
-		{`SELECT COUNT(*) FROM task_run_logs WHERE status='error' AND run_at > datetime('now','-1 day')`, d.adminDB(), &failedTasks},
-	} {
-		if err := q.db.QueryRow(q.sql).Scan(q.dst); err != nil {
-			slog.Warn("portal: scan", "sql", q.sql, "err", err)
-			scanErrs = append(scanErrs, err.Error())
-		}
-	}
-
-	errMsg := strings.Join(scanErrs, "; ")
+	erroredCount := d.countVisibleErroredChats(allowed, operator)
+	failedTasks := d.countVisibleFailedTasks(allowed, operator)
 
 	statusDot := "ok"
-	if len(scanErrs) > 0 {
-		statusDot = "err"
-	} else if erroredCount > 0 {
+	if erroredCount > 0 {
 		statusDot = "warn"
 	}
 
@@ -435,7 +435,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		StatusDot string
 		TasksDot  string
 		Err       string
-	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r.URL.Path)), statusDot, tasksDot, errMsg}); err != nil {
+	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r)), statusDot, tasksDot, ""}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
@@ -447,7 +447,7 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 func pageTopFor(w http.ResponseWriter, r *http.Request, title string, crumbs ...struct{ Href, Label string }) {
 	if !isHtmx(r) {
 		fmt.Fprintf(w, `<!DOCTYPE html><html>%s<body><div class="page-wide">%s<div id="content">`,
-			dashHead(title), dashNavFor(r.URL.Path))
+			dashHead(title), dashNavFor(r))
 	}
 	if len(crumbs) > 0 {
 		var b strings.Builder
@@ -478,20 +478,17 @@ func pageClose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Status")
 
-	var groupCount, sessionCount, erroredCount int
-	for _, q := range []struct {
-		sql string
-		dst *int
-	}{
-		{`SELECT COUNT(*) FROM groups`, &groupCount},
-		{`SELECT COUNT(*) FROM sessions`, &sessionCount},
-		{`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`, &erroredCount},
-	} {
-		if err := d.db.QueryRow(q.sql).Scan(q.dst); err != nil {
-			slog.Warn("status: scan", "sql", q.sql, "err", err)
+	groupCount := d.countVisibleGroups(allowed, operator)
+	erroredCount := d.countVisibleErroredChats(allowed, operator)
+	var sessionCount int
+	// Sessions count is instance-wide infra; only shown in full to operators.
+	if operator {
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
+			slog.Warn("status: sessions scan", "err", err)
 		}
 	}
 
@@ -513,13 +510,14 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tasks")
 	fmt.Fprint(w, `<p class="dim">Scheduled jobs. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/tasks/x/list" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
 		`<thead><tr><th>ID</th><th>Group</th><th>Prompt</th><th>Cron</th><th>Status</th><th>Created</th><th>Next Run</th></tr></thead>`+
 		`<tbody>`)
-	d.writeTaskRows(w)
+	d.writeTaskRows(w, allowed, operator)
 	fmt.Fprint(w, `</tbody></table>`)
 
 	fmt.Fprint(w, htmlSection("Create task",
@@ -536,11 +534,12 @@ func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeTaskRows(w)
+	d.writeTaskRows(w, allowed, operator)
 }
 
-func (d *dash) writeTaskRows(w http.ResponseWriter) {
+func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator bool) {
 	rows, err := d.adminDB().Query(
 		`SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
 		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
@@ -558,6 +557,9 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 			slog.Warn("tasks: scan row", "err", err)
 			fmt.Fprintf(w, `<tr><td colspan=7 class="empty">scan error: %s</td></tr>`,
 				esc(err.Error()))
+			continue
+		}
+		if !visible(allowed, operator, owner) {
 			continue
 		}
 		dot := "dot-ok"
@@ -597,26 +599,34 @@ func (d *dash) writeTaskRows(w http.ResponseWriter) {
 }
 
 func (d *dash) handleActivity(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Activity")
 	fmt.Fprint(w, `<p class="dim">Last 50 messages across all channels. Auto-refreshes every 10s.</p>`)
 	fmt.Fprint(w, `<table hx-get="/dash/activity/x/recent" hx-trigger="every 10s" hx-target="tbody" hx-swap="innerHTML">`+
 		`<thead><tr><th>Time</th><th>Source</th><th>Chat</th><th>Sender</th><th>Verb</th><th>Content</th></tr></thead>`+
 		`<tbody>`)
-	d.writeActivityRows(w)
+	d.writeActivityRows(w, allowed, operator)
 	fmt.Fprint(w, `</tbody></table>`)
 	pageClose(w, r)
 }
 
 func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	d.writeActivityRows(w)
+	d.writeActivityRows(w, allowed, operator)
 }
 
-func (d *dash) writeActivityRows(w http.ResponseWriter) {
+func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operator bool) {
+	// Non-operators may filter out most of the newest 50; over-fetch so a
+	// scoped view still fills the table. Operators read exactly 50.
+	limit := 50
+	if !operator {
+		limit = 1000
+	}
 	rows, err := d.db.Query(
 		`SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
-		 FROM messages ORDER BY timestamp DESC LIMIT 50`)
+		 FROM messages ORDER BY timestamp DESC LIMIT ?`, limit)
 	if err != nil {
 		slog.Warn("activity: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=6 class="empty">error: %s</td></tr>`, esc(err.Error()))
@@ -624,7 +634,12 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 	}
 	defer rows.Close()
 	var n int
+	const maxShown = 50
+	folderOf := map[string]string{} // memoize chat_jid → folder across rows
 	for rows.Next() {
+		if n >= maxShown {
+			break
+		}
 		var ts, source, chatJID, sender, content string
 		var verb sql.NullString
 		if err := rows.Scan(&ts, &source, &chatJID, &sender, &verb, &content); err != nil {
@@ -632,6 +647,16 @@ func (d *dash) writeActivityRows(w http.ResponseWriter) {
 			fmt.Fprintf(w, `<tr><td colspan=6 class="empty">scan error: %s</td></tr>`,
 				esc(err.Error()))
 			continue
+		}
+		if !operator {
+			folder, seen := folderOf[chatJID]
+			if !seen {
+				folder = d.jidFolder(chatJID)
+				folderOf[chatJID] = folder
+			}
+			if !visible(allowed, operator, folder) {
+				continue
+			}
 		}
 		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td><code>%s</code></td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
 			esc(ts),
@@ -699,6 +724,7 @@ func groupFromPath(r *http.Request, suffix string) string {
 }
 
 func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Groups")
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
@@ -718,6 +744,9 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 		var folder string
 		if err := rows.Scan(&folder); err != nil {
 			slog.Warn("groups: scan row", "err", err)
+			continue
+		}
+		if !visible(allowed, operator, folder) {
 			continue
 		}
 		folders = append(folders, folder)
@@ -967,8 +996,16 @@ func (d *dash) handleMemoryDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	selectedGroup := r.URL.Query().Get("group")
+
+	// Refuse to render another tenant's files: a non-operator who hand-crafts
+	// ?group=foreign gets 403 before any file read.
+	if selectedGroup != "" && !visible(allowed, operator, selectedGroup) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	pageTopFor(w, r, "Memory")
 	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
@@ -987,6 +1024,9 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 			var folder string
 			if err := rows.Scan(&folder); err != nil {
 				slog.Warn("memory: scan row", "err", err)
+				continue
+			}
+			if !visible(allowed, operator, folder) {
 				continue
 			}
 			sel := ""
