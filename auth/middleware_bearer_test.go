@@ -31,7 +31,7 @@ func TestRequireSignedOrBearer_NilKeySet_HMACOnly(t *testing.T) {
 	_ = ks
 
 	called := false
-	h := RequireSignedOrBearer(mwSecret, nil)(func(w http.ResponseWriter, r *http.Request) {
+	h := RequireSignedOrBearer(mwSecret, nil, nil)(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 	r := httptest.NewRequest("GET", "/x", nil)
@@ -62,7 +62,7 @@ func TestRequireSignedOrBearer_ES256_Accepted(t *testing.T) {
 		Extra: map[string]string{"arz/folder": "atlas/main", "name": "alice"},
 	})
 	var seen *http.Request
-	h := RequireSignedOrBearer(mwSecret, ks)(func(w http.ResponseWriter, r *http.Request) {
+	h := RequireSignedOrBearer(mwSecret, ks, nil)(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
 	})
 	r := httptest.NewRequest("GET", "/x", nil)
@@ -86,7 +86,7 @@ func TestRequireSignedOrBearer_ES256_Accepted(t *testing.T) {
 func TestRequireSignedOrBearer_HMAC_StillWorks_WithKeySet(t *testing.T) {
 	ks, _ := bearerKeySet(t, TokenClaims{Sub: "u_7", Typ: "user"})
 	var seen *http.Request
-	h := RequireSignedOrBearer(mwSecret, ks)(func(w http.ResponseWriter, r *http.Request) {
+	h := RequireSignedOrBearer(mwSecret, ks, nil)(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
 	})
 	r := httptest.NewRequest("GET", "/x", nil)
@@ -104,7 +104,7 @@ func TestRequireSignedOrBearer_HMAC_StillWorks_WithKeySet(t *testing.T) {
 func TestRequireSignedOrBearer_NoCred_Redirects(t *testing.T) {
 	ks, _ := bearerKeySet(t, TokenClaims{Sub: "u_7", Typ: "user"})
 	called := false
-	h := RequireSignedOrBearer(mwSecret, ks)(func(w http.ResponseWriter, r *http.Request) {
+	h := RequireSignedOrBearer(mwSecret, ks, nil)(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 	r := httptest.NewRequest("GET", "/x", nil) // no bearer, no sig
@@ -124,7 +124,7 @@ func TestStripUnsignedOrBearer_ES256_Accepted(t *testing.T) {
 		Extra: map[string]string{"arz/folder": "atlas/main"},
 	})
 	var seen *http.Request
-	h := StripUnsignedOrBearer(mwSecret, ks)(func(w http.ResponseWriter, r *http.Request) {
+	h := StripUnsignedOrBearer(mwSecret, ks, nil)(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
 	})
 	r := httptest.NewRequest("GET", "/x", nil)
@@ -144,7 +144,7 @@ func TestStripUnsignedOrBearer_NilKeySet_StripsUnsigned(t *testing.T) {
 	// ES256 bearer is ignored.
 	_, tok := bearerKeySet(t, TokenClaims{Sub: "u_7", Typ: "user"})
 	var seen *http.Request
-	h := StripUnsignedOrBearer(mwSecret, nil)(func(w http.ResponseWriter, r *http.Request) {
+	h := StripUnsignedOrBearer(mwSecret, nil, nil)(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
 	})
 	r := httptest.NewRequest("GET", "/x", nil)
@@ -164,7 +164,7 @@ func TestStripUnsignedOrBearer_NilKeySet_StripsUnsigned(t *testing.T) {
 func TestStripUnsignedOrBearer_HMAC_StillWorks(t *testing.T) {
 	ks, _ := bearerKeySet(t, TokenClaims{Sub: "u_7", Typ: "user"})
 	var seen *http.Request
-	h := StripUnsignedOrBearer(mwSecret, ks)(func(w http.ResponseWriter, r *http.Request) {
+	h := StripUnsignedOrBearer(mwSecret, ks, nil)(func(w http.ResponseWriter, r *http.Request) {
 		seen = r
 	})
 	r := httptest.NewRequest("GET", "/x", nil)

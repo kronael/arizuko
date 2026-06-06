@@ -39,13 +39,20 @@ type server struct {
 }
 
 func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet) *server {
+	// Soak (spec 5/1 § cutover): accept HMAC X-User-Sig OR an authd ES256
+	// bearer. ks is nil unless AUTHD_URL is set → identical to
+	// RequireSigned(hmacSecret) in the live HMAC-only deployment. Post-flip the
+	// bearer carries only its narrow arz/folder claim, so X-User-Groups is
+	// resolved from the full DB grant set (st.UserScopes) keyed on the bare sub
+	// — operators keep `**`, multi-folder users keep every folder.
+	var grants auth.Grants
+	if st != nil {
+		grants = st.UserScopes
+	}
 	return &server{
 		cfg: cfg, st: st, hub: h, rc: rc,
-		proxyd: newProxydClient(cfg.proxydURL, cfg.hmacSecret),
-		// Soak (spec 5/1 § cutover): accept HMAC X-User-Sig OR an authd ES256
-		// bearer. ks is nil unless AUTHD_URL is set → identical to
-		// RequireSigned(hmacSecret) in the live HMAC-only deployment.
-		requireUser: auth.RequireSignedOrBearer(cfg.hmacSecret, ks),
+		proxyd:      newProxydClient(cfg.proxydURL, cfg.hmacSecret),
+		requireUser: auth.RequireSignedOrBearer(cfg.hmacSecret, ks, grants),
 		limiter:     newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
 	}
 }

@@ -140,7 +140,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	stripUnsigned := auth.StripUnsignedOrBearer(os.Getenv("PROXYD_HMAC_SECRET"), ks)
+	// Post-flip the ES256 bearer carries only its narrow arz/folder claim;
+	// X-User-Groups is resolved from the full grant set (UserScopes over the
+	// cross DB — routd.db in the split) keyed on the bare sub, and the sub
+	// itself is prefix-stripped so matchGate's github:/google: checks fire.
+	stripUnsigned := auth.StripUnsignedOrBearer(os.Getenv("PROXYD_HMAC_SECRET"), ks, store.New(xdb).UserScopes)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
