@@ -248,13 +248,12 @@ pre {
   color: var(--dim);
   padding: 0.12em 0.5em;
   border-radius: 3px;
-  border-left: 2px solid transparent;
 }
 .docs-nav a:hover { color: var(--accent); text-decoration: none; }
 .docs-nav a[aria-current="page"] {
-  color: var(--bright);
-  border-left-color: var(--accent);
-  background: var(--card);
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 }
 
 .docs-content { min-width: 0; }
