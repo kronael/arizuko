@@ -471,6 +471,9 @@ func (a *Audit) pollMessages(db *sql.DB, cur *cursor) {
 		a.emitMessage(e)
 		cur.set(table, id)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit poll", "table", table, "err", err)
+	}
 }
 
 func (a *Audit) pollSessionLog(db *sql.DB, cur *cursor) {
@@ -504,6 +507,9 @@ func (a *Audit) pollSessionLog(db *sql.DB, cur *cursor) {
 		a.emitMessage(e)
 		cur.set(table, id)
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit poll", "table", table, "err", err)
+	}
 }
 
 func (a *Audit) pollTurnResults(db *sql.DB, cur *cursor) {
@@ -535,6 +541,9 @@ func (a *Audit) pollTurnResults(db *sql.DB, cur *cursor) {
 		}
 		a.emitMessage(e)
 		cur.set(table, id)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit poll", "table", table, "err", err)
 	}
 }
 
@@ -575,6 +584,9 @@ func (a *Audit) pollTaskRunLogs(db *sql.DB, cur *cursor) {
 		}
 		a.emitMessage(e)
 		cur.set(table, id)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit poll", "table", table, "err", err)
 	}
 }
 
@@ -629,6 +641,11 @@ func (a *Audit) pollSecretUseLog(db *sql.DB, cur *cursor) {
 			maxTS = ts
 		}
 	}
+	if err := rows.Err(); err != nil {
+		// Don't advance the cursor past unscanned rows — they'd be skipped forever.
+		slog.Error("audit poll", "table", table, "err", err)
+		return
+	}
 	if maxTS != "" {
 		t, _ := time.Parse(time.RFC3339Nano, maxTS)
 		cur.set(table, t.UnixNano())
@@ -664,6 +681,9 @@ func (a *Audit) pollCLIAudit(db *sql.DB, cur *cursor) {
 		// the same writer for consistency).
 		a.emitSystemFromPoll(e)
 		cur.set(table, id)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("audit poll", "table", table, "err", err)
 	}
 }
 

@@ -311,8 +311,20 @@ func promptUnprompted(db *sql.DB, cfg config) {
 	base := strings.TrimRight(cfg.authBaseURL, "/")
 	for _, jid := range pending {
 		token := core.GenHexToken()
-		db.Exec(`UPDATE onboarding SET token = ?, token_expires = ?, prompted_at = ? WHERE jid = ?`,
+		// Claim-per-row: the UPDATE re-checks prompted_at IS NULL so two
+		// overlapping ticks can't both win the same jid. Only the tick whose
+		// UPDATE affected a row sends the link (else the other tick already did).
+		res, err := db.Exec(
+			`UPDATE onboarding SET token = ?, token_expires = ?, prompted_at = ?
+			 WHERE jid = ? AND prompted_at IS NULL`,
 			token, expires, now, jid)
+		if err != nil {
+			slog.Error("promptUnprompted claim", "jid", jid, "err", err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			continue
+		}
 
 		link := base + "/onboard?token=" + token
 		prompt := "Set up your account: " + link
@@ -392,13 +404,38 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		claimOnboarding(obdb, jid, userSub)
-		linkJID(db, obdb, jid, userSub)
+		// Atomic claim by token: two parallel landings of the same token can
+		// both pass the SELECT above, but only the request whose UPDATE returns
+		// a row links the JID. The loser's RETURNING yields no row → no
+		// double-linkJID.
+		if claimed, ok := claimByToken(obdb, token, userSub); ok {
+			linkJID(db, obdb, claimed, userSub)
+		}
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
 	}
 
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+}
+
+// claimByToken atomically binds userSub to the onboarding row for token in one
+// statement, returning the claimed jid only when this caller won the race.
+func claimByToken(obdb *sql.DB, token, userSub string) (string, bool) {
+	var jid string
+	err := obdb.QueryRow(
+		`UPDATE onboarding
+		 SET user_sub = ?, status = 'token_used', token = NULL
+		 WHERE token = ? AND user_sub IS NULL
+		 RETURNING jid`,
+		userSub, token).Scan(&jid)
+	if err == sql.ErrNoRows {
+		return "", false
+	}
+	if err != nil {
+		slog.Error("claim onboarding by token", "err", err)
+		return "", false
+	}
+	return jid, true
 }
 
 func claimOnboarding(obdb *sql.DB, jid, userSub string) bool {
@@ -554,8 +591,6 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		return
 	}
 
-	db.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`, username, userSub)
-
 	coreCfg := cfg.core
 	if coreCfg == nil {
 		var err error
@@ -569,11 +604,27 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 	if _, err := os.Stat(prototype); err != nil {
 		prototype = ""
 	}
+	// FS setup BEFORE the DB tx: a DB failure after FS leaves a stray group
+	// dir (re-creatable, harmless), whereas a committed group row with no FS
+	// is a broken world. Order so the durable record is last.
 	if err := container.SetupGroup(coreCfg, folder, prototype); err != nil {
 		slog.Error("create world: setup group", "folder", folder, "err", err)
 		renderPage(w, "Error", template.HTML("<p>Internal error.</p>"))
 		return
 	}
+
+	// All cross-table writes (auth_users/groups/acl/routes) share one handle
+	// (messages.db in monolith, routd.db in the split) → one tx makes the
+	// world atomic. The race guard is INSERT OR IGNORE + RowsAffected on
+	// groups, not the TOCTOU check above (that's a fast-path UX hint only).
+	now := time.Now().Format(time.RFC3339)
+	jids := membershipJIDs(db, userSub)
+	if err := createWorldTx(db, folder, username, userSub, now, jids); err != nil {
+		slog.Error("create world: db tx", "folder", folder, "err", err)
+		http.Error(w, "create world failed", http.StatusInternalServerError)
+		return
+	}
+
 	if err := store.New(db).SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("create world: seed default tasks", "folder", folder, "err", err)
 	}
@@ -584,37 +635,63 @@ func handleCreateWorld(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg c
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	now := time.Now().Format(time.RFC3339)
-	// Spec 5/W: no automatic chat token at folder creation. Operator
-	// (or the agent, via `issue_chat_link`) mints on demand.
-	db.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, product) VALUES (?, ?, ?)`,
-		folder, now, core.DefaultProduct)
-
-	// Grant admin on the new world folder (post-0053 schema).
-	db.Exec(`INSERT OR IGNORE INTO acl
-		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
-		userSub, folder)
-
-	var jids []string
-	if rows, err := db.Query(
-		`SELECT child FROM acl_membership WHERE parent = ?`, userSub); err == nil {
-		for rows.Next() {
-			var jid string
-			rows.Scan(&jid)
-			jids = append(jids, jid)
-		}
-		rows.Close()
-	}
-	for _, jid := range jids {
-		db.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
-			"room="+core.JidRoom(jid), folder)
-	}
-
 	slog.Info("world created", "folder", folder, "parent", parent, "user", userSub)
 	// Spec 5/W: post-onboarding lands on /onboard; chat tokens are
 	// issued explicitly (no auto-redirect to a slink link).
 	http.Redirect(w, r, "/onboard", http.StatusSeeOther)
+}
+
+// membershipJIDs lists the platform JIDs bound to userSub (acl_membership).
+func membershipJIDs(db *sql.DB, userSub string) []string {
+	rows, err := db.Query(`SELECT child FROM acl_membership WHERE parent = ?`, userSub)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var jids []string
+	for rows.Next() {
+		var jid string
+		rows.Scan(&jid)
+		jids = append(jids, jid)
+	}
+	return jids
+}
+
+// createWorldTx writes the username + group + admin grant + per-JID routes in
+// one tx. Spec 5/W: no automatic chat token at folder creation. The groups
+// INSERT OR IGNORE + RowsAffected==0 detects a concurrent creator (TOCTOU)
+// and fails closed instead of granting admin on someone else's world.
+func createWorldTx(db *sql.DB, folder, username, userSub, now string, jids []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE auth_users SET username = ? WHERE sub = ?`,
+		username, userSub); err != nil {
+		return err
+	}
+	res, err := tx.Exec(`INSERT OR IGNORE INTO groups (folder, added_at, product) VALUES (?, ?, ?)`,
+		folder, now, core.DefaultProduct)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("folder %q already exists", folder)
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
+		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
+		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'onbod')`,
+		userSub, folder); err != nil {
+		return err
+	}
+	for _, jid := range jids {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO routes (seq, match, target) VALUES (0, ?, ?)`,
+			"room="+core.JidRoom(jid), folder); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func loadGates(db *sql.DB) []gate {
@@ -778,12 +855,20 @@ func admitFromQueue(db *sql.DB) {
 			batch = append(batch, jid)
 		}
 		rows.Close()
+		updateErr := false
 		for _, jid := range batch {
 			if _, err := tx.Exec(
 				`UPDATE onboarding SET status = 'approved', admitted_at = ? WHERE jid = ?`,
 				now, jid); err != nil {
 				slog.Error("admitFromQueue update", "jid", jid, "err", err)
+				updateErr = true
+				break
 			}
+		}
+		if updateErr {
+			// Don't commit a partial batch — roll back the whole gate's claim.
+			tx.Rollback()
+			continue
 		}
 		if err := tx.Commit(); err != nil {
 			slog.Error("admitFromQueue commit", "gate", k, "err", err)
@@ -1051,16 +1136,26 @@ func userFolders(db *sql.DB, sub string) []string {
 		queue = queue[1:]
 		rows, err := db.Query(`SELECT parent FROM acl_membership WHERE child = ?`, next)
 		if err != nil {
-			continue
+			slog.Error("userFolders membership walk", "child", next, "err", err)
+			return nil
 		}
 		for rows.Next() {
 			var p string
-			rows.Scan(&p)
+			if err := rows.Scan(&p); err != nil {
+				rows.Close()
+				slog.Error("userFolders membership scan", "child", next, "err", err)
+				return nil
+			}
 			if p != "" && !seen[p] {
 				seen[p] = true
 				principals = append(principals, p)
 				queue = append(queue, p)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			slog.Error("userFolders membership rows", "child", next, "err", err)
+			return nil
 		}
 		rows.Close()
 	}
@@ -1081,10 +1176,17 @@ func userFolders(db *sql.DB, sub string) []string {
 	var folders []string
 	for rows.Next() {
 		var f string
-		rows.Scan(&f)
+		if err := rows.Scan(&f); err != nil {
+			slog.Error("userFolders scope scan", "err", err)
+			return nil
+		}
 		if f != "" {
 			folders = append(folders, f)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("userFolders scope rows", "err", err)
+		return nil
 	}
 	return folders
 }

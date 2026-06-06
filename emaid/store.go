@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -54,18 +55,23 @@ func getThreadByMsgID(db *sql.DB, msgID string) *emailThread {
 func upsertThread(db *sql.DB, msgID, threadID, fromAddress, rootMsgID string) {
 	tx, err := db.Begin()
 	if err != nil {
+		slog.Error("upsertThread begin", "thread", threadID, "err", err)
 		return
 	}
 	defer tx.Rollback()
 	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_threads (thread_id, from_address, root_msg_id) VALUES (?,?,?)`,
 		threadID, fromAddress, rootMsgID); err != nil {
+		slog.Error("upsertThread email_threads", "thread", threadID, "err", err)
 		return
 	}
 	if _, err = tx.Exec(
 		`INSERT OR IGNORE INTO email_msg_ids (msg_id, thread_id) VALUES (?,?)`,
 		msgID, threadID); err != nil {
+		slog.Error("upsertThread email_msg_ids", "msg", msgID, "err", err)
 		return
 	}
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		slog.Error("upsertThread commit", "thread", threadID, "err", err)
+	}
 }

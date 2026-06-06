@@ -1949,3 +1949,43 @@ deliberately left out of it. Logged for later, not fixed:
   non-security query funcs (a truncated result is a display/listing glitch, not
   a misroute or authz bypass). Lower priority than the security-relevant
   rows.Err() fixes already applied to `AllGroups` + the ACL list funcs.
+
+## tx-correctness sweep (outside store/) — deferred / orthogonal (2026-06-06)
+
+These surfaced during the OUTSIDE-store tx-correctness sweep but are orthogonal
+to atomicity and were deliberately NOT fixed in it.
+
+### WAL-mode failure is a non-fatal warn (L2)
+
+`timed/main.go:57`, plus `authd` and `onbod` monolith paths, run `PRAGMA
+journal_mode=WAL` (or open without WAL in the DSN) and only `slog.Warn` if it
+fails. A DB stuck in rollback-journal mode under concurrent writers can serialize
+or error rather than fall back cleanly. Orthogonal to the tx-atomicity sweep
+(this is a startup-pragma robustness concern). Future-fix: treat WAL-set failure
+as fatal, or assert journal_mode after open.
+
+### dashd group-delete leaves orphan acl + routes rows (L6) — CONFIRMED no cascade
+
+`dashd/groups_admin.go:403` `handleGroupDelete` does `DELETE FROM groups WHERE
+folder = ?` and relies on FK `ON DELETE CASCADE` to clean dependents. Verified
+the schema:
+- `web_routes` (routd 0001:137, store 0068) and `route_tokens` (routd 0001:144,
+  store 0069) DO declare `REFERENCES groups(folder) ON DELETE CASCADE` → the
+  newly-added `foreign_keys(on)` pragma makes these cascade correctly.
+- BUT `acl` (routd 0007 / store 0052) and `routes` (routd 0001:71 / store 0008,
+  0022, 0054) have NO FK to `groups` — `scope`/`target` are plain TEXT. So
+  deleting a group leaves its admin-grant acl rows and room-routing routes rows
+  orphaned (dangling references to a folder that no longer exists). The FK pragma
+  cannot help — there is no constraint to enforce.
+Fix-path: either add the FK (table rebuild, since SQLite can't ALTER ADD
+CONSTRAINT — see store 0068/0069 pattern) OR have handleGroupDelete explicitly
+`DELETE FROM acl WHERE scope=?` + `DELETE FROM routes WHERE target=?` in the same
+tx as the group delete. (The acl scope match must consider glob scopes too, e.g.
+`folder/**` — a plain equality delete under-cleans.)
+
+### context.Background → request-ctx threading (broad)
+
+Many call sites across timed/onbod/dashd/audit pass `context.Background()` to
+`audit.Emit` instead of the request/loop ctx. Same invasive cross-cutting concern
+already logged for store/ (see "DB robustness (deferred)" above). Out of scope
+for the tx-correctness sweep.

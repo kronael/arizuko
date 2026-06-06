@@ -48,7 +48,7 @@ func main() {
 		}
 		dsn = filepath.Join(dataDir, "store", "messages.db")
 	}
-	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
@@ -170,14 +170,21 @@ func fire(db *sql.DB, tz string) {
 			},
 		})
 		id := core.MsgID("sched-" + t.id)
-		_, err := db.Exec(
-			`INSERT INTO messages (id, chat_jid, sender, content, timestamp)
-			 VALUES (?, ?, ?, ?, ?)`,
-			id, t.jid, sender, t.prompt, start.Format(time.RFC3339))
-		if err != nil {
-			slog.Error("insert message", "task", t.id, "jid", t.jid, "err", err)
+		nextRun := computeNextRun(t.cronExpr, tz, t.id)
+
+		// The synthetic message INSERT and the status transition off 'firing'
+		// must commit together: a crash between them strands the task in
+		// 'firing' (WHERE status='active' never re-picks it). One tx makes the
+		// fire atomic — either both land or neither does and the next tick
+		// re-claims the still-'active' row.
+		if err := fireTask(db, id, t.jid, sender, t.prompt, start, t.cronExpr, nextRun, t.id); err != nil {
+			slog.Error("fire task", "task", t.id, "jid", t.jid, "err", err)
 			logRun(db, t.id, "error", err.Error(), time.Since(start).Milliseconds())
-			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
+			// Tx rolled back, but the claim set status='firing' in a prior
+			// auto-commit; reset to 'active' so the task is re-picked.
+			if _, rerr := db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id); rerr != nil {
+				slog.Error("reset firing task", "task", t.id, "err", rerr)
+			}
 			audit.Emit(context.Background(), audit.Event{
 				Category:   audit.CategoryScheduler,
 				Action:     "task.error",
@@ -189,18 +196,6 @@ func fire(db *sql.DB, tz string) {
 				DurationMS: time.Since(start).Milliseconds(),
 			})
 			continue
-		}
-
-		nextRun := computeNextRun(t.cronExpr, tz, t.id)
-		switch {
-		case nextRun != "":
-			db.Exec(`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
-				nextRun, t.id)
-		case t.cronExpr == "":
-			db.Exec(`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`,
-				t.id)
-		default:
-			db.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, t.id)
 		}
 
 		logRun(db, t.id, "success", "", time.Since(start).Milliseconds())
@@ -220,6 +215,37 @@ func fire(db *sql.DB, tz string) {
 			"id", t.id, "jid", t.jid, "cron", t.cronExpr,
 			"context_mode", t.contextMode, "next_run", nextRun)
 	}
+}
+
+// fireTask appends the synthetic prompt message AND transitions the task off
+// 'firing' in one tx. verb='message'/status='sent' match routd.putMessage so
+// the synthetic row drives a turn (a NULL status row is never picked up).
+func fireTask(db *sql.DB, id, jid, sender, prompt string, start time.Time, cronExpr, nextRun, taskID string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, verb, status)
+		 VALUES (?, ?, ?, ?, ?, 'message', 'sent')`,
+		id, jid, sender, prompt, start.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	switch {
+	case nextRun != "":
+		_, err = tx.Exec(`UPDATE scheduled_tasks SET status = 'active', next_run = ? WHERE id = ?`,
+			nextRun, taskID)
+	case cronExpr == "":
+		_, err = tx.Exec(`UPDATE scheduled_tasks SET status = 'completed', next_run = NULL WHERE id = ?`,
+			taskID)
+	default:
+		_, err = tx.Exec(`UPDATE scheduled_tasks SET status = 'active' WHERE id = ?`, taskID)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func computeNextRun(cronVal, tz, taskID string) string {

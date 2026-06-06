@@ -101,24 +101,40 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	s := store.New(d.adminDB())
 	// Raw INSERT (not store.PutGroup): routd.db has no audit_log table, so the
 	// audited writer would roll back — same audit-free discipline as the secrets
-	// and grant rewires.
+	// and grant rewires. Group row + admin grant share one tx: an ACL failure
+	// must NOT leave a group with no admin (orphaned, inaccessible).
 	now := time.Now().Format(time.RFC3339)
-	if _, err := d.adminDB().Exec(
+	tx, err := d.adminDB().Begin()
+	if err != nil {
+		slog.Error("group create: begin", "folder", folder, "err", err)
+		http.Error(w, "insert failed", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(
 		`INSERT INTO groups (folder, added_at, product, updated_at) VALUES (?, ?, ?, ?)`,
 		folder, now, product, now); err != nil {
+		tx.Rollback()
 		slog.Error("group create: insert", "folder", folder, "err", err)
+		http.Error(w, "insert failed", http.StatusInternalServerError)
+		return
+	}
+	// Grant admin to creator on the new folder.
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO acl
+		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
+		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,
+		sub, folder); err != nil {
+		tx.Rollback()
+		slog.Error("group create: grant admin", "folder", folder, "sub", sub, "err", err)
+		http.Error(w, "grant admin failed", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Error("group create: commit", "folder", folder, "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
 	}
 	if err := s.SeedDefaultTasks(folder, folder); err != nil {
 		slog.Warn("group create: seed tasks", "folder", folder, "err", err)
-	}
-	// Grant admin to creator on the new folder.
-	if _, err := d.adminDB().Exec(`INSERT OR IGNORE INTO acl
-		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
-		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,
-		sub, folder); err != nil {
-		slog.Warn("group create: grant admin", "folder", folder, "sub", sub, "err", err)
 	}
 	slog.Info("group created", "folder", folder, "product", product, "sub", sub)
 	http.Redirect(w, r, "/dash/groups/", http.StatusSeeOther)

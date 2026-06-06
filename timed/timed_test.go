@@ -392,6 +392,62 @@ func TestFireInsertErrorRestoresActive(t *testing.T) {
 	}
 }
 
+// A fired task must never be left in the transient 'firing' state: the claim
+// marks it 'firing', then fireTask's tx transitions it to active/completed
+// atomically with the message INSERT. WHERE status='active' would never re-pick
+// a stranded 'firing' row, so this asserts the strand can't happen.
+func TestFireLeavesNoFiringStrand(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+
+	past := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	cron := "0 9 * * *"
+	insertTask(t, db, "cr", "c1", "cron-task", "active", past, &cron) // → active
+	insertTask(t, db, "os", "c2", "oneshot", "active", past, nil)     // → completed
+
+	fire(db, "UTC")
+
+	for _, id := range []string{"cr", "os"} {
+		var status string
+		db.QueryRow("SELECT status FROM scheduled_tasks WHERE id=?", id).Scan(&status)
+		if status == "firing" {
+			t.Fatalf("task %s stranded in 'firing'", id)
+		}
+	}
+	// And re-firing must not double-send (cron task already re-armed to future).
+	if n := countMessages(t, db); n != 2 {
+		t.Fatalf("expected 2 messages, got %d", n)
+	}
+	fire(db, "UTC")
+	if n := countMessages(t, db); n != 2 {
+		t.Fatalf("re-fire double-sent: expected 2 messages, got %d", n)
+	}
+}
+
+// The synthetic message must carry verb='message'/status='sent' so the routing
+// trigger picks it up — a status=NULL row would never drive a turn.
+func TestFireMessageVerbAndStatus(t *testing.T) {
+	db := openTestDB(t)
+	store.Migrate(db)
+
+	past := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	insertTask(t, db, "vs", "c1", "verb-status", "active", past, nil)
+
+	fire(db, "UTC")
+
+	var verb, status string
+	if err := db.QueryRow(
+		"SELECT verb, status FROM messages WHERE content='verb-status'").Scan(&verb, &status); err != nil {
+		t.Fatal(err)
+	}
+	if verb != "message" {
+		t.Fatalf("expected verb=message, got %q", verb)
+	}
+	if status != "sent" {
+		t.Fatalf("expected status=sent, got %q", status)
+	}
+}
+
 func TestFireHonorsTimezone(t *testing.T) {
 	db := openTestDB(t)
 	store.Migrate(db)

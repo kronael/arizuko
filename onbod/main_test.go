@@ -408,6 +408,68 @@ func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 	}
 }
 
+// Two parallel claims of the same token must produce exactly one winner: the
+// atomic UPDATE ... WHERE user_sub IS NULL RETURNING jid lets only one caller
+// bind the JID, so linkJID runs once. claimByToken is the race-safe primitive
+// handleTokenLanding gates linkJID on.
+func TestClaimByTokenSingleWinner(t *testing.T) {
+	db := testDB(t)
+	db.SetMaxOpenConns(1)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, created)
+		VALUES ('telegram:1', 'awaiting_message', 'race-tok', '2099-01-01T00:00:00Z', '2026-01-01')`)
+
+	jidA, okA := claimByToken(db, "race-tok", "github:alice")
+	jidB, okB := claimByToken(db, "race-tok", "github:bob")
+
+	wins := 0
+	if okA {
+		wins++
+		if jidA != "telegram:1" {
+			t.Errorf("winner A returned jid %q, want telegram:1", jidA)
+		}
+	}
+	if okB {
+		wins++
+		if jidB != "telegram:1" {
+			t.Errorf("winner B returned jid %q, want telegram:1", jidB)
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("want exactly 1 claim winner, got %d", wins)
+	}
+
+	var status string
+	var sub, token sql.NullString
+	db.QueryRow(`SELECT status, user_sub, token FROM onboarding WHERE jid='telegram:1'`).
+		Scan(&status, &sub, &token)
+	if status != "token_used" {
+		t.Errorf("want status=token_used, got %s", status)
+	}
+	if !sub.Valid || (sub.String != "github:alice" && sub.String != "github:bob") {
+		t.Errorf("user_sub not bound to a winner: %q", sub.String)
+	}
+	if token.Valid && token.String != "" {
+		t.Errorf("token should be cleared, got %q", token.String)
+	}
+}
+
+// claimByToken must refuse an already-claimed row (loser of the race), so
+// handleTokenLanding never double-links.
+func TestClaimByTokenRefusesClaimed(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO onboarding (jid, status, token, token_expires, user_sub, created)
+		VALUES ('telegram:1', 'token_used', 'spent-tok', '2099-01-01T00:00:00Z', 'github:alice', '2026-01-01')`)
+
+	if _, ok := claimByToken(db, "spent-tok", "github:bob"); ok {
+		t.Fatal("claimByToken should fail for an already-claimed row")
+	}
+	var sub string
+	db.QueryRow(`SELECT user_sub FROM onboarding WHERE jid='telegram:1'`).Scan(&sub)
+	if sub != "github:alice" {
+		t.Errorf("user_sub overwritten by loser: %q", sub)
+	}
+}
+
 func TestLinkJIDIdempotent(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created)

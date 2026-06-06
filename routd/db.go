@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -164,10 +165,15 @@ func (d *DB) AllGroups() map[string]core.Group {
 		var g core.Group
 		var added string
 		if err := rows.Scan(&g.Folder, &added, &g.Product, &g.Model); err != nil {
-			return out
+			slog.Error("AllGroups scan failed; failing closed", "err", err)
+			return nil
 		}
 		g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
 		out[g.Folder] = g
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("AllGroups iteration failed; failing closed", "err", err)
+		return nil
 	}
 	return out
 }

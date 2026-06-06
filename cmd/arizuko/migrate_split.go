@@ -298,7 +298,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	// identity schema (IF NOT EXISTS — no-op when authd already migrated) so the
 	// copy target exists. authd's migration FS is package-private, hence the
 	// inline DDL (authdIdentitySchema mirrors it verbatim).
-	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db")+"?_pragma=busy_timeout(5000)")
+	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return fmt.Errorf("open auth.db: %w", err)
 	}
@@ -312,7 +312,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
 	// the copy target exists. onbod's migration FS is package-private (package
 	// main), hence the inline DDL (onbodSchema mirrors it verbatim).
-	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)")
+	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return fmt.Errorf("open onbod.db: %w", err)
 	}
