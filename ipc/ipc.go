@@ -640,6 +640,16 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	if db.DefaultFolderForJID != nil {
 		target = db.DefaultFolderForJID(jid)
 	}
+	// Bare web:<folder> is a structural 1:1 binding to <folder> and carries no
+	// route row (gateway.folderForJid / the web-strict-1:1 contract). The route
+	// table still wins for routed web JIDs (web:X/sub → some group), so fall back
+	// to the 1:1 binding only when no route resolved — lets an agent reply to its
+	// own web-chat surface.
+	if target == "" {
+		if folder, ok := strings.CutPrefix(jid, "web:"); ok {
+			target = folder
+		}
+	}
 	if err := auth.AuthorizeStructural(id, action, auth.AuthzTarget{TargetFolder: target}); err == nil {
 		return nil
 	}

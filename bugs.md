@@ -2164,3 +2164,19 @@ nothing.
 Also FIXED: `arizuko send` opened messages.db unconditionally → in the split the
 message landed in a DB routd never reads (no turn). Now dual-paths to routd.db via
 mustOpenACL (the grant/secret/route pattern).
+
+## reply tool denied on bare web:<folder> chats (authorizeJID, 2026-06-06)
+
+The agent `reply`/`send` tools authorize the target JID via authorizeJID →
+DefaultFolderForJID, which only consults the route table. A bare web:<folder>
+chat (operator-inject surface + the slink web-chat widget) carries NO route row
+— web:<folder> is a structural 1:1 binding to <folder> (gateway.folderForJid /
+the web-strict-1:1 contract), not a routed JID. So target resolved to "" and the
+reply was rejected: `forbidden: chat web:krons has no route in this instance`.
+Present in BOTH monolith and split (ipc.go is shared; both wire the non-web-aware
+store.DefaultFolderForJID) — surfaced by the split bring-up via operator-inject.
+FIXED: authorizeJID falls back to the web:<folder>→<folder> 1:1 binding when the
+route table resolves nothing (routed web JIDs like web:X/sub→groupY still win via
+the route table). Regression: ipc.TestAuthorizeJID_BareWebChat. NB: submit_turn
+only records turn outcome + fires round_done; the visible reply comes from the
+reply/send tools — so this gap silently swallowed web-chat agent replies.

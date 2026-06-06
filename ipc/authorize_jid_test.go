@@ -28,6 +28,27 @@ func TestAuthorizeJID_MentionOnlySubfolder(t *testing.T) {
 	}
 }
 
+// A bare web:<folder> chat has no route row; an agent must still be able to
+// reply to its own web-chat surface (the web-strict-1:1 binding), while a
+// sibling agent that doesn't own that folder stays denied.
+func TestAuthorizeJID_BareWebChat(t *testing.T) {
+	db := StoreFns{DefaultFolderForJID: func(string) string { return "" }} // no route
+
+	own := auth.Identity{Folder: "krons", Tier: 1}
+	if err := authorizeJID(own, "reply", "web:krons", db); err != nil {
+		t.Fatalf("authorizeJID(krons, reply, web:krons) = %v, want nil", err)
+	}
+	// subtree owner replies to a descendant's web surface
+	parent := auth.Identity{Folder: "atlas", Tier: 1}
+	if err := authorizeJID(parent, "reply", "web:atlas/strengths", db); err != nil {
+		t.Fatalf("authorizeJID(atlas, reply, web:atlas/strengths) = %v, want nil", err)
+	}
+	sibling := auth.Identity{Folder: "mayai", Tier: 1}
+	if err := authorizeJID(sibling, "reply", "web:krons", db); err == nil {
+		t.Fatal("authorizeJID(mayai, reply, web:krons) = nil, want forbidden")
+	}
+}
+
 // recordOutbound stores the sent message's own platform id in PlatformID (not
 // ReplyToID) so the reply-to-bot promotion can find it.
 func TestRecordOutbound_StoresPlatformID(t *testing.T) {
