@@ -1,6 +1,41 @@
-# Spec 7/9 — arizuko Positioning in the Agent Orchestration Landscape
+# Spec 8/9 — arizuko Positioning in the Agent Orchestration Landscape
 
 Status: research / informational
+
+## The edge: focused products, not general agents
+
+The strongest differentiator first. **General agents fail most of the
+time.** A blob that's meant to do everything has no persona to hold it,
+no curated skill set to bound it, no routes to aim it — it drifts,
+hallucinates scope, and gives generic answers to specific jobs. arizuko's
+wedge is the opposite move: **ship a FOCUSED product** — a pre-seeded
+agent (persona + a tight, curated skill set + routes) aimed at exactly
+one job: support, company-brain, content authoring, PM, trip planning.
+
+A focused agent assembled from arizuko's primitives beats renting a
+general blob, on two axes:
+
+- **You own and shape it, you don't rent it.** The persona, the skills,
+  the routes, the knowledge are files in a folder you control — not a
+  prompt buried in someone's SaaS. Own the stack: the agent's identity
+  and capability surface are yours to read, diff, fork, and harden, on
+  your host. A rented general agent is a black box you tune through a
+  text box; a focused arizuko product is an asset you author.
+- **A tight skill set is a feature, not a limitation.** Constraining the
+  agent to the skills its one job needs (and gating the rest via ACL)
+  removes the failure modes general agents have — wrong tool, wrong
+  scope, confident nonsense outside its lane. The product catalog
+  ([P-product-templates](P-product-templates.md), [R-products](R-products.md))
+  is exactly this: curated `ant/examples/<name>/` folders — persona +
+  skill whitelist + seed `facts/` — installed with one command
+  (`arizuko create <inst> --product <name>`). Company-brain
+  ([8-company-brain](8-company-brain.md)) is the same move pointed at
+  knowledge work: arizuko is the _action_ layer on top of retrieval,
+  not another general chatbot over your docs.
+
+Everything below — folder=agent, the small primitive set, MCP+REST,
+self-hosting — is what makes focused products cheap to assemble and
+yours to keep. That is the positioning lead.
 
 ## The Market
 
@@ -14,21 +49,53 @@ Five camps:
 | n8n / Zapier AI                      | Automation + AI bolt-ons        | Agents are steps, not autonomous entities                  |
 | Vertex AI / Bedrock / Copilot Studio | Managed enterprise cloud        | Data leaves infrastructure; per-seat pricing; no fork path |
 
-None of them treat agents as **first-class persistent identities organized hierarchically** that coordinate through a standard protocol and can manage other agents.
+None of them ship a **focused, ownable agent** — a persona + curated
+skills + routes you author and host — assembled from **first-class
+persistent folder-agents** that coordinate over a uniform MCP+REST
+surface. They sell either a general blob (managed cloud) or low-level
+wiring you assemble yourself with no identity, persona, or ownership
+model (code/workflow frameworks).
 
 ## What arizuko Is
 
 The positioning that resonates:
 
-> **Self-hosted agent organization through code.** A folder is an agent. Folders compose into hierarchies. Agents coordinate via MCP. No GUI, no managed control plane.
+> **Self-hosted, focused agents built as code.** A folder is an agent —
+> persona, skills, memory, ACL. Something happens, an agent reacts.
+> Folders compose into hierarchies. Every action is one MCP tool call,
+> reachable over REST too. No GUI, no managed control plane, no rented
+> blob.
 
-Three properties no competitor has together:
+Four properties no competitor has together:
 
-1. **Folder = agent.** Every team gets its own context boundary, channel presence, memory, and skill set. Git-manageable. Diff-reviewable. The org chart is the folder tree.
+1. **Folder = agent.** Every team, customer, or job gets its own context
+   boundary, channel presence, persona, memory, and curated skill set.
+   Git-manageable. Diff-reviewable. The org chart is the folder tree
+   (`corp/eng/sre`, arbitrary depth).
 
-2. **MCP as the coordination bus.** Every tool call — send message, delegate to sibling, schedule task — goes through one auditable socket. Not just tool-calling: inter-agent routing, ACL enforcement, and audit trail all go through the same primitive.
+2. **Event → reaction over a small orthogonal primitive set.** The whole
+   system reduces to a handful of primitives — Event, Agent, Routing,
+   Authorization, Turn, State, with identity as the cross-cutting
+   namespace — each owning one concern, composed in a fixed pipeline,
+   no special cases. The apparent feature sprawl (channels, topics,
+   tasks, webhooks, secrets, egress, delegation, observe) is all
+   recomposition of those primitives, never new machinery
+   ([specs/5/A](../5/A-primitives-framing.md)). A focused product is one
+   such recomposition: a folder with the right persona, skills, and
+   routes.
 
-3. **Agents that manage agents.** Root agent can run `register_group`, set routes, and schedule tasks for child agents — via the same MCP tools a user would invoke. Code manages code. Agents manage agents. This is the self-reflecting property.
+3. **One uniform MCP+REST surface.** Every resource is reachable through
+   one hand-rolled handler with two faces — MCP for in-container agents,
+   REST for humans and external tools — over one auth gate and one
+   audited mutation path ([specs/5/5](../5/5-uniform-mcp-rest.md)).
+   Agents that manage agents (register a child, set routes, schedule a
+   task) call the same handlers an operator would. Code manages code.
+
+4. **Own the stack.** One Linux host, Docker, SQLite WAL. A tar of the
+   data dir is the full backup. No per-seat pricing, no data leaving
+   your infrastructure, no control plane to depend on — and the focused
+   agent itself (persona, skills, routes, knowledge) is yours to read,
+   fork, and harden, not a black box you rent.
 
 ## The Positioning Gap to Own
 
@@ -38,6 +105,13 @@ Three properties no competitor has together:
 - arizuko puts agents in folders; teams gain versioning, review, hierarchy.
 
 The market is splitting into "GUI for business users" (Dify, n8n, Copilot Studio) and "code primitives for engineers" (LangGraph, AutoGen). arizuko occupies a third position: **code-first + organization-aware** — targeting teams that want agents to be as manageable as their codebase.
+
+The product catalog is what makes this concrete for a buyer. IaC without
+modules is a blank file; arizuko ships modules — focused products
+([P-product-templates](P-product-templates.md), [R-products](R-products.md))
+the operator installs and then owns and edits as code. The pitch is not
+"build your agent from primitives" (that's the engine); it's "take a
+focused agent that already does the job, and make it yours."
 
 ## Features to Add / Strengthen
 
@@ -71,17 +145,19 @@ The market is splitting into "GUI for business users" (Dify, n8n, Copilot Studio
 
 ## Messaging Anchors (for landing, docs, pitch)
 
-- "Agents organized like code — folder hierarchy, version control, hierarchy."
-- "MCP-first: every tool call, delegation, and task goes through one auditable socket."
-- "Agents that manage agents. Code that manages code. The self-reflecting stack."
+- "Focused agents beat general ones. Ship an agent built for one job — own it, don't rent it."
+- "A folder is an agent: persona, curated skills, memory, ACL. Built as code, hosted on your box."
+- "Event → reaction over a handful of primitives. No special cases, no daemon zoo to learn."
+- "One surface: every action is an MCP tool call, reachable over REST too. Agents and operators drive the same handlers."
 - "$5 VPS. One tar of the data dir is the full backup. No managed control plane — that's the feature."
-- "11 channel adapters. Each speaks the platform's native API, not a webhook relay."
+- "10 channel adapters. Each speaks the platform's native API, not a webhook relay."
 
 ## What to Avoid in Positioning
 
-- "AI assistant platform" — too generic; sounds like ChatGPT wrappers.
+- "AI assistant platform" — too generic; sounds like ChatGPT wrappers. The story is focused agents, not a general assistant.
+- "General agent" / "do-anything agent" — the anti-pitch. General agents fail most of the time; lead with the focused, ownable agent instead.
 - Comparison tables with cloud vendors (we lose on managed ops, win on everything else; neutral framing is better).
-- "RAG platform" — not the primary story; Dify owns that frame.
+- "RAG platform" — not the primary story; Dify owns that frame. arizuko is the action layer over retrieval ([8-company-brain](8-company-brain.md)).
 - Benchmarks — too early; correctness over performance.
 
 ## References
