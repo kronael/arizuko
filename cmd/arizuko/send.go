@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -23,15 +24,20 @@ import (
 // arizuko send <instance> <folder> "<msg>" --stream  same, but SSE
 // arizuko send <instance> <folder> --stdin           read body from stdin
 //
-// Server-side: looks up the freshest web: route_token for the folder and
-// posts to the local webd via WEB_HOST.
+// Two paths:
+//   - operator-direct (default): no chat token → inject straight into the DB
+//     on web:<folder> (the root operator already holds DB authority, same as
+//     `create`/`grant`/`secret`); the gateway poll loop runs the agent.
+//   - chat-token: --token|-t or ARIZUKO_CHAT_TOKEN set → POST to the public
+//     /chat/<token> endpoint via WEB_HOST (for tokens issued to non-operators).
 func cmdSend(args []string) {
 	if len(args) < 2 {
-		die("usage: arizuko send <instance> <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--token|-t <raw>] [--topic|-T <topic>]")
+		die("usage: arizuko send <instance> <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--from|-f <sender>] [--token|-t <raw>] [--topic|-T <topic>]")
 	}
 	instance, folder := args[0], args[1]
 
 	var msg, topic, chatToken string
+	sender := "operator"
 	wait, stream, stdin := false, false, false
 	chatToken = os.Getenv("ARIZUKO_CHAT_TOKEN")
 	rest := args[2:]
@@ -44,6 +50,12 @@ func cmdSend(args []string) {
 			stream = true
 		case "--stdin":
 			stdin = true
+		case "--from", "-f":
+			i++
+			if i >= len(rest) {
+				die("usage: --from|-f <sender>")
+			}
+			sender = rest[i]
 		case "--token", "-t":
 			i++
 			if i >= len(rest) {
@@ -84,10 +96,12 @@ func cmdSend(args []string) {
 	if _, ok := st.GroupByFolder(folder); !ok {
 		die("Failed: group %q not found in instance %q", folder, instance)
 	}
-	// Raw tokens are never stored (only hash). Caller supplies via --token or
-	// ARIZUKO_CHAT_TOKEN env; token is printed on issue_chat_link / arizuko token issue.
+	// No chat token → operator-direct inject (root owns the DB). Raw tokens are
+	// never stored (only hash); the chat-token path is for non-operator callers
+	// who hold a token from `arizuko token issue chat` / issue_chat_link.
 	if chatToken == "" {
-		die("Failed: --token required (see: arizuko token issue chat %s %s)", instance, folder)
+		operatorInject(st, folder, sender, msg, topic, wait || stream)
+		return
 	}
 
 	cfg, err := loadInstanceEnv(dataDir)
@@ -146,6 +160,69 @@ func cmdSend(args []string) {
 		os.Exit(streamRound(client, turnURL+"/sse"))
 	}
 	os.Exit(pollRound(client, turnURL))
+}
+
+// operatorInject writes the message straight into the instance DB as an inbound
+// on web:<folder> — the 1:1 web-chat JID the gateway maps to the group
+// (gateway.resolveGroup). The poll loop picks it up and runs the agent; no chat
+// token because the operator already holds DB authority. When follow is set,
+// polls BotRepliesSince and prints the agent's reply until the run goes quiet
+// (a direct inject carries no round_done signal, so quiescence is the terminator).
+func operatorInject(st *store.Store, folder, sender, msg, topic string, follow bool) {
+	jid := "web:" + folder
+	since := time.Now()
+	m := core.Message{
+		ID:        core.MsgID("cli"),
+		ChatJID:   jid,
+		Sender:    sender,
+		Name:      sender,
+		Content:   msg,
+		Timestamp: since,
+		Topic:     topic,
+		Verb:      "mention",
+		Source:    "cli",
+	}
+	if err := st.PutMessage(m); err != nil {
+		die("Failed: inject: %v", err)
+	}
+	fmt.Printf("injected: %s → %s\n", m.ID, jid)
+	if !follow {
+		fmt.Println("status: queued (gateway poll loop will run the agent)")
+		return
+	}
+	const (
+		idleStop  = 120 * time.Second // give up waiting for the first reply (cold container start)
+		quietStop = 15 * time.Second  // stop once replies stop arriving
+		tick      = 1 * time.Second
+	)
+	start := time.Now()
+	cursor := since
+	gotReply := false
+	lastPrinted := "" // dedup the out-/bot- pair: one agent reply is stored twice
+	for {
+		time.Sleep(tick)
+		replies, err := st.BotRepliesSince(jid, cursor)
+		if err != nil {
+			die("Failed: poll replies: %v", err)
+		}
+		for _, r := range replies {
+			if r.Content != "" && r.Content != lastPrinted {
+				fmt.Println(r.Content)
+				lastPrinted = r.Content
+			}
+			if r.Timestamp.After(cursor) {
+				cursor = r.Timestamp
+			}
+			gotReply = true
+		}
+		switch {
+		case gotReply && time.Since(cursor) > quietStop:
+			return
+		case !gotReply && time.Since(start) > idleStop:
+			fmt.Fprintln(os.Stderr, "(no reply yet — agent may still be starting; re-run with --wait or check the chat)")
+			os.Exit(2)
+		}
+	}
 }
 
 // streamRound subscribes to /sse and prints message frames as they arrive.

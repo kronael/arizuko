@@ -208,6 +208,26 @@ func (s *Store) MessagesSince(jid string, since time.Time, botName string) ([]co
 	return collectMessages(rows)
 }
 
+// BotRepliesSince returns the agent's outbound messages on a chat JID after a
+// timestamp, oldest first — the inverse filter of MessagesSince (which excludes
+// bot rows). Used by `arizuko send` operator-direct mode to surface the agent's
+// reply to a CLI-injected message.
+func (s *Store) BotRepliesSince(jid string, since time.Time) ([]core.Message, error) {
+	rows, err := s.db.Query(
+		`SELECT `+msgCols+` FROM messages
+		 WHERE chat_jid = ?
+		   AND timestamp > ?
+		   AND is_bot_message = 1
+		 ORDER BY timestamp ASC
+		 LIMIT 100`,
+		jid, since.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return collectMessages(rows)
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
