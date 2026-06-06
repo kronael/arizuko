@@ -18,6 +18,9 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if _, ok := requireUser(w, r); !ok {
+		return
+	}
 
 	var owner, chatJID, prompt, status, createdAt string
 	var cron, nextRun, contextMode sql.NullString
@@ -33,6 +36,13 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("task detail: query", "id", id, "err", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	// Gate on the task's owning folder: a non-operator must not read another
+	// tenant's task prompt / run history.
+	allowed, operator := d.callerScope(r)
+	if !visible(allowed, operator, owner) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 

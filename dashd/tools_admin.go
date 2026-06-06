@@ -16,12 +16,12 @@ import (
 // Shows the tool list the agent in this group sees: name, description, input
 // schema. Source of truth is ipc.ListTools (same path gated uses at runtime).
 func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUser(w, r); !ok {
-		return
-	}
 	folder := groupFromPath(r, "/tools")
 	if folder == "" {
 		http.Error(w, "bad folder", http.StatusBadRequest)
+		return
+	}
+	if !d.requireVisible(w, r, folder) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
