@@ -1,9 +1,6 @@
 package routd
 
 import (
-	"database/sql"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
@@ -12,48 +9,22 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// sibling_db.go gives routd READ-ONLY access to the sibling DBs that share
-// store/ but are owned (written) by other daemons in the split topology:
+// sibling_db.go is the federation surface: every table routd needs is now read
+// from routd's OWN routd.db (acl/secrets/tasks/pane) or federated over HTTP
+// (identity → authd, session_log → runed). routd opens NO sibling messages.db
+// — the last sibling-read (pane_sessions) moved here.
 //
-//   - messages.db — slakd writes pane_sessions.
-//
-// routd reads them to reach gated's full prompt/spawn context (Slack-pane
-// hints). Ownership stays with the writers; routd never mutates these tables. A
-// missing file leaves the handle nil and every accessor returns the empty
-// result — same shape as gated against an empty store, no hard dependency on
-// the sibling daemon.
-//
-// ACL (acl/acl_membership) is NOT a sibling read: routd owns those tables in
-// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval. Secrets
-// (secrets/secret_use_log) are NOT a sibling read either: routd OWNS them in
-// routd.db (it already holds SECRETS_KEY for connector injection). See
-// secretStore. Tasks (scheduled_tasks/task_run_logs) are NOT a sibling read
-// either: routd OWNS them in routd.db (migration 0009) and serves timed's
+// ACL (acl/acl_membership): routd OWNS those tables in routd.db (spec 5/5 §
+// Daemon ownership; migration 0007). See aclEval. Secrets (secrets/
+// secret_use_log): routd OWNS them in routd.db (migration 0008; it holds
+// SECRETS_KEY for connector injection). See secretStore. Tasks (scheduled_tasks/
+// task_run_logs): routd OWNS them in routd.db (migration 0009) and serves timed's
 // read+write via GET /v1/tasks/due + POST /v1/tasks/runlog. See taskStore.
-// Identity (identities/identity_claims) is NOT a sibling read either: authd
-// OWNS it and serves GET /v1/identities/{sub}; routd snapshots it over HTTP.
-// See identity.go. session_log is NOT a sibling read either: runed OWNS it and
-// serves GET /v1/sessions/recent; routd federates it over HTTP. See session.go.
-
-// openSiblings opens a read-only handle to the sibling messages.db in dir, if
-// present. Absent file → nil handle (the owning daemon may not run in this
-// deployment).
-func openSiblings(dir string) (msgs *sql.DB) {
-	return openRO(filepath.Join(dir, "messages.db"))
-}
-
-// openRO opens path read-only. Returns nil when the file is absent or the open
-// fails — callers treat nil as "no data", never an error.
-func openRO(path string) *sql.DB {
-	if _, err := os.Stat(path); err != nil {
-		return nil
-	}
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil
-	}
-	return db
-}
+// Pane (pane_sessions): routd OWNS it in routd.db (migration 0010) and serves
+// slakd's pane-write via POST /v1/pane. See paneStore. Identity (identities/
+// identity_claims): authd OWNS it and serves GET /v1/identities/{sub}; routd
+// snapshots it over HTTP (identity.go). session_log: runed OWNS it and serves
+// GET /v1/sessions/recent; routd federates it over HTTP (session.go).
 
 // SiblingTasks reads scheduled_tasks from routd's OWN routd.db (routd owns the
 // table — migration 0009) for the tasks.json spawn snapshot. Reuses
@@ -69,22 +40,23 @@ func (d *DB) CountActiveTasks() int {
 	return d.taskStore().CountActiveTasks()
 }
 
-// SiblingPaneContextJID reads pane_sessions from messages.db (slakd's table)
-// and returns (contextJID, true) when a Slack assistant pane exists for the DM
-// channelID. Port of store.GetPaneByChannel, narrowed to the field paneHints
-// needs. nil handle / no row → ("", false).
+// SiblingPaneContextJID reads pane_sessions from routd's OWN routd.db (routd
+// owns the table — migration 0010) and returns (contextJID, true) when a Slack
+// assistant pane exists for the DM channelID. Reuses store.GetPaneByChannel.
+// No row → ("", false).
 func (d *DB) SiblingPaneContextJID(channelID string) (string, bool) {
-	if d.msgs == nil {
+	p, ok := d.paneStore().GetPaneByChannel(channelID)
+	if !ok {
 		return "", false
 	}
-	var ctx sql.NullString
-	err := d.msgs.QueryRow(
-		`SELECT context_jid FROM pane_sessions WHERE channel_id = ?
-		 ORDER BY opened_at DESC LIMIT 1`, channelID).Scan(&ctx)
-	if err != nil {
-		return "", false
-	}
-	return ctx.String, true
+	return p.ContextJID, true
+}
+
+// SetPaneContext upserts the workspace-channel context for the pane keyed by
+// channelID into routd's OWN routd.db (behind POST /v1/pane). Audit-free
+// (pane writes never touched audit_log); reuses store.SetPaneContextByChannel.
+func (d *DB) SetPaneContext(channelID, contextJID string) error {
+	return d.paneStore().SetPaneContextByChannel(channelID, contextJID)
 }
 
 // aclEval wraps routd's OWN routd.db handle as a *store.Store so the ACL
@@ -119,6 +91,13 @@ func (d *DB) secretStore() *store.Store {
 // variants (PutTaskRow/SetTaskStatus/RemoveTask/RecordTaskRun) since routd.db
 // has no audit_log table.
 func (d *DB) taskStore() *store.Store { return store.New(d.db) }
+
+// paneStore wraps routd's OWN routd.db handle as a *store.Store so routd reuses
+// gated's exact pane readers/writers verbatim — routd OWNS pane_sessions (spec
+// 5/5 § Daemon ownership; migration 0010). routd.db always has the table, so an
+// empty table yields no pane, same as gated against an empty store. Pane writes
+// are audit-free (they never touched audit_log).
+func (d *DB) paneStore() *store.Store { return store.New(d.db) }
 
 // FolderSecrets resolves the folder/user-scoped secret set for `folder` from
 // routd's OWN routd.db `secrets` table, DECRYPTING `v2:` values via the

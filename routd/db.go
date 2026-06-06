@@ -26,12 +26,6 @@ const serviceName = "routd"
 type DB struct {
 	db *sql.DB
 
-	// Read-only handle to the sibling messages.db in the same store/ dir, owned
-	// (written) by other split daemons; nil when the file is absent. See
-	// sibling_db.go. session_log moved to runed's GET /v1/sessions/recent
-	// (session.go); identity moved to authd (identity.go).
-	msgs *sql.DB // messages.db — scheduled_tasks (timed), pane_sessions (slakd)
-
 	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands
 	// to its OWN *store.Store (secretStore) via SetSecretKeys so reads decrypt
 	// `v2:` values and writes seal them. Empty → no key set → reads stay
@@ -46,19 +40,16 @@ type DB struct {
 // stay ciphertext, writes store plaintext.
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
-// Open opens routd.db at dir/routd.db (WAL, FK on), runs the routd migration
-// sequence, and attaches a read-only handle to the sibling messages.db in dir.
+// Open opens routd.db at dir/routd.db (WAL, FK on) and runs the routd migration
+// sequence. routd opens NO sibling DB — every table it needs is in routd.db
+// (acl/secrets/tasks/pane) or federated over HTTP (identity → authd, session_log
+// → runed). See sibling_db.go.
 func Open(dir string) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	d, err := open(dsn)
-	if err != nil {
-		return nil, err
-	}
-	d.msgs = openSiblings(dir)
-	return d, nil
+	return open(dsn)
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name
@@ -86,9 +77,6 @@ func open(dsn string) (*DB, error) {
 }
 
 func (d *DB) Close() error {
-	if d.msgs != nil {
-		d.msgs.Close()
-	}
 	return d.db.Close()
 }
 

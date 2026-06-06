@@ -1,36 +1,13 @@
 package routd
 
 import (
-	"database/sql"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
-	"github.com/kronael/arizuko/store"
 )
-
-// attachACLSibling attaches a migrated messages.db (real acl/acl_membership
-// schema) as routd's sibling msgs handle and returns a *store.Store for
-// seeding operator acl rows the way `arizuko grant` / authd would. This is
-// the cross-DB read surface the split topology gives routd: the rows are
-// owned (written) elsewhere; routd reads them RO via d.msgs. The DB name is
-// unique per call (store.OpenMem shares one cache=shared DB process-wide,
-// which would cross-contaminate acl rows between tests).
-func attachACLSibling(t *testing.T, d *DB) *store.Store {
-	t.Helper()
-	h, err := sql.Open("sqlite", "file:aclsib_"+randHex(8)+"?mode=memory&cache=shared&_pragma=foreign_keys(on)")
-	if err != nil {
-		t.Fatalf("open acl sibling: %v", err)
-	}
-	if err := store.Migrate(h); err != nil {
-		t.Fatalf("migrate acl sibling: %v", err)
-	}
-	d.msgs = h
-	t.Cleanup(func() { h.Close() })
-	return store.New(h)
-}
 
 // addACL seeds an operator acl row into routd's OWN routd.db — routd owns the
 // acl tables (spec 5/5), so the evaluator (deriveFolderGrants / db.Authorize /
@@ -131,36 +108,28 @@ func TestDBAuthorize_EmptyACLTierDefault(t *testing.T) {
 	}
 }
 
-// TestACLReadsOwnDBNotSibling proves routd evaluates ACL against its OWN
-// routd.db, not the sibling messages.db: a row seeded ONLY in the sibling has
-// NO effect (the sibling-read for ACL is gone), while the same row seeded in
-// routd.db DOES apply. Covers deriveFolderGrants + db.Authorize.
-func TestACLReadsOwnDBNotSibling(t *testing.T) {
+// TestACLReadsOwnDB proves routd evaluates ACL against its OWN routd.db: a deny
+// row seeded there blocks reply (deny wins) for both db.Authorize and
+// deriveFolderGrants. routd opens NO sibling DB — ACL lives only in routd.db.
+func TestACLReadsOwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	sib := attachACLSibling(t, db) // messages.db sibling, owned elsewhere
 
 	const folder = "w/a/b/c" // tier 3: reply allowed by default
 	const sub = "folder:" + folder
 
-	// Seed a deny ONLY in the sibling messages.db. If routd still sibling-read
-	// ACL, this would block reply; it must NOT.
-	if err := sib.AddACLRow(core.ACLRow{
-		Principal: sub, Action: "mcp:reply", Scope: folder, Effect: "deny",
-	}); err != nil {
-		t.Fatalf("seed sibling acl: %v", err)
-	}
+	// No operator row → tier-3 default allows reply.
 	if !db.Authorize(sub, folder, "mcp:reply", nil) {
-		t.Error("sibling-only deny row must NOT block reply (ACL reads routd.db, not messages.db)")
+		t.Error("tier-3 default should allow reply with no acl row")
 	}
 	if slices.Contains(deriveFolderGrants(db, folder), "!reply") {
-		t.Error("deriveFolderGrants must ignore the sibling-only deny row")
+		t.Error("deriveFolderGrants must not deny with no acl row")
 	}
 
-	// The same deny in routd's OWN db DOES apply (deny wins).
+	// A deny in routd's OWN db DOES apply (deny wins).
 	addACL(t, db, sub, "mcp:reply", folder, "deny")
 	if db.Authorize(sub, folder, "mcp:reply", nil) {
 		t.Error("routd.db deny row should block reply (deny wins)")

@@ -179,27 +179,19 @@ func TestInspectIdentity_NoResolver(t *testing.T) {
 	}
 }
 
-// TestInspectIdentity_IgnoresSibling proves identity is federated to authd:
-// a claim seeded ONLY in the sibling messages.db has NO effect — routd resolves
-// via the authd resolver, not messages.db. With the sibling row present but no
-// resolver, the sub stays unclaimed.
-func TestInspectIdentity_IgnoresSibling(t *testing.T) {
+// TestInspectIdentity_NoResolverUnclaimed proves identity is federated to authd:
+// with no IdentityResolver wired, inspect_identity answers unclaimed — routd
+// never reads identity from a local DB (authd OWNS it, served over HTTP). routd
+// opens NO sibling messages.db, so there is no cross-DB claim to surface.
+func TestInspectIdentity_NoResolverUnclaimed(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	sib := attachACLSibling(t, db) // messages.db sibling, owned elsewhere
-	idn, err := sib.CreateIdentity("alice")
-	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
-	}
-	if err := sib.LinkSub(idn.ID, "tg:42"); err != nil {
-		t.Fatalf("LinkSub: %v", err)
-	}
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
-	// No resolver wired → the sibling claim must NOT surface.
+	// No resolver wired → the sub stays unclaimed.
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
 	if err != nil {
@@ -212,7 +204,7 @@ func TestInspectIdentity_IgnoresSibling(t *testing.T) {
 		t.Fatalf("inspect_identity error: %s", errText)
 	}
 	if payload["identity"] != nil {
-		t.Fatalf("sibling-only claim surfaced identity=%v want null (identity reads authd, not messages.db)", payload["identity"])
+		t.Fatalf("no resolver wired surfaced identity=%v want null (identity reads authd, not a local DB)", payload["identity"])
 	}
 }
 

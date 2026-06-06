@@ -238,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
 	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
+	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
 	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
 	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
@@ -492,6 +493,42 @@ func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, 400, "invalid", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// paneSetBody is the POST /v1/pane payload: slakd sets the workspace-channel
+// context the user is viewing while a Slack assistant pane is open. channel_id
+// is the DM channel that keys the pane (GetPaneByChannel reads it back); jid is
+// the workspace-channel context (empty clears it). routd OWNS pane_sessions
+// (spec 5/5; migration 0010), so this is the split-topology write surface slakd
+// will call instead of opening messages.db.
+type paneSetBody struct {
+	ChannelID string `json:"channel_id"`
+	JID       string `json:"jid"`
+}
+
+// handlePaneSet upserts the pane context for channel_id into routd's OWN
+// routd.db (routd owns pane_sessions — spec 5/5 § Daemon ownership). Audit-free
+// (pane writes never touched audit_log). Bearer-gated by messages:write (the
+// scope slakd's adapter token carries). No-op when no pane row matches the
+// channel (slakd opens the pane first via its own UpsertPane path).
+func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "messages:write") {
+		return
+	}
+	var body paneSetBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.ChannelID == "" {
+		writeErr(w, 400, "missing_field", "channel_id required")
+		return
+	}
+	if err := s.db.SetPaneContext(body.ChannelID, body.JID); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})

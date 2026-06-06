@@ -84,6 +84,10 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO task_run_logs(task_id, run_at, duration_ms, status)
 		VALUES('task-1','2026-01-02T09:00:00Z',12,'ok')`)
 
+	// pane_sessions: routd OWNS this now → copied to routd.db.
+	exec(`INSERT INTO pane_sessions(team_id, user_id, thread_ts, channel_id, context_jid, opened_at)
+		VALUES('T1','U99','1700.1','D0XY','slack:T1/channel/C42','2026-01-01T00:00:00Z')`)
+
 	if err := s.Close(); err != nil {
 		t.Fatalf("store.Close: %v", err)
 	}
@@ -131,6 +135,8 @@ func TestMigrateSplit(t *testing.T) {
 		"secrets": 1, "secret_use_log": 1,
 		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).
 		"scheduled_tasks": 1, "task_run_logs": 1,
+		// pane_sessions: routd OWNS it now → copied (1 row).
+		"pane_sessions": 1,
 	} {
 		if got := count(t, r, tbl); got != want {
 			t.Errorf("routd.%s: got %d rows, want %d", tbl, got, want)
@@ -255,6 +261,17 @@ func TestMigrateSplit(t *testing.T) {
 	}
 	if runStatus != "ok" {
 		t.Errorf("task_run_logs status = %q want ok", runStatus)
+	}
+
+	// pane_sessions: copied to routd.db (routd OWNS it now) — the context_jid
+	// keyed by channel_id resolves the way paneHints reads it back.
+	var paneCtx string
+	if err := r.QueryRow(
+		`SELECT context_jid FROM pane_sessions WHERE channel_id='D0XY'`).Scan(&paneCtx); err != nil {
+		t.Fatalf("read routd.pane_sessions: %v", err)
+	}
+	if paneCtx != "slack:T1/channel/C42" {
+		t.Errorf("pane_sessions context_jid = %q want slack:T1/channel/C42", paneCtx)
 	}
 
 	// FTS index rebuilt from copied messages → searchable.

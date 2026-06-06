@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,46 +12,17 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// attachSiblings gives a test DB a writable in-memory stand-in for the sibling
-// messages.db (scheduled_tasks + pane_sessions) that other split daemons own.
-// Returns the raw handle so the test can seed rows the prompt path reads RO.
-// session_log is NOT a sibling anymore: runed owns it and serves it over
-// GET /v1/sessions/recent (see TestEmitSystemEvents_NewSession's resolver stub).
-func attachSiblings(t *testing.T, d *DB) (msgs *sql.DB) {
-	t.Helper()
-	msgs, err := sql.Open("sqlite", "file:sib_"+randHex(8)+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := msgs.Exec(`
-		CREATE TABLE scheduled_tasks (
-		  id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
-		  prompt TEXT NOT NULL, cron TEXT, next_run TEXT,
-		  status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL,
-		  context_mode TEXT NOT NULL DEFAULT 'group');
-		CREATE TABLE pane_sessions (
-		  team_id TEXT NOT NULL, user_id TEXT NOT NULL, thread_ts TEXT NOT NULL,
-		  channel_id TEXT NOT NULL, context_jid TEXT,
-		  opened_at TEXT NOT NULL, last_status_at TEXT,
-		  PRIMARY KEY (team_id, user_id, thread_ts));`); err != nil {
-		t.Fatal(err)
-	}
-	d.msgs = msgs
-	t.Cleanup(func() { msgs.Close() })
-	return msgs
-}
-
 // TestBuildAgentPrompt_PaneHints mirrors gateway TestBuildAgentPrompt_PaneHints:
 // a Slack-pane trigger gets <surface>slack-pane</surface> and, when the pane
 // records a context channel, <pane-context jid="..."/>. Non-slack / no-pane
-// triggers stay clean. The pane row lives in the sibling messages.db.
+// triggers stay clean. The pane row lives in routd's OWN routd.db — routd OWNS
+// pane_sessions (migration 0010); it opens NO sibling messages.db.
 func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs := attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "main"})
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
@@ -68,8 +38,8 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 		t.Errorf("non-pane jid emitted pane surface; prompt:\n%s", got)
 	}
 
-	// Pane row without context → surface only.
-	if _, err := msgs.Exec(
+	// Pane row without context → surface only. Seed into routd's OWN routd.db.
+	if _, err := db.SQL().Exec(
 		`INSERT INTO pane_sessions(team_id,user_id,thread_ts,channel_id,opened_at)
 		 VALUES('T1','U99','1700.1','D0XY','2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
@@ -82,9 +52,8 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 		t.Errorf("unexpected pane-context without context_jid; prompt:\n%s", got)
 	}
 
-	// Pane row with context → context tag too.
-	if _, err := msgs.Exec(
-		`UPDATE pane_sessions SET context_jid='slack:T1/channel/C42' WHERE channel_id='D0XY'`); err != nil {
+	// Pane row with context (set via the POST /v1/pane backing) → context tag too.
+	if err := db.SetPaneContext("D0XY", "slack:T1/channel/C42"); err != nil {
 		t.Fatal(err)
 	}
 	got = loop.buildAgentPrompt("main", "", trigger)
@@ -107,7 +76,6 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "grp1"})
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
@@ -150,7 +118,6 @@ func TestEmitSystemEvents_NewSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "grp2"})
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
@@ -267,31 +234,22 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	}
 }
 
-// TestTasksReadOwnDBNotSibling proves routd reads tasks from its OWN routd.db,
-// not the sibling messages.db: a task seeded ONLY in the sibling has NO effect
-// (the sibling-read for tasks is gone), while the same task seeded in routd.db
-// DOES surface. Mirrors TestACLReadsOwnDBNotSibling.
-func TestTasksReadOwnDBNotSibling(t *testing.T) {
+// TestTasksReadOwnDB proves routd reads tasks from its OWN routd.db: an empty
+// db yields no tasks; a task seeded in routd.db DOES surface. routd opens NO
+// sibling messages.db. Mirrors TestACLReadsOwnDB.
+func TestTasksReadOwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Attach a fresh migrated messages.db as the sibling and seed a task ONLY
-	// there. If routd still sibling-read tasks, this would surface; it must NOT.
-	sib := attachMsgsSibling(t, db)
-	if err := sib.CreateTask(core.Task{
-		ID: "sib-task", Owner: "main", ChatJID: "jid", Prompt: "from sibling",
-		Status: core.TaskActive, Created: time.Now(),
-	}); err != nil {
-		t.Fatalf("seed sibling task: %v", err)
-	}
+	// Empty routd.db → no tasks (no cross-DB read to leak a sibling task).
 	if got := db.SiblingTasks("main", true); len(got) != 0 {
-		t.Errorf("sibling-only task must NOT surface (reads routd.db), got %+v", got)
+		t.Errorf("empty routd.db must surface no tasks, got %+v", got)
 	}
 
-	// The same task in routd's OWN db DOES surface.
+	// A task in routd's OWN db DOES surface.
 	seedTask(t, db, "own-task", "main", "jid", "from routd")
 	got := db.SiblingTasks("main", true)
 	if len(got) != 1 || got[0].ID != "own-task" {
@@ -299,18 +257,19 @@ func TestTasksReadOwnDBNotSibling(t *testing.T) {
 	}
 }
 
-// TestSiblings_NilHandles: with no sibling messages.db attached (OpenMem leaves
-// the handle nil) every accessor returns the empty result, never panics.
-func TestSiblings_NilHandles(t *testing.T) {
+// TestSiblings_EmptyOwnDB: an empty routd.db (OpenMem, no rows) returns the
+// empty result for every federation accessor, never panics. routd opens NO
+// sibling DB; the tables are its own and just empty.
+func TestSiblings_EmptyOwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	if got := db.SiblingTasks("main", true); got != nil {
-		t.Errorf("nil msgs handle: want nil tasks, got %+v", got)
+		t.Errorf("empty routd.db: want nil tasks, got %+v", got)
 	}
 	if _, ok := db.SiblingPaneContextJID("D0XY"); ok {
-		t.Error("nil msgs handle: want no pane")
+		t.Error("empty routd.db: want no pane")
 	}
 }

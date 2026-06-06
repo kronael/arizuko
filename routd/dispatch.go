@@ -174,8 +174,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// Write the per-spawn snapshots the in-container agent reads (current_tasks
 	// / available_groups JSON) right before dispatch, mirroring gated's call
 	// site (gateway.go § spawn). Root sees all tasks + groups; a child sees
-	// only its own tasks and no groups list. scheduled_tasks is timed's table
-	// in messages.db, read RO via the sibling handle (sibling_db.go). Skip when
+	// only its own tasks and no groups list. scheduled_tasks is routd's OWN table
+	// (routd.db, migration 0009), read via SiblingTasks (sibling_db.go). Skip when
 	// no ipc dir is configured (no spawn target — REST/unit tests) so the write
 	// doesn't resolve to a relative path under cwd.
 	if l.folders != nil && l.folders.IpcDir != "" {

@@ -57,8 +57,8 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 // <pane-context jid="..."/> when the trigger originated in an open Slack
 // assistant pane. Hash-keyed on the chat_jid's DM channel id (slack: prefix
 // only); other surfaces yield empty. Spec 6/D. Port of gateway paneHints —
-// pane_sessions is slakd's table in messages.db, read RO via the sibling
-// handle (sibling_db.go), so the data source is faithful to gated.
+// pane_sessions is routd's OWN table (routd.db, migration 0010), read via
+// SiblingPaneContextJID (sibling_db.go); slakd writes it via POST /v1/pane.
 func (l *Loop) paneHints(trigger []core.Message) string {
 	if l.db == nil || len(trigger) == 0 {
 		return ""

@@ -1890,3 +1890,16 @@ through store.SetSecret(ScopeUser,...) so they encrypt; drop/rename the raw "val
 ParamsSummary (rename to a redactRE-matched key, or omit). Highest-severity open finding.
 Minor doc drifts also flagged: security/index.html:83 says JWT access TTL 15m, code is 1h
 (auth/web.go:26); security/index.html:44 calls /dash/me/secrets "not yet shipped" but it ships.
+
+## Stale federation comments in routd/mcp.go (2026-06-06)
+
+Two comments in routd/mcp.go still claim secrets/ACL are sibling-read from
+messages.db, but both moved to routd's OWN routd.db in prior federations
+(secrets migration 0008, acl migration 0007):
+- mcp.go:413-414 — "ResolveConnectorSecrets reads folder/user secrets RO from
+  the sibling messages.db" — now reads routd.db via s.db.ConnectorSecrets.
+- mcp.go:420-422 — "list_acl reads the operator rows from the sibling
+  messages.db ... absent messages.db → no rows / deny" — now reads routd.db.
+Left stale by the acl/secrets federations; surfaced during the pane federation
+(routd opens NO messages.db now, so these comments are actively misleading).
+Comment-only; no behavior change. Fix: reword to "routd's OWN routd.db".

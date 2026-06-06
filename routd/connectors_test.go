@@ -2,7 +2,6 @@ package routd
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,26 +41,6 @@ func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
 	if key != "" {
 		s.SetSecretKeys([]byte(key))
 	}
-	return s
-}
-
-// attachMsgsSibling attaches a fresh migrated messages.db as routd's sibling
-// `msgs` handle (it has audit_log, so the audited store.SetSecret works) and
-// returns a "k"-keyring store for seeding sibling rows. Used to PROVE routd no
-// longer reads secrets from the sibling.
-func attachMsgsSibling(t *testing.T, d *DB) *store.Store {
-	t.Helper()
-	h, err := sql.Open("sqlite", "file:msgsib_"+randHex(8)+"?mode=memory&cache=shared&_pragma=foreign_keys(on)")
-	if err != nil {
-		t.Fatalf("open msgs sibling: %v", err)
-	}
-	if err := store.Migrate(h); err != nil {
-		t.Fatalf("migrate msgs sibling: %v", err)
-	}
-	d.msgs = h
-	t.Cleanup(func() { h.Close() })
-	s := store.New(h)
-	s.SetSecretKeys([]byte("k"))
 	return s
 }
 
@@ -155,29 +134,25 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 }
 
-// TestSecretsReadOwnDBNotSibling proves routd resolves secrets from its OWN
-// routd.db, not the sibling messages.db: a secret seeded ONLY in the sibling
-// has NO effect (the sibling-read for secrets is gone), while the same key
-// seeded in routd.db DOES resolve. Mirrors TestACLReadsOwnDBNotSibling.
-func TestSecretsReadOwnDBNotSibling(t *testing.T) {
+// TestSecretsReadOwnDB proves routd resolves secrets from its OWN routd.db:
+// with nothing seeded the resolved set is empty; a key seeded in routd.db DOES
+// resolve (decrypted). routd opens NO sibling messages.db. Mirrors
+// TestACLReadsOwnDB.
+func TestSecretsReadOwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Attach a fresh migrated messages.db as the sibling and seed a secret ONLY
-	// there. If routd still sibling-read secrets, this would resolve; it must NOT.
-	sib := attachMsgsSibling(t, db)
-	if err := sib.SetSecret(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_sibling"); err != nil {
-		t.Fatalf("seed sibling secret: %v", err)
-	}
+	// No secret seeded → nothing resolves (routd reads only routd.db; it opens
+	// NO sibling messages.db, so there is no cross-DB secret to leak).
 	db.SetSecretKeys([]byte("k")) // routd's read keyring
 	if got := db.FolderSecrets("main"); len(got) != 0 {
-		t.Errorf("sibling-only secret must NOT resolve (reads routd.db), got %v", got)
+		t.Errorf("no secret seeded must resolve empty (reads routd.db), got %v", got)
 	}
 
-	// The same key in routd's OWN db DOES resolve, decrypted.
+	// A key in routd's OWN db DOES resolve, decrypted.
 	own := seedSecretsStore(t, db, "k")
 	if err := own.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_own"); err != nil {
 		t.Fatalf("seed own secret: %v", err)

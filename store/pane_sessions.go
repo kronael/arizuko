@@ -71,6 +71,26 @@ func (s *Store) SetPaneContext(teamID, userID, threadTS, contextJID string) erro
 	return err
 }
 
+// SetPaneContextByChannel updates the workspace-channel context for the pane
+// keyed by its DM channel_id (the triple-PK twin of SetPaneContext, but reached
+// by channel_id the way GetPaneByChannel reads). Empty contextJID clears it.
+// Backs routd's POST /v1/pane in the split topology, where slakd hands routd a
+// {channel_id, jid} instead of opening pane_sessions itself. No-op when no pane
+// row matches channel_id (slakd opens the pane via UpsertPane first).
+func (s *Store) SetPaneContextByChannel(channelID, contextJID string) error {
+	var v any
+	if contextJID == "" {
+		v = nil
+	} else {
+		v = contextJID
+	}
+	_, err := s.db.Exec(
+		`UPDATE pane_sessions SET context_jid = ? WHERE channel_id = ?`,
+		v, channelID,
+	)
+	return err
+}
+
 // SetPaneStatusAt stamps the last assistant.threads.setStatus call ts
 // (RFC3339Nano UTC). Used to debounce calls inside slakd.
 func (s *Store) SetPaneStatusAt(teamID, userID, threadTS, ts string) error {

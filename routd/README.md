@@ -31,8 +31,10 @@ Spec: `specs/5/E`.
 tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
 `turn_context`, `turn_results`, `cost_log`, `web_routes`, `route_tokens`,
 `network_rules`, `acl`, `acl_membership`, `secrets`, `secret_use_log`,
-`scheduled_tasks`, `task_run_logs`, plus supporting state. Migrations in
-`routd/migrations/`.
+`scheduled_tasks`, `task_run_logs`, `pane_sessions`, plus supporting state.
+Migrations in `routd/migrations/`. routd opens NO sibling DB — every table it
+reads is its own; cross-daemon data arrives over HTTP (authd identity, runed
+session_log).
 `/openapi.json` exposes the cold-tier config resources: `groups`,
 `routes`, `web_routes`, `acl`, `acl_membership`, `secrets`,
 `network_rules`.
@@ -48,6 +50,7 @@ tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
   - `GET /v1/messages/{inspect,thread,find}`, `/v1/routing/*`, `/v1/sessions`, `/v1/cost`
   - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — operator secret write/delete (`secrets:write`)
   - `GET /v1/tasks/due` (`tasks:read`), `POST /v1/tasks/runlog` (`tasks:write`) — timed scheduler reads due tasks / records run logs
+  - `POST /v1/pane` (`messages:write`) — slakd sets the Slack assistant-pane context for a DM channel
   - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
   - `POST /v1/turns/{turn_id}/{reply,send,document,like,edit,delete,pin,unpin,result}` — agent tool forwards
   - `GET /openapi.json`, `GET /health`
