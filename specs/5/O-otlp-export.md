@@ -5,6 +5,16 @@ depends: [I-tool-call-logging, ../7/F-audit-stream]
 
 # specs/5/O — OTLP export
 
+> **Status (2026-06-06):** Export shipped — `obs.Setup` runs in every daemon;
+> slog → stderr always, + OTLP logs when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+> Trace correlation now wired: `obs.WithTurn` at gateway turn-open,
+> `obs.InjectRequest` on internal cross-daemon clients (chanlib, authd, onbod,
+> runed), `obs.ExtractRequest` in the shared `auth` middleware; gateway
+> turn-lifecycle logs emit via `slog.*Context`. `LOG_LEVEL` sets stderr
+> verbosity for all daemons. Remaining (`partial`): `*Context` coverage beyond
+> the gateway turn path, in-band trace over the MCP socket (Open Q1), and
+> optional spans (Open Q3).
+
 ## What this solves
 
 `journalctl` over slog is one substrate per host; it does not aggregate
