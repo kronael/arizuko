@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/store"
 )
 
 // maxBodyBytes caps request bodies on the token endpoints. Both carry only a
@@ -30,6 +31,9 @@ var serviceGrants = map[string][]string{
 	"service:timed": {"messages:write", "tasks:read"},
 	"service:onbod": {"messages:write", "groups:write"},
 	"service:gated": {"messages:write", "messages:read", "tasks:read", "tasks:write"},
+	// service:routd dispatches runs (runs:run → runed) and resolves identities
+	// at authd's identity endpoint (identity:read → GET /v1/identities/{sub}).
+	"service:routd": {"runs:run", "identity:read"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
@@ -66,6 +70,7 @@ func (s *server) mux() *http.ServeMux {
 	m.HandleFunc("POST /v1/tokens", s.handleTokens)
 	m.HandleFunc("POST /v1/service-token", s.handleServiceToken)
 	m.HandleFunc("POST /v1/refresh", s.handleRefresh)
+	m.HandleFunc("GET /v1/identities/{sub}", s.handleIdentity)
 	m.HandleFunc("GET /health", s.handleHealth)
 	return m
 }
@@ -333,6 +338,44 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 		return "", false
 	}
 	return req.RefreshToken, false
+}
+
+// handleIdentity resolves a platform sender sub (e.g. tg:123, discord:abc) to
+// its canonical identity and the full set of subs that identity claims, reading
+// authd's OWN auth.db identities/identity_claims (authd owns identity — spec
+// 5/9). routd's inspect_identity tool snapshots this over HTTP instead of
+// sibling-reading gated's messages.db. Bearer-gated by identity:read
+// (service:routd carries it). 200 {"identity":{...}|null,"subs":[...]}; an
+// unclaimed sub returns {"identity":null,"subs":[]} (200, not 404) so the tool
+// renders the unclaimed shape directly.
+func (s *server) handleIdentity(w http.ResponseWriter, r *http.Request) {
+	caller, err := auth.VerifyHTTP(r, s.a.LocalKeySet())
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized", "valid bearer required")
+		return
+	}
+	if !auth.HasScope(caller.Scope, "identity", "read") {
+		writeErr(w, http.StatusForbidden, "forbidden", "missing scope identity:read")
+		return
+	}
+	sub := r.PathValue("sub")
+	if sub == "" {
+		writeErr(w, http.StatusBadRequest, "bad_request", "sub required")
+		return
+	}
+	idn, subs, ok := store.New(s.a.db).GetIdentityForSub(sub)
+	if !ok {
+		writeJSON(w, map[string]any{"identity": nil, "subs": []string{}})
+		return
+	}
+	writeJSON(w, map[string]any{
+		"identity": map[string]any{
+			"id":         idn.ID,
+			"name":       idn.Name,
+			"created_at": idn.CreatedAt.Format(time.RFC3339),
+		},
+		"subs": subs,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

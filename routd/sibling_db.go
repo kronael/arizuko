@@ -25,7 +25,9 @@ import (
 // gated against an empty store, no hard dependency on the sibling daemon.
 //
 // ACL (acl/acl_membership) is NOT a sibling read: routd owns those tables in
-// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval.
+// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval. Identity
+// (identities/identity_claims) is NOT a sibling read either: authd OWNS it and
+// serves GET /v1/identities/{sub}; routd snapshots it over HTTP. See identity.go.
 
 // openSiblings opens read-only handles to the sibling DBs in dir, if present.
 // Absent file → nil handle (the owning daemon may not run in this deployment).
@@ -130,8 +132,8 @@ func (d *DB) aclEval() *store.Store { return store.New(d.db) }
 
 // aclStore wraps the sibling messages.db handle as a *store.Store so routd
 // reuses gated's exact readers verbatim for the cross-DB sibling tables it
-// still depends on (secrets, identities, scheduled tasks). The acl/acl_membership
-// rows are NOT read through this handle — those moved to routd's own DB (aclEval).
+// still depends on (secrets, scheduled tasks). The acl/acl_membership rows
+// moved to routd's own DB (aclEval); identity moved to authd (identity.go).
 // nil handle → nil store and every accessor returns the empty result.
 func (d *DB) aclStore() *store.Store {
 	if d.msgs == nil {
@@ -210,25 +212,6 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	caller := auth.Caller{Principal: sub}
 	opts := auth.AuthorizeOpts{Folder: folder, WorldFolder: id.World, Tier: id.Tier}
 	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
-}
-
-// SiblingIdentityForSub resolves a platform sub to its canonical identity and
-// the full set of subs that identity claims, reading the identities/
-// identity_claims tables in the sibling messages.db (gated's store). Reuses
-// store.GetIdentityForSub verbatim via aclStore() so the lookup matches gated's
-// exactly. Returns the ipc shape directly (routd imports ipc anyway). nil
-// handle / unclaimed sub → (zero, nil, false) — the inspect_identity tool then
-// renders the {identity:null, subs:[]} unclaimed shape.
-func (d *DB) SiblingIdentityForSub(sub string) (ipc.Identity, []string, bool) {
-	s := d.aclStore()
-	if s == nil {
-		return ipc.Identity{}, nil, false
-	}
-	idn, subs, ok := s.GetIdentityForSub(sub)
-	if !ok {
-		return ipc.Identity{}, nil, false
-	}
-	return ipc.Identity{ID: idn.ID, Name: idn.Name, CreatedAt: idn.CreatedAt}, subs, true
 }
 
 // SiblingGetTask reads one scheduled_tasks row from messages.db (timed's

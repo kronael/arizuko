@@ -55,6 +55,11 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 		VALUES('folder:main','mcp:send','main','allow','2026-01-01T00:00:00Z')`)
 	exec(`INSERT INTO acl_membership(child, parent, added_at)
 		VALUES('tg:1','role:operator','2026-01-01T00:00:00Z')`)
+	// identities/identity_claims/identity_codes: authd OWNS these now → copied to auth.db.
+	exec(`INSERT INTO identities(id, name, created_at) VALUES('idn-alice','alice','2026-01-01T00:00:00Z')`)
+	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('tg:42','idn-alice','2026-01-01T00:00:00Z')`)
+	exec(`INSERT INTO identity_claims(sub, identity_id, claimed_at) VALUES('discord:7','idn-alice','2026-01-01T00:00:00Z')`)
+	exec(`INSERT INTO identity_codes(code, identity_id, expires_at) VALUES('link-x','idn-alice','2099-01-01T00:00:00Z')`)
 
 	// transform: system_messages (group_id→folder, origin→source, event→kind, created_at→created; attrs dropped)
 	exec(`INSERT INTO system_messages(group_id, origin, event, attrs, body, created_at)
@@ -178,6 +183,34 @@ func TestMigrateSplit(t *testing.T) {
 	if aclPrin != "folder:main" || aclAction != "mcp:send" || aclScope != "main" || aclEffect != "allow" {
 		t.Errorf("acl row wrong: principal=%q action=%q scope=%q effect=%q",
 			aclPrin, aclAction, aclScope, aclEffect)
+	}
+
+	// identity: copied to auth.db (authd OWNS it now). routd.db must NOT have it.
+	var idTbl string
+	if err := r.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='identities'`).Scan(&idTbl); err != sql.ErrNoRows {
+		t.Errorf("routd.db must not contain an `identities` table (federated to authd), found %q (err=%v)", idTbl, err)
+	}
+	adb, err := sql.Open("sqlite", filepath.Join(storeDir, "auth.db"))
+	if err != nil {
+		t.Fatalf("open auth.db: %v", err)
+	}
+	defer adb.Close()
+	if got := count(t, adb, "identities"); got != 1 {
+		t.Errorf("auth.identities: got %d rows, want 1", got)
+	}
+	if got := count(t, adb, "identity_claims"); got != 2 {
+		t.Errorf("auth.identity_claims: got %d rows, want 2", got)
+	}
+	if got := count(t, adb, "identity_codes"); got != 1 {
+		t.Errorf("auth.identity_codes: got %d rows, want 1", got)
+	}
+	var idName string
+	if err := adb.QueryRow(`SELECT name FROM identities WHERE id='idn-alice'`).Scan(&idName); err != nil {
+		t.Fatalf("read auth.identities: %v", err)
+	}
+	if idName != "alice" {
+		t.Errorf("auth.identities name = %q want alice", idName)
 	}
 
 	// orphan: secrets must NOT have been created in routd.db.

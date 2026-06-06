@@ -83,8 +83,14 @@ func main() {
 	// (additive, local-dev safe).
 	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
 	var runedClient *runedv1.Client
+	// identity resolves a sender sub → canonical identity at authd's
+	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/9), reusing the same
+	// service:routd token source as the runed client. nil when authd/the service
+	// key is unwired → inspect_identity answers unclaimed (auth-only deployment).
+	var identity routd.IdentityResolver
 	if ts, err := auth.ServiceToken(authdURL, "routd", os.Getenv("AUTHD_SERVICE_KEY")); err == nil {
 		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runTimeout)
+		identity = routd.NewIdentityResolver(authdURL, ts.Token)
 		slog.Info("routd service-token bootstrap via authd", "authd", authdURL)
 	} else {
 		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
@@ -133,6 +139,7 @@ func main() {
 	})
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
+	srv.SetIdentityResolver(identity)
 	// Close the Loop↔Server cycle and supply the dirs the in-process MCP
 	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
 	loop.BindServer(srv)

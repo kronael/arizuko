@@ -338,9 +338,10 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// session_log rows from the sibling runed.db (runed's table).
 		GetSession:     s.db.GetSession,
 		RecentSessions: s.db.SiblingRecentSessions,
-		// Identity reads: identities/identity_claims live in the sibling
-		// messages.db (gated's store). RO via aclStore(); nil handle → unclaimed.
-		GetIdentityForSub: s.db.SiblingIdentityForSub,
+		// Identity reads: authd OWNS identity (spec 5/9). routd snapshots its
+		// GET /v1/identities/{sub} over HTTP — no messages.db sibling-read.
+		// nil resolver → unclaimed shape.
+		GetIdentityForSub: s.resolveIdentity,
 		ListRoutes: func(_ string, _ bool) []core.Route {
 			r, _ := s.db.Routes()
 			return r

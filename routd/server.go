@@ -78,6 +78,12 @@ type Server struct {
 	engagementT time.Duration
 	webHost     string
 
+	// identity resolves a sender sub → canonical identity via authd's
+	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/9). Backs the
+	// inspect_identity MCP tool; nil → the tool answers unclaimed (no resolver
+	// wired / auth-only deployment). Set via SetIdentityResolver.
+	identity IdentityResolver
+
 	// disabledGroups is SEND_DISABLED_GROUPS: muted folders whose outbound is
 	// persisted (the row lands status=sent) but NOT delivered to the platform,
 	// mirroring gateway.canSendToGroup. SEND_DISABLED_CHANNELS (jid-prefix mute)
@@ -160,6 +166,21 @@ func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
 // SetConnectors supplies the discovered connector-tool catalog (LoadConnectors).
 // Every per-turn MCP socket registers it; nil/empty leaves the path off.
 func (s *Server) SetConnectors(c []ipc.ConnectorTool) { s.connectors = c }
+
+// SetIdentityResolver wires the authd identity client backing inspect_identity
+// (authd OWNS identity — spec 5/9). nil → the tool answers unclaimed. Set
+// post-construction in main wiring.
+func (s *Server) SetIdentityResolver(r IdentityResolver) { s.identity = r }
+
+// resolveIdentity is the StoreFns.GetIdentityForSub backing: it delegates to the
+// authd resolver. A nil resolver (no AUTHD_URL / auth-only deployment) returns
+// the unclaimed shape — never reaches messages.db (identity federated to authd).
+func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
+	if s.identity == nil {
+		return ipc.Identity{}, nil, false
+	}
+	return s.identity.Resolve(sub)
+}
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;
 // everything else is bearer-gated by the Verifier.

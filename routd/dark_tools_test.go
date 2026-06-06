@@ -12,6 +12,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -109,30 +110,39 @@ func seedTask(t *testing.T, s *store.Store, id, owner, jid, prompt string) {
 	}
 }
 
-// TestInspectIdentity_SiblingRead: inspect_identity resolves a claimed sub to
-// its identity + sibling subs by reading identities/identity_claims in the
-// sibling messages.db (gated's store). StoreFns.GetIdentityForSub was nil in
-// routd → the tool was dark.
-func TestInspectIdentity_SiblingRead(t *testing.T) {
+// stubIdentity is a fixed IdentityResolver standing in for authd's
+// GET /v1/identities/{sub} in the inspect_identity tests — routd snapshots
+// identity over HTTP now (authd OWNS it, spec 5/9), never the sibling
+// messages.db.
+type stubIdentity struct {
+	idn  ipc.Identity
+	subs []string
+	sub  string // the one sub that resolves; others are unclaimed
+}
+
+func (s stubIdentity) Resolve(sub string) (ipc.Identity, []string, bool) {
+	if sub == s.sub {
+		return s.idn, s.subs, true
+	}
+	return ipc.Identity{}, nil, false
+}
+
+// TestInspectIdentity_ViaAuthd: inspect_identity resolves a claimed sub to its
+// identity + linked subs through the authd resolver (SetIdentityResolver), NOT
+// the sibling messages.db. An unclaimed sub returns {identity:null, subs:[]}.
+func TestInspectIdentity_ViaAuthd(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
-
-	idn, err := s.CreateIdentity("alice")
-	if err != nil {
-		t.Fatalf("CreateIdentity: %v", err)
-	}
-	if err := s.LinkSub(idn.ID, "tg:42"); err != nil {
-		t.Fatalf("LinkSub tg:42: %v", err)
-	}
-	if err := s.LinkSub(idn.ID, "discord:7"); err != nil {
-		t.Fatalf("LinkSub discord:7: %v", err)
-	}
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+	srv.SetIdentityResolver(stubIdentity{
+		idn:  ipc.Identity{ID: "idn-alice", Name: "alice"},
+		subs: []string{"tg:42", "discord:7"},
+		sub:  "tg:42",
+	})
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
 	if err != nil {
@@ -164,9 +174,9 @@ func TestInspectIdentity_SiblingRead(t *testing.T) {
 	}
 }
 
-// TestInspectIdentity_NilSibling: with no messages.db the sub is unclaimed; the
-// tool still answers {identity:null, subs:[]} rather than erroring.
-func TestInspectIdentity_NilSibling(t *testing.T) {
+// TestInspectIdentity_NoResolver: with no resolver wired (no AUTHD_URL) the sub
+// is unclaimed; the tool answers {identity:null, subs:[]} rather than erroring.
+func TestInspectIdentity_NoResolver(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +195,44 @@ func TestInspectIdentity_NilSibling(t *testing.T) {
 		t.Fatalf("inspect_identity error: %s", errText)
 	}
 	if payload["identity"] != nil {
-		t.Fatalf("nil-sibling identity=%v want null", payload["identity"])
+		t.Fatalf("no-resolver identity=%v want null", payload["identity"])
+	}
+}
+
+// TestInspectIdentity_IgnoresSibling proves identity is federated to authd:
+// a claim seeded ONLY in the sibling messages.db has NO effect — routd resolves
+// via the authd resolver, not messages.db. With the sibling row present but no
+// resolver, the sub stays unclaimed.
+func TestInspectIdentity_IgnoresSibling(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sib := attachACLSibling(t, db) // messages.db sibling, owned elsewhere
+	idn, err := sib.CreateIdentity("alice")
+	if err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+	if err := sib.LinkSub(idn.ID, "tg:42"); err != nil {
+		t.Fatalf("LinkSub: %v", err)
+	}
+
+	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+	// No resolver wired → the sibling claim must NOT surface.
+	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
+	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
+	if err != nil {
+		t.Fatalf("ServeTurnMCP: %v", err)
+	}
+	defer stop()
+	payload, errText := callToolOverSock(t, groupfolder.IpcSocket(ipcDir), "inspect_identity",
+		map[string]any{"sub": "tg:42"})
+	if errText != "" {
+		t.Fatalf("inspect_identity error: %s", errText)
+	}
+	if payload["identity"] != nil {
+		t.Fatalf("sibling-only claim surfaced identity=%v want null (identity reads authd, not messages.db)", payload["identity"])
 	}
 }
 
