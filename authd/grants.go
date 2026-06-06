@@ -22,6 +22,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/kronael/arizuko/obs"
 )
 
 // httpGrants resolves a bare sub's scope ceiling against the grants backend.
@@ -58,6 +60,7 @@ func (g *httpGrants) FetchGrants(ctx context.Context, bareSub string) (GrantsSna
 		return GrantsSnapshot{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	obs.InjectRequest(ctx, req)
 	resp, err := g.c.Do(req)
 	if err != nil {
 		return GrantsSnapshot{}, err

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/obs"
 )
 
 var identityHeaders = []string{
@@ -86,6 +87,7 @@ func RequireSignedOrBearer(secret string, ks *KeySet, grants Grants) func(http.H
 			hmacGuard(next)(w, r)
 		}
 		return func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(obs.ExtractRequest(r))
 			if VerifyUserSig(secret, r) {
 				next(w, r)
 				return
@@ -104,6 +106,7 @@ func StripUnsignedOrBearer(secret string, ks *KeySet, grants Grants) func(http.H
 	hmacGuard := StripUnsigned(secret)
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(obs.ExtractRequest(r))
 			// HMAC-signed identity wins (live behavior).
 			if VerifyUserSig(secret, r) {
 				next(w, r)
@@ -124,6 +127,7 @@ func StripUnsignedOrBearer(secret string, ks *KeySet, grants Grants) func(http.H
 func RequireSigned(secret string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(obs.ExtractRequest(r))
 			if !VerifyUserSig(secret, r) {
 				attempted := r.Header.Get("X-User-Sub")
 				slog.Warn("auth: user sig verify failed",
@@ -153,6 +157,7 @@ func RequireSigned(secret string) func(http.HandlerFunc) http.HandlerFunc {
 func StripUnsigned(secret string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(obs.ExtractRequest(r))
 			if r.Header.Get("X-User-Sub") != "" && !VerifyUserSig(secret, r) {
 				attempted := r.Header.Get("X-User-Sub")
 				slog.Warn("auth: unsigned identity stripped",

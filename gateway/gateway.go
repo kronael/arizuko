@@ -31,6 +31,7 @@ import (
 	"github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
@@ -669,13 +670,17 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
+		// Turn origin: stamp the deterministic per-turn trace onto ctx so
+		// turn-lifecycle logs and downstream cross-daemon requests correlate.
+		ctx := obs.WithTurn(g.context(), g.cfg.Name, last.ID)
+
 		if g.handleStickyCommand(chatJid, last) {
-			slog.Debug("poll: handled sticky command", "jid", chatJid)
+			slog.DebugContext(ctx, "poll: handled sticky command", "jid", chatJid)
 			continue
 		}
 
 		if g.handleCommand(last, group) {
-			slog.Debug("poll: handled command", "jid", chatJid, "sender", last.Sender)
+			slog.DebugContext(ctx, "poll: handled command", "jid", chatJid, "sender", last.Sender)
 			continue
 		}
 
@@ -699,7 +704,7 @@ func (g *Gateway) pollOnce() {
 			// the engaged folder regardless of what the route table says.
 			if folder := g.store.EngagedFolder(chatJid, engTopic); folder != "" {
 				if gr, ok2 := g.store.GroupByFolder(folder); ok2 {
-					slog.Info("poll: engagement override", "jid", chatJid, "topic", effTopic, "engTopic", engTopic, "folder", folder)
+					slog.InfoContext(ctx, "poll: engagement override", "jid", chatJid, "topic", effTopic, "engTopic", engTopic, "folder", folder)
 					group = gr
 				}
 			}
@@ -709,7 +714,7 @@ func (g *Gateway) pollOnce() {
 				ids[i] = m.ID
 			}
 			if err := g.store.MarkMessagesObserved(rt.Folder, ids); err != nil {
-				slog.Warn("poll: mark observed", "jid", chatJid, "err", err)
+				slog.WarnContext(ctx, "poll: mark observed", "jid", chatJid, "err", err)
 			}
 			g.advanceAgentCursor(chatJid, chatMsgs)
 			continue
@@ -725,13 +730,12 @@ func (g *Gateway) pollOnce() {
 			last.Topic = rt.Topic
 		}
 
-		ctx := g.context()
 		for i := range chatMsgs {
 			g.enrichAttachments(ctx, &chatMsgs[i], group.Folder)
 		}
 		rendered := router.FormatMessages(chatMsgs)
 		if g.queue.SendMessages(chatJid, []string{rendered}) {
-			slog.Info("poll: steered messages into running container",
+			slog.InfoContext(ctx, "poll: steered messages into running container",
 				"jid", chatJid, "count", len(chatMsgs))
 			topic := g.effectiveTopic(chatJid, last.Topic)
 			_ = g.store.SetLastReply(chatJid, topic, last.ID, group.Folder)
@@ -745,7 +749,7 @@ func (g *Gateway) pollOnce() {
 			continue
 		}
 
-		slog.Debug("poll: enqueue check", "jid", chatJid)
+		slog.DebugContext(ctx, "poll: enqueue check", "jid", chatJid)
 		g.queue.EnqueueMessageCheck(chatJid)
 	}
 

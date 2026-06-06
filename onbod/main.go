@@ -1113,6 +1113,7 @@ func sendReply(cfg config, jid, text string) {
 	if cfg.secret != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.secret)
 	}
+	obs.InjectRequest(req.Context(), req)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Warn("send reply failed", "jid", jid, "err", err)

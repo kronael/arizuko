@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/kronael/arizuko/obs"
 )
 
 // Client is a thin HTTP client for runed's /v1/* surface. routd holds one
@@ -73,6 +75,7 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+tok)
+	obs.InjectRequest(ctx, httpReq)
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
 		return out, err

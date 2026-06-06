@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kronael/arizuko/obs"
 )
 
 // maxRouterResponseBytes caps decoded router responses to guard against OOM.
@@ -193,6 +195,7 @@ func (r *RouterClient) Post(path string, body any, auth string, out any) error {
 	if auth != "" {
 		req.Header.Set("Authorization", "Bearer "+auth)
 	}
+	obs.InjectRequest(req.Context(), req)
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("router %s: %w", path, err)
