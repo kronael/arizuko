@@ -13,9 +13,14 @@ import (
 // tools (federated via the /v1/messages, /v1/routing, /v1/engagement, /v1/cost
 // surfaces). routd owns the conversation/routing state.
 
-const msgReadCols = `id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-	is_bot_message, reply_to_id, topic, routed_to, verb, source, turn_id, status,
-	platform_id, chat_name, forwarded_from`
+// Every nullable TEXT column is COALESCEd to '' so a NULL row never aborts the
+// scan (scanMessages reads into plain strings) — the monolith store does the
+// same (store/messages.go). Without this, ONE legacy/NULL row kills routd's
+// whole poll loop, silently (cursor never advances; no turns; no breaker).
+const msgReadCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp, is_from_me,
+	is_bot_message, COALESCE(reply_to_id,''), COALESCE(topic,''), COALESCE(routed_to,''),
+	COALESCE(verb,''), COALESCE(source,''), COALESCE(turn_id,''), COALESCE(status,''),
+	COALESCE(platform_id,''), COALESCE(chat_name,''), COALESCE(forwarded_from,'')`
 
 // MessagesBefore returns rows for one chat_jid older than `before`, oldest
 // first (inspect_messages / get_history). before="" → now.

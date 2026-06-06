@@ -536,28 +536,34 @@ func TestRoutesListScopedToSubtree(t *testing.T) {
 	}
 }
 
-// TestScanMessagesAbortsOnRowError: a malformed row (a NULL in a column scanned
-// into a non-nullable Go type) must ABORT the scan with an error, not silently
-// skip the row and advance the cursor past it (silent message loss).
-func TestScanMessagesAbortsOnRowError(t *testing.T) {
+// TestScanMessagesToleratesNullText: a NULL in a nullable text column (legacy
+// gated data) must be COALESCEd to '' and the row READ — NOT abort the scan.
+// The abort behavior was the split's hidden production-breaker: one NULL
+// reply_to_id/sender_name row killed routd's whole poll loop (cursor stuck, no
+// turns, no breaker). msgReadCols COALESCEs every nullable text column, matching
+// the monolith store.
+func TestScanMessagesToleratesNullText(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// sender_name is nullable in the schema but scanned into a plain string;
-	// a NULL there fails rows.Scan.
+	// sender_name NULL (+ reply_to_id NULL, omitted) — both scanned into plain
+	// strings; before the COALESCE this aborted the scan.
 	if _, err := db.SQL().Exec(`INSERT INTO messages
 		(id, chat_jid, sender, sender_name, content, timestamp, verb, status)
 		VALUES ('m1','slack:T/C/U','u',NULL,'hi','2026-01-01T00:00:00Z','message','sent')`); err != nil {
 		t.Fatal(err)
 	}
-	_, hi, err := db.NewMessages("")
-	if err == nil {
-		t.Fatal("scan over a malformed row returned nil error (silent skip)")
+	msgs, hi, err := db.NewMessages("")
+	if err != nil {
+		t.Fatalf("NULL text aborted the scan (the poll-killer): %v", err)
 	}
-	if hi != "" {
-		t.Fatalf("cursor advanced to %q past the unscanned row", hi)
+	if len(msgs) != 1 || msgs[0].Name != "" || msgs[0].ReplyToID != "" {
+		t.Fatalf("got %d msgs (want 1 with sender_name='' reply_to_id=''): %+v", len(msgs), msgs)
+	}
+	if hi == "" {
+		t.Fatal("cursor did not advance past the (now-readable) row")
 	}
 }
 

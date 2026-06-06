@@ -87,10 +87,12 @@ func cmdSend(args []string) {
 	}
 
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	// Split: messages live in routd.db (routd reads ONLY that); monolith:
+	// messages.db. mustOpenACL is the dual-path store opener (routd.db if present,
+	// else messages.db) — the same path grant/secret/route use — so `send`
+	// reaches the live router on both topologies instead of writing a DB the
+	// split router never reads.
+	st := mustOpenACL(dataDir)
 	defer st.Close()
 
 	if _, ok := st.GroupByFolder(folder); !ok {

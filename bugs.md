@@ -2145,3 +2145,22 @@ REMAINING (5th, precisely localized, NOT yet fixed): silent circuit-breaker chur
   benign (false,nil) no-op. (a) is the most targeted + lowest-risk.
 - DO NOT blind-flip krons a 4th time. Reproduce on a throwaway (clone krons
   messages.db, CUTOVER_SPLIT, json-file logs) → confirm the churn → fix → re-flip.
+
+## SPLIT read-layer NULL-scan killed routd's poll (2026-06-06, the real BUG-1)
+
+routd's msgReadCols (routd/reads.go) read reply_to_id + 10 other nullable text
+columns WITHOUT COALESCE, while the monolith store (store/messages.go) COALESCEs
+them. So ONE row with a NULL text column aborted scanMessages → NewMessages
+errored → routd's poll loop failed every tick → agent_cursor never advanced → NO
+messages processed, NO turns, NO breaker (the "0 breakers / healthy" signal was
+false — the poll was dead). The earlier migrate-split COALESCE was a BAND-AID
+(only migrated rows); any new NULL row (routd/CLI write) re-broke it. FIXED at the
+read layer: msgReadCols COALESCEs every nullable text col → '' (matches the
+monolith); a NULL row is now read, not fatal. Regression: routd
+TestScanMessagesToleratesNullText (repurposed from the test that asserted the
+outage-causing abort). This is why all 5 krons flips "looked clean" but processed
+nothing.
+
+Also FIXED: `arizuko send` opened messages.db unconditionally → in the split the
+message landed in a DB routd never reads (no turn). Now dual-paths to routd.db via
+mustOpenACL (the grant/secret/route pattern).
