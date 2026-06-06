@@ -10,7 +10,10 @@
 --                      0027 added gate/queued_at; 0071 added admitted_at.
 --   invites          — store 0032 (rewrite of 0028 invitations).
 --   onboarding_gates — store 0029.
-CREATE TABLE onboarding (
+-- IF NOT EXISTS: `arizuko migrate-split` pre-creates these tables in onbod.db
+-- (onbodSchema) without recording a migrations row, so this migration re-runs on
+-- the next onbod boot. Idempotent CREATEs make that a no-op.
+CREATE TABLE IF NOT EXISTS onboarding (
   jid           TEXT PRIMARY KEY,
   status        TEXT NOT NULL,
   prompted_at   TEXT,
@@ -22,9 +25,9 @@ CREATE TABLE onboarding (
   queued_at     TEXT,
   admitted_at   TEXT
 );
-CREATE INDEX idx_onboarding_token ON onboarding(token);
+CREATE INDEX IF NOT EXISTS idx_onboarding_token ON onboarding(token);
 
-CREATE TABLE invites (
+CREATE TABLE IF NOT EXISTS invites (
   token         TEXT PRIMARY KEY,
   target_glob   TEXT NOT NULL,
   issued_by_sub TEXT NOT NULL,
@@ -34,7 +37,7 @@ CREATE TABLE invites (
   used_count    INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE onboarding_gates (
+CREATE TABLE IF NOT EXISTS onboarding_gates (
   gate          TEXT PRIMARY KEY,
   limit_per_day INTEGER NOT NULL,
   enabled       INTEGER NOT NULL DEFAULT 1

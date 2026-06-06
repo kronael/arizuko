@@ -4,21 +4,24 @@
 -- verbatim so the same reader (store.GetIdentityForSub) runs against auth.db's
 -- own rows instead of routd sibling-reading gated's messages.db. Advisory only —
 -- agents query via inspect_identity, never enforce.
-CREATE TABLE identities (
+-- IF NOT EXISTS: `arizuko migrate-split` pre-creates these tables in auth.db
+-- (authdIdentitySchema) without recording a migrations row, so this migration
+-- re-runs on the next authd boot. Idempotent CREATEs make that a no-op.
+CREATE TABLE IF NOT EXISTS identities (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE identity_claims (
+CREATE TABLE IF NOT EXISTS identity_claims (
   sub         TEXT PRIMARY KEY,
   identity_id TEXT NOT NULL,
   claimed_at  TEXT NOT NULL
 );
 
-CREATE INDEX idx_identity_claims_id ON identity_claims(identity_id);
+CREATE INDEX IF NOT EXISTS idx_identity_claims_id ON identity_claims(identity_id);
 
-CREATE TABLE identity_codes (
+CREATE TABLE IF NOT EXISTS identity_codes (
   code        TEXT PRIMARY KEY,
   identity_id TEXT NOT NULL,
   expires_at  TEXT NOT NULL

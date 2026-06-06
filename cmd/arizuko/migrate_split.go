@@ -67,9 +67,21 @@ var routdSpecs = []copySpec{
 		cols: "jid, agent_cursor, sticky_group, sticky_topic, is_group",
 		sel:  "jid, agent_cursor, sticky_group, sticky_topic, is_group"},
 	// messages.db messages has `errored` (store 0030); routd.db lacks it → dropped.
-	{dst: "messages", src: "messages",
+	// transform: COALESCE every nullable column to routd's runtime default. routd's
+	// own inserts use '' (FireProactive/PutMessage), but legacy gated rows carry
+	// NULLs (sender_name/reply_to_id/source were `TEXT` nullable; the rest gained
+	// NOT NULL DEFAULTs in later migrations but pre-existing rows kept NULL).
+	// scanMessages scans most of these into plain `string` → a NULL aborts every
+	// routd poll/read (Scan error). Default each to what a fresh routd insert
+	// writes so reads never hit NULL.
+	{dst: "messages", src: "messages", transfm: true,
 		cols: "id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, is_observed, turn_id, status, platform_id, chat_name",
-		sel:  "id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender, topic, routed_to, verb, attachments, source, is_observed, turn_id, status, platform_id, chat_name"},
+		sel: "id, chat_jid, sender, COALESCE(sender_name,''), content, timestamp, " +
+			"COALESCE(is_from_me,0), COALESCE(is_bot_message,0), COALESCE(forwarded_from,''), " +
+			"COALESCE(reply_to_id,''), COALESCE(reply_to_text,''), COALESCE(reply_to_sender,''), " +
+			"COALESCE(topic,''), COALESCE(routed_to,''), COALESCE(verb,'message'), " +
+			"COALESCE(attachments,''), COALESCE(source,''), COALESCE(is_observed,0), " +
+			"COALESCE(turn_id,''), COALESCE(status,'sent'), COALESCE(platform_id,''), COALESCE(chat_name,'')"},
 	{dst: "routes", src: "routes",
 		cols: "id, seq, match, target, observe_window_messages, observe_window_chars",
 		sel:  "id, seq, match, target, observe_window_messages, observe_window_chars"},

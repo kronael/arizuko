@@ -340,6 +340,145 @@ func TestMigrateSplit(t *testing.T) {
 	}
 }
 
+// TestMigrateSplitCoalescesNullMessageCols: legacy gated rows carry NULLs in
+// columns scanMessages reads into plain `string` (sender_name, reply_to_id,
+// source were nullable TEXT; topic/routed_to/verb/status/chat_name kept NULL on
+// rows predating their NOT-NULL-DEFAULT migrations). A verbatim copy lands NULLs
+// in routd.db; the next poll aborts with `converting NULL to string is
+// unsupported`. The COALESCE in the messages copySpec must default each to what
+// a fresh routd insert writes, so routd's own read path (scanMessages, via
+// MessagesBefore) drains the row without error.
+func TestMigrateSplitCoalescesNullMessageCols(t *testing.T) {
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedMessagesDB(t, storeDir)
+
+	// Inject a row with the genuinely-nullable source columns set to NULL.
+	s, err := store.Open(storeDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// sender_name + reply_to_id are plain `TEXT` (nullable) at the migrated head
+	// AND scanMessages reads them into plain `string` — the exact pair routd's own
+	// inserts force to '' (routd/db.go FireProactive) precisely to dodge this.
+	// turn_id/platform_id are nullable too (scanned via NullString). NULL all four
+	// — the legacy shape that bricked the split poll loop. (source/topic/routed_to
+	// are NOT NULL at head — store migration 0023 rebuilt them — so a verbatim NULL
+	// can't occur there; COALESCE on them is harmless defence.)
+	if _, err := s.DB().Exec(
+		`INSERT INTO messages(id, chat_jid, sender, sender_name, content, timestamp,
+			reply_to_id, turn_id, platform_id)
+		 VALUES('mnull','tg:1','carol',NULL,'legacy','2026-01-02T00:03:00Z',NULL,NULL,NULL)`); err != nil {
+		t.Fatalf("seed NULL message: %v", err)
+	}
+	s.Close()
+
+	if err := migrateSplit(storeDir, false); err != nil {
+		t.Fatalf("migrateSplit: %v", err)
+	}
+
+	rdb, err := routd.Open(storeDir)
+	if err != nil {
+		t.Fatalf("routd.Open: %v", err)
+	}
+	defer rdb.Close()
+
+	// 1. The copied row's plain-string columns must be '' (not NULL).
+	var name, replyTo, source, topic, routedTo, verb, status, chatName sql.NullString
+	if err := rdb.SQL().QueryRow(
+		`SELECT sender_name, reply_to_id, source, topic, routed_to, verb, status, chat_name
+		 FROM messages WHERE id='mnull'`).
+		Scan(&name, &replyTo, &source, &topic, &routedTo, &verb, &status, &chatName); err != nil {
+		t.Fatalf("read routd.messages mnull: %v", err)
+	}
+	for label, c := range map[string]sql.NullString{
+		"sender_name": name, "reply_to_id": replyTo, "source": source,
+		"topic": topic, "routed_to": routedTo, "chat_name": chatName,
+	} {
+		if !c.Valid || c.String != "" {
+			t.Errorf("routd.messages.%s = %v (valid=%v), want '' not NULL", label, c.String, c.Valid)
+		}
+	}
+	if !verb.Valid || verb.String != "message" {
+		t.Errorf("routd.messages.verb = %v, want 'message'", verb.String)
+	}
+	if !status.Valid || status.String != "sent" {
+		t.Errorf("routd.messages.status = %v, want 'sent'", status.String)
+	}
+
+	// 2. routd's OWN read path (scanMessages via MessagesBefore) must drain the
+	// row without the NULL-scan error that bricked the split poll loop.
+	msgs, err := rdb.MessagesBefore("tg:1", "", 50)
+	if err != nil {
+		t.Fatalf("MessagesBefore (scanMessages path) must not error on migrated NULLs: %v", err)
+	}
+	var found bool
+	for _, m := range msgs {
+		if m.ID == "mnull" {
+			found = true
+			if m.Name != "" || m.ReplyToID != "" || m.Source != "" {
+				t.Errorf("mnull scanned non-empty: name=%q reply=%q source=%q", m.Name, m.ReplyToID, m.Source)
+			}
+		}
+	}
+	if !found {
+		t.Error("mnull row not returned by MessagesBefore")
+	}
+}
+
+// TestMigrateSplitMigrationsIdempotent: migrate-split bootstraps auth.db +
+// onbod.db with CREATE TABLE IF NOT EXISTS but records NO row in the
+// `migrations(service,version)` table. So on the next authd/onbod boot,
+// db_utils.Migrate sees version 0 and re-runs 0004-identities.sql /
+// 0001-onboarding.sql against the already-bootstrapped tables. If those CREATEs
+// aren't idempotent, authd/onbod crash-loop with `table already exists`. This
+// replays that exact boot by exec'ing the real migration .sql against the
+// migrate-split-bootstrapped DBs — it must be a no-op, not an error.
+//
+// authd/onbod are package main (their migration embed.FS is unreachable here),
+// so we read the migration files from disk — the same bytes db_utils.Migrate
+// would exec.
+func TestMigrateSplitMigrationsIdempotent(t *testing.T) {
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedMessagesDB(t, storeDir)
+	if err := migrateSplit(storeDir, false); err != nil {
+		t.Fatalf("migrateSplit: %v", err)
+	}
+
+	cases := []struct {
+		db    string // file in storeDir bootstrapped by migrate-split
+		mig   string // the migration file db_utils.Migrate would re-run on boot
+		table string // a table both pre-create — the collision point
+	}{
+		{"auth.db", "../../authd/migrations/0004-identities.sql", "identities"},
+		{"onbod.db", "../../onbod/migrations/0001-onboarding.sql", "onboarding"},
+	}
+	for _, c := range cases {
+		raw, err := os.ReadFile(c.mig)
+		if err != nil {
+			t.Fatalf("read %s: %v", c.mig, err)
+		}
+		db, err := sql.Open("sqlite", filepath.Join(storeDir, c.db))
+		if err != nil {
+			t.Fatalf("open %s: %v", c.db, err)
+		}
+		// Re-running the migration against the bootstrapped DB must NOT error
+		// (this is exactly what authd/onbod's db_utils.Migrate does at boot).
+		if _, err := db.Exec(string(raw)); err != nil {
+			t.Errorf("%s re-applied to migrate-split %s must be a no-op, got: %v", c.mig, c.db, err)
+		}
+		// Table still present and singular (no duplication, no drop).
+		var n int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, c.table).Scan(&n); err != nil {
+			t.Fatalf("count %s table in %s: %v", c.table, c.db, err)
+		}
+		if n != 1 {
+			t.Errorf("%s.%s table count = %d, want 1", c.db, c.table, n)
+		}
+		db.Close()
+	}
+}
+
 func TestMigrateSplitMissingDB(t *testing.T) {
 	storeDir := filepath.Join(t.TempDir(), "store")
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
