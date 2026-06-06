@@ -88,6 +88,13 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO pane_sessions(team_id, user_id, thread_ts, channel_id, context_jid, opened_at)
 		VALUES('T1','U99','1700.1','D0XY','slack:T1/channel/C42','2026-01-01T00:00:00Z')`)
 
+	// onboarding + invites + onboarding_gates: onbod OWNS these now → copied to onbod.db.
+	exec(`INSERT INTO onboarding(jid, status, created, user_sub, gate, queued_at, admitted_at)
+		VALUES('tg:1','approved','2026-01-01T00:00:00Z','github:alice','*','2026-01-01T00:00:00Z','2026-01-01T01:00:00Z')`)
+	exec(`INSERT INTO invites(token, target_glob, issued_by_sub, issued_at, max_uses, used_count)
+		VALUES('inv-tok','main/','cli','2026-01-01T00:00:00Z',5,2)`)
+	exec(`INSERT INTO onboarding_gates(gate, limit_per_day, enabled) VALUES('*',10,1)`)
+
 	if err := s.Close(); err != nil {
 		t.Fatalf("store.Close: %v", err)
 	}
@@ -272,6 +279,36 @@ func TestMigrateSplit(t *testing.T) {
 	}
 	if paneCtx != "slack:T1/channel/C42" {
 		t.Errorf("pane_sessions context_jid = %q want slack:T1/channel/C42", paneCtx)
+	}
+
+	// onboarding + invites + onboarding_gates: copied to onbod.db (onbod OWNS them
+	// now). routd.db must NOT carry invites; onbod.db must round-trip the rows.
+	var invTbl string
+	if err := r.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='invites'`).Scan(&invTbl); err != sql.ErrNoRows {
+		t.Errorf("routd.db must not contain an `invites` table (federated to onbod), found %q (err=%v)", invTbl, err)
+	}
+	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db"))
+	if err != nil {
+		t.Fatalf("open onbod.db: %v", err)
+	}
+	defer odb.Close()
+	for tbl, want := range map[string]int{
+		"onboarding": 1, "invites": 1, "onboarding_gates": 1,
+	} {
+		if got := count(t, odb, tbl); got != want {
+			t.Errorf("onbod.%s: got %d rows, want %d", tbl, got, want)
+		}
+	}
+	var invGlob string
+	var invMax, invUsed int
+	if err := odb.QueryRow(
+		`SELECT target_glob, max_uses, used_count FROM invites WHERE token='inv-tok'`).
+		Scan(&invGlob, &invMax, &invUsed); err != nil {
+		t.Fatalf("read onbod.invites: %v", err)
+	}
+	if invGlob != "main/" || invMax != 5 || invUsed != 2 {
+		t.Errorf("invites row wrong: glob=%q max=%d used=%d", invGlob, invMax, invUsed)
 	}
 
 	// FTS index rebuilt from copied messages → searchable.

@@ -98,7 +98,7 @@ func TestTokenLandingValid(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -139,7 +139,7 @@ func TestTokenLandingExpired(t *testing.T) {
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -151,7 +151,7 @@ func TestTokenLandingInvalid(t *testing.T) {
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard?token=nonexistent", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -173,7 +173,7 @@ func TestTokenLandingWrongDatetimeFormat(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=abc123", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	// BUG DEMONSTRATION: with wrong format, valid token is rejected.
 	// If this test starts failing (returns 303), the bug is fixed at query level.
@@ -195,7 +195,7 @@ func TestDashboardLinksJID(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:alice")
 	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:1"})
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	// JID should be linked
 	var userSub string
@@ -222,7 +222,7 @@ func TestDashboardShowsUsernamePicker(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200, got %d", w.Code)
@@ -247,7 +247,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -285,7 +285,7 @@ func TestCreateWorldInvalidUsername(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -303,7 +303,7 @@ func TestCreateWorldDuplicateUsername(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -329,7 +329,7 @@ func TestLinkJID(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:1", "github:alice")
+	linkJID(db, db, "telegram:1", "github:alice")
 
 	var userSub string
 	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:1'`).Scan(&userSub)
@@ -360,7 +360,7 @@ func TestHandleTokenLanding_AllowsReplay(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest("GET", "/onboard?token=tok-replay", nil)
 		w := httptest.NewRecorder()
-		handleOnboard(w, req, db, cfg)
+		handleOnboard(w, req, db, db, cfg)
 		if w.Code != http.StatusSeeOther {
 			t.Fatalf("click %d: want 303, got %d", i+1, w.Code)
 		}
@@ -391,7 +391,7 @@ func TestHandleTokenLanding_DoesNotConsumeOnGet(t *testing.T) {
 	cfg := config{authBaseURL: "https://example.com"}
 	req := httptest.NewRequest("GET", "/onboard?token=tok-once", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	var status string
 	var token, userSub sql.NullString
@@ -413,8 +413,8 @@ func TestLinkJIDIdempotent(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:5', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:5", "github:alice")
-	linkJID(db, "telegram:5", "github:alice")
+	linkJID(db, db, "telegram:5", "github:alice")
+	linkJID(db, db, "telegram:5", "github:alice")
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:5'`).Scan(&n)
@@ -428,8 +428,8 @@ func TestLinkJIDDifferentUserRejected(t *testing.T) {
 	db.Exec(`INSERT INTO onboarding (jid, status, created)
 		VALUES ('telegram:6', 'token_used', '2026-01-01')`)
 
-	linkJID(db, "telegram:6", "github:alice")
-	linkJID(db, "telegram:6", "github:eve")
+	linkJID(db, db, "telegram:6", "github:alice")
+	linkJID(db, db, "telegram:6", "github:eve")
 
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM acl_membership WHERE child = 'telegram:6'`).Scan(&n)
@@ -460,7 +460,7 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -500,7 +500,7 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -544,7 +544,7 @@ func TestSecondJIDAutoLink(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:alice")
 	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "discord:42"})
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200 (dashboard), got %d", w.Code)
@@ -587,7 +587,7 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -645,7 +645,7 @@ func TestLinkJIDWithGatesQueues(t *testing.T) {
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	linkJID(db, "telegram:1", "github:alice")
+	linkJID(db, db, "telegram:1", "github:alice")
 
 	var status, gateCol, queuedAt string
 	db.QueryRow(
@@ -668,7 +668,7 @@ func TestLinkJIDWithGatesNoMatch(t *testing.T) {
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 	db.Exec(`INSERT INTO onboarding_gates (gate, limit_per_day) VALUES ('github:org=co', 10)`)
 
-	linkJID(db, "telegram:1", "google:alice@other.com")
+	linkJID(db, db, "telegram:1", "google:alice@other.com")
 
 	// Status should remain token_used (no matching gate, rejected)
 	var status string
@@ -802,7 +802,7 @@ func TestQueuePositionRendering(t *testing.T) {
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:second")
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
@@ -822,7 +822,7 @@ func TestNoGatesLegacyBehavior(t *testing.T) {
 		VALUES ('telegram:1', 'token_used', '2026-01-01')`)
 
 	// No gates → linkJID should set approved directly
-	linkJID(db, "telegram:1", "github:alice")
+	linkJID(db, db, "telegram:1", "github:alice")
 
 	var status string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:1'`).Scan(&status)
@@ -883,7 +883,7 @@ func TestInviteConsume(t *testing.T) {
 	req.SetPathValue("token", token)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -925,7 +925,7 @@ func TestInviteExpired(t *testing.T) {
 	req.SetPathValue("token", "expired-tok")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -946,7 +946,7 @@ func TestInviteMaxUses(t *testing.T) {
 	req.SetPathValue("token", "used-tok")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -967,7 +967,7 @@ func TestInviteAuthRequired(t *testing.T) {
 	req.SetPathValue("token", "auth-tok")
 	// No X-User-Sub header → should redirect to login
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -994,7 +994,7 @@ func TestInviteInvalidToken(t *testing.T) {
 	req.SetPathValue("token", "nonexistent")
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -1015,7 +1015,7 @@ func postOnboard(db *sql.DB, cfg config, sub string,
 	req.Header.Set("X-User-Sub", sub)
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: csrf})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 	return w
 }
 
@@ -1149,7 +1149,7 @@ func TestCSRFRejected(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "alice")
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, cfg)
+	handleOnboardPost(w, req, db, db, cfg)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("want 403 (csrf), got %d", w.Code)
 	}
@@ -1176,7 +1176,7 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:alice")
 	req.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, config{})
+	handleOnboard(w, req, db, db, config{})
 
 	var jidOwner string
 	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
@@ -1190,7 +1190,7 @@ func TestSecondJIDAutoLinkSingleUse(t *testing.T) {
 	req2.Header.Set("X-User-Sub", "github:eve")
 	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:victim"})
 	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, config{})
+	handleOnboard(w2, req2, db, db, config{})
 
 	// Ownership unchanged.
 	db.QueryRow(`SELECT parent FROM acl_membership WHERE child = 'telegram:victim'`).Scan(&jidOwner)
@@ -1220,7 +1220,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	req.SetPathValue("token", tok)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, config{})
+	handleInvite(w, req, db, db, config{})
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("first consume: want 303, got %d", w.Code)
 	}
@@ -1232,7 +1232,7 @@ func TestInviteAtomicConsume(t *testing.T) {
 	req2.SetPathValue("token", tok)
 	req2.Header.Set("X-User-Sub", "github:eve")
 	w2 := httptest.NewRecorder()
-	handleInvite(w2, req2, db, config{})
+	handleInvite(w2, req2, db, db, config{})
 	if w2.Code != http.StatusOK {
 		t.Errorf("second consume: want 200 error page, got %d", w2.Code)
 	}
@@ -1280,7 +1280,7 @@ func TestDashboardXSSEscape(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", attacker)
-	handleOnboard(w, req, db, config{})
+	handleOnboard(w, req, db, db, config{})
 
 	body := w.Body.String()
 	if strings.Contains(body, "<script>alert(1)</script>") {
@@ -1304,7 +1304,7 @@ func TestQueuePositionXSSEscape(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:x")
-	handleOnboard(w, req, db, config{})
+	handleOnboard(w, req, db, db, config{})
 
 	if strings.Contains(w.Body.String(), "<x>") {
 		t.Error("unescaped gate value leaked into queue page")
@@ -1315,7 +1315,7 @@ func TestHandleOnboardPostUnauthenticated(t *testing.T) {
 	db := testDB(t)
 	req := httptest.NewRequest("POST", "/onboard", nil)
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, config{})
+	handleOnboardPost(w, req, db, db, config{})
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("want 401, got %d", w.Code)
 	}
@@ -1489,7 +1489,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	// 2) token landing (presentation is idempotent — status & token unchanged)
 	req := httptest.NewRequest("GET", "/onboard?token="+tok.String, nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 	var st string
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "awaiting_message" {
@@ -1506,7 +1506,7 @@ func TestStateMachineMigrated(t *testing.T) {
 	}
 
 	// 4) linkJID with gates active → queued
-	linkJID(db, "telegram:7", "github:alice")
+	linkJID(db, db, "telegram:7", "github:alice")
 	db.QueryRow(`SELECT status FROM onboarding WHERE jid = 'telegram:7'`).Scan(&st)
 	if st != "queued" {
 		t.Fatalf("after linkJID+gate want queued, got %s", st)
@@ -1529,7 +1529,7 @@ func TestInviteSetsCookieFlagsHTTPS(t *testing.T) {
 	req := httptest.NewRequest("GET", "/invite/tok", nil)
 	req.SetPathValue("token", "tok")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, cfg)
+	handleInvite(w, req, db, db, cfg)
 
 	var c *http.Cookie
 	for _, x := range w.Result().Cookies() {
@@ -1572,7 +1572,7 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	cfg := config{}
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 	// No token, no X-User-Sub → redirect to login
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303 redirect, got %d", w.Code)
@@ -1645,7 +1645,7 @@ func TestTokenLandingAuthenticatedRedirectsToDashboard(t *testing.T) {
 	req := httptest.NewRequest("GET", "/onboard?token=tok", nil)
 	req.Header.Set("X-User-Sub", "github:alice")
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, cfg)
+	handleOnboard(w, req, db, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d", w.Code)
@@ -1683,7 +1683,7 @@ func TestInviteEmptyToken(t *testing.T) {
 	req.SetPathValue("token", "")
 	req.Header.Set("X-User-Sub", "github:alice")
 	w := httptest.NewRecorder()
-	handleInvite(w, req, db, config{})
+	handleInvite(w, req, db, db, config{})
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 page, got %d", w.Code)
 	}
@@ -1778,7 +1778,7 @@ func TestQueuePositionETAHours(t *testing.T) {
 	req := httptest.NewRequest("GET", "/onboard", nil)
 	req.Header.Set("X-User-Sub", "github:x")
 	w := httptest.NewRecorder()
-	handleOnboard(w, req, db, config{})
+	handleOnboard(w, req, db, db, config{})
 	if !strings.Contains(w.Body.String(), "hours") {
 		t.Errorf("expected 'hours' in ETA, body=%s", w.Body.String())
 	}
@@ -1950,7 +1950,7 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:alice")
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "abc"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, config{})
+	handleOnboardPost(w, req, db, db, config{})
 	if w.Code != http.StatusForbidden {
 		t.Errorf("want 403 when csrf form value absent, got %d", w.Code)
 	}
@@ -1973,7 +1973,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	// 1) Unauthenticated GET — token persists.
 	req1 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
 	w1 := httptest.NewRecorder()
-	handleOnboard(w1, req1, db, cfg)
+	handleOnboard(w1, req1, db, db, cfg)
 	var token sql.NullString
 	db.QueryRow(`SELECT token FROM onboarding WHERE jid='telegram:1'`).Scan(&token)
 	if !token.Valid || token.String != "tok-bind" {
@@ -1985,7 +1985,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	req2.Header.Set("X-User-Sub", "github:alice")
 	req2.AddCookie(&http.Cookie{Name: "onboard_jid", Value: "telegram:1"})
 	w2 := httptest.NewRecorder()
-	handleOnboard(w2, req2, db, cfg)
+	handleOnboard(w2, req2, db, db, cfg)
 
 	var status string
 	var tokenAfter, userSubAfter sql.NullString
@@ -2004,7 +2004,7 @@ func TestHandleDashboard_ConsumesAtUserSubBind(t *testing.T) {
 	// 3) Replaying the original token after the bind must fail.
 	req3 := httptest.NewRequest("GET", "/onboard?token=tok-bind", nil)
 	w3 := httptest.NewRecorder()
-	handleOnboard(w3, req3, db, cfg)
+	handleOnboard(w3, req3, db, db, cfg)
 	if w3.Code != http.StatusOK {
 		t.Errorf("post-bind replay: want 200 (error page), got %d", w3.Code)
 	}

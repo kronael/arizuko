@@ -195,13 +195,84 @@ CREATE TABLE IF NOT EXISTS identity_codes (
   expires_at  TEXT NOT NULL
 );`
 
+// onbodSpecs map messages.db → onbod.db. onbod now OWNS the onboarding admission
+// state machine + invite links + per-gate limits (onbod migration 0001 mirrors
+// store 0009/0023/0024/0027/0071 for onboarding, 0032 for invites, 0029 for
+// onboarding_gates). Straight copies — identical schema both sides.
+var onbodSpecs = []copySpec{
+	{dst: "onboarding", src: "onboarding",
+		cols: "jid, status, prompted_at, created, token, token_expires, user_sub, gate, queued_at, admitted_at",
+		sel:  "jid, status, prompted_at, created, token, token_expires, user_sub, gate, queued_at, admitted_at"},
+	{dst: "invites", src: "invites",
+		cols: "token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count",
+		sel:  "token, target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count"},
+	{dst: "onboarding_gates", src: "onboarding_gates",
+		cols: "gate, limit_per_day, enabled",
+		sel:  "gate, limit_per_day, enabled"},
+}
+
+// onbodSchema mirrors onbod/migrations/*.sql so the migrator can bootstrap
+// onbod.db's owned tables before copying into them (onbod's migration FS is
+// package-private — onbod is package main; this one-shot DDL is the copy-target
+// bootstrap, IF NOT EXISTS so it's a no-op when onbod already migrated).
+const onbodSchema = `
+CREATE TABLE IF NOT EXISTS onboarding (
+  jid           TEXT PRIMARY KEY,
+  status        TEXT NOT NULL,
+  prompted_at   TEXT,
+  created       TEXT NOT NULL,
+  token         TEXT,
+  token_expires TEXT,
+  user_sub      TEXT,
+  gate          TEXT,
+  queued_at     TEXT,
+  admitted_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_onboarding_token ON onboarding(token);
+CREATE TABLE IF NOT EXISTS invites (
+  token         TEXT PRIMARY KEY,
+  target_glob   TEXT NOT NULL,
+  issued_by_sub TEXT NOT NULL,
+  issued_at     TEXT NOT NULL,
+  expires_at    TEXT,
+  max_uses      INTEGER NOT NULL DEFAULT 1,
+  used_count    INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS onboarding_gates (
+  gate          TEXT PRIMARY KEY,
+  limit_per_day INTEGER NOT NULL,
+  enabled       INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  category        TEXT    NOT NULL,
+  action          TEXT    NOT NULL,
+  actor           TEXT    NOT NULL,
+  actor_sub       TEXT,
+  resource        TEXT,
+  scope           TEXT,
+  surface         TEXT,
+  params_summary  TEXT,
+  outcome         TEXT    NOT NULL,
+  error_msg       TEXT,
+  duration_ms     INTEGER,
+  turn_id         TEXT,
+  folder          TEXT,
+  instance        TEXT,
+  request_id      TEXT,
+  source_ip       TEXT
+);`
+
 // orphanTables stay in messages.db post-cutover: dashd owns some (audit_log,
-// onboarding, …); auth.db starts fresh (auth_* not migrated). routd reads NONE
-// of them — every table it needs moved to routd.db or federated over HTTP.
-// Listed so the summary tells the operator messages.db is NOT retired.
+// …); auth.db starts fresh (auth_* not migrated). routd reads NONE of them —
+// every table it needs moved to routd.db or federated over HTTP. onboarding/
+// invites/onboarding_gates are NOT orphans: onbod OWNS them now and they copy to
+// onbod.db (onbodSpecs). Listed so the summary tells the operator messages.db is
+// NOT retired.
 var orphanTables = []string{
-	"audit_log", "router_state", "onboarding", "onboarding_gates",
-	"invites", "proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
+	"audit_log", "router_state",
+	"proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
 	"auth_users", "auth_sessions",
 }
 
@@ -237,6 +308,20 @@ func migrateSplit(storeDir string, dryRun bool) error {
 			return fmt.Errorf("auth.db identity schema: %w", err)
 		}
 	}
+	// onbod.db: onbod OWNS onboarding/invites/onboarding_gates (onbod 0001).
+	// Bootstrap the schema (IF NOT EXISTS — no-op when onbod already migrated) so
+	// the copy target exists. onbod's migration FS is package-private (package
+	// main), hence the inline DDL (onbodSchema mirrors it verbatim).
+	odb, err := sql.Open("sqlite", filepath.Join(storeDir, "onbod.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return fmt.Errorf("open onbod.db: %w", err)
+	}
+	defer odb.Close()
+	if !dryRun {
+		if _, err := odb.Exec(onbodSchema); err != nil {
+			return fmt.Errorf("onbod.db schema: %w", err)
+		}
+	}
 
 	fmt.Printf("migrate-split: %s\n", storeDir)
 	if dryRun {
@@ -255,6 +340,10 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("auth.db: %w", err)
 	}
+	oN, err := copyInto(odb, msgPath, onbodSpecs, dryRun)
+	if err != nil {
+		return fmt.Errorf("onbod.db: %w", err)
+	}
 
 	// Rebuild the FTS index from the copied messages — we never copy the
 	// internal messages_fts* shadow tables; the routd triggers only fire on
@@ -271,9 +360,10 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  routd.db rows: %s\n", fmtCounts(routdSpecs, rN))
 	fmt.Printf("  runed.db rows: %s\n", fmtCounts(runedSpecs, uN))
 	fmt.Printf("  auth.db rows:  %s\n", fmtCounts(authdSpecs, aN))
+	fmt.Printf("  onbod.db rows: %s\n", fmtCounts(onbodSpecs, oN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; identity copied to auth.db; routd opens NO sibling DB.)")
+	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; identity copied to auth.db; onboarding+invites+gates copied to onbod.db; routd opens NO sibling DB.)")
 	return nil
 }
 

@@ -40,6 +40,7 @@ func main() {
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
 	authdURL := os.Getenv("AUTHD_URL")
 	runedURL := envOr("RUNED_URL", "http://runed:8080")
+	onbodURL := os.Getenv("ONBOD_URL")
 	webHost := os.Getenv("WEB_HOST")
 
 	db, err := routd.Open(filepath.Join(dataDir, "store"))
@@ -88,9 +89,15 @@ func main() {
 	// service:routd token source as the runed client. nil when authd/the service
 	// key is unwired → inspect_identity answers unclaimed (auth-only deployment).
 	var identity routd.IdentityResolver
+	// onbod federates the /invite + /gate slash commands (onbod OWNS invites +
+	// onboarding_gates — spec 5/5), reusing the same service:routd token source.
+	// nil when ONBOD_URL or the service key is unwired → the commands report the
+	// federation gap, exactly as the pre-federation stubs did.
+	var onbod routd.OnbodClient
 	if ts, err := auth.ServiceToken(authdURL, "routd", os.Getenv("AUTHD_SERVICE_KEY")); err == nil {
 		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runTimeout)
 		identity = routd.NewIdentityResolver(authdURL, ts.Token)
+		onbod = routd.NewOnbodClient(onbodURL, ts.Token)
 		slog.Info("routd service-token bootstrap via authd", "authd", authdURL)
 	} else {
 		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
@@ -138,6 +145,7 @@ func main() {
 		),
 	})
 
+	loop.SetOnbodClient(onbod)
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
 	srv.SetIdentityResolver(identity)
 	// session_log run history federated from runed (runed OWNS it — spec 5/P):

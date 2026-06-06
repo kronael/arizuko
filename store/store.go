@@ -91,6 +91,33 @@ func OpenRoutd(dir string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// OpenOnbod opens onbod.db at dir/onbod.db (WAL, FK on) and wraps it as a
+// *Store WITHOUT running store's migrations — onbod owns that file and already
+// created its tables (onboarding/invites/onboarding_gates + audit_log via
+// onbod's own migration set). The host-admin CLI (arizuko invite/gate) and the
+// FS-mounted dashd write invites + gates here in the split topology instead of
+// opening messages.db, since those tables now live in onbod.db (spec 5/5
+// § Daemon ownership). Strict: errors if onbod.db has no invites table (onbod
+// never booted to migrate it) rather than silently creating a divergent schema.
+func OpenOnbod(dir string) (*Store, error) {
+	dsn := filepath.Join(dir, "onbod.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	var n int
+	if err := db.QueryRow(
+		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='invites'").Scan(&n); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("onbod.db at %s has no invites table (onbod must boot to migrate it first): %w", dir, err)
+	}
+	return &Store{db: db}, nil
+}
+
 func OpenMem() (*Store, error) {
 	// `:memory:` SQLite is per-connection; database/sql can pool a second
 	// connection that sees an empty DB. `cache=shared` makes the in-memory

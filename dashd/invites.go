@@ -23,13 +23,14 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Invites")
 	fmt.Fprint(w, `<p class="dim">Invite links. Each token is single-use by default; set max uses for multi-use links.</p>`)
 
-	if d.dbRW == nil {
+	idb := d.invitesDB()
+	if idb == nil {
 		fmt.Fprint(w, htmlBanner("err", "invites store unavailable"))
 		pageClose(w, r)
 		return
 	}
 
-	s := store.New(d.dbRW)
+	s := store.New(idb)
 	invites, err := s.ListInvites("")
 	if err != nil {
 		slog.Warn("invites: list", "err", err)
@@ -113,7 +114,7 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	s := store.New(d.dbRW)
+	s := store.New(d.invitesDB())
 	inv, err := s.CreateInvite(targetGlob, sub, maxUses, expiresAt)
 	if err != nil {
 		slog.Warn("invites: create", "err", err)
@@ -133,7 +134,7 @@ func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "token required", http.StatusBadRequest)
 		return
 	}
-	s := store.New(d.dbRW)
+	s := store.New(d.invitesDB())
 	if err := s.RevokeInvite(token); err != nil {
 		slog.Warn("invites: revoke", "token_prefix", token[:min(8, len(token))], "err", err)
 		http.Error(w, "revoke failed", http.StatusInternalServerError)

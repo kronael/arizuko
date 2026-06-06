@@ -90,10 +90,10 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 //
 // Output text matches gated verbatim (operators rely on the exact responses).
 // routd owns messages/routes/sessions/sticky/chats and reaches containers via
-// its queue + tasks via the sibling messages.db, so /new /chatid /ping /status
-// /stop /root /approve /reject port in full. /invite and /gate need onbod-owned
-// tables (invites + onboarding_gates) routd cannot reach in-process — they
-// dispatch a "needs federation" notice rather than silently dropping.
+// its queue + tasks in routd.db, so /new /chatid /ping /status /stop /root
+// /approve /reject port in full. /invite and /gate need onbod-owned tables
+// (invites + onboarding_gates); routd federates them to onbod over HTTP (the
+// OnbodClient). nil client (ONBOD_URL unset) → they report the federation gap.
 
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
@@ -246,30 +246,41 @@ func (l *Loop) cmdRoot(chatJID, folder, arg string) {
 	}
 }
 
-// cmdInvite is dispatched but cannot be fully wired in routd: onboarding
-// invites live in onbod's tables (store.CreateInvite against messages.db),
-// which routd does not own and reaches only read-only. It validates the
-// tier-0 gate + arg shape exactly as gated, then reports the federation gap
-// instead of minting a (storage-less) token.
+// cmdInvite mints an invite for the root group's subtree (onbod OWNS invites —
+// spec 5/5). It validates the tier-0 gate + arg shape exactly as gated, then
+// calls onbod's POST /v1/invites. nil onbod client (ONBOD_URL unset) → the
+// federation-gap notice. The minted invite targets the root folder + "/" so the
+// redeemer picks a username under it, matching gated's bare /invite semantics.
 func (l *Loop) cmdInvite(chatJID, folder, arg string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root group only.")
 		return
 	}
+	maxUses := 1
 	if arg != "" {
-		if n, err := strconv.Atoi(strings.TrimSpace(arg)); err != nil || n < 1 {
+		n, err := strconv.Atoi(strings.TrimSpace(arg))
+		if err != nil || n < 1 {
 			l.ack(chatJID, "Usage: /invite [max_uses]")
 			return
 		}
+		maxUses = n
 	}
-	l.ack(chatJID, "Invites are managed by onbod; run `arizuko invite` or ask onbod (routd cannot mint invites).")
+	if l.onbod == nil {
+		l.ack(chatJID, "Invites are managed by onbod; run `arizuko invite` (ONBOD_URL not wired).")
+		return
+	}
+	token, err := l.onbod.CreateInvite(folder+"/", maxUses)
+	if err != nil {
+		slog.Warn("cmdInvite: onbod create failed", "jid", chatJID, "folder", folder, "err", err)
+		l.ack(chatJID, "Failed to create invite.")
+		return
+	}
+	l.ack(chatJID, "Invite link token: "+token)
 }
 
-// cmdGate is dispatched but cannot be fully wired in routd: the
-// onboarding_gates table is onbod-owned (store.ListGates/PutGate/... against
-// messages.db) and not reachable from routd in-process. It validates the
-// tier-0 gate + subcommand shape exactly as gated, then reports the federation
-// gap instead of mutating a table it doesn't own.
+// cmdGate manages the onboarding gates (onbod OWNS onboarding_gates — spec 5/5).
+// It validates the tier-0 gate + subcommand shape exactly as gated, then calls
+// onbod's /v1/gates endpoints. nil onbod client → the federation-gap notice.
 func (l *Loop) cmdGate(chatJID, folder, arg string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root only.")
@@ -280,11 +291,73 @@ func (l *Loop) cmdGate(chatJID, folder, arg string) {
 	if len(parts) > 0 {
 		action = parts[0]
 	}
+	// Validate the subcommand shape exactly as gated BEFORE touching onbod, so an
+	// unknown subcommand always gets the usage line (even with no onbod wired).
 	switch action {
 	case "", "list", "add", "rm", "enable", "disable":
-		l.ack(chatJID, "Gates are managed by onbod; use the onbod surface (routd cannot read/mutate onboarding gates).")
 	default:
 		l.ack(chatJID, "Usage: /gate [list|add|rm|enable|disable]")
+		return
+	}
+	if l.onbod == nil {
+		l.ack(chatJID, "Gates are managed by onbod (ONBOD_URL not wired).")
+		return
+	}
+	switch action {
+	case "", "list":
+		gates, err := l.onbod.ListGates()
+		if err != nil {
+			l.ack(chatJID, "Failed to list gates.")
+			return
+		}
+		if len(gates) == 0 {
+			l.ack(chatJID, "no gates")
+			return
+		}
+		var b strings.Builder
+		for _, g := range gates {
+			en := "enabled"
+			if !g.Enabled {
+				en = "disabled"
+			}
+			fmt.Fprintf(&b, "%s %d/day %s\n", g.Gate, g.LimitPerDay, en)
+		}
+		l.ack(chatJID, strings.TrimRight(b.String(), "\n"))
+	case "add":
+		if len(parts) < 3 {
+			l.ack(chatJID, "Usage: /gate add <spec> <N>")
+			return
+		}
+		n, err := strconv.Atoi(strings.TrimSuffix(parts[2], "/day"))
+		if err != nil || n < 1 {
+			l.ack(chatJID, "Usage: /gate add <spec> <N>")
+			return
+		}
+		if err := l.onbod.PutGate(parts[1], n); err != nil {
+			l.ack(chatJID, "Failed to add gate.")
+			return
+		}
+		l.ack(chatJID, fmt.Sprintf("gate added: %s %d/day", parts[1], n))
+	case "rm":
+		if len(parts) < 2 {
+			l.ack(chatJID, "Usage: /gate rm <spec>")
+			return
+		}
+		if err := l.onbod.DeleteGate(parts[1]); err != nil {
+			l.ack(chatJID, "Failed to remove gate.")
+			return
+		}
+		l.ack(chatJID, "gate removed: "+parts[1])
+	case "enable", "disable":
+		if len(parts) < 2 {
+			l.ack(chatJID, "Usage: /gate "+action+" <spec>")
+			return
+		}
+		if err := l.onbod.EnableGate(parts[1], action == "enable"); err != nil {
+			l.ack(chatJID, "Failed to "+action+" gate.")
+			return
+		}
+		l.ack(chatJID, "gate "+action+"d: "+parts[1])
 	}
 }
 

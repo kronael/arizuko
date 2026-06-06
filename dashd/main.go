@@ -150,8 +150,24 @@ func main() {
 		}
 	}
 
+	// onbod OWNS invites/onboarding_gates in the split topology (spec 5/5); the
+	// invites admin page writes there directly (same FS-access discipline).
+	// Best-effort: an absent onbod.db (gated topology / onboarding off) leaves
+	// dbOnbod nil → invitesDB() falls back to messages.db.
+	var dbOnbod *sql.DB
+	if onbodPath := filepath.Join(filepath.Dir(dsn), "onbod.db"); onbodPath != dsn {
+		if _, statErr := os.Stat(onbodPath); statErr == nil {
+			if s, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err == nil {
+				dbOnbod = s
+				defer dbOnbod.Close()
+			} else {
+				slog.Warn("open onbod.db for invites", "path", onbodPath, "err", err)
+			}
+		}
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -176,6 +192,9 @@ type dash struct {
 	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/secrets
 	// in the split topology (spec 5/5); dashd reads+writes those tables here.
 	// Falls back to dbRW when unset (single-DB / tests).
+	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
+	// split topology (spec 5/5); dashd's invites page reads+writes them here.
+	// Falls back to dbRW when unset (single-DB / monolith / tests).
 	dbPath     string
 	groupsDir  string
 	appDir     string // HOST_APP_DIR; used to enumerate stock skills
@@ -199,6 +218,19 @@ func (d *dash) adminDB() *sql.DB {
 // secretsDB returns the handle the /dash/me/secrets paths read+write — the same
 // routd.db handle, since routd also OWNS the secrets table. Falls back to dbRW.
 func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
+
+// invitesDB returns the handle the invites admin page reads+writes. onbod OWNS
+// invites in the split topology, so dashd points its invite SQL at onbod.db
+// (dbOnbod). Falls back to dbRW, then to db (monolith / single-DB fixtures).
+func (d *dash) invitesDB() *sql.DB {
+	if d.dbOnbod != nil {
+		return d.dbOnbod
+	}
+	if d.dbRW != nil {
+		return d.dbRW
+	}
+	return d.db
+}
 
 // guard verifies proxyd's signed X-User-Sig before letting a handler see the
 // identity headers. An empty hmacSecret (local dev / tests) passes through

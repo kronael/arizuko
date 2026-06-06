@@ -292,6 +292,87 @@ func TestCmdGateFederation(t *testing.T) {
 	}
 }
 
+// fakeOnbod records calls and returns canned results for the /invite + /gate
+// federation tests (the production OnbodClient is httpOnbod against onbod).
+type fakeOnbod struct {
+	created  []string // target globs passed to CreateInvite
+	gates    []GateRow
+	putCalls []string // "gate=N"
+	rmCalls  []string
+	enCalls  []string // "gate=true|false"
+}
+
+func (f *fakeOnbod) CreateInvite(targetGlob string, maxUses int) (string, error) {
+	f.created = append(f.created, targetGlob)
+	return "tok-123", nil
+}
+func (f *fakeOnbod) ListGates() ([]GateRow, error) { return f.gates, nil }
+func (f *fakeOnbod) PutGate(gate string, n int) error {
+	f.putCalls = append(f.putCalls, gate)
+	return nil
+}
+func (f *fakeOnbod) DeleteGate(gate string) error {
+	f.rmCalls = append(f.rmCalls, gate)
+	return nil
+}
+func (f *fakeOnbod) EnableGate(gate string, enabled bool) error {
+	f.enCalls = append(f.enCalls, gate)
+	return nil
+}
+
+// TestCmdInviteFederated: with an onbod client wired, /invite mints via onbod
+// and acks the token (no stub text). The target glob is "<root>/" so the
+// redeemer picks a username under root.
+func TestCmdInviteFederated(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	_ = db.PutGroup(core.Group{Folder: "root"})
+
+	_ = steerOne(loop, "web:root", "root", "/invite 5")
+	if len(fo.created) != 1 || fo.created[0] != "root/" {
+		t.Fatalf("CreateInvite calls = %v, want [root/]", fo.created)
+	}
+	if got := lastAck(t, dl); !strings.Contains(got, "tok-123") || strings.Contains(got, "onbod") {
+		t.Fatalf("/invite ack=%q want the token, not a federation stub", got)
+	}
+}
+
+// TestCmdGateFederated: with an onbod client wired, /gate list/add/rm/enable
+// reach onbod and ack the real result (no stub text).
+func TestCmdGateFederated(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	fo := &fakeOnbod{gates: []GateRow{{Gate: "*", LimitPerDay: 10, Enabled: true}}}
+	loop.SetOnbodClient(fo)
+	_ = db.PutGroup(core.Group{Folder: "root"})
+
+	_ = steerOne(loop, "web:root", "root", "/gate list")
+	if got := lastAck(t, dl); !strings.Contains(got, "* 10/day enabled") {
+		t.Fatalf("/gate list ack=%q want the gate row", got)
+	}
+	_ = steerOne(loop, "web:root", "root", "/gate add github:org=acme 25")
+	if len(fo.putCalls) != 1 || fo.putCalls[0] != "github:org=acme" {
+		t.Fatalf("PutGate calls = %v", fo.putCalls)
+	}
+	_ = steerOne(loop, "web:root", "root", "/gate disable github:org=acme")
+	if len(fo.enCalls) != 1 {
+		t.Fatalf("EnableGate calls = %v", fo.enCalls)
+	}
+	_ = steerOne(loop, "web:root", "root", "/gate rm github:org=acme")
+	if len(fo.rmCalls) != 1 {
+		t.Fatalf("DeleteGate calls = %v", fo.rmCalls)
+	}
+	// unknown subcommand still gets the usage line, even with onbod wired.
+	_ = steerOne(loop, "web:root", "root", "/gate bogus")
+	if got := lastAck(t, dl); got != "Usage: /gate [list|add|rm|enable|disable]" {
+		t.Fatalf("/gate bogus ack=%q", got)
+	}
+}
+
 // TestCmdApproveReject: /approve and /reject both ack "HITL not configured".
 func TestCmdApproveReject(t *testing.T) {
 	_, loop, _ := recLoop(t)

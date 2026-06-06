@@ -31,9 +31,11 @@ var serviceGrants = map[string][]string{
 	"service:timed": {"messages:write", "tasks:read", "tasks:write"},
 	"service:onbod": {"messages:write", "groups:write"},
 	"service:gated": {"messages:write", "messages:read", "tasks:read", "tasks:write"},
-	// service:routd dispatches runs (runs:run → runed) and resolves identities
-	// at authd's identity endpoint (identity:read → GET /v1/identities/{sub}).
-	"service:routd": {"runs:run", "identity:read"},
+	// service:routd dispatches runs (runs:run → runed), resolves identities at
+	// authd's identity endpoint (identity:read → GET /v1/identities/{sub}), and
+	// federates the /invite + /gate slash commands to onbod (invites:write +
+	// gates:write → onbod's /v1/invites + /v1/gates; onbod OWNS those tables).
+	"service:routd": {"runs:run", "identity:read", "invites:write", "gates:write"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is

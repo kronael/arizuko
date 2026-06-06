@@ -48,13 +48,13 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, inst.DB, cfg)
+		handleOnboard(w, r, inst.DB, inst.DB, cfg)
 	})
 	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, inst.DB, cfg)
+		handleOnboardPost(w, r, inst.DB, inst.DB, cfg)
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, inst.DB, cfg)
+		handleInvite(w, r, inst.DB, inst.DB, cfg)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -289,7 +289,7 @@ func TestGateRateLimit(t *testing.T) {
 		sub := "github:u" + string(rune('a'+i))
 		inst.DB.Exec(`INSERT INTO onboarding (jid, status, created)
 			VALUES (?, 'token_used', ?)`, jid, now)
-		linkJID(inst.DB, jid, sub)
+		linkJID(inst.DB, inst.DB, jid, sub)
 	}
 
 	var queued int

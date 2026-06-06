@@ -100,7 +100,16 @@ type Loop struct {
 	// A folder whose chat cursor is older than this gets its session reset on
 	// the next spawn so a long-idle conversation starts fresh.
 	sessionIdle time.Duration
+
+	// onbod federates the /invite + /gate slash commands to onbod (it OWNS
+	// invites + onboarding_gates — spec 5/5). nil → the commands report the
+	// federation gap (ONBOD_URL unset / no service key). Set via SetOnbodClient.
+	onbod OnbodClient
 }
+
+// SetOnbodClient wires the onbod federation for the /invite + /gate commands.
+// nil leaves them reporting the federation gap (the pre-federation stub shape).
+func (l *Loop) SetOnbodClient(c OnbodClient) { l.onbod = c }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
 // dispatched run requests from runed's broker (downscoped ⊆ runed's

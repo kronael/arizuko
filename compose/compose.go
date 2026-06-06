@@ -156,7 +156,7 @@ var daemonKeys = map[string][]string{
 	// routd: conversation state. routd.db + adapters (/v1/send) + calls runed.
 	// Verifies via authd JWKS. NO crackbox, NO docker socket.
 	"routd": {
-		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY",
+		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 	},
@@ -442,6 +442,13 @@ func Generate(dataDir string) (string, error) {
 	}
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
+	}
+	// routd federates /invite + /gate to onbod (onbod OWNS invites +
+	// onboarding_gates — spec 5/5). ONBOD_URL is onbod's in-network base URL;
+	// routd's env-file scope (daemonKeys["routd"]) includes it. Only meaningful
+	// when onbod runs (ONBOARDING_ENABLED); harmless otherwise (nil client).
+	if _, ok := env["ONBOD_URL"]; !ok {
+		env["ONBOD_URL"] = "http://onbod:8080"
 	}
 
 	servicesDir := filepath.Join(dataDir, "services")
@@ -780,21 +787,28 @@ func timedService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 func onbodService(app, flavor, dataDir string, env map[string]string) string {
+	// Force ONBOARDING_ENABLED=true inside the container regardless of how the
+	// flag is expressed in .env (gate for daemon inclusion was already decided by
+	// Generate's caller). ROUTER_URL pinned to the canonical router so onbod's
+	// outbound greeting reaches it.
+	environment := map[string]string{
+		"ONBOARDING_ENABLED": "true",
+		"ROUTER_URL":         routerURL(env),
+	}
+	// Split: onbod OWNS onboarding/invites/onboarding_gates in onbod.db (spec
+	// 5/5). ONBOD_DB_PATH points it there; unset (monolith) keeps the shared
+	// messages.db path. Container-internal, so .env can't know it.
+	if splitOn(env) {
+		environment["ONBOD_DB_PATH"] = containerDataMount + "/store/onbod.db"
+	}
 	return writeSvc(svcDef{
-		name:       "onbod",
-		app:        app,
-		flavor:     flavor,
-		entrypoint: "onbod",
-		dataDir:    dataDir,
-		// Force ONBOARDING_ENABLED=true inside the container regardless of how
-		// the flag is expressed in .env (gate for daemon inclusion was already
-		// decided by Generate's caller). ROUTER_URL pinned to the canonical
-		// router so onbod's outbound greeting reaches it.
-		environment: map[string]string{
-			"ONBOARDING_ENABLED": "true",
-			"ROUTER_URL":         routerURL(env),
-		},
-		env: env,
+		name:        "onbod",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "onbod",
+		dataDir:     dataDir,
+		environment: environment,
+		env:         env,
 	})
 }
 

@@ -456,6 +456,29 @@ func mustOpenACL(dataDir string) *store.Store {
 	return s
 }
 
+// mustOpenOnbod opens the *Store holding onbod's OWNED tables (invites +
+// onboarding_gates) for the invite/gate write path. DUAL-PATH: in the split
+// onbod OWNS them in onbod.db (spec 5/5), so when that file exists the CLI
+// writes there directly — same FS-access discipline as it wrote messages.db
+// before, no token plumbing. Monolith (no onbod.db) → messages.db via
+// store.Open. Mirrors mustOpenACL but stays dual so the CLI works pre- and
+// post-cutover.
+func mustOpenOnbod(dataDir string) *store.Store {
+	storeDir := filepath.Join(dataDir, "store")
+	if _, err := os.Stat(filepath.Join(storeDir, "onbod.db")); err == nil {
+		s, oerr := store.OpenOnbod(storeDir)
+		if oerr != nil {
+			die("Failed: open onbod.db: %v", oerr)
+		}
+		return s
+	}
+	s, err := store.Open(storeDir)
+	if err != nil {
+		die("Failed: open db: %v", err)
+	}
+	return s
+}
+
 // runGrant writes acl rows audit-free (routd.db has no audit_log table — same
 // discipline as routd's own grant endpoint).
 func runGrant(s *store.Store, sub, pat string, w io.Writer) error {
@@ -530,10 +553,7 @@ func cmdGate(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	s := mustOpenOnbod(dataDir)
 	defer s.Close()
 
 	switch action {
@@ -601,10 +621,7 @@ func cmdInvite(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	s := mustOpenOnbod(dataDir)
 	defer s.Close()
 
 	switch action {

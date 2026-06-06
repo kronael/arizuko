@@ -42,6 +42,7 @@ type gate struct {
 type config struct {
 	core         *core.Config
 	dsn          string
+	ownDSN       string // ONBOD_DB_PATH: split-mode onbod.db for the OWNED tables; empty = monolith (messages.db)
 	secret       string
 	listenAddr   string
 	gatedURL     string
@@ -76,7 +77,25 @@ func main() {
 		slog.Warn("set WAL mode", "err", err)
 	}
 
-	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
+	// obdb holds onbod's OWNED tables (onboarding/invites/onboarding_gates).
+	// Split (ONBOD_DB_PATH set): a separate onbod.db so onbod stops sibling-
+	// writing gated's messages.db. Monolith (unset): obdb == db, every owned-
+	// table query stays in the shared messages.db exactly as before. audit.Init
+	// targets obdb so the invite/gate store writers' in-tx audit rows land in
+	// the same DB as the mutation (onbod.db owns its own audit_log; monolith
+	// reuses messages.db's).
+	obdb := db
+	if cfg.ownDSN != "" {
+		obdb, err = openOwnedDB(cfg.ownDSN)
+		if err != nil {
+			slog.Error("open onbod.db", "err", err)
+			os.Exit(1)
+		}
+		defer obdb.Close()
+		slog.Info("onbod owns split DB", "path", cfg.ownDSN)
+	}
+
+	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",
@@ -111,14 +130,27 @@ func main() {
 	})
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("onbod", []string{"onboarding_gates"}))
 	mux.HandleFunc("GET /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboard(w, r, db, cfg)
+		handleOnboard(w, r, db, obdb, cfg)
 	}))
 	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, db, cfg)
+		handleOnboardPost(w, r, db, obdb, cfg)
 	}))
 	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleInvite(w, r, db, cfg)
+		handleInvite(w, r, db, obdb, cfg)
 	}))
+
+	// Bearer-gated admin surface (spec 5/5 § Daemon ownership). onbod OWNS
+	// invites + onboarding_gates; the writers (dashd, CLI, routd's /invite +
+	// /gate) reach them here instead of writing the DB directly in the split.
+	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
+	// open, like routd's nil-verifier local-dev path.
+	adm := &admin{db: obdb, ks: ks}
+	mux.HandleFunc("POST /v1/invites", adm.handleInviteCreate)
+	mux.HandleFunc("GET /v1/invites", adm.handleInviteList)
+	mux.HandleFunc("DELETE /v1/invites/{token}", adm.handleInviteRevoke)
+	mux.HandleFunc("GET /v1/gates", adm.handleGateList)
+	mux.HandleFunc("PUT /v1/gates/{gate}", adm.handleGatePut)
+	mux.HandleFunc("DELETE /v1/gates/{gate}", adm.handleGateDelete)
 
 	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
 	go func() {
@@ -134,16 +166,16 @@ func main() {
 	tick := time.NewTicker(cfg.pollInterval)
 	defer tick.Stop()
 
-	promptUnprompted(db, cfg)
-	admitFromQueue(db)
+	promptUnprompted(obdb, cfg)
+	admitFromQueue(obdb)
 	var admitCount int
 	for {
 		select {
 		case <-tick.C:
-			promptUnprompted(db, cfg)
+			promptUnprompted(obdb, cfg)
 			admitCount++
 			if admitCount*int(cfg.pollInterval.Seconds()) >= 60 {
-				admitFromQueue(db)
+				admitFromQueue(obdb)
 				admitCount = 0
 			}
 		case <-stop:
@@ -165,6 +197,7 @@ func loadConfig() (config, error) {
 	cfg := config{
 		core:         coreCfg,
 		dsn:          filepath.Join(coreCfg.ProjectRoot, "store", "messages.db"),
+		ownDSN:       os.Getenv("ONBOD_DB_PATH"),
 		secret:       coreCfg.ChannelSecret,
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
@@ -291,26 +324,32 @@ func resetRow(db *sql.DB) {
 	}
 }
 
-func handleOnboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+// handleOnboard and the onboarding flow below take two handles: db is the
+// CROSS-table DB (auth_users/acl/groups/routes/acl_membership — messages.db in
+// monolith, routd.db/auth.db owners in the split) and obdb is onbod's OWNED-
+// table DB (onboarding/invites/onboarding_gates — onbod.db in the split). In
+// the monolith obdb == db. Owned-table queries route through obdb; cross-table
+// queries stay on db.
+func handleOnboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
 	token := r.URL.Query().Get("token")
 	userSub := r.Header.Get("X-User-Sub")
 
 	if token != "" {
-		handleTokenLanding(w, r, db, cfg, token)
+		handleTokenLanding(w, r, db, obdb, cfg, token)
 		return
 	}
 	if userSub != "" {
 		ensureCSRFToken(w, r, cfg)
-		handleDashboard(w, r, db, cfg, userSub)
+		handleDashboard(w, r, db, obdb, cfg, userSub)
 		return
 	}
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
-func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, token string) {
+func handleTokenLanding(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, token string) {
 	now := time.Now().Format(time.RFC3339)
 	var jid string
-	err := db.QueryRow(
+	err := obdb.QueryRow(
 		`SELECT jid FROM onboarding
 		 WHERE token = ?
 		   AND status IN ('awaiting_message', 'token_used')
@@ -336,8 +375,8 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	})
 
 	if userSub := r.Header.Get("X-User-Sub"); userSub != "" {
-		claimOnboarding(db, jid, userSub)
-		linkJID(db, jid, userSub)
+		claimOnboarding(obdb, jid, userSub)
+		linkJID(db, obdb, jid, userSub)
 		http.Redirect(w, r, "/onboard", http.StatusSeeOther)
 		return
 	}
@@ -345,8 +384,8 @@ func handleTokenLanding(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg 
 	http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 }
 
-func claimOnboarding(db *sql.DB, jid, userSub string) bool {
-	res, err := db.Exec(
+func claimOnboarding(obdb *sql.DB, jid, userSub string) bool {
+	res, err := obdb.Exec(
 		`UPDATE onboarding
 		 SET user_sub = ?, status = 'token_used', token = NULL
 		 WHERE jid = ? AND user_sub IS NULL`,
@@ -359,16 +398,16 @@ func claimOnboarding(db *sql.DB, jid, userSub string) bool {
 	return n == 1
 }
 
-func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config, userSub string) {
+func handleDashboard(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config, userSub string) {
 	if c, err := r.Cookie("onboard_jid"); err == nil && c.Value != "" {
-		claimed := claimOnboarding(db, c.Value, userSub)
+		claimed := claimOnboarding(obdb, c.Value, userSub)
 		// Single-use cookie: clear regardless of claim outcome.
 		http.SetCookie(w, &http.Cookie{
 			Name: "onboard_jid", Value: "", Path: "/",
 			MaxAge: -1, HttpOnly: true, Secure: cfg.secureCookie, SameSite: http.SameSiteLaxMode,
 		})
 		if claimed {
-			linkJID(db, c.Value, userSub)
+			linkJID(db, obdb, c.Value, userSub)
 			var folder string
 			if err := db.QueryRow(
 				`SELECT g.folder FROM groups g
@@ -387,10 +426,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg con
 	}
 
 	var qGate, qAt string
-	if db.QueryRow(
+	if obdb.QueryRow(
 		`SELECT gate, queued_at FROM onboarding WHERE user_sub = ? AND status = 'queued' LIMIT 1`,
 		userSub).Scan(&qGate, &qAt) == nil {
-		renderQueuePosition(w, db, qGate, qAt)
+		renderQueuePosition(w, obdb, qGate, qAt)
 		return
 	}
 
@@ -432,7 +471,12 @@ func checkCSRF(r *http.Request) bool {
 	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
 }
 
-func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+// handleOnboardPost dispatches the dashboard form actions. All three
+// (create_world / delete_route / add_route) operate on CROSS-table state
+// (auth_users/groups/acl/routes); none touches an onbod-owned table, so obdb is
+// threaded for signature symmetry only.
+func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
+	_ = obdb
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -582,7 +626,10 @@ func gateFromKey(key string, limit int) gate {
 	return gate{kind: kind, param: param, limitPerDay: limit}
 }
 
-func linkJID(db *sql.DB, jid, userSub string) {
+// linkJID binds a platform JID to userSub (acl_membership — CROSS) then advances
+// the JID's onboarding row (queued or approved per the gates — OWNED). db is the
+// acl-membership DB; obdb owns onboarding + onboarding_gates.
+func linkJID(db, obdb *sql.DB, jid, userSub string) {
 	var existingSub string
 	if err := db.QueryRow(
 		`SELECT parent FROM acl_membership WHERE child = ?`, jid,
@@ -596,11 +643,11 @@ func linkJID(db *sql.DB, jid, userSub string) {
 		 VALUES (?, ?, ?, 'linkJID')`,
 		jid, userSub, now)
 
-	gates := loadGates(db)
+	gates := loadGates(obdb)
 	if len(gates) > 0 {
 		if g := matchGate(gates, userSub); g != nil {
 			k := gateKey(*g)
-			db.Exec(
+			obdb.Exec(
 				`UPDATE onboarding SET status = 'queued', user_sub = ?, gate = ?, queued_at = ? WHERE jid = ?`,
 				userSub, k, now, jid)
 			audit.Emit(context.Background(), audit.Event{
@@ -623,7 +670,7 @@ func linkJID(db *sql.DB, jid, userSub string) {
 		return
 	}
 
-	db.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
+	obdb.Exec(`UPDATE onboarding SET status = 'approved', user_sub = ?, admitted_at = ? WHERE jid = ?`,
 		userSub, time.Now().UTC().Format(time.RFC3339), jid)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryMutation,
@@ -743,7 +790,7 @@ func admitFromQueue(db *sql.DB) {
 	}
 }
 
-func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
+func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
 	token := r.PathValue("token")
 	if token == "" {
 		renderPage(w, "Invalid Invite", template.HTML("<p>No invite token provided.</p>"))
@@ -762,7 +809,13 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config
 		return
 	}
 
-	st := store.New(db)
+	// invites is onbod-OWNED → read/consume through obdb. NOTE: ConsumeInvite
+	// also inserts the redemption's acl admin row in the SAME tx; acl is
+	// routd-owned in the split, so when obdb != db (split) that acl write lands
+	// in onbod.db, not routd.db. Monolith (obdb == db) is correct end-to-end.
+	// FLAGGED: split invite REDEMPTION needs the acl grant federated to routd —
+	// out of scope here (this pass federates the OWNED tables + writer surfaces).
+	st := store.New(obdb)
 
 	inv, err := st.GetInvite(token)
 	if err != nil {
