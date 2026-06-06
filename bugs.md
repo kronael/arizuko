@@ -1871,3 +1871,22 @@ FLEET RISK: marinade + sloth + any instance created before SECRETS_KEY-gen lande
 redeploying any of them: set SECRETS_KEY in the instance .env first (64 hex chars =
 hex(32 random bytes), matching `arizuko create`). Hardening options: gated warn-not-fatal
 for one release grace; `arizuko` backfills SECRETS_KEY on upgrade.
+
+## CRITICAL: dashd /dash/me/secrets writes secrets PLAINTEXT + leaks them to audit_log (2026-06-06)
+
+Found by the CTO docs-review sub, confirmed against code. The docs (concepts/secrets.html:92
+"no plaintext secret in audit logs", security/index.html:43 "values encrypted AES-256-GCM",
+index.html:257) promise encrypted-at-rest + no-plaintext-in-audit. The dashd write path VIOLATES both:
+- **Plaintext at rest:** handleMeSecretCreate/Update (dashd/me_secrets.go:135-140) does a raw
+  `INSERT ... VALUES(?, body.Value, ?)` over a bare sql.DB (dashd/main.go:105) that NEVER sets
+  the secret keyring -> dashboard-written user secrets are stored plaintext (until the next gated
+  boot re-encrypts via store/secrets.go:263). The CLI path (store.SetSecret->seal) DOES encrypt;
+  only the dashd UI path is broken.
+- **Plaintext in audit:** me_secrets.go:155-157,212-214 emits ParamsSummary{"value": body.Value};
+  audit/log.go:204 redactRE matches secret/token/^key$ but NOT "value" -> the raw secret lands
+  plaintext in audit_log.params_summary FOREVER.
+FIX (code, not docs — docs describe the intended design correctly): route dashd secret writes
+through store.SetSecret(ScopeUser,...) so they encrypt; drop/rename the raw "value" in the audit
+ParamsSummary (rename to a redactRE-matched key, or omit). Highest-severity open finding.
+Minor doc drifts also flagged: security/index.html:83 says JWT access TTL 15m, code is 1h
+(auth/web.go:26); security/index.html:44 calls /dash/me/secrets "not yet shipped" but it ships.
