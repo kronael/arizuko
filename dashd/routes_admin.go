@@ -13,7 +13,6 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
 )
 
 func decodeJSONBody(r *http.Request, out any) error {
@@ -33,13 +32,13 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Routes")
 	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
 
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		fmt.Fprint(w, htmlBanner("err", "routes store unavailable"))
 		pageClose(w, r)
 		return
 	}
 
-	rows, err := d.dbRW.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT id, seq, match, target,
 		        COALESCE(observe_window_messages, 0),
 		        COALESCE(observe_window_chars, 0)
@@ -139,17 +138,22 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	s := store.New(d.dbRW)
-	id, err := s.AddRoute(core.Route{Seq: body.Seq, Match: body.Match, Target: body.Target})
+	// Raw INSERT (not store.AddRoute): routd.db has no audit_log table, so the
+	// audited writer would roll back — same audit-free discipline as the secrets
+	// and grant rewires.
+	res, err := d.adminDB().Exec(
+		`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
+		body.Seq, body.Match, body.Target)
 	if err != nil {
 		slog.Warn("routes: add", "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
+	id, _ := res.LastInsertId()
 	slog.Info("route added", "id", id, "match", body.Match, "target", body.Target)
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		w.WriteHeader(http.StatusCreated)
@@ -175,11 +179,11 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	res, err := d.dbRW.Exec(
+	res, err := d.adminDB().Exec(
 		`UPDATE routes SET seq = ?, match = ?, target = ? WHERE id = ?`,
 		body.Seq, body.Match, body.Target, id)
 	if err != nil {
@@ -217,13 +221,13 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	// Resolve folder via the existing route row so we can gate admin to scope.
 	var target string
-	if err := d.dbRW.QueryRow(`SELECT target FROM routes WHERE id = ?`, id).Scan(&target); err != nil {
+	if err := d.adminDB().QueryRow(`SELECT target FROM routes WHERE id = ?`, id).Scan(&target); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -236,7 +240,7 @@ func (d *dash) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	if _, err := d.dbRW.Exec(`DELETE FROM routes WHERE id = ?`, id); err != nil {
+	if _, err := d.adminDB().Exec(`DELETE FROM routes WHERE id = ?`, id); err != nil {
 		slog.Warn("routes: delete", "id", id, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return

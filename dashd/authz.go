@@ -36,7 +36,7 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 			}
 		}
 	}
-	s := store.New(d.dbRW)
+	s := store.New(d.adminDB())
 	caller := auth.Caller{Principal: sub, Extra: extra}
 	if !auth.Authorize(s, caller, "admin", scope, nil) {
 		http.Error(w, "forbidden", http.StatusForbidden)

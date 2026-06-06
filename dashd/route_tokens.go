@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"strings"
@@ -8,6 +9,16 @@ import (
 
 	"github.com/kronael/arizuko/store"
 )
+
+// hashRouteToken mirrors store's token-hash scheme (sha256 of the raw token,
+// stored as the route_tokens BLOB primary key — spec 5/W). dashd writes
+// route_tokens directly into routd.db, which has no audit_log table, so it
+// can't use store's audited InsertRouteToken/RevokeRouteToken; the hash scheme
+// is a stable wire contract, replicated here for the audit-free raw write.
+func hashRouteToken(raw string) []byte {
+	sum := sha256.Sum256([]byte(raw))
+	return sum[:]
+}
 
 
 // Route tokens dashboard: per-folder list + issue + revoke.
@@ -29,13 +40,13 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	st := store.New(d.db)
+	st := store.New(d.adminDB())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Tokens — "+folder)
 
 	if r.Method == http.MethodPost {
-		if d.dbRW == nil {
+		if d.adminDB() == nil {
 			fmt.Fprint(w, htmlBanner("err", "read-only mode"))
 			pageClose(w, r)
 			return
@@ -57,8 +68,13 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		if jid != "" {
 			raw := store.GenRouteToken()
-			rt := store.RouteToken{JID: jid, OwnerFolder: folder, CreatedAt: time.Now()}
-			if err := store.New(d.dbRW).InsertRouteToken(raw, rt); err != nil {
+			// Raw INSERT (not store.InsertRouteToken): routd.db has no audit_log
+			// table, so the audited writer would roll back. Same audit-free
+			// discipline as the secrets and grant rewires.
+			_, err := d.adminDB().Exec(
+				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
+				hashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano))
+			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
 				fmt.Fprint(w, htmlBanner("ok", "Token issued. Copy it now — it will not be shown again.<br><code>"+esc(raw)+"</code>"))
@@ -104,12 +120,18 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "read-only", http.StatusServiceUnavailable)
 		return
 	}
-	revoked, err := store.New(d.dbRW).RevokeRouteToken(jid, folder)
-	if err != nil || !revoked {
+	// Raw DELETE (not store.RevokeRouteToken): audit-free for routd.db.
+	res, err := d.adminDB().Exec(
+		`DELETE FROM route_tokens WHERE jid = ? AND owner_folder = ?`, jid, folder)
+	if err != nil {
+		http.Error(w, "revoke failed", http.StatusInternalServerError)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return
 	}

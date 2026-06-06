@@ -71,13 +71,13 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
 	var exists int
-	if err := d.dbRW.QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&exists); err != nil {
+	if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM groups WHERE folder = ?`, folder).Scan(&exists); err != nil {
 		slog.Warn("group create: exists check", "folder", folder, "err", err)
 		http.Error(w, "check failed", http.StatusInternalServerError)
 		return
@@ -98,10 +98,14 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "setup failed", http.StatusInternalServerError)
 		return
 	}
-	s := store.New(d.dbRW)
-	if err := s.PutGroup(core.Group{
-		Folder: folder, AddedAt: time.Now(), Product: product,
-	}); err != nil {
+	s := store.New(d.adminDB())
+	// Raw INSERT (not store.PutGroup): routd.db has no audit_log table, so the
+	// audited writer would roll back — same audit-free discipline as the secrets
+	// and grant rewires.
+	now := time.Now().Format(time.RFC3339)
+	if _, err := d.adminDB().Exec(
+		`INSERT INTO groups (folder, added_at, product, updated_at) VALUES (?, ?, ?, ?)`,
+		folder, now, product, now); err != nil {
 		slog.Error("group create: insert", "folder", folder, "err", err)
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
@@ -110,7 +114,7 @@ func (d *dash) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("group create: seed tasks", "folder", folder, "err", err)
 	}
 	// Grant admin to creator on the new folder.
-	if _, err := d.dbRW.Exec(`INSERT OR IGNORE INTO acl
+	if _, err := d.adminDB().Exec(`INSERT OR IGNORE INTO acl
 		(principal, action, scope, effect, params, predicate, granted_at, granted_by)
 		VALUES (?, 'admin', ?, 'allow', '', '', datetime('now'), 'dashd')`,
 		sub, folder); err != nil {
@@ -202,14 +206,14 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", "Settings"},
 	)
 
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)
 		return
 	}
 	var product, groupModel string
 	var cfgJSON *string
-	err := d.dbRW.QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
+	err := d.adminDB().QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
 	if err != nil {
 		fmt.Fprint(w, htmlBanner("err", "group not found: "+err.Error()))
 		pageClose(w, r)
@@ -220,7 +224,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(*cfgJSON), &groupCfg)
 	}
 
-	s := store.New(d.dbRW)
+	s := store.New(d.adminDB())
 	open := s.IsGroupOpen(folder)
 	owMsgs, owChars := s.GroupObserveWindow(folder)
 	if owMsgs < 0 {
@@ -319,7 +323,7 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 	owChars, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
 	maxChildren, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("max_children")))
 	model := r.FormValue("model")
-	s := store.New(d.dbRW)
+	s := store.New(d.adminDB())
 	if err := s.SetGroupOpen(folder, open); err != nil {
 		slog.Warn("group settings save: open", "folder", folder, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
@@ -376,11 +380,11 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
 	}
-	if d.dbRW == nil {
+	if d.adminDB() == nil {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	res, err := d.dbRW.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
+	res, err := d.adminDB().Exec(`DELETE FROM groups WHERE folder = ?`, folder)
 	if err != nil {
 		slog.Warn("group delete: db", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)

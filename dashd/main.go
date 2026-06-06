@@ -135,23 +135,23 @@ func main() {
 		slog.Warn("PROXYD_HMAC_SECRET unset in dashd — signed-identity verification disabled, dashd open (local dev)")
 	}
 
-	// routd.db OWNS the secrets table in the split topology (spec 5/5); dashd
-	// mounts the data dir, so it points its /dash/me/secrets SQL straight at
-	// routd.db (no token plumbing — same FS-access discipline as messages.db).
+	// routd OWNS acl/groups/routes/route_tokens/secrets in the split topology
+	// (spec 5/5); dashd mounts the data dir, so it points its admin SQL straight
+	// at routd.db (no token plumbing — same FS-access discipline as messages.db).
 	// Best-effort: an absent routd.db (gated topology / fresh instance) leaves
-	// dbSec nil → secretsDB() falls back to messages.db.
-	var dbSec *sql.DB
+	// dbRoutd nil → adminDB()/secretsDB() fall back to messages.db.
+	var dbRoutd *sql.DB
 	if routdPath := filepath.Join(filepath.Dir(dsn), "routd.db"); routdPath != dsn {
 		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err == nil {
-			dbSec = s
-			defer dbSec.Close()
+			dbRoutd = s
+			defer dbRoutd.Close()
 		} else {
-			slog.Warn("open routd.db for secrets", "path", routdPath, "err", err)
+			slog.Warn("open routd.db for admin tables", "path", routdPath, "err", err)
 		}
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbSec: dbSec, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -171,25 +171,34 @@ func main() {
 }
 
 type dash struct {
-	db    *sql.DB
-	dbRW  *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
-	dbSec *sql.DB // routd.db handle for the user-secrets table (split topology — routd
-	// OWNS secrets, spec 5/5). Falls back to dbRW when unset (single-DB / tests).
+	db      *sql.DB
+	dbRW    *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
+	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/secrets
+	// in the split topology (spec 5/5); dashd reads+writes those tables here.
+	// Falls back to dbRW when unset (single-DB / tests).
 	dbPath     string
 	groupsDir  string
 	appDir     string // HOST_APP_DIR; used to enumerate stock skills
 	hmacSecret string // PROXYD_HMAC_SECRET; "" → guard open (local dev / tests)
 }
 
-// secretsDB returns the handle the /dash/me/secrets paths read+write. In the
-// split topology routd OWNS the secrets table, so dashd points its secret SQL at
-// routd.db (dbSec) instead of messages.db. Falls back to dbRW (single-DB / tests).
-func (d *dash) secretsDB() *sql.DB {
-	if d.dbSec != nil {
-		return d.dbSec
+// adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
+// read+write. routd OWNS those tables in the split topology, so dashd points its
+// admin SQL at routd.db (dbRoutd). Falls back to dbRW, then to db (read-only
+// single-DB fixtures wire only db).
+func (d *dash) adminDB() *sql.DB {
+	if d.dbRoutd != nil {
+		return d.dbRoutd
 	}
-	return d.dbRW
+	if d.dbRW != nil {
+		return d.dbRW
+	}
+	return d.db
 }
+
+// secretsDB returns the handle the /dash/me/secrets paths read+write — the same
+// routd.db handle, since routd also OWNS the secrets table. Falls back to dbRW.
+func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
 
 // guard verifies proxyd's signed X-User-Sig before letting a handler see the
 // identity headers. An empty hmacSecret (local dev / tests) passes through
@@ -661,7 +670,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
 
-	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "error: "+err.Error()))
@@ -747,7 +756,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) writeGroupRoutes(w http.ResponseWriter, folder string) {
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT seq, match, target FROM routes WHERE target=? OR target LIKE ? ORDER BY seq LIMIT 200`,
 		folder, folder+"/%")
 	if err != nil {
@@ -930,7 +939,7 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Memory")
 	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
 
-	rows, err := d.db.Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
+	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("memory: groups query", "err", err)
 		fmt.Fprint(w, htmlBanner("err", "groups query error: "+err.Error()))

@@ -32,7 +32,7 @@ func (d *dash) handleGroupTools(w http.ResponseWriter, r *http.Request) {
 	)
 
 	id := auth.Resolve(folder)
-	s := store.New(d.db)
+	s := store.New(d.adminDB())
 	rules := grants.DeriveRules(s, folder, id.Tier, auth.WorldOf(folder))
 	tools := ipc.ListTools(folder, rules)
 
