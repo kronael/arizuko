@@ -11,12 +11,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// turnInstance is the package-level instance string, set by Setup so
-// WithTurn can fold instance into the trace ID without a per-call arg.
-// Daemons that never call Setup get the empty string and still get
-// trace correlation within their own process.
-var turnInstance string
-
 // HashTurnID returns a deterministic OTel TraceID from instance + "/" + turnID.
 // Same input → same TraceID across daemons in the same instance, so the
 // collector groups all events of one turn under one trace.
@@ -28,44 +22,49 @@ func HashTurnID(instance, turnID string) trace.TraceID {
 }
 
 // WithTurn stamps an OTel SpanContext on ctx whose TraceID is derived from
-// the turn ID (deterministic) and SpanID is freshly random per turn. Outbound
-// HTTP clients reading this ctx propagate the right trace via traceparent.
-// Called once per turn at gateway turn-open.
-func WithTurn(ctx context.Context, turnID string) context.Context {
-	traceID := HashTurnID(turnInstance, turnID)
+// (instance, turnID) — deterministic, so every daemon that handles the turn
+// shares one trace — and whose SpanID is fresh per call. Call it ONCE at the
+// origin (gateway turn-open); downstream daemons inherit the trace via
+// ExtractRequest, never a second WithTurn. Only logs emitted through the
+// *Context slog APIs (slog.InfoContext, …) on this ctx carry the TraceID to
+// the collector — plain slog.Info has no ctx and stays uncorrelated.
+func WithTurn(ctx context.Context, instance, turnID string) context.Context {
+	traceID := HashTurnID(instance, turnID)
 	var spanID trace.SpanID
-	_, _ = rand.Read(spanID[:])
+	if _, err := rand.Read(spanID[:]); err != nil {
+		// A zero SpanID makes the SpanContext invalid and silently suppresses
+		// propagation; on the (rare) rand failure derive a stable non-zero one.
+		copy(spanID[:], traceID[8:])
+	}
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
 		TraceFlags: trace.FlagsSampled,
-		Remote:     false,
 	})
 	return trace.ContextWithSpanContext(ctx, sc)
 }
 
-// SetInstance configures the package-level instance string used by WithTurn.
-// Setup calls this; tests that exercise WithTurn directly may call it too.
-func SetInstance(instance string) { turnInstance = instance }
-
-// InjectTraceparent writes a W3C traceparent header from ctx's SpanContext.
-// No SpanContext on ctx → no header written.
-func InjectTraceparent(ctx context.Context, h http.Header) {
+// InjectRequest writes a W3C traceparent header onto an outbound request from
+// ctx's SpanContext, so a sibling daemon can join the same trace. No
+// SpanContext on ctx → no header (harmless). Call right before sending any
+// cross-daemon HTTP request.
+func InjectRequest(ctx context.Context, req *http.Request) {
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		return
 	}
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(h))
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 }
 
-// ExtractTraceparent reads a W3C traceparent header into a new ctx. Used by
-// non-trust-boundary daemons receiving HTTP from sibling daemons. At trust
-// boundaries (channel-adapter ingress, webhook) callers ignore the result
-// and stamp their own via WithTurn.
-func ExtractTraceparent(ctx context.Context, h http.Header) context.Context {
-	return otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(h))
+// ExtractRequest returns the request's context augmented with any inbound
+// traceparent — use it as the base ctx for the handler's work and *Context
+// logging. At trust boundaries (channel-adapter ingress, webhook) ignore this
+// and mint a fresh trace with WithTurn instead.
+func ExtractRequest(req *http.Request) context.Context {
+	return otel.GetTextMapPropagator().Extract(req.Context(), propagation.HeaderCarrier(req.Header))
 }
 
 func init() {
-	// Register the W3C TraceContext propagator as the default.
+	// W3C TraceContext is the default propagator process-wide. Cheap, one-time,
+	// and harmless when OTLP is disabled (nothing reads it without WithTurn).
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 }

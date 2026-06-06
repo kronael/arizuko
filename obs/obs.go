@@ -10,6 +10,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
@@ -28,9 +29,8 @@ import (
 //
 //	defer obs.Setup("gated", instance)()
 func Setup(daemon, instance string) func() {
-	SetInstance(instance)
 	stock := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: levelFromEnv(),
 	})
 
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
@@ -48,7 +48,7 @@ func Setup(daemon, instance string) func() {
 		return func() {}
 	}
 
-	res, _ := resource.Merge(
+	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
@@ -58,6 +58,9 @@ func Setup(daemon, instance string) func() {
 			semconv.DeploymentEnvironment(instance),
 		),
 	)
+	if err != nil {
+		slog.Warn("obs: resource merge incomplete", "err", err)
+	}
 
 	provider := log.NewLoggerProvider(
 		log.WithProcessor(log.NewBatchProcessor(exporter)),
@@ -70,6 +73,24 @@ func Setup(daemon, instance string) func() {
 	return func() {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = provider.Shutdown(shutCtx)
+		if err := provider.Shutdown(shutCtx); err != nil {
+			slog.Warn("obs: otlp flush on shutdown failed", "err", err)
+		}
+	}
+}
+
+// levelFromEnv reads LOG_LEVEL (debug|info|warn|error, case-insensitive),
+// default info. Applies to the stderr stream whether or not OTLP is enabled,
+// so a daemon's verbosity is one env var, not a recompile.
+func levelFromEnv() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }

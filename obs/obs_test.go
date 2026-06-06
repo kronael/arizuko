@@ -134,8 +134,7 @@ func TestHashTurnID_Distinct(t *testing.T) {
 }
 
 func TestWithTurn_StampsContext(t *testing.T) {
-	SetInstance("krons")
-	ctx := WithTurn(context.Background(), "t-789")
+	ctx := WithTurn(context.Background(), "krons", "t-789")
 
 	sc := trace.SpanContextFromContext(ctx)
 	if !sc.IsValid() {
@@ -151,16 +150,17 @@ func TestWithTurn_StampsContext(t *testing.T) {
 }
 
 func TestPropagation_Roundtrip(t *testing.T) {
-	SetInstance("krons")
-	ctxOut := WithTurn(context.Background(), "t-rt")
+	ctxOut := WithTurn(context.Background(), "krons", "t-rt")
 
-	hdr := http.Header{}
-	InjectTraceparent(ctxOut, hdr)
-	if hdr.Get("traceparent") == "" {
-		t.Fatal("InjectTraceparent did not write traceparent")
+	out, _ := http.NewRequest("GET", "http://x", nil)
+	InjectRequest(ctxOut, out)
+	if out.Header.Get("traceparent") == "" {
+		t.Fatal("InjectRequest did not write traceparent")
 	}
 
-	ctxIn := ExtractTraceparent(context.Background(), hdr)
+	in, _ := http.NewRequest("GET", "http://x", nil)
+	in.Header = out.Header
+	ctxIn := ExtractRequest(in)
 	scIn := trace.SpanContextFromContext(ctxIn)
 	scOut := trace.SpanContextFromContext(ctxOut)
 	if scIn.TraceID() != scOut.TraceID() {
@@ -171,11 +171,11 @@ func TestPropagation_Roundtrip(t *testing.T) {
 	}
 }
 
-func TestInjectTraceparent_NoCtx_NoHeader(t *testing.T) {
-	hdr := http.Header{}
-	InjectTraceparent(context.Background(), hdr)
-	if hdr.Get("traceparent") != "" {
-		t.Errorf("InjectTraceparent wrote a header for a ctx with no SpanContext: %q",
-			hdr.Get("traceparent"))
+func TestInjectRequest_NoCtx_NoHeader(t *testing.T) {
+	req, _ := http.NewRequest("GET", "http://x", nil)
+	InjectRequest(context.Background(), req)
+	if req.Header.Get("traceparent") != "" {
+		t.Errorf("InjectRequest wrote a header for a ctx with no SpanContext: %q",
+			req.Header.Get("traceparent"))
 	}
 }
