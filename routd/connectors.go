@@ -3,11 +3,8 @@ package routd
 // Connector loader: reads <data_dir>/connectors.toml (or $CONNECTORS_TOML) at
 // routd boot, discovers each connector's tools by spawning the subprocess once,
 // returns a namespaced ConnectorTool catalog the per-turn MCP socket registers
-// through the broker chain. Faithful port of gateway/connectors.go (gated's
-// private glue) — the TOML shape, env override, validation, and 15s discovery
-// timeout are identical so routd and gated load the same file the same way.
-// The reusable half (ConnectorSpec + DiscoverConnectorTools + CallConnectorTool)
-// lives in ipc and is shared verbatim. Spec 7/Y M6.
+// through the broker chain. The reusable half (ConnectorSpec +
+// DiscoverConnectorTools + CallConnectorTool) lives in ipc.
 
 import (
 	"context"
@@ -31,7 +28,7 @@ type connectorFile struct {
 // LoadConnectors reads connectors.toml under projectRoot (or $CONNECTORS_TOML),
 // spawns each connector to harvest its tool catalog, returns the flattened
 // namespaced list. Missing file → nil (connector path disabled). Bad TOML,
-// unknown scope, or discovery failure ARE errors (fail-fast at boot per 9/11).
+// unknown scope, or discovery failure are errors (fail-fast at boot).
 func LoadConnectors(ctx context.Context, projectRoot string) ([]ipc.ConnectorTool, error) {
 	path := os.Getenv("CONNECTORS_TOML")
 	if path == "" {

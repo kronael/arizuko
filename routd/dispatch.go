@@ -68,8 +68,8 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	hadAny := false
 	for _, batch := range groups {
 		bl := batch[len(batch)-1]
-		// A set sticky #topic overrides the message's own topic (gated
-		// effectiveTopic); a route-pinned topic is the explicit non-web override.
+		// A set sticky #topic overrides the message's own topic; a route-pinned
+		// topic is the explicit non-web override.
 		topic := l.effectiveTopic(chatJID, bl.Topic)
 		if !strings.HasPrefix(chatJID, "web:") && r.Topic != "" {
 			topic = r.Topic
@@ -96,10 +96,9 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // whole batch after all per-sender/per-topic turns close.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
 	last := trigger[len(trigger)-1]
-	// Spec 5/34 pre-spawn budget gate. If today's folder spend hits the cap,
-	// deliver a channel-visible refusal (no run dispatched) and consume the
-	// batch — return hadOutput=true so processGroupMessages advances the cursor
-	// past it, exactly as gated's runAgentWithOpts short-circuits before spawn.
+	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
+	// channel-visible refusal (no run dispatched) and consume the batch — return
+	// hadOutput=true so processGroupMessages advances the cursor past it.
 	if msg := l.budgetGate(folder, callerSubOfMsg(last.Sender)); msg != "" {
 		if l.deliver != nil {
 			_, _ = l.deliver.Send(chatJID, msg, "", topic, "budget-"+turnID)
@@ -107,24 +106,20 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		return true, false, nil
 	}
 	// Enqueue new_day / new_session system messages BEFORE building the prompt
-	// so buildAgentPrompt's FlushSysMsgs renders them this turn (gated order:
-	// emitSystemEvents → buildAgentPrompt, gateway.go § processSenderBatch).
+	// so buildAgentPrompt's FlushSysMsgs renders them this turn.
 	l.emitSystemEvents(folder, chatJID)
-	// Spec 6/F: the first turn in a previously-unseen topic auto-forks lineage
-	// from the topic of the message it replies to (the natural "branch from
-	// here"), falling back to "" (main). Copies the parent topic's Claude
-	// session so the child resumes from its tail instead of starting cold
-	// (mirrors gateway.processSenderBatch's ensureTopicWithFork call site).
+	// The first turn in a previously-unseen topic auto-forks lineage from the
+	// topic of the message it replies to, falling back to "" (main). Copies the
+	// parent topic's Claude session so the child resumes from its tail.
 	parent := ""
 	if last.ReplyToID != "" {
 		parent = l.db.TopicByID(last.ReplyToID)
 	}
 	l.ensureTopicWithFork(folder, topic, parent)
-	// Download inbound media + transcribe voice/video into the trigger before
-	// the prompt is built (gated enriches at the same point, keyed on the
-	// resolved folder; gateway.go § processSenderBatch). Rewrites each row's
-	// content + persists via EnrichMessage so later turns' observed context
-	// sees the transcript too. No-op when MEDIA_ENABLED is off.
+	// Download inbound media + transcribe voice/video into the trigger before the
+	// prompt is built. Rewrites each row's content + persists via EnrichMessage so
+	// later turns' observed context sees the transcript too. No-op when
+	// MEDIA_ENABLED is off.
 	if l.media.Enabled {
 		ctx := context.Background()
 		for i := range trigger {
@@ -132,9 +127,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 	rendered := l.buildAgentPrompt(folder, topic, trigger)
-	// A proactive turn carries one ephemeral <proactive_reason> block ahead
-	// of the feed (5/33 § Per-turn envelope); single renderer, dropped after
-	// it is consumed so a re-fed turn does not re-attach a stale reason.
+	// A proactive turn carries one ephemeral <proactive_reason> block ahead of
+	// the feed, dropped after it is consumed so a re-fed turn does not re-attach
+	// a stale reason.
 	if v, ok := l.pendingReason.LoadAndDelete(turnID); ok {
 		pr := v.(proactiveResult)
 		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
@@ -142,8 +137,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 	// A delegated trigger carries forwarded_from = the origin chat JID; persist
 	// it as the turn's return address so reply/send/document deliver back to the
-	// origin, not the child folder JID the run addresses (gated deliverTo
-	// override, gateway.go § processSenderBatch).
+	// origin, not the child folder JID the run addresses.
 	live, err := l.db.PutTurnContext(turnID, folder, topic, chatJID, last.Sender, last.ForwardedFrom)
 	if err != nil {
 		return false, false, err
@@ -171,13 +165,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 	}
 
-	// Write the per-spawn snapshots the in-container agent reads (current_tasks
-	// / available_groups JSON) right before dispatch, mirroring gated's call
-	// site (gateway.go § spawn). Root sees all tasks + groups; a child sees
-	// only its own tasks and no groups list. scheduled_tasks is routd's OWN table
-	// (routd.db, migration 0009), read via Tasks (sibling_db.go). Skip when
-	// no ipc dir is configured (no spawn target — REST/unit tests) so the write
-	// doesn't resolve to a relative path under cwd.
+	// Write the per-spawn snapshots the in-container agent reads (current_tasks /
+	// available_groups JSON) right before dispatch. Root sees all tasks + groups;
+	// a child sees only its own tasks and no groups list. Skip when no ipc dir is
+	// configured (REST/unit tests) so the write doesn't resolve to a relative
+	// path under cwd.
 	if l.folders != nil && l.folders.IpcDir != "" {
 		isRoot := groupfolder.IsRoot(folder)
 		container.WriteTasksSnapshot(l.folders, folder, isRoot, l.db.Tasks(folder, isRoot))
@@ -186,9 +178,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 	// Reset a long-idle session before the spawn reads it: a folder whose chat
 	// cursor is older than the idle threshold resumes from a stale Claude session
-	// the agent has long forgotten, so start fresh instead (mirrors gateway
-	// runAgentWithOpts § session idle reset). Isolated (timed) runs carry no
-	// session lineage, so skip them as gated does.
+	// the agent has long forgotten, so start fresh instead. Isolated (timed) runs
+	// carry no session lineage, so skip them.
 	if !strings.HasPrefix(last.Sender, "timed-isolated:") {
 		if sid := l.db.SessionID(folder, topic); sid != "" && l.sessionIdleExpired(chatJID) {
 			slog.Info("session: resetting on idle expiry",
@@ -204,9 +195,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		return false, false, derr
 	}
-	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id;
-	// the column existed but was never written). Carries on both the steer ack
-	// and the turn-boundary outcome — RunOutcome echoes the run_id either way.
+	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id).
 	if out.RunID != "" {
 		_ = l.db.SetTurnRunID(turnID, out.RunID)
 	}
@@ -215,7 +204,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// original run owns it and will submit_turn under ITS turn_id. Mark THIS
 		// turn_context done so a re-fed poll (or recoverPending after a restart)
 		// sees it terminal and skips re-dispatch — else it re-runs as a fresh
-		// spawn and duplicates the output (bughunt D-HIGH-2/6).
+		// spawn and duplicates the output.
 		_ = l.db.SetTurnState(turnID, "done")
 		_ = l.db.SetRunReturned(turnID)
 		return true, true, nil
@@ -226,7 +215,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if out.Outcome == runedv1.OutcomeError {
 		// The run definitively failed. Flag the chat errored, mark the trigger
 		// batch errored (so the breaker can prune it), and notify the chat —
-		// don't treat a failed run as a silent success (spec 5/E § outcome).
+		// don't treat a failed run as a silent success.
 		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error)
 		_ = l.db.MarkChatErrored(chatJID)
 		ids := make([]string, len(trigger))
@@ -240,15 +229,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.db.SetTurnState(turnID, "done")
 		// The breaker rides only on the run that trips it (runed reports
 		// BreakerOpen on that run's outcome). When set, prune the chat's errored
-		// rows + clear the folder session, mirroring gateway.onCircuitBreakerOpen.
+		// rows + clear the folder session.
 		if out.BreakerOpen {
 			l.onCircuitBreakerOpen(chatJID, folder)
 		}
 		return false, false, nil
 	}
-	// Clean turn-boundary outcome: persist session_id backstop UNLESS
-	// submit_turn already recorded one (its value wins; spec 5/E
-	// § Completion reconciliation).
+	// Clean turn-boundary outcome: persist session_id backstop UNLESS submit_turn
+	// already recorded one (its value wins).
 	if out.SessionID != "" && !l.db.TurnResultRecorded(folder, turnID) {
 		_ = l.db.PutSession(folder, topic, out.SessionID)
 	}
@@ -258,9 +246,8 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 // ensureTopicWithFork ensures (folder, topic) has a sessions row and, when
 // newly inserted, copies the parent topic's Claude Code session file so the
-// child resumes from the parent's tail (mirrors gateway.ensureTopicWithFork;
-// spec 6/F triggers 2 & 3). Failures are logged but never block the turn —
-// the child simply starts fresh. parent="" forks from main.
+// child resumes from the parent's tail. Failures are logged but never block the
+// turn — the child simply starts fresh. parent="" forks from main.
 func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 	childUUID := core.NewSessionID()
 	inserted, err := l.db.EnsureTopicLineage(folder, topic, parent, childUUID)
@@ -276,10 +263,9 @@ func (l *Loop) ensureTopicWithFork(folder, topic, parent string) {
 }
 
 // copyParentSession looks up the parent topic's session_id and copies its
-// Claude Code session jsonl to childUUID (mirrors gateway.copyParentSession).
-// No-op when the parent has no session yet (cold-start main: child gets a
-// fresh session). Failures log WARN and proceed — the agent runs fine without
-// forked context.
+// Claude Code session jsonl to childUUID. No-op when the parent has no session
+// yet (cold-start main: child gets a fresh session). Failures log WARN and
+// proceed — the agent runs fine without forked context.
 func (l *Loop) copyParentSession(folder, parent, childUUID string) {
 	parentUUID, ok := l.db.GetSession(folder, parent)
 	if !ok || parentUUID == "" {
@@ -349,16 +335,11 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 	if trigger != "" && !strings.HasPrefix(trigger, "timed-") && !strings.HasPrefix(trigger, "system") {
 		caller = types.UserSub(trigger)
 	}
-	// Forward the per-group model + container_config (were dropped → every group
-	// ran the instance default + ignored custom mounts/timeouts) and the
-	// timed-isolated flag (was dropped → one-off runs persisted session lineage
-	// they shouldn't). spec 5/E § run request.
 	model, containerCfg := l.db.GroupConfig(folder)
 	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
 	// authz plane; runed has neither store) and ship them so runed can attach the
 	// spawn to the crackbox network + honor share_mount. nil allowlist on error
-	// is fine — runed treats empty as no-extra-constraint (the base list lives in
-	// network_rules folder='').
+	// is fine — runed treats empty as no-extra-constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:           types.Folder(folder),

@@ -11,16 +11,15 @@ import (
 	"github.com/kronael/arizuko/chanreg"
 )
 
-// The channel-registration surface ported from gated's api package. Adapters
-// register their egress URL + owned jid prefixes here (POST /v1/channels/
-// register); routd's Deliverer resolves them on the way out. The registry is
-// in-memory: adapters re-register on routd restart (chanlib retries on 401).
+// The channel-registration surface. Adapters register their egress URL + owned
+// jid prefixes here (POST /v1/channels/register); routd's Deliverer resolves
+// them on the way out. The registry is in-memory: adapters re-register on routd
+// restart (chanlib retries on 401).
 
-// SetChannelRegistry wires the channel registry + the live-channel hooks so
-// the Deliverer reuses the per-adapter HTTPChannel (preserving its retry
-// outbox) instead of constructing a throwaway per send, mirroring gated's
-// httpChannels map. Call before Handler(). reg==nil leaves the channel
-// endpoints unmounted (pure REST tests / no adapters).
+// SetChannelRegistry wires the channel registry + the live-channel hooks so the
+// Deliverer reuses the per-adapter HTTPChannel (preserving its retry outbox)
+// instead of constructing a throwaway per send. Call before Handler(). reg==nil
+// leaves the channel endpoints unmounted (pure REST tests / no adapters).
 func (s *Server) SetChannelRegistry(reg *chanreg.Registry,
 	onRegister func(name string, ch *chanreg.HTTPChannel), onDeregister func(name string)) {
 	s.reg = reg
@@ -30,7 +29,7 @@ func (s *Server) SetChannelRegistry(reg *chanreg.Registry,
 
 // mountChannels adds the channel-registration routes when a registry is wired.
 // Register/list are CHANNEL_SECRET-gated (chanlib.Auth); deregister carries the
-// adapter's own session token (checkToken), mirroring api/api.go's gating.
+// adapter's own session token.
 func (s *Server) mountChannels(mux *http.ServeMux) {
 	if s.reg == nil {
 		return
@@ -60,7 +59,7 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	// Origin pin: future re-registrations of this name must come from the same
 	// source IP + present the same secret (blocks adapter-name hijack by other
-	// CHANNEL_SECRET holders). Mirrors api/api.go handleRegister.
+	// CHANNEL_SECRET holders).
 	originIP := clientIP(r)
 	presentedSecret := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	token, err := s.reg.RegisterWithOrigin(req.Name, req.URL, req.JIDPrefixes, req.Capabilities,

@@ -10,9 +10,8 @@ import (
 
 // SessionResolver federates the new_session continuity hint + inspect_session
 // run history: runed OWNS session_log (it writes a row per spawn), so routd
-// fetches the n newest rows over GET /v1/sessions/recent instead of opening
-// runed.db cross-DB. nil resolver / unreachable runed → nil (no prior session),
-// the same shape routd rendered against an absent runed.db sibling.
+// fetches the n newest rows over GET /v1/sessions/recent. nil resolver /
+// unreachable runed → nil (no prior session).
 type SessionResolver interface {
 	RecentSessions(folder string, n int) []core.SessionRecord
 }
@@ -25,7 +24,7 @@ type httpSessions struct {
 }
 
 // NewSessionResolver wraps the runed client. nil client → nil resolver (the
-// caller then renders "no prior session", like routd against an absent runed.db).
+// caller then renders "no prior session").
 func NewSessionResolver(c *runedv1.Client) SessionResolver {
 	if c == nil {
 		return nil
@@ -35,7 +34,7 @@ func NewSessionResolver(c *runedv1.Client) SessionResolver {
 
 // RecentSessions issues GET /v1/sessions/recent and maps the wire rows to
 // core.SessionRecord. Any transport/auth error or non-200 returns nil —
-// advisory only, never an error path (faithful to the old nil-sibling guard).
+// advisory only, never an error path.
 func (h *httpSessions) RecentSessions(folder string, n int) []core.SessionRecord {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

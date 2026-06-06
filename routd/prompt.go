@@ -15,17 +15,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// buildAgentPrompt assembles the prompt for a single agent turn — routd's
-// port of gated buildAgentPrompt (spec 5/E). Order: sysMsgs + autocalls +
-// persona + <observed> rule + envelope(<topic>+paneHints) + the trigger feed
-// and observed block via router.FormatMessages.
+// buildAgentPrompt assembles the prompt for a single agent turn. Order: sysMsgs
+// + autocalls + persona + <observed> rule + envelope(<topic>+paneHints) + the
+// trigger feed and observed block via router.FormatMessages.
 //
-// Per-topic observed cursor (spec 6/F): each (folder, topic) tracks its own
-// watermark over is_observed=1 messages, so two topics in the same folder
-// both see ambient observed context without one consuming it for the other.
-// At-least-once — the cursor advance is not transactional with the turn; on
-// crash recovery a topic may re-see an observed message, which is benign
-// because the <rule> below tells the agent not to act on observed context.
+// Per-topic observed cursor: each (folder, topic) tracks its own watermark over
+// is_observed=1 messages, so two topics in the same folder both see ambient
+// observed context without one consuming it for the other. At-least-once — the
+// cursor advance is not transactional with the turn; on crash recovery a topic
+// may re-see an observed message, which is benign because the <rule> below tells
+// the agent not to act on observed context.
 func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) string {
 	sysMsgs := l.db.FlushSysMsgs(folder)
 	maxN, maxC := l.observeWindow(folder)
@@ -56,9 +55,8 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 // paneHints emits <surface>slack-pane</surface> and an optional
 // <pane-context jid="..."/> when the trigger originated in an open Slack
 // assistant pane. Hash-keyed on the chat_jid's DM channel id (slack: prefix
-// only); other surfaces yield empty. Spec 6/D. Port of gateway paneHints —
-// pane_sessions is routd's OWN table (routd.db, migration 0010), read via
-// PaneContextJID (sibling_db.go); slakd writes it via POST /v1/pane.
+// only); other surfaces yield empty. slakd writes pane_sessions via POST
+// /v1/pane.
 func (l *Loop) paneHints(trigger []core.Message) string {
 	if l.db == nil || len(trigger) == 0 {
 		return ""
@@ -89,7 +87,7 @@ var personaFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
 // personaBlock reads <groupsDir>/<folder>/PERSONA.md, parses YAML frontmatter,
 // and returns a <persona> XML block carrying the `summary` field. Strict: a
 // missing file, no frontmatter, or no `summary` returns "" — no fallback to
-// body text. Port of gateway personaBlock.
+// body text.
 func (l *Loop) personaBlock(folder string) string {
 	if folder == "" || l.groupsDir == "" {
 		return ""
@@ -150,7 +148,7 @@ var autocalls = []autocall{
 }
 
 // autocallsBlock renders the <autocalls> block (instance/folder/tier/session/
-// now) for (folder, topic). Port of gateway autocallsBlock.
+// now) for (folder, topic).
 func (l *Loop) autocallsBlock(folder, topic string) string {
 	return renderAutocalls(autocallCtx{
 		Instance:  l.instanceName,
@@ -180,7 +178,7 @@ func renderAutocalls(ctx autocallCtx) string {
 
 // observeWindow resolves the observed-context window for folder: cfg defaults,
 // overridden by the group's stored window, then by the first route targeting
-// the folder that carries an override (spec 6/F). Port of gateway observeWindow.
+// the folder that carries an override.
 func (l *Loop) observeWindow(folder string) (int, int) {
 	maxN := l.observeMessages
 	maxC := l.observeChars
@@ -206,18 +204,17 @@ func (l *Loop) observeWindow(folder string) (int, int) {
 		if r.ObserveWindowChars > 0 {
 			maxC = r.ObserveWindowChars
 		}
-		break // first route with an override wins (spec 6/F)
+		break // first route with an override wins
 	}
 	return maxN, maxC
 }
 
-// emitSystemEvents enqueues new_day / new_session system messages for
-// (folder, chatJID) before the prompt is built; FlushSysMsgs renders them
-// into the next turn's envelope. Port of gateway emitSystemEvents (called per
-// dispatch in runTurn, the routd twin of gated's processSenderBatch). new_day
-// fires when the chat's cursor crossed midnight; new_session fires when no
-// live session_id is recorded and carries the prior session's tail. Run
-// BEFORE buildAgentPrompt so the flush picks the rows up the same turn.
+// emitSystemEvents enqueues new_day / new_session system messages for (folder,
+// chatJID) before the prompt is built; FlushSysMsgs renders them into the next
+// turn's envelope. new_day fires when the chat's cursor crossed midnight;
+// new_session fires when no live session_id is recorded and carries the prior
+// session's tail. Run BEFORE buildAgentPrompt so the flush picks the rows up the
+// same turn.
 func (l *Loop) emitSystemEvents(folder, chatJID string) {
 	today := time.Now().Format("2006-01-02")
 
@@ -236,9 +233,8 @@ func (l *Loop) emitSystemEvents(folder, chatJID string) {
 }
 
 // previousSessionXML renders the most recent session_log row as a
-// <previous_session> tag for the new_session continuity hint. Empty input →
-// "" (no prior run on file). Port of gateway previousSessionXML — exact tag
-// shape, the agent parses it.
+// <previous_session> tag for the new_session continuity hint. Empty input → ""
+// (no prior run on file).
 func previousSessionXML(sessions []core.SessionRecord) string {
 	if len(sessions) == 0 {
 		return ""

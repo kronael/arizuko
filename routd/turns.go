@@ -18,24 +18,23 @@ import (
 )
 
 // The /v1/turns/{turn_id}/* callback surface — the HTTP twin of the agent's
-// in-process MCP write tools (post-flip the agent uses the socket, not this;
-// kept as the REST face + test surface, see bugs.md minimization note). reply/
-// send/document append a messages row then deliver; like/edit/delete/pin/unpin
-// mutate an existing platform message without appending. Every call is
-// idempotent on X-Idempotency-Key, serialized per turn_id.
+// in-process MCP write tools (the agent uses the socket; this is the REST face +
+// test surface). reply/send/document append a messages row then deliver;
+// like/edit/delete/pin/unpin mutate an existing platform message without
+// appending. Every call is idempotent on X-Idempotency-Key, serialized per
+// turn_id.
 
-// Scope sets for the turn-callback surface (spec 5/E § MCP tool face).
-// reply/send/document/like/edit/delete/pin/unpin are message writes; history
-// is a read. Each set lists the agent (own_group) scope plus the broader
-// operator/service scopes that also grant it (any-of match).
+// Scope sets for the turn-callback surface. reply/send/document/like/edit/delete/
+// pin/unpin are message writes; history is a read. Each set lists the agent
+// (own_group) scope plus the broader operator/service scopes that also grant it
+// (any-of match).
 var (
 	scopeSend = []string{"messages:send:own_group", "messages:send", "messages:write"}
 	scopeRead = []string{"chats:read:own_group", "chats:read", "messages:read"}
 )
 
-// turnLock serializes append-and-deliver per turn_id so out-of-order
-// arrivals append in receive order (spec § Per-turn callback
-// serialization).
+// turnLock serializes append-and-deliver per turn_id so out-of-order arrivals
+// append in receive order.
 var turnLocks sync.Map // turn_id -> *sync.Mutex
 
 func lockTurn(turnID string) func() {
@@ -45,12 +44,12 @@ func lockTurn(turnID string) func() {
 	return mu.Unlock
 }
 
-// idem wraps a turn-command handler in the idempotency ledger. endpoint is
-// the path TEMPLATE with vars collapsed (e.g. "POST /v1/turns/reply"), NOT
-// the filled path — the per-turn id would partition the ledger. exec returns
-// the HTTP (status, resp) and, when the call appends a bot row, that row —
-// idem persists the row AND finishes the ledger in ONE tx so a crash between
-// them can't leave a permanent in_flight (spec 5/E § Idempotency step 2).
+// idem wraps a turn-command handler in the idempotency ledger. endpoint is the
+// path TEMPLATE with vars collapsed (e.g. "POST /v1/turns/reply"), NOT the filled
+// path — the per-turn id would partition the ledger. exec returns the HTTP
+// (status, resp) and, when the call appends a bot row, that row — idem persists
+// the row AND finishes the ledger in ONE tx so a crash between them can't leave a
+// permanent in_flight.
 func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, required bool, exec func(body []byte) (int, any, *core.Message)) {
 	body, _ := io.ReadAll(r.Body)
 	key := r.Header.Get("X-Idempotency-Key")
@@ -101,8 +100,8 @@ func (s *Server) idem(w http.ResponseWriter, r *http.Request, endpoint string, r
 	writeJSON(w, status, resp)
 }
 
-// canonicalHash re-marshals body with sorted keys so encoder differences
-// don't produce false 409s (spec § Idempotency canonical body).
+// canonicalHash re-marshals body with sorted keys so encoder differences don't
+// produce false 409s.
 func canonicalHash(body []byte) string {
 	var v any
 	if json.Unmarshal(body, &v) == nil {
@@ -118,13 +117,13 @@ func canonicalHash(body []byte) string {
 // callbackClosed reports whether a turn's callback surface is closed: the
 // done-guard fires only AFTER POST /v1/runs returns (run_returned), so a
 // still-live run's trailing frames stay valid even past an early submit_turn
-// that flipped state→done (spec 5/E § Post-terminal callbacks).
+// that flipped state→done.
 func (s *Server) callbackClosed(tc TurnContext) bool { return tc.RunReturned }
 
 // returnTarget redirects a turn's outbound delivery to the delegation
 // return-address (the trigger batch's forwarded_from) when set, so a delegated
 // reply returns to the ORIGIN chat instead of the child folder JID the run
-// addresses. Mirrors gated's deliverTo override (gateway.go § processSenderBatch).
+// addresses.
 func returnTarget(tc TurnContext, jid string) string {
 	if tc.ReturnTo != "" {
 		return tc.ReturnTo
@@ -182,15 +181,14 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appendAndDeliver renders the agent's raw output then appends + delivers it.
-// One renderer, the same point gated applies it (gateway.makeOutputCallback):
+// appendAndDeliver renders the agent's raw output then appends + delivers it:
 // strip <think>, surface each <status> as a separate "⏳ ..." progress message,
 // then FormatOutbound the remainder as the threaded reply. A pure-think / silent
 // output produces no reply row (200, nil). Status rows are persisted inline
 // (auxiliary progress); the reply row is returned to idem for the atomic
 // append+ledger-finish. threaded replies thread to the active topic's
 // last_reply_id when reply_to_id is empty. SEND_DISABLED_GROUPS folders persist
-// the row status=sent but skip the platform send (gateway.canSendToGroup).
+// the row status=sent but skip the platform send.
 func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded bool) (int, any, *core.Message) {
 	unlock := lockTurn(turnID)
 	defer unlock()
@@ -205,7 +203,7 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 
 	stripped, statuses := router.ExtractStatusBlocks(router.StripThinkBlocks(text))
 	// Interim progress notices: delivered + persisted out-of-band, not threaded
-	// and not the returned reply row (gated putAndDeliver per status block).
+	// and not the returned reply row.
 	for _, st := range statuses {
 		row := s.outboundRow(tc, jid, "⏳ "+st, "")
 		s.deliverRow(tc, jid, &row)
@@ -226,8 +224,7 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
 		// Engagement is claimed on the DISPATCH chat (tc.ChatJID), not the
 		// delegation-substituted delivery target — a delegated reply must engage
-		// the chat that triggered the turn, mirroring gated's BumpEngagement(chatJid)
-		// (gateway.go § dispatch outbound), not the origin JID the reply returns to.
+		// the chat that triggered the turn, not the origin JID the reply returns to.
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
 	s.deliverRow(tc, jid, &row)
@@ -246,7 +243,7 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
 // A SEND_DISABLED_GROUPS folder skips the send entirely but still lands the row
-// status=sent so the poll loop never retries it (gateway.canSendToGroup mute).
+// status=sent so the poll loop never retries it.
 func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message) {
 	if s.mutedGroup(tc.Folder) {
 		row.Status = core.MessageStatusSent
@@ -376,9 +373,9 @@ func (s *Server) handleUnpin(w http.ResponseWriter, r *http.Request) {
 }
 
 // guardOpen returns a 409 turn_done error for a closed turn (run-response
-// returned), else (0, nil). The mutation tools (like/edit/delete/pin/unpin)
-// run it so a late frame doesn't mutate a platform message after the run is
-// no longer live (spec 5/E § Post-terminal callbacks).
+// returned), else (0, nil). The mutation tools (like/edit/delete/pin/unpin) run
+// it so a late frame doesn't mutate a platform message after the run is no longer
+// live.
 func (s *Server) guardOpen(turnID string) (int, any) {
 	tc, ok := s.db.GetTurnContext(turnID)
 	if !ok {
@@ -426,11 +423,10 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request, endpoint string,
 	})
 }
 
-// handleResult is submit_turn's REST twin. Records the outcome
-// idempotently into turn_results, persists session_id + cost on the FIRST
-// record, flips turn_context to done. It does NOT set run_returned: the run
-// may still emit trailing frames until POST /v1/runs returns, and those
-// callbacks stay valid (spec 5/E § Post-terminal callbacks).
+// handleResult is submit_turn's REST twin. Records the outcome idempotently into
+// turn_results, persists session_id + cost on the FIRST record, flips
+// turn_context to done. It does NOT set run_returned: the run may still emit
+// trailing frames until POST /v1/runs returns, and those callbacks stay valid.
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	turnID := r.PathValue("turn_id")
 	if !s.authzTurn(w, r, turnID, scopeSend...) {

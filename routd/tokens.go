@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// route_tokens, web_routes, and the idempotency ledger. route tokens are
-// the /chat/ /hook/ widget bearer tokens routd owns outright (spec 5/W) —
-// a distinct credential family from authd capability tokens.
+// route_tokens, web_routes, and the idempotency ledger. route tokens are the
+// /chat/ /hook/ widget bearer tokens routd owns outright — a distinct credential
+// family from authd capability tokens.
 
 // IssueRouteToken mints a 32-byte token for jid under owner_folder, stores
 // sha256(token), and returns the raw token once.
@@ -75,7 +75,7 @@ func (d *DB) RevokeRouteTokens(jid, ownerFolder string) (int64, error) {
 	return res.RowsAffected()
 }
 
-// --- web_routes (5/V) ---
+// --- web_routes ---
 
 // WebRouteRow is a URL-tree access entry.
 type WebRouteRow struct {

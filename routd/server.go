@@ -41,8 +41,8 @@ type Deliverer interface {
 	// threaded under threadID. routd synthesizes via TTS first (tts.go), then
 	// hands the cached audio path here for the owning adapter to upload.
 	SendVoice(jid, audioPath, caption, threadID string) (platformID string, err error)
-	// Extended verbs — the social/feed surface ported from gated's egress.
-	// Post authors a fresh top-level post; Forward/Quote/Repost relay or
+	// Extended verbs — the social/feed surface. Post authors a fresh top-level
+	// post; Forward/Quote/Repost relay or
 	// amplify an existing message; Dislike is the native-downvote reaction;
 	// SetSuggestions/SetName stage Slack assistant-pane controls.
 	Post(jid, content string, mediaPaths []string) (platformID string, err error)
@@ -62,9 +62,8 @@ type Deliverer interface {
 	FetchHistory(jid string, before time.Time, limit int) ([]byte, error)
 }
 
-// Verifier offline-verifies inbound bearer tokens (agent capability /
-// adapter service tokens) against authd's keys. routd is a verifier, not a
-// signer (spec 5/E § Auth).
+// Verifier offline-verifies inbound bearer tokens (agent capability / adapter
+// service tokens) against authd's keys. routd is a verifier, not a signer.
 type Verifier interface {
 	Verify(r *http.Request) (sub string, scope []string, folder string, err error)
 }
@@ -81,21 +80,19 @@ type Server struct {
 	webHost     string
 
 	// identity resolves a sender sub → canonical identity via authd's
-	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/9). Backs the
-	// inspect_identity MCP tool; nil → the tool answers unclaimed (no resolver
-	// wired / auth-only deployment). Set via SetIdentityResolver.
+	// GET /v1/identities/{sub}. Backs the inspect_identity MCP tool; nil → the
+	// tool answers unclaimed. Set via SetIdentityResolver.
 	identity IdentityResolver
 
 	// sessions federates the session_log run history via runed's
-	// GET /v1/sessions/recent (runed OWNS session_log — spec 5/P). Backs the
-	// inspect_session MCP tool's recent rows; nil → no prior sessions (no runed
-	// client wired). Set via SetSessionResolver.
+	// GET /v1/sessions/recent. Backs the inspect_session MCP tool's recent rows;
+	// nil → no prior sessions. Set via SetSessionResolver.
 	sessions SessionResolver
 
 	// disabledGroups is SEND_DISABLED_GROUPS: muted folders whose outbound is
-	// persisted (the row lands status=sent) but NOT delivered to the platform,
-	// mirroring gateway.canSendToGroup. SEND_DISABLED_CHANNELS (jid-prefix mute)
-	// stays in the Deliverer; this is the group-folder mute. Set via SetDisabledGroups.
+	// persisted (the row lands status=sent) but NOT delivered to the platform.
+	// SEND_DISABLED_CHANNELS (jid-prefix mute) stays in the Deliverer; this is the
+	// group-folder mute. Set via SetDisabledGroups.
 	disabledGroups []string
 
 	// groupsDir/webDir back the file-path agent tools (send_file, vhosts) the
@@ -105,27 +102,22 @@ type Server struct {
 
 	// tts carries the send_voice synthesis config (TTS_* env). Zero-value
 	// (Enabled=false) leaves the send_voice MCP tool returning the
-	// not-configured/unsupported error, exactly like gated with TTS off. Set
-	// via SetTTS from the cmd layer.
+	// not-configured/unsupported error. Set via SetTTS from the cmd layer.
 	tts ttsConfig
 
-	// audit receives system events for mutating MCP tool calls (GatedFns.Audit).
-	// It appends to routd's own audit-system.jl in DATA_DIR — observability only,
-	// never the messages.db audit_log table (gated's store owns that). nil →
-	// slog-only (the audit.noop value EmitSystem treats as disabled). Set via
-	// SetAudit from the cmd layer; mirrors gateway.SetAudit.
+	// audit receives system events for mutating MCP tool calls. It appends to
+	// routd's own audit-system.jl in DATA_DIR — observability only. nil → slog-only
+	// (the audit.noop value EmitSystem treats as disabled). Set via SetAudit.
 	audit *audit.Audit
 
 	// connectors is the discovered MCP-connector tool catalog (connectors.toml),
 	// loaded once at boot and registered through every per-turn MCP socket.
-	// nil/empty leaves the connector path off, exactly like gated with no file.
-	// Set via SetConnectors from the cmd layer; mirrors gateway.storeFns.Connectors.
+	// nil/empty leaves the connector path off. Set via SetConnectors.
 	connectors []ipc.ConnectorTool
 
-	// Channel-registration surface (ported from gated's api). reg==nil leaves
-	// the /v1/channels endpoints unmounted (pure REST tests). on{Register,
-	// Deregister} mirror gated's live-channel hooks so the Deliverer reuses a
-	// per-adapter HTTPChannel and its retry outbox.
+	// Channel-registration surface. reg==nil leaves the /v1/channels endpoints
+	// unmounted (pure REST tests). on{Register,Deregister} keep the Deliverer's
+	// per-adapter HTTPChannel (and its retry outbox) in sync.
 	reg          *chanreg.Registry
 	onRegister   func(name string, ch *chanreg.HTTPChannel)
 	onDeregister func(name string)
@@ -147,7 +139,7 @@ func (s *Server) SetDirs(groupsDir, webDir string) {
 }
 
 // SetDisabledGroups supplies SEND_DISABLED_GROUPS: muted folders whose outbound
-// persists but is not delivered (gateway.canSendToGroup). Set post-construction.
+// persists but is not delivered. Set post-construction.
 func (s *Server) SetDisabledGroups(folders []string) { s.disabledGroups = folders }
 
 // mutedGroup reports whether folder is in SEND_DISABLED_GROUPS — outbound for it
@@ -162,27 +154,24 @@ func (s *Server) mutedGroup(folder string) bool {
 }
 
 // SetTTS supplies the send_voice synthesis config. Set post-construction in
-// main wiring; the zero value leaves voice off (faithful to gated).
+// main wiring; the zero value leaves voice off.
 func (s *Server) SetTTS(c ttsConfig) { s.tts = c }
 
 // SetAudit injects the audit writer so mutating MCP tool calls emit
-// audit-system.jl events (GatedFns.Audit). Mirrors gateway.SetAudit; routd's
-// audit is observability (slog + .jl webhook stream), never a cross-DB write to
-// the messages.db audit_log table.
+// audit-system.jl events. routd's audit is observability (slog + .jl webhook
+// stream).
 func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
 
 // SetConnectors supplies the discovered connector-tool catalog (LoadConnectors).
 // Every per-turn MCP socket registers it; nil/empty leaves the path off.
 func (s *Server) SetConnectors(c []ipc.ConnectorTool) { s.connectors = c }
 
-// SetIdentityResolver wires the authd identity client backing inspect_identity
-// (authd OWNS identity — spec 5/9). nil → the tool answers unclaimed. Set
-// post-construction in main wiring.
+// SetIdentityResolver wires the authd identity client backing inspect_identity.
+// nil → the tool answers unclaimed. Set post-construction in main wiring.
 func (s *Server) SetIdentityResolver(r IdentityResolver) { s.identity = r }
 
 // resolveIdentity is the StoreFns.GetIdentityForSub backing: it delegates to the
-// authd resolver. A nil resolver (no AUTHD_URL / auth-only deployment) returns
-// the unclaimed shape — never reaches messages.db (identity federated to authd).
+// authd resolver. A nil resolver returns the unclaimed shape.
 func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 	if s.identity == nil {
 		return ipc.Identity{}, nil, false
@@ -190,14 +179,12 @@ func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 	return s.identity.Resolve(sub)
 }
 
-// SetSessionResolver wires the runed session client backing inspect_session
-// (runed OWNS session_log — spec 5/P). nil → no prior sessions. Set
-// post-construction in main wiring.
+// SetSessionResolver wires the runed session client backing inspect_session.
+// nil → no prior sessions. Set post-construction in main wiring.
 func (s *Server) SetSessionResolver(r SessionResolver) { s.sessions = r }
 
 // recentSessions is the StoreFns.RecentSessions backing: it federates to runed's
-// GET /v1/sessions/recent. A nil resolver (no runed client wired) returns nil —
-// never reaches runed.db (session_log federated to runed).
+// GET /v1/sessions/recent. A nil resolver returns nil.
 func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
 	if s.sessions == nil {
 		return nil
@@ -343,8 +330,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	// Idempotency for the append-only log keys on the message id (the PK).
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
-	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key
-	// together is ambiguous (spec 5/E § POST /v1/messages key rules).
+	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key together
+	// is ambiguous.
 	idemKey := r.Header.Get("X-Idempotency-Key")
 	switch {
 	case m.ID != "" && idemKey != "":
@@ -359,8 +346,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if m.Timestamp > 0 {
 		ts = time.Unix(m.Timestamp, 0).UTC()
 	}
-	// 5/L reply-to-bot → mention promotion: an inbound replying to a bot
-	// row is promoted to verb=mention so routing sees a uniform trigger.
+	// reply-to-bot → mention promotion: an inbound replying to a bot row is
+	// promoted to verb=mention so routing sees a uniform trigger.
 	verb := m.Verb
 	if verb == "" {
 		verb = "message"
@@ -369,17 +356,16 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		verb = "mention"
 	}
 	// Reaction topic-inheritance: a reaction/reply with no topic of its own
-	// inherits the parent message's topic so it routes to the parent's
-	// thread, not the main topic (spec 5/E § Channel ingress).
+	// inherits the parent message's topic so it routes to the parent's thread, not
+	// the main topic.
 	if m.Topic == "" && m.ReplyTo != "" {
 		m.Topic = s.db.TopicByID(m.ReplyTo)
 	}
 	row := buildMessageRow(m, ts, verb)
-	// Engagement is NOT committed at ingress: the owning folder isn't known
-	// until route resolution. routd defers the engagement claim to dispatch
-	// time (appendAndDeliver bumps it with the resolved folder), mirroring
-	// gated's makeOutputCallback/poll bump sites. A pre-PutMessage claim with
-	// an empty folder would make Engaged return ("", true) and misroute.
+	// Engagement is NOT committed at ingress: the owning folder isn't known until
+	// route resolution. routd defers the engagement claim to dispatch time
+	// (appendAndDeliver bumps it with the resolved folder). A pre-PutMessage claim
+	// with an empty folder would make Engaged return ("", true) and misroute.
 	if err := s.db.PutMessage(row); err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -418,11 +404,10 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUserScopes serves the login-time scope snapshot authd pulls at session
-// issuance (spec 5/5 § routd owns acl). It evaluates {sub}'s scopes against
-// routd's OWN acl rows (UserScopes → store.UserScopes, membership-expanded).
-// 200 {"scope":[...],"folder":"..."} when the sub holds grants; 404
-// {"error":"no_grants"} when it holds none (authd maps that to ErrNoGrants).
-// Bearer-gated by grants:read (authd's service:authd token carries it).
+// issuance. It evaluates {sub}'s scopes against routd's acl rows
+// (membership-expanded). 200 {"scope":[...],"folder":"..."} when the sub holds
+// grants; 404 {"error":"no_grants"} when it holds none. Bearer-gated by
+// grants:read.
 func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "grants:read") {
 		return
@@ -444,12 +429,9 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 
 // aclWriteBody is the POST/DELETE /v1/acl payload: grant or revoke one
 // principal's access to a scope. The operator `**` pattern maps to role:operator
-// membership (the same semantic the CLI `arizuko group grant ** ` uses), so one
-// principal, one scope covers both per-folder admin rows AND the operator role.
-// action/effect default to admin/allow (the grant shape); set them for a
-// non-default rule. routd OWNS acl + acl_membership (spec 5/5; migration 0007),
-// so this is the split-topology write surface the agent's grant tools + any HTTP
-// caller reach instead of opening messages.db.
+// membership, so one principal, one scope covers both per-folder admin rows AND
+// the operator role. action/effect default to admin/allow (the grant shape); set
+// them for a non-default rule.
 type aclWriteBody struct {
 	Principal string `json:"principal"`
 	Scope     string `json:"scope"`
@@ -458,10 +440,8 @@ type aclWriteBody struct {
 	GrantedBy string `json:"granted_by"`
 }
 
-// handleACLAdd grants one acl row (or operator membership for scope=="**") into
-// routd's OWN routd.db (routd owns acl — spec 5/5 § Daemon ownership). Audit-free
-// (routd.db has no audit_log table — same discipline as the secrets/pane
-// endpoints). Bearer-gated by acl:write.
+// handleACLAdd grants one acl row (or operator membership for scope=="**").
+// Bearer-gated by acl:write.
 func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "acl:write") {
 		return
@@ -505,8 +485,8 @@ func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// handleACLRemove revokes one acl row (or operator membership for scope=="**")
-// from routd's OWN routd.db. Audit-free. Bearer-gated by acl:write.
+// handleACLRemove revokes one acl row (or operator membership for scope=="**").
+// Bearer-gated by acl:write.
 func (s *Server) handleACLRemove(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "acl:write") {
 		return
@@ -556,12 +536,10 @@ type secretWriteBody struct {
 	Value   string `json:"value"`
 }
 
-// handleSecretSet seals + upserts one secret into routd's OWN routd.db (routd
-// owns secrets — spec 5/5 § Daemon ownership). Bearer-gated by secrets:write.
-// The operator (CLI / dashd, in the split topology) writes here instead of
-// opening messages.db. Validation matches store.SetSecret (scope kind + scope_id
-// + key non-empty); the at-rest encoding is identical (v2: seal when a keyring
-// is set), so connector injection reads it back through FolderSecrets.
+// handleSecretSet seals + upserts one secret (the operator write path).
+// Bearer-gated by secrets:write. Validates scope kind + scope_id + key non-empty;
+// the at-rest encoding is v2: sealed when a keyring is set, so connector injection
+// reads it back through FolderSecrets.
 func (s *Server) handleSecretSet(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "secrets:write") {
 		return
@@ -582,9 +560,9 @@ func (s *Server) handleSecretSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// handleSecretDelete removes one secret from routd's OWN routd.db. Bearer-gated
-// by secrets:write. The scope + scope_id come from the query (?scope=&scope_id=);
-// the key is the path segment. 404 when no row matched.
+// handleSecretDelete removes one secret. Bearer-gated by secrets:write. The scope
+// + scope_id come from the query (?scope=&scope_id=); the key is the path segment.
+// 404 when no row matched.
 func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "secrets:write") {
 		return
@@ -604,14 +582,13 @@ func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
-// paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes,
-// served from routd's OWN routd.db (routd owns pane_sessions — spec 5/5;
-// migration 0010) so slakd never opens messages.db. op selects the write:
+// paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes. op
+// selects the write:
 //   - "open": UpsertPane(team,user,thread,channel) — creates/refreshes the row.
 //   - "context": SetPaneContext(team,user,thread, jid) — updates the workspace
 //     channel the user is viewing (empty jid clears it).
 //   - "" (default): SetPaneContextByChannel(channel, jid) — the by-channel
-//     context update (back-compat for callers that key by channel_id alone).
+//     context update.
 type paneSetBody struct {
 	Op        string `json:"op"`
 	TeamID    string `json:"team_id"`
@@ -621,9 +598,8 @@ type paneSetBody struct {
 	JID       string `json:"jid"`
 }
 
-// handlePaneSet performs slakd's pane write against routd's OWN routd.db.
-// Audit-free (pane writes never touched audit_log). Bearer-gated by
-// messages:write (the scope slakd's adapter token carries).
+// handlePaneSet performs slakd's pane write. Bearer-gated by messages:write (the
+// scope slakd's adapter token carries).
 func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:write") {
 		return
@@ -662,8 +638,7 @@ func (s *Server) handlePaneSet(w http.ResponseWriter, r *http.Request) {
 }
 
 // dueTask is the GET /v1/tasks/due row: exactly the fields timed's fire loop
-// needs to enqueue a message + reschedule. routd OWNS scheduled_tasks; timed
-// reads due tasks here instead of opening messages.db directly.
+// needs to enqueue a message + reschedule.
 type dueTask struct {
 	ID          string `json:"id"`
 	ChatJID     string `json:"chat_jid"`
@@ -673,8 +648,8 @@ type dueTask struct {
 }
 
 // handleTasksDue atomically claims (marks 'firing') and returns the tasks whose
-// next_run has passed — the read half of timed's fire loop, served from routd's
-// OWN routd.db. Bearer-gated by tasks:read.
+// next_run has passed — the read half of timed's fire loop. Bearer-gated by
+// tasks:read.
 func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:read") {
 		return
@@ -702,7 +677,7 @@ type taskRunLogBody struct {
 }
 
 // handleTaskRunLog appends one task_run_logs row — the write half of timed's
-// fire loop, served from routd's OWN routd.db. Bearer-gated by tasks:write.
+// fire loop. Bearer-gated by tasks:write.
 func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {
 		return
@@ -734,9 +709,9 @@ type rescheduleBody struct {
 }
 
 // handleTaskReschedule sets a fired task's next_run + status — the reschedule
-// half of timed's fire loop, served from routd's OWN routd.db. Bearer-gated by
-// tasks:write. timed computes next_run (cron/interval) and passes status so
-// routd stays a boring writer: recurring → active, one-shot → completed.
+// half of timed's fire loop. Bearer-gated by tasks:write. timed computes next_run
+// (cron/interval) and passes status so routd stays a boring writer: recurring →
+// active, one-shot → completed.
 func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "tasks:write") {
 		return

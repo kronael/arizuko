@@ -6,16 +6,13 @@ import (
 	"strings"
 )
 
-// authSubPrefixes are the schemes authd writes as the canonical user sub
-// (google: / github: / local:). Adapter senders (telegram:user/..., slack:user/...,
-// bluesky:user/...) are per-platform IDs, not bound to an auth_users row, so they
-// carry no per-user cap today. Verbatim from gateway.budget.go authSubPrefixes.
+// authSubPrefixes are the schemes authd writes as the canonical user sub.
+// Adapter senders (telegram:user/..., slack:user/...) are per-platform IDs not
+// bound to an auth_users row, so they carry no per-user cap.
 var authSubPrefixes = []string{"google:", "github:", "local:"}
 
-// callerSubOfMsg returns the user_sub for the per-user budget cap. Empty string
-// disables the user-cap branch (folder cap still binds). Only authd's JWT
-// schemes are recognised; anon: and adapter-prefixed senders return "".
-// Verbatim from gateway.callerSubOfMsg.
+// callerSubOfMsg returns the user_sub for the per-user budget cap, or "" to
+// disable the user-cap branch (folder cap still binds).
 func callerSubOfMsg(sender string) string {
 	for _, p := range authSubPrefixes {
 		if strings.HasPrefix(sender, p) {
@@ -25,14 +22,9 @@ func callerSubOfMsg(sender string) string {
 	return ""
 }
 
-// budgetGate is the pre-spawn cost-cap check (spec 5/34), ported from
-// gateway.budgetGate. It returns a non-empty refusal message when today's spend
-// is at or above the LOWER of the folder cap and (when known) the user cap, else
-// "" (turn allowed).
-//
-// Cap == 0 means uncapped (the default). Per-user cap composes with per-folder:
-// the binding cap is the lower of the two non-zero values. userSub is empty for
-// adapter/anon/system turns (callerSubOfMsg) — then only the folder cap binds.
+// budgetGate is the pre-spawn cost-cap check. It returns a non-empty refusal
+// message when today's spend is at or above the lower of the folder cap and
+// (when known) the user cap, else "" (turn allowed). Cap == 0 means uncapped.
 func (l *Loop) budgetGate(folder, userSub string) string {
 	if !l.costCapsEnabled {
 		return ""
@@ -77,8 +69,7 @@ func (l *Loop) budgetGate(folder, userSub string) string {
 	return ""
 }
 
-// budgetMsg renders the channel-visible refusal (verbatim from
-// gateway.budgetMsg so the capped-turn output matches gated exactly).
+// budgetMsg renders the channel-visible refusal.
 func budgetMsg(scope string, spent, cap int) string {
 	return fmt.Sprintf(
 		"Budget reached for today (%s spent %d of %d cents). Resumes at 00:00 UTC.",

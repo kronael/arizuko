@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// NetworkRule is one explicit egress allowlist row (routd-local; mirrors
-// store.NetworkRule).
+// NetworkRule is one explicit egress allowlist row.
 type NetworkRule struct {
 	Folder    string
 	Target    string
@@ -14,7 +13,7 @@ type NetworkRule struct {
 }
 
 // AddNetworkRule appends one egress allowlist target for folder (idempotent).
-// folder="" is the instance-wide base. Mirrors store.AddNetworkRule.
+// folder="" is the instance-wide base.
 func (d *DB) AddNetworkRule(folder, target, by string) error {
 	_, err := d.db.Exec(
 		`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)

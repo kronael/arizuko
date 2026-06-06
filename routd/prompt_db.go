@@ -7,16 +7,14 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// prompt_db.go holds the routd.DB query methods that back buildAgentPrompt:
-// the system-message flush, the per-topic observed-context window, topic
-// lineage, and the group's observe-window override. Ported from the gated
-// store methods (store/sessions.go, store/messages.go, store/groups.go)
-// against routd.db's columns.
+// prompt_db.go holds the routd.DB query methods that back buildAgentPrompt: the
+// system-message flush, the per-topic observed-context window, topic lineage, and
+// the group's observe-window override.
 
-// FlushSysMsgs renders queued system_messages for folder as <system> lines
-// and deletes them in the same tx (at-most-once delivery). routd's columns
-// are (source, kind, body); they map to gated's rendered (origin, event,
-// body). Rows that fail to render are left for the next flush.
+// FlushSysMsgs renders queued system_messages for folder as <system> lines and
+// deletes them in the same tx (at-most-once delivery). Columns (source, kind,
+// body) render as (origin, event, body). Rows that fail to render are left for
+// the next flush.
 func (d *DB) FlushSysMsgs(folder string) string {
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -56,10 +54,8 @@ func (d *DB) FlushSysMsgs(folder string) string {
 	return b.String()
 }
 
-// EnqueueSysMsg appends one system_messages row for folder. emitSystemEvents
-// is the producer; FlushSysMsgs (above) is the consumer. routd's columns are
-// (source, kind, body) — gated's EnqueueSysMsg(folder, origin, event, body)
-// maps origin→source, event→kind. Port of store.EnqueueSysMsg.
+// EnqueueSysMsg appends one system_messages row for folder. emitSystemEvents is
+// the producer; FlushSysMsgs (above) is the consumer.
 func (d *DB) EnqueueSysMsg(folder, source, kind, body string) error {
 	_, err := d.db.Exec(
 		`INSERT INTO system_messages (folder, source, kind, body, created)
@@ -94,10 +90,10 @@ func (d *DB) TopicLineage(folder, topic string) (core.TopicLineage, bool) {
 // UpdateObservedCursor advances a topic's observed cursor to ts (RFC3339Nano
 // UTC), monotonically (only when the new value is strictly greater, or NULL).
 // UPSERT, not UPDATE: buildAgentPrompt advances the cursor BEFORE PutSession
-// creates the (folder,topic) row, so a plain UPDATE matched zero rows on a
-// topic's first two turns → the observed window was re-included both times
-// (bughunt D-MED-3). The inserted row carries session_id='' (= fresh; PutSession
-// fills it post-run without clobbering observed_cursor).
+// creates the (folder,topic) row, so a plain UPDATE would match zero rows on a
+// topic's first turns and re-include the observed window. The inserted row
+// carries session_id='' (PutSession fills it post-run without clobbering
+// observed_cursor).
 func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 	_, err := d.db.Exec(
 		`INSERT INTO sessions(group_folder, topic, session_id, observed_cursor)
@@ -110,9 +106,8 @@ func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 }
 
 // GroupObserveWindow returns the group's stored observe-window override as
-// (messages, chars). A NULL column yields -1 so the cfg default wins (the
-// gateway override semantics: only a >= 0 value overrides). (-1,-1) when the
-// group has no row.
+// (messages, chars). A NULL column yields -1 so the cfg default wins (only a
+// >= 0 value overrides). (-1,-1) when the group has no row.
 func (d *DB) GroupObserveWindow(folder string) (int, int) {
 	var n, c *int
 	err := d.db.QueryRow(
@@ -157,10 +152,9 @@ func (d *DB) WatchedSources(folder string) []string {
 // cursor means "no lower bound; the window cap decides". Capped by maxMsgs and
 // maxChars; the oldest messages drop first when the char cap binds.
 //
-// Two shapes UNION'd (mirrors gated): (a) is_observed=1 rows routed to folder;
-// (b) is_observed=0 primary-delivery rows routed to folder's watched sources
-// (observe_group ambient context). NOTE: sibling/open-sibling ambient join
-// deferred — routd has no sticky-open sibling tracking yet.
+// Two shapes UNION'd: (a) is_observed=1 rows routed to folder; (b) is_observed=0
+// primary-delivery rows routed to folder's watched sources (observe_group
+// ambient context).
 func (d *DB) ObservedSince(folder, cursor string, maxMsgs, maxChars int) []core.Message {
 	if maxMsgs <= 0 || maxChars <= 0 {
 		return nil

@@ -12,11 +12,10 @@ import (
 )
 
 // OnbodClient is routd's federation to onbod's invite/gate admin surface. onbod
-// OWNS invites + onboarding_gates (spec 5/5 § Daemon ownership); routd's /invite
-// and /gate slash commands reach them over HTTP instead of touching the tables.
-// nil client (ONBOD_URL unset / no service key) → the commands report the
-// federation gap, the same shape they reported as stubs before onbod owned the
-// tables. Each method returns a human-readable line for the steering ack.
+// OWNS invites + onboarding_gates; routd's /invite and /gate slash commands reach
+// them over HTTP instead of touching the tables. nil client (ONBOD_URL unset / no
+// service key) → the commands report the federation gap. Each method returns a
+// human-readable line for the steering ack.
 type OnbodClient interface {
 	CreateInvite(targetGlob string, maxUses int) (token string, err error)
 	ListGates() ([]GateRow, error)
@@ -32,9 +31,9 @@ type GateRow struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// httpOnbod calls onbod's /v1/* admin endpoints with routd's service token
-// (the same service:routd bearer the runed/identity clients use). It mirrors
-// httpIdentity: empty onbodURL → NewOnbodClient returns nil.
+// httpOnbod calls onbod's /v1/* admin endpoints with routd's service token (the
+// same service:routd bearer the runed/identity clients use). Empty onbodURL →
+// NewOnbodClient returns nil.
 type httpOnbod struct {
 	url   string
 	token func(context.Context) (string, error)

@@ -19,10 +19,9 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
-// Runner dispatches a rendered batch to the execution plane (runed). The
-// Loop calls it; production wires the runed HTTP client, tests inject a
-// stub. It mirrors the PINNED POST /v1/runs contract (spec 5/E § The
-// routd↔runed interface) — routd renders the prompt, runed runs it.
+// Runner dispatches a rendered batch to the execution plane (runed). The Loop
+// calls it; production wires the runed HTTP client, tests inject a stub. routd
+// renders the prompt, runed runs it (the POST /v1/runs contract).
 type Runner interface {
 	Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error)
 }
@@ -36,10 +35,10 @@ type RunStopper interface {
 	StopFolder(ctx context.Context, folder string) (runedv1.StopRunResponse, error)
 }
 
-// Loop is routd's orchestration loop: poll routd.db for new messages,
-// resolve each chat's owning group, and dispatch a run to runed through
-// the per-folder queue. It is the SOLE driver of turns; routd is the sole
-// appender. Single process per instance (spec 5/E § Concurrency model).
+// Loop is routd's orchestration loop: poll routd.db for new messages, resolve
+// each chat's owning group, and dispatch a run to runed through the per-folder
+// queue. It is the SOLE driver of turns; routd is the sole appender. Single
+// process per instance.
 type Loop struct {
 	db         *DB
 	q          *queue.GroupQueue
@@ -70,10 +69,10 @@ type Loop struct {
 	// under it. Empty disables the auto-migrate check.
 	appSrcDir string
 
-	// Proactive interjection (5/33). zero-value cfg (Enabled=false) → the
-	// scan is never driven. modes caches per-group CLAUDE.md proactive mode;
-	// pendingReason carries a fired turn's <proactive_reason> to the prompt
-	// build keyed on turn_id; nextScanAt advances the loop-driven sweep.
+	// Proactive interjection. zero-value cfg (Enabled=false) → the scan is never
+	// driven. modes caches per-group CLAUDE.md proactive mode; pendingReason
+	// carries a fired turn's <proactive_reason> to the prompt build keyed on
+	// turn_id; nextScanAt advances the loop-driven sweep.
 	proactive     ProactiveConfig
 	modes         *modeCache
 	pendingReason sync.Map // turn_id → proactiveResult
@@ -85,30 +84,28 @@ type Loop struct {
 	nextRetryAt time.Time
 	nextGCAt    time.Time
 
-	// costCapsEnabled drives the pre-spawn budget gate (spec 5/34). False
-	// bypasses the gate entirely (the operator escape hatch). When true,
-	// dispatchRun refuses a turn whose folder is at/over its daily cost cap.
+	// costCapsEnabled drives the pre-spawn budget gate. False bypasses the gate
+	// entirely (the operator escape hatch). When true, dispatchRun refuses a turn
+	// whose folder is at/over its daily cost cap.
 	costCapsEnabled bool
 
 	// media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
-	// env). Disabled (Enabled=false) → enrichAttachments is a no-op, exactly
-	// like gated with MEDIA_ENABLED off.
+	// env). Disabled (Enabled=false) → enrichAttachments is a no-op.
 	media mediaConfig
 
 	// sessionIdle is the spawn-time stale-session threshold (SESSION_IDLE_EXPIRY,
-	// default sessionIdleExpiry = 2 days, matching gateway.sessionIdleExpiry).
-	// A folder whose chat cursor is older than this gets its session reset on
-	// the next spawn so a long-idle conversation starts fresh.
+	// default 2 days). A folder whose chat cursor is older than this gets its
+	// session reset on the next spawn so a long-idle conversation starts fresh.
 	sessionIdle time.Duration
 
-	// onbod federates the /invite + /gate slash commands to onbod (it OWNS
-	// invites + onboarding_gates — spec 5/5). nil → the commands report the
-	// federation gap (ONBOD_URL unset / no service key). Set via SetOnbodClient.
+	// onbod federates the /invite + /gate slash commands to onbod. nil → the
+	// commands report the federation gap (ONBOD_URL unset / no service key). Set
+	// via SetOnbodClient.
 	onbod OnbodClient
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
-// nil leaves them reporting the federation gap (the pre-federation stub shape).
+// nil leaves them reporting the federation gap.
 func (l *Loop) SetOnbodClient(c OnbodClient) { l.onbod = c }
 
 // LoopConfig wires the Loop. RunScopes is the capability set every
@@ -134,9 +131,8 @@ type LoopConfig struct {
 	// redelivery / no notice (pure REST tests).
 	Deliver Deliverer
 
-	// Proactive (5/33). Proactive.Enabled false → no scan ever runs.
-	// GroupsDir is where per-group CLAUDE.md lives (the proactive-mode
-	// source); empty when proactive is disabled.
+	// Proactive.Enabled false → no scan ever runs. GroupsDir is where per-group
+	// CLAUDE.md lives (the proactive-mode source); empty when disabled.
 	Proactive ProactiveConfig
 	GroupsDir string
 
@@ -146,19 +142,18 @@ type LoopConfig struct {
 	// disables the check.
 	AppSrcDir string
 
-	// CostCapsEnabled toggles the pre-spawn budget gate (spec 5/34,
-	// COST_CAPS_ENABLED). When true, dispatchRun refuses a turn whose folder
-	// is at/over its daily cost cap. Default-on at the cmd layer.
+	// CostCapsEnabled toggles the pre-spawn budget gate (COST_CAPS_ENABLED). When
+	// true, dispatchRun refuses a turn whose folder is at/over its daily cost cap.
+	// Default-on at the cmd layer.
 	CostCapsEnabled bool
 
 	// Media is the inbound enrichment config (MEDIA_*/WHISPER_*/VOICE_/VIDEO_
 	// env). Zero value (Enabled=false) leaves inbound media un-downloaded and
-	// voice un-transcribed, faithful to gated with MEDIA_ENABLED off.
+	// voice un-transcribed.
 	Media mediaConfig
 
 	// SessionIdle is the spawn-time stale-session reset threshold
-	// (SESSION_IDLE_EXPIRY). Zero falls back to sessionIdleExpiry (2 days),
-	// matching gateway.sessionIdleExpiry.
+	// (SESSION_IDLE_EXPIRY). Zero falls back to sessionIdleExpiry (2 days).
 	SessionIdle time.Duration
 }
 
@@ -209,9 +204,8 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 func (l *Loop) BindServer(s *Server) { l.srv = s }
 
 // recentSessions federates the prior-session continuity hint through the bound
-// Server's runed session client (runed OWNS session_log — spec 5/P). nil srv /
-// no resolver → nil, the "no prior session" shape (faithful to routd's old
-// absent-runed.db guard).
+// Server's runed session client. nil srv / no resolver → nil ("no prior
+// session").
 func (l *Loop) recentSessions(folder string, n int) []core.SessionRecord {
 	if l.srv == nil {
 		return nil
@@ -293,9 +287,8 @@ func (l *Loop) sweepOrphanSocks() {
 	}
 }
 
-// Maintenance cadence (spec 5/E § Outbound is poll-reconciled, § turn
-// lifecycle). The retry sweep re-dispatches pending bot rows; the GC sweeps
-// stale running turns and the idempotency ledger.
+// Maintenance cadence. The retry sweep re-dispatches pending bot rows; the GC
+// sweeps stale running turns and the idempotency ledger.
 const (
 	outboundRetryEvery = 30 * time.Second
 	outboundRetryAfter = 30 * time.Second
@@ -303,10 +296,10 @@ const (
 	gcEvery            = time.Hour
 )
 
-// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s
-// and fails them after 24h (spec 5/E § Outbound is poll-reconciled). The
-// adapter dedups on the row's stable message_id, so a redelivered row never
-// creates a second platform message. No-op when no Deliverer is wired.
+// maybeRetryOutbound re-dispatches bot rows still 'pending' older than 30s and
+// fails them after 24h. The adapter dedups on the row's stable message_id, so a
+// redelivered row never creates a second platform message. No-op when no
+// Deliverer is wired.
 func (l *Loop) maybeRetryOutbound(now time.Time) {
 	if l.deliver == nil || now.Before(l.nextRetryAt) {
 		return
@@ -349,10 +342,9 @@ func (l *Loop) maybeGC(now time.Time) {
 	}
 }
 
-// maybeScanProactive runs one proactive sweep when due (spec 5/33 § The
-// proactive sweep): loop-driven, not a free ticker. Advances by
-// ScanInterval with no catch-up — a long iteration just delays the next
-// scan. No-op unless PROACTIVE_ENABLED.
+// maybeScanProactive runs one proactive sweep when due: loop-driven, not a free
+// ticker. Advances by ScanInterval with no catch-up — a long iteration just
+// delays the next scan. No-op unless PROACTIVE_ENABLED.
 func (l *Loop) maybeScanProactive(now time.Time) {
 	if !l.proactive.Enabled || now.Before(l.nextScanAt) {
 		return
@@ -375,14 +367,11 @@ func (l *Loop) recoverPending() {
 	}
 }
 
-// checkMigrationVersion enqueues a /migrate system message for every root
-// group whose on-disk skill version is behind the upstream MIGRATION_VERSION
-// (ported from gateway.checkMigrationVersion). Bumping MIGRATION_VERSION is
-// the single trigger for both skill updates AND release broadcasts; without
-// this, a release stops migrating agents post-cutover. routd is the sole
-// appender, so it both writes the row and enqueues the turn. Child groups get
-// skills seeded at container start; the root's /migrate skill fans out, so
-// only roots are triggered here.
+// checkMigrationVersion enqueues a /migrate system message for every root group
+// whose on-disk skill version is behind the upstream MIGRATION_VERSION. Bumping
+// MIGRATION_VERSION is the single trigger for both skill updates AND release
+// broadcasts. Child groups get skills seeded at container start; the root's
+// /migrate skill fans out, so only roots are triggered here.
 func (l *Loop) checkMigrationVersion() {
 	if l.appSrcDir == "" {
 		return
@@ -433,9 +422,9 @@ func (l *Loop) folderForJid(chatJID string) string {
 	return g
 }
 
-// pollOnce reads new messages across all chats, groups by chat, resolves
-// the owning group, and enqueues each chat that routes (spec 5/E § The
-// orchestration loop). A route miss advances the cursor and drops.
+// pollOnce reads new messages across all chats, groups by chat, resolves the
+// owning group, and enqueues each chat that routes. A route miss advances the
+// cursor and drops.
 func (l *Loop) pollOnce() {
 	msgs, _, err := l.db.NewMessages(l.pollCursor())
 	if err != nil {
@@ -458,7 +447,7 @@ func (l *Loop) pollOnce() {
 		if !r.ok {
 			if r.Observe != "" {
 				// Route-table observe rule: ingest silently into the folder's
-				// ambient context (is_observed=1), no turn (spec 5/B).
+				// ambient context (is_observed=1), no turn.
 				ids := make([]string, len(chatMsgs))
 				for i, m := range chatMsgs {
 					ids[i] = m.ID
@@ -472,7 +461,7 @@ func (l *Loop) pollOnce() {
 		}
 		// Steering layer (sticky-nav / slash / @child delegation) consumes the
 		// latest message BEFORE enqueue; a consumed message advances the cursor
-		// and never reaches a turn (mirrors gated pollOnce).
+		// and never reaches a turn.
 		if l.steer(chatJID, last, r.Folder) {
 			l.advance(chatJID, last)
 			continue
@@ -500,10 +489,8 @@ type resolution struct {
 }
 
 // resolveGroup is routd's single route renderer, shared by pollOnce and
-// processGroupMessages (spec 5/E § Route resolution). Direct address →
-// route table → engagement override, with topic-root normalization and
-// observe-mode signalling. Mirrors gated resolveOrEngaged + the poll-side
-// engagement/observe branch.
+// processGroupMessages. Direct address → route table → engagement override, with
+// topic-root normalization and observe-mode signalling.
 func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 	r := l.resolve(chatJID, last)
 	return r.Folder, r.ok
@@ -522,8 +509,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 			// Engagement overrides the route. Engagement is recorded on the
 			// root topic (topic="") when the agent replies to an @mention;
 			// thread replies arrive with topic="<thread>" which won't match —
-			// normalize thread→root when the thread topic has no own record
-			// (mirrors gated poll engTopic fallback off effectiveTopic).
+			// normalize thread→root when the thread topic has no own record.
 			engTopic := l.effectiveTopic(chatJID, last.Topic)
 			if engTopic != "" && !l.db.IsEngaged(chatJID, engTopic) {
 				engTopic = ""
@@ -532,7 +518,7 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 				return resolution{Folder: folder, ok: true}
 			}
 			if rt.Mode == "observe" {
-				return resolution{Observe: rt.Folder} // silent ingest; no turn (5/B)
+				return resolution{Observe: rt.Folder} // silent ingest; no turn
 			}
 			return resolution{Folder: rt.Folder, Topic: rt.Topic, ok: true}
 		}
@@ -548,10 +534,9 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	return resolution{}
 }
 
-// effectiveTopic resolves the topic a turn dispatches under: a set sticky
-// #topic (chats.sticky_topic) overrides the message's own topic, else the
-// message topic stands (mirrors gated effectiveTopic gateway.go:2109). The
-// #topic sticky-nav command sets sticky_topic; without this it was dead state.
+// effectiveTopic resolves the topic a turn dispatches under: a set sticky #topic
+// (chats.sticky_topic) overrides the message's own topic, else the message topic
+// stands.
 func (l *Loop) effectiveTopic(chatJID, msgTopic string) string {
 	if _, sticky := l.db.StickyState(chatJID); sticky != "" {
 		return sticky
@@ -570,10 +555,9 @@ func (l *Loop) engaged(chatJID, topic string) (string, bool) {
 	return folder, true
 }
 
-// directFolder returns the folder a JID directly addresses, or "" if the
-// JID is not a direct address. web:<folder> and bare folder JIDs (no
-// platform prefix) address a group directly; the route table does not
-// apply (spec 5/E § Route resolution).
+// directFolder returns the folder a JID directly addresses, or "" if the JID is
+// not a direct address. web:<folder> and bare folder JIDs (no platform prefix)
+// address a group directly; the route table does not apply.
 func directFolder(jid string) string {
 	if strings.HasPrefix(jid, "web:") {
 		return strings.TrimPrefix(jid, "web:")
@@ -590,14 +574,13 @@ func (l *Loop) advance(chatJID string, last core.Message) {
 	_ = l.db.SetAgentCursor(chatJID, last.Timestamp.UTC().Format(time.RFC3339Nano))
 }
 
-// sessionIdleExpiry is the default spawn-time stale-session threshold, matching
-// gateway.sessionIdleExpiry. SESSION_IDLE_EXPIRY overrides it (LoopConfig.SessionIdle).
+// sessionIdleExpiry is the default spawn-time stale-session threshold.
+// SESSION_IDLE_EXPIRY overrides it (LoopConfig.SessionIdle).
 const sessionIdleExpiry = 2 * 24 * time.Hour
 
 // sessionIdleExpired reports whether the chat's last activity (its agent_cursor,
 // an RFC3339Nano timestamp) is older than the idle threshold. A zero/empty or
-// unparseable cursor is never expired (fresh chat — no session to reset anyway),
-// mirroring gateway.sessionIdleExpired.
+// unparseable cursor is never expired (fresh chat — no session to reset anyway).
 func (l *Loop) sessionIdleExpired(chatJID string) bool {
 	cur := l.db.GetAgentCursor(chatJID)
 	if cur == "" {
@@ -611,11 +594,10 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 }
 
 // onCircuitBreakerOpen prunes the chat's errored rows and clears the folder's
-// root session when the breaker trips, mirroring gateway.onCircuitBreakerOpen.
-// A broken session is poison: dropping the failed batch + resetting the session
-// gives the next inbound a clean spawn instead of replaying the same failure.
-// The chat-visible failure notice is sent by the OutcomeError path (runTurn);
-// the breaker rides on that same run, so this is the prune+reset half only.
+// root session when the breaker trips. A broken session is poison: dropping the
+// failed batch + resetting the session gives the next inbound a clean spawn
+// instead of replaying the same failure. The chat-visible failure notice is sent
+// by the OutcomeError path (runTurn); this is the prune+reset half only.
 func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
 	if err := l.db.DeleteErroredMessages(chatJID); err != nil {
 		slog.Warn("prune errored messages failed", "jid", chatJID, "err", err)

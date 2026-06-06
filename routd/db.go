@@ -21,24 +21,23 @@ var migrationFS embed.FS
 
 const serviceName = "routd"
 
-// DB is routd's owner of routd.db: the message/event store + routing rules
-// + turn lifecycle + route tokens. routd is the SOLE appender of messages
-// (spec 5/E). Times are RFC3339Nano UTC, computed in Go.
+// DB is routd's owner of routd.db: the message/event store + routing rules +
+// turn lifecycle + route tokens. routd is the SOLE appender of messages. Times
+// are RFC3339Nano UTC, computed in Go.
 type DB struct {
 	db *sql.DB
 
-	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands
-	// to its OWN *store.Store (secretStore) via SetSecretKeys so reads decrypt
-	// `v2:` values and writes seal them. Empty → no key set → reads stay
-	// ciphertext (no plaintext leak; the connector just gets nothing usable) and
-	// writes store plaintext. routd OWNS the secrets table in routd.db (spec 5/5).
+	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands to
+	// its OWN secretStore via SetSecretKeys so reads decrypt `v2:` values and
+	// writes seal them. Empty → no key set → reads stay ciphertext (no plaintext
+	// leak; the connector just gets nothing usable) and writes store plaintext.
 	secretKeyring [][]byte
 }
 
 // SetSecretKeys supplies the SECRETS_KEY keyring (raw values; the active seal
 // key first, retired keys after) so secret reads off routd's own secrets table
-// decrypt and writes seal. Mirrors store.SetSecretKeys. Empty/no-call → reads
-// stay ciphertext, writes store plaintext.
+// decrypt and writes seal. Empty/no-call → reads stay ciphertext, writes store
+// plaintext.
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
 // Open opens routd.db at dir/routd.db (WAL, FK on) and runs the routd migration
@@ -111,8 +110,7 @@ func (d *DB) GroupExists(folder string) bool {
 
 // GroupByFolder returns the full group identity (Config decoded from the
 // container_config JSON TEXT) for folder, or (zero, false) when absent.
-// Mirrors store.GroupByFolder; spawn-on-delegation reads the parent's
-// Config.MaxChildren through it.
+// Spawn-on-delegation reads the parent's Config.MaxChildren through it.
 func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 	var g core.Group
 	var added string
@@ -152,8 +150,8 @@ func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
 	return model, cfg
 }
 
-// AllGroups returns every registered group keyed by folder (mirrors
-// store.AllGroups). Backs the agent's get_groups MCP tool.
+// AllGroups returns every registered group keyed by folder. Backs the agent's
+// get_groups MCP tool.
 func (d *DB) AllGroups() map[string]core.Group {
 	rows, err := d.db.Query("SELECT folder, added_at, product, model FROM groups")
 	if err != nil {
@@ -243,19 +241,17 @@ func putMessage(x execer, m core.Message) error {
 func (d *DB) PutMessage(m core.Message) error { return putMessage(d.db, m) }
 
 // EnrichMessage replaces a message's content with the media-enriched body and
-// clears its attachments (the raw refs are now downloaded + inlined). Mirror
-// of store.EnrichMessage — called by the inbound media-enrich pass so the
+// clears its attachments (the raw refs are now downloaded + inlined) so the
 // observed-context render on later turns sees the transcript, not the refs.
 func (d *DB) EnrichMessage(id, content string) error {
 	_, err := d.db.Exec(`UPDATE messages SET content=?, attachments='' WHERE id=?`, content, id)
 	return err
 }
 
-// AppendAndFinish appends the bot row AND finishes the idempotency ledger row
-// in ONE tx (spec 5/E § Idempotency step 2). A crash between the two cannot
-// leave a permanent in_flight ledger row: either both commit or neither does,
-// and the retry replays. msg==nil finishes only the ledger (mutation
-// handlers that append no row).
+// AppendAndFinish appends the bot row AND finishes the idempotency ledger row in
+// ONE tx. A crash between the two cannot leave a permanent in_flight ledger row:
+// either both commit or neither does, and the retry replays. msg==nil finishes
+// only the ledger (mutation handlers that append no row).
 func (d *DB) AppendAndFinish(msg *core.Message, endpoint, key string, status int, response string) error {
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -281,8 +277,8 @@ func (d *DB) MessageExists(id string) bool {
 	return n == 1
 }
 
-// NewMessages returns rows with timestamp > since across all chats, plus
-// the new high-water mark. Mirrors store.NewMessages (the pollOnce feed).
+// NewMessages returns rows with timestamp > since across all chats, plus the new
+// high-water mark (the pollOnce feed).
 func (d *DB) NewMessages(since string) ([]core.Message, string, error) {
 	rows, err := d.db.Query(`SELECT `+msgReadCols+`
 		FROM messages WHERE timestamp > ? ORDER BY timestamp ASC`, since)
@@ -383,9 +379,8 @@ func (d *DB) MarkStatus(id, status string) error {
 	return err
 }
 
-// PendingOutbound returns bot rows still status='pending' whose timestamp is
-// at or before cutoff — the outbound retry feed (spec 5/E § Outbound is
-// poll-reconciled).
+// PendingOutbound returns bot rows still status='pending' whose timestamp is at
+// or before cutoff — the outbound retry feed.
 func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error) {
 	if limit <= 0 {
 		limit = 50
@@ -403,8 +398,7 @@ func (d *DB) PendingOutbound(cutoff time.Time, limit int) ([]core.Message, error
 
 // TopicByID returns the topic of a stored row matched by id OR platform_id —
 // reaction topic-inheritance looks up the parent so a reaction to a threaded
-// message routes to the parent's topic, not the main topic (spec 5/E
-// § Channel ingress).
+// message routes to the parent's topic, not the main topic.
 func (d *DB) TopicByID(id string) string {
 	var topic string
 	d.db.QueryRow("SELECT topic FROM messages WHERE id=? OR platform_id=? LIMIT 1", id, id).Scan(&topic)
@@ -420,10 +414,9 @@ func (d *DB) MarkChatErrored(chatJID string) error {
 	return err
 }
 
-// MarkMessagesErrored flags a failed run's trigger rows errored=1 so the
-// circuit breaker can prune them (DeleteErroredMessages). Mirrors
-// store.MarkMessagesErrored. The rows stay visible to a later successful run
-// until the breaker trips. Empty list is a no-op.
+// MarkMessagesErrored flags a failed run's trigger rows errored=1 so the circuit
+// breaker can prune them (DeleteErroredMessages). The rows stay visible to a
+// later successful run until the breaker trips. Empty list is a no-op.
 func (d *DB) MarkMessagesErrored(ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -442,16 +435,15 @@ func (d *DB) MarkMessagesErrored(ids []string) error {
 }
 
 // DeleteErroredMessages drops a chat's errored=1 rows. The circuit-breaker
-// handler calls it so the next inbound starts the chat from a clean batch
-// (mirrors store.DeleteErroredMessages + gateway.onCircuitBreakerOpen).
+// handler calls it so the next inbound starts the chat from a clean batch.
 func (d *DB) DeleteErroredMessages(chatJID string) error {
 	_, err := d.db.Exec("DELETE FROM messages WHERE chat_jid=? AND errored=1", chatJID)
 	return err
 }
 
-// CountErroredChats counts chats flagged errored — the /status surface. Mirrors
-// store.CountErroredChats, reading routd's chats.errored (the coarse per-chat
-// flag; messages.errored is the row-level prune target for the breaker).
+// CountErroredChats counts chats flagged errored — the /status surface. Reads
+// chats.errored (the coarse per-chat flag; messages.errored is the row-level
+// prune target for the breaker).
 func (d *DB) CountErroredChats() int {
 	var n int
 	d.db.QueryRow("SELECT COUNT(*) FROM chats WHERE errored=1").Scan(&n)
@@ -532,7 +524,7 @@ func (d *DB) IsEngaged(jid, topic string) bool {
 
 // MarkMessagesObserved flags rows as is_observed=1 and stamps routed_to so a
 // route-table observe rule (target=folder#observe) ingests them silently into
-// the folder's ambient context without firing a turn (spec 5/B).
+// the folder's ambient context without firing a turn.
 func (d *DB) MarkMessagesObserved(folder string, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -584,9 +576,9 @@ func (d *DB) AddRoute(r core.Route) (int64, error) {
 }
 
 // SetRoutes replaces the routes whose target (sans #fragment) is `folder` or
-// under `folder/`, returning the new count. An empty folder (open mode)
-// replaces the whole table. Mirrors store.SetRoutes' folder-scoped delete so a
-// scoped caller never wipes another folder's routes.
+// under `folder/`, returning the new count. An empty folder (open mode) replaces
+// the whole table. The folder-scoped delete keeps a scoped caller from wiping
+// another folder's routes.
 func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -629,7 +621,7 @@ func (d *DB) DeleteRoute(id int64) error {
 // ErrNotFound signals an absent row to the HTTP layer (404).
 var ErrNotFound = errors.New("not found")
 
-// --- engagement + last-reply (5/G) ---
+// --- engagement + last-reply ---
 
 // SetEngagement claims an engagement window for (jid, topic) by folder
 // until now+ttl.
@@ -676,19 +668,18 @@ func (d *DB) LastReplyID(jid, topic string) string {
 
 // --- turn context + results ---
 
-// PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so
-// late callbacks resolve their topic from turn_id alone. returnTo is the
-// delegation return-address (the trigger batch's forwarded_from): when set,
-// the callback surface delivers reply/send/document back to it instead of the
-// child folder JID the run addresses (gateway.go § deliverTo override).
+// PutTurnContext records a turn's (folder, topic, chat_jid) at dispatch so late
+// callbacks resolve their topic from turn_id alone. returnTo is the delegation
+// return-address (the trigger batch's forwarded_from): when set, the callback
+// surface delivers reply/send/document back to it instead of the child folder
+// JID the run addresses.
 //
-// Returns live=false when the turn is ALREADY terminal (state='done') — a
-// re-fed batch whose run completed must NOT be resurrected: when an earlier
-// batch finishes and a later batch in the same poll steers, the cursor doesn't
-// advance, so the next poll re-feeds the completed batch. The ON CONFLICT
-// reset stays clamped to a still-live or 'expired' turn (the legitimate
-// re-dispatch path); a 'done' turn keeps its terminal state and reports
-// live=false so runTurn skips the re-dispatch.
+// Returns live=false when the turn is ALREADY terminal (state='done') — a re-fed
+// batch whose run completed must NOT be resurrected: when an earlier batch
+// finishes and a later batch in the same poll steers, the cursor doesn't
+// advance, so the next poll re-feeds the completed batch. The ON CONFLICT reset
+// stays clamped to a still-live or 'expired' turn; a 'done' turn keeps its
+// terminal state and reports live=false so runTurn skips the re-dispatch.
 func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo string) (bool, error) {
 	res, err := d.db.Exec(`INSERT INTO turn_context(turn_id, folder, topic, chat_jid, trigger_sender, return_to, started_at, state)
 		VALUES(?,?,?,?,?,?,?, 'running')
@@ -738,10 +729,9 @@ func (d *DB) SetTurnState(turnID, state string) error {
 	return err
 }
 
-// SetRunReturned marks that POST /v1/runs has returned for a turn. After
-// this, late callbacks 409 turn_done (the run is no longer live); before it,
-// trailing frames from a still-live run stay valid even past an early
-// submit_turn (spec 5/E § Post-terminal callbacks).
+// SetRunReturned marks that POST /v1/runs has returned for a turn. After this,
+// late callbacks 409 turn_done (the run is no longer live); before it, trailing
+// frames from a still-live run stay valid even past an early submit_turn.
 func (d *DB) SetRunReturned(turnID string) error {
 	_, err := d.db.Exec("UPDATE turn_context SET run_returned=1 WHERE turn_id=?", turnID)
 	return err
@@ -777,9 +767,8 @@ func (d *DB) RunningTurns() ([]TurnContext, error) {
 
 // SweepExpiredRunning flips stale state='running' turns older than the run
 // timeout to the DISTINCT terminal 'expired' (NOT 'done') so they stop being
-// re-fed by crash recovery, without tripping the done-guard against a
-// legitimate re-dispatch (spec 5/E § turn lifecycle). Returns the count
-// swept.
+// re-fed by crash recovery, without tripping the done-guard against a legitimate
+// re-dispatch. Returns the count swept.
 func (d *DB) SweepExpiredRunning(timeout time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-timeout).UTC().Format(time.RFC3339Nano)
 	res, err := d.db.Exec("UPDATE turn_context SET state='expired' WHERE state='running' AND started_at < ?", cutoff)
@@ -801,10 +790,9 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 	return n == 1, nil
 }
 
-// TurnResultRecorded reports whether submit_turn already recorded an outcome
-// for (folder, turn_id). The run-response path checks this before persisting
-// its session_id backstop so submit_turn's value wins (spec 5/E § Completion
-// reconciliation).
+// TurnResultRecorded reports whether submit_turn already recorded an outcome for
+// (folder, turn_id). The run-response path checks this before persisting its
+// session_id backstop so submit_turn's value wins.
 func (d *DB) TurnResultRecorded(folder, turnID string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM turn_results WHERE folder=? AND turn_id=?", folder, turnID).Scan(&n)
@@ -821,9 +809,9 @@ func (d *DB) PutSession(folder, topic, sessionID string) error {
 	return err
 }
 
-// GetSession returns the persisted session id for (folder, topic) and whether
-// a row exists (mirrors store.GetSession). copyParentSession reads the parent
-// topic's session id through this before copying its jsonl.
+// GetSession returns the persisted session id for (folder, topic) and whether a
+// row exists. copyParentSession reads the parent topic's session id through this
+// before copying its jsonl.
 func (d *DB) GetSession(folder, topic string) (string, bool) {
 	var id sql.NullString
 	err := d.db.QueryRow("SELECT session_id FROM sessions WHERE group_folder=? AND topic=?", folder, topic).Scan(&id)
@@ -831,10 +819,10 @@ func (d *DB) GetSession(folder, topic string) (string, bool) {
 }
 
 // EnsureTopicLineage inserts a sessions row for (folder, topic) with lineage if
-// none exists yet (mirrors store.EnsureTopicLineage). Idempotent: a no-op when
-// the row already exists. parentTopic="" forks from main; main topic "" is
-// skipped (main has no parent). Returns inserted=true when a new row was
-// created — the caller then copies the parent session file (spec 6/F).
+// none exists yet. Idempotent: a no-op when the row already exists.
+// parentTopic="" forks from main; main topic "" is skipped (main has no parent).
+// Returns inserted=true when a new row was created — the caller then copies the
+// parent session file.
 func (d *DB) EnsureTopicLineage(folder, topic, parentTopic, newSessionID string) (bool, error) {
 	if topic == "" {
 		return false, nil
@@ -859,9 +847,9 @@ func (d *DB) DeleteSession(folder, topic string) error {
 }
 
 // ForkTopic seeds a fresh session row for child, recording its parent topic +
-// fork time, with observed_cursor=now so the child reads only post-fork context
-// (mirrors store.ForkTopic against routd's sessions table). force overwrites an
-// existing child; otherwise a collision returns core.ErrTopicExists.
+// fork time, with observed_cursor=now so the child reads only post-fork context.
+// force overwrites an existing child; otherwise a collision returns
+// core.ErrTopicExists.
 func (d *DB) ForkTopic(folder, parent, child, newSessionID string, force bool) error {
 	if child == "" {
 		return fmt.Errorf("fork: child topic empty")
@@ -909,9 +897,8 @@ func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) 
 	return err
 }
 
-// FolderCap returns the per-day spend cap for a folder in cents. Zero means
-// uncapped (the default). Mirrors store.FolderCap against routd's own groups
-// table (groups.cost_cap_cents_per_day).
+// FolderCap returns the per-day spend cap for a folder in cents
+// (groups.cost_cap_cents_per_day). Zero means uncapped (the default).
 func (d *DB) FolderCap(folder string) (int, error) {
 	var cents int
 	err := d.db.QueryRow(
@@ -922,9 +909,8 @@ func (d *DB) FolderCap(folder string) (int, error) {
 	return cents, err
 }
 
-// SpendTodayFolder sums cost_log.cost_cents for a folder since the UTC start
-// of today — the pre-spawn budget gate's spend view. Mirrors
-// store.SpendTodayFolder against routd's own cost_log (logged by PutCost).
+// SpendTodayFolder sums cost_log.cost_cents for a folder since the UTC start of
+// today — the pre-spawn budget gate's spend view.
 func (d *DB) SpendTodayFolder(folder string) (int, error) {
 	var cents int
 	err := d.db.QueryRow(
@@ -934,8 +920,7 @@ func (d *DB) SpendTodayFolder(folder string) (int, error) {
 }
 
 // SpendTodayUser sums cost_log.cost_cents for a user_sub since the UTC start of
-// today — the per-user half of the budget gate. Mirrors store.SpendTodayUser
-// against routd's own cost_log (rows logged by PutCost with the caller sub).
+// today — the per-user half of the budget gate.
 func (d *DB) SpendTodayUser(userSub string) (int, error) {
 	var cents int
 	err := d.db.QueryRow(
@@ -944,14 +929,14 @@ func (d *DB) SpendTodayUser(userSub string) (int, error) {
 	return cents, err
 }
 
-// startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the
-// budget window's lower bound (mirrors store.startOfTodayUTC).
+// startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the budget
+// window's lower bound.
 func startOfTodayUTC() string {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
 }
 
-// --- proactive interjection (5/33) ---
+// --- proactive interjection ---
 
 // proactiveSelfSender is the synthetic inbound's sender. Rows from it never
 // reset the silence clock and never count as recent activity (the trigger
@@ -995,10 +980,10 @@ func (d *DB) LastInboundAt(jid string) time.Time {
 	return t
 }
 
-// LatestSource returns the adapter name that delivered the newest real
-// inbound row on a chat (the messages.source column), used by the Deliverer
-// to route an outbound back to the same adapter the conversation came in on.
-// Empty when the chat has no sourced inbound. Mirrors store.LatestSource.
+// LatestSource returns the adapter name that delivered the newest real inbound
+// row on a chat (the messages.source column), used by the Deliverer to route an
+// outbound back to the same adapter the conversation came in on. Empty when the
+// chat has no sourced inbound.
 func (d *DB) LatestSource(jid string) string {
 	var src string
 	d.db.QueryRow(
@@ -1055,10 +1040,10 @@ func (d *DB) ProactiveLastFired(jid string) time.Time {
 }
 
 // FireProactive appends the synthetic inbound row AND sets the chat's
-// proactive_last_fired_at in one transaction (spec 5/33 § Fire). The caller
-// dispatches the run only after this commits, so a crash before dispatch
-// leaves the cooldown set — at worst one missed turn, never a double-fire.
-// Returns the synthetic row's id (the turn_id).
+// proactive_last_fired_at in one transaction. The caller dispatches the run only
+// after this commits, so a crash before dispatch leaves the cooldown set — at
+// worst one missed turn, never a double-fire. Returns the synthetic row's id
+// (the turn_id).
 func (d *DB) FireProactive(jid string) (string, error) {
 	id := "proactive-" + randHex(8)
 	now := nowTS()

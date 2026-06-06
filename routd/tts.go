@@ -19,9 +19,8 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
-// ttsConfig is routd's slice of the TTS_* env (mirror of core.Config's TTS
-// fields). CacheDir is where synthesized Opus is memoized (gated uses
-// ProjectRoot/tts; routd's cmd points it at DATA_DIR/tts).
+// ttsConfig is routd's slice of the TTS_* env. CacheDir is where synthesized
+// Opus is memoized (routd's cmd points it at DATA_DIR/tts).
 type ttsConfig struct {
 	Enabled  bool
 	URL      string
@@ -38,15 +37,14 @@ func TTSConfig(enabled bool, url, voice, model string, timeout time.Duration, ca
 }
 
 // httpClient is routd's shared HTTP client for the TTS + Whisper + media
-// download calls (gateway-private in gated; reimplemented here for the port).
+// download calls.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // sendVoice synthesizes text → Opus via the TTS service and hands the cached
-// audio path to the Deliverer for the owning adapter to upload. Faithful port
-// of gateway.sendVoice: validate before TTS, refuse when TTS is off / URL is
-// empty / no voice resolves, memoize on (text, voice, model). Returns the
-// platform id. The ipc tool layer persists the bot row (recordOutbound), so
-// this must NOT persist — deliver-only, like mcpDeliver.
+// audio path to the Deliverer for the owning adapter to upload: validate before
+// TTS, refuse when TTS is off / URL is empty / no voice resolves, memoize on
+// (text, voice, model). Returns the platform id. The ipc tool layer persists the
+// bot row (recordOutbound), so this must NOT persist — deliver-only.
 func (s *Server) sendVoice(jid, text, voice, folder, threadID string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -133,8 +131,7 @@ func (c ttsConfig) cacheOrSynthesize(text, voice, model string) (string, error) 
 // synthesize POSTs to the OpenAI-compatible /v1/audio/speech endpoint and
 // returns the audio bytes. Format is fixed to opus (Opus in an Ogg container)
 // because every supported channel encodes its voice primitive that way
-// (Telegram NewVoice, WhatsApp ptt, Discord audio attachment). Faithful port
-// of gateway.synthesize.
+// (Telegram NewVoice, WhatsApp ptt, Discord audio attachment).
 func (c ttsConfig) synthesize(text, voice, model string) ([]byte, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model":           model,

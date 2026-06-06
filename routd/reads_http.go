@@ -11,10 +11,9 @@ import (
 )
 
 // reads_http.go is routd's REST read/manage surface (message reads + routing +
-// engagement + cost). Post-flip the agent reaches the same data in-process via
-// routd's MCP StoreFns (routd/mcp.go), so this surface is the REST twin for
-// humans / external tools. NOT turn-scoped; authz bounds reads to the bearer
-// token's folder claim.
+// engagement + cost) — the REST twin of the agent's in-process MCP StoreFns
+// (routd/mcp.go), for humans / external tools. NOT turn-scoped; authz bounds
+// reads to the bearer token's folder claim.
 
 // scopeRoutesRead/Write match the route-CRUD scopes; engagement is a
 // routing-state write owned by the caller's folder.

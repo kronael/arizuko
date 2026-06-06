@@ -1,9 +1,8 @@
 package routd
 
-// tokens_http.go holds the route_token HTTP handlers (5/W): mint a /chat/ or
-// /hook/ URL token, list/revoke tokens under an owner folder, and the
-// service-token resolve (URL token → jid) webd calls. The DB methods live in
-// tokens.go; routes + web_routes CRUD are in their own *_http.go files.
+// tokens_http.go holds the route_token HTTP handlers: mint a /chat/ or /hook/ URL
+// token, list/revoke tokens under an owner folder, and the service-token resolve
+// (URL token → jid) webd calls. The DB methods live in tokens.go.
 
 import (
 	"encoding/json"
@@ -156,7 +155,7 @@ func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenResolve(w http.ResponseWriter, r *http.Request) {
-	// webd's service token resolves a URL token → jid (spec 5/E § Route tokens).
+	// webd's service token resolves a URL token → jid.
 	if !s.authed(w, r, "routes:read") {
 		return
 	}

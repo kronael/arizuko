@@ -11,17 +11,14 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// chanDeliverer is routd's production Deliverer: it resolves the owning
-// adapter for a jid through the channel registry and fans the outbound call
-// out over chanreg.HTTPChannel. It is the egress half ported from gated
-// (api.handleOutbound + gateway.findChannelForJID): one renderer, the same
-// resolution order, the same HTTP channel client.
+// chanDeliverer is routd's production Deliverer: it resolves the owning adapter
+// for a jid through the channel registry and fans the outbound call out over
+// chanreg.HTTPChannel.
 //
 // Live-channel reuse: the per-adapter HTTPChannel carries a retry outbox.
 // Register/deregister hooks keep `live` in sync so a resolved send reuses the
-// adapter's channel (and its queued backlog) instead of a throwaway, matching
-// gated's httpChannels map. A cache miss falls back to a fresh channel built
-// from the registry entry.
+// adapter's channel (and its queued backlog) instead of a throwaway. A cache
+// miss falls back to a fresh channel built from the registry entry.
 type chanDeliverer struct {
 	reg           *chanreg.Registry
 	disabledChans []string // SEND_DISABLED_CHANNELS jid-prefixes (the part before ':')
@@ -74,10 +71,10 @@ func (d *chanDeliverer) dropLive(name string) {
 	d.mu.Unlock()
 }
 
-// resolve picks the channel for jid using gated's order: latest inbound source
-// for the jid → registry Resolve (name lookup, ForJID prefix fallback). Returns
-// nil when no adapter owns the jid. Reuses the live (outbox-bearing) channel
-// when one is cached, else builds a fresh one from the entry.
+// resolve picks the channel for jid: latest inbound source for the jid →
+// registry Resolve (name lookup, ForJID prefix fallback). Returns nil when no
+// adapter owns the jid. Reuses the live (outbox-bearing) channel when one is
+// cached, else builds a fresh one from the entry.
 func (d *chanDeliverer) resolve(jid string) *chanreg.HTTPChannel {
 	name := d.latestSource(jid)
 	entry := d.reg.Resolve(name, jid)
@@ -101,7 +98,7 @@ func (d *chanDeliverer) latestSource(jid string) string {
 }
 
 // disabled reports whether jid's channel prefix is in SEND_DISABLED_CHANNELS.
-// A disabled send is a silent no-op success, matching gated's canSendToJID.
+// A disabled send is a silent no-op success.
 func (d *chanDeliverer) disabled(jid string) bool {
 	prefix, _, _ := strings.Cut(jid, ":")
 	for _, x := range d.disabledChans {
@@ -131,7 +128,6 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, idempotenc
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	// The Deliverer carries no threadID for files, matching the interface.
 	return ch.SendFile(jid, path, name, caption, replyToID, "")
 }
 
@@ -248,7 +244,7 @@ func (d *chanDeliverer) SetName(jid, title string) error {
 // FetchHistory resolves the owning adapter for jid and proxies to its GET
 // /v1/history (the fetch_history platform-truth source). No adapter / no
 // fetch_history cap → error; the caller (Server.fetchPlatformHistory) then
-// falls back to the local DB, matching gated.fetchPlatformHistory.
+// falls back to the local DB.
 func (d *chanDeliverer) FetchHistory(jid string, before time.Time, limit int) ([]byte, error) {
 	ch := d.resolve(jid)
 	if ch == nil {

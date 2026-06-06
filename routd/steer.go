@@ -14,11 +14,11 @@ import (
 	"github.com/kronael/arizuko/router"
 )
 
-// steer consumes the latest message of a routed chat BEFORE it reaches a turn
-// (mirrors gated pollOnce's pre-enqueue layer). It applies, in order: sticky
-// navigation (@group / #topic), routd-serviceable slash commands, and @child
-// delegation / the external-route prefix layer. Returns true when the message
-// was consumed — the caller then advances the cursor and skips the turn.
+// steer consumes the latest message of a routed chat BEFORE it reaches a turn.
+// It applies, in order: sticky navigation (@group / #topic), routd-serviceable
+// slash commands, and @child delegation / the external-route prefix layer.
+// Returns true when the message was consumed — the caller then advances the
+// cursor and skips the turn.
 func (l *Loop) steer(chatJID string, last core.Message, folder string) bool {
 	if l.handleStickyCommand(chatJID, last) {
 		return true
@@ -49,8 +49,8 @@ func isStickyCommand(content string) bool {
 
 // handleStickyCommand pins (or resets) the chat's @group / #topic navigation.
 // A bare @ or # resets; @<known-folder> / #<topic> pins. An @ to an unknown
-// folder is NOT consumed — passed through to the agent (gated rationale: bare
-// @ at message start has too many meanings to swallow).
+// folder is NOT consumed — passed through to the agent (a bare @ at message
+// start has too many meanings to swallow).
 func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	if msg.BotMsg || strings.HasPrefix(msg.Sender, "timed-") {
 		return false
@@ -86,14 +86,12 @@ func (l *Loop) handleStickyCommand(chatJID string, msg core.Message) bool {
 	return false
 }
 
-// --- slash commands (port of gateway/commands.go) ---
+// --- slash commands ---
 //
-// Output text matches gated verbatim (operators rely on the exact responses).
-// routd owns messages/routes/sessions/sticky/chats and reaches containers via
-// its queue + tasks in routd.db, so /new /chatid /ping /status /stop /root
-// /approve /reject port in full. /invite and /gate need onbod-owned tables
-// (invites + onboarding_gates); routd federates them to onbod over HTTP (the
-// OnbodClient). nil client (ONBOD_URL unset) → they report the federation gap.
+// Output text is fixed — operators rely on the exact responses. /invite and
+// /gate need onbod-owned tables (invites + onboarding_gates); routd federates
+// them to onbod over HTTP (the OnbodClient). nil client (ONBOD_URL unset) → they
+// report the federation gap.
 
 func cmdText(raw string) string {
 	t := strings.TrimSpace(raw)
@@ -158,10 +156,9 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 }
 
 // cmdPing reports the resolved folder, its session prefix, the count of live
-// runs in routd's queue, and the registered-group count (port of
-// gateway.cmdPing; "active containers" is routd's in-flight run count — the
-// container itself runs in runed, but the queue's active count is the
-// equivalent live-run gauge).
+// runs in routd's queue, and the registered-group count. "active containers" is
+// routd's in-flight run count (the container runs in runed, but the queue's
+// active count is the equivalent live-run gauge).
 func (l *Loop) cmdPing(chatJID, folder string) {
 	sessID, _ := l.db.GetSession(folder, "")
 	nGroups := len(l.db.AllGroups())
@@ -175,10 +172,9 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 		folder, sess, active, nGroups))
 }
 
-// cmdStop kills the resolved folder's live run (port of gateway.cmdStop). The
-// container is owned by runed in the split, so routd asks runed to map the
-// folder to its live spawn and kill it (POST /v1/runs/stop) rather than its own
-// queue (which launches no containers here). Response text is gated-verbatim.
+// cmdStop kills the resolved folder's live run. The container is owned by runed,
+// so routd asks runed to map the folder to its live spawn and kill it (POST
+// /v1/runs/stop).
 func (l *Loop) cmdStop(chatJID, folder string) {
 	stopper, ok := l.runner.(RunStopper)
 	if !ok {
@@ -198,10 +194,9 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 	}
 }
 
-// cmdStatus reports instance-wide counts, root-group only (port of
-// gateway.cmdStatus). Channels come from the channel registry (held by the
-// Server); errored chats + active tasks from routd's own routd.db (routd OWNS
-// scheduled_tasks — migration 0009).
+// cmdStatus reports instance-wide counts, root-group only. Channels come from the
+// channel registry (held by the Server); errored chats + active tasks from
+// routd.db.
 func (l *Loop) cmdStatus(chatJID, folder string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root only.")
@@ -220,9 +215,9 @@ func (l *Loop) cmdStatus(chatJID, folder string) {
 		nChannels, nGroups, active, errored, tasks))
 }
 
-// cmdRoot delegates a message up to the world-root group (port of
-// gateway.cmdRoot). Tier>1 is denied; a bare /root usage-prompts; an already-
-// root or missing-root group short-circuits.
+// cmdRoot delegates a message up to the world-root group. Tier>1 is denied; a
+// bare /root usage-prompts; an already-root or missing-root group
+// short-circuits.
 func (l *Loop) cmdRoot(chatJID, folder, arg string) {
 	if auth.Resolve(folder).Tier > 1 {
 		l.ack(chatJID, "Permission denied.")
@@ -246,11 +241,10 @@ func (l *Loop) cmdRoot(chatJID, folder, arg string) {
 	}
 }
 
-// cmdInvite mints an invite for the root group's subtree (onbod OWNS invites —
-// spec 5/5). It validates the tier-0 gate + arg shape exactly as gated, then
-// calls onbod's POST /v1/invites. nil onbod client (ONBOD_URL unset) → the
-// federation-gap notice. The minted invite targets the root folder + "/" so the
-// redeemer picks a username under it, matching gated's bare /invite semantics.
+// cmdInvite mints an invite for the root group's subtree. It validates the tier-0
+// gate + arg shape, then calls onbod's POST /v1/invites. nil onbod client
+// (ONBOD_URL unset) → the federation-gap notice. The minted invite targets the
+// root folder + "/" so the redeemer picks a username under it.
 func (l *Loop) cmdInvite(chatJID, folder, arg string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root group only.")
@@ -278,9 +272,9 @@ func (l *Loop) cmdInvite(chatJID, folder, arg string) {
 	l.ack(chatJID, "Invite link token: "+token)
 }
 
-// cmdGate manages the onboarding gates (onbod OWNS onboarding_gates — spec 5/5).
-// It validates the tier-0 gate + subcommand shape exactly as gated, then calls
-// onbod's /v1/gates endpoints. nil onbod client → the federation-gap notice.
+// cmdGate manages the onboarding gates. It validates the tier-0 gate + subcommand
+// shape, then calls onbod's /v1/gates endpoints. nil onbod client → the
+// federation-gap notice.
 func (l *Loop) cmdGate(chatJID, folder, arg string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root only.")
@@ -291,8 +285,8 @@ func (l *Loop) cmdGate(chatJID, folder, arg string) {
 	if len(parts) > 0 {
 		action = parts[0]
 	}
-	// Validate the subcommand shape exactly as gated BEFORE touching onbod, so an
-	// unknown subcommand always gets the usage line (even with no onbod wired).
+	// Validate the subcommand shape BEFORE touching onbod, so an unknown
+	// subcommand always gets the usage line (even with no onbod wired).
 	switch action {
 	case "", "list", "add", "rm", "enable", "disable":
 	default:
@@ -363,9 +357,9 @@ func (l *Loop) cmdGate(chatJID, folder, arg string) {
 
 // cmdNew clears the resolved folder's session (root or #topic) AND reinjects any
 // trailing text as a fresh inbound so `/new look into X` clears the session then
-// processes "look into X"; a bare `/new` just clears. Mirrors gated cmdNew
-// (commands.go § cmdNew). The synthetic inbound is enqueued; the consumed /new
-// row advances the cursor, so the followup runs on a clean session next poll.
+// processes "look into X"; a bare `/new` just clears. The synthetic inbound is
+// enqueued; the consumed /new row advances the cursor, so the followup runs on a
+// clean session next poll.
 func (l *Loop) cmdNew(chatJID, folder, arg string) {
 	label := "Session cleared."
 	followup := ""
@@ -415,8 +409,7 @@ func parsePrefix(text string) (name, rest string, ok bool) {
 
 // tryExternalRoute delegates the message to a child group when an explicit
 // @child / #topic prefix or a routing rule points outside the current folder.
-// Mirrors gated tryExternalRoute (prefix layer + resolveTarget). Returns true
-// when the message was delegated/forked (consumed).
+// Returns true when the message was delegated/forked (consumed).
 func (l *Loop) tryExternalRoute(chatJID string, msg core.Message, folder string) bool {
 	if l.handlePrefixLayer(chatJID, msg, folder) {
 		return true
@@ -501,22 +494,20 @@ func (l *Loop) resolveTarget(chatJID string, msg core.Message, selfFolder string
 }
 
 // delegate writes a delegation message to the target group's folder JID and
-// enqueues it. ForwardedFrom carries the origin chat as the return address so
-// the child's reply-to-bot routes back. When the target is unknown but its
-// parent exists with a prototype/ dir, it is spawned on the fly (port of
-// gateway.delegateViaMessage's spawn-on-delegation). Depth-0 entry.
+// enqueues it. ForwardedFrom carries the origin chat as the return address so the
+// child's reply-to-bot routes back. When the target is unknown but its parent
+// exists with a prototype/ dir, it is spawned on the fly. Depth-0 entry.
 func (l *Loop) delegate(targetFolder, prompt, originJID string) {
 	if err := l.delegateViaMessage(targetFolder, prompt, originJID, 0); err != nil {
 		slog.Warn("delegate failed", "target", targetFolder, "err", err)
 	}
 }
 
-// delegateViaMessage writes the delegation row and triggers the target's
-// queue. On an unknown target whose parent group exists, it spawns a child
-// from the parent's prototype/ dir and recurses once (depth guard). The
-// child's reply routes back to forwardedFrom — overridden to the escalation
-// worker jid when the prompt carries an <escalation_origin/> tag. Faithful
-// port of gateway.delegateViaMessage.
+// delegateViaMessage writes the delegation row and triggers the target's queue.
+// On an unknown target whose parent group exists, it spawns a child from the
+// parent's prototype/ dir and recurses once (depth guard). The child's reply
+// routes back to forwardedFrom — overridden to the escalation worker jid when the
+// prompt carries an <escalation_origin/> tag.
 func (l *Loop) delegateViaMessage(targetFolder, prompt, originJID string, depth int) error {
 	if depth > 1 {
 		return fmt.Errorf("delegation depth exceeded")

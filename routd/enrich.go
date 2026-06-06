@@ -20,11 +20,9 @@ import (
 	"github.com/kronael/arizuko/groupfolder"
 )
 
-// mediaConfig is routd's slice of the media/transcription env (mirror of
-// core.Config's media + whisper fields). Faithful to gated: audio AND video
-// transcription both fire under VoiceEnabled && WhisperURL != "" (gated's
-// enrichAttachments gates both branches on VoiceEnabled). VideoEnabled mirrors
-// the env field but, like gated, the enrich path doesn't read it.
+// mediaConfig is routd's slice of the media/transcription env. Audio AND video
+// transcription both fire under VoiceEnabled && WhisperURL != "". VideoEnabled
+// mirrors the env field but the enrich path doesn't read it.
 type mediaConfig struct {
 	Enabled       bool
 	MaxBytes      int64
@@ -46,11 +44,10 @@ func MediaConfig(enabled bool, maxBytes int64, whisperURL, whisperModel string,
 }
 
 // enrichAttachments downloads a message's inbound attachments into the group's
-// dated media dir, transcribes voice/video via Whisper, and rewrites
-// msg.Content with <attachment .../> blocks (and persists the rewrite via
-// EnrichMessage so later turns' observed context sees it too). No-op when
-// media is disabled or the message has no attachments — faithful port of
-// gateway.enrichAttachments. Failures log WARN and skip the offending
+// dated media dir, transcribes voice/video via Whisper, and rewrites msg.Content
+// with <attachment .../> blocks (persisting the rewrite via EnrichMessage so
+// later turns' observed context sees it too). No-op when media is disabled or the
+// message has no attachments. Failures log WARN and skip the offending
 // attachment; the turn proceeds.
 func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder string) {
 	if !l.media.Enabled || msg.Attachments == "" {

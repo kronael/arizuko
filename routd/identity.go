@@ -12,11 +12,10 @@ import (
 )
 
 // IdentityResolver resolves a platform sender sub to its canonical identity and
-// the full set of subs that identity claims. authd OWNS identity (spec 5/9) and
-// serves GET /v1/identities/{sub}; routd snapshots it over HTTP for the
-// inspect_identity tool instead of sibling-reading gated's messages.db. nil
-// resolver / unreachable authd / unclaimed sub → (zero, nil, false), the
-// unclaimed shape the tool renders.
+// the full set of subs that identity claims. authd OWNS identity and serves GET
+// /v1/identities/{sub}; routd snapshots it over HTTP for the inspect_identity
+// tool. nil resolver / unreachable authd / unclaimed sub → (zero, nil, false),
+// the unclaimed shape the tool renders.
 type IdentityResolver interface {
 	Resolve(sub string) (ipc.Identity, []string, bool)
 }
@@ -30,8 +29,7 @@ type httpIdentity struct {
 
 // NewIdentityResolver builds a resolver against authdURL, authenticating with
 // token (routd's service-token source). Empty authdURL → nil (no resolver;
-// inspect_identity then answers unclaimed, like routd against an absent
-// sibling).
+// inspect_identity then answers unclaimed).
 func NewIdentityResolver(authdURL string, token func(context.Context) (string, error)) IdentityResolver {
 	if authdURL == "" {
 		return nil
@@ -45,8 +43,7 @@ func NewIdentityResolver(authdURL string, token func(context.Context) (string, e
 
 // Resolve issues GET /v1/identities/{sub}. A claimed sub returns its identity +
 // linked subs; unclaimed → (zero, nil, false). Any transport/auth error or
-// non-200 also returns the unclaimed shape — advisory only, never an error path
-// (faithful to the old nil-sibling guard).
+// non-200 also returns the unclaimed shape — advisory only, never an error path.
 func (g *httpIdentity) Resolve(sub string) (ipc.Identity, []string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

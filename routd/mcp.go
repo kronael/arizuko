@@ -79,8 +79,8 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 				return err
 			}
 			// Copy the parent topic's Claude session jsonl so the child resumes
-			// from the parent's tail instead of cold (spec 6/F; mirrors
-			// gateway.forkTopic). loop is nil in pure REST tests — skip then.
+			// from the parent's tail instead of cold. loop is nil in pure REST
+			// tests — skip then.
 			if s.loop != nil {
 				s.loop.copyParentSession(folder, parent, childUUID)
 			}
@@ -132,9 +132,9 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 	return pid, err
 }
 
-// mcpAppendDoc is the in-process send_file: deliver-only (internalSend's
-// recordOutbound persists the row, keyed on the returned platform id so a
-// later human reply re-promotes — spec 6/J).
+// mcpAppendDoc is the in-process send_file: deliver-only (the ipc tool layer's
+// recordOutbound persists the row, keyed on the returned platform id so a later
+// human reply re-promotes).
 func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
@@ -257,10 +257,8 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter
 // owning jid (Deliverer.FetchHistory → GET /v1/history), decode the
 // HistoryResponse, cache rows in routd.db (dedup by ID via PutMessage), and
-// return the decoded messages. Faithful port of gateway.fetchPlatformHistory:
-// on no-adapter/decode failure it returns source:"cache"/"cache-only" with
-// whatever the local DB holds. routd is the sole appender, so the cache write
-// stays on routd.db (its own table) — no cross-DB write.
+// return the decoded messages. On no-adapter/decode failure it returns
+// source:"cache"/"cache-only" with whatever the local DB holds.
 func (s *Server) fetchPlatformHistory(jid string, before time.Time, limit int) (ipc.PlatformHistory, error) {
 	fallback := func(source string) (ipc.PlatformHistory, error) {
 		msgs, err := s.db.MessagesBefore(jid, beforeStr(before), limit)
@@ -311,9 +309,8 @@ func beforeStr(t time.Time) string {
 // it emits audit events via slog/.jl (see buildGatedFns.Audit).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	return ipc.StoreFns{
-		// Task reads + writes: routd OWNS scheduled_tasks + task_run_logs in
-		// routd.db (migration 0009). schedule_task → CreateTask; pause/resume →
-		// UpdateTaskStatus; cancel → DeleteTask — all audit-free against routd.db.
+		// Task reads + writes: schedule_task → CreateTask; pause/resume →
+		// UpdateTaskStatus; cancel → DeleteTask.
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
@@ -322,13 +319,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		CreateTask:       s.db.CreateTask,
 		UpdateTaskStatus: s.db.SetTaskStatus,
 		DeleteTask:       s.db.DeleteTask,
-		// Session reads: current session_id from routd.db (own table); recent
-		// session_log rows federated from runed's GET /v1/sessions/recent (runed
-		// OWNS session_log — spec 5/P; no runed.db sibling-read).
+		// Session reads: current session_id from routd.db; recent session_log rows
+		// federated from runed's GET /v1/sessions/recent.
 		GetSession:     s.db.GetSession,
 		RecentSessions: s.recentSessions,
-		// Identity reads: authd OWNS identity (spec 5/9). routd snapshots its
-		// GET /v1/identities/{sub} over HTTP — no messages.db sibling-read.
+		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
 		// nil resolver → unclaimed shape.
 		GetIdentityForSub: s.resolveIdentity,
 		ListRoutes: func(_ string, _ bool) []core.Route {
@@ -409,17 +404,15 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
-		// MCP connectors (spec 7/Y M6): the discovered catalog + the per-call
-		// secret resolver. ResolveConnectorSecrets reads folder/user secrets RO
-		// from routd's own routd.db (routd OWNS secrets — spec 5/5), decrypts via
+		// MCP connectors: the discovered catalog + the per-call secret resolver.
+		// ResolveConnectorSecrets reads folder/user secrets, decrypts via
 		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so
 		// CallConnectorTool both injects them into the subprocess env AND scrubs
-		// their values from the result (the nil resolver would leave it unscrubbed).
+		// their values from the result (a nil resolver leaves it unscrubbed).
 		Connectors:              s.connectors,
 		ResolveConnectorSecrets: s.db.ConnectorSecrets,
-		// ACL: list_acl reads the operator rows from routd's own routd.db (routd
-		// OWNS acl — spec 5/5); Authorize is the per-call row-ACL check ServeMCP
-		// runs when callerSub is set. Both nil-safe (no rows → no rows / deny).
+		// ACL: list_acl reads the operator rows; Authorize is the per-call row-ACL
+		// check ServeMCP runs when callerSub is set. Both nil-safe.
 		ListACL:           s.db.ListACL,
 		Authorize:         s.db.Authorize,
 		AddNetworkRule:    s.db.AddNetworkRule,
@@ -447,15 +440,12 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 
 // deriveFolderGrants is the single grant-rule renderer for a folder: tier
 // defaults (grants.DeriveRules) keyed on the folder's tier + world, then the
-// per-folder operator ACL overlay. Used by both ServeTurnMCP (the in-process
-// MCP tool firewall) and dispatchRun (the rules shipped to runed for
-// buildMounts/egress) so the two can't drift. Faithful port of gateway's
-// runAgentWithOpts overlay (gateway.go): operator overrides for this folder's
-// agent live as acl rows with principal=folder:<folder> and action=mcp:<tool>;
-// append them onto the tier-derived rules so the grants check sees both
-// layers. deny precedence is preserved by the rule evaluator (grants.CheckAction
-// last-match-wins; a !rule denies). The acl rows live in routd's OWN routd.db
-// (spec 5/5 § Daemon ownership); an empty table → tier defaults only.
+// per-folder operator ACL overlay. Used by both ServeTurnMCP (the in-process MCP
+// tool firewall) and dispatchRun (the rules shipped to runed for
+// buildMounts/egress) so the two can't drift. Operator overrides live as acl rows
+// with principal=folder:<folder> and action=mcp:<tool>; they append onto the
+// tier-derived rules so the grants check sees both layers (deny precedence kept
+// by the evaluator's last-match-wins). Empty table → tier defaults only.
 func deriveFolderGrants(d *DB, folder string) []string {
 	tier := auth.Resolve(folder).Tier
 	rules := grants.DeriveRules(d, folder, tier, auth.WorldOf(folder))
@@ -478,9 +468,9 @@ func deriveFolderGrants(d *DB, folder string) []string {
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	rules := deriveFolderGrants(s.db, t.folder)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
-	// ipc dir may not exist yet (gated relied on the runner's buildMounts mkdir).
-	// ServeMCP only os.Removes the stale sock + Listens — never mkdirs — so create
-	// the parent here or net.Listen fails on a fresh folder's first turn.
+	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
+	// — never mkdirs — so create the parent here or net.Listen fails on a fresh
+	// folder's first turn.
 	if err := os.MkdirAll(ipcDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -489,12 +479,10 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	if uid := os.Getuid(); uid > 0 && uid != 1000 {
 		expectedUID = uid
 	}
-	// Per-call row-ACL: pass the canonical in-container agent principal so
-	// ipc's authorizeCall runs auth.AuthorizeWith against the overlaid acl
-	// rows instead of short-circuiting (the G10 gap). spec 4/9 §Principals:
-	// the folder agent is principal=folder:<path> (matches the ListACL key in
-	// deriveFolderGrants + gated's StoreFns.Authorize caller). Empty when no
-	// acl table is present → callerSub still set but Authorize returns false
+	// Per-call row-ACL: pass the canonical in-container agent principal so ipc's
+	// authorizeCall runs auth.AuthorizeWith against the overlaid acl rows instead
+	// of short-circuiting. The folder agent is principal=folder:<path> (matches the
+	// ListACL key in deriveFolderGrants). With no acl rows, Authorize returns false
 	// only on an explicit deny; tier-default fallback covers the no-row case.
 	callerSub := "folder:" + t.folder
 	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub)
