@@ -482,7 +482,7 @@ func TestTaskWriteTools_WriteOwnDB(t *testing.T) {
 	if _, errText := callToolOverSock(t, sock, "pause_task", map[string]any{"taskId": "task-1"}); errText != "" {
 		t.Fatalf("pause_task error: %s", errText)
 	}
-	if got, _ := db.SiblingGetTask("task-1"); got.Status != core.TaskPaused {
+	if got, _ := db.GetTask("task-1"); got.Status != core.TaskPaused {
 		t.Fatalf("pause_task: status=%q want paused", got.Status)
 	}
 
@@ -490,10 +490,10 @@ func TestTaskWriteTools_WriteOwnDB(t *testing.T) {
 	if _, errText := callToolOverSock(t, sock, "cancel_task", map[string]any{"taskId": "task-1"}); errText != "" {
 		t.Fatalf("cancel_task error: %s", errText)
 	}
-	if _, ok := db.SiblingGetTask("task-1"); ok {
+	if _, ok := db.GetTask("task-1"); ok {
 		t.Fatal("cancel_task: task-1 still present after cancel")
 	}
-	if tasks := db.SiblingTasks("demo", true); len(tasks) != 1 || tasks[0].ID != newID {
+	if tasks := db.Tasks("demo", true); len(tasks) != 1 || tasks[0].ID != newID {
 		t.Fatalf("after cancel, want only the scheduled task %q, got %+v", newID, tasks)
 	}
 }

@@ -14,7 +14,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,15 +32,6 @@ func openInstance(t *testing.T) (string, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	return dir, st
-}
-
-func writeManifest(t *testing.T, dir, body string) string {
-	t.Helper()
-	p := filepath.Join(dir, "manifest.yaml")
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
 }
 
 func dbConfigVersion(t *testing.T, db *sql.DB) int64 {

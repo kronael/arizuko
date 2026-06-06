@@ -273,11 +273,15 @@ func (s *Store) DeleteSecret(scope SecretScope, scopeID, key string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`DELETE FROM secrets WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
 		string(scope), scopeID, key,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrSecretNotFound
 	}
 	folder := ""
 	if scope == ScopeFolder {

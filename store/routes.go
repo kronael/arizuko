@@ -88,6 +88,48 @@ func (s *Store) AddRoute(r core.Route) (int64, error) {
 	return id, nil
 }
 
+// PutRouteRow inserts a route idempotently WITHOUT emitting an audit_log row —
+// the audit-free twin of AddRoute for an audit_log-less DB (routd.db, which OWNS
+// routes in the split topology — spec 5/5). Mirrors AddRoute's full column set
+// (incl. observe_window_messages/observe_window_chars) so dashd-created routes
+// carry every column; callers that own messages.db keep using audited AddRoute.
+func (s *Store) PutRouteRow(r core.Route) (int64, error) {
+	if matchesWebJID(r.Match) {
+		return 0, ErrWebJIDRouted
+	}
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO routes (seq, match, target, observe_window_messages, observe_window_chars)
+		 VALUES (?, ?, ?, ?, ?)`,
+		r.Seq, r.Match, r.Target,
+		nilIfZero(r.ObserveWindowMessages), nilIfZero(r.ObserveWindowChars),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateRouteRow updates a route by id WITHOUT emitting an audit_log row — the
+// audit-free twin for routd.db. Mirrors AddRoute's full column set so the
+// observe-window columns are not silently dropped on edit. Returns the number of
+// rows affected (0 → not found).
+func (s *Store) UpdateRouteRow(id int64, r core.Route) (int64, error) {
+	if matchesWebJID(r.Match) {
+		return 0, ErrWebJIDRouted
+	}
+	res, err := s.db.Exec(
+		`UPDATE routes SET seq = ?, match = ?, target = ?,
+		   observe_window_messages = ?, observe_window_chars = ?
+		 WHERE id = ?`,
+		r.Seq, r.Match, r.Target,
+		nilIfZero(r.ObserveWindowMessages), nilIfZero(r.ObserveWindowChars), id,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // matchesWebJID reports whether a route's Match expression includes a
 // chat_jid predicate that begins with "web:". Such routes can never
 // fire — the gateway addresses web JIDs directly — and silently mask

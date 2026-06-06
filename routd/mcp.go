@@ -307,17 +307,17 @@ func beforeStr(t time.Time) string {
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
 // state lives elsewhere federate over HTTP (identity → authd, session_log →
 // runed's GET /v1/sessions/recent; graceful-absent → empty).
-// Deferred nil: LogIPCAudit (audit_log lives in messages.db, owned elsewhere —
-// see buildGatedFns.Audit for routd's ownership-correct slog/.jl path).
+// Deferred nil: LogIPCAudit — routd does not write a SQLite audit_log table;
+// it emits audit events via slog/.jl (see buildGatedFns.Audit).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	return ipc.StoreFns{
 		// Task reads + writes: routd OWNS scheduled_tasks + task_run_logs in
 		// routd.db (migration 0009). schedule_task → CreateTask; pause/resume →
 		// UpdateTaskStatus; cancel → DeleteTask — all audit-free against routd.db.
-		ListTasks: s.db.SiblingTasks,
-		GetTask:   s.db.SiblingGetTask,
+		ListTasks: s.db.Tasks,
+		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
-			return s.db.SiblingTaskRunLogs(taskID, limit)
+			return s.db.TaskRunLogs(taskID, limit)
 		},
 		CreateTask:       s.db.CreateTask,
 		UpdateTaskStatus: s.db.SetTaskStatus,
@@ -411,15 +411,15 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		CurrentTopic:         func(_ string) string { return t.topic },
 		// MCP connectors (spec 9/11 M6): the discovered catalog + the per-call
 		// secret resolver. ResolveConnectorSecrets reads folder/user secrets RO
-		// from the sibling messages.db, decrypts via SECRETS_KEY, and narrows to
-		// the connector's declared secrets= list — so CallConnectorTool both
-		// injects them into the subprocess env AND scrubs their values from the
-		// result (the nil resolver would leave the connector unscrubbed).
+		// from routd's own routd.db (routd OWNS secrets — spec 5/5), decrypts via
+		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so
+		// CallConnectorTool both injects them into the subprocess env AND scrubs
+		// their values from the result (the nil resolver would leave it unscrubbed).
 		Connectors:              s.connectors,
 		ResolveConnectorSecrets: s.db.ConnectorSecrets,
-		// ACL: list_acl reads the operator rows from the sibling messages.db;
-		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub
-		// is set. Both nil-safe (absent messages.db → no rows / deny).
+		// ACL: list_acl reads the operator rows from routd's own routd.db (routd
+		// OWNS acl — spec 5/5); Authorize is the per-call row-ACL check ServeMCP
+		// runs when callerSub is set. Both nil-safe (no rows → no rows / deny).
 		ListACL:           s.db.ListACL,
 		Authorize:         s.db.Authorize,
 		AddNetworkRule:    s.db.AddNetworkRule,

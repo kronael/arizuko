@@ -175,12 +175,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// / available_groups JSON) right before dispatch, mirroring gated's call
 	// site (gateway.go § spawn). Root sees all tasks + groups; a child sees
 	// only its own tasks and no groups list. scheduled_tasks is routd's OWN table
-	// (routd.db, migration 0009), read via SiblingTasks (sibling_db.go). Skip when
+	// (routd.db, migration 0009), read via Tasks (sibling_db.go). Skip when
 	// no ipc dir is configured (no spawn target — REST/unit tests) so the write
 	// doesn't resolve to a relative path under cwd.
 	if l.folders != nil && l.folders.IpcDir != "" {
 		isRoot := groupfolder.IsRoot(folder)
-		container.WriteTasksSnapshot(l.folders, folder, isRoot, l.db.SiblingTasks(folder, isRoot))
+		container.WriteTasksSnapshot(l.folders, folder, isRoot, l.db.Tasks(folder, isRoot))
 		container.WriteGroupsSnapshot(l.folders, folder, isRoot, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 

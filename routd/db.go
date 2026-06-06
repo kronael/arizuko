@@ -12,7 +12,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
-	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -938,19 +937,6 @@ func (d *DB) SpendTodayUser(userSub string) (int, error) {
 		userSub, startOfTodayUTC()).Scan(&cents)
 	return cents, err
 }
-
-// UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped
-// (the default). Reuses store.UserCap against routd's OWN auth_users table
-// (migration 0011 mirrors the gated cap column) — the SAME source gated reads.
-func (d *DB) UserCap(userSub string) (int, error) {
-	return d.userStore().UserCap(userSub)
-}
-
-// userStore wraps routd's OWN routd.db handle as a *store.Store so the per-user
-// cap reader/writer (store.UserCap/SetUserCap/CreateAuthUser) runs verbatim
-// against routd.db's auth_users (migration 0011). Reads only the cap column;
-// authd owns the full identity record.
-func (d *DB) userStore() *store.Store { return store.New(d.db) }
 
 // startOfTodayUTC is the RFC3339Nano timestamp at 00:00 UTC today — the
 // budget window's lower bound (mirrors store.startOfTodayUTC).

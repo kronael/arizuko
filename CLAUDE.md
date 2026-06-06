@@ -242,6 +242,12 @@ issues the prior one couldn't see.
 Never trust `X-User-Sub` without a sig check. Full trust model in
 `SECURITY.md`.
 
+### Split write-discipline
+
+FS-mounted daemons (dashd, onbod, CLI) write owned tables directly to the
+owner's DB; non-mounted daemons (slakd, timed) write via the owner's HTTP API +
+service token.
+
 ### Subagent worktrees
 
 For non-trivial agent work (>5 files, migrations, new specs,

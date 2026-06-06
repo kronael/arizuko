@@ -92,7 +92,7 @@ func main() {
 		// case), so a failure to open is fatal — onbod must not silently
 		// cross-read an empty DB, and it opens NO messages.db in the split.
 		routdPath := filepath.Join(filepath.Dir(cfg.dsn), "routd.db")
-		xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+		xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 		if err != nil {
 			slog.Error("open routd.db", "path", routdPath, "err", err)
 			os.Exit(1)
@@ -100,7 +100,7 @@ func main() {
 		defer xdb.Close()
 		slog.Info("onbod cross-reads routd.db", "path", routdPath)
 	} else {
-		db, derr := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)")
+		db, derr := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 		if derr != nil {
 			slog.Error("open db", "err", derr)
 			os.Exit(1)

@@ -5,7 +5,7 @@ import (
 )
 
 // TestPaneSetEndpoint: POST /v1/pane (messages:write) upserts the pane context
-// for a channel into routd's OWN routd.db, and paneHints (SiblingPaneContextJID)
+// for a channel into routd's OWN routd.db, and paneHints (PaneContextJID)
 // reads it back — proving the write lands where the prompt path looks. routd
 // OWNS pane_sessions (migration 0010); it opens NO sibling messages.db.
 func TestPaneSetEndpoint(t *testing.T) {
@@ -26,16 +26,16 @@ func TestPaneSetEndpoint(t *testing.T) {
 	}
 
 	// Read it back the way paneHints does.
-	ctx, ok := db.SiblingPaneContextJID("D0XY")
+	ctx, ok := db.PaneContextJID("D0XY")
 	if !ok || ctx != "slack:T1/channel/C42" {
-		t.Errorf("SiblingPaneContextJID after POST = (%q,%v), want (slack:T1/channel/C42,true)", ctx, ok)
+		t.Errorf("PaneContextJID after POST = (%q,%v), want (slack:T1/channel/C42,true)", ctx, ok)
 	}
 
 	// Empty jid clears the context.
 	if rec := doJSON(t, h, "POST", "/v1/pane", "", paneSetBody{ChannelID: "D0XY"}); rec.Code != 200 {
 		t.Fatalf("POST /v1/pane (clear) = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if ctx, ok := db.SiblingPaneContextJID("D0XY"); !ok || ctx != "" {
+	if ctx, ok := db.PaneContextJID("D0XY"); !ok || ctx != "" {
 		t.Errorf("after clear = (%q,%v), want (\"\",true)", ctx, ok)
 	}
 }

@@ -60,10 +60,10 @@ func TestTasksDueEndpoint(t *testing.T) {
 		t.Errorf("due task prompt = %q want ping", resp.Tasks[0].Prompt)
 	}
 	// Claimed: the returned task is now 'firing', the future task still 'active'.
-	if got, _ := db.SiblingGetTask("due-1"); got.Status != "firing" {
+	if got, _ := db.GetTask("due-1"); got.Status != "firing" {
 		t.Errorf("due task status = %q want firing (claimed)", got.Status)
 	}
-	if got, _ := db.SiblingGetTask("future-1"); got.Status != core.TaskActive {
+	if got, _ := db.GetTask("future-1"); got.Status != core.TaskActive {
 		t.Errorf("future task status = %q want active (untouched)", got.Status)
 	}
 }
@@ -106,7 +106,7 @@ func TestTaskRescheduleRecurring(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	got, _ := db.SiblingGetTask("rs-1")
+	got, _ := db.GetTask("rs-1")
 	if got.Status != "active" {
 		t.Errorf("status = %q want active", got.Status)
 	}
@@ -133,7 +133,7 @@ func TestTaskRescheduleOneShot(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	got, _ := db.SiblingGetTask("rs-once")
+	got, _ := db.GetTask("rs-once")
 	if got.Status != "completed" {
 		t.Errorf("status = %q want completed", got.Status)
 	}

@@ -2,15 +2,11 @@ package store
 
 import (
 	"database/sql"
-	"embed"
 	"os"
 	"testing"
 
 	_ "modernc.org/sqlite"
 )
-
-//go:embed migrations/0054-route-target-fragment.sql
-var migration0054FS embed.FS
 
 // TestMigration0054 verifies the route impulse_config -> #observe
 // conversion + duplicate trigger row spawning + column drop.

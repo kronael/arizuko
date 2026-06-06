@@ -1903,3 +1903,31 @@ messages.db, but both moved to routd's OWN routd.db in prior federations
 Left stale by the acl/secrets federations; surfaced during the pane federation
 (routd opens NO messages.db now, so these comments are actively misleading).
 Comment-only; no behavior change. Fix: reword to "routd's OWN routd.db".
+
+## routd ObservedSince skips open-sibling ambient widening (2026-06-06)
+
+routd/prompt_db.go ObservedSince UNIONs (a) is_observed=1 rows routed to folder
++ (b) is_observed=0 primary rows routed to folder's WatchedSources, but does NOT
+widen by the SiblingFolders open=1 set the way gated did — a behavioral
+divergence for SetGroupOpen deployments. The function's own comment flags it:
+"sibling/open-sibling ambient join deferred — routd has no sticky-open sibling
+tracking yet." Impact: groups that an operator marked open (SetGroupOpen) won't
+contribute ambient context to a sibling's observed window under routd, whereas
+they did under gated. Low severity (open-sibling is a rarely-used mode), but a
+real parity gap to close before cutover for any instance that uses SetGroupOpen.
+Fix-path: port gated's open=1 SiblingFolders widening into the ObservedSince
+UNION; requires routd to track sticky-open sibling state first.
+
+## Inconsistent split-detection heuristics across daemons (2026-06-06)
+
+Five daemons/CLI each detect "split vs monolith topology" differently, so a
+misconfigured instance fails in five distinct ways instead of one:
+- timed/main.go:36 — `ROUTER_URL` set → split.
+- onbod/main.go:81 — `ONBOD_DB_PATH` (ownDSN) set → split.
+- dashd/main.go:144,159 — file-existence probe (`routdPath != dsn` / os.Stat
+  onbod.db) → split.
+- cmd/arizuko/main.go:455,478 — os.Stat(routd.db / onbod.db) → split.
+No single source of truth for "is this the split topology?"; each call site
+re-derives it from a different signal. Future-cleanup: one explicit signal (env
+var or a probed helper in `core`/`store`) every daemon consults, so topology
+detection is uniform and a half-configured split fails loudly in one place.

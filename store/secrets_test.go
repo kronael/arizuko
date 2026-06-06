@@ -281,9 +281,10 @@ func TestDeleteSecret(t *testing.T) {
 	if _, err := s.GetSecret(ScopeFolder, "atlas", "K"); !errors.Is(err, ErrSecretNotFound) {
 		t.Errorf("after delete: want ErrSecretNotFound, got %v", err)
 	}
-	// Idempotent.
-	if err := s.DeleteSecret(ScopeFolder, "atlas", "K"); err != nil {
-		t.Errorf("DeleteSecret on missing: %v", err)
+	// Missing key → ErrSecretNotFound (parity with DeleteSecretRow, so the HTTP
+	// layer 404s instead of reporting a phantom success + audit row).
+	if err := s.DeleteSecret(ScopeFolder, "atlas", "K"); !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("DeleteSecret on missing: want ErrSecretNotFound, got %v", err)
 	}
 }
 

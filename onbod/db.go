@@ -21,7 +21,7 @@ const onbodServiceName = "onbod"
 // via store/migrations) — openOwnedDB is never called. Mirrors routd.Open /
 // runed.Open: WAL, migrations first so the tables exist before any read/write.
 func openOwnedDB(ownDSN string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", ownDSN+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", ownDSN+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {
 		return nil, err
 	}

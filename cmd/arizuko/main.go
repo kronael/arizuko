@@ -444,14 +444,24 @@ func cmdGroup(args []string) {
 
 var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
 
-// mustOpenACL opens routd.db wrapped as a *store.Store for the acl/membership
-// write path. In the split topology routd OWNS acl + acl_membership (spec 5/5),
-// so the host-admin CLI writes there directly — same filesystem-access
-// discipline as it wrote messages.db before the split, no token plumbing.
+// mustOpenACL opens the *Store holding acl + acl_membership for the grant write
+// path. DUAL-PATH (mirrors mustOpenOnbod): in the split routd OWNS them in
+// routd.db (spec 5/5), so when that file exists the CLI writes there directly —
+// same FS-access discipline as it wrote messages.db before, no token plumbing.
+// Monolith (no routd.db) → messages.db via store.Open, so `arizuko grant` works
+// on both topologies.
 func mustOpenACL(dataDir string) *store.Store {
-	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
+	storeDir := filepath.Join(dataDir, "store")
+	if _, err := os.Stat(filepath.Join(storeDir, "routd.db")); err == nil {
+		s, oerr := store.OpenRoutd(storeDir)
+		if oerr != nil {
+			die("Failed: open routd.db: %v", oerr)
+		}
+		return s
+	}
+	s, err := store.Open(storeDir)
 	if err != nil {
-		die("Failed: open routd.db: %v", err)
+		die("Failed: open db: %v", err)
 	}
 	return s
 }

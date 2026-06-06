@@ -26,11 +26,11 @@ import (
 // snapshots it over HTTP (identity.go). session_log: runed OWNS it and serves
 // GET /v1/sessions/recent; routd federates it over HTTP (session.go).
 
-// SiblingTasks reads scheduled_tasks from routd's OWN routd.db (routd owns the
+// Tasks reads scheduled_tasks from routd's OWN routd.db (routd owns the
 // table — migration 0009) for the tasks.json spawn snapshot. Reuses
 // store.ListTasks: a root group sees every task (owner filter empty); a child
 // sees only its own.
-func (d *DB) SiblingTasks(folder string, isRoot bool) []core.Task {
+func (d *DB) Tasks(folder string, isRoot bool) []core.Task {
 	return d.taskStore().ListTasks(folder, isRoot)
 }
 
@@ -40,11 +40,11 @@ func (d *DB) CountActiveTasks() int {
 	return d.taskStore().CountActiveTasks()
 }
 
-// SiblingPaneContextJID reads pane_sessions from routd's OWN routd.db (routd
+// PaneContextJID reads pane_sessions from routd's OWN routd.db (routd
 // owns the table — migration 0010) and returns (contextJID, true) when a Slack
 // assistant pane exists for the DM channelID. Reuses store.GetPaneByChannel.
 // No row → ("", false).
-func (d *DB) SiblingPaneContextJID(channelID string) (string, bool) {
+func (d *DB) PaneContextJID(channelID string) (string, bool) {
 	p, ok := d.paneStore().GetPaneByChannel(channelID)
 	if !ok {
 		return "", false
@@ -112,6 +112,19 @@ func (d *DB) taskStore() *store.Store { return store.New(d.db) }
 // empty table yields no pane, same as gated against an empty store. Pane writes
 // are audit-free (they never touched audit_log).
 func (d *DB) paneStore() *store.Store { return store.New(d.db) }
+
+// userStore wraps routd's OWN routd.db handle as a *store.Store so the per-user
+// cap reader/writer (store.UserCap/SetUserCap/CreateAuthUser) runs verbatim
+// against routd.db's auth_users (migration 0011). Reads only the cap column;
+// authd owns the full identity record.
+func (d *DB) userStore() *store.Store { return store.New(d.db) }
+
+// UserCap returns the per-day cap for a user_sub in cents. Zero means uncapped
+// (the default). Reuses store.UserCap against routd's OWN auth_users table
+// (migration 0011 mirrors the gated cap column) — the SAME source gated reads.
+func (d *DB) UserCap(userSub string) (int, error) {
+	return d.userStore().UserCap(userSub)
+}
 
 // FolderSecrets resolves the folder/user-scoped secret set for `folder` from
 // routd's OWN routd.db `secrets` table, DECRYPTING `v2:` values via the
@@ -209,10 +222,10 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
 }
 
-// SiblingGetTask reads one scheduled_tasks row from routd's OWN routd.db by id,
+// GetTask reads one scheduled_tasks row from routd's OWN routd.db by id,
 // for the inspect_tasks per-task authz check. Reuses store.GetTask via
 // taskStore(). no row → (zero, false).
-func (d *DB) SiblingGetTask(id string) (core.Task, bool) {
+func (d *DB) GetTask(id string) (core.Task, bool) {
 	return d.taskStore().GetTask(id)
 }
 
@@ -243,10 +256,10 @@ func (d *DB) RescheduleTask(id, nextRun, status string) error {
 	return d.taskStore().RescheduleTask(id, nextRun, status)
 }
 
-// SiblingTaskRunLogs reads task_run_logs rows from routd's OWN routd.db for the
+// TaskRunLogs reads task_run_logs rows from routd's OWN routd.db for the
 // inspect_tasks per-task run history. Reuses store.TaskRunLogs via taskStore(),
 // translating store.TaskRunLog → ipc.TaskRunLog.
-func (d *DB) SiblingTaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
+func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
 	rows := d.taskStore().TaskRunLogs(taskID, limit)
 	out := make([]ipc.TaskRunLog, len(rows))
 	for i, r := range rows {

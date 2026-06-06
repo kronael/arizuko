@@ -43,7 +43,10 @@ func GenRouteToken() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-func hashRouteToken(raw string) []byte {
+// HashRouteToken returns the sha256 hash that is persisted for a raw route
+// token (the raw token is never stored). Exported so FS-mounted writers like
+// dashd hash with the identical scheme instead of duplicating it.
+func HashRouteToken(raw string) []byte {
 	sum := sha256.Sum256([]byte(raw))
 	return sum[:]
 }
@@ -80,7 +83,7 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
 			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-			hashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano),
+			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano),
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,
@@ -108,7 +111,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	var createdAt string
 	err := s.db.QueryRow(
 		`SELECT jid, owner_folder, created_at FROM route_tokens WHERE token_hash = ?`,
-		hashRouteToken(rawToken),
+		HashRouteToken(rawToken),
 	).Scan(&t.JID, &t.OwnerFolder, &createdAt)
 	if err != nil {
 		return RouteToken{}, false

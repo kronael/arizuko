@@ -58,7 +58,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 // assistant pane. Hash-keyed on the chat_jid's DM channel id (slack: prefix
 // only); other surfaces yield empty. Spec 6/D. Port of gateway paneHints —
 // pane_sessions is routd's OWN table (routd.db, migration 0010), read via
-// SiblingPaneContextJID (sibling_db.go); slakd writes it via POST /v1/pane.
+// PaneContextJID (sibling_db.go); slakd writes it via POST /v1/pane.
 func (l *Loop) paneHints(trigger []core.Message) string {
 	if l.db == nil || len(trigger) == 0 {
 		return ""
@@ -73,7 +73,7 @@ func (l *Loop) paneHints(trigger []core.Message) string {
 	if len(parts) != 3 || parts[2] == "" {
 		return ""
 	}
-	ctxJID, ok := l.db.SiblingPaneContextJID(parts[2])
+	ctxJID, ok := l.db.PaneContextJID(parts[2])
 	if !ok {
 		return ""
 	}

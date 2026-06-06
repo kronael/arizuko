@@ -175,10 +175,10 @@ func TestSiblingTasks_RootVsChild(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := db.SiblingTasks("main", true); len(got) != 2 {
+	if got := db.Tasks("main", true); len(got) != 2 {
 		t.Errorf("root: want 2 tasks, got %d", len(got))
 	}
-	got := db.SiblingTasks("main/sub", false)
+	got := db.Tasks("main/sub", false)
 	if len(got) != 1 || got[0].ID != "t-sub" {
 		t.Errorf("child: want [t-sub], got %+v", got)
 	}
@@ -245,13 +245,13 @@ func TestTasksReadOwnDB(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	// Empty routd.db → no tasks (no cross-DB read to leak a sibling task).
-	if got := db.SiblingTasks("main", true); len(got) != 0 {
+	if got := db.Tasks("main", true); len(got) != 0 {
 		t.Errorf("empty routd.db must surface no tasks, got %+v", got)
 	}
 
 	// A task in routd's OWN db DOES surface.
 	seedTask(t, db, "own-task", "main", "jid", "from routd")
-	got := db.SiblingTasks("main", true)
+	got := db.Tasks("main", true)
 	if len(got) != 1 || got[0].ID != "own-task" {
 		t.Errorf("routd.db task should surface, got %+v", got)
 	}
@@ -266,10 +266,10 @@ func TestSiblings_EmptyOwnDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if got := db.SiblingTasks("main", true); got != nil {
+	if got := db.Tasks("main", true); got != nil {
 		t.Errorf("empty routd.db: want nil tasks, got %+v", got)
 	}
-	if _, ok := db.SiblingPaneContextJID("D0XY"); ok {
+	if _, ok := db.PaneContextJID("D0XY"); ok {
 		t.Error("empty routd.db: want no pane")
 	}
 }

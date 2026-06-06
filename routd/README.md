@@ -27,8 +27,8 @@ Spec: `specs/5/E`.
 
 ## Tables owned
 
-`routd.db` (inherits gated's schema authority for the conversation
-tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
+`routd.db` (routd owns its own schema — migrations in `routd/migrations/`):
+`groups`, `chats`, `messages`, `routes`, `sessions`,
 `turn_context`, `turn_results`, `cost_log`, `web_routes`, `route_tokens`,
 `network_rules`, `acl`, `acl_membership`, `secrets`, `secret_use_log`,
 `scheduled_tasks`, `task_run_logs`, `pane_sessions`, `auth_users` (the

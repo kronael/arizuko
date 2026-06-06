@@ -200,8 +200,8 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 
 // cmdStatus reports instance-wide counts, root-group only (port of
 // gateway.cmdStatus). Channels come from the channel registry (held by the
-// Server); errored chats + active tasks from routd's chats table + the timed
-// sibling DB.
+// Server); errored chats + active tasks from routd's own routd.db (routd OWNS
+// scheduled_tasks — migration 0009).
 func (l *Loop) cmdStatus(chatJID, folder string) {
 	if auth.Resolve(folder).Tier != 0 {
 		l.ack(chatJID, "Permission denied: root only.")

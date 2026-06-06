@@ -102,7 +102,7 @@ func main() {
 		port = ":" + port
 	}
 
-	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
 	if err != nil {
 		slog.Error("open db", "err", err)
 		os.Exit(1)
@@ -142,7 +142,7 @@ func main() {
 	// dbRoutd nil → adminDB()/secretsDB() fall back to messages.db.
 	var dbRoutd *sql.DB
 	if routdPath := filepath.Join(filepath.Dir(dsn), "routd.db"); routdPath != dsn {
-		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err == nil {
+		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
 			dbRoutd = s
 			defer dbRoutd.Close()
 		} else {
@@ -157,7 +157,7 @@ func main() {
 	var dbOnbod *sql.DB
 	if onbodPath := filepath.Join(filepath.Dir(dsn), "onbod.db"); onbodPath != dsn {
 		if _, statErr := os.Stat(onbodPath); statErr == nil {
-			if s, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"); err == nil {
+			if s, err := sql.Open("sqlite", onbodPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
 				dbOnbod = s
 				defer dbOnbod.Close()
 			} else {

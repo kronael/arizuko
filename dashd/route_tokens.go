@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,17 +8,6 @@ import (
 
 	"github.com/kronael/arizuko/store"
 )
-
-// hashRouteToken mirrors store's token-hash scheme (sha256 of the raw token,
-// stored as the route_tokens BLOB primary key — spec 5/W). dashd writes
-// route_tokens directly into routd.db, which has no audit_log table, so it
-// can't use store's audited InsertRouteToken/RevokeRouteToken; the hash scheme
-// is a stable wire contract, replicated here for the audit-free raw write.
-func hashRouteToken(raw string) []byte {
-	sum := sha256.Sum256([]byte(raw))
-	return sum[:]
-}
-
 
 // Route tokens dashboard: per-folder list + issue + revoke.
 // Mounted at:
@@ -73,7 +61,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			// discipline as the secrets and grant rewires.
 			_, err := d.adminDB().Exec(
 				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-				hashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano))
+				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano))
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {

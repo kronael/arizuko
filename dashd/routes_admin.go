@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/store"
 )
 
 func decodeJSONBody(r *http.Request, out any) error {
@@ -83,6 +84,8 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			htmlFormRow("Seq", `<input type="number" name="seq" value="0" required>`)+
 			htmlFormRow("Match", `<input type="text" name="match" placeholder="room=12345@g.us" required size="60">`)+
 			htmlFormRow("Target", `<input type="text" name="target" placeholder="solo/inbox or solo/inbox#observe" required size="60">`)+
+			htmlFormRow("Observe msgs", `<input type="number" name="observe_window_messages" value="0">`)+
+			htmlFormRow("Observe chars", `<input type="number" name="observe_window_chars" value="0">`)+
 			`<p><button type="submit">add</button></p>`+
 			`</form>`+
 			`<p class="dim">Match syntax: <code>room=&lt;jid-room&gt;</code> exact, or <code>verb=mention</code> filter.`+
@@ -95,9 +98,11 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 // is also accepted (Content-Type application/json) — keeps the API and
 // the HTML form on one renderer.
 type routeBody struct {
-	Seq    int    `json:"seq"`
-	Match  string `json:"match"`
-	Target string `json:"target"`
+	Seq                   int    `json:"seq"`
+	Match                 string `json:"match"`
+	Target                string `json:"target"`
+	ObserveWindowMessages int    `json:"observe_window_messages"`
+	ObserveWindowChars    int    `json:"observe_window_chars"`
 }
 
 func parseRouteBody(r *http.Request) (routeBody, error) {
@@ -118,6 +123,8 @@ func parseRouteBody(r *http.Request) (routeBody, error) {
 		b.Seq = seq
 		b.Match = strings.TrimSpace(r.FormValue("match"))
 		b.Target = strings.TrimSpace(r.FormValue("target"))
+		b.ObserveWindowMessages, _ = strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_messages")))
+		b.ObserveWindowChars, _ = strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
 	}
 	if b.Match == "" {
 		return b, errors.New("match: empty")
@@ -142,18 +149,22 @@ func (d *dash) handleRouteCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	// Raw INSERT (not store.AddRoute): routd.db has no audit_log table, so the
+	// PutRouteRow (not store.AddRoute): routd.db has no audit_log table, so the
 	// audited writer would roll back — same audit-free discipline as the secrets
-	// and grant rewires.
-	res, err := d.adminDB().Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-		body.Seq, body.Match, body.Target)
+	// and grant rewires. Mirrors AddRoute's full column set so observe-window
+	// columns are not dropped.
+	id, err := store.New(d.adminDB()).PutRouteRow(core.Route{
+		Seq:                   body.Seq,
+		Match:                 body.Match,
+		Target:                body.Target,
+		ObserveWindowMessages: body.ObserveWindowMessages,
+		ObserveWindowChars:    body.ObserveWindowChars,
+	})
 	if err != nil {
 		slog.Warn("routes: add", "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	id, _ := res.LastInsertId()
 	slog.Info("route added", "id", id, "match", body.Match, "target", body.Target)
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		w.WriteHeader(http.StatusCreated)
@@ -183,15 +194,18 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	res, err := d.adminDB().Exec(
-		`UPDATE routes SET seq = ?, match = ?, target = ? WHERE id = ?`,
-		body.Seq, body.Match, body.Target, id)
+	n, err := store.New(d.adminDB()).UpdateRouteRow(id, core.Route{
+		Seq:                   body.Seq,
+		Match:                 body.Match,
+		Target:                body.Target,
+		ObserveWindowMessages: body.ObserveWindowMessages,
+		ObserveWindowChars:    body.ObserveWindowChars,
+	})
 	if err != nil {
 		slog.Warn("routes: update", "id", id, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	n, _ := res.RowsAffected()
 	if n == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
