@@ -28,7 +28,7 @@ var serviceGrants = map[string][]string{
 	// refresh (spec 5/1 § Login-time scope snapshot: "scope grants:read"). It
 	// needs grants:read, not keys:read — /v1/keys is public.
 	"service:authd": {"grants:read"},
-	"service:timed": {"messages:write", "tasks:read"},
+	"service:timed": {"messages:write", "tasks:read", "tasks:write"},
 	"service:onbod": {"messages:write", "groups:write"},
 	"service:gated": {"messages:write", "messages:read", "tasks:read", "tasks:write"},
 	// service:routd dispatches runs (runs:run → runed) and resolves identities

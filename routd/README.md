@@ -49,7 +49,7 @@ session_log).
   - `POST /v1/channels/register|deregister`, `GET /v1/channels` — adapter registry
   - `GET /v1/messages/{inspect,thread,find}`, `/v1/routing/*`, `/v1/sessions`, `/v1/cost`
   - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — operator secret write/delete (`secrets:write`)
-  - `GET /v1/tasks/due` (`tasks:read`), `POST /v1/tasks/runlog` (`tasks:write`) — timed scheduler reads due tasks / records run logs
+  - `GET /v1/tasks/due` (`tasks:read`), `POST /v1/tasks/runlog` + `POST /v1/tasks/{id}/reschedule` (`tasks:write`) — timed scheduler claims due tasks / records run logs / sets next_run+status
   - `POST /v1/pane` (`messages:write`) — slakd sets the Slack assistant-pane context for a DM channel
   - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
   - `POST /v1/turns/{turn_id}/{reply,send,document,like,edit,delete,pin,unpin,result}` — agent tool forwards

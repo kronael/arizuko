@@ -243,6 +243,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
 	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
 	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
+	mux.HandleFunc("POST /v1/tasks/{id}/reschedule", s.handleTaskReschedule)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	// turn callbacks (the sole-appender surface)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
@@ -718,6 +719,43 @@ func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.RecordTaskRun(store.TaskRunLog{
 		TaskID: body.TaskID, Status: body.Status, Error: body.Error, DurationMS: body.DurationMS,
 	}); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// rescheduleBody is the POST /v1/tasks/{id}/reschedule payload: timed sends the
+// next_run it computed client-side + the target status (active for recurring,
+// completed for one-shot). An empty next_run clears it (one-shot completion).
+type rescheduleBody struct {
+	NextRun string `json:"next_run"`
+	Status  string `json:"status"`
+}
+
+// handleTaskReschedule sets a fired task's next_run + status — the reschedule
+// half of timed's fire loop, served from routd's OWN routd.db. Bearer-gated by
+// tasks:write. timed computes next_run (cron/interval) and passes status so
+// routd stays a boring writer: recurring → active, one-shot → completed.
+func (s *Server) handleTaskReschedule(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "tasks:write") {
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeErr(w, 400, "missing_field", "id required")
+		return
+	}
+	var body rescheduleBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.Status == "" {
+		writeErr(w, 400, "missing_field", "status required")
+		return
+	}
+	if err := s.db.RescheduleTask(id, body.NextRun, body.Status); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}

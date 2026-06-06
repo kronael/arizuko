@@ -237,6 +237,12 @@ func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.taskStore()
 // (timed's write half).
 func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.taskStore().RecordTaskRun(l) }
 
+// RescheduleTask sets a fired task's next_run + status in routd's OWN routd.db,
+// backing POST /v1/tasks/{id}/reschedule (timed's reschedule half). Audit-free.
+func (d *DB) RescheduleTask(id, nextRun, status string) error {
+	return d.taskStore().RescheduleTask(id, nextRun, status)
+}
+
 // SiblingTaskRunLogs reads task_run_logs rows from routd's OWN routd.db for the
 // inspect_tasks per-task run history. Reuses store.TaskRunLogs via taskStore(),
 // translating store.TaskRunLog → ipc.TaskRunLog.

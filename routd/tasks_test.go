@@ -85,6 +85,83 @@ func TestTaskRunLogEndpoint(t *testing.T) {
 	}
 }
 
+// TestTaskRescheduleRecurring: POST /v1/tasks/{id}/reschedule (tasks:write)
+// with a non-empty next_run + status=active sets next_run and flips the task
+// back to active — the recurring-task case (cron/interval re-arm).
+func TestTaskRescheduleRecurring(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	// Seed a 'firing' task (the state after GET /v1/tasks/due claimed it).
+	s := store.New(db.SQL())
+	now := time.Now()
+	if err := s.PutTaskRow(core.Task{
+		ID: "rs-1", Owner: "main", ChatJID: "web:main", Prompt: "tick",
+		Cron: "0 9 * * *", NextRun: &now, Status: "firing", Created: now,
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	next := now.Add(24 * time.Hour).Format(time.RFC3339)
+	rec := doJSON(t, h, "POST", "/v1/tasks/rs-1/reschedule", "",
+		rescheduleBody{NextRun: next, Status: "active"})
+	if rec.Code != 200 {
+		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := db.SiblingGetTask("rs-1")
+	if got.Status != "active" {
+		t.Errorf("status = %q want active", got.Status)
+	}
+	if got.NextRun == nil || got.NextRun.Format(time.RFC3339) != next {
+		t.Errorf("next_run = %v want %s", got.NextRun, next)
+	}
+}
+
+// TestTaskRescheduleOneShot: an empty next_run + status=completed clears
+// next_run (NULL) and marks the one-shot task completed.
+func TestTaskRescheduleOneShot(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	s := store.New(db.SQL())
+	now := time.Now()
+	if err := s.PutTaskRow(core.Task{
+		ID: "rs-once", Owner: "main", ChatJID: "web:main", Prompt: "once",
+		NextRun: &now, Status: "firing", Created: now,
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	rec := doJSON(t, h, "POST", "/v1/tasks/rs-once/reschedule", "",
+		rescheduleBody{NextRun: "", Status: "completed"})
+	if rec.Code != 200 {
+		t.Fatalf("reschedule = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := db.SiblingGetTask("rs-once")
+	if got.Status != "completed" {
+		t.Errorf("status = %q want completed", got.Status)
+	}
+	if got.NextRun != nil {
+		t.Errorf("next_run = %v want nil (NULL)", got.NextRun)
+	}
+}
+
+// TestTaskRescheduleRequiresWriteScope: a token without tasks:write is 403.
+func TestTaskRescheduleRequiresWriteScope(t *testing.T) {
+	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"tasks:read"}})
+	rec := doJSON(t, h, "POST", "/v1/tasks/x/reschedule", "",
+		rescheduleBody{NextRun: "", Status: "completed"})
+	if rec.Code != 403 {
+		t.Fatalf("reschedule without tasks:write = %d want 403", rec.Code)
+	}
+}
+
+// TestTaskRescheduleMissingStatus: a body without status is 400.
+func TestTaskRescheduleMissingStatus(t *testing.T) {
+	_, h := authSrv(t, fakeVerifier{sub: "service:timed", scope: []string{"tasks:write"}})
+	rec := doJSON(t, h, "POST", "/v1/tasks/x/reschedule", "",
+		rescheduleBody{NextRun: "2026-01-01T00:00:00Z"})
+	if rec.Code != 400 {
+		t.Fatalf("reschedule without status = %d want 400", rec.Code)
+	}
+}
+
 // TestTasksDueRequiresReadScope: a token without tasks:read is 403.
 func TestTasksDueRequiresReadScope(t *testing.T) {
 	_, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read"}})

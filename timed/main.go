@@ -26,6 +26,18 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 func main() {
 	defer obs.Setup("timed", os.Getenv("ARIZUKO_INSTANCE"))()
 
+	tz := os.Getenv("TZ")
+	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
+		tz = "UTC"
+	}
+
+	// Split path: ROUTER_URL set → federate the fire loop over routd, open NO
+	// messages.db. Monolith path: ROUTER_URL unset → the direct-DB loop below.
+	if routerURL := os.Getenv("ROUTER_URL"); routerURL != "" {
+		runSplit(routerURL, tz)
+		return
+	}
+
 	dataDir := os.Getenv("DATA_DIR")
 
 	dsn := os.Getenv("DATABASE")
@@ -35,10 +47,6 @@ func main() {
 			os.Exit(1)
 		}
 		dsn = filepath.Join(dataDir, "store", "messages.db")
-	}
-	tz := os.Getenv("TZ")
-	if _, err := time.LoadLocation(tz); tz == "" || err != nil {
-		tz = "UTC"
 	}
 	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)")
 	if err != nil {

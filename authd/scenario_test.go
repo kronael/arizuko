@@ -302,7 +302,8 @@ func TestHTTPServiceTokenBoundToDeclaredGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service token invalid: %v", err)
 	}
-	// timed's declared grants are exactly {messages:write, tasks:read}.
+	// timed's declared grants are {messages:write, tasks:read, tasks:write}
+	// (tasks:write added for the split fire-loop reschedule call).
 	if !auth.HasScope(sub.Scope, "messages", "write") || !auth.HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("service:timed must hold its declared grants, got %v", sub.Scope)
 	}

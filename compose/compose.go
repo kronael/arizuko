@@ -139,7 +139,10 @@ var daemonKeys = map[string][]string{
 		"HOST_CODEX_DIR",
 		"PROXYD_HMAC_SECRET",
 	},
-	"timed": {"CHANNEL_SECRET"},
+	// timed: scheduler. Monolith → DATABASE/DATA_DIR direct messages.db.
+	// Split → federates the fire loop over routd (ROUTER_URL) with a
+	// service:timed token exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
+	"timed": {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
 	// authd: auth authority. auth.db only; no message DB, no docker, no crackbox.
 	// Serves JWKS; seeded with the service keys (AUTHD_SERVICE_KEYS, hashed at
 	// compare time inside authd) + OAuth provider config.
@@ -424,12 +427,18 @@ func Generate(dataDir string) (string, error) {
 	// against. All additive: gated keeps its own wiring untouched.
 	routdKey := provisionServiceKey(dataDir, "routd", env)
 	runedKey := provisionServiceKey(dataDir, "runed", env)
+	// timed federates its fire loop over routd in the split (no messages.db);
+	// it needs a service:timed token like routd/runed. Monolith timed never
+	// reads its env file's AUTHD_* vars (no ROUTER_URL → direct-DB path).
+	timedKey := provisionServiceKey(dataDir, "timed", env)
 	perDaemon := map[string]map[string]string{
 		"routd": {"AUTHD_SERVICE_KEY": routdKey},
 		"runed": {"AUTHD_SERVICE_KEY": runedKey},
+		"timed": {"AUTHD_SERVICE_KEY": timedKey},
 	}
 	if _, ok := env["AUTHD_SERVICE_KEYS"]; !ok {
-		env["AUTHD_SERVICE_KEYS"] = fmt.Sprintf("service:routd=%s,service:runed=%s", routdKey, runedKey)
+		env["AUTHD_SERVICE_KEYS"] = fmt.Sprintf(
+			"service:routd=%s,service:runed=%s,service:timed=%s", routdKey, runedKey, timedKey)
 	}
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
@@ -750,15 +759,22 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 }
 
 func timedService(app, flavor, dataDir string, env map[string]string) string {
+	// TIMEZONE is the only compose-side transform; timed reads this name while
+	// the rest of the world uses TZ.
+	environment := map[string]string{"TIMEZONE": envOr(env, "TZ", "UTC")}
+	// Split: pin ROUTER_URL to routd so timed federates its fire loop over HTTP
+	// (no messages.db). AUTHD_URL + AUTHD_SERVICE_KEY arrive via env/timed.env.
+	// Monolith: no ROUTER_URL → timed keeps the direct messages.db path.
+	if splitOn(env) {
+		environment["ROUTER_URL"] = routerURL(env)
+	}
 	return writeSvc(svcDef{
-		name:       "timed",
-		app:        app,
-		flavor:     flavor,
-		entrypoint: "timed",
-		dataDir:    dataDir,
-		// TIMEZONE is the only compose-side transform; timed reads this
-		// name while the rest of the world uses TZ.
-		environment: map[string]string{"TIMEZONE": envOr(env, "TZ", "UTC")},
+		name:        "timed",
+		app:         app,
+		flavor:      flavor,
+		entrypoint:  "timed",
+		dataDir:     dataDir,
+		environment: environment,
 		env:         env,
 	})
 }

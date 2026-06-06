@@ -589,11 +589,12 @@ func TestSplitWiring_ServiceKeys(t *testing.T) {
 	}
 	routdKey := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
 	runedKey := readEnvFileKey(filepath.Join(dir, "env", "runed.env"), "AUTHD_SERVICE_KEY")
-	if routdKey == "" || runedKey == "" {
-		t.Fatalf("routd/runed AUTHD_SERVICE_KEY empty: routd=%q runed=%q", routdKey, runedKey)
+	timedKey := readEnvFileKey(filepath.Join(dir, "env", "timed.env"), "AUTHD_SERVICE_KEY")
+	if routdKey == "" || runedKey == "" || timedKey == "" {
+		t.Fatalf("service key empty: routd=%q runed=%q timed=%q", routdKey, runedKey, timedKey)
 	}
-	if routdKey == runedKey {
-		t.Error("routd and runed must get DISTINCT service keys")
+	if routdKey == runedKey || routdKey == timedKey || runedKey == timedKey {
+		t.Error("routd, runed and timed must get DISTINCT service keys")
 	}
 	authdEnv, _ := os.ReadFile(filepath.Join(dir, "env", "authd.env"))
 	keys := string(authdEnv)
@@ -603,10 +604,52 @@ func TestSplitWiring_ServiceKeys(t *testing.T) {
 	if !strings.Contains(keys, "service:runed="+runedKey) {
 		t.Errorf("authd AUTHD_SERVICE_KEYS missing runed's key; got:\n%s", keys)
 	}
+	if !strings.Contains(keys, "service:timed="+timedKey) {
+		t.Errorf("authd AUTHD_SERVICE_KEYS missing timed's key; got:\n%s", keys)
+	}
 	// authd must NOT receive routd/runed's per-daemon AUTHD_SERVICE_KEY value
 	// (it's not in authd's allow-list); the keys reach it only via the list.
 	if strings.Contains(keys, "\nAUTHD_SERVICE_KEY=") {
 		t.Errorf("authd env should not carry a bare AUTHD_SERVICE_KEY; got:\n%s", keys)
+	}
+}
+
+// TestTimedSplitWiring: in the split, timed's compose env pins ROUTER_URL to
+// routd (federate the fire loop) and its env file carries AUTHD_URL +
+// AUTHD_SERVICE_KEY (service-token boot-exchange). The monolith default leaves
+// ROUTER_URL UNSET so timed keeps its direct messages.db path.
+func TestTimedSplitWiring(t *testing.T) {
+	// Split: ROUTER_URL=routd in the timed service block + AUTHD_* in its env.
+	splitDir := t.TempDir()
+	os.MkdirAll(filepath.Join(splitDir, "services"), 0o755)
+	os.WriteFile(filepath.Join(splitDir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nCUTOVER_SPLIT=true\n"), 0o644)
+	on, err := Generate(splitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(serviceBlock(on, "timed"), `ROUTER_URL: "http://routd:8080"`) {
+		t.Errorf("split: timed ROUTER_URL must be routd; got:\n%s", serviceBlock(on, "timed"))
+	}
+	timedEnv, _ := os.ReadFile(filepath.Join(splitDir, "env", "timed.env"))
+	if !strings.Contains(string(timedEnv), "AUTHD_URL=http://authd:8080") {
+		t.Errorf("split: timed env missing AUTHD_URL; got:\n%s", timedEnv)
+	}
+	if readEnvFileKey(filepath.Join(splitDir, "env", "timed.env"), "AUTHD_SERVICE_KEY") == "" {
+		t.Errorf("split: timed env missing AUTHD_SERVICE_KEY; got:\n%s", timedEnv)
+	}
+
+	// Monolith: no ROUTER_URL on timed → direct-DB path preserved.
+	monoDir := t.TempDir()
+	os.MkdirAll(filepath.Join(monoDir, "services"), 0o755)
+	os.WriteFile(filepath.Join(monoDir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+	off, err := Generate(monoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(serviceBlock(off, "timed"), "ROUTER_URL") {
+		t.Errorf("monolith: timed must NOT carry ROUTER_URL; got:\n%s", serviceBlock(off, "timed"))
 	}
 }
 

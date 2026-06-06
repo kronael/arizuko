@@ -87,6 +87,18 @@ func (s *Store) RemoveTask(id string) error {
 	return err
 }
 
+// RescheduleTask sets a fired task's next_run + status WITHOUT emitting an
+// audit_log row — the audit-free path behind POST /v1/tasks/{id}/reschedule,
+// the write half of timed's fire loop in the split. An empty nextRun stores
+// NULL (one-shot completion); a non-empty value is stored verbatim. Mirrors
+// timed's monolith UPDATEs (status='active'|'completed', next_run=?|NULL).
+func (s *Store) RescheduleTask(id, nextRun, status string) error {
+	_, err := s.db.Exec(
+		`UPDATE scheduled_tasks SET status = ?, next_run = NULLIF(?, '') WHERE id = ?`,
+		status, nextRun, id)
+	return err
+}
+
 // DueTasks atomically claims active tasks whose next_run has passed (marking
 // them 'firing' so concurrent pollers skip them) and returns them — the read
 // half of timed's fire loop, moved behind GET /v1/tasks/due. datetime()
