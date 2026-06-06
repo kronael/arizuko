@@ -163,6 +163,49 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	return tx.Commit()
 }
 
+// PutSecretRow seals and upserts one secret WITHOUT emitting an audit_log row.
+// It is the write path for a *store.Store backed by a DB that has no audit_log
+// table (routd.db, which OWNS secrets in the split topology — spec 5/5). The
+// at-rest encoding is identical to SetSecret (storeValue → "v2:" seal when a
+// keyring is set), so reads through FolderSecretsResolved decrypt the same way.
+// Callers that own messages.db keep using the audited SetSecret.
+func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) error {
+	if err := validateScope(scope, scopeID, key); err != nil {
+		return err
+	}
+	stored, err := s.storeValue(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
+		   value = excluded.value,
+		   created_at = excluded.created_at`,
+		string(scope), scopeID, key, stored, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+// DeleteSecretRow removes one secret WITHOUT emitting an audit_log row — the
+// audit-free twin of DeleteSecret for an audit_log-less DB (routd.db). Returns
+// ErrSecretNotFound when no row matched so the HTTP layer can 404.
+func (s *Store) DeleteSecretRow(scope SecretScope, scopeID, key string) error {
+	if err := validateScope(scope, scopeID, key); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`DELETE FROM secrets WHERE scope_kind = ? AND scope_id = ? AND key = ?`,
+		string(scope), scopeID, key)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrSecretNotFound
+	}
+	return nil
+}
+
 func (s *Store) GetSecret(scope SecretScope, scopeID, key string) (Secret, error) {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return Secret{}, err

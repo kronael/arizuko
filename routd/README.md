@@ -30,7 +30,8 @@ Spec: `specs/5/E`.
 `routd.db` (inherits gated's schema authority for the conversation
 tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
 `turn_context`, `turn_results`, `cost_log`, `web_routes`, `route_tokens`,
-`network_rules`, plus supporting state. Migrations in `routd/migrations/`.
+`network_rules`, `acl`, `acl_membership`, `secrets`, `secret_use_log`,
+plus supporting state. Migrations in `routd/migrations/`.
 `/openapi.json` exposes the cold-tier config resources: `groups`,
 `routes`, `web_routes`, `acl`, `acl_membership`, `secrets`,
 `network_rules`.
@@ -44,6 +45,8 @@ tables): `groups`, `chats`, `messages`, `routes`, `sessions`,
   - `GET|PUT|POST|DELETE /v1/routes`, `/v1/web_routes`, `/v1/route_tokens/*`
   - `POST /v1/channels/register|deregister`, `GET /v1/channels` — adapter registry
   - `GET /v1/messages/{inspect,thread,find}`, `/v1/routing/*`, `/v1/sessions`, `/v1/cost`
+  - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — operator secret write/delete (`secrets:write`)
+  - `GET /v1/users/{sub}/scopes` — login-time scope snapshot (`grants:read`)
   - `POST /v1/turns/{turn_id}/{reply,send,document,like,edit,delete,pin,unpin,result}` — agent tool forwards
   - `GET /openapi.json`, `GET /health`
 

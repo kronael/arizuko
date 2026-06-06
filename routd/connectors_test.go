@@ -28,28 +28,40 @@ func buildFakeMCP(t *testing.T) string {
 	return bin
 }
 
-// attachSecretsSibling attaches a fresh migrated messages.db as routd's sibling
-// msgs handle, sets routd's decrypt keyring, and returns a keyring-matched
-// *store.Store for seeding encrypted rows the way gated/CLI would. Unique DB
-// name per call so cache=shared doesn't cross-contaminate.
-func attachSecretsSibling(t *testing.T, d *DB, key string) *store.Store {
+// seedSecretsStore wraps routd's OWN routd.db handle as a keyring-matched
+// *store.Store for seeding encrypted secret rows the way the operator would —
+// routd OWNS the secrets table now (spec 5/5), so reads come from there, NOT a
+// sibling messages.db. Sets routd's decrypt keyring too so db.FolderSecrets
+// resolves them.
+func seedSecretsStore(t *testing.T, d *DB, key string) *store.Store {
 	t.Helper()
-	h, err := sql.Open("sqlite", "file:secsib_"+randHex(8)+"?mode=memory&cache=shared&_pragma=foreign_keys(on)")
-	if err != nil {
-		t.Fatalf("open secrets sibling: %v", err)
-	}
-	if err := store.Migrate(h); err != nil {
-		t.Fatalf("migrate secrets sibling: %v", err)
-	}
-	d.msgs = h
 	if key != "" {
 		d.SetSecretKeys([]byte(key))
 	}
-	t.Cleanup(func() { h.Close() })
-	s := store.New(h)
+	s := store.New(d.db)
 	if key != "" {
 		s.SetSecretKeys([]byte(key))
 	}
+	return s
+}
+
+// attachMsgsSibling attaches a fresh migrated messages.db as routd's sibling
+// `msgs` handle (it has audit_log, so the audited store.SetSecret works) and
+// returns a "k"-keyring store for seeding sibling rows. Used to PROVE routd no
+// longer reads secrets from the sibling.
+func attachMsgsSibling(t *testing.T, d *DB) *store.Store {
+	t.Helper()
+	h, err := sql.Open("sqlite", "file:msgsib_"+randHex(8)+"?mode=memory&cache=shared&_pragma=foreign_keys(on)")
+	if err != nil {
+		t.Fatalf("open msgs sibling: %v", err)
+	}
+	if err := store.Migrate(h); err != nil {
+		t.Fatalf("migrate msgs sibling: %v", err)
+	}
+	d.msgs = h
+	t.Cleanup(func() { h.Close() })
+	s := store.New(h)
+	s.SetSecretKeys([]byte("k"))
 	return s
 }
 
@@ -111,14 +123,14 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachSecretsSibling(t, db, "test-secrets-key-0123456789")
+	s := seedSecretsStore(t, db, "test-secrets-key-0123456789")
 
-	// SetSecret with a keyring seals it as "v2:..." — verify it really is.
-	if err := s.SetSecret(store.ScopeFolder, "main/trading", "GITHUB_TOKEN", "ghp_plaintext42"); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	// PutSecretRow with a keyring seals it as "v2:..." — verify it really is.
+	if err := s.PutSecretRow(store.ScopeFolder, "main/trading", "GITHUB_TOKEN", "ghp_plaintext42"); err != nil {
+		t.Fatalf("PutSecretRow: %v", err)
 	}
 	var raw string
-	if err := db.msgs.QueryRow(
+	if err := db.SQL().QueryRow(
 		`SELECT value FROM secrets WHERE scope_kind='folder' AND scope_id='main/trading' AND key='GITHUB_TOKEN'`,
 	).Scan(&raw); err != nil {
 		t.Fatalf("read raw: %v", err)
@@ -143,6 +155,38 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 }
 
+// TestSecretsReadOwnDBNotSibling proves routd resolves secrets from its OWN
+// routd.db, not the sibling messages.db: a secret seeded ONLY in the sibling
+// has NO effect (the sibling-read for secrets is gone), while the same key
+// seeded in routd.db DOES resolve. Mirrors TestACLReadsOwnDBNotSibling.
+func TestSecretsReadOwnDBNotSibling(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Attach a fresh migrated messages.db as the sibling and seed a secret ONLY
+	// there. If routd still sibling-read secrets, this would resolve; it must NOT.
+	sib := attachMsgsSibling(t, db)
+	if err := sib.SetSecret(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_sibling"); err != nil {
+		t.Fatalf("seed sibling secret: %v", err)
+	}
+	db.SetSecretKeys([]byte("k")) // routd's read keyring
+	if got := db.FolderSecrets("main"); len(got) != 0 {
+		t.Errorf("sibling-only secret must NOT resolve (reads routd.db), got %v", got)
+	}
+
+	// The same key in routd's OWN db DOES resolve, decrypted.
+	own := seedSecretsStore(t, db, "k")
+	if err := own.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_own"); err != nil {
+		t.Fatalf("seed own secret: %v", err)
+	}
+	if got := db.FolderSecrets("main")["GITHUB_TOKEN"]; got != "ghp_own" {
+		t.Errorf("routd.db secret = %q, want ghp_own", got)
+	}
+}
+
 // TestConnectorCall_ReceivesResolvedSecret: end-to-end through the per-turn MCP
 // socket — the connector call receives the resolved secret (env injection) and
 // the result is scrubbed (proving the secret map reached CallConnectorTool, not
@@ -162,9 +206,9 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachSecretsSibling(t, db, "test-secrets-key-0123456789")
-	if err := s.SetSecret(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_livetoken"); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	s := seedSecretsStore(t, db, "test-secrets-key-0123456789")
+	if err := s.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_livetoken"); err != nil {
+		t.Fatalf("PutSecretRow: %v", err)
 	}
 
 	srv := NewServer(db, nil, nil, nil, 0, "")
@@ -197,8 +241,9 @@ func TestConnectorCall_ReceivesResolvedSecret(t *testing.T) {
 	}
 }
 
-// TestConnectorSecrets_GracefulWhenUnset: no SECRETS_KEY and no sibling → empty,
-// no panic. Two arms: nil sibling, and present sibling but no keyring.
+// TestConnectorSecrets_GracefulWhenUnset: no SECRETS_KEY → empty / ciphertext
+// passthrough, no panic. Reads come from routd's OWN secrets table (always
+// present). Two arms: empty table, and a v2: row read with no keyring.
 func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -206,19 +251,19 @@ func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Arm 1: nil sibling (msgs == nil), no keyring.
+	// Arm 1: empty secrets table, no keyring → empty.
 	if got := db.ConnectorSecrets("main", []string{"GITHUB_TOKEN"}); len(got) != 0 {
-		t.Errorf("nil sibling: want empty, got %v", got)
+		t.Errorf("empty table: want empty, got %v", got)
 	}
 	if got := db.FolderSecrets("main"); len(got) != 0 {
-		t.Errorf("nil sibling FolderSecrets: want empty, got %v", got)
+		t.Errorf("empty table FolderSecrets: want empty, got %v", got)
 	}
 
-	// Arm 2: present sibling, NO keyring → a v2: row reads as ciphertext, not
-	// plaintext, and no panic. Seed via a keyring store, then read with none.
-	seed := attachSecretsSibling(t, db, "seed-key")
-	if err := seed.SetSecret(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_secret"); err != nil {
-		t.Fatalf("SetSecret: %v", err)
+	// Arm 2: a v2: row in routd.db, NO keyring → reads as ciphertext, not
+	// plaintext, and no panic. Seed with a key, then clear routd's keyring.
+	seed := seedSecretsStore(t, db, "seed-key")
+	if err := seed.PutSecretRow(store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp_secret"); err != nil {
+		t.Fatalf("PutSecretRow: %v", err)
 	}
 	db.SetSecretKeys() // clear the keyring routd uses for reads
 	got := db.FolderSecrets("main")

@@ -25,9 +25,12 @@ import (
 // gated against an empty store, no hard dependency on the sibling daemon.
 //
 // ACL (acl/acl_membership) is NOT a sibling read: routd owns those tables in
-// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval. Identity
-// (identities/identity_claims) is NOT a sibling read either: authd OWNS it and
-// serves GET /v1/identities/{sub}; routd snapshots it over HTTP. See identity.go.
+// its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval. Secrets
+// (secrets/secret_use_log) are NOT a sibling read either: routd OWNS them in
+// routd.db (it already holds SECRETS_KEY for connector injection). See
+// secretStore. Identity (identities/identity_claims) is NOT a sibling read
+// either: authd OWNS it and serves GET /v1/identities/{sub}; routd snapshots it
+// over HTTP. See identity.go.
 
 // openSiblings opens read-only handles to the sibling DBs in dir, if present.
 // Absent file → nil handle (the owning daemon may not run in this deployment).
@@ -130,40 +133,59 @@ func (d *DB) SiblingPaneContextJID(channelID string) (string, bool) {
 // against an empty store.
 func (d *DB) aclEval() *store.Store { return store.New(d.db) }
 
-// aclStore wraps the sibling messages.db handle as a *store.Store so routd
-// reuses gated's exact readers verbatim for the cross-DB sibling tables it
-// still depends on (secrets, scheduled tasks). The acl/acl_membership rows
-// moved to routd's own DB (aclEval); identity moved to authd (identity.go).
-// nil handle → nil store and every accessor returns the empty result.
-func (d *DB) aclStore() *store.Store {
-	if d.msgs == nil {
-		return nil
-	}
-	s := store.New(d.msgs)
+// secretStore wraps routd's OWN routd.db handle as a *store.Store with the
+// SECRETS_KEY keyring set, so secret reads (FolderSecretsResolved) decrypt `v2:`
+// values and writes (PutSecretRow/DeleteSecretRow) seal them — routd OWNS the
+// secrets table (spec 5/5 § Daemon ownership; routd already holds SECRETS_KEY
+// for connector injection). routd.db always has the secrets table (migration
+// 0008), so this is never nil; an empty table yields no secrets, same as gated
+// against an empty store.
+func (d *DB) secretStore() *store.Store {
+	s := store.New(d.db)
 	if len(d.secretKeyring) > 0 {
 		s.SetSecretKeys(d.secretKeyring...)
 	}
 	return s
 }
 
-// FolderSecrets resolves the folder/user-scoped secret set for `folder`,
-// reading the sibling messages.db `secrets` table and DECRYPTING `v2:` values
-// via the SECRETS_KEY keyring. Reuses store.FolderSecretsResolved verbatim
-// through aclStore() (same deepest-wins folder-ancestry precedence gated uses).
-// nil sibling handle / SECRETS_KEY unset / read error → empty map (no hard
-// fail; the caller treats absent secrets as "inject nothing"). routd is
-// read-only here — the encrypt-at-rest WRITE path (store.EncryptPlaintextSecrets)
-// stays with a secrets-owning daemon (gated today; unresolved in the pure split).
-func (d *DB) FolderSecrets(folder string) map[string]string {
-	s := d.aclStore()
-	if s == nil {
-		return map[string]string{}
+// aclStore wraps the sibling messages.db handle as a *store.Store so routd
+// reuses gated's exact readers verbatim for the cross-DB sibling tables it
+// still depends on (scheduled tasks). The acl/acl_membership rows moved to
+// routd's own DB (aclEval); secrets moved to routd's own DB (secretStore);
+// identity moved to authd (identity.go). nil handle → nil store and every
+// accessor returns the empty result.
+func (d *DB) aclStore() *store.Store {
+	if d.msgs == nil {
+		return nil
 	}
-	out, err := s.FolderSecretsResolved(folder)
+	return store.New(d.msgs)
+}
+
+// FolderSecrets resolves the folder/user-scoped secret set for `folder` from
+// routd's OWN routd.db `secrets` table, DECRYPTING `v2:` values via the
+// SECRETS_KEY keyring. Reuses store.FolderSecretsResolved verbatim through
+// secretStore() (same deepest-wins folder-ancestry precedence gated uses).
+// SECRETS_KEY unset / read error → empty map (no hard fail; the caller treats
+// absent secrets as "inject nothing").
+func (d *DB) FolderSecrets(folder string) map[string]string {
+	out, err := d.secretStore().FolderSecretsResolved(folder)
 	if err != nil {
 		return map[string]string{}
 	}
 	return out
+}
+
+// SetSecret seals + upserts one folder/user secret into routd's OWN routd.db
+// (the operator write path behind POST /v1/secrets). Audit-free (routd.db has
+// no audit_log table); reuses store's crypto via PutSecretRow.
+func (d *DB) SetSecret(scope store.SecretScope, scopeID, key, value string) error {
+	return d.secretStore().PutSecretRow(scope, scopeID, key, value)
+}
+
+// DeleteSecret removes one folder/user secret from routd's OWN routd.db (behind
+// DELETE /v1/secrets/{key}). ErrSecretNotFound when no row matched.
+func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
+	return d.secretStore().DeleteSecretRow(scope, scopeID, key)
 }
 
 // ConnectorSecrets narrows the folder's resolved secrets to the `required`

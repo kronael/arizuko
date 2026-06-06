@@ -15,12 +15,13 @@ import (
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
 // instance's messages.db for the CUTOVER_SPLIT topology. messages.db stays
 // ALIVE: timed (scheduled_tasks), slakd (pane_sessions) and dashd keep writing
-// it, and routd sibling-reads secrets/tasks/pane out of it. ACL moved to routd's
-// own DB (routd 0007) and identity moved to authd's auth.db (authd 0004), so
-// acl/acl_membership + identities/identity_claims/identity_codes are COPIED, not
-// left. So this migrator COPIES the conversation/routing/run/acl state into the
-// new DBs and identity into auth.db; the orphan tables stay where they are. It
-// is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
+// it, and routd sibling-reads tasks/pane out of it. ACL moved to routd's own DB
+// (routd 0007), secrets moved to routd's own DB (routd 0008), and identity moved
+// to authd's auth.db (authd 0004), so acl/acl_membership + secrets/secret_use_log
+// + identities/identity_claims/identity_codes are COPIED, not left. So this
+// migrator COPIES the conversation/routing/run/acl/secrets state into the new DBs
+// and identity into auth.db; the orphan tables stay where they are. It is
+// idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
 	// Pull the instance out first so --dry-run works on either side of it
 	// (Go's flag package stops at the first non-flag arg otherwise).
@@ -109,6 +110,15 @@ var routdSpecs = []copySpec{
 	{dst: "acl_membership", src: "acl_membership",
 		cols: "child, parent, added_by, added_at",
 		sel:  "child, parent, added_by, added_at"},
+	// secrets + secret_use_log: routd now OWNS these (routd migration 0008
+	// mirrors store 0034/0047/0048 final shape). Straight copies — encrypted
+	// `value` bytes move verbatim (same SECRETS_KEY decrypts on the routd side).
+	{dst: "secrets", src: "secrets",
+		cols: "scope_kind, scope_id, key, value, created_at",
+		sel:  "scope_kind, scope_id, key, value, created_at"},
+	{dst: "secret_use_log", src: "secret_use_log",
+		cols: "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms",
+		sel:  "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
@@ -172,7 +182,6 @@ CREATE TABLE IF NOT EXISTS identity_codes (
 // other daemons own the rest; auth.db starts fresh (auth_* not migrated).
 // Listed so the summary tells the operator messages.db is NOT retired.
 var orphanTables = []string{
-	"secrets", "secret_use_log",
 	"scheduled_tasks", "task_run_logs", "pane_sessions",
 	"audit_log", "router_state", "onboarding", "onboarding_gates",
 	"invites", "proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
@@ -247,7 +256,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  auth.db rows:  %s\n", fmtCounts(authdSpecs, aN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (timed/slakd/dashd keep writing messages.db; routd sibling-reads secrets/tasks/pane; acl copied to routd.db; identity copied to auth.db.)")
+	fmt.Println("  (timed/slakd/dashd keep writing messages.db; routd sibling-reads tasks/pane; acl+secrets copied to routd.db; identity copied to auth.db.)")
 	return nil
 }
 

@@ -72,9 +72,11 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO session_log(group_folder, session_id, started_at, message_count)
 		VALUES('main','sess-1','2026-01-02T00:00:00Z',7)`)
 
-	// orphan: secrets — must NOT be copied (stays in messages.db).
+	// secrets + secret_use_log: routd OWNS these now → copied to routd.db.
 	exec(`INSERT INTO secrets(scope_kind, scope_id, key, value, created_at)
-		VALUES('folder','main','API_KEY','secret','2026-01-01T00:00:00Z')`)
+		VALUES('folder','main','API_KEY','v2:cipherbytes','2026-01-01T00:00:00Z')`)
+	exec(`INSERT INTO secret_use_log(ts, tool, key, scope, status)
+		VALUES('2026-01-01T00:00:00Z','get_secret','API_KEY','folder','ok')`)
 
 	if err := s.Close(); err != nil {
 		t.Fatalf("store.Close: %v", err)
@@ -119,6 +121,8 @@ func TestMigrateSplit(t *testing.T) {
 		"system_messages": 1, "cost_log": 1,
 		// acl: our 1 seeded row + the role:operator row migration 0053 seeds = 2.
 		"acl": 2, "acl_membership": 1,
+		// secrets: routd OWNS them now → copied (1 row each).
+		"secrets": 1, "secret_use_log": 1,
 	} {
 		if got := count(t, r, tbl); got != want {
 			t.Errorf("routd.%s: got %d rows, want %d", tbl, got, want)
@@ -213,11 +217,16 @@ func TestMigrateSplit(t *testing.T) {
 		t.Errorf("auth.identities name = %q want alice", idName)
 	}
 
-	// orphan: secrets must NOT have been created in routd.db.
-	var name string
-	err = r.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='secrets'`).Scan(&name)
-	if err != sql.ErrNoRows {
-		t.Errorf("routd.db must not contain a `secrets` table (orphan), found: %q (err=%v)", name, err)
+	// secrets: copied to routd.db (routd OWNS it now) with the encrypted `value`
+	// bytes intact — same SECRETS_KEY decrypts on the routd side.
+	var secScope, secKey, secVal string
+	if err := r.QueryRow(
+		`SELECT scope_kind, key, value FROM secrets WHERE scope_id='main'`).
+		Scan(&secScope, &secKey, &secVal); err != nil {
+		t.Fatalf("read routd.secrets: %v", err)
+	}
+	if secScope != "folder" || secKey != "API_KEY" || secVal != "v2:cipherbytes" {
+		t.Errorf("secrets row wrong: scope=%q key=%q value=%q", secScope, secKey, secVal)
 	}
 
 	// FTS index rebuilt from copied messages → searchable.

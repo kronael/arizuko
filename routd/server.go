@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/ipc"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // Deliverer fans an outbound message out to the owning platform adapter
@@ -213,6 +215,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
+	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
+	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	// turn callbacks (the sole-appender surface)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
@@ -409,6 +413,65 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		folder = scope[0]
 	}
 	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
+}
+
+// secretWriteBody is the POST /v1/secrets payload: the operator sets one
+// folder- or user-scoped secret. scope is "folder" or "user"; scope_id is the
+// folder path or user sub; key is an ENV-style name; value is the plaintext
+// (sealed at rest under SECRETS_KEY before it lands in routd.db).
+type secretWriteBody struct {
+	Scope   string `json:"scope"`
+	ScopeID string `json:"scope_id"`
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+}
+
+// handleSecretSet seals + upserts one secret into routd's OWN routd.db (routd
+// owns secrets — spec 5/5 § Daemon ownership). Bearer-gated by secrets:write.
+// The operator (CLI / dashd, in the split topology) writes here instead of
+// opening messages.db. Validation matches store.SetSecret (scope kind + scope_id
+// + key non-empty); the at-rest encoding is identical (v2: seal when a keyring
+// is set), so connector injection reads it back through FolderSecrets.
+func (s *Server) handleSecretSet(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "secrets:write") {
+		return
+	}
+	var body secretWriteBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.Value == "" {
+		writeErr(w, 400, "missing_field", "value required")
+		return
+	}
+	if err := s.db.SetSecret(store.SecretScope(body.Scope), body.ScopeID, body.Key, body.Value); err != nil {
+		writeErr(w, 400, "invalid", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// handleSecretDelete removes one secret from routd's OWN routd.db. Bearer-gated
+// by secrets:write. The scope + scope_id come from the query (?scope=&scope_id=);
+// the key is the path segment. 404 when no row matched.
+func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "secrets:write") {
+		return
+	}
+	scope := r.URL.Query().Get("scope")
+	scopeID := r.URL.Query().Get("scope_id")
+	key := r.PathValue("key")
+	err := s.db.DeleteSecret(store.SecretScope(scope), scopeID, key)
+	if errors.Is(err, store.ErrSecretNotFound) {
+		writeErr(w, 404, "not_found", "no such secret")
+		return
+	}
+	if err != nil {
+		writeErr(w, 400, "invalid", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
 func randHex(n int) string {
