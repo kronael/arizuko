@@ -306,7 +306,6 @@ pre {
 
 .docs-content .callout {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-left: 3px solid var(--accent);
   border-radius: 4px;
   padding: 0.7em 1em;
   margin: 1em 0;

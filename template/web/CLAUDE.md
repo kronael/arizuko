@@ -288,6 +288,17 @@ Callout boxes:
 <div class="callout"><strong>Note:</strong> text here.</div>
 ```
 
+**Callout style: a quiet hairline-bordered inset tint — NEVER a
+solid-fill bar and NEVER a left-accent bar. Both read as LLM slop.**
+The `.callout` in hub.css is: a 1px `color-mix(accent 22%)` border all
+around, the house corner radius, a muted `color-mix(accent 7%, bg)`
+tint, and a gold accent label (the leading `<strong>`, coloured
+`var(--accent)`). The label is the only accent; the box stays quiet.
+Do NOT reintroduce `background: var(--card)` (solid fill) or
+`border-left: 3px solid var(--accent)` (the left bar) — those were the
+slop that got removed. Dual-theme via `color-mix` tokens, no hardcoded
+hex/px that fight the scale.
+
 No framework, no build tooling. Edit HTML directly. Test with any
 static file server or by deploying to a running instance (`/pub/`).
 
