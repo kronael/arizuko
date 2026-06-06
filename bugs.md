@@ -2082,3 +2082,36 @@ throwaway before the cutover. Findings:
   user accounts would strand username/linked_to_sub mappings post-flip (onbod sees
   none). Decide: copy auth_users → routd.db in migrate-split, or unify the read
   path, before flipping any populated instance.
+
+## SPLIT FLIP blocked on silent breaker churn (2026-06-06, 3 krons attempts, all cleanly reverted)
+
+The CUTOVER_SPLIT flip was attempted on krons 3× and reverted each time (gated
+restored, messages.db intact, site 200 — revert valve proven). FOUR flip-blockers
+were found + FIXED + committed this session:
+  1. authd 0004 + onbod 0001 migrations made idempotent (IF NOT EXISTS) — were
+     crash-looping after migrate-split bootstrapped the tables (db_utils re-ran
+     the non-idempotent CREATE).
+  2. migrate-split: FK-off during bulk copy (legacy orphan task_run_logs) +
+     COALESCE message NULLs to routd's runtime defaults (routd scanMessages reads
+     reply_to_id/etc as plain string; legacy NULLs aborted every poll).
+  3. SECRETS_KEY scoped to routd+runed in compose daemonKeys (was unset → routd
+     warned, runed spawn lacked the key).
+  4. split-federation integration test added (tests/split_federation_test.go).
+
+REMAINING (5th, precisely localized, NOT yet fixed): silent circuit-breaker churn.
+- queue/queue.go:302-304 increments consecutiveFailures + opens the breaker when
+  processMessages returns (success=false, err=nil) — the ELSE branch logs NO error.
+- routd processGroupMessages→runTurn returns (false,nil) for backlog messages whose
+  turn is already terminal: dispatch.go:151-156 (PutTurnContext live=false → skip)
+  and the migrated turn_results/turn_context mark pre-flip turns done. The chat's
+  agent_cursor never advances past them → routd re-polls the same backlog → 160
+  breaker-opens/50s, runed never spawns, agents don't reply.
+- Candidate fixes (validate on a THROWAWAY with json-file log driver — krons uses
+  log driver `none`, so container/run failures are invisible; that's why this took
+  3 flips to localize): (a) migrate-split advances each chat's agent_cursor to the
+  latest migrated message so routd starts from NEW messages only (gated already
+  processed the history); (b) routd advances the cursor past already-done/skipped
+  turns instead of re-polling; (c) the shared queue breaker should not trip on a
+  benign (false,nil) no-op. (a) is the most targeted + lowest-risk.
+- DO NOT blind-flip krons a 4th time. Reproduce on a throwaway (clone krons
+  messages.db, CUTOVER_SPLIT, json-file logs) → confirm the churn → fix → re-flip.
