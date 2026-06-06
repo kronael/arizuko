@@ -193,16 +193,16 @@ func TestPreviousSessionXML_Empty(t *testing.T) {
 }
 
 // TestSiblingTasks_RootVsChild: a root group sees every task; a child sees
-// only its own (port of store.ListTasks owner-filter semantics).
+// only its own (port of store.ListTasks owner-filter semantics). routd OWNS
+// scheduled_tasks (migration 0009), so the rows seed into routd's OWN db.
 func TestSiblingTasks_RootVsChild(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs := attachSiblings(t, db)
 	for _, r := range [][2]string{{"t-main", "main"}, {"t-sub", "main/sub"}} {
-		if _, err := msgs.Exec(
+		if _, err := db.SQL().Exec(
 			`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
 			 VALUES(?,?,'jid','do it','active','2026-01-01T00:00:00Z','group')`, r[0], r[1]); err != nil {
 			t.Fatal(err)
@@ -219,17 +219,17 @@ func TestSiblingTasks_RootVsChild(t *testing.T) {
 
 // TestRunTurn_WritesSpawnSnapshots drives a turn with a real ipc dir and
 // asserts the per-spawn snapshot files land in the folder's ipc dir
-// (available_groups.json always; current_tasks.json carrying the sibling
-// task). G5: gated writes these right before spawn; routd's twin is runTurn.
+// (available_groups.json always; current_tasks.json carrying the task). routd
+// OWNS scheduled_tasks (migration 0009), so the task seeds into routd's OWN db.
+// G5: gated writes these right before spawn; routd's twin is runTurn.
 func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs := attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	if _, err := msgs.Exec(
+	if _, err := db.SQL().Exec(
 		`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
 		 VALUES('t1','demo','jid','do it','active','2026-01-01T00:00:00Z','group')`); err != nil {
 		t.Fatal(err)
@@ -264,6 +264,38 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	}
 	if !strings.Contains(string(ts), `"t1"`) {
 		t.Errorf("tasks snapshot missing seeded task: %s", ts)
+	}
+}
+
+// TestTasksReadOwnDBNotSibling proves routd reads tasks from its OWN routd.db,
+// not the sibling messages.db: a task seeded ONLY in the sibling has NO effect
+// (the sibling-read for tasks is gone), while the same task seeded in routd.db
+// DOES surface. Mirrors TestACLReadsOwnDBNotSibling.
+func TestTasksReadOwnDBNotSibling(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// Attach a fresh migrated messages.db as the sibling and seed a task ONLY
+	// there. If routd still sibling-read tasks, this would surface; it must NOT.
+	sib := attachMsgsSibling(t, db)
+	if err := sib.CreateTask(core.Task{
+		ID: "sib-task", Owner: "main", ChatJID: "jid", Prompt: "from sibling",
+		Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatalf("seed sibling task: %v", err)
+	}
+	if got := db.SiblingTasks("main", true); len(got) != 0 {
+		t.Errorf("sibling-only task must NOT surface (reads routd.db), got %+v", got)
+	}
+
+	// The same task in routd's OWN db DOES surface.
+	seedTask(t, db, "own-task", "main", "jid", "from routd")
+	got := db.SiblingTasks("main", true)
+	if len(got) != 1 || got[0].ID != "own-task" {
+		t.Errorf("routd.db task should surface, got %+v", got)
 	}
 }
 

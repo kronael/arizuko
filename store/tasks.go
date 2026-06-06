@@ -50,6 +50,80 @@ func (s *Store) CreateTask(t core.Task) error {
 
 const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
 
+// PutTaskRow inserts one scheduled task WITHOUT emitting an audit_log row — the
+// audit-free twin of CreateTask for a DB that has no audit_log table (routd.db,
+// which OWNS scheduled_tasks in the split topology — spec 5/5). Same INSERT as
+// CreateTask; callers that own messages.db keep using the audited CreateTask.
+func (s *Store) PutTaskRow(t core.Task) error {
+	var nextRun *string
+	if t.NextRun != nil {
+		v := t.NextRun.Format(time.RFC3339)
+		nextRun = &v
+	}
+	cm := t.ContextMode
+	if cm == "" {
+		cm = "group"
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO scheduled_tasks (`+taskCols+`)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Owner, t.ChatJID, t.Prompt, nilIfEmpty(t.Cron),
+		nextRun, t.Status, t.Created.Format(time.RFC3339), cm)
+	return err
+}
+
+// SetTaskStatus updates one task's status WITHOUT emitting an audit_log row —
+// the audit-free path behind the agent's pause_task/resume_task tools on
+// routd.db. Mirrors UpdateTask(id, TaskPatch{Status}).
+func (s *Store) SetTaskStatus(id, status string) error {
+	_, err := s.db.Exec(`UPDATE scheduled_tasks SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+// RemoveTask deletes one task WITHOUT emitting an audit_log row — the audit-free
+// twin of DeleteTask for an audit_log-less DB (routd.db). Backs cancel_task.
+func (s *Store) RemoveTask(id string) error {
+	_, err := s.db.Exec(`DELETE FROM scheduled_tasks WHERE id = ?`, id)
+	return err
+}
+
+// DueTasks atomically claims active tasks whose next_run has passed (marking
+// them 'firing' so concurrent pollers skip them) and returns them — the read
+// half of timed's fire loop, moved behind GET /v1/tasks/due. datetime()
+// normalizes RFC3339 offsets to UTC so a non-UTC next_run still orders right.
+func (s *Store) DueTasks(now time.Time) ([]core.Task, error) {
+	nowStr := now.Format(time.RFC3339)
+	if _, err := s.db.Exec(
+		`UPDATE scheduled_tasks SET status = 'firing'
+		 WHERE status = 'active' AND datetime(next_run) <= datetime(?)`, nowStr); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT ` + taskCols + ` FROM scheduled_tasks WHERE status = 'firing'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []core.Task
+	for rows.Next() {
+		if t, ok := scanTask(rows); ok {
+			out = append(out, t)
+		}
+	}
+	return out, rows.Err()
+}
+
+// RecordTaskRun appends one task_run_logs row WITHOUT emitting an audit_log row
+// — the write half of timed's fire loop, moved behind POST /v1/tasks/runlog.
+// Mirrors timed.logRun (NULLIF on empty error).
+func (s *Store) RecordTaskRun(l TaskRunLog) error {
+	_, err := s.db.Exec(
+		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status, result, error)
+		 VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		l.TaskID, time.Now().UTC().Format(time.RFC3339), l.DurationMS, l.Status, l.Result, l.Error)
+	return err
+}
+
 func (s *Store) GetTask(id string) (core.Task, bool) {
 	row := s.db.QueryRow(`SELECT `+taskCols+` FROM scheduled_tasks WHERE id = ?`, id)
 	return scanTask(row)

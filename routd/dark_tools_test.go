@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -78,13 +77,16 @@ func callToolArray(t *testing.T, sock, name string, args map[string]any) ([]any,
 	return arr, ""
 }
 
-func seedTask(t *testing.T, s *store.Store, id, owner, jid, prompt string) {
+// seedTask seeds one task into routd's OWN routd.db — routd OWNS scheduled_tasks
+// (migration 0009), so reads/writes go there, not a sibling messages.db. Uses
+// the audit-free PutTaskRow (routd.db has no audit_log table).
+func seedTask(t *testing.T, d *DB, id, owner, jid, prompt string) {
 	t.Helper()
-	if err := s.CreateTask(core.Task{
+	if err := store.New(d.SQL()).PutTaskRow(core.Task{
 		ID: id, Owner: owner, ChatJID: jid, Prompt: prompt,
 		Cron: "0 9 * * *", Status: core.TaskActive, Created: time.Now(),
 	}); err != nil {
-		t.Fatalf("CreateTask %s: %v", id, err)
+		t.Fatalf("PutTaskRow %s: %v", id, err)
 	}
 }
 
@@ -273,16 +275,16 @@ func TestInspectSession_NilResolver(t *testing.T) {
 	}
 }
 
-// TestListTasks_SiblingRead: list_tasks returns scheduled_tasks read RO from
-// the sibling messages.db (timed's table). ListTasks was nil in routd → dark.
-func TestListTasks_SiblingRead(t *testing.T) {
+// TestListTasks_OwnDB: list_tasks returns scheduled_tasks read from routd's OWN
+// routd.db (routd OWNS the table — migration 0009). ListTasks was nil in routd
+// → dark.
+func TestListTasks_OwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
-	seedTask(t, s, "task-1", "demo", "slack:T/C/U", "daily standup")
+	seedTask(t, db, "task-1", "demo", "slack:T/C/U", "daily standup")
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
@@ -302,8 +304,8 @@ func TestListTasks_SiblingRead(t *testing.T) {
 		t.Fatalf("list_tasks=%v want 1 task", arr)
 	}
 
-	// inspect_tasks also reads tasks + per-task run logs from the sibling.
-	if _, err := s.DB().Exec(
+	// inspect_tasks also reads tasks + per-task run logs from routd's own db.
+	if _, err := db.SQL().Exec(
 		`INSERT INTO task_run_logs (task_id, run_at, duration_ms, status)
 		 VALUES (?, ?, ?, ?)`, "task-1", time.Now().Format(time.RFC3339), 12, "ok"); err != nil {
 		t.Fatalf("seed task_run_logs: %v", err)
@@ -441,21 +443,20 @@ func TestListTasks_NilSibling(t *testing.T) {
 	}
 }
 
-// TestTaskWriteTools_FederationPending: the WRITE task tools (schedule_task,
-// pause_task, cancel_task) must NOT write timed's sibling table. They return a
-// clear federation-pending error instead of faking a cross-DB write.
-func TestTaskWriteTools_FederationPending(t *testing.T) {
+// TestTaskWriteTools_WriteOwnDB: the WRITE task tools (schedule_task,
+// pause_task, cancel_task) now write routd's OWN routd.db (routd OWNS
+// scheduled_tasks — migration 0009). No errTaskFederation: schedule_task
+// round-trips via list_tasks; pause flips status; cancel removes the row.
+func TestTaskWriteTools_WriteOwnDB(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := attachACLSibling(t, db)
-	// schedule_task resolves targetJid → folder; route it so it reaches the
-	// CreateTask federation guard rather than "target group not registered".
+	// schedule_task resolves targetJid → folder; route it so it reaches CreateTask.
 	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
 	const jid = "slack:team/channel/c1"
-	seedTask(t, s, "task-1", "demo", jid, "existing") // so pause/cancel find a row
+	seedTask(t, db, "task-1", "demo", jid, "existing") // pause/cancel target
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
@@ -466,25 +467,41 @@ func TestTaskWriteTools_FederationPending(t *testing.T) {
 	defer stop()
 	sock := groupfolder.IpcSocket(ipcDir)
 
-	for _, tc := range []struct {
-		tool string
-		args map[string]any
-	}{
-		{"schedule_task", map[string]any{"targetJid": jid, "prompt": "ping", "cron": "60000"}},
-		{"pause_task", map[string]any{"taskId": "task-1"}},
-		{"cancel_task", map[string]any{"taskId": "task-1"}},
-	} {
-		_, errText := callToolOverSock(t, sock, tc.tool, tc.args)
-		if errText == "" {
-			t.Fatalf("%s should error (federation pending), got success", tc.tool)
-		}
-		if !strings.Contains(errText, "federation pending") {
-			t.Fatalf("%s error=%q want 'federation pending'", tc.tool, errText)
-		}
+	// schedule_task writes a NEW task into routd.db (no federation error).
+	res, errText := callToolOverSock(t, sock, "schedule_task",
+		map[string]any{"targetJid": jid, "prompt": "ping", "cron": "60000"})
+	if errText != "" {
+		t.Fatalf("schedule_task error: %s", errText)
+	}
+	newID, _ := res["taskId"].(string)
+	if newID == "" {
+		t.Fatalf("schedule_task returned no taskId: %v", res)
+	}
+	// Round-trip: list_tasks now shows both the seeded + scheduled task.
+	arr, errText := callToolArray(t, sock, "list_tasks", map[string]any{})
+	if errText != "" {
+		t.Fatalf("list_tasks error: %s", errText)
+	}
+	if len(arr) != 2 {
+		t.Fatalf("list_tasks=%v want 2 (seeded + scheduled)", arr)
 	}
 
-	// The sibling task row is untouched: no cross-DB write happened.
-	if tasks := db.SiblingTasks("demo", true); len(tasks) != 1 || tasks[0].ID != "task-1" {
-		t.Fatalf("sibling tasks mutated by write tools: %+v", tasks)
+	// pause_task flips the seeded task to paused in routd.db.
+	if _, errText := callToolOverSock(t, sock, "pause_task", map[string]any{"taskId": "task-1"}); errText != "" {
+		t.Fatalf("pause_task error: %s", errText)
+	}
+	if got, _ := db.SiblingGetTask("task-1"); got.Status != core.TaskPaused {
+		t.Fatalf("pause_task: status=%q want paused", got.Status)
+	}
+
+	// cancel_task removes the seeded task from routd.db.
+	if _, errText := callToolOverSock(t, sock, "cancel_task", map[string]any{"taskId": "task-1"}); errText != "" {
+		t.Fatalf("cancel_task error: %s", errText)
+	}
+	if _, ok := db.SiblingGetTask("task-1"); ok {
+		t.Fatal("cancel_task: task-1 still present after cancel")
+	}
+	if tasks := db.SiblingTasks("demo", true); len(tasks) != 1 || tasks[0].ID != newID {
+		t.Fatalf("after cancel, want only the scheduled task %q, got %+v", newID, tasks)
 	}
 }

@@ -14,14 +14,15 @@ import (
 
 // cmdMigrateSplit populates routd.db + runed.db + auth.db from an existing
 // instance's messages.db for the CUTOVER_SPLIT topology. messages.db stays
-// ALIVE: timed (scheduled_tasks), slakd (pane_sessions) and dashd keep writing
-// it, and routd sibling-reads tasks/pane out of it. ACL moved to routd's own DB
-// (routd 0007), secrets moved to routd's own DB (routd 0008), and identity moved
-// to authd's auth.db (authd 0004), so acl/acl_membership + secrets/secret_use_log
-// + identities/identity_claims/identity_codes are COPIED, not left. So this
-// migrator COPIES the conversation/routing/run/acl/secrets state into the new DBs
-// and identity into auth.db; the orphan tables stay where they are. It is
-// idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
+// ALIVE: slakd (pane_sessions) and dashd keep writing it, and routd
+// sibling-reads pane out of it. ACL moved to routd's own DB (routd 0007),
+// secrets moved to routd's own DB (routd 0008), tasks moved to routd's own DB
+// (routd 0009), and identity moved to authd's auth.db (authd 0004), so
+// acl/acl_membership + secrets/secret_use_log + scheduled_tasks/task_run_logs +
+// identities/identity_claims/identity_codes are COPIED, not left. So this
+// migrator COPIES the conversation/routing/run/acl/secrets/tasks state into the
+// new DBs and identity into auth.db; the orphan tables stay where they are. It
+// is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
 	// Pull the instance out first so --dry-run works on either side of it
 	// (Go's flag package stops at the first non-flag arg otherwise).
@@ -119,6 +120,16 @@ var routdSpecs = []copySpec{
 	{dst: "secret_use_log", src: "secret_use_log",
 		cols: "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms",
 		sel:  "ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms"},
+	// scheduled_tasks + task_run_logs: routd now OWNS these (routd migration 0009
+	// mirrors store 0001/0011 final shape). Straight copies — identical schema
+	// both sides. task_run_logs.id is AUTOINCREMENT but copied verbatim so the
+	// FK to scheduled_tasks(id) stays intact.
+	{dst: "scheduled_tasks", src: "scheduled_tasks",
+		cols: "id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode",
+		sel:  "id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode"},
+	{dst: "task_run_logs", src: "task_run_logs",
+		cols: "id, task_id, run_at, duration_ms, status, result, error",
+		sel:  "id, task_id, run_at, duration_ms, status, result, error"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
@@ -182,7 +193,7 @@ CREATE TABLE IF NOT EXISTS identity_codes (
 // other daemons own the rest; auth.db starts fresh (auth_* not migrated).
 // Listed so the summary tells the operator messages.db is NOT retired.
 var orphanTables = []string{
-	"scheduled_tasks", "task_run_logs", "pane_sessions",
+	"pane_sessions",
 	"audit_log", "router_state", "onboarding", "onboarding_gates",
 	"invites", "proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
 	"auth_users", "auth_sessions",
@@ -256,7 +267,7 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("  auth.db rows:  %s\n", fmtCounts(authdSpecs, aN))
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
-	fmt.Println("  (timed/slakd/dashd keep writing messages.db; routd sibling-reads tasks/pane; acl+secrets copied to routd.db; identity copied to auth.db.)")
+	fmt.Println("  (slakd/dashd keep writing messages.db; routd sibling-reads pane; acl+secrets+tasks copied to routd.db; identity copied to auth.db.)")
 	return nil
 }
 

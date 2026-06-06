@@ -15,23 +15,25 @@ import (
 // sibling_db.go gives routd READ-ONLY access to the sibling DBs that share
 // store/ but are owned (written) by other daemons in the split topology:
 //
-//   - messages.db — timed writes scheduled_tasks; slakd writes pane_sessions.
+//   - messages.db — slakd writes pane_sessions.
 //
-// routd reads them to reach gated's full prompt/spawn context (tasks.json
-// snapshot, Slack-pane hints). Ownership stays with the writers; routd never
-// mutates these tables. A missing file leaves the handle nil and every
-// accessor returns the empty result — same shape as gated against an empty
-// store, no hard dependency on the sibling daemon.
+// routd reads them to reach gated's full prompt/spawn context (Slack-pane
+// hints). Ownership stays with the writers; routd never mutates these tables. A
+// missing file leaves the handle nil and every accessor returns the empty
+// result — same shape as gated against an empty store, no hard dependency on
+// the sibling daemon.
 //
 // ACL (acl/acl_membership) is NOT a sibling read: routd owns those tables in
 // its OWN routd.db (spec 5/5 § Daemon ownership). See aclEval. Secrets
 // (secrets/secret_use_log) are NOT a sibling read either: routd OWNS them in
 // routd.db (it already holds SECRETS_KEY for connector injection). See
-// secretStore. Identity (identities/identity_claims) is NOT a sibling read
-// either: authd OWNS it and serves GET /v1/identities/{sub}; routd snapshots it
-// over HTTP. See identity.go. session_log is NOT a sibling read either: runed
-// OWNS it and serves GET /v1/sessions/recent; routd federates it over HTTP.
-// See session.go.
+// secretStore. Tasks (scheduled_tasks/task_run_logs) are NOT a sibling read
+// either: routd OWNS them in routd.db (migration 0009) and serves timed's
+// read+write via GET /v1/tasks/due + POST /v1/tasks/runlog. See taskStore.
+// Identity (identities/identity_claims) is NOT a sibling read either: authd
+// OWNS it and serves GET /v1/identities/{sub}; routd snapshots it over HTTP.
+// See identity.go. session_log is NOT a sibling read either: runed OWNS it and
+// serves GET /v1/sessions/recent; routd federates it over HTTP. See session.go.
 
 // openSiblings opens a read-only handle to the sibling messages.db in dir, if
 // present. Absent file → nil handle (the owning daemon may not run in this
@@ -53,59 +55,18 @@ func openRO(path string) *sql.DB {
 	return db
 }
 
-// SiblingTasks reads scheduled_tasks from messages.db (timed's table) for the
-// tasks.json spawn snapshot. Port of store.ListTasks: a root group sees every
-// task (owner filter empty); a child sees only its own. nil handle → nil.
+// SiblingTasks reads scheduled_tasks from routd's OWN routd.db (routd owns the
+// table — migration 0009) for the tasks.json spawn snapshot. Reuses
+// store.ListTasks: a root group sees every task (owner filter empty); a child
+// sees only its own.
 func (d *DB) SiblingTasks(folder string, isRoot bool) []core.Task {
-	if d.msgs == nil {
-		return nil
-	}
-	owner := folder
-	if isRoot {
-		owner = ""
-	}
-	rows, err := d.msgs.Query(
-		`SELECT id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode
-		 FROM scheduled_tasks WHERE (? = '' OR owner = ?) ORDER BY created_at DESC`, owner, owner)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []core.Task
-	for rows.Next() {
-		var t core.Task
-		var cron, nextRun *string
-		var created string
-		if err := rows.Scan(&t.ID, &t.Owner, &t.ChatJID, &t.Prompt,
-			&cron, &nextRun, &t.Status, &created, &t.ContextMode); err != nil {
-			return out
-		}
-		t.Created, _ = time.Parse(time.RFC3339, created)
-		if cron != nil {
-			t.Cron = *cron
-		}
-		if nextRun != nil {
-			v, _ := time.Parse(time.RFC3339, *nextRun)
-			t.NextRun = &v
-		}
-		if t.ContextMode == "" {
-			t.ContextMode = "group"
-		}
-		out = append(out, t)
-	}
-	return out
+	return d.taskStore().ListTasks(folder, isRoot)
 }
 
-// CountActiveTasks counts active scheduled_tasks in messages.db (timed's
-// table) for the /status surface. Port of store.CountActiveTasks. nil handle
-// → 0 (timed may not run in this deployment).
+// CountActiveTasks counts active scheduled_tasks in routd's OWN routd.db for
+// the /status surface. Reuses store.CountActiveTasks.
 func (d *DB) CountActiveTasks() int {
-	if d.msgs == nil {
-		return 0
-	}
-	var n int
-	d.msgs.QueryRow("SELECT COUNT(*) FROM scheduled_tasks WHERE status=?", core.TaskActive).Scan(&n)
-	return n
+	return d.taskStore().CountActiveTasks()
 }
 
 // SiblingPaneContextJID reads pane_sessions from messages.db (slakd's table)
@@ -150,18 +111,14 @@ func (d *DB) secretStore() *store.Store {
 	return s
 }
 
-// aclStore wraps the sibling messages.db handle as a *store.Store so routd
-// reuses gated's exact readers verbatim for the cross-DB sibling tables it
-// still depends on (scheduled tasks). The acl/acl_membership rows moved to
-// routd's own DB (aclEval); secrets moved to routd's own DB (secretStore);
-// identity moved to authd (identity.go). nil handle → nil store and every
-// accessor returns the empty result.
-func (d *DB) aclStore() *store.Store {
-	if d.msgs == nil {
-		return nil
-	}
-	return store.New(d.msgs)
-}
+// taskStore wraps routd's OWN routd.db handle as a *store.Store so routd reuses
+// gated's exact task readers/writers verbatim — routd OWNS scheduled_tasks +
+// task_run_logs (spec 5/5 § Daemon ownership; migration 0009). routd.db always
+// has the task tables, so this is never nil; an empty table yields no tasks,
+// same as gated against an empty store. Writes go through the audit-free
+// variants (PutTaskRow/SetTaskStatus/RemoveTask/RecordTaskRun) since routd.db
+// has no audit_log table.
+func (d *DB) taskStore() *store.Store { return store.New(d.db) }
 
 // FolderSecrets resolves the folder/user-scoped secret set for `folder` from
 // routd's OWN routd.db `secrets` table, DECRYPTING `v2:` values via the
@@ -238,26 +195,39 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
 }
 
-// SiblingGetTask reads one scheduled_tasks row from messages.db (timed's
-// table) by id, for the inspect_tasks per-task authz check. Reuses
-// store.GetTask via aclStore(). nil handle / no row → (zero, false).
+// SiblingGetTask reads one scheduled_tasks row from routd's OWN routd.db by id,
+// for the inspect_tasks per-task authz check. Reuses store.GetTask via
+// taskStore(). no row → (zero, false).
 func (d *DB) SiblingGetTask(id string) (core.Task, bool) {
-	s := d.aclStore()
-	if s == nil {
-		return core.Task{}, false
-	}
-	return s.GetTask(id)
+	return d.taskStore().GetTask(id)
 }
 
-// SiblingTaskRunLogs reads task_run_logs rows from messages.db (timed's table)
-// for the inspect_tasks per-task run history. Reuses store.TaskRunLogs via
-// aclStore(), translating store.TaskRunLog → ipc.TaskRunLog. nil handle → nil.
+// CreateTask inserts one scheduled task into routd's OWN routd.db (behind the
+// schedule_task agent tool). Audit-free (routd.db has no audit_log table);
+// reuses store's insert via PutTaskRow.
+func (d *DB) CreateTask(t core.Task) error { return d.taskStore().PutTaskRow(t) }
+
+// SetTaskStatus updates one task's status in routd's OWN routd.db (behind
+// pause_task/resume_task). Audit-free.
+func (d *DB) SetTaskStatus(id, status string) error { return d.taskStore().SetTaskStatus(id, status) }
+
+// DeleteTask removes one task from routd's OWN routd.db (behind cancel_task).
+// Audit-free.
+func (d *DB) DeleteTask(id string) error { return d.taskStore().RemoveTask(id) }
+
+// DueTasks atomically claims + returns the tasks ready to fire, backing
+// GET /v1/tasks/due (timed's read half).
+func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.taskStore().DueTasks(now) }
+
+// RecordTaskRun appends one task_run_logs row, backing POST /v1/tasks/runlog
+// (timed's write half).
+func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.taskStore().RecordTaskRun(l) }
+
+// SiblingTaskRunLogs reads task_run_logs rows from routd's OWN routd.db for the
+// inspect_tasks per-task run history. Reuses store.TaskRunLogs via taskStore(),
+// translating store.TaskRunLog → ipc.TaskRunLog.
 func (d *DB) SiblingTaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
-	s := d.aclStore()
-	if s == nil {
-		return nil
-	}
-	rows := s.TaskRunLogs(taskID, limit)
+	rows := d.taskStore().TaskRunLogs(taskID, limit)
 	out := make([]ipc.TaskRunLog, len(rows))
 	for i, r := range rows {
 		out[i] = ipc.TaskRunLog{

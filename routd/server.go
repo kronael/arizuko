@@ -238,6 +238,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
 	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
+	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
+	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	// turn callbacks (the sole-appender surface)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
@@ -490,6 +492,70 @@ func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeErr(w, 400, "invalid", err.Error())
+		return
+	}
+	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// dueTask is the GET /v1/tasks/due row: exactly the fields timed's fire loop
+// needs to enqueue a message + reschedule. routd OWNS scheduled_tasks; timed
+// reads due tasks here instead of opening messages.db directly.
+type dueTask struct {
+	ID          string `json:"id"`
+	ChatJID     string `json:"chat_jid"`
+	Prompt      string `json:"prompt"`
+	Cron        string `json:"cron"`
+	ContextMode string `json:"context_mode"`
+}
+
+// handleTasksDue atomically claims (marks 'firing') and returns the tasks whose
+// next_run has passed — the read half of timed's fire loop, served from routd's
+// OWN routd.db. Bearer-gated by tasks:read.
+func (s *Server) handleTasksDue(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "tasks:read") {
+		return
+	}
+	tasks, err := s.db.DueTasks(time.Now())
+	if err != nil {
+		writeErr(w, 500, "db_error", err.Error())
+		return
+	}
+	out := make([]dueTask, len(tasks))
+	for i, t := range tasks {
+		out[i] = dueTask{ID: t.ID, ChatJID: t.ChatJID, Prompt: t.Prompt,
+			Cron: t.Cron, ContextMode: t.ContextMode}
+	}
+	writeJSON(w, 200, map[string]any{"tasks": out})
+}
+
+// taskRunLogBody is the POST /v1/tasks/runlog payload: timed records one task
+// run (success or error) after firing. duration_ms is the fire latency.
+type taskRunLogBody struct {
+	TaskID     string `json:"task_id"`
+	Status     string `json:"status"`
+	Error      string `json:"error"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// handleTaskRunLog appends one task_run_logs row — the write half of timed's
+// fire loop, served from routd's OWN routd.db. Bearer-gated by tasks:write.
+func (s *Server) handleTaskRunLog(w http.ResponseWriter, r *http.Request) {
+	if !s.authed(w, r, "tasks:write") {
+		return
+	}
+	var body taskRunLogBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if body.TaskID == "" || body.Status == "" {
+		writeErr(w, 400, "missing_field", "task_id and status required")
+		return
+	}
+	if err := s.db.RecordTaskRun(store.TaskRunLog{
+		TaskID: body.TaskID, Status: body.Status, Error: body.Error, DurationMS: body.DurationMS,
+	}); err != nil {
+		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})

@@ -304,37 +304,24 @@ func beforeStr(t time.Time) string {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// errTaskFederation is returned by the task WRITE tools (schedule_task,
-// pause_task, resume_task, cancel_task). routd reads scheduled_tasks RO from
-// the sibling messages.db (timed owns the write side); a cross-DB write would
-// corrupt timed's table, so the write path errors clearly instead of faking
-// success until timed exposes a /v1/tasks CRUD surface (bugs.md "runed StoreFns
-// federation").
-var errTaskFederation = fmt.Errorf("task scheduling runs in timed (federation pending)")
-
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
-// state lives elsewhere federate over HTTP (tasks → messages.db sibling,
-// identity → authd, session_log → runed's GET /v1/sessions/recent;
-// graceful-absent → empty). Task WRITE tools dispatch errTaskFederation (no
-// cross-DB write to timed's table).
+// state lives elsewhere federate over HTTP (identity → authd, session_log →
+// runed's GET /v1/sessions/recent; graceful-absent → empty).
 // Deferred nil: LogIPCAudit (audit_log lives in messages.db, owned elsewhere —
 // see buildGatedFns.Audit for routd's ownership-correct slog/.jl path).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	return ipc.StoreFns{
-		// Task reads: scheduled_tasks + task_run_logs live in the sibling
-		// messages.db (timed's tables). RO via aclStore(); nil handle → empty.
+		// Task reads + writes: routd OWNS scheduled_tasks + task_run_logs in
+		// routd.db (migration 0009). schedule_task → CreateTask; pause/resume →
+		// UpdateTaskStatus; cancel → DeleteTask — all audit-free against routd.db.
 		ListTasks: s.db.SiblingTasks,
 		GetTask:   s.db.SiblingGetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
 			return s.db.SiblingTaskRunLogs(taskID, limit)
 		},
-		// Task writes: federation-pending. inspect_tasks registers pause/resume/
-		// cancel only when GetTask != nil; their exec is UpdateTaskStatus/
-		// DeleteTask, and CreateTask backs schedule_task — all error clearly
-		// rather than write timed's table cross-DB.
-		CreateTask:       func(core.Task) error { return errTaskFederation },
-		UpdateTaskStatus: func(string, string) error { return errTaskFederation },
-		DeleteTask:       func(string) error { return errTaskFederation },
+		CreateTask:       s.db.CreateTask,
+		UpdateTaskStatus: s.db.SetTaskStatus,
+		DeleteTask:       s.db.DeleteTask,
 		// Session reads: current session_id from routd.db (own table); recent
 		// session_log rows federated from runed's GET /v1/sessions/recent (runed
 		// OWNS session_log — spec 5/P; no runed.db sibling-read).

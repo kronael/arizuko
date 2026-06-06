@@ -78,6 +78,12 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	exec(`INSERT INTO secret_use_log(ts, tool, key, scope, status)
 		VALUES('2026-01-01T00:00:00Z','get_secret','API_KEY','folder','ok')`)
 
+	// scheduled_tasks + task_run_logs: routd OWNS these now → copied to routd.db.
+	exec(`INSERT INTO scheduled_tasks(id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode)
+		VALUES('task-1','main','web:main','daily','0 9 * * *','2026-02-01T09:00:00Z','active','2026-01-01T00:00:00Z','group')`)
+	exec(`INSERT INTO task_run_logs(task_id, run_at, duration_ms, status)
+		VALUES('task-1','2026-01-02T09:00:00Z',12,'ok')`)
+
 	if err := s.Close(); err != nil {
 		t.Fatalf("store.Close: %v", err)
 	}
@@ -123,6 +129,8 @@ func TestMigrateSplit(t *testing.T) {
 		"acl": 2, "acl_membership": 1,
 		// secrets: routd OWNS them now → copied (1 row each).
 		"secrets": 1, "secret_use_log": 1,
+		// scheduled_tasks + task_run_logs: routd OWNS them now → copied (1 row each).
+		"scheduled_tasks": 1, "task_run_logs": 1,
 	} {
 		if got := count(t, r, tbl); got != want {
 			t.Errorf("routd.%s: got %d rows, want %d", tbl, got, want)
@@ -227,6 +235,26 @@ func TestMigrateSplit(t *testing.T) {
 	}
 	if secScope != "folder" || secKey != "API_KEY" || secVal != "v2:cipherbytes" {
 		t.Errorf("secrets row wrong: scope=%q key=%q value=%q", secScope, secKey, secVal)
+	}
+
+	// scheduled_tasks: copied to routd.db (routd OWNS it now) verbatim, FK to the
+	// task intact for the copied task_run_logs row.
+	var taskOwner, taskCron, taskStatus string
+	if err := r.QueryRow(
+		`SELECT owner, cron, status FROM scheduled_tasks WHERE id='task-1'`).
+		Scan(&taskOwner, &taskCron, &taskStatus); err != nil {
+		t.Fatalf("read routd.scheduled_tasks: %v", err)
+	}
+	if taskOwner != "main" || taskCron != "0 9 * * *" || taskStatus != "active" {
+		t.Errorf("scheduled_tasks row wrong: owner=%q cron=%q status=%q", taskOwner, taskCron, taskStatus)
+	}
+	var runStatus string
+	if err := r.QueryRow(
+		`SELECT status FROM task_run_logs WHERE task_id='task-1'`).Scan(&runStatus); err != nil {
+		t.Fatalf("read routd.task_run_logs: %v", err)
+	}
+	if runStatus != "ok" {
+		t.Errorf("task_run_logs status = %q want ok", runStatus)
 	}
 
 	// FTS index rebuilt from copied messages → searchable.
