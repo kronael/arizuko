@@ -17,8 +17,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kronael/arizuko/chanlib"
 )
+
+// envOr / envInt: audit's own env readers. audit must not depend on the
+// channel-adapter library (chanlib) for trivial env parsing — that edge created
+// an auth→audit→chanlib import cycle once chanlib started exchanging service
+// tokens via the auth package (spec 5/1).
+func envOr(k, fallback string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envInt(k string, fallback int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
 
 // Config holds all audit configuration loaded from environment.
 type Config struct {
@@ -36,16 +55,16 @@ type Config struct {
 
 func LoadConfig(dataDir, instance string) Config {
 	return Config{
-		Enabled:            chanlib.EnvOr("AUDIT_ENABLED", "false") == "true",
+		Enabled:            envOr("AUDIT_ENABLED", "false") == "true",
 		DataDir:            dataDir,
 		Instance:           instance,
-		MaxBytes:           int64(chanlib.EnvInt("AUDIT_MAX_BYTES", 100*1024*1024)),
-		RotateHours:        chanlib.EnvInt("AUDIT_ROTATE_HOURS", 24),
-		WebhookURL:         chanlib.EnvOr("AUDIT_WEBHOOK_URL", ""),
-		WebhookURLSystem:   chanlib.EnvOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
-		WebhookURLMessages: chanlib.EnvOr("AUDIT_WEBHOOK_URL_MESSAGES", ""),
-		WebhookURLWeb:      chanlib.EnvOr("AUDIT_WEBHOOK_URL_WEB", ""),
-		WebhookSecret:      chanlib.EnvOr("AUDIT_WEBHOOK_SECRET", ""),
+		MaxBytes:           int64(envInt("AUDIT_MAX_BYTES", 100*1024*1024)),
+		RotateHours:        envInt("AUDIT_ROTATE_HOURS", 24),
+		WebhookURL:         envOr("AUDIT_WEBHOOK_URL", ""),
+		WebhookURLSystem:   envOr("AUDIT_WEBHOOK_URL_SYSTEM", ""),
+		WebhookURLMessages: envOr("AUDIT_WEBHOOK_URL_MESSAGES", ""),
+		WebhookURLWeb:      envOr("AUDIT_WEBHOOK_URL_WEB", ""),
+		WebhookSecret:      envOr("AUDIT_WEBHOOK_SECRET", ""),
 	}
 }
 

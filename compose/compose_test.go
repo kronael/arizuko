@@ -130,6 +130,79 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
+// A present channel adapter (slakd) is wired as a service principal: its env
+// file carries AUTHD_URL + AUTHD_SERVICE_KEY, and the authd seed registers
+// service:slakd=<key>. onbod (a fixed daemon) is always wired. This is the
+// compose half of the split's A1/A2 fix (spec 5/1).
+func TestServiceKeyWiredForAdaptersAndOnbod(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["slakd"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+CHANNEL_SECRET = "${CHANNEL_SECRET}"
+`), 0o644)
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(d string) string {
+		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
+		if err != nil {
+			t.Fatalf("read env/%s.env: %v", d, err)
+		}
+		return string(b)
+	}
+
+	// slakd's env file carries its service identity.
+	slakd := read("slakd")
+	if !strings.Contains(slakd, "AUTHD_SERVICE_KEY=") {
+		t.Errorf("env/slakd.env must carry AUTHD_SERVICE_KEY; got:\n%s", slakd)
+	}
+	if !strings.Contains(slakd, "AUTHD_URL=") {
+		t.Errorf("env/slakd.env must carry AUTHD_URL; got:\n%s", slakd)
+	}
+	// onbod (fixed daemon) is wired too.
+	if !strings.Contains(read("onbod"), "AUTHD_SERVICE_KEY=") {
+		t.Errorf("env/onbod.env must carry AUTHD_SERVICE_KEY")
+	}
+	// authd's seed (shared .env scope) registers the adapter + onbod principals.
+	authd := read("authd")
+	for _, want := range []string{"service:slakd=", "service:onbod=", "service:routd="} {
+		if !strings.Contains(authd, want) {
+			t.Errorf("AUTHD_SERVICE_KEYS must register %q; env/authd.env:\n%s", want, authd)
+		}
+	}
+}
+
+// A non-adapter service (ttsd) is NOT wired as a message principal — it never
+// posts inbound. Guards against over-broad principal granting.
+func TestServiceKeyNotWiredForNonAdapters(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
+image = "arizuko:latest"
+entrypoint = ["ttsd"]
+`), 0o644)
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "env", "authd.env"))
+	if err != nil {
+		t.Fatalf("read env/authd.env: %v", err)
+	}
+	if strings.Contains(string(b), "service:ttsd=") {
+		t.Errorf("ttsd must not be wired as a message service principal; got:\n%s", b)
+	}
+}
+
 func TestGenerateWithChannel(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)

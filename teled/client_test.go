@@ -35,7 +35,11 @@ func newMockRouter(secret string) *mockRouter {
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "token": "test-token"})
 	})
 	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-token" {
+		// Inbound presents the registration token (monolith — what RouterClient
+		// sends after Register) or the service:<adapter> JWT (split). The mock
+		// accepts whatever the registration handed back (`test-token`); an empty
+		// secret is open (local-dev), mirroring routd's nil-verifier path.
+		if secret != "" && r.Header.Get("Authorization") != "Bearer test-token" {
 			w.WriteHeader(401)
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "bad token"})
 			return
@@ -137,12 +141,14 @@ func TestRouterClientDeregister(t *testing.T) {
 	}
 }
 
+// A wrong bearer on /v1/messages → routd rejects the inbound (the split's A1).
+// Here the client holds a stale token that the gated mock does not recognise.
 func TestRouterClientBadToken(t *testing.T) {
-	mr := newMockRouter("")
+	mr := newMockRouter("right-secret")
 	defer mr.close()
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
-	rc.SetToken("bad-token")
+	rc := chanlib.NewRouterClient(mr.srv.URL, "right-secret")
+	rc.SetToken("stale-token") // not the registration token the mock expects
 
 	err := rc.SendMessage(chanlib.InboundMsg{
 		ChatJID: "telegram:123",

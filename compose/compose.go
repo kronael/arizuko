@@ -187,22 +187,40 @@ var daemonKeys = map[string][]string{
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
-		"AUTHD_URL",
+		// service:onbod token for routd /v1/outbound in the split (spec 5/1);
+		// monolith onbod (no AUTHD_SERVICE_KEY) falls back to CHANNEL_SECRET.
+		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
 	"dashd":    {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET"},
 	"webd":     {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
 	"proxyd":   {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
-	"teled":    {"CHANNEL_SECRET", "TELEGRAM_BOT_TOKEN"},
-	"discd":    {"CHANNEL_SECRET", "DISCORD_BOT_TOKEN"},
-	"mastd":    {"CHANNEL_SECRET", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
-	"bskyd":    {"CHANNEL_SECRET", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
-	"reditd":   {"CHANNEL_SECRET", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
-	"slakd":    {"CHANNEL_SECRET", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
-	"linkd":    {"CHANNEL_SECRET", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
-	"emaid":    {"CHANNEL_SECRET", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
-	"whapd":    {"CHANNEL_SECRET"},
-	"twitd":    {"CHANNEL_SECRET", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
+	// service:<adapter> messages:write JWT for routd's /v1/messages (spec 5/1).
+	// Monolith (no AUTHD_SERVICE_KEY in the env file) keeps the CHANNEL_SECRET
+	// registration-token path.
+	"teled":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
+	"discd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
+	"mastd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
+	"bskyd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
+	"reditd": {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
+	"slakd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
+	"linkd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
+	"emaid":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
+	"whapd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"twitd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
+}
+
+// adapterDaemons is the set of message-posting channel adapters. In the split
+// each authenticates to routd's /v1/messages with a service:<adapter> JWT
+// exchanged from its own AUTHD_SERVICE_KEY (spec 5/1), not the shared
+// CHANNEL_SECRET. Non-message daemons (ttsd/davd/vited/crackbox/kokoro) are not
+// here — they never post inbound. Multi-account adapters (`<adapter>-<label>`)
+// resolve to the base adapter via envFileFor's `-` split, so they share the
+// base principal. Keep in sync with authd serviceGrants.
+var adapterDaemons = map[string]bool{
+	"teled": true, "whapd": true, "discd": true, "mastd": true, "slakd": true,
+	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
 }
 
 // envFileFor returns the scoped env_file block for a daemon, falling back to
@@ -431,21 +449,32 @@ func Generate(dataDir string) (string, error) {
 	// invalidating in-flight tokens. AUTHD_URL is the authd in-network base URL
 	// every consumer (routd, runed, proxyd, webd, onbod) verifies/exchanges
 	// against. All additive: gated keeps its own wiring untouched.
-	routdKey := provisionServiceKey(dataDir, "routd", env)
-	runedKey := provisionServiceKey(dataDir, "runed", env)
+	perDaemon := map[string]map[string]string{}
+	_, pinned := env["AUTHD_SERVICE_KEYS"]
+	seedKeys := !pinned
+	var keyPairs []string
+	// wireServiceKey provisions a daemon's AUTHD_SERVICE_KEY, scopes it into the
+	// daemon's env file, and (unless the operator pinned AUTHD_SERVICE_KEYS)
+	// registers service:<daemon>=<key> in the authd seed.
+	wireServiceKey := func(daemon string) {
+		if _, done := perDaemon[daemon]; done {
+			return // already wired (e.g. two multi-account variants of one adapter)
+		}
+		key := provisionServiceKey(dataDir, daemon, env)
+		perDaemon[daemon] = map[string]string{"AUTHD_SERVICE_KEY": key}
+		if seedKeys {
+			keyPairs = append(keyPairs, fmt.Sprintf("service:%s=%s", daemon, key))
+		}
+	}
+	wireServiceKey("routd")
+	wireServiceKey("runed")
 	// timed federates its fire loop over routd in the split (no messages.db);
 	// it needs a service:timed token like routd/runed. Monolith timed never
 	// reads its env file's AUTHD_* vars (no ROUTER_URL → direct-DB path).
-	timedKey := provisionServiceKey(dataDir, "timed", env)
-	perDaemon := map[string]map[string]string{
-		"routd": {"AUTHD_SERVICE_KEY": routdKey},
-		"runed": {"AUTHD_SERVICE_KEY": runedKey},
-		"timed": {"AUTHD_SERVICE_KEY": timedKey},
-	}
-	if _, ok := env["AUTHD_SERVICE_KEYS"]; !ok {
-		env["AUTHD_SERVICE_KEYS"] = fmt.Sprintf(
-			"service:routd=%s,service:runed=%s,service:timed=%s", routdKey, runedKey, timedKey)
-	}
+	wireServiceKey("timed")
+	// onbod posts the onboarding greeting to routd /v1/outbound with a
+	// service:onbod token (spec 5/1); monolith onbod falls back to CHANNEL_SECRET.
+	wireServiceKey("onbod")
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}
@@ -483,6 +512,21 @@ func Generate(dataDir string) (string, error) {
 		services = append(services, svcWithCfg{name, cfg})
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
+
+	// Channel adapters present in services/ each get a service:<adapter> key so
+	// they exchange it for a messages:write JWT against routd (spec 5/1). Only
+	// the discovered message-posting adapters are wired — ttsd/davd/vited etc.
+	// never post inbound. Multi-account variants (`<adapter>-<label>`) reuse the
+	// base adapter's env file (envFileFor), so the base principal covers them.
+	for _, svc := range services {
+		base, _, _ := strings.Cut(svc.name, "-")
+		if adapterDaemons[base] {
+			wireServiceKey(base)
+		}
+	}
+	if seedKeys {
+		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
+	}
 
 	// services/ttsd.toml present → auto-enable TTS on the execution plane
 	// (runed). Operator opted in by dropping the TOML; no second env-var flip.

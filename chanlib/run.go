@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/obs"
 )
 
@@ -39,6 +40,21 @@ func Run(opts RunOpts) {
 	defer cancel()
 
 	rc := NewRouterClient(opts.RouterURL, opts.ChannelSecret)
+	// Split (spec 5/1): exchange AUTHD_SERVICE_KEY for a service:<adapter> JWT
+	// and present it on routd's JWT-gated calls (/v1/messages, /v1/pane). Unset →
+	// monolith path (registration token rides those calls). The daemon name is
+	// opts.Name, matching the service:<name> principal compose seeds + authd
+	// grants. Registration still uses CHANNEL_SECRET regardless.
+	authdURL, svcKey := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
+	if authdURL != "" && svcKey != "" {
+		src, err := auth.ServiceToken(authdURL, opts.Name, svcKey)
+		if err != nil {
+			slog.Error("service-token source", "err", err)
+			os.Exit(1)
+		}
+		rc.SetServiceToken(src.Token)
+		slog.Info("service-token auth enabled", "daemon", opts.Name, "authd", authdURL)
+	}
 	if _, err := rc.Register(opts.Name, opts.ListenURL, opts.Prefixes, opts.Caps); err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)

@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
-
-	"github.com/kronael/arizuko/chanlib"
 )
 
 // ContainerHome is the home directory inside every agent container.
@@ -250,11 +249,35 @@ func (c *Config) EffectiveAppSrcDir() string {
 	return c.HostAppDir
 }
 
-var (
-	envOr  = chanlib.EnvOr
-	envInt = chanlib.EnvInt
-	envDur = chanlib.EnvDur
-)
+// env helpers: core owns these so it does not depend on the channel-adapter
+// library (chanlib) for trivial parsing — that edge created an auth→core→chanlib
+// cycle once chanlib started exchanging service tokens via auth (spec 5/1).
+// envDur parses integer milliseconds (the legacy CONTAINER_TIMEOUT/IDLE_TIMEOUT
+// encoding), matching the old chanlib.EnvDur contract.
+func envOr(k, fallback string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envInt(k string, fallback int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func envDur(k string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(k); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return fallback
+}
 
 func resolveTimezone() string {
 	tz := os.Getenv("TZ")

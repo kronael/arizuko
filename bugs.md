@@ -5,6 +5,36 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## FIXED 2026-06-06 — split shipped without adapters/onbod as service principals (A1+A2, was HIGH live outage)
+
+The gated→authd/routd/runed split (spec 5/1) wired routd/runed/timed as service
+principals but never wired the channel adapters or onbod. routd's /v1/messages +
+/v1/outbound are JWT-gated (messages:write); the adapters still presented the
+chanreg registration token and onbod presented `Bearer CHANNEL_SECRET`. In the
+split routd's verifier is non-nil, so **every inbound 401'd (A1) and the
+onboarding greeting 401'd (A2)** — agents never saw a message. The integration
+suite masked it: `tests/split_federation_test.go` fabricated a `SetChannelSecret`
+shared-secret ingress path that does not exist on routd.Server, so it both failed
+to compile and, in intent, tested a credential adapters never carry.
+
+Fix (extends the existing pattern, no new mechanism):
+- `compose/compose.go`: provision an AUTHD_SERVICE_KEY for each *present* channel
+  adapter (discovered services ∩ `adapterDaemons`) + the fixed onbod daemon; seed
+  `service:<name>=<key>` into AUTHD_SERVICE_KEYS; add AUTHD_URL+AUTHD_SERVICE_KEY
+  to each adapter's + onbod's `daemonKeys` env scope.
+- `authd/http.go`: add `service:<adapter>: {messages:write}` for all ten adapters.
+- `chanlib`: RouterClient exchanges AUTHD_SERVICE_KEY for a service:<daemon> JWT
+  (auth.ServiceToken, daemon name = chanlib.Run opts.Name) and presents it on the
+  JWT-gated routd calls (/v1/messages, /v1/pane). Registration still uses
+  CHANNEL_SECRET. Unset AUTHD_* → monolith registration-token path (dual-path).
+- `onbod`: service:onbod JWT on /v1/outbound; CHANNEL_SECRET fallback.
+- `tests/split_federation_test.go`: replaced the fabricated CHANNEL_SECRET ingress
+  with the REAL service:<adapter> JWT path (would now catch A1).
+
+Side-effect (orthogonality): removed `audit→chanlib` and `core→chanlib` env-helper
+edges (each got its own envOr/envInt/envDur) so chanlib could import auth without
+an import cycle. routd unchanged — its JWT authz was already spec-correct.
+
 ## FIXED 2026-06-01 — gated wiped all secrets on every startup (was HIGH live data-loss)
 
 Fixed with the M7 encryption-at-rest impl: removed the `PurgeUnencryptedSecrets`

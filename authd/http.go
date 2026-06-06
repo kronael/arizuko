@@ -41,6 +41,20 @@ var serviceGrants = map[string][]string{
 	// least that set (runed ManagerConfig.Scopes / routd RunScopes). Missing this
 	// entry → empty ceiling → every agent turn 403s on downscope (scope_exceeds_parent).
 	"service:runed": {"messages:send:own_group", "chats:read:own_group"},
+	// Channel adapters post inbound to routd's /v1/messages (messages:write).
+	// Each exchanges its AUTHD_SERVICE_KEY for a service:<adapter> JWT (spec 5/1);
+	// missing the entry → empty scope → every inbound 401/403s (the split's A1).
+	// Multi-account variants (`<adapter>-<label>`) share the base principal.
+	"service:teled":  {"messages:write"},
+	"service:whapd":  {"messages:write"},
+	"service:discd":  {"messages:write"},
+	"service:mastd":  {"messages:write"},
+	"service:slakd":  {"messages:write"},
+	"service:bskyd":  {"messages:write"},
+	"service:reditd": {"messages:write"},
+	"service:emaid":  {"messages:write"},
+	"service:twitd":  {"messages:write"},
+	"service:linkd":  {"messages:write"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is

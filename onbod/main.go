@@ -50,6 +50,9 @@ type config struct {
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
+	// svcToken is onbod's service:onbod JWT source for routd /v1/outbound in the
+	// split (spec 5/1). nil → monolith path: CHANNEL_SECRET rides /v1/outbound.
+	svcToken func(context.Context) (string, error)
 }
 
 func main() {
@@ -231,6 +234,15 @@ func loadConfig() (config, error) {
 		if d, err := time.ParseDuration(iv); err == nil {
 			cfg.pollInterval = d
 		}
+	}
+	// Split: exchange AUTHD_SERVICE_KEY for a service:onbod JWT and present it on
+	// routd's JWT-gated /v1/outbound (spec 5/1). Unset → CHANNEL_SECRET fallback.
+	if authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY"); authdURL != "" && key != "" {
+		src, err := auth.ServiceToken(authdURL, "onbod", key)
+		if err != nil {
+			return config{}, fmt.Errorf("onbod service-token source: %w", err)
+		}
+		cfg.svcToken = src.Token
 	}
 	return cfg, nil
 }
@@ -1110,8 +1122,19 @@ func sendReply(cfg config, jid, text string) {
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	if cfg.secret != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.secret)
+	// Split: present the service:onbod JWT (messages:write); monolith: the shared
+	// CHANNEL_SECRET. A service-token blip degrades to CHANNEL_SECRET rather than
+	// dropping the greeting.
+	bearer := cfg.secret
+	if cfg.svcToken != nil {
+		if tok, err := cfg.svcToken(req.Context()); err == nil {
+			bearer = tok
+		} else {
+			slog.Error("onbod service-token exchange failed; using CHANNEL_SECRET", "err", err)
+		}
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	obs.InjectRequest(req.Context(), req)
 	resp, err := httpClient.Do(req)

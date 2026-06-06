@@ -3,6 +3,7 @@ package chanlib
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -71,6 +72,12 @@ type RouterClient struct {
 	url, secret, token string
 	client             *http.Client
 
+	// svcToken is the adapter's service:<daemon> JWT source (auth.TokenSource.Token)
+	// in the split: routd's /v1/messages + /v1/pane are JWT-gated, not
+	// CHANNEL_SECRET-gated. nil → monolith path (the registration token rides
+	// those calls, as before). Registration itself always uses CHANNEL_SECRET.
+	svcToken func(context.Context) (string, error)
+
 	// Saved for transparent re-register on 401 (router dropped channel while adapter was down).
 	regName     string
 	regURL      string
@@ -81,6 +88,35 @@ type RouterClient struct {
 
 func NewRouterClient(url, secret string) *RouterClient {
 	return &RouterClient{url: url, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}
+}
+
+// SetServiceToken installs the adapter's service-token source (spec 5/1). Once
+// set, JWT-gated routd calls (/v1/messages, /v1/pane) present this token instead
+// of the registration token. Pass nil (or never call) for the monolith path.
+func (r *RouterClient) SetServiceToken(src func(context.Context) (string, error)) {
+	r.regMu.Lock()
+	r.svcToken = src
+	r.regMu.Unlock()
+}
+
+// bearer returns the credential for JWT-gated routd calls: the service token
+// when a source is wired (split), else the registration token (monolith). A
+// service-token exchange error falls back to the registration token so a
+// transient authd blip degrades to the monolith behavior rather than dropping
+// the message.
+func (r *RouterClient) bearer() string {
+	r.regMu.Lock()
+	src := r.svcToken
+	r.regMu.Unlock()
+	if src == nil {
+		return r.getToken()
+	}
+	tok, err := src(context.Background())
+	if err != nil {
+		slog.Error("service-token exchange failed; using registration token", "err", err)
+		return r.getToken()
+	}
+	return tok
 }
 
 func (r *RouterClient) SetToken(t string) {
@@ -95,10 +131,11 @@ func (r *RouterClient) getToken() string {
 	return r.token
 }
 
-// Token returns the current registered service token for adapters that need to
-// authenticate side calls to routd beyond message delivery (e.g. slakd's pane
-// writes to POST /v1/pane). Empty until Register/SetToken runs.
-func (r *RouterClient) Token() string { return r.getToken() }
+// Token returns the bearer adapters present on JWT-gated side calls to routd
+// beyond message delivery (e.g. slakd's pane writes to POST /v1/pane): the
+// service:<daemon> JWT when wired (split), else the registration token
+// (monolith). Empty until Register/SetToken or SetServiceToken runs.
+func (r *RouterClient) Token() string { return r.bearer() }
 
 func (r *RouterClient) Register(name, url string, prefixes []string, caps map[string]bool) (string, error) {
 	slog.Info("registering channel", "name", name, "url", url)
@@ -151,9 +188,12 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			slog.Warn("send retry", "err", last)
-			// 401 = router has no record of our token; re-register before retry.
-			// On any other error, just back off and try again.
-			if isAuthErr(last) {
+			// 401 on the monolith path = router has no record of our registration
+			// token; re-register before retry. With a service-token source the
+			// JWT auth is independent of channel registration (the token
+			// auto-refreshes), so re-registering would not fix a 401 — just back
+			// off. On any non-auth error, back off and retry.
+			if isAuthErr(last) && !r.usingServiceToken() {
 				if rerr := r.reregister(); rerr != nil {
 					slog.Error("re-register failed", "err", rerr)
 					return last
@@ -166,7 +206,7 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 			OK    bool   `json:"ok"`
 			Error string `json:"error"`
 		}
-		if err := r.Post("/v1/messages", msg, r.getToken(), &resp); err != nil {
+		if err := r.Post("/v1/messages", msg, r.bearer(), &resp); err != nil {
 			last = err
 			continue
 		}
@@ -180,6 +220,12 @@ func (r *RouterClient) SendMessage(msg InboundMsg) error {
 
 func isAuthErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "status 401")
+}
+
+func (r *RouterClient) usingServiceToken() bool {
+	r.regMu.Lock()
+	defer r.regMu.Unlock()
+	return r.svcToken != nil
 }
 
 func (r *RouterClient) Post(path string, body any, auth string, out any) error {

@@ -47,6 +47,12 @@ import (
 	"github.com/kronael/arizuko/types"
 )
 
+// In the split, an adapter authenticates inbound on routd's /v1/messages with a
+// service:<adapter> JWT exchanged from its AUTHD_SERVICE_KEY (spec 5/1) — NOT a
+// shared CHANNEL_SECRET. fakeAuthd.mintAdapter mints that token exactly as authd
+// does (service typ, the adapter's declared messages:write grant), so this test
+// exercises the REAL A1 path: it would catch adapters 401ing on routd ingress.
+
 // fakeAuthd is an in-process authd: one ES256 signing key, GET /v1/keys
 // serving its JWKS, and a mint helper. mintUser resolves the FULL grant set
 // for a sub from the grants map (the flip-blocker behavior: the token's scope
@@ -96,6 +102,15 @@ func (a *fakeAuthd) mintService(t *testing.T, sub string, scope ...string) strin
 		t.Fatalf("sign service token: %v", err)
 	}
 	return tok
+}
+
+// mintAdapter signs a service:<adapter> token carrying messages:write — the
+// token a channel adapter exchanges its AUTHD_SERVICE_KEY for (spec 5/1) and
+// presents on routd's /v1/messages ingress. Same shape as mintService; named
+// for the inbound role so the test reads as the real adapter path.
+func (a *fakeAuthd) mintAdapter(t *testing.T, adapter string) string {
+	t.Helper()
+	return a.mintService(t, "service:"+adapter, "messages:write")
 }
 
 // mintUser signs a folder-bound user/agent token. scope is the FULL grant set
@@ -247,6 +262,10 @@ func bootFederation(t *testing.T) *federation {
 		PollEvery:    20 * time.Millisecond, // fast poll for the test
 		RunScopes:    []types.Scope{"messages:send:own_group", "chats:read:own_group"},
 	})
+	// Inbound auth is the REAL split path: routd's verifier (newFedVerifier over
+	// authd's JWKS) gates /v1/messages on a service:<adapter> messages:write JWT.
+	// Adapters present a token from mintAdapter — see
+	// TestSplitFederation_InboundViaServiceToken.
 	f.routdSrv = routd.NewServer(rodb, loop, fedDeliverer{}, newFedVerifier(t, f.authd), 0, "https://fed.test")
 	loop.BindServer(f.routdSrv)
 	f.routdTS = httptest.NewServer(f.routdSrv.Handler())
@@ -291,11 +310,11 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 		t.Fatalf("add route: %v", err)
 	}
 
-	// Adapter ingests an inbound over HTTP with a real messages:write token.
-	f.authd.grant("service:slakd", "messages:write")
-	adapterTok := f.authd.mintUser(t, "service:slakd", "demo")
+	// Adapter ingests an inbound over HTTP with its service:slakd messages:write
+	// JWT — the REAL split path (the adapter exchanges its AUTHD_SERVICE_KEY for
+	// this token, spec 5/1). routd's authz gate accepts it as a service caller.
 	in := routdv1.Message{ID: "wamid.1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hello federation", Verb: "message"}
-	rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", adapterTok, "", in)
+	rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in)
 	if rec.StatusCode != 200 {
 		t.Fatalf("authorized ingest status=%d", rec.StatusCode)
 	}
@@ -324,6 +343,50 @@ func TestSplitFederation_InboundToTurnRoundTrip(t *testing.T) {
 
 	// runed persisted the spawn — the execution plane saw a real run, not a stub.
 	testutils.WaitForRow(t, f.runedDB.SQL(), `SELECT COUNT(*) FROM spawns`, nil, 2*time.Second)
+}
+
+// TestSplitFederation_InboundViaServiceToken is the A1 POSITIVE: a channel
+// adapter's service:<adapter> messages:write JWT is accepted on routd's
+// /v1/messages ingress and the inbound is stored. This is the path that 401'd in
+// the live split (adapters had no service token); it would catch A1's return.
+func TestSplitFederation_InboundViaServiceToken(t *testing.T) {
+	f := bootFederation(t)
+	if err := f.routdDB.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatalf("put group: %v", err)
+	}
+
+	in := routdv1.Message{ID: "svc.1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "via service token", Verb: "message"}
+	rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "teled"), "", in)
+	if rec.StatusCode != 200 {
+		t.Fatalf("ingest with service:teled token = %d, want 200", rec.StatusCode)
+	}
+	if !f.routdDB.MessageExists("svc.1") {
+		t.Fatal("inbound not stored after authorized service-token ingest")
+	}
+}
+
+// TestSplitFederation_InboundRejectsBadToken is the A1 NEGATIVE across the real
+// federation: an inbound POST /v1/messages with a non-JWT bearer, with none, and
+// with a well-formed token LACKING messages:write is rejected (401/403) and
+// never stored. Only a valid service:<adapter> messages:write JWT gets in.
+func TestSplitFederation_InboundRejectsBadToken(t *testing.T) {
+	f := bootFederation(t)
+
+	in := routdv1.Message{ID: "bad.1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "no creds", Verb: "message"}
+	if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", "not-a-jwt", "", in); rec.StatusCode != 401 {
+		t.Fatalf("ingest with bogus bearer = %d, want 401", rec.StatusCode)
+	}
+	if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", "", "", in); rec.StatusCode != 401 {
+		t.Fatalf("ingest with no token = %d, want 401", rec.StatusCode)
+	}
+	// Well-formed token, wrong scope (no messages:write) → 403, fail-closed.
+	weak := f.authd.mintService(t, "service:slakd", "chats:read")
+	if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", weak, "", in); rec.StatusCode != 403 {
+		t.Fatalf("ingest without messages:write = %d, want 403", rec.StatusCode)
+	}
+	if f.routdDB.MessageExists("bad.1") {
+		t.Fatal("a rejected ingest must not store the inbound row")
+	}
 }
 
 // TestSplitFederation_ForeignFolderTokenRejected proves the folder-bound grant
@@ -494,12 +557,11 @@ func TestSplitVsMonolithRoutingParity(t *testing.T) {
 				t.Fatalf("monolith routed to %q, want %q", monoTarget, tc.want)
 			}
 
-			// Split side: ingest over HTTP, let routd's real poll loop dispatch.
-			f.authd.grant("service:slakd", "messages:write")
-			adapterTok := f.authd.mintUser(t, "service:slakd", "")
+			// Split side: ingest over HTTP via the real adapter service-token path,
+			// let routd's real poll loop dispatch.
 			turnID := "parity-" + tc.name
 			in := routdv1.Message{ID: turnID, ChatJID: tc.chatJID, Sender: "u1", Content: "route me", Verb: "message"}
-			rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", adapterTok, "", in)
+			rec := postBearer(t, f.routdTS.URL, "POST", "/v1/messages", f.authd.mintAdapter(t, "slakd"), "", in)
 			if rec.StatusCode != 200 {
 				t.Fatalf("ingest status=%d", rec.StatusCode)
 			}
