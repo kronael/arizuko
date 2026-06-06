@@ -299,6 +299,14 @@ Do NOT reintroduce `background: var(--card)` (solid fill) or
 slop that got removed. Dual-theme via `color-mix` tokens, no hardcoded
 hex/px that fight the scale.
 
+**Same no-slop rule for the nav current item.** The active nav link
+(`.docs-nav a[aria-current="page"]`) is `color: var(--accent)` +
+`font-weight: 600` ONLY — a quiet weight/colour shift. NEVER a
+solid/tint background fill (`background: color-mix(... --accent ...)`)
+and NEVER a `border-left` accent bar. Both read as the same LLM slop
+that got pulled from the callouts; the highlight stays a typographic
+cue, not a painted block.
+
 No framework, no build tooling. Edit HTML directly. Test with any
 static file server or by deploying to a running instance (`/pub/`).
 
