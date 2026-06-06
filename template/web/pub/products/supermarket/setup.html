@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supermarket price agent setup — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/" aria-current="page">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Supermarket price agent &mdash; setup</p>
+      <h1>Supermarket price agent &mdash; setup</h1>
+
+
+
+      <p class="lede">
+        One folder, one route, one channel. The fastest path from
+        <code>arizuko create</code> to a working price-lookup agent.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A host with Docker and a public hostname (for web-chat widget) or a Telegram bot token.</li>
+        <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image built (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access.</li>
+        <li>Optional: <code>TELEGRAM_BOT_TOKEN</code> if you want a Telegram channel. Without it, the web-chat widget works standalone.</li>
+      </ul>
+
+      <h2>1. create the instance</h2>
+      <pre><code>arizuko create shop
+cd /srv/data/arizuko_shop
+$EDITOR .env</code></pre>
+      <p>
+        Minimum keys to set:
+      </p>
+      <pre><code>ASSISTANT_NAME=shop
+CHANNEL_SECRET=&lt;openssl rand -hex 32&gt;
+AUTH_SECRET=&lt;openssl rand -hex 32&gt;
+WEB_HOST=shop.example.com          # public hostname
+ANTHROPIC_API_KEY=sk-ant-…
+
+# Optional: Telegram
+TELEGRAM_BOT_TOKEN=…</code></pre>
+
+      <h2>2. seed the retailer list</h2>
+      <p>
+        The agent reads <code>facts/retailers.md</code> before every search.
+        Populate it with the retailers you want it to check:
+      </p>
+      <pre><code>mkdir -p /srv/data/arizuko_shop/groups/supermarket/facts
+cat &gt; /srv/data/arizuko_shop/groups/supermarket/facts/retailers.md &lt;&lt;'EOF'
+# Retailers
+
+## Tesco
+URL: tesco.com/groceries
+Notes: Clubcard prices require a Clubcard account; list both regular and Clubcard prices.
+
+## Sainsbury's
+URL: sainsburys.co.uk/groceries
+Notes: Nectar prices available; list both.
+
+## Lidl
+URL: lidl.co.uk/grocery
+Notes: Prices update Thursday. Note the week-start date in replies.
+EOF</code></pre>
+      <p>
+        Add or remove retailers to taste. The agent uses this file as its
+        canonical source list &mdash; it won&rsquo;t search retailers not
+        listed here.
+      </p>
+
+      <h2>3. configure egress</h2>
+      <p>
+        The agent needs outbound access to the retailer domains and a search
+        engine. Allow them via <a href="../../components/crackbox.html">crackbox</a>:
+      </p>
+      <pre><code>arizuko network shop allow supermarket tesco.com
+arizuko network shop allow supermarket sainsburys.co.uk
+arizuko network shop allow supermarket lidl.co.uk</code></pre>
+      <p>
+        Without an egress allowlist, crackbox blocks all outbound. The
+        agent will say it couldn&rsquo;t reach the site rather than
+        silently returning stale data.
+      </p>
+
+      <h2>4. add the catch-all route</h2>
+      <p>
+        Routes are declared in a YAML manifest and applied with
+        <code>arizuko apply</code> (<a href="../../reference/cli.html">CLI reference</a>).
+        Create <code>shop-routes.yaml</code>:
+      </p>
+      <pre><code>routes:
+  - seq: 0
+    match: ""
+    target: supermarket</code></pre>
+      <p>
+        For Telegram only (not web chat), scope the match:
+      </p>
+      <pre><code>routes:
+  - seq: 0
+    match: "platform=telegram"
+    target: supermarket</code></pre>
+      <p>
+        Apply with:
+      </p>
+      <pre><code>arizuko apply shop shop-routes.yaml</code></pre>
+      <p>
+        You can also add the route from the dashd routes admin UI at
+        <code>/dash/</code>.
+      </p>
+
+      <h2>5. run</h2>
+      <pre><code>arizuko run shop</code></pre>
+      <p>
+        For production, install the systemd unit:
+        see <a href="../../howto/">getting started</a> for the template.
+      </p>
+
+      <h2>6. mint a web-chat token (optional)</h2>
+      <p>
+        A web-chat token gives you a widget URL you can embed in any page
+        &mdash; no Telegram required:
+      </p>
+      <pre><code>arizuko token shop issue chat supermarket public
+# returns: https://shop.example.com/chat/&lt;token&gt;/</code></pre>
+      <p>
+        Embed the chat widget in any HTML page with
+        <code>&lt;script src="https://shop.example.com/assets/slink.js"&gt;&lt;/script&gt;</code>
+        and a <code>data-chat-url</code> pointing at the token URL. Full
+        instructions: <a href="../../howto/chat-sdk.html">chat SDK</a>.
+      </p>
+
+      <h2>7. verify</h2>
+      <ul>
+        <li><code>sudo docker ps --filter "name=arizuko-shop"</code> shows all containers up.</li>
+        <li>For Telegram: send <code>/start</code> to your bot; it should reply.</li>
+        <li>For web chat: open <code>https://shop.example.com/chat/&lt;token&gt;/</code> in a browser and ask a price question.</li>
+        <li>Check <code>sudo journalctl -u arizuko_shop --since "5 min ago" | grep -iE 'error|fatal'</code> for red flags.</li>
+      </ul>
+
+      <h2>tuning</h2>
+      <p>
+        Edit the agent&rsquo;s behavior via the files in the group folder.
+        All paths under <code>/srv/data/arizuko_shop/groups/supermarket/</code>
+        are also reachable over WebDAV at
+        <code>https://shop.example.com/dav/supermarket/</code> (operator auth).
+      </p>
+      <ul>
+        <li>
+          <strong>Voice and citation format.</strong> Edit
+          <code>CLAUDE.md</code> in the group folder. Useful overrides:
+          how many retailers to compare, whether to show unit prices, what
+          to say when a price is unavailable.
+        </li>
+        <li>
+          <strong>Cache duration.</strong> The agent caches results in
+          <code>facts/cache/</code> by item + date. Files older than one day
+          are ignored. To force fresh results, delete the cache:
+          <code>rm /srv/data/arizuko_shop/groups/supermarket/facts/cache/*.md</code>.
+        </li>
+        <li>
+          <strong>Rate limiting.</strong> Set <code>max_children=4</code> on
+          the supermarket group at <code>/dash/groups/supermarket/settings</code>
+          to cap concurrent searches (each search is one container turn).
+        </li>
+      </ul>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../../products/supermarket/">Supermarket price agent &mdash; intro</a></li>
+        <li><a href="../../components/crackbox.html">crackbox</a> &mdash; egress allowlist</li>
+        <li><a href="../../concepts/tokens.html">tokens</a> &mdash; web-chat and hook token minting</li>
+        <li><a href="../../howto/chat-sdk.html">chat SDK</a> &mdash; embedding the chat widget</li>
+        <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; Supermarket price agent</a>
+        <a rel="next" href="../trip/">Trip planner &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/supermarket/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

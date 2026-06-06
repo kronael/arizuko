@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Company brain setup — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/" aria-current="page">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Company brain &mdash; setup</p>
+      <h1>Company brain &mdash; setup</h1>
+
+
+
+      <p class="lede">
+        Design your folder tree, wire intake sources, populate
+        <code>facts/</code>, schedule briefs. One team at a time.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A host with Docker, ports 80/443 reachable behind a TLS terminator.</li>
+        <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access.</li>
+        <li>At least one channel adapter token: Slack (<code>SLACK_BOT_TOKEN</code> + <code>SLACK_SIGNING_SECRET</code>) and/or email (<code>emaid</code>). Webhooks need no adapter &mdash; just a hook token.</li>
+      </ul>
+
+      <h2>1. create the instance</h2>
+      <pre><code>arizuko create corp
+cd /srv/data/arizuko_corp
+$EDITOR .env</code></pre>
+      <pre><code>ASSISTANT_NAME=corp-brain
+CHANNEL_SECRET=&lt;openssl rand -hex 32&gt;
+AUTH_SECRET=&lt;openssl rand -hex 32&gt;
+WEB_HOST=brain.example.com
+ANTHROPIC_API_KEY=sk-ant-…
+
+# Slack (recommended primary channel)
+SLACK_BOT_TOKEN=xoxb-…
+SLACK_SIGNING_SECRET=…</code></pre>
+
+      <h2>2. design the folder tree</h2>
+      <p>
+        Sketch the org chart first &mdash; it becomes the folder tree. Start
+        with two levels max. Add depth when you hit a real coordination
+        problem (e.g. the SRE oncall rotation needs its own diary, separate
+        from the SRE team). Don&rsquo;t pre-build folders &ldquo;just in
+        case.&rdquo; An empty folder adds nothing and costs a route rule.
+      </p>
+      <p>
+        Example for a 40-person eng company:
+      </p>
+      <pre><code>corp/           # root intake triage desk
+corp/eng/       # engineering channel + PR review ingest
+corp/eng/sre/   # SRE runbooks + Sentry ingest
+corp/pm/        # roadmap + Linear ingest
+corp/sales/     # deal notes + CRM webhook</code></pre>
+
+      <h2>3. create the folders and route rules</h2>
+      <p>
+        Create each group folder with <code>arizuko group corp add &lt;jid&gt; &lt;folder&gt;</code>.
+        The <code>&lt;jid&gt;</code> is the source JID pattern that will route to this folder.
+        Routes are added automatically. For a catch-all intake folder, route everything
+        that doesn&rsquo;t match a more specific rule:
+      </p>
+      <pre><code># create folders (jid first, then folder)
+arizuko group corp add 'slack:T-acme/channel/C-eng-oncall' corp/eng/sre/oncall
+arizuko group corp add 'slack:T-acme/channel/C-eng'        corp/eng
+arizuko group corp add 'slack:T-acme/channel/C-pm'         corp/pm
+arizuko group corp add 'slack:T-acme/channel/C-sales'      corp/sales</code></pre>
+      <p>
+        Then wire the remaining route rules (Sentry, Linear, CRM, and the catch-all)
+        via a YAML manifest:
+      </p>
+      <pre><code># corp-routes.yaml
+routes:
+  - seq: -10
+    match: "chat_jid=hook:*/sentry/*"
+    target: corp/eng/sre
+  - seq: -5
+    match: "chat_jid=hook:*/linear/*"
+    target: corp/pm
+  - seq: 0
+    match: "chat_jid=hook:*/crm/*"
+    target: corp/sales
+  - seq: 10
+    match: ""
+    target: corp/intake</code></pre>
+      <pre><code>arizuko apply corp corp-routes.yaml</code></pre>
+      <p>
+        Route priority: more specific rules (lower <code>seq</code>) win.
+        The catch-all at <code>corp/intake</code> handles anything that
+        doesn&rsquo;t match a more specific rule &mdash; handy for new
+        webhook sources while you&rsquo;re still wiring them up.
+      </p>
+
+      <h2>4. populate each team's facts/</h2>
+      <p>
+        <code>facts/</code> is the team&rsquo;s knowledge base. The agent
+        reads it on every relevant turn. Start with what teams actually use:
+        runbooks, decision logs, reference docs. Don&rsquo;t dump everything
+        &mdash; curated, short files beat a wall of stale text.
+      </p>
+      <p>
+        Three ways to populate:
+      </p>
+      <ul>
+        <li>
+          <strong>Directly on disk.</strong> Write markdown files under
+          <code>/srv/data/arizuko_corp/groups/corp/eng/sre/facts/</code>.
+          Fast for initial seeding.
+        </li>
+        <li>
+          <strong>WebDAV.</strong> Mount
+          <code>https://brain.example.com/dav/corp/eng/sre/</code> in Finder
+          or <code>rclone</code>. Edit as a normal file system; changes are
+          live immediately.
+        </li>
+        <li>
+          <strong>Webhook-triggered agent write.</strong> Wire a GitHub PR
+          merge webhook to <code>corp/eng/review</code>; the agent reads the
+          PR diff + description and writes a summary to
+          <code>facts/decisions/&lt;YYYY-MM-DD&gt;-&lt;pr&gt;.md</code>.
+          The knowledge base grows as work happens, not as a separate
+          documentation effort.
+        </li>
+      </ul>
+
+      <h2>5. wire webhook sources</h2>
+      <p>
+        Mint a hook token for each external source:
+      </p>
+      <pre><code># Sentry alerts
+arizuko token corp issue webhook corp/eng/sre sentry
+# https://brain.example.com/hook/&lt;token&gt;
+# Paste into Sentry: Organization Settings → Integrations → Webhooks
+
+# GitHub
+arizuko token corp issue webhook corp/eng/review github
+# Paste into GitHub repo → Settings → Webhooks</code></pre>
+      <p>
+        The body arrives verbatim in the target folder; parsing is skill
+        work on the agent side. See
+        <a href="../../howto/webhooks.html">webhooks</a> for signature
+        verification and security model.
+      </p>
+
+      <h2>6. schedule briefs</h2>
+      <p>
+        Scheduled tasks fire a Turn in a target folder on a cron schedule
+        &mdash; no host cron, no systemd timer. The scheduler
+        (<code>timed</code>) is part of the stack. There is no CLI command
+        for scheduling tasks; add them in the
+        <strong>dashd tasks admin</strong> at <code>/dash/</code>, or ask
+        the agent to schedule a recurring task:
+      </p>
+      <pre><code>/new schedule briefs
+@corp-brain schedule a recurring task:
+  folder: corp/eng   cron: "0 9 * * 1-5"
+  task: write daily standup summary to facts/briefs/today.md and send to #eng-standup</code></pre>
+      <p>
+        The agent writes the task row via the <code>schedule_task</code> MCP
+        tool; <code>timed</code> picks it up and fires the prompt on
+        schedule. Examples:
+      </p>
+      <table>
+        <thead><tr><th>folder</th><th>cadence (cron)</th><th>task</th></tr></thead>
+        <tbody>
+          <tr><td>corp/eng</td><td><code>0 9 * * 1-5</code></td><td>write daily standup summary to facts/briefs/today.md and send to #eng-standup</td></tr>
+          <tr><td>corp/pm</td><td><code>0 8 * * 1</code></td><td>write weekly roadmap digest to facts/briefs/week.md and send to #pm-digest</td></tr>
+          <tr><td>corp/eng/sre</td><td><code>0 18 * * 5</code></td><td>write on-call handoff brief and send to #eng-oncall</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Keep the task instruction specific: what to produce, where to write
+        it, where to send it.
+      </p>
+
+      <h2>7. run</h2>
+      <pre><code>arizuko run corp</code></pre>
+      <p>
+        Install the systemd unit for production; see
+        <a href="../../howto/">getting started</a> for the template.
+      </p>
+
+      <h2>8. verify</h2>
+      <ul>
+        <li>Send a test Sentry webhook to the hook URL; check <code>sudo journalctl -u arizuko_corp | grep sentry</code> for the ingest log line.</li>
+        <li>Post a message in the wired Slack channel; the agent should reply or observe (depending on your route).</li>
+        <li>Trigger a timed brief manually from the dashd tasks admin at <code>/dash/</code> &rarr; Tasks &rarr; Run now.</li>
+        <li>Check <code>/dash/</code> &rarr; Groups to see each folder with its route and timed tasks listed.</li>
+      </ul>
+
+      <h2>9. per-folder grants</h2>
+      <p>
+        By default, each folder&rsquo;s agent can read its own
+        <code>facts/</code>, write its diary, and reply on the
+        configured channel. To add cross-folder read (e.g. the
+        triage inbox can read the SRE runbook folder):
+      </p>
+      <pre><code>arizuko group corp grant 'corp/intake' 'read:corp/eng/sre/facts/**'</code></pre>
+      <p>
+        Or grant a Slack user access to query a specific folder:
+      </p>
+      <pre><code>arizuko group corp grant 'slack:user/U123' 'interact:corp/pm/**'</code></pre>
+      <p>
+        Full grant rule syntax: <a href="../../concepts/grants.html">grants</a>.
+      </p>
+
+      <h2>10. observe-mode ingest</h2>
+      <p>
+        For Slack channels where you want context but not replies &mdash;
+        general chatter, off-topic channels &mdash; route to
+        <code>&lt;folder&gt;#observe</code>. The agent indexes the messages;
+        no Turn fires; nothing gets sent to the channel.
+      </p>
+      <p>
+        Add the route in the dashd routes admin UI at <code>/dash/</code>,
+        or declare it in a YAML manifest:
+      </p>
+      <pre><code># observe-route.yaml
+routes:
+  - seq: 5
+    match: "chat_jid=slack:*/channel/C-general/*"
+    target: corp/eng#observe</code></pre>
+      <pre><code>arizuko apply corp observe-route.yaml</code></pre>
+      <p>
+        When the agent in <code>corp/eng</code> is answering a question, it
+        can surface context from the observed #general channel via
+        <code>find_messages</code> without the channel ever knowing.
+      </p>
+
+      <h2>common issues</h2>
+      <dl>
+        <dt><strong>Webhook arrives but no Turn fires.</strong></dt>
+        <dd>Check the route table matches the hook JID exactly
+        (<code>hook:corp/eng/sre/sentry</code> for a token issued to
+        <code>corp/eng/sre</code> with source <code>sentry</code>). Run
+        <code>arizuko get corp routes</code> and compare against the
+        <code>chat_jid</code> in the journalctl ingest log line.</dd>
+
+        <dt><strong>Timed brief fires but the agent sends nothing.</strong></dt>
+        <dd>The task instruction probably doesn&rsquo;t include a send
+        instruction. Edit the task body (in dashd tasks admin) to include
+        &ldquo;send to #&lt;channel&gt;&rdquo; or the agent will write the
+        brief to <code>facts/</code> and stay silent (correct behavior if
+        that&rsquo;s all you asked).</dd>
+
+        <dt><strong>Agent replies in the wrong folder.</strong></dt>
+        <dd>Route priority. Run <code>arizuko get corp routes</code> and
+        check <code>seq</code> values &mdash; lower wins. Add a more specific
+        rule with a lower <code>seq</code> via <code>arizuko apply</code> to
+        override the catch-all.</dd>
+      </dl>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../../products/company-brain/">Company brain &mdash; intro</a> &mdash; system shape, example, honest constraints</li>
+        <li><a href="../../concepts/routing.html">routing</a> &mdash; route table, observe mode, delegation</li>
+        <li><a href="../../concepts/grants.html">grants</a> &mdash; per-folder and cross-folder ACL</li>
+        <li><a href="../../components/timed.html">timed</a> &mdash; scheduled tasks, cron format</li>
+        <li><a href="../../components/davd.html">davd</a> &mdash; WebDAV for facts/ population</li>
+        <li><a href="../../howto/webhooks.html">webhooks</a> &mdash; hook tokens, ingest recipes</li>
+        <li><a href="../../components/crackbox.html">crackbox</a> &mdash; per-folder egress</li>
+        <li><a href="../../reference/cli.html">CLI reference</a></li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; Company brain</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/company-brain/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supermarket price agent — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/" aria-current="page">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Supermarket price agent</p>
+      <h1>Supermarket price agent</h1>
+
+
+
+      <p class="lede">
+        &ldquo;Where&rsquo;s milk cheapest this week?&rdquo; &mdash; the agent
+        searches, compares, and replies with sources. One shared folder serves
+        everyone who asks.
+      </p>
+
+      <h2>system shape</h2>
+      <p>
+        This is the minimal end of the product spectrum. One folder, one
+        catch-all route, no per-user state. The six primitives at their
+        leanest:
+      </p>
+      <ul>
+        <li>
+          <strong>Event.</strong> A Telegram message, a web-chat widget
+          message, or a webhook POST &mdash; all land as rows in the same
+          inbox. The agent doesn&rsquo;t know or care which channel sent them.
+        </li>
+        <li>
+          <strong>Routing.</strong> One catch-all rule maps every inbound
+          event to the single <code>supermarket</code> folder. No per-user
+          routing, no topic logic. First rule wins, every time.
+        </li>
+        <li>
+          <strong>Agent (folder-as-data).</strong> The folder holds a
+          <code>PERSONA.md</code> (the agent&rsquo;s instructions for how to
+          answer price queries), a <code>CLAUDE.md</code> (allowed tools,
+          citation format, refusals), and
+          <code>facts/retailers.md</code> &mdash; operator-seeded list of
+          the retailers to check, their URLs, and any known quirks (price
+          date lags, members-only prices, etc.).
+        </li>
+        <li>
+          <strong>Authorization.</strong> A single tier-1 grant: anyone who
+          reaches the chat endpoint can ask. No per-user ACL rows.
+        </li>
+        <li>
+          <strong>Turn.</strong> One ephemeral container per query. The agent
+          reads <code>facts/retailers.md</code>, runs <code>web_search</code>
+          against the named retailers, and synthesises a reply. Results are
+          cached in <code>facts/cache/</code> by item + date; a second query
+          for the same item today skips the search.
+        </li>
+        <li>
+          <strong>State.</strong> The shared DB (per-turn message rows) and
+          the folder on disk (<code>facts/retailers.md</code>,
+          <code>facts/cache/</code>). No per-user sub-folders. No memory
+          files. Nothing accumulates between users.
+        </li>
+      </ul>
+      <p>
+        Ten users or ten thousand &mdash; the structure doesn&rsquo;t change.
+        The limit is per-turn container slots (controlled by
+        <code>max_children</code> on the root group), not registered users.
+        There is no registration to do.
+      </p>
+
+      <h2>example</h2>
+      <pre><code>telegram &middot; DM
+
+  user   where's the cheapest whole milk this week?
+  agent  Checked Tesco, Sainsbury's, Lidl (prices as of today):
+         Tesco: 2L semi-skimmed £1.09 (Clubcard price £0.95)
+         Sainsbury's: 2L whole milk £1.10
+         Lidl: 2L whole milk £0.99
+
+         Cheapest: Lidl £0.99.
+         source: lidl.co.uk/grocery/dairy, tesco.com/groceries, sainsburys.co.uk</code></pre>
+      <p>
+        The agent cites three retailers and links sources. No login, no
+        sign-up, no memory of who asked. The next person to ask gets the same
+        search, same sources &mdash; unless the cache already holds today&rsquo;s
+        prices, in which case the answer is instant.
+      </p>
+
+      <h2>where this sits &mdash; the minimal end</h2>
+      <p>
+        This is the simplest possible arizuko deployment:
+      </p>
+      <ul>
+        <li>No per-user memory. Every user starts fresh.</li>
+        <li>No folder tree. One level, one folder.</li>
+        <li>No grants table. The route is the auth fence.</li>
+        <li>No scheduled tasks. The agent only runs when a message arrives.</li>
+        <li>No OAuth. No linked identities. No web dashboard for users.</li>
+      </ul>
+      <p>
+        The other end of this spectrum is the
+        <a href="../company-brain/">company brain</a> &mdash; folder tree as
+        org chart, per-team memory, scheduled briefs, multi-source ingest,
+        per-folder ACL. Same pipeline, very different folder contents. Start
+        here; reach for that shape only when you need the structure.
+      </p>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> Message history and cached prices live
+          under <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code>; no DB dump.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> The configured channel
+          (Telegram or web chat) for bot traffic; Anthropic for model calls.
+          Web search egress via <a href="../../components/crackbox.html">crackbox</a>
+          &mdash; allowlist the retailer domains you want the agent to reach.
+        </li>
+        <li>
+          <strong>No user data collected.</strong> There are no per-user memory
+          files, no linked identities, no email addresses. The only persistent
+          state is the cache and the message log.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create shop
+cd /srv/data/arizuko_shop
+$EDITOR .env             # set TELEGRAM_BOT_TOKEN or leave blank for web-chat only
+$EDITOR groups/supermarket/facts/retailers.md   # seed retailer list
+arizuko run shop</code></pre>
+      <p>
+        Full step-by-step is in the
+        <a href="../../products/supermarket/setup.html">operator setup guide</a>.
+        A web-chat token gives you a widget URL you can embed anywhere without
+        any platform adapter &mdash; good for a quick internal deployment.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../concepts/routing.html">routing</a> &mdash; how the
+          single catch-all rule works; route table match keys
+        </li>
+        <li>
+          <a href="../../components/crackbox.html">crackbox</a> &mdash; per-folder
+          egress allowlist for retailer domains
+        </li>
+        <li>
+          <a href="../../concepts/skills.html">web skill</a> &mdash; the
+          <code>web_search</code> tool the agent uses; how to enable it
+        </li>
+        <li>
+          <a href="../../concepts/tokens.html">web chat tokens</a> &mdash;
+          mint a widget URL without a platform adapter
+        </li>
+        <li>
+          <a href="../company-brain/">company brain</a> &mdash; the other end
+          of the spectrum: folder hierarchy, per-team memory, scheduled briefs
+        </li>
+        <li>
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
+          first channel, first invite
+        </li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../">&larr; Products</a>
+        <a rel="next" href="setup.html">Supermarket setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/supermarket/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trip planner setup — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/" aria-current="page">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip planner &mdash; setup</p>
+      <h1>Trip planner &mdash; setup</h1>
+
+
+
+      <p class="lede">
+        Deploy May: one Telegram bot, a seeded preferences file, and
+        <code>CODEX_API_KEY</code> for oracle synthesis.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A host with Docker.</li>
+        <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image built (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access (<code>ANTHROPIC_API_KEY</code>).</li>
+        <li>A Telegram bot token (<code>TELEGRAM_BOT_TOKEN</code>) &mdash; the trip planner is a personal Telegram bot.</li>
+        <li><strong>Codex API key (<code>CODEX_API_KEY</code>) &mdash; required.</strong> The oracle skill that does multi-step destination synthesis won&rsquo;t run without it. A trip planner without oracle returns a shallow answer; it defeats the purpose of the product.</li>
+      </ul>
+
+      <h2>1. create the instance</h2>
+      <pre><code>arizuko create travel --product trip
+cd /srv/data/arizuko_travel
+$EDITOR .env</code></pre>
+      <pre><code>ASSISTANT_NAME=may
+CHANNEL_SECRET=&lt;openssl rand -hex 32&gt;
+AUTH_SECRET=&lt;openssl rand -hex 32&gt;
+WEB_HOST=travel.example.com
+ANTHROPIC_API_KEY=sk-ant-…
+TELEGRAM_BOT_TOKEN=…
+CODEX_API_KEY=…</code></pre>
+
+      <h2>2. seed the preferences file</h2>
+      <p>
+        May reads <code>facts/preferences.md</code> at the start of every trip
+        planning session. Without it she has no baseline &mdash; she&rsquo;ll
+        ask the same questions every time. Populate it before the first
+        message:
+      </p>
+      <pre><code>mkdir -p /srv/data/arizuko_travel/groups/may/facts
+cat &gt; /srv/data/arizuko_travel/groups/may/facts/preferences.md &lt;&lt;'EOF'
+# Travel Preferences
+
+## Profile
+Budget: ~&yen;15,000/day (not counting flights). Lean on accommodation to free up
+food budget.
+
+## Accommodation
+Mix of business hotel and ryokan for Japan-style trips. Boutique guesthouses over
+chains in Europe. No shared dorms.
+
+## Pace
+Relaxed. Two to three places max per trip. Prefer depth over coverage.
+
+## Food
+No restrictions. Interested in local markets, street food, one fine-dining meal
+per trip if it's a landmark spot.
+
+## Past trips (for reference)
+- 2024: Lisbon + Porto (10 days, loved the food market circuit)
+- 2025: Oaxaca (8 days, mole tour was the highlight)
+EOF</code></pre>
+      <p>
+        This is a starting point. May updates it as you mention preferences in
+        conversation, using the <code>facts</code> skill to write changes back.
+      </p>
+
+      <h2>3. run</h2>
+      <pre><code>arizuko run travel</code></pre>
+
+      <h2>4. verify</h2>
+      <ul>
+        <li>Send a trip brief via Telegram: &ldquo;10 days in Japan, late October, food focus&rdquo;. May should ask clarifying questions before researching.</li>
+        <li>If she goes straight to research without clarifying, the preferences file was seeded correctly but check that the <code>PERSONA.md</code> from <code>ant/examples/trip/SOUL.md</code> is in place at <code>groups/may/</code> &mdash; the clarify-first behavior is persona-driven, not a hard rule.</li>
+        <li>If oracle doesn&rsquo;t run, check <code>sudo journalctl -u arizuko_travel | grep -i codex</code> &mdash; a missing key surfaces there.</li>
+      </ul>
+
+      <h2>5. tune</h2>
+      <p>
+        The preferences file is the main tuning surface. Edit it directly or
+        over WebDAV at
+        <code>https://travel.example.com/dav/may/facts/preferences.md</code>.
+        Changes take effect on the next planning session &mdash; no restart.
+      </p>
+      <p>
+        To adjust May&rsquo;s voice or the structure of the itinerary output,
+        edit <code>groups/may/CLAUDE.md</code> (allowed tools, output format,
+        citation rules) or the <code>PERSONA.md</code> (voice register,
+        what she does and doesn&rsquo;t do).
+      </p>
+
+      <div class="callout">
+        <strong>Trip archive grows automatically.</strong> After delivering
+        an itinerary May stores it at
+        <code>facts/trips/YYYY-&lt;dest&gt;.md</code>. You can browse it over
+        WebDAV at <code>/dav/may/facts/trips/</code> or ask May directly:
+        &ldquo;What did we plan for Lisbon?&rdquo;
+      </div>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../../products/trip/">Trip planner &mdash; intro</a> &mdash; what May does and her voice</li>
+        <li><a href="../../concepts/skills.html">oracle skill</a> &mdash; how multi-step synthesis works</li>
+        <li><a href="../../components/crackbox.html">crackbox</a> &mdash; allow the domains May searches</li>
+        <li><a href="../../concepts/routing.html#modes">routing &mdash; observe mode</a> &mdash; asymmetric channel ingest</li>
+        <li><a href="../../reference/cli.html">CLI reference</a></li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; Trip planner (May)</a>
+        <a rel="next" href="../slack-team/">Slack team agent &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/trip/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

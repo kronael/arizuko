@@ -21,8 +21,11 @@
         <li><a class="nav-section" href="./">Products</a>
           <ul class="nav-children">
             <li><a href="./">Start here</a></li>
+            <li><a href="supermarket/">Supermarket price agent</a></li>
+            <li><a href="trip/">Trip planner (May)</a></li>
             <li><a href="slack-team/">Slack team agent</a></li>
             <li><a href="reality/">Reality agent</a></li>
+            <li><a href="company-brain/">Company brain</a></li>
           </ul>
         </li>
       </ul>
@@ -46,6 +49,25 @@
         job. That&rsquo;s why these are yours to read, diff, and change &mdash;
         a product you own, not a blob you rent.
       </p>
+      <p>
+        Products span a range: a single folder with one job at one end, a
+        full org-chart hierarchy at the other. Pick the shape that fits,
+        then own the files.
+      </p>
+
+      <div class="tablecard">
+        <h3><a href="supermarket/">Supermarket price agent</a></h3>
+        <p class="meta">channel: Telegram &middot; web chat &middot; webhook &middot; mass-consumer / minimal-config</p>
+        <p>One folder, one catch-all route, no per-user state. Answers &ldquo;where&rsquo;s X cheapest?&rdquo; for any number of users without changing structure. The minimal end of the spectrum: same code serves 10 or 10,000 users &mdash; the limit is container slots, not registered users.</p>
+        <p><a href="supermarket/">intro</a> &middot; <a href="supermarket/setup.html">setup</a></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="trip/">Trip planner (May)</a></h3>
+        <p class="meta">channel: Telegram &middot; single-user &middot; research-intensive</p>
+        <p>State the brief once &mdash; May researches, synthesises via oracle, and delivers a day-by-day itinerary. Preferences persist across trips. Mid-point on the spectrum: single-user depth without an org hierarchy.</p>
+        <p><a href="trip/">intro</a> &middot; <a href="trip/setup.html">setup</a></p>
+      </div>
 
       <div class="tablecard">
         <h3><a href="slack-team/">Slack team agent</a></h3>
@@ -61,15 +83,22 @@
         <p><a href="reality/">intro</a> &middot; <a href="reality/setup.html">setup</a></p>
       </div>
 
+      <div class="tablecard">
+        <h3><a href="company-brain/">Company brain</a></h3>
+        <p class="meta">channel: Slack &middot; email &middot; webhook &middot; complex-org</p>
+        <p>A network of per-team agents with their own inboxes, knowledge bases, and scheduled briefs. Folder tree mirrors the org chart. Intake from Slack, email, and webhooks. The complex end of the spectrum: all six primitives at full depth.</p>
+        <p><a href="company-brain/">intro</a> &middot; <a href="company-brain/setup.html">setup</a></p>
+      </div>
+
       <p class="dim">See <a href="../howto/">getting started</a> for the platform install before picking a product.</p>
 
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="next" href="slack-team/">Slack team agent &rarr;</a>
+        <a rel="next" href="supermarket/">Supermarket price agent &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

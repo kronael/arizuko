@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Company brain — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/" aria-current="page">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Company brain</p>
+      <h1>Company brain</h1>
+
+
+
+      <p class="lede">
+        A network of per-team agents, each with its own inbox and memory,
+        reading intake from Slack, email, and webhooks &mdash; writing
+        briefs, escalating issues, coordinating across folders on schedule.
+      </p>
+
+      <h2>what it is and what it isn't</h2>
+      <p>
+        The company brain is the <strong>action layer</strong> over org
+        knowledge. Agents read intake, write daily briefs, escalate issues
+        to the right team, and coordinate across the folder tree. That&rsquo;s
+        what this product does.
+      </p>
+      <p>
+        It is not a search engine. It is not a connector pipeline that syncs
+        Confluence to a vector store. If you need semantic search over a
+        10,000-document corpus, pair this with Onyx or a retrieval skill
+        &mdash; company brain handles the <em>action</em> on top of whatever
+        retrieval you bring. More on this in
+        <a href="#honest-constraints">honest constraints</a>.
+      </p>
+      <p>
+        This is the complex-org end of the product spectrum. The other end
+        is the <a href="../supermarket/">supermarket price agent</a> &mdash;
+        one folder, one route, no hierarchy. Every primitive present here is
+        also present there; they&rsquo;re just at their minimal setting.
+      </p>
+
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Folder tree = org chart.</strong> Each team gets its own
+          arizuko group folder. <code>corp/eng/sre</code> is the SRE team;
+          <code>corp/pm</code> is product management;
+          <code>corp/intake</code> is the shared inbound triage desk.
+          Arbitrary depth; the folder hierarchy is your design call.
+        </li>
+        <li>
+          <strong>Per-team memory.</strong> Each folder holds a
+          <code>PERSONA.md</code> (that team&rsquo;s agent behavior),
+          a <code>facts/</code> knowledge base (runbooks, decisions,
+          reference docs), and a diary. Context doesn&rsquo;t leak
+          across teams unless an agent explicitly delegates or escalates.
+        </li>
+        <li>
+          <strong>Scheduled briefs via timed.</strong> A <code>timed</code>
+          task fires a Turn on a schedule &mdash; daily standup summary,
+          weekly digest, on-call handoff. Agents write the brief to
+          <code>facts/</code> and send it to the configured channel.
+          No cron on the host; the scheduler is part of the stack.
+        </li>
+        <li>
+          <strong>Multi-source ingest.</strong> Slack messages, inbound
+          email (<code>emaid</code>), webhook POSTs (GitHub, Sentry, Linear,
+          PagerDuty), and WebDAV file drops all become Events that land in
+          a team inbox. Route rules map the source JID to the right folder.
+        </li>
+        <li>
+          <strong>Escalate and delegate.</strong> The SRE agent can
+          <code>escalate_group</code> to <code>corp/eng</code>; a triage
+          agent can <code>delegate_group</code> to the responsible team.
+          These are normal MCP tool calls, not special wiring.
+        </li>
+        <li>
+          <strong>Observe-mode ingest.</strong> A Slack channel can route
+          to <code>corp/eng#observe</code> so the agent builds context
+          without replying to every message. Observed channels are
+          searchable via <code>find_messages</code>; the agent surfaces
+          relevant content when a task or question arrives.
+        </li>
+        <li>
+          <strong>Per-folder ACL.</strong> What each team&rsquo;s agent
+          may do &mdash; which MCP tools, which external hosts &mdash; is
+          controlled by the <code>acl</code> table on that folder.
+          Operator-managed from <code>/dash/</code> or the CLI.
+        </li>
+      </ul>
+
+      <h2>example: Sentry alert to Slack reply</h2>
+      <pre><code>[Sentry webhook fires]
+  POST /hook/&lt;token&gt;
+  X-Sentry-Hook-Signature: …
+  {"issue": "OOM in billing-worker", "level": "error", …}
+
+  &darr; Event lands in corp/eng/sre/oncall
+
+  &darr; Agent reads alert + facts/runbooks/billing-worker-oom.md
+  &darr; Checks find_messages for recent occurrences (last 7 days)
+  &darr; Drafts a reply: root cause, recommended action, prior incidents
+
+  &darr; Sends to #eng-oncall Slack channel
+  sre-bot   OOM in billing-worker — seen 3x this week.
+             Last fix (2026-05-30): heap limit too low post-deploy,
+             fix was rolling restart + config bump. Runbook:
+             /dav/corp/eng/sre/facts/runbooks/billing-worker-oom.md
+             Action: restart billing-worker pod + check HEAP_MAX.
+
+  &darr; Creates task: "Raise HEAP_MAX cap — billing-worker"
+  &darr; Logs to diary: alert handled, task created</code></pre>
+      <p>
+        The agent read the alert, found the runbook, surfaced past incidents,
+        drafted a reply, created a task &mdash; all in one Turn, no human
+        routing required.
+      </p>
+
+      <h2>folder layout</h2>
+      <pre><code>corp/
+  intake/           # triage inbox — all unrouted inbound lands here first
+  eng/
+    sre/
+      oncall/       # on-call rotation folder; per-shift diary
+    review/         # code review requests from webhook
+  pm/               # product management briefs, roadmap context
+  sales/            # deal summaries, CRM webhook ingest
+  finance/          # budget alerts, expense webhook</code></pre>
+      <p>Route table shape (excerpt):</p>
+      <pre><code>seq  match                                           target
+-10  chat_jid=hook:*/sentry/*                        corp/eng/sre/oncall
+-5   chat_jid=slack:*/channel/C-eng-oncall/*         corp/eng/sre/oncall
+0    chat_jid=slack:*/channel/C-eng/*                corp/eng#observe
+5    chat_jid=hook:*/github/* verb=pr                corp/eng/review
+10   chat_jid=*                                      corp/intake</code></pre>
+      <p>
+        Timed tasks (examples — schedule these in the dashd tasks admin or by
+        asking the agent to schedule a recurring task):
+      </p>
+      <table>
+        <thead><tr><th>folder</th><th>cadence</th><th>task</th></tr></thead>
+        <tbody>
+          <tr><td>corp/eng/sre</td><td>weekdays 09:00</td><td>daily standup summary</td></tr>
+          <tr><td>corp/pm</td><td>Monday 08:00</td><td>weekly roadmap digest</td></tr>
+          <tr><td>corp/eng/sre/oncall</td><td>Friday 18:00</td><td>on-call handoff brief</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="honest-constraints">honest constraints</h2>
+      <p>
+        Before deploying, know what this product does not do:
+      </p>
+      <ul>
+        <li>
+          <strong>No connector sync pipeline.</strong>
+          <code>facts/</code> is populated manually, via WebDAV mounts, or
+          by webhook-triggered agents that write to it. There is no OAuth
+          crawler for Confluence, Notion, or Google Drive. If your knowledge
+          base lives in those systems, someone (or a connector skill) must
+          curate the relevant pieces into <code>facts/</code> markdown files.
+          The product works well for hundreds of documents; it breaks for
+          enterprise-scale corpora without a connector.
+        </li>
+        <li>
+          <strong>No embedding or vector search.</strong>
+          Retrieval is <code>grep</code> + FTS5 (<code>find_messages</code>)
+          over the local DB and <code>facts/</code> files. For hundreds of
+          well-structured markdown documents that&rsquo;s fast and reliable.
+          For tens of thousands of documents, pair with Onyx or a retrieval
+          skill &mdash; the agent calls the retrieval backend via MCP, gets
+          ranked results, and acts on them.
+        </li>
+        <li>
+          <strong>No permission inheritance from source systems.</strong>
+          The ACL is operator-managed at the folder level. arizuko doesn&rsquo;t
+          mirror Jira roles, Salesforce profiles, or Confluence space
+          permissions. If a user has read access to a Jira board but not the
+          arizuko folder for that team, they won&rsquo;t reach the agent.
+          The two permission graphs are separate; the operator manages both.
+        </li>
+      </ul>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> All team inboxes, knowledge bases,
+          briefs, and agent state live under
+          <code>/srv/data/arizuko_&lt;name&gt;/</code>. One <code>tar</code>
+          is a full backup.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> The configured channel
+          adapters (Slack, email) for bot replies; Anthropic for model calls.
+          Any additional egress (webhooks, external APIs) goes through
+          <a href="../../components/crackbox.html">crackbox</a> per folder.
+        </li>
+        <li>
+          <strong>Folder isolation.</strong> Each team&rsquo;s memory,
+          facts, and diary are inaccessible to other teams unless an agent
+          explicitly delegates or the operator grants cross-folder read.
+          The SRE agent doesn&rsquo;t see sales context; sales doesn&rsquo;t
+          see SRE runbooks.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create corp
+cd /srv/data/arizuko_corp
+$EDITOR .env             # set SLACK_BOT_TOKEN, ANTHROPIC_API_KEY, channel secrets
+arizuko run corp
+
+# create team folders (jid first, then folder)
+arizuko group corp add 'slack:T-acme/channel/C-eng-oncall' corp/eng/sre/oncall
+arizuko group corp add 'hook:*/sentry/*'                   corp/eng/sre/oncall
+
+# seed each team's knowledge base
+$EDITOR /srv/data/arizuko_corp/groups/corp/eng/sre/facts/runbooks/*.md
+
+# schedule briefs in dashd tasks admin (/dash/) or ask the agent:
+# "schedule a task: every weekday at 09:00, write a daily standup summary"</code></pre>
+      <p>
+        Full step-by-step is in the
+        <a href="../../products/company-brain/setup.html">operator setup guide</a>
+        &mdash; folder tree design, route table, timed tasks, WebDAV mounts,
+        and ingest from Slack, email, and webhooks.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../concepts/primitives.html">primitives</a> &mdash; this
+          product uses all six: Event (multi-source ingest), Routing
+          (folder-tree dispatch), Agent (per-team persona + facts), Authorization
+          (per-folder ACL), Turn (scheduled + event-triggered), State (team
+          memory + shared DB)
+        </li>
+        <li>
+          <a href="../../concepts/routing.html">routing</a> &mdash; route table,
+          match keys, observe mode, delegation
+        </li>
+        <li>
+          <a href="../../concepts/grants.html">grants</a> &mdash; per-folder
+          action scoping; cross-team read grants
+        </li>
+        <li>
+          <a href="../../components/timed.html">timed</a> &mdash; scheduled
+          tasks; cron syntax; how timed fires a Turn
+        </li>
+        <li>
+          <a href="../../components/davd.html">davd</a> &mdash; WebDAV workspace
+          for populating <code>facts/</code>
+        </li>
+        <li>
+          <a href="../../howto/webhooks.html">webhooks</a> &mdash; hook tokens,
+          Sentry/GitHub/Linear ingest recipe
+        </li>
+        <li>
+          <a href="../../components/crackbox.html">crackbox</a> &mdash; per-folder
+          egress isolation
+        </li>
+        <li>
+          <a href="../supermarket/">supermarket price agent</a> &mdash; the other
+          end of the spectrum: one folder, no hierarchy, no scheduled tasks
+        </li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../reality/setup.html">&larr; Reality setup</a>
+        <a rel="next" href="setup.html">Company brain setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/company-brain/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

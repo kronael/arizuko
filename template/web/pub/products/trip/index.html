@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trip planner (May) — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/" aria-current="page">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Trip planner (May)</p>
+      <h1>Trip planner (May)</h1>
+
+
+
+      <p class="lede">
+        State the brief once. May researches, synthesises, and delivers a
+        day-by-day itinerary with logistics, visa, budget, and packing.
+        Preferences persist across every future trip.
+      </p>
+
+      <p>
+        A single-user agent tied to your travel profile and past trips. Not
+        a search engine &mdash; it reads your preferences first, clarifies
+        before researching, and produces a structured document, not a list of
+        links. Template at <code>ant/examples/trip/</code>.
+      </p>
+
+      <h2>persona</h2>
+      <p>
+        May is methodical and precise. She cites sources inline (&ldquo;per
+        the Japan visa gov page&rdquo; or &ldquo;per Lonely Planet
+        &sect;Kyoto&rdquo;). She asks clarifying questions before researching
+        &mdash; dates, budget, travel style &mdash; and never starts building
+        the plan until those are settled. She won&rsquo;t invent visa
+        requirements, prices, or opening hours; she verifies or says
+        she&rsquo;s uncertain. Delivers structured documents: day-by-day
+        schedule, logistics block, budget estimate, packing list.
+      </p>
+
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Brief intake + clarify.</strong> The agent reads your brief,
+          checks <code>facts/preferences.md</code> for your travel profile,
+          and asks any missing questions before committing to research. Dates,
+          budget range, pace, dietary restrictions &mdash; once settled, research
+          starts.
+        </li>
+        <li>
+          <strong>Preferences file.</strong>
+          <code>facts/preferences.md</code> is the traveller profile: typical
+          budget range, accommodation style, pace (relaxed vs packed), dietary
+          restrictions, interests. Populated by the operator before deploy;
+          updated by the agent over time as you mention preferences in
+          conversation.
+        </li>
+        <li>
+          <strong>Multi-step research via oracle.</strong> For each destination
+          May runs a multi-step synthesis: web search for current conditions,
+          visa requirements, transport, and accommodation; oracle synthesis
+          across the gathered sources into a coherent plan. Oracle is required
+          &mdash; this product won&rsquo;t produce good output without
+          <code>CODEX_API_KEY</code>.
+        </li>
+        <li>
+          <strong>Structured day-by-day output.</strong> The itinerary lands
+          as a structured document: day-by-day schedule, logistics (flights,
+          ground transport), visa block, budget estimate, packing list. Saved
+          to <code>facts/trips/YYYY-&lt;dest&gt;.md</code> after delivery.
+        </li>
+        <li>
+          <strong>Trip archive.</strong> Every completed trip is stored at
+          <code>facts/trips/YYYY-&lt;dest&gt;.md</code>. &ldquo;How did the
+          Kyoto trip go?&rdquo; pulls from the archive.
+        </li>
+        <li>
+          <strong>Published itinerary (optional).</strong> The agent can
+          write a formatted HTML version to <code>~/public_html/</code> so
+          you can share a link with travel companions without giving them
+          chat access.
+        </li>
+      </ul>
+
+      <h2>example: brief to confirm-research</h2>
+      <pre><code>telegram &middot; DM
+
+  user   10 days in Japan, late October, food focus, mid-budget
+  may    Got it &mdash; a few questions before I start:
+         1. Rough budget per day (not counting flights)?
+         2. Accommodation style: hostel, business hotel, ryokan, or mix?
+         3. Any dietary restrictions I should route around?
+         4. Flying into Tokyo or open to landing elsewhere?
+
+  user   ~&yen;15k/day, mix of business hotel + one ryokan, no restrictions,
+         fine to fly into Tokyo
+  may    Perfect. I'll research: Tokyo (3d), Hakone (1d), Kyoto (3d),
+         Osaka (2d), day-trip to Nara. Pulling current visa rules,
+         Oct rail passes, and food spots. Back in a few minutes.
+
+  [May runs web search + oracle synthesis]
+
+  may    Here's the plan &mdash; 10 days, food-first, mid-budget. Sending
+         as a file.
+
+  [sends facts/trips/2026-japan.md]
+
+         Summary: Tokyo 3 nights (Shinjuku base, Tsukiji + Yanaka markets,
+         ramen crawl), Hakone overnight ryokan (Fuji view, kaiseki dinner),
+         Kyoto 3 nights (Nishiki market, Fushimi Inari at dawn, Gion dinner),
+         Osaka 2 nights (Dotonbori, Kuromon market, takoyaki circuit),
+         Nara half-day. Budget est. ~&yen;142k total (ex flights).</code></pre>
+
+      <h2>required skills</h2>
+      <ul>
+        <li><code>web</code> &mdash; required. Live search for visa rules, transport, current prices.</li>
+        <li><code>oracle</code> &mdash; required. Multi-step synthesis across gathered sources. Needs <code>CODEX_API_KEY</code>.</li>
+        <li><code>facts</code>, <code>recall-memories</code>, <code>find</code> &mdash; required. Reads preferences; looks up past trips.</li>
+        <li><code>diary</code> &mdash; required. Logs each trip research session for future recall.</li>
+      </ul>
+
+      <h2>channels</h2>
+      <p>
+        Telegram is the primary channel &mdash; personal, ongoing, and
+        the natural fit for a single-user planner. WhatsApp is the
+        alternative for users who don&rsquo;t use Telegram. The same
+        asymmetric-channel pattern used by the reality agent applies
+        here: if you want WhatsApp for ingest but Telegram as the reply
+        channel, route WhatsApp to <code>#observe</code> and let May
+        surface relevant messages in the Telegram thread. See the
+        <a href="../reality/#case-study">reality agent case study</a>
+        for the exact route-table shape.
+      </p>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> Preferences, trip archive, diary, and
+          conversation history &mdash; all under
+          <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code>; no DB dump.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> Telegram for bot traffic;
+          Anthropic for model calls; oracle via <code>CODEX_API_KEY</code>.
+          Any web research egress goes through
+          <a href="../../components/crackbox.html">crackbox</a> &mdash; you
+          allowlist the domains May can reach.
+        </li>
+        <li>
+          <strong>Single user.</strong> This is a personal deployment.
+          There are no per-user memory files because there&rsquo;s only
+          one user. The traveller profile is the whole of
+          <code>facts/preferences.md</code>.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create travel --product trip
+cd /srv/data/arizuko_travel
+$EDITOR .env             # TELEGRAM_BOT_TOKEN, CODEX_API_KEY (required), ANTHROPIC_API_KEY
+$EDITOR groups/may/facts/preferences.md  # seed traveller profile
+arizuko run travel</code></pre>
+      <p>
+        Full step-by-step is in the
+        <a href="../../products/trip/setup.html">operator setup guide</a>
+        &mdash; seeding the preferences file, enabling the oracle skill,
+        and verifying the first research run.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../reality/">Reality agent (Rhias)</a> &mdash; same
+          single-user shape; holds life context instead of travel plans.
+          Good read if you want to understand how the folder grows over time.
+        </li>
+        <li>
+          <a href="../../concepts/skills.html">oracle skill</a> &mdash;
+          how multi-step synthesis works; what <code>CODEX_API_KEY</code>
+          enables
+        </li>
+        <li>
+          <a href="../../concepts/routing.html#modes">routing &mdash; observe mode</a>
+          &mdash; the <code>#observe</code> fragment for asymmetric-channel ingest
+        </li>
+        <li>
+          <a href="../../components/crackbox.html">crackbox</a> &mdash;
+          per-folder egress allowlist
+        </li>
+        <li>
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
+          first channel
+        </li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../supermarket/setup.html">&larr; Supermarket setup</a>
+        <a rel="next" href="setup.html">Trip planner setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/trip/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
