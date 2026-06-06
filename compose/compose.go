@@ -315,7 +315,7 @@ func gatedByOn(env map[string]string, key string) bool {
 }
 
 // collectProxydRoutes returns surviving routes after gated_by filtering.
-// Per spec (specs/6/2-proxyd-standalone.md "Field semantics"): a route whose
+// Per spec (specs/5/35-proxyd-standalone.md "Field semantics"): a route whose
 // GatedBy env is unset or empty at compose-generate time is dropped. Core
 // routes come first (skipped under PROFILE=minimal, /dash/ skipped unless
 // full); per-service routes appended in service-name order.

@@ -3,7 +3,7 @@ status: draft
 depends: specs/5/31-autocalls.md, specs/5/36-yaml-manifests.md, specs/5/5-uniform-mcp-rest.md
 ---
 
-# specs/7/7 — Configurable autocalls
+# specs/8/7 — Configurable autocalls
 
 > Make the `<autocalls>` block operator-extensible. Today five facts
 > are hardcoded in `gateway/autocalls.go`. This spec lets operators
@@ -37,7 +37,7 @@ What 5/31 cannot do:
   indexed read.
 
 This is the natural evolution of 5/31's heuristic ("inject the fact
-when schema-cost > content-cost") and of phase-7's thesis: **agent is
+when schema-cost > content-cost") and of phase-8's thesis: **agent is
 data**. What the agent passively sees each turn becomes operator
 config — versioned, gated, projected into the prompt — not a
 hardcoded constant.
@@ -86,7 +86,7 @@ The two kinds, each with a hard cost ceiling:
   never carries SQL text.
 
 There is no third "run a shell command / call a URL" kind. That is a
-function (`specs/7/6-functions.md`) or an MCP tool, not an autocall —
+function (`specs/8/6-functions.md`) or an MCP tool, not an autocall —
 an autocall renders inline on the hot prompt path and must stay
 cheap.
 
@@ -463,7 +463,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
   blocks or fails a turn.
 - **NOT a replacement for MCP tools or functions.** Anything needing
   args from the agent, side effects, on-demand timing, network, or
-  shell is an MCP tool or a function (`7/6`), not an autocall. The
+  shell is an MCP tool or a function (`8/6`), not an autocall. The
   autocall niche is unchanged from 5/31: always-relevant, small,
   read-only facts injected without schema cost.
 - **NOT an env-var or file config.** Definitions are business state →
@@ -484,7 +484,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
   `autocalls:<action>` is the action key.
 - `specs/4/9-acl-unified.md` — `autocalls:*` actions; operator-owned
   by default, folder-delegable by explicit grant.
-- `specs/7/6-functions.md` — the escape hatch for facts that need
+- `specs/8/6-functions.md` — the escape hatch for facts that need
   real work (shell, network, unbounded); autocalls stay cheap and
   inline, functions do the heavy lifting elsewhere.
 - `ant/CLAUDE.md` §Autocalls — agent-side contract (ground truth,

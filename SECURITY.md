@@ -41,7 +41,7 @@ What's isolated per group:
   not the caller's claim (`ipc/ipc.go`, `auth/middleware.go`).
 - **Secrets** — AES-256-GCM encrypted at rest; only `ANTHROPIC_API_KEY`
   and `CLAUDE_CODE_OAUTH_TOKEN` from host env reach the container.
-  Folder/user secret injection deferred to spec 6/Y.
+  Folder/user secret injection deferred to spec 7/Y.
 
 The threat the model defends against is a malicious agent in group A
 trying to reach group B's data, files, or network. Separate containers
@@ -79,13 +79,13 @@ makes the cross-tenant threat go away.
 | Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                                                                                                                                   | `auth/authorize.go`, `grants/`                                                                    |
 | Channel ingress     | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                                                                                                                         | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                       | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
-| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                      | `emaid/imap.go`, spec 8/17                                                                        |
+| Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                      | `emaid/imap.go`, spec 10/17                                                                       |
 | Mention promotion   | Gateway-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                      | `gateway/gateway.go`, spec 6/J                                                                    |
 | Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — gated refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows migrated in place on boot, never deleted | `store/secrets.go`, `gated/main.go`, migration `0034-secrets.sql`                                 |
-| Secret injection    | Folder/user secrets env injection planned (spec 6/Y); today only API keys from host env injected                                                                                                                                      | `container/runner.go` (`resolveSpawnEnv`)                                                         |
+| Secret injection    | Folder/user secrets env injection planned (spec 7/Y); today only API keys from host env injected                                                                                                                                      | `container/runner.go` (`resolveSpawnEnv`)                                                         |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                    | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                                                                                                          | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
-| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                       | `crackbox/pkg/dns/`, `specs/10/15-crackbox-dns-filter.md`                                         |
+| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                       | `crackbox/pkg/dns/`, `specs/11/15-crackbox-dns-filter.md`                                         |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -186,7 +186,7 @@ Caveats:
   are injected into the container today. The allowlist restricts _where_
   the agent can reach; it does not prevent leaking secrets to an allowed
   domain.
-- Spec 6/Y (tool-level secret broker) is **planned, not yet shipped**:
+- Spec 7/Y (tool-level secret broker) is **planned, not yet shipped**:
   the broker middleware (`ipc/ipc.go` `injectSecretsAdapter`) will resolve
   `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time;
   audit rows will flow into `secret_use_log`; per-user secrets will
@@ -196,7 +196,7 @@ Caveats:
 - IPv6 is not redirected by the entrypoint script.
 
 **DNS filter** (`crackbox/pkg/dns/`,
-`specs/10/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
+`specs/11/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
 listener is shipped: gated allowlisted hostnames forward to the
 upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.

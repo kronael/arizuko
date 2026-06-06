@@ -8,8 +8,8 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 > **Canonical principle + federation.** This is the canonical "one
 > handler, two faces" statement: it carries the coverage matrix,
 > per-resource handler pattern, audit contract, and acceptance criteria,
-> and defines the federated `/v1/*` surface. The phase-7 program
-> ([`specs/7/index.md`](../7/index.md)) is the downstream continuation
+> and defines the federated `/v1/*` surface. The phase-8 program
+> ([`specs/8/index.md`](../8/index.md)) is the downstream continuation
 > that finishes the unification across the data model + git-as-truth; it
 > does not relocate this spec's content. The MCP face is hand-authored
 > here; deriving it from annotated REST is a separate downstream followup
@@ -186,7 +186,7 @@ flat and per-turn enumeration cost grows linearly. Two rules:
 
 2. **Freeze growth of MCP tools per source file.** When a new
    capability appears, the default home is a skill (per
-   `../6/A-hierarchical-skills.md`), not a new MCP tool. New MCP
+   `../7/A-hierarchical-skills.md`), not a new MCP tool. New MCP
    tools land only when the capability is a stable primitive that
    every agent needs (file I/O, container ops, inspect\_\*). Domain
    workflows go into skills.
@@ -199,7 +199,7 @@ Beyond freezing growth: most tools should not load eagerly at all.
 Core messaging/inspect stay eager; connector + management tools defer
 behind the Tool Search Tool. The eager/deferred split + cache
 rationale lives in
-[`../6/A-hierarchical-skills.md`](../6/A-hierarchical-skills.md)
+[`../7/A-hierarchical-skills.md`](../7/A-hierarchical-skills.md)
 §"Tools side: deferred disclosure".
 
 ## Token / auth model
@@ -410,7 +410,7 @@ land in `routd`, which inherits gated's schema authority.
 | ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
 | `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                      |
 | `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                      |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/6/Y`](../6/Y-secret-broker.md)) | `secrets` (routd)                                     |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/7/Y`](../7/Y-secret-broker.md)) | `secrets` (routd)                                     |
 | `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (timed)                             |
 | `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                    |
 | `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                      |
@@ -422,7 +422,7 @@ Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
 both axes — the agent can't reach into its own ACL or topology; that's
 the trust boundary. `secrets:write:own_group` is user-via-dashboard
 only; the agent never reads or rotates secrets (invariant in
-[`specs/6/Y`](../6/Y-secret-broker.md); the broker resolves
+[`specs/7/Y`](../7/Y-secret-broker.md); the broker resolves
 folder/user secrets inside the tool handler on the host, the container
 never sees them). `egress_allowlist:write:own_group` lets a tier-≤1
 agent open egress for its own subtree via the `network_allow`/

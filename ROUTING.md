@@ -147,7 +147,7 @@ Spec: `specs/5/B-route-mode-ingestion.md`.
 Gateway rewrites `verb` at inbound ingest before routing, uniformly
 across adapters: reactions or text replies pointing at a bot-authored
 message promote to `verb=mention` (spec 6/J); emaid stamps
-`verb=untrusted` on mail failing DMARC + allowlist (spec 8/17). Route
+`verb=untrusted` on mail failing DMARC + allowlist (spec 10/17). Route
 on these directly — e.g. `platform=email verb=untrusted` → quarantine
 folder, `verb=mention` → trigger turn.
 

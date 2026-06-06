@@ -8,7 +8,7 @@ source: hermes-agent peel (2026-04-11)
 
 > **Superseded by [specs/9/1-self-eval-haiku.md](../9/1-self-eval-haiku.md)
 > on 2026-05-22.** The model choice (same-model `query()`) and the data
-> shape (no persistent row) have been replaced: 8/1 ships Haiku-judges-Opus
+> shape (no persistent row) have been replaced: 6/1 ships Haiku-judges-Opus
 > with a `skill_health` table. The trigger-shape research below (run at
 > container exit, not on cron) carries through and is reused.
 

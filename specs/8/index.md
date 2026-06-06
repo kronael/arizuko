@@ -2,7 +2,7 @@
 status: drafting
 ---
 
-# specs/7 — platform program: MCP+REST unification, data model, git-as-truth
+# specs/8 — platform program: MCP+REST unification, data model, git-as-truth
 
 The platform thesis crystallized in the 2026-05-23 framing session.
 This phase carries it from positioning to mechanism.
@@ -68,11 +68,11 @@ are the platform thesis. Out of order they don't compose. Pre-ordered:
   bespoke event log + projection + fork machinery. Adopt the
   discipline, not the runtime.
 - Not Kubernetes / multi-node. Single-host operator footprint stays.
-- Not a product registry (that's `specs/8/...` / future-phase 8 work).
+- Not a product registry (that's `specs/6/...` / future-phase 6 work).
 - ~~Not the `agents.toml` declarative composer~~ — resolved
   in [5/36-yaml-manifests.md](../5/36-yaml-manifests.md): the carrier
   format is YAML, not TOML, and lives in this phase. Product
-  composition / mixin semantics remain open (7/4 Q2).
+  composition / mixin semantics remain open (8/4 Q2).
 
 ## Sequencing
 
@@ -86,11 +86,11 @@ Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
 secrets-as-references-resolvable-at-spawn, Action 3 can't ship
 safely.
 
-Also composes with phase 6 hardening: `specs/6/F-audit-stream.md`
-(audit log for warm tier), `specs/6/E-encryption-at-rest.md`
+Also composes with phase 7 hardening: `specs/7/F-audit-stream.md`
+(audit log for warm tier), `specs/7/E-encryption-at-rest.md`
 (secrets stay encrypted in SQLite, never leak into git),
-`specs/6/Y-secret-broker.md` (per-call audit at the secret edge),
-`specs/6/H-per-daemon-secrets.md` (adapter-side compartments).
+`specs/7/Y-secret-broker.md` (per-call audit at the secret edge),
+`specs/7/H-per-daemon-secrets.md` (adapter-side compartments).
 
 ## Specs in this phase
 

@@ -226,7 +226,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	// Connectors: load <data_dir>/connectors.toml (or $CONNECTORS_TOML),
 	// spawn each connector once to harvest its tool catalog, register
-	// through the broker chain. Spec 9/11 M6. Missing file is fine.
+	// through the broker chain. Spec 7/Y M6. Missing file is fine.
 	if conns, err := LoadConnectors(ctx, g.cfg.ProjectRoot); err != nil {
 		slog.Error("connectors: load failed", "err", err)
 	} else {
@@ -1230,7 +1230,7 @@ func (g *Gateway) runAgentWithOpts(
 	// Spec 5/34 pre-spawn budget gate. If today's spend hits the cap,
 	// send a short channel-visible refusal (no LLM call) and return.
 	// callerSubOfMsg picks JWT-derived senders only; adapter and anon
-	// senders fall back to folder-only enforcement until spec 6/5's
+	// senders fall back to folder-only enforcement until spec 5/5's
 	// Caller shape lands.
 	if msg := g.budgetGate(group.Folder, callerSubOfMsg(sender)); msg != "" {
 		onOutput(msg, "ok")

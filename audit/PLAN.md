@@ -2,7 +2,7 @@
 
 Status: round-1 plan for `audit_log` SQLite table as source of truth for
 security and state-change events. Driven by [`specs/5/I`](../specs/5/I-tool-call-logging.md)
-and [`specs/6/F`](../specs/6/F-audit-stream.md).
+and [`specs/7/F`](../specs/7/F-audit-stream.md).
 
 ## Goal
 
@@ -48,7 +48,7 @@ months ago").
 ## Final field schema
 
 Per [`5/I`](../specs/5/I-tool-call-logging.md) plus the bookkeeping
-columns the spec defers to [`6/F`](../specs/6/F-audit-stream.md):
+columns the spec defers to [`6/F`](../specs/7/F-audit-stream.md):
 
 ```sql
 CREATE TABLE audit_log (
@@ -300,7 +300,7 @@ will drift; the function name is the anchor).
 - **`messages.status` updates** (sent/delivered) — same rationale.
   These are operational state on a row that's already its own log.
 - **`cost_log` inserts** — already its own append-only audit-shaped
-  table per [`5/34`](../specs/5/34-cost-budget.md); polling it from
+  table per [`5/34`](../specs/10/19-cost-caps.md); polling it from
   `audit_log` would double-write. Audit `mutation` references it via
   budget cap changes (above).
 - **`secret_use_log`** — replaced by `secret.read` rows in
@@ -533,9 +533,9 @@ func Init(db *sql.DB, instance string)
 ## References (citations in commit log)
 
 - `specs/5/I-tool-call-logging.md` (canonical field set)
-- `specs/6/F-audit-stream.md` (audit_log table direction)
+- `specs/7/F-audit-stream.md` (audit_log table direction)
 - `specs/5/5-uniform-mcp-rest.md` (resreg.audit() surface)
-- `specs/5/34-cost-budget.md` (cost_log adjacency)
+- `specs/10/19-cost-caps.md` (cost_log adjacency)
 - AWS CloudTrail: docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html
 - Kubernetes audit: kubernetes.io/docs/tasks/debug/debug-cluster/audit/
 - OCSF: schema.ocsf.io

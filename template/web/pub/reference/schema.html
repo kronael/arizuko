@@ -199,7 +199,7 @@
       <p class="meta"><strong>PK:</strong> <code>(group_folder, topic)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <code>store/sessions.go</code> &mdash; <code>SetSession</code> (UPSERT session_id), <code>EnsureTopicLineage</code> (seed lineage on first turn), <code>ForkTopic</code> (explicit branch), <code>UpdateObservedCursor</code>, <code>DeleteSession</code>.</p>
       <p class="meta"><strong>Readers:</strong> gated.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0055-topic-lineage.sql">0055</a> add <code>parent_topic</code>, <code>forked_at</code>, <code>observed_cursor</code> (spec 6/F).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0055-topic-lineage.sql">0055</a> add <code>parent_topic</code>, <code>forked_at</code>, <code>observed_cursor</code> (spec 7/F).</p>
     </div>
 
     <div class="tablecard">
@@ -304,13 +304,13 @@
         <tr><td><code>parent</code></td><td>TEXT</td><td>NULL</td><td></td><td>parent folder path</td></tr>
         <tr><td><code>updated_at</code></td><td>TEXT</td><td>NULL</td><td></td><td>RFC3339</td></tr>
         <tr><td><code>product</code></td><td>TEXT</td><td>NOT NULL</td><td>'assistant'</td><td>product slug (0044)</td></tr>
-        <tr><td><code>open</code></td><td>INTEGER</td><td>NOT NULL</td><td>1</td><td>1 = visible to sibling folders as ambient source (cross-folder <code>&lt;observed&gt;</code>); 0 = sealed off. Spec 6/F. Toggled via <a href="mcp.html#set_group_open"><code>set_group_open</code></a>.</td></tr>
+        <tr><td><code>open</code></td><td>INTEGER</td><td>NOT NULL</td><td>1</td><td>1 = visible to sibling folders as ambient source (cross-folder <code>&lt;observed&gt;</code>); 0 = sealed off. Spec 7/F. Toggled via <a href="mcp.html#set_group_open"><code>set_group_open</code></a>.</td></tr>
         <tr><td><code>observe_window_messages</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient messages surfaced per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>). Per-route override wins.</td></tr>
         <tr><td><code>observe_window_chars</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient chars per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>).</td></tr>
       </table>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L30"><code>store/groups.go:30</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L50"><code>:50</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L250"><code>:250</code></a> (<code>SetGroupOpen</code>), <code>SetGroupObserveWindow</code>.</p>
       <p class="meta"><strong>Readers:</strong> many — gated, dashd, webd, davd, onbod, timed, every MCP tool that scopes to a folder.</p>
-      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0057-group-visibility.sql">0057</a> added <code>open</code>, <code>observe_window_messages</code>, <code>observe_window_chars</code> (spec 6/F).</p>
+      <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0057-group-visibility.sql">0057</a> added <code>open</code>, <code>observe_window_messages</code>, <code>observe_window_chars</code> (spec 7/F).</p>
     </div>
 
     <div class="tablecard">
@@ -438,7 +438,7 @@
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; gated refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">9/11</a>).</p>
+      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; gated refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">7/Y</a>).</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
@@ -456,7 +456,7 @@
 
     <div class="tablecard">
       <h3><code>secret_use_log</code></h3>
-      <p>Audit log for the secret broker (spec 9/11). One row per tool-call &times; resolved key. No secret values stored.</p>
+      <p>Audit log for the secret broker (spec 7/Y). One row per tool-call &times; resolved key. No secret values stored.</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339Nano</td></tr>
@@ -693,7 +693,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
       </div>
     </main>
 

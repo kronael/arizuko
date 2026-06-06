@@ -118,7 +118,7 @@ Read-only actions emit slog only; no DB row. Forwarder resources
 (`Store == nil`) skip the tx + audit dance — the downstream daemon
 writes the row. Field schema:
 [`specs/5/I-tool-call-logging.md`](../specs/5/I-tool-call-logging.md).
-Table: [`specs/6/F-audit-stream.md`](../specs/6/F-audit-stream.md).
+Table: [`specs/7/F-audit-stream.md`](../specs/7/F-audit-stream.md).
 
 ## Adding a resource
 

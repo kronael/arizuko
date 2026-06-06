@@ -41,7 +41,7 @@
 
     <p class="lede">Since v0.38.0 every authorization question &mdash; "may principal P perform action A on scope S?" &mdash; is answered by one <code>auth.Authorize</code> call against two tables: <code>acl</code> (permission rows) and <code>acl_membership</code> (role + identity indirection). This page is the syntax + semantics reference for both the rule grammar (still used for MCP <code>params</code>) and the tier defaults derived in code at spawn time.</p>
 
-    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-acl-unified.md">specs/6/9-acl-unified.md</a> for the migration story. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> (structural / hierarchy checks), <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a> (rule engine, tier defaults).</p>
+    <p>See <a href="../concepts/grants.html">concepts &rsaquo; authorization</a> for the mental model, <a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> for the maintainer walkthrough, and <a href="https://github.com/kronael/arizuko/blob/main/specs/4/9-acl-unified.md">specs/4/9-acl-unified.md</a> for the migration story. Code: <a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a>, <a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> (structural / hierarchy checks), <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go"><code>grants/grants.go</code></a> (rule engine, tier defaults).</p>
 
     <h2>1. Tier model</h2>
 
@@ -195,7 +195,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <h2>10. Go deeper</h2>
     <ul>
       <li><a href="../concepts/grants.html">concepts: authorization</a> &mdash; mental model + worked patterns</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/6/9-acl-unified.md">specs/6/9-acl-unified.md</a> &mdash; design + migration plan</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/4/9-acl-unified.md">specs/4/9-acl-unified.md</a> &mdash; design + migration plan</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/GRANTS.md"><code>GRANTS.md</code></a> &mdash; maintainer reference</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/authorize.go"><code>auth/authorize.go</code></a> &mdash; <code>Authorize</code> (the unified entry point)</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a> &mdash; <code>AuthorizeStructural</code> (hierarchy / tier)</li>

@@ -1,9 +1,9 @@
 ---
 status: drafting
-depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md
+depends: specs/5/5-uniform-mcp-rest.md, specs/8/2-data-model.md
 ---
 
-# specs/7/3 — git as the source of truth
+# specs/8/3 — git as the source of truth
 
 ## Why
 
@@ -14,7 +14,7 @@ Three motivations stack:
    (bespoke event log, audit table, fork machinery, distribution
    protocol) is the classic mistake. Git is the most-known
    versioned-data primitive on the planet.
-2. **The platform thesis** (`specs/7/index.md`) — "agent is data."
+2. **The platform thesis** (`specs/8/index.md`) — "agent is data."
    Data deserves the versioning model that values get: commits,
    branches, signatures, remotes. SQLite is a CRUD store; CRUD is
    the wrong model for _configuration of agents that operate other
@@ -96,7 +96,7 @@ This avoids:
 summary; the `decisions/<sha>.md` sidecar references the row range
 in `audit_log` for that turn (`audit_log.id BETWEEN <turn_start_id>
 AND <turn_end_id>`) — that table is the canonical record of every
-state-changing call ([`../6/F-audit-stream.md`](../6/F-audit-stream.md),
+state-changing call ([`../7/F-audit-stream.md`](../7/F-audit-stream.md),
 field schema [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md)).
 The sidecar carries the human summary; `audit_log` carries the
 machine-readable rows. Sub-turn lineage lives in the table; turn-level
@@ -147,7 +147,7 @@ On crash:
 
 No `audit_log committed_at` machinery is needed for the cold tier —
 the git index IS the staging area. The warm `audit_log` table
-([`../6/F`](../6/F-audit-stream.md)) is its own crash-safe substrate
+([`../7/F`](../7/F-audit-stream.md)) is its own crash-safe substrate
 (SQLite WAL); rows are transactional with their mutations. The
 turn-end sidecar references the row range that landed during the
 turn, so a `[recovery]` commit can be reconstructed from the table
@@ -158,7 +158,7 @@ even if the in-flight Go state was lost.
 Secrets stay in SQLite, AES-256-GCM encrypted, as today
 (`store/secrets.go`). Git carries only references
 (`{ scope = "folder", name = "slack" }`) — no values, no
-ciphertext. Per `specs/7/2-data-model.md`.
+ciphertext. Per `specs/8/2-data-model.md`.
 
 Rationale: git is for _configuration that should be distributed,
 forked, audited_. Secret blobs are _operational state that must
@@ -170,7 +170,7 @@ git crosses it for config, never for secrets.
 Rotation, BYOA layering, per-call audit — all stay in
 `store/secrets.go`, in **Phase C of `specs/5/32-tenant-self-service.md`**
 (folder/user-scope secrets layering), and in
-`specs/6/Y-secret-broker.md` (tool-level audit edge). No
+`specs/7/Y-secret-broker.md` (tool-level audit edge). No
 phase-7 work here.
 
 ## Federation topology
@@ -279,7 +279,7 @@ Phased migration, easy entities first:
 5. **Phase 3c (postpone)** — entities where the git shape is
    non-obvious or where the operational coupling is tight:
    - `secrets` — decide blob storage first (see open questions).
-   - `chats` — split needed (see `specs/7/2-data-model.md`); keep
+   - `chats` — split needed (see `specs/8/2-data-model.md`); keep
      in SQLite until split is clean.
    - Per-day inbound digest commits — only if usage proves the need;
      SQLite-hot-only is acceptable indefinitely.

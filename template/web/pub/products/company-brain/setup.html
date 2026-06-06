@@ -94,24 +94,17 @@ arizuko group corp add 'slack:T-acme/channel/C-eng'        corp/eng
 arizuko group corp add 'slack:T-acme/channel/C-pm'         corp/pm
 arizuko group corp add 'slack:T-acme/channel/C-sales'      corp/sales</code></pre>
       <p>
-        Then wire the remaining route rules (Sentry, Linear, CRM, and the catch-all)
-        via a YAML manifest:
+        Then wire the remaining route rules (Sentry, Linear, CRM, and the catch-all).
+        More specific rules get a lower <code>seq</code> so they win:
       </p>
-      <pre><code># corp-routes.yaml
-routes:
-  - seq: -10
-    match: "chat_jid=hook:*/sentry/*"
-    target: corp/eng/sre
-  - seq: -5
-    match: "chat_jid=hook:*/linear/*"
-    target: corp/pm
-  - seq: 0
-    match: "chat_jid=hook:*/crm/*"
-    target: corp/sales
-  - seq: 10
-    match: ""
-    target: corp/intake</code></pre>
-      <pre><code>arizuko apply corp corp-routes.yaml</code></pre>
+      <pre><code>arizuko route corp add 'chat_jid=hook:*/sentry/*' corp/eng/sre --seq -10
+arizuko route corp add 'chat_jid=hook:*/linear/*' corp/pm      --seq -5
+arizuko route corp add 'chat_jid=hook:*/crm/*'    corp/sales   --seq 0
+arizuko route corp add '*'                        corp/intake  --seq 10</code></pre>
+      <p>
+        For bulk or GitOps-style edits, declare the same rows in a YAML
+        manifest and <code>arizuko apply corp corp-routes.yaml</code> instead.
+      </p>
       <p>
         Route priority: more specific rules (lower <code>seq</code>) win.
         The catch-all at <code>corp/intake</code> handles anything that
@@ -240,15 +233,15 @@ arizuko token corp issue webhook corp/eng/review github
         no Turn fires; nothing gets sent to the channel.
       </p>
       <p>
-        Add the route in the dashd routes admin UI at <code>/dash/</code>,
-        or declare it in a YAML manifest:
+        Add the observe route (the <code>#observe</code> fragment on the
+        target makes the agent watch without replying):
       </p>
-      <pre><code># observe-route.yaml
-routes:
-  - seq: 5
-    match: "chat_jid=slack:*/channel/C-general/*"
-    target: corp/eng#observe</code></pre>
-      <pre><code>arizuko apply corp observe-route.yaml</code></pre>
+      <pre><code>arizuko route corp add 'chat_jid=slack:*/channel/C-general/*' 'corp/eng#observe' --seq 5</code></pre>
+      <p>
+        You can also add it in the dashd routes admin UI at
+        <code>/dash/</code>, or declare it in a YAML manifest and
+        <code>arizuko apply</code>.
+      </p>
       <p>
         When the agent in <code>corp/eng</code> is answering a question, it
         can surface context from the observed #general channel via
@@ -274,8 +267,8 @@ routes:
         <dt><strong>Agent replies in the wrong folder.</strong></dt>
         <dd>Route priority. Run <code>arizuko get corp routes</code> and
         check <code>seq</code> values &mdash; lower wins. Add a more specific
-        rule with a lower <code>seq</code> via <code>arizuko apply</code> to
-        override the catch-all.</dd>
+        rule with a lower <code>seq</code> via
+        <code>arizuko route corp add</code> to override the catch-all.</dd>
       </dl>
 
       <h2>go deeper</h2>

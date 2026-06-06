@@ -2,7 +2,7 @@
 status: shipped
 ---
 
-# specs/6/H — Per-daemon channel secrets
+# specs/7/H — Per-daemon channel secrets
 
 ## What this solves
 

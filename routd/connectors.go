@@ -7,7 +7,7 @@ package routd
 // private glue) — the TOML shape, env override, validation, and 15s discovery
 // timeout are identical so routd and gated load the same file the same way.
 // The reusable half (ConnectorSpec + DiscoverConnectorTools + CallConnectorTool)
-// lives in ipc and is shared verbatim. Spec 9/11 M6.
+// lives in ipc and is shared verbatim. Spec 7/Y M6.
 
 import (
 	"context"

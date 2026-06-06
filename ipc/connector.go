@@ -1,7 +1,7 @@
 package ipc
 
 // MCP connector: spawn a third-party MCP server as a stdio subprocess,
-// proxy its tools through the broker. Per spec 9/11 § "Connector
+// proxy its tools through the broker. Per spec 7/Y § "Connector
 // declaration". v1 is per_call only — subprocess lifetime is one call.
 //
 // On boot gated calls tools/list once with empty secrets to harvest the
@@ -119,7 +119,7 @@ func DiscoverConnectorTools(ctx context.Context, spec *ConnectorSpec) ([]Connect
 
 // CallConnectorTool spawns the connector subprocess with secrets rendered
 // into its env, proxies tools/call, scrubs known secret values from the
-// result text, and tears down. Per spec 9/11 § "Why the agent can't leak
+// result text, and tears down. Per spec 7/Y § "Why the agent can't leak
 // the credential" the value scrub is exact-string match against the
 // (finite) per-call secret set.
 func CallConnectorTool(

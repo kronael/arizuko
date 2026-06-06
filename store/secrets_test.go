@@ -340,7 +340,7 @@ func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	}
 }
 
-// v1 stores plaintext per spec 9/11. Verify the `value` column holds the
+// v1 stores plaintext per spec 7/Y. Verify the `value` column holds the
 // raw string written, not a ciphertext.
 func TestSecretPlaintextAtRest(t *testing.T) {
 	s, _ := OpenMem()

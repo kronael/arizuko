@@ -1,4 +1,4 @@
-# Spec 8/9 — arizuko Positioning in the Agent Orchestration Landscape
+# Spec 6/9 — arizuko Positioning in the Agent Orchestration Landscape
 
 Status: research / informational
 

@@ -10,7 +10,7 @@ import (
 
 // TestConnector_GitHubPATIntegration smoke-tests the github-mcp connector
 // end-to-end when GITHUB_TOKEN is set in the test env (mirroring the
-// operator-side path). Skips otherwise. Spec 9/11 M7.
+// operator-side path). Skips otherwise. Spec 7/Y M7.
 //
 // Requires:
 //   - GITHUB_TOKEN env (fine-grained PAT, read scope on a public repo)

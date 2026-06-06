@@ -79,7 +79,7 @@ func (s *Store) storeValue(plaintext string) (string, error) {
 }
 
 // SecretScope is the kind of scope a secret is bound to: a folder path glob
-// or an auth user sub. See specs/11/11-crackbox-secrets.md.
+// or an auth user sub. See specs/7/Y-secret-broker.md.
 //
 // v1: plaintext storage. Operator trusts disk + FS permissions.
 // Encryption at rest deferred.

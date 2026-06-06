@@ -38,7 +38,7 @@ Three concrete pulls, in order of weight:
 
 Out of scope as a motivation: file events are NOT a fence — the agent
 already wrote the file by the time the event fires. Use HITL firewall
-(`specs/8/4`) for prevention; file events are for observability.
+(`specs/6/4`) for prevention; file events are for observability.
 
 ## Architecture
 
@@ -232,7 +232,7 @@ Same fan-out pattern as `round_done`:
   to its folder. No global "all writes across the instance" view.
 - **In-flight rejection** — file events are observability, not a
   guard. Preventing a write is HITL firewall's job
-  (`specs/8/4-hitl-firewall.md`).
+  (`specs/6/4-hitl-firewall.md`).
 - **Diff content** — events carry size, not content. If a consumer
   needs the diff, it reads the file via davd. Storing diffs would
   multiply our storage cost by 100x for marginal value.

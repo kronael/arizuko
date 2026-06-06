@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# specs/6/G — Slack multi-workspace + OAuth install
+# specs/7/G — Slack multi-workspace + OAuth install
 
 ## What this solves
 
@@ -16,7 +16,7 @@ per deployment without running N separate instances.
   stores `access_token` per `team_id` in the `secrets` table
 - Multi-workspace dispatch: slakd routes events by `team_id` to the right
   group folder; one slakd process, N workspaces
-- Per-workspace bot token stored encrypted (depends: specs/6/E)
+- Per-workspace bot token stored encrypted (depends: specs/7/E)
 - Workspace → folder mapping configurable via routes table or a new `workspaces` table
 
 ## Not in scope

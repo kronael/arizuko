@@ -109,27 +109,18 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
 
       <h2>4. add the catch-all route</h2>
       <p>
-        Routes are declared in a YAML manifest and applied with
-        <code>arizuko apply</code> (<a href="../../reference/cli.html">CLI reference</a>).
-        Create <code>shop-routes.yaml</code>:
+        Send every inbound message to the <code>supermarket</code> folder
+        (<a href="../../reference/cli.html#route">CLI reference</a>):
       </p>
-      <pre><code>routes:
-  - seq: 0
-    match: ""
-    target: supermarket</code></pre>
+      <pre><code>arizuko route shop add '*' supermarket</code></pre>
       <p>
         For Telegram only (not web chat), scope the match:
       </p>
-      <pre><code>routes:
-  - seq: 0
-    match: "platform=telegram"
-    target: supermarket</code></pre>
+      <pre><code>arizuko route shop add 'platform=telegram' supermarket</code></pre>
       <p>
-        Apply with:
-      </p>
-      <pre><code>arizuko apply shop shop-routes.yaml</code></pre>
-      <p>
-        You can also add the route from the dashd routes admin UI at
+        For bulk or GitOps-style edits, declare routes in a YAML manifest
+        and <code>arizuko apply shop shop-routes.yaml</code> instead. You
+        can also add the route from the dashd routes admin UI at
         <code>/dash/</code>.
       </p>
 

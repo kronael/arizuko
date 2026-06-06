@@ -164,7 +164,7 @@ gated keeps around past the subprocess lifetime.
 
 The resolution step is implemented as **one middleware** in the
 dispatch chain, callable as `InjectSecrets(handler)`. It sits between
-`GrantsCheck` (which spec 6/5 owns) and the wrapped handler:
+`GrantsCheck` (which spec 5/5 owns) and the wrapped handler:
 
 ```
 GrantsCheck  →  InjectSecrets  →  Recover/Timeout  →  Handler
@@ -173,7 +173,7 @@ GrantsCheck  →  InjectSecrets  →  Recover/Timeout  →  Handler
 Today `ipc/ipc.go:519-528` does grant checks inline. The broker
 introduces only the `InjectSecrets` middleware; the other chain
 positions are notional (the existing code does Recover/Timeout
-already; spec 6/5 lays out grants). Each tool dispatch already has a
+already; spec 5/5 lays out grants). Each tool dispatch already has a
 `Caller` per [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md).
 The middleware does:
 
@@ -283,7 +283,7 @@ No proxy changes. No CA. No TLS termination. No
   Add `MCPTool.SecretScopes map[string]Scope` if needed; not v1.
 - **`caller.Folder` source for chat-routed calls** — `ipc/ipc.go`
   builds it per turn from the spawn folder; the per-call `Caller` shape
-  lands with spec 6/5. v1 reads `folder` from the existing closure.
+  lands with spec 5/5. v1 reads `folder` from the existing closure.
 
 ## Out of scope
 
@@ -303,7 +303,7 @@ No proxy changes. No CA. No TLS termination. No
 
 ## Cross-references
 
-- [`specs/8/product-slack-team.md`](../8/product-slack-team.md) — per-user
+- [`specs/6/product-slack-team.md`](../6/product-slack-team.md) — per-user
   GitHub token flow, the canonical v1 user.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.

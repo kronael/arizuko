@@ -106,4 +106,4 @@ log_external_cost(
 Skipping this hides the call from cost-caps. The operator still sees
 it on OpenAI's invoice but the per-folder cap doesn't include it.
 
-Spec: `specs/5/H-call-llm-mcp.md`, `specs/5/34-cost-caps.md`.
+Spec: `specs/5/H-call-llm-mcp.md`, `specs/10/19-cost-caps.md`.

@@ -8,7 +8,7 @@ import (
 )
 
 // SecretUseRow is one audit row written by the broker middleware per
-// (tool call × resolved key). Spec 9/11. Persists to the legacy
+// (tool call × resolved key). Spec 7/Y. Persists to the legacy
 // secret_use_log table AND emits one audit_log row (category=access /
 // secret, action=secret.read) per call.
 type SecretUseRow struct {

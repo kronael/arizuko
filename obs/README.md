@@ -52,6 +52,6 @@ forensics.
 ## Non-goals
 
 - OTLP export of `audit_log` (SQLite is canonical;
-  [`../specs/6/F-audit-stream.md`](../specs/6/F-audit-stream.md)).
+  [`../specs/7/F-audit-stream.md`](../specs/7/F-audit-stream.md)).
 - OTel metrics / tracing SDKs (logs only).
 - Manual span creation per call.

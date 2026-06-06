@@ -3,7 +3,7 @@ package gateway
 // Connector loader: reads <data_dir>/connectors.toml at gated boot,
 // discovers each connector's tools by spawning the subprocess once,
 // returns a namespaced ConnectorTool catalog for the MCP layer to
-// register through the broker chain. Spec 9/11 M6.
+// register through the broker chain. Spec 7/Y M6.
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type connectorFile struct {
 // override CONNECTORS_TOML if set), spawns each one to harvest its
 // tool catalog, returns the flattened namespaced list. Missing file
 // is not an error — returns nil. Bad TOML, unknown scope, or
-// discovery failure ARE errors (fail-fast at boot per spec 9/11).
+// discovery failure ARE errors (fail-fast at boot per spec 7/Y).
 func LoadConnectors(ctx context.Context, projectRoot string) ([]ipc.ConnectorTool, error) {
 	path := os.Getenv("CONNECTORS_TOML")
 	if path == "" {

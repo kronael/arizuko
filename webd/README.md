@@ -118,5 +118,5 @@ delivered messages.
 
 - `specs/5/5-uniform-mcp-rest.md` — federated `/v1/*` contract
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
-- `specs/6/3-chat-ui.md`
+- `specs/4/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

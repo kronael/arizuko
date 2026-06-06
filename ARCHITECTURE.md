@@ -330,7 +330,7 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `groups`           | folder (PK), name, container_config, parent, model (`slink_token` column dropped in migration 0059)                                            |
 | `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md))                  |
 | `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                                               |
-| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 6/F)                                                     |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 7/F)                                                     |
 | `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                                                              |
 | `system_messages`  | id, group_id, origin, event, body                                                                                                              |
 | `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                                                         |
@@ -579,7 +579,7 @@ Three substrates, clearly split:
 - **`audit_log` SQLite table** — source of truth for state-changing
   operations. ACID, transactional with the mutation. Forensic queries
   via `sqlite3`. Spec [`5/I`](specs/5/I-tool-call-logging.md) +
-  [`6/F`](specs/6/F-audit-stream.md).
+  [`7/F`](specs/7/F-audit-stream.md).
 - **slog → journald** — operational telemetry for everything (state
   changes + reads). High-rate, lossy by design (journald rotation,
   level filtering). `journalctl -u arizuko_<inst>` is the default
@@ -671,10 +671,10 @@ today:
   under this folder via `#observe` routes; `gateway/gateway.go`
 - `<topic name=…/>` — scope envelope on every turn (empty for main).
   Parent topic context arrives via the forked Claude Code session,
-  not via injection (spec 6/F rev6); `gateway/gateway.go`
+  not via injection (spec 7/F rev6); `gateway/gateway.go`
 - `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
   emitted when the trigger arrives via an open Slack assistant pane
-  (spec 6/D); `gateway/gateway.go`
+  (spec 7/D); `gateway/gateway.go`
 
 Full table with line cites and the convention for adding a block
 lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See

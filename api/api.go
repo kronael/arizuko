@@ -298,7 +298,7 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// bot's own messages to verb=mention. Keeps adapters dumb (they ship
 	// the raw like/dislike/message); routing layer sees a uniform signal
 	// across all platforms. Skip when already 'mention' (no overwrite).
-	// Skip when 'untrusted' — spec 8/17 collision: an unverified sender
+	// Skip when 'untrusted' — spec 10/17 collision: an unverified sender
 	// reply-to-bot must NOT escalate to trigger the agent.
 	if verb != "mention" && verb != "untrusted" && req.ReplyTo != "" &&
 		s.store.IsBotMessageByID(req.ReplyTo) {

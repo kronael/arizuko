@@ -3,7 +3,7 @@ status: drafting
 depends: specs/5/5-uniform-mcp-rest.md
 ---
 
-# specs/7/2 — data model improvements (toward serialization-friendly entities)
+# specs/8/2 — data model improvements (toward serialization-friendly entities)
 
 ## Why
 
@@ -28,10 +28,10 @@ row knows which tier it belongs to.
 ## What this spec is
 
 A pre-migration spec. It does NOT define the on-disk git format
-(that's `specs/7/3-git-as-truth.md`). It DOES decide which fields
+(that's `specs/8/3-git-as-truth.md`). It DOES decide which fields
 in which tables migrate, which stay, and what shape they take.
 
-## The three tiers (recap from `specs/7/index.md`)
+## The three tiers (recap from `specs/8/index.md`)
 
 | Tier              | Examples                                                                                | Lives in (post-phase)                |
 | ----------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
@@ -102,7 +102,7 @@ gets pushed/cloned/diffed.
 
 These don't exist yet as tables. They're introduced fully cold:
 TOML files in git. SQLite gets a `deployments` operational cache
-table for fast lookup. See `specs/7/3-git-as-truth.md` for the
+table for fast lookup. See `specs/8/3-git-as-truth.md` for the
 serialization shape.
 
 ## Schema changes implied
@@ -119,7 +119,7 @@ with Action 3. The minimal set this spec commits to:
 4. Define `audit_log` write contract — used for warm-tier
    decisions only (the per-turn sidecar). Cold tier does NOT
    emit audit rows because the working tree + git history IS the
-   audit (per `specs/7/3-git-as-truth.md`).
+   audit (per `specs/8/3-git-as-truth.md`).
 
 Migrations under `store/migrations/` as usual. Schema owner is
 `gated` (CLAUDE.md). Other daemons connect r/w but never migrate.

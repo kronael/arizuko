@@ -41,7 +41,7 @@ ant/output-styles/
   slack-dm.md           # 1:1 DM
   slack-channel.md      # top-level channel reply (hard 200ch cap)
   slack-thread.md       # threaded reply (full ceiling)
-  slack-pane.md         # assistant.threads pane (spec 6/D)
+  slack-pane.md         # assistant.threads pane (spec 7/D)
 
   telegram.md           # fallback
   telegram-dm.md
@@ -274,7 +274,7 @@ Catalog of plausible future hints:
 | Hint                                 | Source        | Why agent wants it                  |
 | ------------------------------------ | ------------- | ----------------------------------- |
 | `topic`, `parent_topic`              | 5/F (shipped) | scope replies; thread conflation    |
-| `pane-context`                       | 6/D (shipped) | fetch related history pre-reply     |
+| `pane-context`                       | 7/D (shipped) | fetch related history pre-reply     |
 | `surface` (output-style file picker) | this spec     | length cap, tone, actions           |
 | `engagement` (ttl/state)             | 5/G           | knows when re-mention is needed     |
 | `reply-mode` (thread/top/new-thread) | 5/G           | guide outbound `thread_ts` decision |

@@ -1,16 +1,16 @@
 ---
 status: open-questions
-depends: specs/7/2-data-model.md, specs/7/3-git-as-truth.md
+depends: specs/8/2-data-model.md, specs/8/3-git-as-truth.md
 ---
 
-# specs/7/4 — data ingestion, curation, eventing in the agent-is-data world
+# specs/8/4 — data ingestion, curation, eventing in the agent-is-data world
 
 ## Why this exists
 
-Phase 7 lands the platform thesis: MCP+REST as the runtime surface
-(7/1), tiered entities (7/2), git as cold-tier truth (7/3). What it
+Phase 8 lands the platform thesis: MCP+REST as the runtime surface
+(8/1), tiered entities (8/2), git as cold-tier truth (8/3). What it
 does NOT say is what happens at the edges where data enters, gets
-curated, and triggers reactions across products. After 7/3 ships, an
+curated, and triggers reactions across products. After 8/3 ships, an
 "agent product" is largely an entry in a git repo (`agents.toml`
 block + persona + skills + ACL refs + secret refs). The user's open
 question (`.diary/20260525.md`):
@@ -27,7 +27,7 @@ This spec poses the questions. Design happens later.
 `discd`, `mastd`, `bskyd`, `reditd`, `emaid`, `twitd`, `linkd`,
 `webd`) `POST /v1/messages` into the shared store via the channel
 protocol (`specs/4/1`); `timed` injects scheduled prompts; `davd`
-mounts WebDAV for human drops; `filewd` (`specs/8/3`) proposes
+mounts WebDAV for human drops; `filewd` (`specs/6/3`) proposes
 agent-side file events; MCP connectors land data as tool-call results.
 All paths converge on `messages`. No "ingestion source" entity, no
 per-source dedup key, no per-source retention.
@@ -56,7 +56,7 @@ git. The three axes map onto that boundary differently:
   is hot. The product manifest carries neither today.
 - **Curation** straddles. Inputs are hot (messages, attachments);
   outputs are filesystem artifacts (`MEMORY.md`, `episodes/`,
-  `.diary/`) that 7/3 commits to git on the per-turn boundary. So
+  `.diary/`) that 8/3 commits to git on the per-turn boundary. So
   outputs land in git automatically — but cadence, scope, and
   retention are not declared anywhere a product can carry.
 - **Eventing** is the messiest. Routes are cold; dispatch is hot.
@@ -70,7 +70,7 @@ answer.
 
 ### Q1. Inbound storage shape — git, SQLite, or both?
 
-Already flagged in `7/3 ## Hot path`. Restated because every other
+Already flagged in `8/3 ## Hot path`. Restated because every other
 ingestion question depends on it. Options: hot-only in SQLite |
 per-day digest in git (`turns/<YYYY-MM-DD>.jl` per chat per folder) |
 per-source split (Slack digest, webhook full, voice media-only).
@@ -78,8 +78,8 @@ Affects audit, replay, fork cost, repo size.
 
 ### Q2. Product manifest — does it declare ingestion?
 
-`PRODUCT.md` today (`specs/8/P-product-templates.md`) declares
-`name`, `tagline`, `skills`, `[[env]]` hints. Phase 7 introduces
+`PRODUCT.md` today (`specs/6/P-product-templates.md`) declares
+`name`, `tagline`, `skills`, `[[env]]` hints. Phase 8 introduces
 `agents.toml` as the platform-level composer. Does it extend to
 ingestion?
 
@@ -142,7 +142,7 @@ is fixed; under agent-is-data, is it still?
 
 Operator says "drop ingested data older than 90 days." Three
 mechanisms collide: SQLite GC (straightforward, nightly vacuum
-extends) | git history rewrite (destroys the audit guarantee 7/3
+extends) | git history rewrite (destroys the audit guarantee 8/3
 sells; not viable) | per-source policy (Slack ≠ webhook ≠ voice).
 
 GDPR / right-to-be-forgotten makes this load-bearing for EU-data
@@ -179,16 +179,16 @@ later, not as amendments here.
 
 - Does NOT propose a mechanism. No `[[ingestion]]` syntax is being
   ratified; the examples above are illustrations, not decisions.
-- Does NOT extend `specs/8/3-file-event-stream.md`. That spec is
+- Does NOT extend `specs/6/3-file-event-stream.md`. That spec is
   narrowly scoped to in-container `filewd`; this is the platform-level
   surface around it.
 - Does NOT touch the messages-table schema. Hot tier shape is
-  `specs/7/2-data-model.md`.
-- Does NOT replace `specs/8/8-company-brain.md`. That spec frames
+  `specs/8/2-data-model.md`.
+- Does NOT replace `specs/6/8-company-brain.md`. That spec frames
   the retrieval-layer gap; this spec is the platform-side surface
   independent of company-brain positioning.
 - Does NOT presume `agents.toml` exists yet. The composer is drafted
-  separately (`specs/7/index.md ## What this phase is NOT`); this
+  separately (`specs/8/index.md ## What this phase is NOT`); this
   spec asks how ingestion/curation/eventing would compose into it.
 
 ## Pointers
@@ -197,8 +197,8 @@ later, not as amendments here.
   synthesis at 15:00).
 - Original prompt: `.diary/20260525.md` (evening).
 - Adjacent platform specs: `specs/5/5-uniform-mcp-rest.md`,
-  `specs/7/2-data-model.md`, `specs/7/3-git-as-truth.md`.
-- File-event-stream (in-container, narrow): `specs/8/3-file-event-stream.md`.
-- Retrieval-layer gap framing: `specs/8/8-company-brain.md`.
+  `specs/8/2-data-model.md`, `specs/8/3-git-as-truth.md`.
+- File-event-stream (in-container, narrow): `specs/6/3-file-event-stream.md`.
+- Retrieval-layer gap framing: `specs/6/8-company-brain.md`.
 - Ingestion failure mode behind Q3: `.diary/20260525.md ## 11:30`
   (578 silent cron successes, 35+ missing rollups).

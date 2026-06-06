@@ -32,7 +32,7 @@ func openStoreWithKey(dataDir string) (*store.Store, error) {
 }
 
 // cmdSecret manages folder-scoped secrets (operator-only). User secrets
-// live behind `arizuko user-secret`. Spec 9/11.
+// live behind `arizuko user-secret`. Spec 7/Y.
 func cmdSecret(args []string) {
 	need(args, 2, "arizuko secret <instance> <set|list|delete> ...")
 	instance, action := args[0], args[1]

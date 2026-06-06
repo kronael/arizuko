@@ -1,6 +1,6 @@
 ---
 status: partial
-depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md
+depends: specs/5/5-uniform-mcp-rest.md, specs/8/2-data-model.md
 ---
 
 # specs/5/36 — YAML manifests: transport dump/import for cold-tier config
@@ -8,13 +8,13 @@ depends: specs/5/5-uniform-mcp-rest.md, specs/7/2-data-model.md
 > **DECISION.** The SQLite DB is authoritative. YAML manifests are a
 > transport dump/import — `pg_dump` / `pg_restore` for the cold tier — not
 > a continuously-synced source of truth. No DB→YAML sync, no startup-apply,
-> no SIGHUP-reload. `specs/7/3-git-as-truth.md`'s continuously-synced
+> no SIGHUP-reload. `specs/8/3-git-as-truth.md`'s continuously-synced
 > cold-tier-config is superseded; committing an `export` dump to git is fine
-> (7/3 itself is unedited — read its `agents.toml` references through this lens).
+> (8/3 itself is unedited — read its `agents.toml` references through this lens).
 
 ## Why
 
-7/2's cold/warm/hot boundary leaves `agents.toml` unspecified. This spec
+8/2's cold/warm/hot boundary leaves `agents.toml` unspecified. This spec
 replaces it with a YAML manifest carrying an instance's cold-tier config:
 ACL, routes, secrets metadata, scheduled tasks, proxyd routes, web routes,
 network rules, group registration. Tokens (`invites`, `route_tokens`) are
@@ -27,7 +27,7 @@ runtime MCP/REST row ops change the DB, not the YAML. A dump never claims to
 be live, so "drift" is a non-concept.
 
 Product composition, cross-product subscriptions, and ingestion semantics
-([`7/4`](../7/4-data-ingestion-curation-eventing.md) Q2 + Q5) remain open — this
+([`8/4`](../8/4-data-ingestion-curation-eventing.md) Q2 + Q5) remain open — this
 spec gives them a place to land later, not an answer.
 
 ## Surface
@@ -607,7 +607,7 @@ table-shaped cold-tier rows (operator intent: ACL, routes, tasks); apply
 writes them to DB in one tx. Markdown carries prose (`PERSONA.md`,
 `MEMORY.md`, `.diary/`, `decisions/<sha>.md`, `skills/<name>/SKILL.md`,
 `PRODUCT.md`) — agent context living in the group directory, never manifest
-rows, never referenced from YAML, never content-hashed in the DB; 7/3 manages
+rows, never referenced from YAML, never content-hashed in the DB; 8/3 manages
 their git lifecycle.
 
 ## Apply lifecycle
@@ -737,7 +737,7 @@ Markdown sidecars; (3) `arizuko plan` output (blob shown as "set"/"unset");
 `secrets.create`/`.update` (resreg `params_summary` redaction). Setting a
 blob is a separate operator-gated command, `arizuko secret set <scope>/<name>
 <value>`. Trust boundary unchanged from
-[`7/2 ## secrets`](../7/2-data-model.md#secrets).
+[`8/2 ## secrets`](../8/2-data-model.md#secrets).
 
 ## Status is not in the manifest
 
@@ -749,12 +749,12 @@ spec/status boundary `kubectl` draws.
 
 - [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) — resreg defines the
   per-resource handler + REST + MCP surface the apply tool talks to.
-- [`../7/2-data-model.md`](../7/2-data-model.md) — cold/warm/hot tier
+- [`../8/2-data-model.md`](../8/2-data-model.md) — cold/warm/hot tier
   boundary; this spec touches cold tier only.
-- [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) — **reframed, not
+- [`../8/3-git-as-truth.md`](../8/3-git-as-truth.md) — **reframed, not
   adopted** (see lead DECISION). Its `agents.toml` placeholder is replaced;
-  its continuously-synced premise is rejected. 7/3 is unedited.
-- [`../7/4-data-ingestion-curation-eventing.md`](../7/4-data-ingestion-curation-eventing.md)
+  its continuously-synced premise is rejected. 8/3 is unedited.
+- [`../8/4-data-ingestion-curation-eventing.md`](../8/4-data-ingestion-curation-eventing.md)
   — Q2/Q5 open; extend the resource catalog when they resolve.
 - [`32-tenant-self-service.md`](32-tenant-self-service.md) — Phase C secret
   layering composes with the `secrets` resource here.
@@ -768,7 +768,7 @@ spec/status boundary `kubectl` draws.
 - No conversion from imperative `arizuko group add` verbs (they stay for
   ad-hoc work; manifests are the declarative path).
 - No product composition / mixin semantics or eventing primitives (open in
-  7/4 Q2/Q5, later spec).
+  8/4 Q2/Q5, later spec).
 
 ## Open questions
 

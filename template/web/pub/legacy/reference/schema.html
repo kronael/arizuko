@@ -427,7 +427,7 @@
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Plaintext at rest (operator trusts disk + FS perms per <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a>).</p>
+      <p>Folder- and user-scoped secret values. Plaintext at rest (operator trusts disk + FS perms per <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">spec 7/Y</a>).</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
@@ -445,7 +445,7 @@
 
     <div class="tablecard">
       <h3><code>secret_use_log</code></h3>
-      <p>Audit log for the secret broker (spec 9/11). One row per tool-call &times; resolved key. No secret values stored.</p>
+      <p>Audit log for the secret broker (spec 7/Y). One row per tool-call &times; resolved key. No secret values stored.</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>ts</code></td><td>TEXT NOT NULL</td><td></td><td>RFC3339Nano</td></tr>

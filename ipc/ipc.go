@@ -116,7 +116,7 @@ type TurnResult struct {
 
 	// CallerSub is the user_sub the turn ran on behalf of (empty for
 	// channel-scoped turns). Spec 5/34 uses this for per-user spend
-	// aggregation; spec 6/5 will replace it with full Caller shape.
+	// aggregation; spec 5/5 will replace it with full Caller shape.
 	CallerSub string `json:"caller_sub,omitempty"`
 }
 
@@ -219,7 +219,7 @@ type StoreFns struct {
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
 	// Connectors is the (discovered, namespaced) MCP-subprocess tool
 	// catalog, registered through the broker chain at buildMCPServer.
-	// Empty/nil disables the connector path. Spec 9/11 M6.
+	// Empty/nil disables the connector path. Spec 7/Y M6.
 	Connectors []ConnectorTool
 
 	// ResolveConnectorSecrets returns the folder/user-scoped secret values a
@@ -228,7 +228,7 @@ type StoreFns struct {
 	// result to CallConnectorTool — which expands `{secret:KEY}` into the
 	// subprocess env AND scrubs those values from the result. Nil → no
 	// injection (the connector sees the placeholders literally), matching the
-	// pre-injection behaviour. Spec 9/11 / 11/11.
+	// pre-injection behaviour. Spec 7/Y.
 	ResolveConnectorSecrets func(folder string, required []string) map[string]string
 
 	// Authorize checks whether sub may call action (e.g. "mcp:send") with

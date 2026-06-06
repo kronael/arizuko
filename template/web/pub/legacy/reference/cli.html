@@ -278,7 +278,7 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
 
     <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
-    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/10/19-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
 
     <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
     <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>
@@ -329,9 +329,9 @@ arizuko network krons list corp/eng</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L66"><code>cmd/arizuko/network.go:66</code></a></p>
 
     <h2 id="secret" class="group-h2">Secrets (folder &amp; user)</h2>
-    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md"><code>specs/9/11-crackbox-secrets.md</code></a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
+    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md"><code>specs/7/Y-secret-broker.md</code></a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
 
-    <div class="callout"><strong>Status:</strong> <code>cmd/arizuko/secret.go</code> is currently uncommitted on the working branch. The feature ships under <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a> (folder + user scopes, REST + MCP surface). Commands documented here reflect the in-flight implementation; signatures will land in the next tag.</div>
+    <div class="callout"><strong>Status:</strong> <code>cmd/arizuko/secret.go</code> is currently uncommitted on the working branch. The feature ships under <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">spec 7/Y</a> (folder + user scopes, REST + MCP surface). Commands documented here reflect the in-flight implementation; signatures will land in the next tag.</div>
 
     <h3 id="secret-set"><span class="sig">arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</span></h3>
     <p>Store a folder-scoped secret. <code>--value</code> is required; empty values rejected. Key is validated against the uppercase ENV-style pattern.</p>

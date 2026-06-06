@@ -255,7 +255,7 @@ All five items landed in the spec (`specs/5/35-proxyd-standalone.md`):
 
 ## 4. Open-question routing
 
-The four open questions at `specs/6/index.md` L46-52 land as follows:
+The four open questions at `specs/7/index.md` L46-52 land as follows:
 
 | Open question                                | Lands in               | Section there                                                                                                           |
 | -------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |

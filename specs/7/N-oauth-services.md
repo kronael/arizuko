@@ -4,7 +4,7 @@ depends: [Y-secret-broker, 11/14-surrogate-oauth]
 relates-to: [4/9-acl-unified]
 ---
 
-# specs/6/N — third-party OAuth services as agent capabilities
+# specs/7/N — third-party OAuth services as agent capabilities
 
 ## What this is
 
@@ -34,7 +34,7 @@ key)` already holds tokens. [`11/14`](../11/14-surrogate-oauth.md)
   identity-only (`exchangeGoogle` discards refresh/expiry,
   `auth/oauth.go:269`); 11/14's `auth/surrogate.go` is the unbuilt
   token-persisting half.
-- **Broker** — [`6/Y`](Y-secret-broker.md): M2–M6 shipped (schema,
+- **Broker** — [`7/Y`](Y-secret-broker.md): M2–M6 shipped (schema,
   dashd UI, CLI, spawn-env, connector spawner). **M0/M1 unshipped** —
   `ipc/ipc.go:845` passes `nil` secrets to `CallConnectorTool`; the
   broker middleware that resolves `user∥folder` secrets and passes
@@ -52,7 +52,7 @@ GitHub via a **pasted PAT** (no OAuth dance yet):
    already exists).
 2. `connectors.toml` declares the GitHub MCP server with
    `{secret:GITHUB_PAT}` in its env.
-3. Ship **6/Y M0/M1** — the broker middleware that resolves the secret
+3. Ship **7/Y M0/M1** — the broker middleware that resolves the secret
    and passes it to `CallConnectorTool` instead of `nil`. ~110 LOC.
 
 That's the whole vertical slice. No new daemon, no new table, no
@@ -64,7 +64,7 @@ OAuth (replace pasted PAT with a real "Connect" flow) is
 
 ## What this spec still owns
 
-Two decisions not covered by 6/Y or 11/14:
+Two decisions not covered by 7/Y or 11/14:
 
 1. **Hosted vs local MCP server, per provider.** Linear ships a hosted
    MCP (`mcp.linear.app/mcp`, OAuth 2.1 + DCR); GitHub's hosted lacks
@@ -79,11 +79,11 @@ Two decisions not covered by 6/Y or 11/14:
 
 Everything else this spec previously discussed (token storage shapes,
 agent-GSuite vision, the OAuth lifecycle, ACL scope grammar) is owned
-by 6/Y, 11/14, and 4/9. This spec does not duplicate them.
+by 7/Y, 11/14, and 4/9. This spec does not duplicate them.
 
 ## Pointers
 
-- [`6/Y-secret-broker.md`](Y-secret-broker.md) — the broker; ship M0/M1.
+- [`7/Y-secret-broker.md`](Y-secret-broker.md) — the broker; ship M0/M1.
 - [`11/14-surrogate-oauth.md`](../11/14-surrogate-oauth.md) — the OAuth token writer.
 - `ipc/connector.go` — the dispatch path (mounted MCP server).
 - `gateway/connectors.go` — `connectors.toml` loader.

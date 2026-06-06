@@ -2,7 +2,7 @@
 status: active
 ---
 
-# specs/8 — products
+# specs/6 — products
 
 Launching products built on arizuko: persona templates, packaging,
 and the publish surface that lets operators deploy a configured agent

@@ -2,7 +2,7 @@
 status: active
 ---
 
-# specs/6 — enterprise hardening: trust primitives on top of phase 5
+# specs/7 — enterprise hardening: trust primitives on top of phase 5
 
 The trust layer. Hardening that makes arizuko credible to regulated
 buyers and enterprise security reviews:
@@ -23,29 +23,29 @@ buyers and enterprise security reviews:
 
 ## Where this leads
 
-Phase 6 hardening composes with phase 7's git-as-truth into the
+Phase 7 hardening composes with phase 8's git-as-truth into the
 platform thesis:
 
 - **Audit stream** (`F`) provides the SQLite audit log that
-  pairs with git history for warm-tier decisions; phase 7's
+  pairs with git history for warm-tier decisions; phase 8's
   per-turn decision sidecar references the same actor identities.
 - **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
-  while phase 7 explicitly keeps secrets OUT of git (refs only).
+  while phase 8 explicitly keeps secrets OUT of git (refs only).
 - **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
-  the secret access surface that phase 7 references via
+  the secret access surface that phase 8 references via
   `(scope, name)` tuples in `agents.toml`.
 - **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
-  asks; they don't depend on phase 7 but make the same buyer
+  asks; they don't depend on phase 8 but make the same buyer
   ready to adopt it.
 
 ## Scope notes
 
 Two specs in this phase are channel-flavored historical exceptions
 (D-slack-agent-pane, G-slack-multi-workspace) that bled in before
-the phase 5/6 split was clean. Per-platform adapter behavior
+the phase 5/7 split was clean. Per-platform adapter behavior
 generally lives next to daemon code (`slakd/`, `teled/`, etc.),
 not as spec files. Future channel-specific items get a per-daemon
-README rather than a phase-6 spec.
+README rather than a phase-7 spec.
 
 | Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
 | -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,7 +55,7 @@ README rather than a phase-6 spec.
 | [F-audit-stream.md](F-audit-stream.md)                   | spec    | Audit log: `ipc_audit` table for MCP mutations + `cli_audit` (existing) + slog for proxyd access. No file export.                                                                                                                      |
 | [G-slack-multi-workspace.md](G-slack-multi-workspace.md) | draft   | Slack OAuth install flow + multi-workspace support in slakd.                                                                                                                                                                           |
 | [H-per-daemon-secrets.md](H-per-daemon-secrets.md)       | shipped | Per-daemon channel secrets: each adapter reads `<DAEMON>_CHANNEL_SECRET` with fallback to `CHANNEL_SECRET` so a leaked per-platform bearer does not compromise the others.                                                             |
-| [N-oauth-services.md](N-oauth-services.md)               | draft   | Third-party OAuth services (Gmail/Linear/GitHub/Notion/…) as agent capabilities. Index spec — mechanism ships via `6/Y` broker + `11/14` surrogate-OAuth + `ipc/connector.go`. Moved from `5/N` (depends on phase-6 broker).           |
+| [N-oauth-services.md](N-oauth-services.md)               | draft   | Third-party OAuth services (Gmail/Linear/GitHub/Notion/…) as agent capabilities. Index spec — mechanism ships via `7/Y` broker + `11/14` surrogate-OAuth + `ipc/connector.go`. Moved from `5/N` (depends on phase-7 broker).           |
 | [X-sso-saml.md](X-sso-saml.md)                           | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code, on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                                                            |
 | [Y-secret-broker.md](Y-secret-broker.md)                 | partial | Tool-level secret broker: `injectSecretsAdapter`, `secret_use_log`, `/dash/me/secrets`, connector spawner. M0/M1 (broker middleware) not yet shipped; M2–M6 (schema, CLI, dashd, spawn-env drop) shipped.                              |
 | [Z-egred-mitm.md](Z-egred-mitm.md)                       | draft   | HTTPS-MITM on egred: per-source TLS termination, `$VAR` placeholder swap on Authorization-class headers, CA per instance. Additive to Y — catches opaque HTTP clients (curl, requests, bash-grant scripts) the broker can't.           |

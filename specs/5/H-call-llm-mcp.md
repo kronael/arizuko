@@ -16,7 +16,7 @@ returns its answer as text. No new daemon, no new MCP endpoint.
   doesn't know well)
 - A `codex` binary on the agent container's PATH (add to `ant/Dockerfile`)
 - Secret: `OPENAI_API_KEY` (or `CODEX_API_KEY`) in folder secrets.
-  Note: folder-secret env injection is deferred to spec 6/Y; for now,
+  Note: folder-secret env injection is deferred to spec 7/Y; for now,
   set the key directly in the instance `.env` or pass as an env var.
 
 That's it. No `call_llm` MCP tool. No OpenRouter. No cost tracking.

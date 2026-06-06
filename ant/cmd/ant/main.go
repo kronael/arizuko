@@ -1,7 +1,7 @@
 // ant CLI: drive a Claude agent against an ant-folder.
 //
 // Foundation skeleton. Flag parsing only; the runtime port replaces
-// ant/src/index.ts in a later pass (see specs/5/b-ant-standalone.md).
+// ant/src/index.ts in a later pass (see specs/12/b-ant-standalone.md).
 // Body is a stub returning EX_USAGE (64) so any caller wiring against
 // this binary fails loud rather than silently appearing to work.
 package main
@@ -31,7 +31,7 @@ flags:
 
 status:
   Foundation skeleton — runtime port not yet shipped. See
-  specs/5/b-ant-standalone.md.
+  specs/12/b-ant-standalone.md.
 `)
 	}
 

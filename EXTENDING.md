@@ -220,7 +220,7 @@ with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
 registers each through the broker chain. Per-call invocation
 resolves the declared secrets, renders the env template, spawns the
 subprocess, proxies `tools/call`, scrubs the result, tears the
-subprocess down. Spec `specs/6/Y-secret-broker.md` § "Connector declaration".
+subprocess down. Spec `specs/7/Y-secret-broker.md` § "Connector declaration".
 
 ```toml
 [[mcp_connector]]

@@ -39,7 +39,7 @@ Routes not in the TOML table (hand-wired in `main.go`): `/auth/*`
 (login flow), `/health`, `/pub/*` (vited fallback + external redirect),
 vhost host-header rewriting.
 
-See `specs/6/2-proxyd-standalone.md` for the field semantics.
+See `specs/5/35-proxyd-standalone.md` for the field semantics.
 
 ## Runtime route mutation (`/v1/routes`)
 
@@ -48,7 +48,7 @@ operator-only REST surface. Five endpoints, plus matching MCP tools
 (`routes.list`, `routes.get`, `routes.create`, `routes.update`,
 `routes.delete`) surfaced through webd's `/mcp` bridge. Both faces call
 the same handler in `proxyd/resource.go`; the registry lives in
-`resreg/` (spec 6/5).
+`resreg/` (spec 5/5).
 
 ```
 GET    /v1/routes
@@ -66,7 +66,7 @@ requests without restart and durable across container restarts.
 
 **Authorization**: operator gate is `role:operator` membership in the
 unified ACL (`acl_membership(<sub>, role:operator)`), surfaced as `**`
-in the JWT `groups` claim (spec 6/5 §"Token / auth model" — JWT scope
+in the JWT `groups` claim (spec 5/5 §"Token / auth model" — JWT scope
 claims will replace this once the capability-token work lands).
 
 ## WebDAV write-block

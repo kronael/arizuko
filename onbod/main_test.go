@@ -1974,7 +1974,7 @@ func TestLoadConfigBadPollInterval(t *testing.T) {
 }
 
 // isOperator: operator emerges only from a `**` grant; nil/empty/other
-// grants are not operator (no nil-sentinel — see specs/5/29-acl.md).
+// grants are not operator (no nil-sentinel — see specs/4/9-acl-unified.md).
 func TestIsOperator(t *testing.T) {
 	if !isOperator([]string{"alice", "**"}) {
 		t.Error("** grant must be operator")

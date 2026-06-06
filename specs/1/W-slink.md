@@ -230,7 +230,7 @@ is 1:1 — drift between transports is structurally precluded:
 
 MCP tool names are bare (resource prefix is implicit from the
 `/slink/<token>/mcp` endpoint context), matching the "default
-pattern" clause in spec 6/5. Audit and metrics use the composed
+pattern" clause in spec 5/5. Audit and metrics use the composed
 correlator `slink.<action>`.
 
 `get_round`'s `wait=true` is the request-response form of SSE.

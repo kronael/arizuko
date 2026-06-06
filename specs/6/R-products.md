@@ -22,7 +22,7 @@ the operator works. Two consequences:
   is the model: a table mapping each promise on the public page to the
   primitive that already supports it. Every product spec carries one, so
   "what's free today vs what needs work" is provable, not asserted.
-- **"Focused" is the wedge, not a limitation** ([specs/8/9](9-positioning.md)).
+- **"Focused" is the wedge, not a limitation** ([specs/6/9](9-positioning.md)).
   Constraining the agent to its job's skills (and gating the rest via the
   ACL — Authorization) removes the failure modes general agents have. A
   product is a focused recomposition you own and edit as files, not a
@@ -129,7 +129,7 @@ Products in `ant/examples/` (shipped):
 Public pages at `/pub/products/<name>/` when the web layer is running.
 
 **Company brain** is a positioning product, not a seeded template
-([specs/8/8-company-brain.md](8-company-brain.md)): arizuko is the action
+([specs/6/8-company-brain.md](8-company-brain.md)): arizuko is the action
 layer (Turn + State + Routing) over a retrieval backend, the genuine
 integration gap. It ships as framing + a setup recipe, not an
 `ant/examples/` folder, until connector skills land.
@@ -153,7 +153,7 @@ integration gap. It ships as framing + a setup recipe, not an
    arizuko run testbot
    ```
 
-3. Add a spec file `specs/8/product-<name>.md` documenting skills, channels,
+3. Add a spec file `specs/6/product-<name>.md` documenting skills, channels,
    dependencies, and the web page pitch.
 
 4. Add the product to the catalog table in `specs/6/index.md`.

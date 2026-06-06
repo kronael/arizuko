@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# specs/6/X — Enterprise SSO: SAML 2.0 + OIDC
+# specs/7/X — Enterprise SSO: SAML 2.0 + OIDC
 
 ## What this solves
 

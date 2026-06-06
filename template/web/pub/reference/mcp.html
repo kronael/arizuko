@@ -414,7 +414,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"registered": true, "folder": "&lt;f&gt;", "jid": "&lt;jid&gt;"}</code>; <code>SetupGroup</code> seeds skills/settings/tasks.</p>
 
     <h3 id="set_group_open"><code>set_group_open</code> <span class="tier">tier 0&ndash;1</span></h3>
-    <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 6/F. Concept: <a href="../concepts/scopes.html">scopes</a>.</p>
+    <p>Toggle this group's visibility to sibling folders. When <code>open=true</code>, sibling folders' ambient messages surface in this group's <code>&lt;observed&gt;</code> block (and this group's messages surface to open siblings). Default: open. Use to seal off a sensitive folder from cross-folder ambient context. Spec: 7/F. Concept: <a href="../concepts/scopes.html">scopes</a>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1531"><code>ipc/ipc.go:1531</code></a> &middot; Grant action: <code>set_group_open</code> &middot; <code>auth.AuthorizeStructural</code> on the calling folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -425,7 +425,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "open": &lt;bool&gt;}</code>.</p>
 
     <h3 id="set_observe_window"><code>set_observe_window</code></h3>
-    <p>Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults (<a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>, <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>); per-route caps still win over both. Pass <code>-1</code> to clear an override; omit a field to leave it unchanged. Spec: 6/F.</p>
+    <p>Override this group's ambient observe-window caps (messages and/or chars). Per-group caps win over instance env defaults (<a href="env.html#OBSERVE_WINDOW_MESSAGES"><code>OBSERVE_WINDOW_MESSAGES</code></a>, <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>); per-route caps still win over both. Pass <code>-1</code> to clear an override; omit a field to leave it unchanged. Spec: 7/F.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1485"><code>ipc/ipc.go:1485</code></a> &middot; Grant action: <code>set_observe_window</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -458,7 +458,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"injected": true, "id": "&lt;mid&gt;"}</code>.</p>
 
     <h3 id="fork_topic"><code>fork_topic</code></h3>
-    <p>Branch a topic from another&rsquo;s current state. The gateway copies the parent&rsquo;s Claude Code session file to a fresh <code>session_id</code>, so the child resumes natively with the parent&rsquo;s history already in its session &mdash; no prompt-injection block. Use when starting a focused side-conversation that needs the parent&rsquo;s recent state but should not pollute it. Pass <code>force=true</code> to overwrite an existing child. Spec: 6/F.</p>
+    <p>Branch a topic from another&rsquo;s current state. The gateway copies the parent&rsquo;s Claude Code session file to a fresh <code>session_id</code>, so the child resumes natively with the parent&rsquo;s history already in its session &mdash; no prompt-injection block. Use when starting a focused side-conversation that needs the parent&rsquo;s recent state but should not pollute it. Pass <code>force=true</code> to overwrite an existing child. Spec: 7/F.</p>
     <p class="meta">Source: <code>ipc/ipc.go</code> &middot; Grant action: <code>fork_topic</code> &middot; <code>auth.AuthorizeStructural</code> on caller&rsquo;s folder.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -471,7 +471,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"folder", "parent_topic", "child_topic"}</code>. Error <code>"topic_exists"</code> when child exists and <code>force=false</code>.</p>
 
     <h3 id="pane_set_prompts"><code>pane_set_prompts</code></h3>
-    <p>Slack only &mdash; stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next call. Use after a reply when you can anticipate the user&rsquo;s likely follow-ups (e.g. &ldquo;dig deeper&rdquo;, &ldquo;summarise&rdquo;, &ldquo;export&rdquo;). 3-4 prompts is the visible cap. Adapters without pane semantics return <code>chanlib.ErrUnsupported</code>. Spec: 6/D. Concept: <a href="../concepts/slack-pane.html">slack pane</a>.</p>
+    <p>Slack only &mdash; stage suggested-prompt buttons shown at the bottom of the assistant pane after your next reply lands. Fire-and-forget; the buttons appear once and persist until your next call. Use after a reply when you can anticipate the user&rsquo;s likely follow-ups (e.g. &ldquo;dig deeper&rdquo;, &ldquo;summarise&rdquo;, &ldquo;export&rdquo;). 3-4 prompts is the visible cap. Adapters without pane semantics return <code>chanlib.ErrUnsupported</code>. Spec: 7/D. Concept: <a href="../concepts/slack-pane.html">slack pane</a>.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1286"><code>ipc/ipc.go:1286</code></a> &middot; Grant action: <code>pane_set_prompts</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -483,7 +483,7 @@
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>.</p>
 
     <h3 id="pane_set_title"><code>pane_set_title</code></h3>
-    <p>Slack only &mdash; override the title shown at the top of the assistant pane. Fires after your next reply lands. Use to reflect the active topic (e.g. &ldquo;atlas &mdash; debugging the build&rdquo;). Defaults to <code>&lt;assistant&gt; &mdash; chat</code> when never set. Spec: 6/D.</p>
+    <p>Slack only &mdash; override the title shown at the top of the assistant pane. Fires after your next reply lands. Use to reflect the active topic (e.g. &ldquo;atlas &mdash; debugging the build&rdquo;). Defaults to <code>&lt;assistant&gt; &mdash; chat</code> when never set. Spec: 7/D.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1316"><code>ipc/ipc.go:1316</code></a> &middot; Grant action: <code>pane_set_title</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -787,7 +787,7 @@
     <h2 id="cost">cost accounting</h2>
 
     <h3 id="log_external_cost"><code>log_external_cost</code></h3>
-    <p>Record one non-Anthropic LLM call against the folder's daily budget. Call this AFTER invoking an external model (e.g. <code>codex exec --json</code> for <code>/oracle</code>). Anthropic costs are captured automatically via <code>submit_turn</code> &mdash; this tool is for everything else the agent shells out to. Skipping it hides the call from cost-caps; the only operator-visible drift becomes the provider's own invoice. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md">5/34</a>. Registration is conditional on <code>db.LogExternalCost</code> being wired.</p>
+    <p>Record one non-Anthropic LLM call against the folder's daily budget. Call this AFTER invoking an external model (e.g. <code>codex exec --json</code> for <code>/oracle</code>). Anthropic costs are captured automatically via <code>submit_turn</code> &mdash; this tool is for everything else the agent shells out to. Skipping it hides the call from cost-caps; the only operator-visible drift becomes the provider's own invoice. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/10/19-cost-caps.md">5/34</a>. Registration is conditional on <code>db.LogExternalCost</code> being wired.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L848"><code>ipc/ipc.go:848</code></a>. Writes <code>cost_log</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
@@ -806,7 +806,7 @@
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>grants.MatchingRules(rules, name)</code>; if no rule matches the tool name, the tool is never added to <code>tools/list</code>. The matched rules are appended to the tool description as <code>grants: [...]</code> so the agent sees what it has been granted.</li>
       <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>list_acl</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 2), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
-      <li><strong>Spec 6/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 9/11) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
+      <li><strong>Spec 5/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 7/Y) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. See <a href="openapi.html">OpenAPI</a> and the <a href="../components/gated.html">gated</a> registry.</li>
       <li><strong>Route tools are granted at tier 1.</strong> <code>tier1FixedActions</code> lists <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code> &mdash; the names match the registered tools, so tier-1 callers get them by default. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants/grants.go:160</code></a>.</li>
@@ -818,7 +818,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-03">2026-06-03</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
       </div>
     </main>
 

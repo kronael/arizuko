@@ -4,12 +4,12 @@ depends-on: specs/9/1-self-eval-haiku.md
 source: aeon mechanisms #3 (reactive state triggers) + #9 (cooldown)
 ---
 
-# 8/2 — State evaluator (reactive message producer)
+# 6/2 — State evaluator (reactive message producer)
 
 A small periodic worker reads `skill_health` (plus a `cooldowns` table)
 and, when conditions match, **writes a message** with `verb=state-event`
 to the bus. From there the agent picks it up like any other inbound,
-dispatches to a skill (typically a repair playbook from `8/3`), and
+dispatches to a skill (typically a repair playbook from `6/3`), and
 the loop closes.
 
 No new trigger type in the gateway. No new MCP tool. No new daemon
@@ -89,7 +89,7 @@ suggested_action=/repair-low-quality
 ```
 
 The agent's persona will dispatch on `verb=state-event` →
-`/repair-<condition>` skill (see `8/3`). If no playbook matches, the
+`/repair-<condition>` skill (see `6/3`). If no playbook matches, the
 agent reads `context` and decides freeform.
 
 ## Why message-driven, not direct skill invocation

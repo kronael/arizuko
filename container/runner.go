@@ -247,7 +247,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	// Container env carries operator anchors only (ANTHROPIC_API_KEY /
 	// CLAUDE_CODE_OAUTH_TOKEN — required for the Claude Code SDK to call
 	// the LLM). Folder- and user-scoped secrets are broker-resolved at
-	// tool-call time inside ipc.injectSecretsAdapter; spec 9/11.
+	// tool-call time inside ipc.injectSecretsAdapter; spec 7/Y.
 	in.Secrets = readSecrets()
 	in.AsstName = cfg.Name
 	payload, _ := json.Marshal(in)
@@ -821,7 +821,7 @@ func pickOutputStyle(
 
 // deriveSurface maps (channel, chatJID, topic, pane) to a surface
 // suffix. Returns "" when the platform has no per-surface split.
-// Mirrors the table in specs/5/O-output-styles-per-surface.md.
+// Mirrors the table in specs/5/Y-output-styles-per-surface.md.
 func deriveSurface(
 	channel, chatJID, topic string,
 	paneLookup func(channelID string) bool,

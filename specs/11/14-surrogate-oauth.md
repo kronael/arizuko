@@ -1,13 +1,13 @@
 ---
 status: draft
-depends: [6/Y-secret-broker, 5/1-auth-standalone]
+depends: [7/Y-secret-broker, 5/1-auth-standalone]
 ---
 
 # Surrogate OAuth — fill the broker's `secrets` table via OAuth flows
 
 > The user clicks "Connect GitHub" in their dashboard; arizuko does
 > the OAuth dance; the resulting access + refresh tokens land in the
-> `secrets` table that [`6/Y`](../6/Y-secret-broker.md)'s broker
+> `secrets` table that [`7/Y`](../7/Y-secret-broker.md)'s broker
 > already reads at tool-call time. The agent and the MCP server stay
 > unchanged — the only thing that changes is _how_ the token row got
 > written.
@@ -18,7 +18,7 @@ arizuko-the-bot _to_ a third party, as if it were the user.
 
 ## Why a separate spec
 
-[`6/Y`](../6/Y-secret-broker.md) ships a broker that injects whatever
+[`7/Y`](../7/Y-secret-broker.md) ships a broker that injects whatever
 sits in `secrets.value` into MCP-subprocess env on each call. The
 writer side is initially just `/dash/me/secrets` (manual paste) —
 which is fully useful with **PATs** (GitHub fine-grained tokens,
@@ -204,10 +204,10 @@ N days per new provider thereafter.
 
 ## Cross-references
 
-- [`6/Y-secret-broker.md`](../6/Y-secret-broker.md) — the
+- [`7/Y-secret-broker.md`](../7/Y-secret-broker.md) — the
   broker that reads the rows this spec writes.
 - [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md) — auth
   capability library; surrogate flows are a sibling of identity OAuth.
-- [`specs/8/product-slack-team.md`](../8/product-slack-team.md) — the
+- [`specs/6/product-slack-team.md`](../6/product-slack-team.md) — the
   product that benefits first: "Alice asks @bot about her PRs" goes
   from PAT-paste to "Connect GitHub" button.

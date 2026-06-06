@@ -1,10 +1,10 @@
 ---
 status: draft
-references: specs/8/9-positioning.md
+references: specs/6/9-positioning.md
 source: aeon-vs-arizuko comparison (2026-05-22)
 ---
 
-# 8/4 — Positioning: componentized vs monolithic-in-GHA
+# 6/4 — Positioning: componentized vs monolithic-in-GHA
 
 Captures the architectural differentiator that surfaced studying Aeon.
 Aeon is a monolith inside a GitHub Actions runtime. arizuko is a
@@ -89,7 +89,7 @@ asks "could we drop this for an off-the-shelf alternative?") — the
 folding pattern asks "could we replace this with an agent that does
 the same job?".
 
-## Updates to `specs/8/9-positioning.md`
+## Updates to `specs/6/9-positioning.md`
 
 Add a new section to that spec:
 
@@ -109,7 +109,7 @@ This means:
 2. Any daemon can be replaced by an agent doing the same job, as
    long as it speaks the schema (web-native agents framing).
 3. The replaceability story (specs/13/f) and the
-   agent-managing-agents story (specs/8/9) compose.
+   agent-managing-agents story (specs/6/9) compose.
 ```
 
 And update the "What arizuko Is" framing line:
@@ -136,7 +136,7 @@ This is the "automations are folders" reframe. Recommend:
 
 ## Pitch-level wording
 
-Three messaging anchors `specs/8/9` should add:
+Three messaging anchors `specs/6/9` should add:
 
 - **"Componentized, not monolithic."** Every daemon does one thing.
   Replace any of them without touching the rest.
@@ -175,7 +175,7 @@ Three messaging anchors `specs/8/9` should add:
 - The differentiator is **componentized + foldable**, not
   realtime-vs-batch. Realtime falls out of componentized; folding
   falls out of "every automation is a folder".
-- `specs/8/9-positioning.md` gets a "Why componentized matters"
+- `specs/6/9-positioning.md` gets a "Why componentized matters"
   section + an updated "What arizuko Is" line. This spec is the
   source.
 - `specs/12/6-workflows.md` (workflowd) is recommended for supersede.
@@ -186,8 +186,8 @@ Three messaging anchors `specs/8/9` should add:
 
 ## References
 
-- `specs/8/9-positioning.md` — the doc this updates.
-- `specs/13/f-replaceability-research.md` — sibling axis.
+- `specs/6/9-positioning.md` — the doc this updates.
+- `specs/14/f-replaceability-research.md` — sibling axis.
 - `template/web/pub/concepts/web-native-agents.html` — the prior
   framing of "automations are folders".
 - `specs/12/6-workflows.md` — the spec this recommends superseding.

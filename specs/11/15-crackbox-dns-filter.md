@@ -132,7 +132,7 @@ the crackbox listener. It does **not** automatically defend:
 - **Spec 10/11 secrets**: the tool-level broker model runs in `gated`
   on the host and never touches egress; the DNS filter and the broker
   share no data path. Cross-ref:
-  [`6/Y`](../6/Y-secret-broker.md).
+  [`7/Y`](../7/Y-secret-broker.md).
 
 ## Container-side wiring
 
@@ -255,7 +255,7 @@ allows all. No new wildcard syntax.
 - [`11/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md) — the
   arizuko egress consumer + gated backend. Discovering the per-folder
   crackbox IP and adding `--dns` is follow-up work owned there.
-- [`6/Y-secret-broker.md`](../6/Y-secret-broker.md) — tool-level
+- [`7/Y-secret-broker.md`](../7/Y-secret-broker.md) — tool-level
   broker. Independent of egress; DNS filter and broker do not share
   state.
 

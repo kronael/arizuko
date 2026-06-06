@@ -1,6 +1,6 @@
 ---
 status: superseded
-relates-to: [4/9-acl-unified, 5/M-webdav, 6/Y-secret-broker, 6/Z-egred-mitm]
+relates-to: [4/9-acl-unified, 5/M-webdav, 7/Y-secret-broker, 7/Z-egred-mitm]
 ---
 
 # specs/5/6 — middleware chains for MCP, HTTP, and inbound messages
@@ -241,7 +241,7 @@ maps each middleware to its chain so a future reader has one index.
 | MCP dispatch                                         | `grantedJID`                                                                      | spec 5/6 (this)             | + authorizeJID for JID-scoped tools                  |
 | MCP dispatch                                         | `authorizeCall` (closure)                                                         | spec 4/9                    | unified ACL gate                                     |
 | MCP dispatch                                         | `authorizeJID` (closure)                                                          | spec 5/6 (this)             | structural folder-subtree check                      |
-| MCP dispatch                                         | `injectSecrets`                                                                   | spec 6/Y                    | per-tool secret broker injection (not yet shipped)   |
+| MCP dispatch                                         | `injectSecrets`                                                                   | spec 7/Y                    | per-tool secret broker injection (not yet shipped)   |
 | **proxyd HTTP** (`proxyd/main.go`)                   | `stripClientHeaders`, `fixForwardedFor`, `accessLog`, `tryAuth`, `setUserHeaders` | proxyd internal (idiomatic) | request normalization + identity injection           |
 | proxyd HTTP                                          | `davAllow`                                                                        | spec 5/M                    | WebDAV write blocklist on sensitive paths            |
 | proxyd HTTP                                          | `groupScope` (new, extracted)                                                     | spec 5/6 (this)             | caller's group ⊆ resource folder                     |
@@ -249,8 +249,8 @@ maps each middleware to its chain so a future reader has one index.
 | adapter HTTP                                         | `RequireSigned` / `StripUnsigned`                                                 | `auth/middleware.go`        | signed-identity verification (proxyd → backend)      |
 | **gateway inbound** (`gateway/gateway.go`)           | `enrichBatch` (new)                                                               | spec 5/6 (this)             | attachment download                                  |
 | gateway inbound                                      | mention-gate (inline)                                                             | spec 5/L                    | onboarding mention filter                            |
-| **egred egress** (`crackbox/egred/`)                 | `auditMITM`                                                                       | spec 6/Z                    | per-call audit row to `secret_use_log`               |
-| egred egress                                         | `injectSecretsBroker`                                                             | spec 6/Z                    | placeholder substitution at egress (uses 6/Y broker) |
+| **egred egress** (`crackbox/egred/`)                 | `auditMITM`                                                                       | spec 7/Z                    | per-call audit row to `secret_use_log`               |
+| egred egress                                         | `injectSecretsBroker`                                                             | spec 7/Z                    | placeholder substitution at egress (uses 7/Y broker) |
 
 **Naming convention:** each middleware is a `func(next H) H` closure
 that returns a wrapped handler of the same type as the chain. Names

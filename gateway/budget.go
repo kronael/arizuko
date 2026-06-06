@@ -13,7 +13,7 @@ import (
 // auth_users.sub (see auth/oauth.go google: / github: / local:).
 // Adapter senders (telegram:user/..., slack:user/..., bluesky:user/...)
 // are per-platform user IDs and are NOT bound to auth_users rows, so
-// they can't carry a per-user cap today. Interim until spec 6/5
+// they can't carry a per-user cap today. Interim until spec 5/5
 // Caller shape lands and unifies the identifier.
 var authSubPrefixes = []string{"google:", "github:", "local:"}
 

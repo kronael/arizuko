@@ -64,16 +64,16 @@ existing message bus. Nothing else.
   `ant/skills/`, MIGRATION_VERSION bump, auto-broadcast on tag).
 - **`specs/12/8-self-eval-skill.md`** — the predecessor self-eval
   spec, where the judge was the same model via in-container
-  `query()`. Superseded by `8/1` — Aeon's Haiku-judges-Opus is the
+  `query()`. Superseded by `6/1` — Aeon's Haiku-judges-Opus is the
   stronger design (cheaper judge, less reflexive). The 11/8 spec
-  retains the trigger-shape research; 8/1 supersedes the model
+  retains the trigger-shape research; 6/1 supersedes the model
   choice and the data shape.
-- **`specs/12/6-workflows.md`** — workflowd. `8/4` proposes dropping
+- **`specs/12/6-workflows.md`** — workflowd. `6/4` proposes dropping
   this in favour of "any automation is a folder" — see that spec for
   the case.
-- **`specs/6/Y-secret-broker.md`** — arizuko's answer to Aeon's
+- **`specs/7/Y-secret-broker.md`** — arizuko's answer to Aeon's
   prefetch-outside-sandbox pattern. Not imported; called out in
-  `8/4` as "we already do this, but better".
+  `6/4` as "we already do this, but better".
 
 ## Out of scope for this phase
 
@@ -81,7 +81,7 @@ existing message bus. Nothing else.
   the arizuko _codebase_ (developer tool), not for agents.
 - **Cluster-first triage** (mechanism #6). Defer until `skill_health`
   data accumulates and signature-grouping has signal to chew on.
-- **24h repair cooldown** (mechanism #9). Folded into `8/2` as the
+- **24h repair cooldown** (mechanism #9). Folded into `6/2` as the
   cooldowns table; not a separate spec.
 - **Pull-based Telegram scheduler** (mechanism #8). Skip; we have
   instant webhooks.

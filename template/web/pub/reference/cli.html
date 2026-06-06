@@ -55,6 +55,7 @@
         <li><a href="#gate">Gates (rate limits)</a> &mdash; <code>gate list|add|rm|enable|disable</code></li>
         <li><a href="#budget">Budget (cost caps)</a> &mdash; <code>budget set|show folder|user</code></li>
         <li><a href="#network">Network allowlist</a> &mdash; <code>network allow|deny|list|resolve</code></li>
+        <li><a href="#route">Routes</a> &mdash; <code>route list|add|rm</code></li>
         <li><a href="#secret">Secrets (folder &amp; user)</a> &mdash; <code>secret</code>, <code>user-secret</code></li>
       </ul>
     </div>
@@ -316,7 +317,7 @@ arizuko gate krons add 'corp/eng/**' 1000</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L461"><code>cmd/arizuko/main.go:461</code></a></p>
 
     <h2 id="budget" class="group-h2">Budget (cost caps)</h2>
-    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/5/34-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
+    <p>Per-folder and per-user daily spend caps in cents. The pre-spawn gate in <code>gateway/</code> refuses to spawn when today's spend exceeds the lower of (folder cap, user cap). Caps live on <code>groups.cost_cap_cents_per_day</code> and <code>auth_users.cost_cap_cents_per_day</code>; spend is summed from <code>cost_log</code>. Spec <a href="https://github.com/kronael/arizuko/blob/main/specs/10/19-cost-caps.md">5/34</a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/budget.go#L18"><code>budget.go:18</code></a>.</p>
 
     <h3 id="budget-set"><span class="sig">arizuko budget &lt;instance&gt; set &lt;folder|user&gt; &lt;name|sub&gt; --daily N</span></h3>
     <p>Set a daily cap (in cents) on a folder or user. <code>--daily 0</code> removes the cap (uncapped). Negative values are rejected.</p>
@@ -366,10 +367,37 @@ arizuko network krons list corp/eng</code></pre>
     <pre><code>arizuko network krons resolve corp/eng/sre</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/network.go#L66"><code>cmd/arizuko/network.go:66</code></a></p>
 
-    <h2 id="secret" class="group-h2">Secrets (folder &amp; user)</h2>
-    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md"><code>specs/9/11-crackbox-secrets.md</code></a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
+    <h2 id="route" class="group-h2">Routes</h2>
+    <p>The route table maps inbound messages to group folders. Each row is a <code>seq</code> (priority, lower wins), a <code>match</code> expression over message attributes, and a <code>target</code> folder. <code>arizuko group add</code> writes a route for you; use <code>route</code> to add the catch-all and cross-source rules by hand. Routes share their store with <code>acl</code> (<code>routd.db</code> in the split topology, <code>messages.db</code> in the monolith); writes are audit-free, mirroring the grant path. For bulk or GitOps-style edits, declare routes in a manifest and <a href="#apply"><code>arizuko apply</code></a>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L20"><code>route.go:20</code></a>.</p>
 
-    <div class="callout"><strong>Note:</strong> folder secrets and user secrets share the <code>secrets</code> table, split by <code>scope_kind</code> (<code>folder</code> or <code>user</code>). The same rows back the REST and MCP secret surface (<a href="https://github.com/kronael/arizuko/blob/main/specs/9/11-crackbox-secrets.md">spec 9/11</a>). Values are encrypted at rest; <code>list</code> shows keys, never values.</div>
+    <h3 id="route-list"><span class="sig">arizuko route &lt;instance&gt; list</span></h3>
+    <p>List every route ordered by <code>seq</code> then <code>id</code>. Columns: <code>ID | SEQ | MATCH | TARGET</code>. An empty match renders as <code>*</code> (catch-all). Prints <code>no routes</code> if empty.</p>
+    <p><strong>State touched:</strong> read-only.</p>
+    <pre><code>arizuko route krons list</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L29"><code>cmd/arizuko/route.go:29</code></a></p>
+
+    <h3 id="route-add"><span class="sig">arizuko route &lt;instance&gt; add &lt;match&gt; &lt;target&gt; [--seq N]</span></h3>
+    <p>Add a route binding a match expression to a target folder. <code>match</code> is a space-separated set of <code>key=value</code> predicates (e.g. <code>platform=telegram</code>, <code>verb=mention</code>, <code>chat_jid=hook:*/sentry/*</code>); <code>*</code> or an empty string is the catch-all and is stored as an empty match. Prints the new <code>id</code>.</p>
+    <table>
+      <tr><th>Flag</th><th>Type</th><th>Default</th><th>Effect</th></tr>
+      <tr><td><code>--seq</code></td><td>int</td><td><code>0</code></td><td>Match priority; lower wins. Put it before the positionals.</td></tr>
+    </table>
+    <p><strong>State touched:</strong> <code>routes</code> table (audit-free <code>PutRouteRow</code>).</p>
+    <pre><code>arizuko route krons add 'platform=telegram' supermarket
+arizuko route krons add '*' corp/intake --seq 10
+arizuko route krons add 'chat_jid=hook:*/sentry/*' corp/eng/sre --seq -10</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L35"><code>cmd/arizuko/route.go:35</code></a></p>
+
+    <h3 id="route-rm"><span class="sig">arizuko route &lt;instance&gt; rm &lt;id&gt;</span></h3>
+    <p>Delete a route by <code>id</code> (from <code>route list</code>). Errors with <code>no route &lt;id&gt;</code> if it doesn't exist.</p>
+    <p><strong>State touched:</strong> <code>routes</code> table row delete (audit-free <code>DeleteRouteRow</code>).</p>
+    <pre><code>arizuko route krons rm 7</code></pre>
+    <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/route.go#L46"><code>cmd/arizuko/route.go:46</code></a></p>
+
+    <h2 id="secret" class="group-h2">Secrets (folder &amp; user)</h2>
+    <p>Folder-scoped and user-scoped secrets backing the secret-broker model (see <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md"><code>specs/7/Y-secret-broker.md</code></a>). Keys must match <code>^[A-Z][A-Z0-9_]*$</code> (validated by <code>keyValid</code> at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/secret.go#L132"><code>secret.go:132</code></a>).</p>
+
+    <div class="callout"><strong>Note:</strong> folder secrets and user secrets share the <code>secrets</code> table, split by <code>scope_kind</code> (<code>folder</code> or <code>user</code>). The same rows back the REST and MCP secret surface (<a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">spec 7/Y</a>). Values are encrypted at rest; <code>list</code> shows keys, never values.</div>
 
     <h3 id="secret-set"><span class="sig">arizuko secret &lt;instance&gt; set &lt;folder&gt; KEY --value V</span></h3>
     <p>Store a folder-scoped secret. <code>--value</code> is required; empty values rejected. Key is validated against the uppercase ENV-style pattern.</p>

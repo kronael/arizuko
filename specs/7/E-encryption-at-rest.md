@@ -2,10 +2,10 @@
 status: partial
 ---
 
-# specs/6/E — Encryption at rest
+# specs/7/E — Encryption at rest
 
 > Why this matters for phase 7: encrypted secrets in SQLite are
-> exactly why [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md) keeps
+> exactly why [`../8/3-git-as-truth.md`](../8/3-git-as-truth.md) keeps
 > secret blobs OUT of git. Git carries the `(scope, name)` reference;
 > the encrypted value stays here, decrypted in-process at spawn.
 

@@ -28,7 +28,7 @@ type AuthConfig struct {
 	SubjectPrefix bool
 	// VerifyDKIM is Tier 3 — independent DKIM verification. Pre-wired
 	// for future implementation; classifier ignores it today.
-	// TODO(spec 8/17 Tier 3): wire to dkim.Verify on the raw message.
+	// TODO(spec 10/17 Tier 3): wire to dkim.Verify on the raw message.
 	VerifyDKIM bool
 }
 

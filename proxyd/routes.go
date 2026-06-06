@@ -8,13 +8,13 @@ import (
 
 // validAuth is the set of accepted `auth` values for a Route. `operator`
 // today resolves to `user` plus a daemon-side grant check; capability
-// tokens (specs/6/1-auth-standalone.md) will distinguish later.
+// tokens (specs/5/1-auth-standalone.md) will distinguish later.
 var validAuth = map[string]bool{"public": true, "user": true, "operator": true}
 
 // Route is one entry in proxyd's TOML-declared route table. The JSON shape
 // matches `[[proxyd_route]]` in `template/services/*.toml`; compose.go
 // collects the survivors (after gated_by env evaluation) into
-// PROXYD_ROUTES_JSON. See specs/6/2-proxyd-standalone.md.
+// PROXYD_ROUTES_JSON. See specs/5/35-proxyd-standalone.md.
 type Route struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`

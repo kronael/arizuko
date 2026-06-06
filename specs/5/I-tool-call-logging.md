@@ -12,7 +12,7 @@ gateway, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
 Edit, Read, Write, Task, ...) produce a torrent of calls per turn. Today
 there is no uniform record — `resreg` emits a structured slog line per
 dispatch (see `5/5-uniform-mcp-rest.md` audit emit contract), `cli_audit` covers CLI writes
-([`6/F`](../6/F-audit-stream.md)), but agent-internal tool use is invisible
+([`7/F`](../7/F-audit-stream.md)), but agent-internal tool use is invisible
 to the operator and platform-side reads aren't logged at all. The result:
 no single place to answer "what did agent X do in turn Y", no replay
 substrate, no acceptance signal for `7/1`'s "exactly one audit row per
@@ -71,7 +71,7 @@ and pins the surface enum for both layers.
 
 ## audit_log shape
 
-Defined in [`6/F`](../6/F-audit-stream.md); this spec is the canonical
+Defined in [`7/F`](../7/F-audit-stream.md); this spec is the canonical
 field schema. Same columns as the slog keys above, plus:
 
 - `id` INTEGER PRIMARY KEY AUTOINCREMENT
@@ -158,7 +158,7 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
   high-rate, lossy, interactive channel; audit_log is the durable,
   transactional, queryable channel. Both stay.
 - **Logging full LLM responses inline.** Too large; the per-turn
-  artifact path under `~/turns/` ([`7/3` "git as truth"](../7/3-git-as-truth.md))
+  artifact path under `~/turns/` ([`8/3` "git as truth"](../8/3-git-as-truth.md))
   carries the verbatim turn output. `audit_log` carries the pointer.
 
 ## Cross-references
@@ -172,11 +172,11 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
   this spec when daemon-DB split lands.
 - [`5/36-yaml-manifests.md` §OpenAPI emission](36-yaml-manifests.md#openapi-emission) — the
   endpoint catalog this spec logs against.
-- [`6/F-audit-stream.md`](../6/F-audit-stream.md) — the DB-side
+- [`7/F-audit-stream.md`](../7/F-audit-stream.md) — the DB-side
   partner; defines the `audit_log` table that this spec gives the
   field schema.
 - [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
   the "exactly one audit row per state transition" acceptance
   criterion.
-- [`7/3-git-as-truth.md`](../7/3-git-as-truth.md) — turn-end sidecars
+- [`8/3-git-as-truth.md`](../8/3-git-as-truth.md) — turn-end sidecars
   reference `audit_log.id` ranges produced under this spec.

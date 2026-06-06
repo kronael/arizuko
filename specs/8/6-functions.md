@@ -1,9 +1,9 @@
 ---
 status: draft
-depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/6/F-audit-stream.md, specs/5/5-uniform-mcp-rest.md, specs/7/3-git-as-truth.md, specs/5/36-yaml-manifests.md
+depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/7/F-audit-stream.md, specs/5/5-uniform-mcp-rest.md, specs/8/3-git-as-truth.md, specs/5/36-yaml-manifests.md
 ---
 
-# specs/7/6 — functions: agent-authored lambda primitive
+# specs/8/6 — functions: agent-authored lambda primitive
 
 ## Why
 
@@ -257,7 +257,7 @@ script (vendored deps, bash with heredocs, or `pyinstaller`-style
 single-file). Directory-per-fn deferred (open Q 6).
 
 Host-side `fnspd` reads from the same path. Survives container
-exits, redeploys, and worktree forks ([`7/3`](3-git-as-truth.md)
+exits, redeploys, and worktree forks ([`8/3`](3-git-as-truth.md)
 fork lifecycle).
 
 Permissions: directory mode `0755` owned by the instance uid;
@@ -266,7 +266,7 @@ fails fast if the file is not executable.
 
 ## Cold-tier integrity (git-as-truth composition)
 
-Per [`7/3`](3-git-as-truth.md), function manifest rows are cold-tier
+Per [`8/3`](3-git-as-truth.md), function manifest rows are cold-tier
 state; the script files live alongside Markdown sidecars in
 `groups/<folder>/functions/`. Both flow through the gateway's
 per-turn commit. The integrity contract:
@@ -319,7 +319,7 @@ the slice but cannot exceed it.
 ## Audit shape
 
 Per [`5/I`](../5/I-tool-call-logging.md) and
-[`6/F`](../6/F-audit-stream.md). New `tool` values in `audit_log`
+[`7/F`](../7/F-audit-stream.md). New `tool` values in `audit_log`
 (no schema change — `tool` is text):
 
 | Action             | When                                                                  |
@@ -525,11 +525,11 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   function-bound issuance.
 - [`../5/I-tool-call-logging.md`](../5/I-tool-call-logging.md) — audit
   field schema; this spec fills in the `tool` values listed above.
-- [`../6/F-audit-stream.md`](../6/F-audit-stream.md) — audit_log
+- [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log
   table. New `tool` values only; no schema change.
 - [`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — one
   resreg handler per resource; `functions` joins the unified surface.
-- [`../7/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
+- [`../8/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
   row + script file are cold-tier state; per-turn commit picks them
   up; cold-tier integrity contract above implements the hashing
   discipline.

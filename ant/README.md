@@ -39,7 +39,7 @@ ant ~/my-agent --sandbox=crackbox --prompt=...
 
 ## Status
 
-Foundation only — see [`specs/5/b-ant-standalone.md`](../specs/5/b-ant-standalone.md).
+Foundation only — see [`specs/12/b-ant-standalone.md`](../specs/12/b-ant-standalone.md).
 The package skeleton (`cmd/ant`, `pkg/agent`, `pkg/host`,
 `pkg/runtime`) is in place; the runtime port (replacing
 `ant/src/index.ts`), the sandbox backends, and the skills curation

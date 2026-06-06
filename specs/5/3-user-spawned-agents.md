@@ -12,7 +12,7 @@ platform; the platform runs the tenants.
 Rides on [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) (federated `/v1/*` and
 capability tokens) and [U-genericization.md](U-genericization.md)
 (`types.Folder`, `runed`). Shares its seeding code with
-[../8/R-products.md](../8/R-products.md) — products are the static path,
+[../6/R-products.md](../6/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
 [`refs/openclaw-managed-agents/openapi/openapi.yaml`](../../refs/openclaw-managed-agents/openapi/openapi.yaml).
 

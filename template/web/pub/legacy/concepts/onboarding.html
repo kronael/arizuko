@@ -52,7 +52,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>Invite tokens enforce <code>max_uses</code> at redemption: the <code>UsedCount</code> column increments, and <code>RevokeInvite</code> marks them dead. Expired tokens (<code>expires_at &lt; now</code>) are refused with an error. Gate daily limits reset on UTC day boundaries &mdash; the queue counts admissions whose <code>queued_at</code> falls in the current day.</p>
 
     <h2>go deeper</h2>
-    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/A-auth-consolidated.md">specs/5/A-auth-consolidated.md</a>.</p>
+    <p>How identity becomes a signed header that downstream daemons trust: <a href="../concepts/auth.html">auth</a>. What skills land in a freshly-seeded group: <a href="../concepts/skills.html">skills</a>. Full token model, planned <code>/v1/invites</code> REST surface, and the cross-daemon flow: <a href="https://github.com/kronael/arizuko/blob/main/onbod/README.md">onbod/README.md</a>. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md">specs/5/1-auth-standalone.md</a>.</p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

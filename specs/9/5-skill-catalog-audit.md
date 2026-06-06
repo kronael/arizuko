@@ -3,7 +3,7 @@ status: draft
 source: aeon catalog inspection (2026-05-22); reference_aeon.md
 ---
 
-# 8/5 — Skill catalog audit (Aeon 121 vs arizuko 56)
+# 9/5 — Skill catalog audit (Aeon 121 vs arizuko 56)
 
 Aeon ships 121 pre-built skills. arizuko ships 56 stock + per-folder
 custom. Many overlap, many don't. This spec is the audit methodology —
@@ -73,13 +73,13 @@ For each Aeon skill `<name>`:
 "alert me when ETH crosses 5k" personal-assistant flow.
 **Effort**: medium. Needs a price-fetch tool (exists via davd + web
 fetch); needs the threshold-and-debounce logic which is novel.
-**Decision**: import as `/watch-price` with cooldown via `8/2`'s
+**Decision**: import as `/watch-price` with cooldown via `6/2`'s
 table.
 
 ### `/github-pr-summary` — IMPORT (HIGH PRIORITY)
 
 **Aeon**: reads a PR diff + comments, writes a summary.
-**Fit**: synergy with `specs/8/1-git-channel.md` (git-as-channel).
+**Fit**: synergy with `specs/6/1-git-channel.md` (git-as-channel).
 The PR thread is a folder; the summary skill is a folder operation.
 **Effort**: small once `7/1` lands; medium otherwise.
 **Decision**: import + cross-ref into 7/1. Maps onto `git:` channel
@@ -107,9 +107,9 @@ _codebase_ (operator-side debugging) but doesn't belong in
 
 **Aeon**: agent runs a periodic "am I working?" check, commits a
 heartbeat.
-**Fit**: arizuko has `skill_health` via `8/1`. The Aeon pattern is a
-weaker version of what `8/1` ships.
-**Decision**: skip; `8/1` is the better answer.
+**Fit**: arizuko has `skill_health` via `6/1`. The Aeon pattern is a
+weaker version of what `6/1` ships.
+**Decision**: skip; `6/1` is the better answer.
 
 ### `/news-digest` — IMPORT (LOW PRIORITY)
 
@@ -130,7 +130,7 @@ product template" (future spec slot), not as a generic stock skill.
 ### `/secret-prefetch` — REJECT
 
 **Aeon**: prefetches API tokens at workflow start, exposes via env.
-**Fit**: arizuko has `specs/6/Y-secret-broker.md`. Aeon's pattern is
+**Fit**: arizuko has `specs/7/Y-secret-broker.md`. Aeon's pattern is
 a workaround for GHA's secret-injection model that we don't share.
 **Decision**: skip; broker is the better answer.
 
@@ -142,9 +142,9 @@ mechanical; tracks per-skill decisions). Format:
 ```
 | Aeon skill          | Category       | Decision   | Notes                                  |
 | ------------------- | -------------- | ---------- | -------------------------------------- |
-| /crypto-price-watch | monitoring     | import     | high-pri; needs 8/2 cooldown           |
+| /crypto-price-watch | monitoring     | import     | high-pri; needs 6/2 cooldown           |
 | /github-pr-summary  | infrastructure | import     | high-pri; cross-ref 7/1                |
-| /cron-self-check    | meta           | superseded | 8/1 ships the better version           |
+| /cron-self-check    | meta           | superseded | 6/1 ships the better version           |
 | /regression-blame   | meta           | reject     | dev tool not agent skill               |
 | ... (121 total)     |                |            |                                        |
 ```

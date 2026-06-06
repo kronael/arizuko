@@ -409,7 +409,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
-		// MCP connectors (spec 9/11 M6): the discovered catalog + the per-call
+		// MCP connectors (spec 7/Y M6): the discovered catalog + the per-call
 		// secret resolver. ResolveConnectorSecrets reads folder/user secrets RO
 		// from routd's own routd.db (routd OWNS secrets — spec 5/5), decrypts via
 		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so

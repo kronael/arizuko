@@ -4,7 +4,7 @@ depends-on: specs/9/2-state-evaluator.md
 source: aeon mechanism #4 (category repair playbooks)
 ---
 
-# 8/3 — Repair playbooks (typed-failure recovery skills)
+# 6/3 — Repair playbooks (typed-failure recovery skills)
 
 A small set of opinionated skills the agent invokes when handling a
 `verb=state-event` message. Not a new primitive — additions to
@@ -26,7 +26,7 @@ formalise this for _failure recovery_ specifically.
 ## v1 playbook set
 
 Five playbooks, mapping 1:1 to the state-evaluator conditions in
-`8/2`.
+`6/2`.
 
 ### `/repair-api-change`
 
@@ -113,7 +113,7 @@ This split is intentional:
 
 | Concern              | Spec   | Authority                 |
 | -------------------- | ------ | ------------------------- |
-| Immediate response   | `8/3`  | Agent (skill dispatch)    |
+| Immediate response   | `6/3`  | Agent (skill dispatch)    |
 | Persistent learnings | `10/7` | Operator (proposal queue) |
 
 A playbook can _propose_ a self-learning entry; the operator approves

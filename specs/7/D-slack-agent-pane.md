@@ -4,7 +4,7 @@ depends: [G-engagement]
 relates-to: [F-topic-lineage]
 ---
 
-# specs/6/D — Slack agent pane (assistant.threads.\*) full support
+# specs/7/D — Slack agent pane (assistant.threads.\*) full support
 
 ## What this solves
 

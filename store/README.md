@@ -40,7 +40,7 @@ folder via a `#observe` route target — they do not fire a turn but are
 surfaced to the next trigger turn's `<observed>` block. `routes.target`
 is `<folder>[#<mode>]`; per-route caps `observe_window_messages` and
 `observe_window_chars` override the env defaults. Spec:
-`specs/6/B-route-mode-ingestion.md`.
+`specs/5/B-route-mode-ingestion.md`.
 
 `sessions` (migration 0055) carries topic lineage: `parent_topic`,
 `forked_at`, `observed_cursor`. `EnsureTopicLineage` seeds a row
@@ -48,7 +48,7 @@ idempotently on first turn; `ForkTopic` branches explicitly. Parent
 context arrives via a `cp` of the parent's Claude Code session jsonl
 (`container.CopySession`) — no inline injection. `ObservedSince` feeds
 the `<observed>` block, advancing each topic's cursor independently.
-Spec: `specs/6/F-topic-lineage.md`.
+Spec: `specs/5/F-topic-lineage.md`.
 
 ## Dependencies
 

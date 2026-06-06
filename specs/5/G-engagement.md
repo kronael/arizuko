@@ -214,7 +214,7 @@ conversation: "no that's wrong because…", "you missed the context",
 
 These shouldn't pollute the main thread — plumbing, not content.
 Convention only (no enforcement): the agent calls
-`fork_topic(current, current+"#fix")` from spec 6/F, runs the
+`fork_topic(current, current+"#fix")` from spec 7/F, runs the
 correction loop in the fork, posts a clean answer back into the
 parent topic, then calls `disengage()` on the fix topic. Slack
 threads the fork under the bot's incorrect message via the

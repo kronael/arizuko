@@ -11,8 +11,8 @@ status: partial
 > secrets). Three implementation phases lined up after this lands.
 >
 > **Phase C (folder/user-scope secrets layering) is the BYOA primitive
-> phase 7 depends on.** Without secrets resolvable at spawn by
-> `(scope, name)` tuple, [`../7/3-git-as-truth.md`](../7/3-git-as-truth.md)
+> phase 8 depends on.** Without secrets resolvable at spawn by
+> `(scope, name)` tuple, [`../8/3-git-as-truth.md`](../8/3-git-as-truth.md)
 > cannot ship safely — `agents.toml` would have to inline values.
 > Phase B (invites) + D (chats.is_group) shipped 2026-05; C is the
 > remaining piece.

@@ -4,7 +4,7 @@ supersedes: specs/12/8-self-eval-skill.md (judge-model choice + data shape)
 source: aeon mechanism #2 (Haiku-scores-Opus); reference_aeon.md
 ---
 
-# 8/1 — Haiku-as-judge self-eval
+# 6/1 — Haiku-as-judge self-eval
 
 After every container turn, run a second short Anthropic call against
 Haiku that reads the run transcript + outbound action and emits a
@@ -43,10 +43,10 @@ JSON, written by Haiku, one object per turn:
 | Field       | Type           | Notes                                                    |
 | ----------- | -------------- | -------------------------------------------------------- |
 | `score`     | int 1-5        | 5=clean, 1=disaster. Anchor: 3=neutral, no clear signal. |
-| `flags`     | string[]       | Free-form tags. Stable vocab grows from `8/3` playbooks. |
-| `reasoning` | string (≤500c) | Operator-readable; cited by `8/2` when firing triggers.  |
+| `flags`     | string[]       | Free-form tags. Stable vocab grows from `6/3` playbooks. |
+| `reasoning` | string (≤500c) | Operator-readable; cited by `6/2` when firing triggers.  |
 
-Stable flag vocab to seed (each maps to a repair playbook in `8/3`):
+Stable flag vocab to seed (each maps to a repair playbook in `6/3`):
 `api_change_suspected`, `rate_limited`, `schema_drift`, `stale_data`,
 `auth_failure`, `output_low_quality`, `empty_response`. Free-form is
 allowed; the rolling history surfaces emergent flags via
@@ -82,12 +82,12 @@ read-only.
 ## Rolling history
 
 Per `(folder, skill)`, keep the last 30 rows. Aggregate views in
-`8/2`'s state-evaluator read from this directly — no separate
+`6/2`'s state-evaluator read from this directly — no separate
 rolling-buffer table. SQLite `LIMIT 30` on the recent index is enough
 at our volume.
 
 Retention beyond 30 rows: keep, don't prune. Disk is cheap;
-`8/4`-style longitudinal analysis benefits from the long tail. Add a
+`6/4`-style longitudinal analysis benefits from the long tail. Add a
 cleanup job in `timed` only when disk pressure shows.
 
 ## Trigger
@@ -157,11 +157,11 @@ Acceptable; cap-able via `SELF_EVAL_ENABLED=0`.
 
 ## Out of scope
 
-- **Routing on score.** The state-evaluator (`8/2`) reads
+- **Routing on score.** The state-evaluator (`6/2`) reads
   `skill_health` and decides what to fire. This spec only writes.
 - **Operator UI.** A dashd `/health` page comes in `9/18-daemon-dashboards`
   scope; not blocked by this spec.
-- **Auto-revert on low score.** That's `8/3` repair-playbook
+- **Auto-revert on low score.** That's `6/3` repair-playbook
   territory.
 - **A second judge for ensembling.** Single-judge v1; multi-judge
   voting is a phase-12 candidate.
@@ -171,7 +171,7 @@ Acceptable; cap-able via `SELF_EVAL_ENABLED=0`.
 - Judge model is Haiku, not the same model as the main turn.
 - Verdict is JSON `{score, flags, reasoning}`, not free text.
 - Storage is one `skill_health` row per turn (or per-skill where
-  attributable). No aggregation table — `8/2` aggregates on read.
+  attributable). No aggregation table — `6/2` aggregates on read.
 - Trigger is in-container sub-call at turn exit, not a separate
   daemon. Reuses the run's container, no new IPC.
 - `gated` owns the migration. New MCP tool: `write_skill_health`.

@@ -1,6 +1,6 @@
 ---
 status: partial
-depends: [I-tool-call-logging, ../6/F-audit-stream]
+depends: [I-tool-call-logging, ../7/F-audit-stream]
 ---
 
 # specs/5/O — OTLP export
@@ -13,7 +13,7 @@ stream** over OTLP **logs** so operators attach any OTel-compatible
 collector without changing emit sites.
 
 `audit_log` stays SQLite-canonical ([`I-tool-call-logging.md`](I-tool-call-logging.md),
-[`../6/F-audit-stream.md`](../6/F-audit-stream.md)). OTLP is
+[`../7/F-audit-stream.md`](../7/F-audit-stream.md)). OTLP is
 observability only — lossy by the same logic that makes slog lossy.
 
 ## What gets exported
@@ -114,7 +114,7 @@ rides as an attribute. Trace views are collector-side reconstructions
 
 - [`I-tool-call-logging.md`](I-tool-call-logging.md) — slog field schema
   exported by this spec.
-- [`../6/F-audit-stream.md`](../6/F-audit-stream.md) — audit_log table
+- [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log table
   (NOT exported).
 - [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
   the unified handler that emits the slog records.

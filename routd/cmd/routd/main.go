@@ -176,7 +176,7 @@ func main() {
 	// audit-system.jl in DATA_DIR — observability only, never the messages.db
 	// audit_log table (gated's store owns that). AUDIT_ENABLED unset → noop.
 	srv.SetAudit(audit.New(audit.LoadConfig(dataDir, os.Getenv("ARIZUKO_INSTANCE"))))
-	// MCP connectors (spec 9/11 M6): load <DATA_DIR>/connectors.toml (or
+	// MCP connectors (spec 7/Y M6): load <DATA_DIR>/connectors.toml (or
 	// $CONNECTORS_TOML), spawn each once to harvest its tool catalog, register
 	// through every per-turn MCP socket. Missing file is fine; a bad file is a
 	// boot failure (fail-fast, same as gated).
