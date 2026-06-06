@@ -59,7 +59,7 @@
       <p class="lede">A change to arizuko is an agent&rsquo;s work, kept as
         files: the same parts that route a Slack message &mdash; specs, skills,
         file-based memory, ephemeral turns &mdash; are the ones used to add a
-        feature. This page is the build loop, not the runtime &mdash; for the
+        feature. This page is the build process, not the runtime &mdash; for the
         parts themselves see
         <a href="primitives.html">primitives</a>, <a href="ant.html">the ant</a>,
         and <a href="skills.html">skills</a>.</p>
@@ -91,6 +91,29 @@
           store to recover context &mdash; the same durable
           <a href="primitives.html">state</a> primitive an agent uses in
           production, files rather than a context window.</li>
+      </ul>
+
+      <h2>ship, then harden</h2>
+      <p>The first cut is small and lands fast; the same agents then harden it
+        with repeated passes:</p>
+      <ul class="loop">
+        <li><span class="step">Two adversaries read the change.</span>
+          <code>codex exec</code> hunts the finished code for bugs the author
+          missed, and <code>assess</code> attacks the change from a fixed
+          adversarial role &mdash; a CEO, CTO, or CISO hunting for the worst
+          weakness.</li>
+        <li><span class="step">One change ripples, so a sweep re-aligns it.</span>
+          <code>sweep-fix-verify</code> walks every call site and reference at
+          once &mdash; renaming the spec phases re-pointed roughly sixty files in
+          a single sweep, so nothing is left dangling.</li>
+        <li><span class="step">Refine cuts until there&rsquo;s nothing to cut.</span>
+          <code>/refine</code> runs improve and simplify together to kill
+          duplication and minimize the diff, and runs again until a pass finds
+          nothing to change.</li>
+        <li><span class="step">A bug found mid-task waits its turn.</span>
+          It lands in <code>bugs.md</code>, a review queue, and is fixed when
+          it&rsquo;s prioritized &mdash; not opportunistically in the middle of
+          unrelated work.</li>
       </ul>
 
       <h2>Built on the four layers</h2>
