@@ -22,7 +22,7 @@ const secretsSchema = `CREATE TABLE secrets (
 );`
 
 // splitSecretsDash wires a dash with DISTINCT messages.db (dbRW) and routd.db
-// (dbSec) handles, each with its own secrets table, so a write can be proven to
+// (dbRoutd) handles, each with its own secrets table, so a write can be proven to
 // land in routd.db and NOT in messages.db.
 func splitSecretsDash(t *testing.T) (*dash, *sql.DB, *sql.DB) {
 	t.Helper()
@@ -45,11 +45,11 @@ func splitSecretsDash(t *testing.T) (*dash, *sql.DB, *sql.DB) {
 		t.Fatalf("routd.db schema: %v", err)
 	}
 	t.Cleanup(func() { msg.Close(); routd.Close() })
-	return &dash{db: msg, dbRW: msg, dbSec: routd}, msg, routd
+	return &dash{db: msg, dbRW: msg, dbRoutd: routd}, msg, routd
 }
 
 // TestMeSecrets_WriteTargetsRoutdDB proves /dash/me/secrets POST writes the row
-// into routd.db (dbSec) and NOT messages.db (dbRW) in the split topology.
+// into routd.db (dbRoutd) and NOT messages.db (dbRW) in the split topology.
 func TestMeSecrets_WriteTargetsRoutdDB(t *testing.T) {
 	d, msg, routd := splitSecretsDash(t)
 	mux := newMux(d)
