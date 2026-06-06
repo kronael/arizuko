@@ -159,6 +159,9 @@ var daemonKeys = map[string][]string{
 		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
+		// routd OWNS secrets in the split (routd 0008) → needs the key to
+		// decrypt connector/scoped secrets. Without it: "SECRETS_KEY unset".
+		"SECRETS_KEY",
 	},
 	// runed: execution plane. The ONLY daemon wired to docker.sock +
 	// crackbox + the per-folder agent networks.
@@ -172,6 +175,9 @@ var daemonKeys = map[string][]string{
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
 		"HOST_CODEX_DIR", "CHANNEL_SECRET",
+		// runed spawns the agent + injects folder secrets (decrypted with the
+		// key) into the container env — same role gated had in the monolith.
+		"SECRETS_KEY",
 	},
 	"onbod": {
 		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",

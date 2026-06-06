@@ -107,6 +107,29 @@ TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 	}
 }
 
+// TestSplitScopesSecretsKey: in the split, routd OWNS secrets and runed injects
+// them into spawned containers, so both per-daemon env files must carry
+// SECRETS_KEY. Regression for the cutover where neither got it → routd warned
+// "SECRETS_KEY unset" and secret-backed turns failed.
+func TestSplitScopesSecretsKey(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSECRETS_KEY=deadbeef\nCUTOVER_SPLIT=true\n"
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"routd", "runed"} {
+		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
+		if err != nil {
+			t.Fatalf("read env/%s.env: %v", d, err)
+		}
+		if !strings.Contains(string(b), "SECRETS_KEY=deadbeef") {
+			t.Errorf("env/%s.env must carry SECRETS_KEY; got:\n%s", d, b)
+		}
+	}
+}
+
 func TestGenerateWithChannel(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
