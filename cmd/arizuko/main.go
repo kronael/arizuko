@@ -39,22 +39,22 @@ func main() {
 		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token|apply|plan|get|export> ...")
 		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
-		fmt.Println("  invite   <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
-		fmt.Println("  invite   <instance> list [--issued-by SUB]")
+		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
+		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
 		fmt.Println("  invite   <instance> revoke <token>")
-		fmt.Println("  identity <instance> list | link <sub> [--name NAME] [--id ID] | unlink <sub>")
+		fmt.Println("  identity <instance> list | link <sub> [--name|-n NAME] [--id|-i ID] | unlink <sub>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
-		fmt.Println("  route    <instance> list | add <match> <target> [--seq N] | rm <id>")
+		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
 		fmt.Println("  token    <instance> list <folder>")
 		fmt.Println("  token    <instance> revoke <jid>")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")
-		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait | --stream] [--token <raw>] [--topic <t>]")
-		fmt.Println("  secret   <instance> set <folder> KEY --value V | list <folder> | delete <folder> KEY")
-		fmt.Println("  user-secret <instance> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY")
-		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily N | show <folder|user> <name|sub>")
-		fmt.Println("  apply    <instance> <manifest.yaml> [--force]")
+		fmt.Println("  send     <instance> <folder> \"<msg>\" [--wait|-w | --stream|-S] [--token|-t <raw>] [--topic|-T <t>]")
+		fmt.Println("  secret   <instance> set <folder> KEY --value|-v V | list <folder> | delete <folder> KEY")
+		fmt.Println("  user-secret <instance> set <user_sub> KEY --value|-v V | list <user_sub> | delete <user_sub> KEY")
+		fmt.Println("  budget   <instance> set <folder|user> <name|sub> --daily|-d N | show <folder|user> <name|sub>")
+		fmt.Println("  apply    <instance> <manifest.yaml> [--force|-f]")
 		fmt.Println("  plan     <instance> <manifest.yaml>  — non-mutating diff vs live config")
 		fmt.Println("  get      <instance> <resource>       — emit one resource as a YAML fragment")
 		fmt.Println("  export   <instance> [output.yaml]")
@@ -192,15 +192,30 @@ func instanceDir(name string) (string, error) {
 	return filepath.Join(prefix, "data", "arizuko_"+clean), nil
 }
 
+// parseCreateFlags parses `create` args via flexParse so --product (-p) works in
+// any position relative to the <name> positional. It requires EXACTLY one
+// positional so a misplaced flag or a stray second arg errors rather than being
+// silently dropped.
+func parseCreateFlags(args []string) (name, product string, err error) {
+	fs := flag.NewFlagSet("create", flag.ContinueOnError)
+	fs.StringVar(&product, "product", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
+	fs.StringVar(&product, "p", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
+	if err = flexParse(fs, args); err != nil {
+		return "", "", err
+	}
+	if fs.NArg() != 1 {
+		return "", "", fmt.Errorf("expected <name>")
+	}
+	return fs.Arg(0), product, nil
+}
+
 func cmdCreate(args []string) {
-	fs := flag.NewFlagSet("create", flag.ExitOnError)
-	product := fs.String("product", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
-		fmt.Println("usage: arizuko create <name> [--product <name>]")
+	rawName, product, err := parseCreateFlags(args)
+	if err != nil {
+		fmt.Println("usage: arizuko create <name> [--product|-p <name>]")
 		os.Exit(1)
 	}
-	name, err := core.SanitizeInstance(fs.Arg(0))
+	name, err := core.SanitizeInstance(rawName)
 	if err != nil {
 		die("Failed: %v", err)
 	}
@@ -213,8 +228,8 @@ func cmdCreate(args []string) {
 
 	var productDir string
 	var manifest *productManifest
-	if *product != "" {
-		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", *product)
+	if product != "" {
+		productDir = filepath.Join(cfg.HostAppDir, "ant", "examples", product)
 		manifestPath := filepath.Join(productDir, "PRODUCT.md")
 		if _, err := os.Stat(manifestPath); err != nil {
 			entries, _ := os.ReadDir(filepath.Join(cfg.HostAppDir, "ant", "examples"))
@@ -224,7 +239,7 @@ func cmdCreate(args []string) {
 					known = append(known, e.Name())
 				}
 			}
-			die("Failed: unknown product %q — known: %s", *product, strings.Join(known, ", "))
+			die("Failed: unknown product %q — known: %s", product, strings.Join(known, ", "))
 		}
 		var m productManifest
 		if _, err := toml.DecodeFile(manifestPath, &m); err != nil {
@@ -270,7 +285,7 @@ func cmdCreate(args []string) {
 	// so every daemon's DB is writable; the data-dir root and .env stay
 	// root-owned (matches the working krons layout).
 	chownStore(storeDir)
-	if err := s.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: *product}); err != nil {
+	if err := s.PutGroup(core.Group{Folder: "main", AddedAt: time.Now(), Product: product}); err != nil {
 		die("Failed: add default group: %v", err)
 	}
 	if err := container.SetupGroup(cfg, "main", productDir); err != nil {
@@ -344,10 +359,9 @@ func cmdGroup(args []string) {
 		// Parse positionals + optional --product flag from the action-args
 		// (args[2:]). Mirror cmdCreate so a child group can be seeded from
 		// the same product template (PERSONA.md + CLAUDE.md + facts/).
-		fs := flag.NewFlagSet("group add", flag.ExitOnError)
+		fs := flag.NewFlagSet("group add", flag.ContinueOnError)
 		productFlag := fs.String("product", "", "product template applied to this group (same set as `arizuko create --product`)")
-		fs.Parse(args[2:])
-		if fs.NArg() < 2 {
+		if err := flexParse(fs, args[2:]); err != nil || fs.NArg() != 2 {
 			die("usage: arizuko group <instance> add <jid> <folder> [--product <name>]")
 		}
 		jid, folder := fs.Arg(0), fs.Arg(1)
@@ -628,6 +642,33 @@ func cmdGate(args []string) {
 	}
 }
 
+// parseInviteCreate parses `invite create` args via flexParse so --max-uses (-n)
+// and --expires (-e) work in any position relative to the <target_glob>
+// positional. It requires EXACTLY one positional and a max-uses >= 1; a misplaced
+// flag or missing/extra positional errors rather than being silently dropped.
+func parseInviteCreate(args []string) (glob string, maxUses int, expiresAt *time.Time, err error) {
+	fs := flag.NewFlagSet("invite create", flag.ContinueOnError)
+	fs.IntVar(&maxUses, "max-uses", 1, "max uses")
+	fs.IntVar(&maxUses, "n", 1, "max uses")
+	var expDur time.Duration
+	fs.DurationVar(&expDur, "expires", 0, "expires after this duration")
+	fs.DurationVar(&expDur, "e", 0, "expires after this duration")
+	if err = flexParse(fs, args); err != nil {
+		return "", 0, nil, err
+	}
+	if fs.NArg() != 1 {
+		return "", 0, nil, fmt.Errorf("expected <target_glob>")
+	}
+	if maxUses < 1 {
+		return "", 0, nil, fmt.Errorf("invalid --max-uses %d", maxUses)
+	}
+	if expDur > 0 {
+		t := time.Now().Add(expDur)
+		expiresAt = &t
+	}
+	return fs.Arg(0), maxUses, expiresAt, nil
+}
+
 func cmdInvite(args []string) {
 	need(args, 2, "arizuko invite <instance> <create|list|revoke> ...")
 	instance, action := args[0], args[1]
@@ -638,26 +679,15 @@ func cmdInvite(args []string) {
 
 	switch action {
 	case "create":
-		fs := flag.NewFlagSet("invite create", flag.ExitOnError)
-		maxUses := fs.Int("max-uses", 1, "max uses")
-		expDur := fs.Duration("expires", 0, "expires after this duration")
-		fs.Parse(args[2:])
-		if fs.NArg() < 1 {
-			die("usage: arizuko invite <instance> create <target_glob> [--max-uses N] [--expires DURATION]")
+		glob, maxUses, expiresAt, err := parseInviteCreate(args[2:])
+		if err != nil {
+			die("usage: arizuko invite <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]: %v", err)
 		}
-		if *maxUses < 1 {
-			die("invalid --max-uses %d", *maxUses)
-		}
-		var expiresAt *time.Time
-		if *expDur > 0 {
-			t := time.Now().Add(*expDur)
-			expiresAt = &t
-		}
-		inv, err := s.CreateInvite(fs.Arg(0), "cli", *maxUses, expiresAt)
+		inv, err := s.CreateInvite(glob, "cli", maxUses, expiresAt)
 		if err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "invite create", []string{fs.Arg(0)})
+		auditCLI(s, "invite create", []string{glob})
 		fmt.Printf("token: %s\n", inv.Token)
 		fmt.Printf("target_glob: %s\n", inv.TargetGlob)
 		fmt.Printf("max_uses: %d\n", inv.MaxUses)
@@ -666,9 +696,12 @@ func cmdInvite(args []string) {
 		}
 
 	case "list":
-		fs := flag.NewFlagSet("invite list", flag.ExitOnError)
+		fs := flag.NewFlagSet("invite list", flag.ContinueOnError)
 		issuedBy := fs.String("issued-by", "", "filter by issuer sub")
-		fs.Parse(args[2:])
+		fs.StringVar(issuedBy, "b", "", "filter by issuer sub")
+		if err := flexParse(fs, args[2:]); err != nil || fs.NArg() != 0 {
+			die("usage: arizuko invite <instance> list [--issued-by|-b SUB]")
+		}
 		invs, err := s.ListInvites(*issuedBy)
 		if err != nil {
 			die("Failed: %v", err)
@@ -704,6 +737,25 @@ func cmdInvite(args []string) {
 	}
 }
 
+// parseIdentityLink parses `identity link` args via flexParse so --name (-n) and
+// --id (-i) work in any position relative to the <sub> positional. It requires
+// EXACTLY one positional; a misplaced flag or missing/extra positional errors
+// rather than being silently dropped.
+func parseIdentityLink(args []string) (sub, id, name string, err error) {
+	fs := flag.NewFlagSet("identity link", flag.ContinueOnError)
+	fs.StringVar(&name, "name", "", "identity display name (used when creating)")
+	fs.StringVar(&name, "n", "", "identity display name (used when creating)")
+	fs.StringVar(&id, "id", "", "existing identity id (skip creation)")
+	fs.StringVar(&id, "i", "", "existing identity id (skip creation)")
+	if err = flexParse(fs, args); err != nil {
+		return "", "", "", err
+	}
+	if fs.NArg() != 1 {
+		return "", "", "", fmt.Errorf("expected <sub>")
+	}
+	return fs.Arg(0), id, name, nil
+}
+
 func cmdIdentity(args []string) {
 	need(args, 2, "arizuko identity <instance> <list|link|unlink> ...")
 	instance, action := args[0], args[1]
@@ -721,17 +773,14 @@ func cmdIdentity(args []string) {
 			die("Failed: %v", err)
 		}
 	case "link":
-		fs := flag.NewFlagSet("identity link", flag.ExitOnError)
-		name := fs.String("name", "", "identity display name (used when creating)")
-		idArg := fs.String("id", "", "existing identity id (skip creation)")
-		fs.Parse(args[2:])
-		if fs.NArg() < 1 {
-			die("usage: arizuko identity <instance> link <sub> [--name NAME] [--id ID]")
+		sub, idArg, name, err := parseIdentityLink(args[2:])
+		if err != nil {
+			die("usage: arizuko identity <instance> link <sub> [--name|-n NAME] [--id|-i ID]: %v", err)
 		}
-		if err := runIdentityLink(s, fs.Arg(0), *idArg, *name, os.Stdout); err != nil {
+		if err := runIdentityLink(s, sub, idArg, name, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
-		auditCLI(s, "identity link", []string{fs.Arg(0)})
+		auditCLI(s, "identity link", []string{sub})
 	case "unlink":
 		need(args, 3, "arizuko identity <instance> unlink <sub>")
 		if err := runIdentityUnlink(s, args[2], os.Stdout); err != nil {

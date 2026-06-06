@@ -27,7 +27,7 @@ import (
 // posts to the local webd via WEB_HOST.
 func cmdSend(args []string) {
 	if len(args) < 2 {
-		die("usage: arizuko send <instance> <folder> [<message>] [--wait | --stream] [--stdin] [--topic <topic>]")
+		die("usage: arizuko send <instance> <folder> [<message>] [--wait|-w | --stream|-S] [--stdin] [--token|-t <raw>] [--topic|-T <topic>]")
 	}
 	instance, folder := args[0], args[1]
 
@@ -38,22 +38,22 @@ func cmdSend(args []string) {
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
 		switch a {
-		case "--wait":
+		case "--wait", "-w":
 			wait = true
-		case "--stream":
+		case "--stream", "-S":
 			stream = true
 		case "--stdin":
 			stdin = true
-		case "--token":
+		case "--token", "-t":
 			i++
 			if i >= len(rest) {
-				die("usage: --token <raw_token>")
+				die("usage: --token|-t <raw_token>")
 			}
 			chatToken = rest[i]
-		case "--topic":
+		case "--topic", "-T":
 			i++
 			if i >= len(rest) {
-				die("usage: --topic <topic>")
+				die("usage: --topic|-T <topic>")
 			}
 			topic = rest[i]
 		default:

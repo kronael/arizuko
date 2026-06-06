@@ -30,14 +30,14 @@ import (
 
 func cmdApply(args []string) {
 	if len(args) < 2 {
-		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force]")
+		fmt.Println("usage: arizuko apply <instance> <manifest.yaml> [--force|-f]")
 		os.Exit(1)
 	}
 	instance := args[0]
 	file := args[1]
 	force := false
 	for _, a := range args[2:] {
-		if a == "--force" {
+		if a == "--force" || a == "-f" {
 			force = true
 		}
 	}

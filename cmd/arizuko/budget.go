@@ -28,16 +28,11 @@ func cmdBudget(args []string) {
 
 	switch action {
 	case "set":
-		need(args, 4, "arizuko budget <instance> set <folder|user> <name|sub> --daily N")
-		scope := args[2]
-		target := args[3]
-		fs := flag.NewFlagSet("budget set", flag.ExitOnError)
-		daily := fs.Int("daily", -1, "daily cap in cents (0 = uncapped)")
-		fs.Parse(args[4:])
-		if *daily < 0 {
-			die("usage: --daily N required (cents; 0 disables)")
+		scope, target, daily, err := parseBudgetSet(args[2:])
+		if err != nil {
+			die("usage: arizuko budget <instance> set <folder|user> <name|sub> --daily|-d N: %v", err)
 		}
-		if err := runBudgetSet(s, scope, target, *daily, os.Stdout); err != nil {
+		if err := runBudgetSet(s, scope, target, daily, os.Stdout); err != nil {
 			die("Failed: %v", err)
 		}
 	case "show":
@@ -48,6 +43,27 @@ func cmdBudget(args []string) {
 	default:
 		die("unknown budget action: %s", action)
 	}
+}
+
+// parseBudgetSet parses `budget set` args via flexParse so --daily (-d) works in
+// any position relative to the <scope> <target> positionals. It requires EXACTLY
+// two positionals AND a daily value >= 0 (the cap is mandatory; 0 disables) —
+// missing/extra positionals or an unset --daily error rather than silently
+// dropping a misplaced flag.
+func parseBudgetSet(args []string) (scope, target string, daily int, err error) {
+	fs := flag.NewFlagSet("budget set", flag.ContinueOnError)
+	fs.IntVar(&daily, "daily", -1, "daily cap in cents (0 = uncapped)")
+	fs.IntVar(&daily, "d", -1, "daily cap in cents (0 = uncapped)")
+	if err = flexParse(fs, args); err != nil {
+		return "", "", 0, err
+	}
+	if fs.NArg() != 2 {
+		return "", "", 0, fmt.Errorf("expected <folder|user> <name|sub>")
+	}
+	if daily < 0 {
+		return "", "", 0, fmt.Errorf("--daily N required (cents; 0 disables)")
+	}
+	return fs.Arg(0), fs.Arg(1), daily, nil
 }
 
 func runBudgetSet(s *store.Store, scope, target string, daily int, w io.Writer) error {

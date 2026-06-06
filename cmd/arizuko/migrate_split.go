@@ -24,25 +24,16 @@ import (
 // the new DBs and identity into auth.db; the orphan tables stay where they are.
 // It is idempotent (INSERT OR IGNORE on primary keys) and safe to run on a copy.
 func cmdMigrateSplit(args []string) {
-	// Pull the instance out first so --dry-run works on either side of it
-	// (Go's flag package stops at the first non-flag arg otherwise).
-	var instance string
-	var flags []string
-	for _, a := range args {
-		if instance == "" && len(a) > 0 && a[0] != '-' {
-			instance = a
-			continue
-		}
-		flags = append(flags, a)
-	}
-	fs := flag.NewFlagSet("migrate-split", flag.ExitOnError)
+	// flexParse lets --dry-run sit on either side of <instance>; it requires
+	// EXACTLY one positional so a typo'd flag errors instead of being silently
+	// treated as the instance name.
+	fs := flag.NewFlagSet("migrate-split", flag.ContinueOnError)
 	dryRun := fs.Bool("dry-run", false, "report source row counts; do not write")
-	fs.Parse(flags)
-	if instance == "" {
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
 		fmt.Println("usage: arizuko migrate-split <instance> [--dry-run]")
 		os.Exit(1)
 	}
-	storeDir := filepath.Join(mustInstanceDir(instance), "store")
+	storeDir := filepath.Join(mustInstanceDir(fs.Arg(0)), "store")
 	if err := migrateSplit(storeDir, *dryRun); err != nil {
 		die("Failed: %v", err)
 	}
