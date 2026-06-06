@@ -97,6 +97,48 @@ func TestRunBudgetShow_Uncapped(t *testing.T) {
 	}
 }
 
+// TestParseBudgetSet proves flexParse + the -d alias: --daily/-d parses whether
+// before, after, or interspersed with the <scope> <target> positionals; a wrong
+// positional count or an unset (negative) --daily errors instead of silently
+// dropping a misplaced flag.
+func TestParseBudgetSet(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       []string
+		wantErr    bool
+		wantScope  string
+		wantTarget string
+		wantDaily  int
+	}{
+		{name: "long flag before positionals", args: []string{"--daily", "200", "folder", "f"}, wantScope: "folder", wantTarget: "f", wantDaily: 200},
+		{name: "short flag after positionals", args: []string{"folder", "f", "-d", "200"}, wantScope: "folder", wantTarget: "f", wantDaily: 200},
+		{name: "long flag after positionals", args: []string{"user", "u", "--daily", "0"}, wantScope: "user", wantTarget: "u", wantDaily: 0},
+		{name: "flag interspersed", args: []string{"folder", "--daily", "50", "f"}, wantScope: "folder", wantTarget: "f", wantDaily: 50},
+		{name: "missing daily errors", args: []string{"folder", "f"}, wantErr: true},
+		{name: "one positional errors", args: []string{"folder", "-d", "10"}, wantErr: true},
+		{name: "three positionals errors", args: []string{"folder", "f", "extra", "-d", "10"}, wantErr: true},
+		{name: "unknown flag errors", args: []string{"folder", "f", "--nope", "1"}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, target, daily, err := parseBudgetSet(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseBudgetSet(%v) = nil error, want error", tc.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseBudgetSet(%v) error: %v", tc.args, err)
+			}
+			if scope != tc.wantScope || target != tc.wantTarget || daily != tc.wantDaily {
+				t.Errorf("parseBudgetSet(%v) = (%q, %q, %d), want (%q, %q, %d)",
+					tc.args, scope, target, daily, tc.wantScope, tc.wantTarget, tc.wantDaily)
+			}
+		})
+	}
+}
+
 func TestBudgetStatus_Thresholds(t *testing.T) {
 	for _, c := range []struct {
 		spent, cap int

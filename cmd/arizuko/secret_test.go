@@ -98,6 +98,47 @@ func TestRunSecretDelete(t *testing.T) {
 	}
 }
 
+// TestParseSecretSet proves flexParse + the -v alias: --value/-v parses whether
+// before, after, or interspersed with the <scope_id> KEY positionals, and a
+// wrong positional count errors instead of silently dropping a misplaced flag.
+func TestParseSecretSet(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantErr   bool
+		wantScope string
+		wantKey   string
+		wantVal   string
+	}{
+		{name: "long flag before positionals", args: []string{"--value", "x", "f", "K"}, wantScope: "f", wantKey: "K", wantVal: "x"},
+		{name: "short flag after positionals", args: []string{"f", "K", "-v", "x"}, wantScope: "f", wantKey: "K", wantVal: "x"},
+		{name: "long flag after positionals", args: []string{"f", "K", "--value", "x"}, wantScope: "f", wantKey: "K", wantVal: "x"},
+		{name: "flag interspersed", args: []string{"f", "--value", "x", "K"}, wantScope: "f", wantKey: "K", wantVal: "x"},
+		{name: "no value defaults empty", args: []string{"f", "K"}, wantScope: "f", wantKey: "K", wantVal: ""},
+		{name: "one positional errors", args: []string{"f", "-v", "x"}, wantErr: true},
+		{name: "three positionals errors", args: []string{"f", "K", "extra", "-v", "x"}, wantErr: true},
+		{name: "unknown flag errors", args: []string{"f", "K", "--nope", "1"}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, key, val, err := parseSecretSet("secret set", tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseSecretSet(%v) = nil error, want error", tc.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseSecretSet(%v) error: %v", tc.args, err)
+			}
+			if scope != tc.wantScope || key != tc.wantKey || val != tc.wantVal {
+				t.Errorf("parseSecretSet(%v) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.args, scope, key, val, tc.wantScope, tc.wantKey, tc.wantVal)
+			}
+		})
+	}
+}
+
 func TestKeyValid(t *testing.T) {
 	cases := []struct {
 		key  string
