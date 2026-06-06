@@ -73,16 +73,19 @@ Four properties no competitor has together:
    Git-manageable. Diff-reviewable. The org chart is the folder tree
    (`corp/eng/sre`, arbitrary depth).
 
-2. **Event → reaction over a small orthogonal primitive set.** The whole
-   system reduces to a handful of primitives — Event, Agent, Routing,
+2. **Event → reaction over a small primitive set.** The whole system
+   reduces to a handful of primitives — Event, Routing, Agent,
    Authorization, Turn, State, with identity as the cross-cutting
-   namespace — each owning one concern, composed in a fixed pipeline,
-   no special cases. The apparent feature sprawl (channels, topics,
-   tasks, webhooks, secrets, egress, delegation, observe) is all
-   recomposition of those primitives, never new machinery
-   ([specs/5/A](../5/A-primitives-framing.md)). A focused product is one
-   such recomposition: a folder with the right persona, skills, and
-   routes.
+   coordinate system — each owning one concern, composed in a fixed
+   pipeline, no special cases (one job each, layered overrides, never
+   strict orthogonality). The apparent feature sprawl (channels, topics,
+   tasks, webhooks, secrets, egress, delegation, observe, workflows) is
+   all recomposition of those primitives, never new machinery. Those
+   primitives stack into the things you deploy and ship —
+   primitives → components → daemons → products — the canonical framing
+   and four-layer table live in [specs/5/A](../5/A-primitives-framing.md).
+   A focused product is one such recomposition: a folder with the right
+   persona, skills, and routes.
 
 3. **One uniform MCP+REST surface.** Every resource is reachable through
    one hand-rolled handler with two faces — MCP for in-container agents,
@@ -96,6 +99,28 @@ Four properties no competitor has together:
    your infrastructure, no control plane to depend on — and the focused
    agent itself (persona, skills, routes, knowledge) is yours to read,
    fork, and harden, not a black box you rent.
+
+## Why componentized matters
+
+Other code-first platforms (LangGraph, AutoGen) are monolithic
+runtimes: agents are objects in one process, coordinated by code in the
+same process. arizuko is _componentized_: agents (folders) and infra
+(daemons) are separate processes sharing a schema. The seam is data,
+not function calls. This is the middle two layers of the four-layer
+stack ([specs/5/A](../5/A-primitives-framing.md)):
+
+- **Components can be reimplemented in any language** without touching
+  the agent — the contract is the SQLite schema + message verbs.
+- **Any daemon can be replaced by an agent doing the same job**, as long
+  as it speaks the schema (the "every automation is a folder" framing,
+  [specs/9/4](../9/4-positioning-componentized.md)).
+- **Realtime falls out of composition**, not an execution model: the
+  channel adapters are separate daemons, so agents never poll.
+
+The honest cost: N daemons = N services, N upgrade paths, N log streams,
+and a shared-schema migration chokepoint (`gated` owns migrations). We
+mitigate with a systemd unit template + `docker compose`; we don't
+eliminate it.
 
 ## The Positioning Gap to Own
 

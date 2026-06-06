@@ -8,6 +8,26 @@ A product is a curated template for an ant (agent). It bundles a persona,
 skills, and seed files so an operator can spin up a configured agent with one
 command instead of building from scratch.
 
+## A product is a recomposition, not new machinery
+
+A product introduces no new code path. It is the same fixed reaction
+pipeline (Event → Routing → Agent → Authorization → Turn → State,
+[specs/5/A](../5/A-primitives-framing.md)) with different **folder
+contents** (persona, skills, seed facts) and different **routing** (which
+channels feed the folder). That is the whole product: the bottom of the
+four-layer stack — primitives → components → daemons → products — where
+the operator works. Two consequences:
+
+- **A product page should name its recomposition.** `product-slack-team.md`
+  is the model: a table mapping each promise on the public page to the
+  primitive that already supports it. Every product spec carries one, so
+  "what's free today vs what needs work" is provable, not asserted.
+- **"Focused" is the wedge, not a limitation** ([specs/8/9](9-positioning.md)).
+  Constraining the agent to its job's skills (and gating the rest via the
+  ACL — Authorization) removes the failure modes general agents have. A
+  product is a focused recomposition you own and edit as files, not a
+  general blob you rent.
+
 ## What a product is
 
 Products live in `ant/examples/<name>/`. Each product folder is a prototype
@@ -94,18 +114,25 @@ instructions; they do not automatically validate the env file.
 
 Products in `ant/examples/` (shipped):
 
-| Name     | Brand      | Tagline                                                |
-| -------- | ---------- | ------------------------------------------------------ |
-| personal | fiu        | Personal assistant with persistent memory              |
-| support  | atlas      | KB-backed support agent, escalates to human when stuck |
-| trip     | may        | Multi-step travel research → structured itinerary      |
-| strategy | prometheus | Domain tracker; weekly synthesis → team briefing       |
-| pm       | sloth      | Team task board + weekly digest                        |
-| reality  | rhias      | Ongoing life-context thread holder                     |
-| creator  | inari      | Content pipeline — draft, refine, publish on approval  |
-| socials  | phosphene  | Multi-platform distribution, schedule + engagement     |
+| Name       | Brand      | Tagline                                                      |
+| ---------- | ---------- | ------------------------------------------------------------ |
+| slack-team | slack-team | One agent per Slack channel; shared context, per-user memory |
+| personal   | fiu        | Personal assistant with persistent memory                    |
+| support    | atlas      | KB-backed support agent, escalates to human when stuck       |
+| trip       | may        | Multi-step travel research → structured itinerary            |
+| strategy   | prometheus | Domain tracker; weekly synthesis → team briefing             |
+| pm         | sloth      | Team task board + weekly digest                              |
+| reality    | rhias      | Ongoing life-context thread holder                           |
+| creator    | inari      | Content pipeline — draft, refine, publish on approval        |
+| socials    | phosphene  | Multi-platform distribution, schedule + engagement           |
 
 Public pages at `/pub/products/<name>/` when the web layer is running.
+
+**Company brain** is a positioning product, not a seeded template
+([specs/8/8-company-brain.md](8-company-brain.md)): arizuko is the action
+layer (Turn + State + Routing) over a retrieval backend, the genuine
+integration gap. It ships as framing + a setup recipe, not an
+`ant/examples/` folder, until connector skills land.
 
 ## Creating a new product
 

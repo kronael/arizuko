@@ -28,6 +28,12 @@ realtime channel adapters, no per-tenant isolation. Aeon's
 
 ## What arizuko has
 
+The daemon layer is the third of four in the canonical stack —
+primitives → components → daemons → products
+([specs/5/A](../5/A-primitives-framing.md) § "The four layers").
+"Components" there are the Go packages each primitive lives in; the
+daemons below bundle those packages into deployable processes.
+
 A graph of one-thing-each daemons sharing the schema in
 `store/messages.db`:
 

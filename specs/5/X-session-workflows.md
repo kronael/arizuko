@@ -5,6 +5,13 @@ depends: [F-topic-lineage, G-engagement, A-primitives-framing, ../4/P-personas]
 
 # specs/5/X — session-governed workflows (conversation with an enforced opening ritual)
 
+> Workflows are **operating discipline, not a seventh primitive** —
+> [specs/5/A](A-primitives-framing.md) canonicalizes this. The opening
+> ritual is Turn + State + the session lifecycle, not a workflow engine.
+> This spec owns the mechanism; 5/A owns the framing. Still `draft`: the
+> enforced-opening hardening (non-skippable directive, plan-of-record)
+> is unshipped — do not describe it as live machinery in the docs.
+
 A framing + minimal-mechanism spec. arizuko agents converse freely, but they
 "fail hard" at anything multi-step — they improvise every turn from chat
 scrollback, never produce a durable plan, never consult their own skills, and

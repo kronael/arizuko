@@ -1,6 +1,12 @@
 # Company Brain — arizuko positioning and gaps
 
-## Status: not planned
+## Status: positioning product (retrieval is the integration gap)
+
+A flagship product in the grand message ([specs/5/A](../5/A-primitives-framing.md)),
+alongside the Slack team agent and the reality agent. Unlike those, it
+is **not** a seeded `ant/examples/` template yet — it ships as framing +
+a setup recipe, because its one genuine gap (connector ingestion +
+retrieval) is an integration, not a primitive arizuko is missing.
 
 ## The use case
 
@@ -10,10 +16,17 @@ Confluence, Notion, Slack history, Drive, Jira, etc.
 
 ## arizuko's angle
 
-arizuko is the **action layer**, not the retrieval layer.
-Competitors answer questions about company knowledge.
-arizuko agents act on it — read Slack intake, write daily briefs,
-escalate issues, coordinate across teams, run on schedule.
+arizuko is the **action layer**, not the retrieval layer. Competitors
+answer questions about company knowledge. arizuko agents act on it — read
+Slack intake, write daily briefs, escalate issues, coordinate across
+teams, run on schedule.
+
+This is a recomposition of the same primitives, not new machinery: intake
+arrives as **Events** (Slack, email, webhook, WebDAV); **Routing** lands
+it in the right folder; **State** (the folder's `facts/` + memory) is the
+knowledge; a scheduled **Turn** writes the brief; **Authorization** scopes
+what each team's brain may read. Retrieval is the one piece arizuko does
+not own — it delegates to an external backend via a skill.
 
 The framing: pair arizuko with a vector store skill (or Onyx as a
 retrieval backend) and you get both: semantic search AND agents that act.
