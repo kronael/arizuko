@@ -116,7 +116,7 @@ func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 	var added string
 	var c sql.NullString
 	err := d.db.QueryRow(
-		"SELECT folder, added_at, product, model, container_config FROM groups WHERE folder=?",
+		"SELECT folder, added_at, product, COALESCE(model,''), container_config FROM groups WHERE folder=?",
 		folder).Scan(&g.Folder, &added, &g.Product, &g.Model, &c)
 	if err != nil {
 		return core.Group{}, false
@@ -153,7 +153,7 @@ func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
 // AllGroups returns every registered group keyed by folder. Backs the agent's
 // get_groups MCP tool.
 func (d *DB) AllGroups() map[string]core.Group {
-	rows, err := d.db.Query("SELECT folder, added_at, product, model FROM groups")
+	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(model,'') FROM groups")
 	if err != nil {
 		return nil
 	}
