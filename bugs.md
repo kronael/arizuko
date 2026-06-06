@@ -1964,6 +1964,16 @@ or error rather than fall back cleanly. Orthogonal to the tx-atomicity sweep
 (this is a startup-pragma robustness concern). Future-fix: treat WAL-set failure
 as fatal, or assert journal_mode after open.
 
+### dashd group-delete leaves orphan acl + routes rows (L6) — FIXED 2026-06-06
+
+FIXED: `handleGroupDelete` now purges `acl` (scope=X OR scope LIKE X||'/%',
+covering the X/** glob) and `routes` (target=X OR target LIKE X||'#%' OR
+X||'/%', mirroring SetRoutes) in the same flow, audit-free against adminDB
+(routd.db has no audit_log — same discipline as handleGroupCreate). Regression:
+`dashd.TestGroupDelete_PurgesOrphanAclAndRoutes` (fails pre-fix: scope=X, the X/**
+glob, and the X/sub route all survived; passes post-fix; sibling Y untouched).
+Original analysis kept below for the record.
+
 ### dashd group-delete leaves orphan acl + routes rows (L6) — CONFIRMED no cascade
 
 `dashd/groups_admin.go:403` `handleGroupDelete` does `DELETE FROM groups WHERE
@@ -1989,3 +1999,56 @@ Many call sites across timed/onbod/dashd/audit pass `context.Background()` to
 `audit.Emit` instead of the request/loop ctx. Same invasive cross-cutting concern
 already logged for store/ (see "DB robustness (deferred)" above). Out of scope
 for the tx-correctness sweep.
+
+## Security/trust test sweep (Bucket 1, 2026-06-06) — TESTS ADDED, intent flags
+
+Added security/trust regression + characterization tests. ONE clear isolated
+defect FIXED (A = the L6 orphan-acl/routes purge above). C/D/E are characterization
+tests pinning CURRENT behavior — NO behavior change; the intent questions below
+are flagged for the owner. B is a regression for already-correct fail-closed reads.
+
+- **A (FIXED):** dashd group-delete orphan acl/routes — see the L6 entry above.
+- **B (test only):** `store.AllGroups` + the ACL list reads (`ACLRowsFor`,
+  `ListACL`, `ListACLByScope`, `ACLWildcardRows`, `UserScopes`) fail closed —
+  return nil/empty on DB trouble, never a truncated allow-list. Tests:
+  `store.TestAllGroups_FailsClosedOnQueryError`,
+  `store.TestACLLists_FailClosedOnQueryError`. NOTE: the `rows.Err()` branch
+  itself can't be unit-forced with the modernc test DB (it buffers rows; closing
+  the handle mid-iteration does not surface `rows.Err()` — verified empirically).
+  The tests exercise the adjacent deterministic fail-closed seam (drop the table
+  → query-error branch returns nil/empty); the `rows.Err()` branch is the same
+  `return nil` and is covered by reading the source.
+- **C (FLAG — intent question, NO change):** `auth/middleware.go
+  stampES256Identity` on the ES256-direct path. Characterized current behavior:
+  (a) an operator whose `arz/folder` claim is `**` gets `X-User-Groups=["**"]`
+  (verbatim, single entry); an operator with NO `arz/folder` claim gets
+  `X-User-Groups=[]` (the FLIP-BLOCKER lockout shape — `requireFolder` sees no
+  grants). (b) a `github:`/`google:`-prefixed sub is stamped into `X-User-Sub`
+  VERBATIM (not stripped, not rewritten to a `user:` form). Tests:
+  `auth.TestStampES256_OperatorFolderClaim`,
+  `auth.TestStampES256_NoFolderClaim_EmptyGroups`,
+  `auth.TestStampES256_PrefixedSub_PassthroughVerbatim`. INTENT QUESTION (the
+  existing FLIP-BLOCKER, ~line 1441): at the prod flip when proxyd stops injecting
+  `X-User-Groups`, an operator `**` grant must NOT collapse to `[]` (lockout), and
+  onbod gate-matching must agree on whether the sub prefix survives. Resolution is
+  cutover-entangled (keep proxyd the grant-injector, OR have stampES256Identity do
+  the DB-grants lookup) — DO NOT fix here. The tests will flip with the resolution.
+- **D (FLAG — by-design plausible, NO change):** routd `POST /v1/messages`
+  ingress is scope-gated (`messages:write`) but DISCARDS the token's `arz/folder`
+  claim (`sub, _, ok := s.authz(...)`), so a token bound to folder A can ingest a
+  message that routes to folder B. Folder-binding bites only on the turn-callback
+  surface (`authzTurn`/`ownsFolder`). Test:
+  `routd.TestInboundDispatchIngressFolderNotBound` (asserts current 200 + stored).
+  Plausibly by-design (ingress routing is route-table-driven). If ingress should be
+  folder-scoped, it's MISSING — flip the test to 403 + no-store. Already noted
+  2026-05-30 ("routd ingress not folder-gated").
+- **E (FLAG — desc-vs-enforcement gap, NO change):** `post`/`delete` ipc tool
+  descriptions say "Tier 0-2 only" but `AuthorizeStructural` routes both through
+  `authorizeOutbound`, which checks ONLY the subtree — NO tier gate. A tier-3
+  agent acting on its own folder (or a descendant) passes. Test:
+  `auth.TestAuthorizeStructural_PostDelete_NoTierGate` (+ control
+  `TestAuthorizeStructural_ListACL_TierGated` showing `list_acl`, also "Tier 0-2
+  only", DOES deny tier 2 — so the gap is in post/delete, not the tier machinery).
+  Either the desc is stale or a tier check is missing — verify intent before
+  either narrowing enforcement or correcting the desc. Already noted 2026-05-28
+  (ipc.go:1024/1133).

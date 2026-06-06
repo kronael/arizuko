@@ -218,6 +218,40 @@ func TestInboundDispatchDeniedMissingToken(t *testing.T) {
 	}
 }
 
+// TestInboundDispatchIngressFolderNotBound pins the CURRENT (permissive) ingress
+// behavior: a messages:write token bound to folder "other" can ingest a message
+// that ROUTES to folder "demo" — handleMessages discards the token's arz/folder
+// claim (server.go: `sub, _, ok := s.authz(...)`). Folder-binding is enforced on
+// the turn-callback surface (TestTurnCallbackDeniedForeignFolder), NOT at ingress.
+//
+// NOT a behavior change. Plausibly by-design (ingress routing is route-table-
+// driven, the callback is where folder scope bites). bugs.md flags the intent
+// question (routd ingress not folder-gated, 2026-05-30). If ingress SHOULD be
+// folder-scoped, this expectation flips to 403 + no stored row.
+func TestInboundDispatchIngressFolderNotBound(t *testing.T) {
+	authd := newStubAuthd(t)
+	db, srv, _ := newVerifiedRoutd(t, authd)
+	h := srv.Handler()
+
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatalf("put group: %v", err)
+	}
+	if _, err := db.AddRoute(core.Route{Match: "platform=slack", Target: "demo"}); err != nil {
+		t.Fatalf("add route: %v", err)
+	}
+
+	// Token bound to "other", but the message routes to "demo".
+	tok := authd.mint(t, "service:slakd", "other", "messages:write")
+	in := apiv1.Message{ID: "m9", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"}
+	rec := serveBearer(t, h, "POST", "/v1/messages", tok, in)
+	if rec.Code != 200 {
+		t.Fatalf("CURRENT: ingress ignores folder binding, want 200; got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !db.MessageExists("m9") {
+		t.Fatal("CURRENT: message routing to a non-token folder is still stored at ingress")
+	}
+}
+
 // TestTurnCallbackDeniedForeignFolder is the folder-bound grant enforcement on
 // the callback surface (authzTurn → ownsFolder): a token whose arz/folder claim
 // is for a DIFFERENT folder than the turn's cannot drive that turn's reply.
