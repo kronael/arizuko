@@ -204,6 +204,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
 		return false, false, derr
 	}
+	// Persist the runed-assigned run_id for reconciliation (turn_context.run_id;
+	// the column existed but was never written). Carries on both the steer ack
+	// and the turn-boundary outcome — RunOutcome echoes the run_id either way.
+	if out.RunID != "" {
+		_ = l.db.SetTurnRunID(turnID, out.RunID)
+	}
 	if out.Steered {
 		// The batch was written into the folder's already-live container; the
 		// original run owns it and will submit_turn under ITS turn_id. Mark THIS

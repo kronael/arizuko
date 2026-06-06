@@ -92,6 +92,85 @@ func TestKillStopsContainer(t *testing.T) {
 	}
 }
 
+// TestStopFolderKillsActiveRun: POST /v1/runs/stop maps a folder to its live
+// spawn and kills it (the operator-kill path behind routd's /stop), returning
+// killed:true + the run_id.
+func TestStopFolderKillsActiveRun(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	rec := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+		close(started)
+		<-release
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s1"}
+	}}}
+	db, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run", "runs:kill"}, folder: "demo"})
+	h := srv.Handler()
+
+	// stand up a live run so the folder has an active spawn to stop.
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- doRun(t, h, runedv1.RunRequest{Folder: "demo", ChatJID: "j", TurnID: "t1", MessageBatch: "m"}) }()
+	<-started
+	runID := srv.mgr.ActiveRunID("demo")
+	if runID == "" {
+		t.Fatal("no active run registered for demo")
+	}
+
+	got := postJSON(t, h, "/v1/runs/stop", `{"folder":"demo"}`)
+	if got.Code != 200 {
+		t.Fatalf("stop = %d want 200 (body=%s)", got.Code, got.Body.String())
+	}
+	var out runedv1.StopRunResponse
+	json.Unmarshal(got.Body.Bytes(), &out)
+	if !out.Killed || out.RunID != runID {
+		t.Fatalf("stop response killed=%v run_id=%q want killed=true run_id=%q", out.Killed, out.RunID, runID)
+	}
+	if atomic.LoadInt32(&rec.killed) != 1 {
+		t.Fatalf("Runtime.Kill called %d times, want 1", rec.killed)
+	}
+	sp, _ := db.GetSpawn(runID)
+	if sp.State != "killed" {
+		t.Fatalf("state=%q want killed", sp.State)
+	}
+	close(release)
+	<-done
+}
+
+// TestStopFolderNoActiveRun: POST /v1/runs/stop for an idle folder is a no-op —
+// killed:false (routd renders gated's "No active container" text).
+func TestStopFolderNoActiveRun(t *testing.T) {
+	rec := &killRecorder{}
+	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:kill"}, folder: "demo"})
+	got := postJSON(t, srv.Handler(), "/v1/runs/stop", `{"folder":"idle"}`)
+	if got.Code != 200 {
+		t.Fatalf("stop = %d want 200", got.Code)
+	}
+	var out runedv1.StopRunResponse
+	json.Unmarshal(got.Body.Bytes(), &out)
+	if out.Killed {
+		t.Fatalf("idle folder stop killed=%v want false", out.Killed)
+	}
+	if atomic.LoadInt32(&rec.killed) != 0 {
+		t.Fatal("Runtime.Kill called for an idle folder")
+	}
+}
+
+// TestStopFolderRequiresScope: POST /v1/runs/stop demands runs:kill.
+func TestStopFolderRequiresScope(t *testing.T) {
+	_, srv := serverWith(t, &killRecorder{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "demo"})
+	if got := postJSON(t, srv.Handler(), "/v1/runs/stop", `{"folder":"demo"}`); got.Code != 403 {
+		t.Fatalf("stop without runs:kill = %d want 403", got.Code)
+	}
+}
+
+func postJSON(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest("POST", path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	return rec
+}
+
 // TestSessionsFolderBound: GET /v1/sessions is bounded by the token's
 // arz/folder, NOT the ?folder= query param — a token cannot read another
 // folder's history (bugs.md should-fix server.go:43).

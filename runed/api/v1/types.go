@@ -78,6 +78,21 @@ type RunStatus struct {
 	EndedAt   string `json:"ended_at"`
 }
 
+// StopRunRequest is the body of POST /v1/runs/stop: the operator-kill path
+// (routd's /stop command). runed maps the folder to its live spawn and kills
+// it. By folder, not run_id, because routd never persisted the run_id of a
+// folder's live spawn — the folder IS the operator's handle.
+type StopRunRequest struct {
+	Folder string `json:"folder"`
+}
+
+// StopRunResponse reports whether a live spawn was found + killed. killed=false
+// is the no-active-container case (routd renders gated's exact /stop text).
+type StopRunResponse struct {
+	Killed bool   `json:"killed"`
+	RunID  string `json:"run_id"`
+}
+
 // SessionRow is one GET /v1/sessions entry (session_log, dashd run
 // history).
 type SessionRow struct {

@@ -457,6 +457,11 @@ func TestSplitDaemonsEmitted(t *testing.T) {
 	if !strings.Contains(serviceBlock(out, "routd"), "'8080:8080'") {
 		t.Errorf("routd must publish API_PORT:8080 to the host; got:\n%s", serviceBlock(out, "routd"))
 	}
+	// authd resolves login/refresh scopes against routd's ACL owner — GRANTS_URL
+	// points at routd (completes the ACL federation; unset → empty-scope sessions).
+	if !strings.Contains(serviceBlock(out, "authd"), "GRANTS_URL: 'http://routd:8080'") {
+		t.Errorf("authd must get GRANTS_URL=http://routd:8080; got:\n%s", serviceBlock(out, "authd"))
+	}
 }
 
 // TestCutover_NoGatedDanglingAndRoutdIsRouter: with CUTOVER_SPLIT=true the full

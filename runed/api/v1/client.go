@@ -88,6 +88,42 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (RunOutcome, error) {
 	return out, nil
 }
 
+// StopFolder posts to POST /v1/runs/stop — the operator-kill path (routd's
+// /stop). runed maps the folder to its live spawn and kills it, returning
+// whether something was killed. A transport failure surfaces as the bare error.
+func (c *Client) StopFolder(ctx context.Context, folder string) (StopRunResponse, error) {
+	var out StopRunResponse
+	body, err := json.Marshal(StopRunRequest{Folder: folder})
+	if err != nil {
+		return out, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/runs/stop", bytes.NewReader(body))
+	if err != nil {
+		return out, err
+	}
+	tok, err := c.bearer(ctx)
+	if err != nil {
+		return out, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var e Err
+		_ = json.Unmarshal(raw, &e)
+		return out, &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message}
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("decode stop response: %w", err)
+	}
+	return out, nil
+}
+
 // APIError is a non-2xx response from runed carrying the decoded Err
 // envelope. A transport failure (no HTTP response) surfaces as the bare
 // network error instead — the distinction routd keys on for cursor

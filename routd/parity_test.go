@@ -43,6 +43,27 @@ func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {
 	return db, loop, rr
 }
 
+// TestTurnContextRunIDPersisted: a dispatched turn records the runed-assigned
+// run_id (RunOutcome.RunID) into turn_context.run_id — the reconciliation handle
+// that was previously left NULL.
+func TestTurnContextRunIDPersisted(t *testing.T) {
+	db, loop, _ := recLoop(t)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
+		Content: "q", Timestamp: time.Now().UTC()})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	var runID string
+	if err := db.SQL().QueryRow("SELECT run_id FROM turn_context WHERE turn_id='a'").Scan(&runID); err != nil {
+		t.Fatalf("read turn_context.run_id: %v", err)
+	}
+	if runID != "r" {
+		t.Fatalf("turn_context.run_id=%q want r (recRunner's RunID)", runID)
+	}
+}
+
 // TestWebPerTopicDispatch: a web: chat batches adjacent same-topic rows into one
 // turn and forks a new turn when the topic changes, in first-seen order (gated
 // processWebTopics consecutive-run parity). Interleaved topics are covered by

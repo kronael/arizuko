@@ -357,6 +357,21 @@ func (m *Manager) Kill(runID string) error {
 	return nil
 }
 
+// StopFolder is the operator-kill path (routd's /stop): it resolves the
+// folder's live spawn and Kills it. Returns the killed run_id (or "" + killed
+// false when the folder has no live spawn — routd renders the no-active text).
+// Kill records state=killed without counting toward the breaker.
+func (m *Manager) StopFolder(folder string) (runID string, killed bool, err error) {
+	runID = m.ActiveRunID(folder)
+	if runID == "" {
+		return "", false, nil
+	}
+	if err := m.Kill(runID); err != nil {
+		return "", false, err
+	}
+	return runID, true, nil
+}
+
 // ActiveRunID returns the run_id of a folder's live spawn, or "" when none.
 func (m *Manager) ActiveRunID(folder string) string {
 	m.mu.Lock()

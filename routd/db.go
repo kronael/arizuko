@@ -756,6 +756,13 @@ func (d *DB) SetRunReturned(turnID string) error {
 	return err
 }
 
+// SetTurnRunID records the runed-assigned run_id for a turn (turn_context.run_id),
+// the reconciliation handle linking routd's turn to runed's spawn.
+func (d *DB) SetTurnRunID(turnID, runID string) error {
+	_, err := d.db.Exec("UPDATE turn_context SET run_id=? WHERE turn_id=?", runID, turnID)
+	return err
+}
+
 // RunningTurns lists turn_ids still in state=running (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {
 	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned

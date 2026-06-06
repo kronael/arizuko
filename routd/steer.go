@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -139,7 +140,7 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	case "/ping":
 		l.cmdPing(chatJID, folder)
 	case "/stop":
-		l.cmdStop(chatJID)
+		l.cmdStop(chatJID, folder)
 	case "/status":
 		l.cmdStatus(chatJID, folder)
 	case "/root":
@@ -174,13 +175,23 @@ func (l *Loop) cmdPing(chatJID, folder string) {
 		folder, sess, active, nGroups))
 }
 
-// cmdStop stops the chat's live run via the queue (port of gateway.cmdStop).
-// FEDERATION NOTE: in the split topology the container is owned by runed, not
-// routd; the queue's StopProcess only kills a container routd itself launched.
-// Without a runed stop-run RPC this can't reach the runed-managed spawn — it
-// reports "No active container" when routd holds no local process for the chat.
-func (l *Loop) cmdStop(chatJID string) {
-	if l.q.StopProcess(chatJID) {
+// cmdStop kills the resolved folder's live run (port of gateway.cmdStop). The
+// container is owned by runed in the split, so routd asks runed to map the
+// folder to its live spawn and kill it (POST /v1/runs/stop) rather than its own
+// queue (which launches no containers here). Response text is gated-verbatim.
+func (l *Loop) cmdStop(chatJID, folder string) {
+	stopper, ok := l.runner.(RunStopper)
+	if !ok {
+		l.ack(chatJID, "No active container for this chat.")
+		return
+	}
+	res, err := stopper.StopFolder(context.Background(), folder)
+	if err != nil {
+		slog.Warn("cmdStop: runed stop failed", "jid", chatJID, "folder", folder, "err", err)
+		l.ack(chatJID, "No active container for this chat.")
+		return
+	}
+	if res.Killed {
 		l.ack(chatJID, "Container stopped.")
 	} else {
 		l.ack(chatJID, "No active container for this chat.")

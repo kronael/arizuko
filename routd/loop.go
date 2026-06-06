@@ -27,6 +27,15 @@ type Runner interface {
 	Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error)
 }
 
+// RunStopper is the operator-kill path (routd's /stop): map a folder to its
+// live spawn in runed and kill it. The production *runedv1.Client satisfies it;
+// it is separate from Runner so the spawn-only test stubs don't have to
+// implement a method they never exercise. A runner that lacks it reports
+// no-active-container (local-dev / stubs that launch no containers).
+type RunStopper interface {
+	StopFolder(ctx context.Context, folder string) (runedv1.StopRunResponse, error)
+}
+
 // Loop is routd's orchestration loop: poll routd.db for new messages,
 // resolve each chat's owning group, and dispatch a run to runed through
 // the per-folder queue. It is the SOLE driver of turns; routd is the sole

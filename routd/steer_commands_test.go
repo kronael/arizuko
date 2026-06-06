@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
 // lastAck returns the text of the most recent ack/Send delivered to the chat.
@@ -70,6 +72,8 @@ func TestCmdPingNoSession(t *testing.T) {
 }
 
 // TestCmdStop: /stop with no live run acks gated's exact "no active" message.
+// The default recRunner is not a RunStopper, so cmdStop reports no-active —
+// identical to runed answering killed:false.
 func TestCmdStop(t *testing.T) {
 	_, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
@@ -79,6 +83,64 @@ func TestCmdStop(t *testing.T) {
 	}
 	if got := lastAck(t, dl); got != "No active container for this chat." {
 		t.Fatalf("/stop ack=%q", got)
+	}
+}
+
+// stopRunner is a Runner that also satisfies RunStopper: StopFolder records the
+// asked folder and returns a canned outcome (the runed stop-by-folder RPC).
+type stopRunner struct {
+	recRunner
+	folder string
+	resp   runedv1.StopRunResponse
+}
+
+func (r *stopRunner) StopFolder(_ context.Context, folder string) (runedv1.StopRunResponse, error) {
+	r.folder = folder
+	return r.resp, nil
+}
+
+// TestCmdStopKillsViaRuned: /stop asks runed to kill the resolved folder's live
+// run (POST /v1/runs/stop) and, on killed:true, acks gated's "Container stopped."
+func TestCmdStopKillsViaRuned(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sr := &stopRunner{resp: runedv1.StopRunResponse{Killed: true, RunID: "run_x"}}
+	loop := NewLoop(db, sr, LoopConfig{})
+	loop.StopQueue()
+	dl := &recDeliverer{}
+	loop.deliver = dl
+
+	if !steerOne(loop, "tg:1", "demo", "/stop") {
+		t.Fatal("/stop not consumed")
+	}
+	if sr.folder != "demo" {
+		t.Fatalf("runed asked to stop folder %q want demo", sr.folder)
+	}
+	if got := lastAck(t, dl); got != "Container stopped." {
+		t.Fatalf("/stop ack=%q want Container stopped.", got)
+	}
+}
+
+// TestCmdStopNoActiveViaRuned: runed reporting killed:false renders gated's
+// no-active text (the folder had no live spawn).
+func TestCmdStopNoActiveViaRuned(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sr := &stopRunner{resp: runedv1.StopRunResponse{Killed: false}}
+	loop := NewLoop(db, sr, LoopConfig{})
+	loop.StopQueue()
+	dl := &recDeliverer{}
+	loop.deliver = dl
+
+	_ = steerOne(loop, "tg:1", "demo", "/stop")
+	if got := lastAck(t, dl); got != "No active container for this chat." {
+		t.Fatalf("/stop ack=%q want no-active", got)
 	}
 }
 

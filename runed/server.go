@@ -35,6 +35,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]any{"ok": true}) })
 	mux.HandleFunc("POST /v1/runs", s.handleRun)
+	mux.HandleFunc("POST /v1/runs/stop", s.handleRunStop)
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.handleRunStatus)
 	mux.HandleFunc("DELETE /v1/runs/{run_id}", s.handleRunKill)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessions)
@@ -88,6 +89,30 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, out)
+}
+
+// handleRunStop is the operator-kill path (routd's /stop): map a folder to its
+// live spawn and kill it. Gated on runs:kill (same scope as DELETE-by-run_id).
+// killed=false is the no-active-container case; routd renders gated's text.
+func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authz(w, r, "runs:kill"); !ok {
+		return
+	}
+	var req runedv1.StopRunRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if req.Folder == "" {
+		writeErr(w, 400, "missing_field", "folder required")
+		return
+	}
+	runID, killed, err := s.mgr.StopFolder(req.Folder)
+	if err != nil {
+		writeErr(w, 500, "kill_failed", err.Error())
+		return
+	}
+	writeJSON(w, 200, runedv1.StopRunResponse{Killed: killed, RunID: runID})
 }
 
 func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
