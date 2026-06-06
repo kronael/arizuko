@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko — a separate AI agent for each team, self-hosted</title>
+    <title>arizuko — ship AI agents you own, self-hosted</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -44,15 +44,16 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Run a separate AI agent for each team or customer, on your own
-        servers. Each one keeps its own memory, its own permissions, and its
-        own chat channels. You decide what each agent can see and do; nothing
-        leaks between them.
+        Ship AI agents you own &mdash; a Slack team agent, a personal life
+        agent, a company brain. Each is a folder of files on your own server:
+        persona, memory, skills, permissions. The same fixed pipeline runs all
+        of them; only the folder and the routing change.
       </p>
       <p>
-        It&rsquo;s for teams and operators who want self-hosted agents for
-        support, ops, and internal work &mdash; agents that remember, follow
-        rules you set, and live where your people already talk.
+        Not a chatbot you rent &mdash; a product you own. The config is files
+        you can diff, review in a PR, and roll back with
+        <code>git revert</code>. That ownership is what lets you shape an agent
+        to exactly your work, instead of tuning a black box through a text box.
       </p>
 
       <h2>see it</h2>
@@ -77,6 +78,43 @@
           agent, support another, engineering a third &mdash; each with its
           own notes and its own channels, none reading the others.</li>
       </ul>
+
+      <h2>one shape under everything</h2>
+      <p>
+        It looks like a lot &mdash; channels, tasks, webhooks, secrets,
+        delegation. It isn&rsquo;t. Every one of those is the same six-step
+        pipeline with different folder contents. Trace one Slack mention top
+        to bottom:
+      </p>
+      <pre><code>Slack @mention in #eng
+  &rarr; Event          one inbox row
+  &rarr; Routing        &rarr; corp/eng/oncall
+  &rarr; Agent          folder loaded: persona, skills, memory
+  &rarr; Authorization  may it read / send / delegate here?
+  &rarr; Turn           one container run, then it exits
+  &rarr; State          rows written, files edited
+  &rarr; reply in the thread</code></pre>
+      <p>
+        A scheduled task is the same pipeline &mdash; the event is a clock
+        tick. A webhook is the same pipeline &mdash; the event is a POST.
+        Nothing here is a special case, so the surface stays small: the parts
+        don&rsquo;t multiply.
+      </p>
+      <p>Those parts stack into what you run and what you ship:</p>
+      <table class="deploy-table">
+        <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
+        <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
+        <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
+        <tr><td>Daemons</td><td>running processes</td><td><code>gated</code>, <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
+        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, reality agent, company brain</td></tr>
+      </table>
+      <p>
+        A product sits at the bottom: the same pipeline, a different folder.
+        That&rsquo;s why a support agent and a personal life agent run the same
+        code &mdash; the difference is what&rsquo;s in the folder, not the
+        machinery underneath.
+        <a href="concepts/primitives.html">See the six primitives &rarr;</a>
+      </p>
 
       <h2>agents as data</h2>
       <p>
@@ -334,10 +372,10 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
           <code>gated</code>, <code>webd</code>, <code>proxyd</code>,
           <code>dashd</code>, <code>onbod</code>, <code>timed</code>, plus the
           channel adapters.</li>
-        <li><a href="concepts/">concepts</a> &mdash; one page for each
-          primitive: topics, scopes, routing, grants, auth, jid, tasks,
-          secrets, personas, skills, onboarding, slack pane, route tokens,
-          webdav, voice.</li>
+        <li><a href="concepts/primitives.html">concepts</a> &mdash; start with
+          the <a href="concepts/primitives.html">six primitives</a> (the whole
+          system on one page), then a page each for routing, grants, auth,
+          topics, secrets, skills, tasks, and the rest.</li>
         <li><a href="reference/">reference</a> &mdash; every configurable
           surface, grep-verified against source:
           <a href="reference/env.html">env</a> &middot;
@@ -371,7 +409,7 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
         Go + SQLite (WAL) + Docker &middot; running on
         <code>krons</code>, <code>marinade</code>, <code>sloth</code>.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

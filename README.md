@@ -1,7 +1,7 @@
 # arizuko
 
 <p align="center">
-  Run persistent AI agents for teams. Each folder is an agent with its own memory, persona, and ACL.
+  Ship ownable AI agents as real products. Each agent is a folder — persona, memory, skills, ACL — that reacts to events through one fixed pipeline, self-hosted on your box.
 </p>
 
 <p align="center">
@@ -42,6 +42,34 @@ A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md
 Agents coordinate through the same message bus they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by writing rows to `messages.db` and calling `EnqueueMessageCheck`. No separate coordination bus.
 
 Shared state lives in one SQLite database (messages, routing, grants); per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: one spawns per turn, mounts the group folder, runs, and exits.
+
+## The shape
+
+Everything reduces to six primitives in a fixed pipeline. Trace one event top to bottom:
+
+```
+Slack @mention in #eng
+  → Event          one inbox row (messages.db)
+  → Routing        → corp/eng/oncall
+  → Agent          folder loaded: persona, skills, memory
+  → Authorization  may it read / send / delegate here?
+  → Turn           one ephemeral container run
+  → State          DB rows written + folder edits
+  → reply in the Slack thread
+```
+
+It looks like feature sprawl until you trace one example — then it's six steps every time. Channels, tasks, webhooks, secrets, delegation, workflows are all recompositions of these six (plus identity as the coordinate system they're addressed in), never new machinery ([specs/5/A](specs/5/A-primitives-framing.md)).
+
+Those primitives stack into what you deploy and ship:
+
+| Layer      | What it is           | Examples                                                                   |
+| ---------- | -------------------- | -------------------------------------------------------------------------- |
+| Primitives | invariant concepts   | Event, Routing, Agent, Authorization, Turn, State (+ Identity)             |
+| Components | Go packages          | `store`, `router`, `auth`, `grants`, `ipc`, `runed`, `groupfolder`         |
+| Daemons    | deployable processes | `gated` (monolith) or `authd`+`routd`+`runed`; `webd`, `timed`, `slakd`, … |
+| Products   | installable agents   | Slack team agent, reality agent, company brain                             |
+
+A product is the bottom layer: the same pipeline, a different folder. The public docs collapse Components into Daemons (you deploy daemons, not packages) — operators see three layers, the spec names all four.
 
 ## Direction
 

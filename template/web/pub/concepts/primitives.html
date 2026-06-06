@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; primitives</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+  <style>
+    .prims { list-style: none; margin: 0.6em 0 1.2em; padding: 0; }
+    .prims li { margin: 0.7em 0; }
+    .prims .name { font-weight: 600; color: var(--accent); }
+    .trace { line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="primitives.html" aria-current="page">Primitives</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; primitives</p>
+      <h1>primitives</h1>
+
+      <p class="lede">arizuko is an event&rarr;reaction engine: something
+        happens, an agent reacts. The whole system is six small parts in a
+        fixed order, plus one coordinate system they&rsquo;re all addressed in.
+        Everything else &mdash; channels, tasks, webhooks, secrets, delegation,
+        workflows &mdash; is those parts recombined, not new machinery.</p>
+
+      <h2>Trace one event</h2>
+      <p>The fastest way to see the shape is to follow a single Slack mention
+        from the moment it arrives to the reply going back out:</p>
+      <pre class="trace"><code>Slack @mention in #eng
+  &rarr; Event          one inbox row (messages.db)
+  &rarr; Routing        &rarr; corp/eng/oncall
+  &rarr; Agent          folder loaded: persona, skills, memory
+  &rarr; Authorization  may it read / send / delegate here?
+  &rarr; Turn           one ephemeral container run, then it exits
+  &rarr; State          rows written, files edited
+  &rarr; reply in the Slack thread</code></pre>
+      <p>It looks like feature sprawl until you trace one example &mdash; then
+        it&rsquo;s six steps, every time.</p>
+
+      <h2>The six primitives</h2>
+      <ul class="prims">
+        <li><span class="name">Event</span> &mdash; the one inbox. A chat
+          message, a webhook POST, an inbound email, a WebDAV file drop, a
+          scheduled tick, a reaction: all land as one row in
+          <code>messages</code>. The channel adapters, <code>emaid</code>,
+          webhooks, <code>timed</code>, <code>davd</code> are all just event
+          sources writing rows.</li>
+        <li><span class="name">Routing</span> &mdash; event to folder. One
+          route table, first match wins, with a few layers on top:
+          direct address, engagement (keep listening after a mention), sticky
+          topics, observe (ingest, don&rsquo;t reply). Delegate and escalate
+          are routing to a child or parent folder. See
+          <a href="routing.html">routing</a>.</li>
+        <li><span class="name">Agent</span> &mdash; who reacts, and with what
+          knowledge. An agent <em>is</em> a folder:
+          <code>PERSONA.md</code>, <code>skills/</code>, <code>MEMORY.md</code>,
+          a diary, an ACL. The org chart is the folder tree
+          (<code>corp/eng/sre</code>, any depth). See
+          <a href="ant.html">the ant</a>.</li>
+        <li><span class="name">Authorization</span> &mdash; one question: may
+          this principal do this action here? Defaults live in code per tier;
+          the operator overrides with rows in the <code>acl</code> table. See
+          <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</li>
+        <li><span class="name">Turn</span> &mdash; the bounded reaction. One
+          ephemeral Docker container runs the agent loop for a single turn,
+          then exits. Every side effect is one tool call through the auth gate,
+          written to one audit row. Tasks, autocalls, and interjections are all
+          just turns triggered by a different event.</li>
+        <li><span class="name">State</span> &mdash; what persists, in two
+          stores by design. The shared database holds events, routes, grants,
+          ACL, sessions. The folder on disk holds the persona, skills, memory,
+          diary. The folder is not a cache &mdash; containers are stateless and
+          mount it each turn. A tar of the instance directory is a full backup.
+          See <a href="secrets.html">secrets</a>.</li>
+      </ul>
+
+      <h2>Identity &mdash; the coordinate system</h2>
+      <p>Identity isn&rsquo;t a step in the pipeline; it&rsquo;s the coordinate
+        system the six steps are addressed in. Subs, JIDs, folders, tiers,
+        scopes. Routing resolves to a folder, authorization keys on a
+        principal, a turn runs as <code>agent:&lt;folder&gt;</code>, state is
+        partitioned by folder &mdash; every primitive refers to identity, none
+        sequences it. See <a href="auth.html">auth</a> and
+        <a href="jid.html">addressing</a>.</p>
+
+      <h2>Workflows &mdash; a discipline, not a primitive</h2>
+      <p>A multi-step job thrashes when the agent re-improvises from chat
+        scrollback every turn. The fix isn&rsquo;t a workflow engine: it&rsquo;s
+        making the session boundary run a fixed opening &mdash; load context,
+        open a plan file, apply the folder&rsquo;s runbook, scan skills &mdash;
+        before the agent free-associates. Conversation stays free; the opening
+        gets strict. That&rsquo;s Turn + State + the session lifecycle, not new
+        machinery, so it&rsquo;s a recomposition too.</p>
+
+      <h2>No special cases</h2>
+      <p>This is the proof that the surface is small: every &ldquo;feature&rdquo;
+        is one of the six recombined.</p>
+      <table>
+        <thead>
+          <tr><th>What looks like a feature</th><th>is really&hellip;</th><th>primitive</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Channel adapters</td><td>event sources writing rows</td><td>Event</td></tr>
+          <tr><td>Webhooks, email, WebDAV</td><td>more event sources</td><td>Event</td></tr>
+          <tr><td>Scheduled tasks</td><td>events on a clock tick &rarr; a turn</td><td>Event + Turn</td></tr>
+          <tr><td>Topics</td><td>a field on the event + a routing layer</td><td>Event + Routing</td></tr>
+          <tr><td>Engagement, observe</td><td>routing overrides</td><td>Routing</td></tr>
+          <tr><td>Delegation, escalation</td><td>routing to a child or parent folder</td><td>Routing + Agent</td></tr>
+          <tr><td>Personas, skills, memory</td><td>folder contents</td><td>Agent</td></tr>
+          <tr><td>Workflows</td><td>an enforced opening at the session boundary</td><td>Turn + State</td></tr>
+          <tr><td>Grants, scopes</td><td>views over the one authorize question</td><td>Authorization</td></tr>
+          <tr><td>Secrets, egress allowlist</td><td>folder-scoped state resolved into a turn</td><td>State + Turn</td></tr>
+          <tr><td>A product</td><td>a folder with persona + skills + routes</td><td>Agent</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The four layers</h2>
+      <p>The same small set of concepts stacks into the things you deploy and
+        ship. This is what arizuko is about: primitives become packages become
+        processes become products.</p>
+      <table>
+        <thead>
+          <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Primitives</td><td>invariant concepts</td><td>Event, Routing, Agent, Authorization, Turn, State (+ Identity)</td></tr>
+          <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>grants</code>, <code>ipc</code>, <code>runed</code>, <code>groupfolder</code></td></tr>
+          <tr><td>Daemons</td><td>deployable processes</td><td><code>gated</code> (monolith), or <code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code>&hellip;</td></tr>
+          <tr><td>Products</td><td>installable agents</td><td><a href="../products/slack-team/">Slack team agent</a>, <a href="../products/reality/">reality agent</a>, company brain</td></tr>
+        </tbody>
+      </table>
+      <p>A product sits at the bottom: the same pipeline, a different folder.
+        That&rsquo;s why a support agent and a personal life agent run the same
+        code. The <a href="../components/">components</a> section lists the
+        daemons (you deploy daemons, not packages, so the site shows three
+        layers; the package layer is named in the
+        <a href="https://github.com/kronael/arizuko/blob/main/README.md">README</a>).</p>
+
+      <div class="callout"><strong>Honest about the seams:</strong> the
+        primitives are <em>not</em> mathematically independent &mdash; routing
+        reads the event&rsquo;s shape and is overridden by engagement;
+        authorization is several gates, not one switch; a turn needs grants and
+        egress resolved before it spawns. The wedge is &ldquo;one job each,
+        fixed pipeline, no special cases,&rdquo; not strict orthogonality. The
+        lived shape is still <code>gated</code>-centric &mdash; the split into
+        <code>authd</code>/<code>routd</code>/<code>runed</code> is rolling out
+        &mdash; and the one MCP+REST surface is converging, not finished.</div>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="./">&larr; Concepts</a>
+        <a rel="next" href="ant.html">The ant &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/primitives.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
