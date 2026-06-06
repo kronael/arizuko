@@ -375,6 +375,16 @@ func copyInto(dst *sql.DB, msgPath string, specs []copySpec, dryRun bool) (map[s
 	}
 	defer conn.ExecContext(ctx, "DETACH DATABASE msg")
 
+	// Bulk import: disable FK enforcement on this pinned connection. The source
+	// messages.db may carry legacy orphan rows (e.g. task_run_logs whose
+	// scheduled_task was deleted before FK cascades were enforced); with
+	// foreign_keys=on the INSERT…SELECT aborts mid-copy. Runtime daemons re-open
+	// with foreign_keys=on and never re-check existing rows, so copied orphans are
+	// harmless. Connection-scoped + outside any tx, so it takes effect here.
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return nil, fmt.Errorf("disable FK for bulk copy: %w", err)
+	}
+
 	counts := map[string]int64{}
 	for _, sp := range specs {
 		if dryRun {

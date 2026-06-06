@@ -2052,3 +2052,33 @@ are flagged for the owner. B is a regression for already-correct fail-closed rea
   Either the desc is stale or a tier check is missing — verify intent before
   either narrowing enforcement or correcting the desc. Already noted 2026-05-28
   (ipc.go:1024/1133).
+
+## migrate-split real-data validation (2026-06-06, on a clone of krons messages.db)
+
+Validated `migrate-split` against krons's actual 18k-message messages.db in a
+throwaway before the cutover. Findings:
+
+- **FIXED — orphan task_run_logs aborted the migration.** routd.db declares the
+  FK task_run_logs.task_id→scheduled_tasks(id) (migration 0009); the legacy
+  monolith never enforced it, so krons carries orphan run logs (deleted tasks).
+  With foreign_keys=on the bulk copy aborted (`FOREIGN KEY constraint failed
+  (787)`). Fix: `copyInto` sets `PRAGMA foreign_keys=OFF` on its pinned import
+  connection (standard bulk-load practice; runtime re-opens FK-on, existing rows
+  aren't re-checked). Regression test `TestMigrateSplitToleratesOrphanRunLog`.
+
+- **FLAG (lossy, not a functional blocker) — cost_log history collapses.** The
+  transform sets `turn_id=''` for every source row, and routd's cost_log PK is
+  (folder, turn_id, model), so `INSERT OR IGNORE` collapses N rows → one per
+  (folder, model). On krons 1411 → 22. Historical per-turn cost detail is lost
+  and the kept row is the FIRST, not a SUM — so a daily budget total spanning the
+  flip can undercount once. New post-flip rows carry real turn_ids (fine). If
+  historical cost fidelity matters, synthesize a unique surrogate turn_id per
+  source row (e.g. rowid) instead of ''.
+
+- **FLAG (populated instances only) — auth_users not copied.** migrate-split
+  leaves auth_users in messages.db (orphan list). In the split, onbod reads/writes
+  auth_users in routd.db (its own migration 0011) while dashd/profile still reads
+  it from messages.db. krons has 0 auth_users → no impact. But an instance WITH
+  user accounts would strand username/linked_to_sub mappings post-flip (onbod sees
+  none). Decide: copy auth_users → routd.db in migrate-split, or unify the read
+  path, before flipping any populated instance.

@@ -349,3 +349,43 @@ func TestMigrateSplitMissingDB(t *testing.T) {
 		t.Fatal("expected error when messages.db is absent")
 	}
 }
+
+// TestMigrateSplitToleratesOrphanRunLog: legacy monolith data carries
+// task_run_logs whose scheduled_task was deleted (the old messages.db never
+// enforced the FK). routd.db DOES declare the FK (migration 0009), so without
+// FK-off on the bulk-copy connection the migration aborts. This pins the
+// orphan-tolerance: copyInto disables foreign_keys for the import.
+func TestMigrateSplitToleratesOrphanRunLog(t *testing.T) {
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedMessagesDB(t, storeDir) // seeds 1 scheduled_task + 1 valid task_run_log
+
+	// inject an orphan run log: task_id points at no scheduled_task (source has
+	// no FK, so this is exactly the legacy shape krons carries).
+	s, err := store.Open(storeDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	// Pin one conn so PRAGMA foreign_keys=OFF + the orphan INSERT share it; the
+	// monolith historically had FK off when these orphans accrued.
+	s.DB().SetMaxOpenConns(1)
+	if _, err := s.DB().Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatalf("fk off: %v", err)
+	}
+	if _, err := s.DB().Exec(
+		`INSERT INTO task_run_logs(task_id, run_at, status) VALUES(999999,'2026-01-05T00:00:00Z','ok')`); err != nil {
+		t.Fatalf("seed orphan run log: %v", err)
+	}
+	s.Close()
+
+	if err := migrateSplit(storeDir, false); err != nil {
+		t.Fatalf("migrateSplit must tolerate orphan task_run_logs (got: %v)", err)
+	}
+	rdb, err := routd.Open(storeDir)
+	if err != nil {
+		t.Fatalf("routd.Open: %v", err)
+	}
+	defer rdb.Close()
+	if got := count(t, rdb.SQL(), "task_run_logs"); got != 2 {
+		t.Errorf("routd.task_run_logs: got %d, want 2 (seeded + orphan)", got)
+	}
+}
