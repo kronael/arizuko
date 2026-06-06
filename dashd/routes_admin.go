@@ -29,6 +29,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
+	allowed, operator := d.callerScope(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Routes")
 	fmt.Fprint(w, `<p class="dim">Routing rules. Each inbound message walks the table in <code>seq</code> order; the first <code>match</code> hit pins the <code>target</code> group.</p>`)
@@ -59,6 +60,9 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		var match, target string
 		if err := rows.Scan(&id, &seq, &match, &target, &owm, &owc); err != nil {
 			slog.Warn("routes: scan", "err", err)
+			continue
+		}
+		if !visible(allowed, operator, core.ParseRouteTarget(target).Folder) {
 			continue
 		}
 		del := fmt.Sprintf(
