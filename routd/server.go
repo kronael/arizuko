@@ -86,6 +86,12 @@ type Server struct {
 	// wired / auth-only deployment). Set via SetIdentityResolver.
 	identity IdentityResolver
 
+	// sessions federates the session_log run history via runed's
+	// GET /v1/sessions/recent (runed OWNS session_log — spec 5/P). Backs the
+	// inspect_session MCP tool's recent rows; nil → no prior sessions (no runed
+	// client wired). Set via SetSessionResolver.
+	sessions SessionResolver
+
 	// disabledGroups is SEND_DISABLED_GROUPS: muted folders whose outbound is
 	// persisted (the row lands status=sent) but NOT delivered to the platform,
 	// mirroring gateway.canSendToGroup. SEND_DISABLED_CHANNELS (jid-prefix mute)
@@ -182,6 +188,21 @@ func (s *Server) resolveIdentity(sub string) (ipc.Identity, []string, bool) {
 		return ipc.Identity{}, nil, false
 	}
 	return s.identity.Resolve(sub)
+}
+
+// SetSessionResolver wires the runed session client backing inspect_session
+// (runed OWNS session_log — spec 5/P). nil → no prior sessions. Set
+// post-construction in main wiring.
+func (s *Server) SetSessionResolver(r SessionResolver) { s.sessions = r }
+
+// recentSessions is the StoreFns.RecentSessions backing: it federates to runed's
+// GET /v1/sessions/recent. A nil resolver (no runed client wired) returns nil —
+// never reaches runed.db (session_log federated to runed).
+func (s *Server) recentSessions(folder string, n int) []core.SessionRecord {
+	if s.sessions == nil {
+		return nil
+	}
+	return s.sessions.RecentSessions(folder, n)
 }
 
 // Handler builds the routed mux. GET /health and /openapi.json are public;

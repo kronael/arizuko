@@ -204,6 +204,61 @@ func TestSessionsRequiresScope(t *testing.T) {
 	}
 }
 
+// TestRecentSessionsReturnsRecords: GET /v1/sessions/recent returns the seeded
+// session_log rows for a folder, full-fielded (group_folder + error), newest
+// first — the federated read routd uses for its new_session hint.
+func TestRecentSessionsReturnsRecords(t *testing.T) {
+	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "alice"})
+	id, _ := db.RecordSession("alice", "sa")
+	db.EndSession(id, "sa", "ok", "boom", 7)
+	h := srv.Handler()
+
+	rec := req(t, h, "GET", "/v1/sessions/recent?n=5")
+	if rec.Code != 200 {
+		t.Fatalf("recent = %d want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out runedv1.RecentSessionsResponse
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Sessions) != 1 {
+		t.Fatalf("recent rows=%d want 1: %+v", len(out.Sessions), out.Sessions)
+	}
+	s := out.Sessions[0]
+	if s.GroupFolder != "alice" || s.SessionID != "sa" || s.Result != "ok" ||
+		s.Error != "boom" || s.MessageCount != 7 {
+		t.Fatalf("recent row fields wrong: %+v", s)
+	}
+}
+
+// TestRecentSessionsFolderBound: GET /v1/sessions/recent is bounded by the
+// token's arz/folder, NOT ?folder= — a token cannot read another folder's
+// history.
+func TestRecentSessionsFolderBound(t *testing.T) {
+	db, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"sessions:read"}, folder: "alice"})
+	a, _ := db.RecordSession("alice", "sa")
+	db.EndSession(a, "sa", "ok", "", 1)
+	b, _ := db.RecordSession("bob", "sb")
+	db.EndSession(b, "sb", "ok", "", 1)
+
+	rec := req(t, srv.Handler(), "GET", "/v1/sessions/recent?folder=bob")
+	if rec.Code != 200 {
+		t.Fatalf("recent = %d want 200", rec.Code)
+	}
+	var out runedv1.RecentSessionsResponse
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if len(out.Sessions) != 1 || out.Sessions[0].SessionID != "sa" {
+		t.Fatalf("cross-folder read leaked: %+v (token folder=alice, asked bob)", out.Sessions)
+	}
+}
+
+// TestRecentSessionsRequiresScope: GET /v1/sessions/recent without sessions:read
+// is 403.
+func TestRecentSessionsRequiresScope(t *testing.T) {
+	_, srv := serverWith(t, FakeRuntime{}, fakeVerifier{scope: []string{"runs:kill"}, folder: "alice"})
+	if got := req(t, srv.Handler(), "GET", "/v1/sessions/recent?folder=alice"); got.Code != 403 {
+		t.Fatalf("recent without sessions:read = %d want 403", got.Code)
+	}
+}
+
 // TestRunRequiresScope: POST /v1/runs demands runs:run — a token without it is
 // 403; a wildcard runs:* grant satisfies it (wildcard scope match, not exact).
 func TestRunRequiresScope(t *testing.T) {

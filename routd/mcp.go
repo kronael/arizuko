@@ -313,9 +313,10 @@ func beforeStr(t time.Time) string {
 var errTaskFederation = fmt.Errorf("task scheduling runs in timed (federation pending)")
 
 // buildStoreFns wires the read/manage agent tools to routd.DB. Read tools whose
-// state lives in a sibling DB read RO via the sibling handles (tasks/identity →
-// messages.db, session_log → runed.db; graceful-absent → empty). Task WRITE
-// tools dispatch errTaskFederation (no cross-DB write to timed's table).
+// state lives elsewhere federate over HTTP (tasks → messages.db sibling,
+// identity → authd, session_log → runed's GET /v1/sessions/recent;
+// graceful-absent → empty). Task WRITE tools dispatch errTaskFederation (no
+// cross-DB write to timed's table).
 // Deferred nil: LogIPCAudit (audit_log lives in messages.db, owned elsewhere —
 // see buildGatedFns.Audit for routd's ownership-correct slog/.jl path).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
@@ -335,9 +336,10 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		UpdateTaskStatus: func(string, string) error { return errTaskFederation },
 		DeleteTask:       func(string) error { return errTaskFederation },
 		// Session reads: current session_id from routd.db (own table); recent
-		// session_log rows from the sibling runed.db (runed's table).
+		// session_log rows federated from runed's GET /v1/sessions/recent (runed
+		// OWNS session_log — spec 5/P; no runed.db sibling-read).
 		GetSession:     s.db.GetSession,
-		RecentSessions: s.db.SiblingRecentSessions,
+		RecentSessions: s.recentSessions,
 		// Identity reads: authd OWNS identity (spec 5/9). routd snapshots its
 		// GET /v1/identities/{sub} over HTTP — no messages.db sibling-read.
 		// nil resolver → unclaimed shape.

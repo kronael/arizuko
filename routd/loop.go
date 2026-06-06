@@ -199,6 +199,17 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 // close over). Server already holds loop; this closes the cycle.
 func (l *Loop) BindServer(s *Server) { l.srv = s }
 
+// recentSessions federates the prior-session continuity hint through the bound
+// Server's runed session client (runed OWNS session_log — spec 5/P). nil srv /
+// no resolver → nil, the "no prior session" shape (faithful to routd's old
+// absent-runed.db guard).
+func (l *Loop) recentSessions(folder string, n int) []core.SessionRecord {
+	if l.srv == nil {
+		return nil
+	}
+	return l.srv.recentSessions(folder, n)
+}
+
 // Enqueue schedules a chat for processing (called by ingress after a
 // PutMessage). The queue serializes per folder and collapses duplicates.
 func (l *Loop) Enqueue(chatJID string) {

@@ -2,7 +2,6 @@ package routd
 
 import (
 	"bufio"
-	"database/sql"
 	"encoding/json"
 	"net"
 	"path/filepath"
@@ -77,27 +76,6 @@ func callToolArray(t *testing.T, sock, name string, args map[string]any) ([]any,
 		t.Fatalf("%s payload %q not a JSON array: %v", name, text, err)
 	}
 	return arr, ""
-}
-
-// attachRunedSibling attaches an in-memory runed.db (just the session_log table
-// runed owns) as routd's RO runedDB handle, so the inspect_session "recent"
-// hint can read it cross-DB. The DB name is unique per call (cache=shared is
-// process-wide, which would cross-contaminate between tests).
-func attachRunedSibling(t *testing.T, d *DB) *sql.DB {
-	t.Helper()
-	h, err := sql.Open("sqlite", "file:runedsib_"+randHex(8)+"?mode=memory&cache=shared")
-	if err != nil {
-		t.Fatalf("open runed sibling: %v", err)
-	}
-	if _, err := h.Exec(`CREATE TABLE session_log (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, group_folder TEXT NOT NULL,
-		session_id TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT,
-		result TEXT, error TEXT, message_count INTEGER)`); err != nil {
-		t.Fatalf("create session_log: %v", err)
-	}
-	d.runedDB = h
-	t.Cleanup(func() { h.Close() })
-	return h
 }
 
 func seedTask(t *testing.T, s *store.Store, id, owner, jid, prompt string) {
@@ -236,24 +214,22 @@ func TestInspectIdentity_IgnoresSibling(t *testing.T) {
 	}
 }
 
-// TestInspectSession_SiblingRead: inspect_session returns the routd.db
-// session_id plus recent session_log rows read RO from runed.db. RecentSessions
-// was nil in routd → the recent[] hint was dark.
-func TestInspectSession_SiblingRead(t *testing.T) {
+// TestInspectSession_Federated: inspect_session returns the routd.db session_id
+// plus recent session_log rows FEDERATED from runed's GET /v1/sessions/recent
+// (here a SessionResolver stub). No cross-DB runed.db read — runed owns
+// session_log and serves it over HTTP.
+func TestInspectSession_Federated(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	rdb := attachRunedSibling(t, db)
-	if _, err := rdb.Exec(
-		`INSERT INTO session_log (group_folder, session_id, started_at, result, message_count)
-		 VALUES (?, ?, ?, ?, ?)`,
-		"demo", "sess-1", time.Now().Format(time.RFC3339), "ok", 5); err != nil {
-		t.Fatalf("seed session_log: %v", err)
-	}
 
 	srv := NewServer(db, nil, &recDeliverer{}, nil, 0, "")
+	srv.SetSessionResolver(&stubSessions{rows: []core.SessionRecord{{
+		ID: 1, Folder: "demo", SessionID: "sess-1",
+		StartedAt: time.Now(), Result: "ok", MsgCount: 5,
+	}}})
 	ipcDir := filepath.Join(t.TempDir(), "ipc", "demo")
 	stop, err := srv.ServeTurnMCP(turnMCP{folder: "demo", turnID: "t1"}, ipcDir)
 	if err != nil {
@@ -271,9 +247,10 @@ func TestInspectSession_SiblingRead(t *testing.T) {
 	}
 }
 
-// TestInspectSession_NilRunedSibling: no runed.db → recent[] is empty/null, no
-// error. The tool registers (GetSession backs it from routd.db) and answers.
-func TestInspectSession_NilRunedSibling(t *testing.T) {
+// TestInspectSession_NilResolver: no SessionResolver wired → recent[] is
+// empty/null, no error. The tool registers (GetSession backs it from routd.db)
+// and answers.
+func TestInspectSession_NilResolver(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)

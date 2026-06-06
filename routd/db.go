@@ -26,11 +26,11 @@ const serviceName = "routd"
 type DB struct {
 	db *sql.DB
 
-	// Read-only handles to the sibling DBs in the same store/ dir, owned
+	// Read-only handle to the sibling messages.db in the same store/ dir, owned
 	// (written) by other split daemons; nil when the file is absent. See
-	// sibling_db.go.
-	msgs    *sql.DB // messages.db — scheduled_tasks (timed), pane_sessions (slakd)
-	runedDB *sql.DB // runed.db — session_log (runed)
+	// sibling_db.go. session_log moved to runed's GET /v1/sessions/recent
+	// (session.go); identity moved to authd (identity.go).
+	msgs *sql.DB // messages.db — scheduled_tasks (timed), pane_sessions (slakd)
 
 	// secretKeyring is the SECRETS_KEY material (raw, pre-SHA256) routd hands
 	// to its OWN *store.Store (secretStore) via SetSecretKeys so reads decrypt
@@ -47,7 +47,7 @@ type DB struct {
 func (d *DB) SetSecretKeys(raws ...[]byte) { d.secretKeyring = raws }
 
 // Open opens routd.db at dir/routd.db (WAL, FK on), runs the routd migration
-// sequence, and attaches read-only handles to the sibling DBs in dir.
+// sequence, and attaches a read-only handle to the sibling messages.db in dir.
 func Open(dir string) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func Open(dir string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.msgs, d.runedDB = openSiblings(dir)
+	d.msgs = openSiblings(dir)
 	return d, nil
 }
 
@@ -88,9 +88,6 @@ func open(dsn string) (*DB, error) {
 func (d *DB) Close() error {
 	if d.msgs != nil {
 		d.msgs.Close()
-	}
-	if d.runedDB != nil {
-		d.runedDB.Close()
 	}
 	return d.db.Close()
 }

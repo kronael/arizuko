@@ -3,6 +3,7 @@ package runed
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
@@ -39,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/runs/{run_id}", s.handleRunStatus)
 	mux.HandleFunc("DELETE /v1/runs/{run_id}", s.handleRunKill)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessions)
+	mux.HandleFunc("GET /v1/sessions/recent", s.handleRecentSessions)
 	return mux
 }
 
@@ -167,6 +169,42 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		out.Sessions = append(out.Sessions, runedv1.SessionRow{
 			ID: x.ID, SessionID: x.SessionID, StartedAt: x.StartedAt,
 			EndedAt: x.EndedAt, Result: x.Result, MessageCount: x.MessageCount,
+		})
+	}
+	writeJSON(w, 200, out)
+}
+
+// handleRecentSessions is the routd→runed federation read (spec 5/P): the n
+// newest session_log rows for a folder, full-fielded (group_folder + error),
+// backing routd's new_session continuity hint + inspect_session tool. routd
+// used to open runed.db directly; it calls this instead. Gated on sessions:read
+// like GET /v1/sessions. Folder is bound by the token's arz/folder claim when
+// present; routd's service token (folder="") honors the ?folder= query param.
+func (s *Server) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
+	folder, ok := s.authz(w, r, "sessions:read")
+	if !ok {
+		return
+	}
+	if folder == "" {
+		folder = r.URL.Query().Get("folder")
+	}
+	n := 0
+	if v := r.URL.Query().Get("n"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			n = parsed
+		}
+	}
+	rows, err := s.db.RecentSessionRecords(folder, n)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	out := runedv1.RecentSessionsResponse{}
+	for _, x := range rows {
+		out.Sessions = append(out.Sessions, runedv1.RecentSessionRecord{
+			ID: x.ID, GroupFolder: x.GroupFolder, SessionID: x.SessionID,
+			StartedAt: x.StartedAt, EndedAt: x.EndedAt, Result: x.Result,
+			Error: x.Error, MessageCount: x.MessageCount,
 		})
 	}
 	writeJSON(w, 200, out)

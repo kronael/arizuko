@@ -109,6 +109,27 @@ type SessionsResponse struct {
 	Sessions []SessionRow `json:"sessions"`
 }
 
+// RecentSessionRecord is one GET /v1/sessions/recent entry: the full
+// session_log row routd needs for the new_session continuity hint and the
+// inspect_session tool. Carries group_folder + error (which the dashd-facing
+// SessionRow omits) so it round-trips a core.SessionRecord losslessly.
+type RecentSessionRecord struct {
+	ID           int64  `json:"id"`
+	GroupFolder  string `json:"group_folder"`
+	SessionID    string `json:"session_id"`
+	StartedAt    string `json:"started_at"`
+	EndedAt      string `json:"ended_at"`
+	Result       string `json:"result"`
+	Error        string `json:"error"`
+	MessageCount int    `json:"message_count"`
+}
+
+// RecentSessionsResponse is GET /v1/sessions/recent — the n newest session_log
+// rows for a folder, newest first.
+type RecentSessionsResponse struct {
+	Sessions []RecentSessionRecord `json:"sessions"`
+}
+
 // Err is the uniform JSON error envelope across the /v1/* surface.
 type Err struct {
 	Error   string `json:"error"`

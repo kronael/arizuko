@@ -140,6 +140,10 @@ func main() {
 
 	srv := routd.NewServer(db, loop, deliver, verify, durOr("ENGAGEMENT_TTL", 30*time.Minute), webHost)
 	srv.SetIdentityResolver(identity)
+	// session_log run history federated from runed (runed OWNS it — spec 5/P):
+	// reuse routd's existing runed client, no new auth wiring. nil client →
+	// the new_session hint / inspect_session render "no prior session".
+	srv.SetSessionResolver(routd.NewSessionResolver(runedClient))
 	// Close the Loop↔Server cycle and supply the dirs the in-process MCP
 	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
 	loop.BindServer(srv)

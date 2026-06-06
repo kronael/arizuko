@@ -230,7 +230,7 @@ func (l *Loop) emitSystemEvents(folder, chatJID string) {
 	}
 
 	if l.db.SessionID(folder, "") == "" {
-		body := previousSessionXML(l.db.SiblingRecentSessions(folder, 1))
+		body := previousSessionXML(l.recentSessions(folder, 1))
 		_ = l.db.EnqueueSysMsg(folder, "gateway", "new_session", body)
 	}
 }

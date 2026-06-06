@@ -13,20 +13,17 @@ import (
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
-// attachSiblings gives a test DB writable in-memory stand-ins for the sibling
-// DBs (messages.db: scheduled_tasks + pane_sessions; runed.db: session_log)
-// that other split daemons own. Returns the raw handles so the test can seed
-// rows the prompt path reads RO.
-func attachSiblings(t *testing.T, d *DB) (msgs, runedDB *sql.DB) {
+// attachSiblings gives a test DB a writable in-memory stand-in for the sibling
+// messages.db (scheduled_tasks + pane_sessions) that other split daemons own.
+// Returns the raw handle so the test can seed rows the prompt path reads RO.
+// session_log is NOT a sibling anymore: runed owns it and serves it over
+// GET /v1/sessions/recent (see TestEmitSystemEvents_NewSession's resolver stub).
+func attachSiblings(t *testing.T, d *DB) (msgs *sql.DB) {
 	t.Helper()
-	open := func() *sql.DB {
-		h, err := sql.Open("sqlite", "file:sib_"+randHex(8)+"?mode=memory&cache=shared")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return h
+	msgs, err := sql.Open("sqlite", "file:sib_"+randHex(8)+"?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
 	}
-	msgs = open()
 	if _, err := msgs.Exec(`
 		CREATE TABLE scheduled_tasks (
 		  id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
@@ -40,17 +37,9 @@ func attachSiblings(t *testing.T, d *DB) (msgs, runedDB *sql.DB) {
 		  PRIMARY KEY (team_id, user_id, thread_ts));`); err != nil {
 		t.Fatal(err)
 	}
-	runedDB = open()
-	if _, err := runedDB.Exec(`
-		CREATE TABLE session_log (
-		  id INTEGER PRIMARY KEY AUTOINCREMENT, group_folder TEXT NOT NULL,
-		  session_id TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT,
-		  result TEXT, error TEXT, message_count INTEGER);`); err != nil {
-		t.Fatal(err)
-	}
-	d.msgs, d.runedDB = msgs, runedDB
-	t.Cleanup(func() { msgs.Close(); runedDB.Close() })
-	return msgs, runedDB
+	d.msgs = msgs
+	t.Cleanup(func() { msgs.Close() })
+	return msgs
 }
 
 // TestBuildAgentPrompt_PaneHints mirrors gateway TestBuildAgentPrompt_PaneHints:
@@ -63,7 +52,7 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs, _ := attachSiblings(t, db)
+	msgs := attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "main"})
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
@@ -135,29 +124,55 @@ func TestEmitSystemEvents_NewDay(t *testing.T) {
 	}
 }
 
+// stubSessions is a SessionResolver that returns canned records — the prompt
+// path's federated session source. Records the folder/n it was asked for so a
+// test can prove the new_session hint resolved through the resolver, not a
+// cross-DB runed.db read (which no longer exists).
+type stubSessions struct {
+	rows     []core.SessionRecord
+	gotFold  string
+	gotN     int
+	gotCalls int
+}
+
+func (s *stubSessions) RecentSessions(folder string, n int) []core.SessionRecord {
+	s.gotFold, s.gotN, s.gotCalls = folder, n, s.gotCalls+1
+	return s.rows
+}
+
 // TestEmitSystemEvents_NewSession: with no live session_id, emitSystemEvents
-// enqueues new_session carrying the prior session's <previous_session> tail
-// from the sibling runed.db session_log.
+// enqueues new_session carrying the prior session's <previous_session> tail.
+// The tail is FEDERATED from runed's GET /v1/sessions/recent (here a
+// SessionResolver stub bound via the Server) — NOT a cross-DB runed.db read.
 func TestEmitSystemEvents_NewSession(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, runedDB := attachSiblings(t, db)
+	attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "grp2"})
 	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
 	loop.StopQueue()
 
-	if _, err := runedDB.Exec(
-		`INSERT INTO session_log(group_folder,session_id,started_at,ended_at,result,message_count)
-		 VALUES('grp2','abc123def456','2026-01-01T10:00:00Z','2026-01-01T10:05:00Z','ok',7)`); err != nil {
-		t.Fatal(err)
-	}
+	ended := time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC)
+	sess := &stubSessions{rows: []core.SessionRecord{{
+		ID: 1, Folder: "grp2", SessionID: "abc123def456",
+		StartedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
+		EndedAt:   &ended, Result: "ok", MsgCount: 7,
+	}}}
+	srv := NewServer(db, loop, nil, nil, 0, "")
+	srv.SetSessionResolver(sess)
+	loop.BindServer(srv)
+
 	_ = db.SetAgentCursor("jid2", time.Now().UTC().Format(time.RFC3339Nano))
 
 	loop.emitSystemEvents("grp2", "jid2")
 
+	if sess.gotCalls != 1 || sess.gotFold != "grp2" || sess.gotN != 1 {
+		t.Fatalf("expected one resolver call for (grp2,1), got calls=%d folder=%q n=%d",
+			sess.gotCalls, sess.gotFold, sess.gotN)
+	}
 	out := db.FlushSysMsgs("grp2")
 	if !strings.Contains(out, "new_session") {
 		t.Fatalf("expected new_session event, got: %q", out)
@@ -185,7 +200,7 @@ func TestSiblingTasks_RootVsChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs, _ := attachSiblings(t, db)
+	msgs := attachSiblings(t, db)
 	for _, r := range [][2]string{{"t-main", "main"}, {"t-sub", "main/sub"}} {
 		if _, err := msgs.Exec(
 			`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
@@ -212,7 +227,7 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	msgs, _ := attachSiblings(t, db)
+	msgs := attachSiblings(t, db)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
 	if _, err := msgs.Exec(
 		`INSERT INTO scheduled_tasks(id,owner,chat_jid,prompt,status,created_at,context_mode)
@@ -252,8 +267,8 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	}
 }
 
-// TestSiblings_NilHandles: with no sibling files attached (OpenMem leaves the
-// handles nil) every accessor returns the empty result, never panics.
+// TestSiblings_NilHandles: with no sibling messages.db attached (OpenMem leaves
+// the handle nil) every accessor returns the empty result, never panics.
 func TestSiblings_NilHandles(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -265,8 +280,5 @@ func TestSiblings_NilHandles(t *testing.T) {
 	}
 	if _, ok := db.SiblingPaneContextJID("D0XY"); ok {
 		t.Error("nil msgs handle: want no pane")
-	}
-	if got := db.SiblingRecentSessions("main", 1); got != nil {
-		t.Errorf("nil runed handle: want nil sessions, got %+v", got)
 	}
 }

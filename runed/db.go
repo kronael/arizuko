@@ -125,6 +125,45 @@ func (d *DB) RecentSessions(folder string, limit int) ([]SessionRow, error) {
 	return out, rows.Err()
 }
 
+// SessionRecord is a full session_log row (group_folder + error included),
+// the shape routd federates over GET /v1/sessions/recent for its new_session
+// hint + inspect_session tool. The dashd-facing SessionRow drops both fields.
+type SessionRecord struct {
+	ID           int64
+	GroupFolder  string
+	SessionID    string
+	StartedAt    string
+	EndedAt      string
+	Result       string
+	Error        string
+	MessageCount int
+}
+
+// RecentSessionRecords lists a folder's full session_log rows, newest first.
+// This is the federated read routd used to make by opening runed.db directly.
+func (d *DB) RecentSessionRecords(folder string, limit int) ([]SessionRecord, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := d.db.Query(`SELECT id, group_folder, session_id, started_at,
+		COALESCE(ended_at,''), COALESCE(result,''), COALESCE(error,''), COALESCE(message_count,0)
+		FROM session_log WHERE group_folder=? ORDER BY id DESC LIMIT ?`, folder, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SessionRecord
+	for rows.Next() {
+		var r SessionRecord
+		if err := rows.Scan(&r.ID, &r.GroupFolder, &r.SessionID, &r.StartedAt,
+			&r.EndedAt, &r.Result, &r.Error, &r.MessageCount); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // --- spawns ---
 
 // Spawn is one container spawn (the execution-session envelope).

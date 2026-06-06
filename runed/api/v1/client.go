@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -120,6 +122,45 @@ func (c *Client) StopFolder(ctx context.Context, folder string) (StopRunResponse
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return out, fmt.Errorf("decode stop response: %w", err)
+	}
+	return out, nil
+}
+
+// RecentSessions GETs /v1/sessions/recent?folder=&n= — the n newest
+// session_log rows for folder (full-fielded). routd calls it for the
+// new_session continuity hint + inspect_session tool instead of opening
+// runed.db. A transport failure / non-2xx surfaces as the error; the caller
+// treats it as "no prior session" (advisory, never fatal).
+func (c *Client) RecentSessions(ctx context.Context, folder string, n int) (RecentSessionsResponse, error) {
+	var out RecentSessionsResponse
+	q := url.Values{}
+	q.Set("folder", folder)
+	if n > 0 {
+		q.Set("n", strconv.Itoa(n))
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.BaseURL+"/v1/sessions/recent?"+q.Encode(), nil)
+	if err != nil {
+		return out, err
+	}
+	tok, err := c.bearer(ctx)
+	if err != nil {
+		return out, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var e Err
+		_ = json.Unmarshal(raw, &e)
+		return out, &APIError{Status: resp.StatusCode, Code: e.Error, Msg: e.Message}
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, fmt.Errorf("decode recent sessions: %w", err)
 	}
 	return out, nil
 }
