@@ -448,6 +448,12 @@ func (l *Loop) pollOnce() {
 	}
 	for chatJID, chatMsgs := range byChat {
 		last := chatMsgs[len(chatMsgs)-1]
+		// Global poll feeds from the min cursor; skip chats already current on
+		// their own cursor — enqueuing them would (false,nil)→trip the queue
+		// breaker (cost a 3-attempt split cutover to find).
+		if last.Timestamp.UTC().Format(time.RFC3339Nano) <= l.db.GetAgentCursor(chatJID) {
+			continue
+		}
 		r := l.resolve(chatJID, last)
 		if !r.ok {
 			if r.Observe != "" {

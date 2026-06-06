@@ -108,6 +108,50 @@ func (failingRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOu
 	return runedv1.RunOutcome{}, context.DeadlineExceeded
 }
 
+// TestPollOnceGatesCurrentChat: pollOnce feeds from the GLOBAL min cursor, so a
+// chat whose OWN cursor is already current shows up when another chat holds the
+// min back. It must NOT be enqueued — else processGroupMessages returns
+// (false,nil) and the shared queue counts a circuit-breaker failure (the split
+// cutover's breaker churn). Mirrors gateway, which never enqueues an empty chat.
+func TestPollOnceGatesCurrentChat(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "demo"}})
+	now := time.Now().UTC()
+	// chat A: already processed — its cursor is AT its latest msg, and it holds
+	// MinAgentCursor low so pollOnce's global poll surfaces it every tick.
+	_ = db.PutMessage(core.Message{ID: "a1", ChatJID: "slack:T/CA/U", Sender: "u", Content: "old", Timestamp: now, Verb: "message"})
+	_ = db.SetAgentCursor("slack:T/CA/U", now.Format(time.RFC3339Nano))
+	// chat B: genuinely new — cursor unset (behind its message).
+	_ = db.PutMessage(core.Message{ID: "b1", ChatJID: "slack:T/CB/U", Sender: "u", Content: "new", Timestamp: now.Add(time.Second), Verb: "message"})
+
+	loop := NewLoop(db, nopRunner{}, LoopConfig{})
+	got := make(chan string, 8)
+	// Replace the queue's worker with a recorder so we observe exactly which
+	// chats pollOnce enqueues (not what they dispatch).
+	loop.q.SetProcessMessagesFn(func(jid string) (bool, error) { got <- jid; return false, nil })
+
+	loop.pollOnce()
+
+	select {
+	case jid := <-got:
+		if jid != "slack:T/CB/U" {
+			t.Fatalf("processed %q, want only the new-work chat slack:T/CB/U", jid)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("new-work chat B was not enqueued")
+	}
+	select {
+	case jid := <-got:
+		t.Fatalf("already-current chat spuriously enqueued: %q (breaker-churn bug)", jid)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 // TestSteeredPartialBatchNoRedispatch is the partial-batch double-dispatch fix:
 // in a multi-sender poll the FIRST batch's turn completes and a LATER batch
 // steers (another chat holds the folder), so processGroupMessages returns
