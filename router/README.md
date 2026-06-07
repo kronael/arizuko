@@ -12,12 +12,12 @@ route data shapes:
    `<internal>` blocks from agent output, materialise per-user context
    from `users/<id>.md` frontmatter.
 2. **Route evaluation** — match a single inbound `core.Message` against
-   the ordered route table loaded by gated and return the resolved
+   the ordered route table loaded by routd and return the resolved
    target folder.
 
 No I/O (except `UserContextXml` reading `users/<id>.md` under the
 group dir), no goroutines, no state. The route table itself is owned
-by gated via `store/routes.go`; this package just walks rules someone
+by routd via `routd/routes.go`; this package just walks rules someone
 else loaded.
 
 ## Public API
@@ -33,7 +33,7 @@ else loaded.
 - `FormatOutbound(raw string) string` — strip `<internal>`,
   `<think>`, and `<status>` blocks; trim.
 - `ExtractStatusBlocks(s string) (cleaned string, statuses []string)`
-  — pull `<status>` lines out separately so gated can ship them to the
+  — pull `<status>` lines out separately so routd can ship them to the
   operator surface without showing them to users.
 - `StripThinkBlocks(s string) string` — depth-aware stripper for
   nested `<think>`.
@@ -62,11 +62,11 @@ semantics, precedence.
 
 ## Where it's called
 
-- `gateway/gateway.go` — per-message route resolution + prompt
+- `routd/loop.go` — per-message route resolution + prompt
   assembly for the agent batch
 - `ipc/` — `<messages>` rendering when the in-container agent fetches
   message context over MCP
-- gated's outbound path uses `FormatOutbound` / `ExtractStatusBlocks`
+- routd's outbound path uses `FormatOutbound` / `ExtractStatusBlocks`
   to clean agent output before delivery
 
 ## Dependencies

@@ -5,8 +5,8 @@ Scheduler daemon: polls `scheduled_tasks`, inserts messages at due times.
 ## Purpose
 
 Separate process that fires cron/interval tasks. Keeps scheduler logic out
-of `gated`. Writes prompts as messages through the shared SQLite DB;
-gateway picks them up via normal polling.
+of `routd`. Writes prompts as messages through routd's DB;
+routd picks them up via normal polling.
 
 ## Responsibilities
 
@@ -17,7 +17,7 @@ gateway picks them up via normal polling.
 
 ## Tables owned
 
-`scheduled_tasks`, `task_run_logs`. gated runs the migrations today, but
+`scheduled_tasks`, `task_run_logs`. routd runs the migrations today, but
 timed is the only daemon that mutates these rows. Other daemons must go
 through timed's API.
 

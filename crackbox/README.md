@@ -131,7 +131,7 @@ crackbox/
 
 `CRACKBOX_ADMIN_SECRET` empty leaves mutating endpoints unauthenticated
 and logs a warning. The same secret must be set on both the daemon and
-each consumer (e.g. arizuko's `gated`). Read-only endpoints
+each consumer (e.g. arizuko's `routd`/`runed`). Read-only endpoints
 (`/v1/state`, `/health`) never require auth.
 
 `CRACKBOX_STATE_PATH` empty keeps the registry in memory; restarts drop
@@ -160,7 +160,7 @@ See [`specs/11/12-crackbox-sandboxing.md`](../specs/11/12-crackbox-sandboxing.md
 ## Orthogonality
 
 ```sh
-grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated|auth|audit|resreg|obs)' crackbox/  # returns empty
+grep -rE 'github\.com/[^/]+/arizuko/(store|core|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|auth|audit|resreg|obs|routd|runed|authd)' crackbox/  # returns empty
 ```
 
 The grep is owner-agnostic on purpose — `arizuko`'s `go.mod` carries
@@ -170,7 +170,7 @@ arizuko-internal subpackage is imported," not "the owner string
 matches X."
 
 This component imports nothing from arizuko-internal packages.
-Consumers (arizuko's gated, future tools) import
+Consumers (arizuko's runed, future tools) import
 `<arizuko-module>/crackbox/pkg/...` or invoke the CLI.
 
 Crackbox shares arizuko's single `go.mod` and stays that way —

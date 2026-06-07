@@ -6,7 +6,7 @@ SQLite access layer. Owns `messages.db` schema and all migrations.
 
 Single writer of the shared database. `Migrate` runs every migration in
 `migrations/` on `Open`. Other daemons connect to the same DB but must
-wait for `gated` to finish migrating on startup (WAL mode + 5s busy
+wait for the owning daemon to finish migrating on startup (WAL mode + 5s busy
 timeout tolerate the handoff).
 
 ## Public API

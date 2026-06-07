@@ -4,7 +4,7 @@ Self-contained service images built and shipped alongside arizuko.
 
 ## Purpose
 
-Out-of-process capabilities that aren't core daemons but which gated (or
+Out-of-process capabilities that aren't core daemons but which routd (or
 other Go daemons) call over HTTP. Each sidecar is its own docker image,
 its own Makefile, and its own runtime — arizuko reaches it via a URL
 env var, never via a Go import. Add a new sidecar by adding a
@@ -39,9 +39,9 @@ token) is what keeps the model server from being open on the box.
 
 ### How arizuko calls it
 
-gated picks up `WHISPER_BASE_URL` from `.env` and propagates it into
+routd picks up `WHISPER_BASE_URL` from `.env` and propagates it into
 agent containers (see `compose/compose.go` env passthrough list). The
-agent or gated POSTs `/inference` against that URL when transcribing
+agent or routd POSTs `/inference` against that URL when transcribing
 inbound voice attachments. No registration handshake — sidecars are
 discovered via env, not via the channel registry.
 

@@ -57,7 +57,7 @@ JSON doc off the same `RowType` reflection — struct field → schema
 property, resource → `/v1/<name>` list/create/update/delete paths. No
 `huma`, no `swag`, no codegen. Handler is public (mount before auth)
 and caches the blob for the process lifetime. Mounted at
-`/openapi.json` on `gated` (`api/api.go`), timed, onbod, webd, proxyd,
+`/openapi.json` on `routd`, `runed`, `authd`, timed, onbod, webd, proxyd,
 dashd. Drift between handler and doc is impossible because both read
 the same struct. Aggregator landing:
 `/pub/arizuko/reference/openapi.html`.

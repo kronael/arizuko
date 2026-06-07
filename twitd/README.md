@@ -55,7 +55,7 @@ Cookies are atomically rotated to `cookies.json.bak` on every save.
 | `TWITTER_EMAIL`         | login disambiguation                                           |
 | `TWITTER_2FA_SECRET`    | TOTP secret for 2FA accounts                                   |
 | `TWITTER_POLL_INTERVAL` | inbound polling cadence in seconds (default 90)                |
-| `ROUTER_URL`            | gated router URL                                               |
+| `ROUTER_URL`            | routd router URL                                               |
 | `CHANNEL_SECRET`        | shared HMAC secret                                             |
 | `TWITD_CHANNEL_SECRET`  | optional per-adapter override of `CHANNEL_SECRET`              |
 | `LISTEN_ADDR`           | HTTP listen, default `:8080`                                   |

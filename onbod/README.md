@@ -11,7 +11,7 @@ throttle admission.
 
 ## Responsibilities
 
-- Poll `awaiting_message` rows; send auth link via gated's outbound API.
+- Poll `awaiting_message` rows; send auth link via routd's outbound API.
 - Serve `/onboard` landing, OAuth callbacks, username picker, world-creation page.
 - Match users to `ONBOARDING_GATES` (github-org, google-domain, catch-all); enforce per-gate daily limits.
 - Promote queued users to `approved` via `admitFromQueue` loop (~60s).
@@ -87,7 +87,7 @@ signer; onbod never holds a signing key.
   a proxyd-signed header or a Bearer ES256 token. `/v1/invites` and
   `/v1/users` (planned) will additionally check `users:read` /
   `invites:write` scope via `auth.HasScope` — identical pattern to timed
-  and gated.
+  and routd.
 - **Session bootstrap (today).** OAuth callback runs the shared
   `createOAuthSession` path and sets the onboarding cookies; it does not
   mint platform ES256 tokens. A brand-new user's first authoritative
