@@ -31,17 +31,17 @@ A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md
 # A message arrives in Slack.
 @andy can you summarize the open PRs?
 
-# 1. slakd posts to gated  →  messages.db
-# 2. gated polls DB, resolves folder via route table
-# 3. Docker container spawns for that group
-# 4. MCP unix socket bridges into container
+# 1. slakd posts to routd  →  routd.db
+# 2. routd resolves folder via route table, builds the prompt, calls runed
+# 3. runed spawns a Docker container for that group
+# 4. routd hosts the agent's MCP socket in-process; socat bridges it in
 # 5. Claude Code agent runs, calls tools, submits turn
-# 6. gated delivers reply back to Slack via slakd
+# 6. routd delivers reply back to Slack via slakd
 ```
 
-Agents coordinate through the same message bus they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by writing rows to `messages.db` and calling `EnqueueMessageCheck`. No separate coordination bus.
+Agents coordinate through the same conversation plane they serve users on. A container can route to a sibling, delegate to a child, schedule a cron task, or ingest webhooks — by posting to `routd`. No separate coordination bus.
 
-Shared state lives in one SQLite database (messages, routing, grants); per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: one spawns per turn, mounts the group folder, runs, and exits.
+Conversation state lives in `routd.db`; per-group agent state — the Claude Code session, skills, memory, diary — lives in the mounted group folder. Containers are ephemeral: `runed` spawns one per turn, mounts the group folder, runs it, and tears it down.
 
 ## The shape
 
@@ -49,11 +49,11 @@ Everything reduces to six primitives in a fixed pipeline. Trace one event top to
 
 ```
 Slack @mention in #eng
-  → Event          one inbox row (messages.db)
+  → Event          one inbox row (routd.db)
   → Routing        → corp/eng/oncall
   → Agent          folder loaded: persona, skills, memory
   → Authorization  may it read / send / delegate here?
-  → Turn           one ephemeral container run
+  → Turn           one ephemeral container run (runed)
   → State          DB rows written + folder edits
   → reply in the Slack thread
 ```
@@ -62,12 +62,12 @@ It looks like feature sprawl until you trace one example — then it's six steps
 
 Those primitives stack into what you deploy and ship:
 
-| Layer      | What it is           | Examples                                                                   |
-| ---------- | -------------------- | -------------------------------------------------------------------------- |
-| Primitives | invariant concepts   | Event, Routing, Agent, Authorization, Turn, State (+ Identity)             |
-| Components | Go packages          | `store`, `router`, `auth`, `grants`, `ipc`, `runed`, `groupfolder`         |
-| Daemons    | deployable processes | `gated` (monolith) or `authd`+`routd`+`runed`; `webd`, `timed`, `slakd`, … |
-| Products   | installable agents   | Slack team agent, reality agent, company brain                             |
+| Layer      | What it is           | Examples                                                           |
+| ---------- | -------------------- | ------------------------------------------------------------------ |
+| Primitives | invariant concepts   | Event, Routing, Agent, Authorization, Turn, State (+ Identity)     |
+| Components | Go packages          | `store`, `router`, `auth`, `grants`, `ipc`, `runed`, `groupfolder` |
+| Daemons    | deployable processes | `authd` + `routd` + `runed`; `webd`, `timed`, `onbod`, `slakd`, …  |
+| Products   | installable agents   | Slack team agent, reality agent, company brain                     |
 
 A product is the bottom layer: the same pipeline, a different folder. The public docs collapse Components into Daemons (you deploy daemons, not packages) — operators see three layers, the spec names all four.
 
@@ -111,28 +111,31 @@ arizuko group foo add tg:-123456789 main   # register first group
 arizuko run foo                            # generate compose + docker compose up
 ```
 
-A first deployment runs `gated` + one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a `template/services/<name>.toml` — no Go edits required. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
+A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a `template/services/<name>.toml` — no Go edits required. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
 
-A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — `messages.db` (WAL), group folders, per-user memory, secrets, agent files.
+A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the per-daemon SQLite databases (`routd.db`, `runed.db`, `auth.db`, … WAL), group folders, per-user memory, secrets, agent files.
 
 ## How it works
 
 ```
-adapter (teled/discd/slakd/…) --HTTP--> gated (api + gateway)
-                                          │
-                                          ├── store (messages.db, WAL)
-                                          ├── container (docker run agent)
-                                          │     └── MCP over unix socket (ipc)
-                                          └── chanreg (adapter health, outbound)
+adapter (teled/discd/slakd/…) --HTTP--> routd (conversation plane)
+                                          │     └── routd.db (WAL)
+                                          │     └── hosts agent MCP socket in-process (ipc)
+                                          ├──HTTP--> runed (execution plane)
+                                          │           └── runed.db; docker.sock + crackbox
+                                          │           └── spawns the agent container per turn
+                                          └──HTTP--> authd (token authority)
+                                                      └── auth.db; ES256 minter + JWKS
 
-timed   — scheduler, writes messages into bus
-onbod   — onboarding, OAuth, gated admission
+timed   — scheduler, federates due tasks over routd
+onbod   — onboarding, OAuth, admission queue (onbod.db)
 webd    — web chat channel adapter + SSE hub
 proxyd  — auth-gated reverse proxy (TOML route table)
-vited   — serves /pub/* + auth-gated default route
 davd    — WebDAV workspace (per-group, dufs)
 dashd   — operator dashboards + admin CRUD
 ```
+
+Each core daemon owns and migrates its own database; no daemon migrates another's. Adapters, `webd`, `proxyd`, and `timed` reach `routd`; `routd` reaches `runed`; every daemon verifies tokens minted by `authd`.
 
 Full package graph, message flow, container lifecycle, and SQLite schema in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -179,7 +182,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 - Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
 - Capability-token auth — the `auth/` library is shipped (offline JWT verify, OAuth, ACL, middleware); per-tenant token minting + revocation and `PROXYD_HMAC_SECRET` / `CHANNEL_SECRET` retirement are the target ([spec](specs/5/1-auth-standalone.md))
-- Daemon genericization — `gated` split into `routd` / `runed` / `authd` (the per-turn MCP host is folded into routd, not a separate daemon); capability scopes replace folder-depth tiers ([spec](specs/5/U-genericization.md))
+- Capability scopes — replace folder-depth tiers with token scopes; the per-daemon `routd` / `runed` / `authd` split that this rides on has shipped ([spec](specs/5/U-genericization.md))
 - Uniform MCP+REST across the cold tier — one hand-rolled handler per resource, both faces ([spec](specs/5/5-uniform-mcp-rest.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 
