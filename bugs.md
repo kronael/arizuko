@@ -2231,3 +2231,16 @@ auth gate" spec (CLAUDE.md). My severity triage (agent ceiling = ONLY
 
 Codex "no defect found": NULL-scan sweep (clean post-fix), 13 MCP tools (all wired),
 authorizeJID web fix (no regression), compose service-key wiring (complete).
+
+## INCIDENT: gated spawn-runaway took host to load 136 (2026-06-07, sloth)
+
+sloth (on the OLD gated monolith) ran group main/main into a spawn loop: agents
+delegated → spawned children → Docker name collision (exit 125, "container name
+already in use") → agent error → re-trigger → respawn → collide. No breaker stopped
+it; long agents (288s+) piled to 41+ containers, host load 136, 0GB free — degraded
+ALL instances (krons healthchecks timed out). Mitigated: systemctl stop arizuko_sloth
+(load → 0.9). ROOT CAUSE = gated monolith: no MaxConcurrent cap, no per-folder
+breaker on the delegate-spawn path, name reuse on respawn. PREVENTED BY THE SPLIT:
+runed has MaxConcurrent cap + circuit breaker (threshold 3) + runTTL + unique
+millisecond container names (manager.go:168). FIX = convert every instance off gated
+to the split, then delete gated. (User mandate 2026-06-07.)
