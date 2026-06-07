@@ -1,4 +1,4 @@
-DAEMONS = gated authd routd runed onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd slakd ttsd
+DAEMONS = authd routd runed onbod dashd proxyd webd timed teled discd emaid mastd bskyd reditd linkd slakd ttsd
 # COMPONENTS are sibling tools shipped alongside arizuko (see specs/11/b).
 # They live in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. Each has its own Makefile, README, and image.
@@ -81,7 +81,7 @@ smoke:
 	done; \
 	echo "  all containers healthy"; \
 	if grep -q '^CRACKBOX_ADMIN_API=' /srv/data/arizuko_$$inst/.env 2>/dev/null; then \
-	  $(DOCKER) exec arizuko_gated_$$inst wget -qO- --timeout=3 http://crackbox:3129/health \
+	  $(DOCKER) exec arizuko_runed_$$inst wget -qO- --timeout=3 http://crackbox:3129/health \
 	    | grep -q '"status":"ok"' && echo "  crackbox /health: ok" \
 	    || (echo "  FAIL: crackbox /health"; exit 1); \
 	fi
