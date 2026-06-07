@@ -305,6 +305,35 @@ func (s *Server) authed(w http.ResponseWriter, r *http.Request, anyScope ...stri
 	return ok
 }
 
+// ownsJID reports whether a token scoped to tokenFolder may act on jid's chat.
+// It mirrors ipc.authorizeJID's resolution EXACTLY so the REST and MCP faces
+// gate identically (CLAUDE.md "auth is a uniform middleware"): resolve the jid's
+// routing target, fall back to the web:<folder> 1:1 binding when no route row,
+// allow when that target is in the token's subtree OR (verb-agnostic) the token's
+// folder is itself a route target for jid (mention-only subfolder). Empty token
+// folder (root / service token) owns everything.
+func (s *Server) ownsJID(tokenFolder, jid string) bool {
+	if tokenFolder == "" {
+		return true
+	}
+	target := s.db.DefaultFolderForJID(jid)
+	if target == "" {
+		if folder, ok := strings.CutPrefix(jid, "web:"); ok {
+			target = folder
+		}
+	}
+	if target != "" && ownsFolder(tokenFolder, target) {
+		return true
+	}
+	return s.db.JIDRoutableToFolder(jid, tokenFolder)
+}
+
+// denyCrossFolder writes the 403 a scoped token gets when it targets a chat/
+// folder outside its subtree — the REST twin of ipc.authorizeJID's error.
+func denyCrossFolder(w http.ResponseWriter, jid string) {
+	writeErr(w, 403, "forbidden", "chat "+jid+" is outside your folder")
+}
+
 // --- ingress ---
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {

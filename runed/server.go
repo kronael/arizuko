@@ -66,6 +66,17 @@ func (s *Server) authz(w http.ResponseWriter, r *http.Request, needScope string)
 	return folder, true
 }
 
+// ownsFolder reports whether a token scoped to tokenFolder may act on a run in
+// target's folder. Empty tokenFolder (root / service:routd, which drives every
+// run) owns everything; a folder-scoped token is confined to its own subtree —
+// it cannot inspect or kill another folder's run. Mirrors routd.ownsFolder.
+func ownsFolder(tokenFolder, target string) bool {
+	if tokenFolder == "" || target == "" {
+		return true
+	}
+	return target == tokenFolder || strings.HasPrefix(target, tokenFolder+"/")
+}
+
 // handleRun is the routd→runed contract (POST /v1/runs). Gated on the runs:run
 // scope: routd's service token carries it, and an operator may be granted it
 // for manual runs. runed is an internal docker-network service, but a scope
@@ -97,7 +108,8 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 // live spawn and kill it. Gated on runs:kill (same scope as DELETE-by-run_id).
 // killed=false is the no-active-container case; routd renders gated's text.
 func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authz(w, r, "runs:kill"); !ok {
+	folder, ok := s.authz(w, r, "runs:kill")
+	if !ok {
 		return
 	}
 	var req runedv1.StopRunRequest
@@ -109,6 +121,10 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "folder required")
 		return
 	}
+	if !ownsFolder(folder, req.Folder) {
+		writeErr(w, 403, "forbidden", "run folder "+req.Folder+" is outside your folder")
+		return
+	}
 	runID, killed, err := s.mgr.StopFolder(req.Folder)
 	if err != nil {
 		writeErr(w, 500, "kill_failed", err.Error())
@@ -118,7 +134,8 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authz(w, r, ""); !ok {
+	folder, ok := s.authz(w, r, "")
+	if !ok {
 		return
 	}
 	sp, err := s.db.GetSpawn(r.PathValue("run_id"))
@@ -129,6 +146,10 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
+	if !ownsFolder(folder, sp.Folder) {
+		writeErr(w, 404, "unknown_run", "no such run") // don't leak other folders' runs
+		return
+	}
 	writeJSON(w, 200, runedv1.RunStatus{
 		RunID: sp.RunID, Folder: sp.Folder, Topic: sp.Topic, State: sp.State,
 		Outcome: sp.Outcome, SessionID: sp.SessionID, Steered: sp.Steered,
@@ -137,10 +158,27 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authz(w, r, "runs:kill"); !ok {
+	folder, ok := s.authz(w, r, "runs:kill")
+	if !ok {
 		return
 	}
 	runID := r.PathValue("run_id")
+	// A folder-scoped token may only kill its own subtree's runs; resolve the
+	// run's folder first. Root / service:routd (folder="") skips the lookup.
+	if folder != "" {
+		sp, err := s.db.GetSpawn(runID)
+		if err == ErrNotFound {
+			writeErr(w, 404, "unknown_run", "no such run")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "store_error", err.Error())
+			return
+		}
+		if !ownsFolder(folder, sp.Folder) {
+			writeErr(w, 404, "unknown_run", "no such run") // don't leak other folders' runs
+			return
+		}
+	}
 	if err := s.mgr.Kill(runID); err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return

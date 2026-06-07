@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
@@ -20,6 +21,11 @@ import (
 var (
 	scopeRoutesRead  = []string{"routes:read", "routes:read:own_group"}
 	scopeRoutesWrite = []string{"routes:write", "routes:write:own_group"}
+	// External-cost accounting is its own capability — NOT messages:send (codex
+	// review: don't couple cost-write to outbound conversation). Agents log cost
+	// via the in-process MCP log_external_cost tool; this REST path is for service
+	// callers that hold cost:write.
+	scopeCost = []string{"cost:write", "cost:write:own_group"}
 )
 
 func toMessageRow(m core.Message) apiv1.MessageRow {
@@ -42,12 +48,17 @@ func messageRows(msgs []core.Message) []apiv1.MessageRow {
 }
 
 func (s *Server) handleInspectMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRead...) {
+	_, folder, ok := s.authz(w, r, scopeRead...)
+	if !ok {
 		return
 	}
 	jid := r.URL.Query().Get("jid")
 	if jid == "" {
 		writeErr(w, 400, "bad_request", "jid required")
+		return
+	}
+	if !s.ownsJID(folder, jid) {
+		denyCrossFolder(w, jid)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -60,13 +71,18 @@ func (s *Server) handleInspectMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleThreadMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRead...) {
+	_, folder, ok := s.authz(w, r, scopeRead...)
+	if !ok {
 		return
 	}
 	jid := r.URL.Query().Get("jid")
 	topic := r.URL.Query().Get("topic")
 	if jid == "" || topic == "" {
 		writeErr(w, 400, "bad_request", "jid and topic required")
+		return
+	}
+	if !s.ownsJID(folder, jid) {
+		denyCrossFolder(w, jid)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -79,7 +95,8 @@ func (s *Server) handleThreadMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRead...) {
+	_, folder, ok := s.authz(w, r, scopeRead...)
+	if !ok {
 		return
 	}
 	q := r.URL.Query().Get("query")
@@ -87,8 +104,27 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "query required")
 		return
 	}
+	// Confine a folder-scoped caller to its subtree: empty scope defaults to the
+	// token folder; an explicit scope (chat jid or folder subtree) must be owned.
+	scope := r.URL.Query().Get("scope")
+	if folder != "" {
+		switch {
+		case scope == "":
+			scope = folder
+		case strings.Contains(scope, ":"):
+			if !s.ownsJID(folder, scope) {
+				denyCrossFolder(w, scope)
+				return
+			}
+		default:
+			if !ownsFolder(folder, scope) {
+				denyCrossFolder(w, scope)
+				return
+			}
+		}
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	hits, err := s.db.FindMessages(q, r.URL.Query().Get("scope"),
+	hits, err := s.db.FindMessages(q, scope,
 		r.URL.Query().Get("sender"), r.URL.Query().Get("since"), limit)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
@@ -108,7 +144,8 @@ func (s *Server) handleFindMessages(w http.ResponseWriter, r *http.Request) {
 // --- routing resolution ---
 
 func (s *Server) handleRoutingResolve(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRoutesRead...) {
+	_, tokenFolder, ok := s.authz(w, r, scopeRoutesRead...)
+	if !ok {
 		return
 	}
 	jid := r.URL.Query().Get("jid")
@@ -116,7 +153,15 @@ func (s *Server) handleRoutingResolve(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "jid required")
 		return
 	}
+	if !s.ownsJID(tokenFolder, jid) {
+		denyCrossFolder(w, jid)
+		return
+	}
 	if folder := r.URL.Query().Get("folder"); folder != "" {
+		if !ownsFolder(tokenFolder, folder) {
+			denyCrossFolder(w, folder)
+			return
+		}
 		writeJSON(w, 200, apiv1.RoutingResolveResponse{Routed: s.db.JIDRoutedToFolder(jid, folder)})
 		return
 	}
@@ -148,7 +193,8 @@ func (s *Server) handleErroredChats(w http.ResponseWriter, r *http.Request) {
 // --- engagement ---
 
 func (s *Server) handleEngagementGet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRoutesRead...) {
+	_, folder, ok := s.authz(w, r, scopeRoutesRead...)
+	if !ok {
 		return
 	}
 	jid := r.URL.Query().Get("jid")
@@ -156,13 +202,18 @@ func (s *Server) handleEngagementGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", "jid required")
 		return
 	}
+	if !s.ownsJID(folder, jid) {
+		denyCrossFolder(w, jid)
+		return
+	}
 	topic := r.URL.Query().Get("topic")
-	folder, _ := s.db.Engaged(jid, topic)
-	writeJSON(w, 200, apiv1.EngagementResponse{Folder: folder, LastReplyID: s.db.LastReplyID(jid, topic)})
+	engaged, _ := s.db.Engaged(jid, topic)
+	writeJSON(w, 200, apiv1.EngagementResponse{Folder: engaged, LastReplyID: s.db.LastReplyID(jid, topic)})
 }
 
 func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRoutesWrite...) {
+	_, folder, ok := s.authz(w, r, scopeRoutesWrite...)
+	if !ok {
 		return
 	}
 	var req apiv1.EngagementRequest
@@ -172,6 +223,14 @@ func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.JID == "" {
 		writeErr(w, 400, "bad_request", "jid required")
+		return
+	}
+	if !s.ownsJID(folder, req.JID) {
+		denyCrossFolder(w, req.JID)
+		return
+	}
+	if !ownsFolder(folder, req.Folder) {
+		denyCrossFolder(w, req.Folder)
 		return
 	}
 	// TTLSeconds<=0 is the disengage path: SetEngagement with a zero/past
@@ -190,12 +249,17 @@ func (s *Server) handleEngagementSet(w http.ResponseWriter, r *http.Request) {
 // --- sessions (resume id) ---
 
 func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeRead...) {
+	_, tokenFolder, ok := s.authz(w, r, scopeRead...)
+	if !ok {
 		return
 	}
 	folder := r.URL.Query().Get("folder")
 	if folder == "" {
 		writeErr(w, 400, "bad_request", "folder required")
+		return
+	}
+	if !ownsFolder(tokenFolder, folder) {
+		denyCrossFolder(w, folder)
 		return
 	}
 	writeJSON(w, 200, apiv1.SessionResponse{SessionID: s.db.SessionID(folder, r.URL.Query().Get("topic"))})
@@ -204,12 +268,17 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 // --- external cost ---
 
 func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, scopeSend...) {
+	_, folder, ok := s.authz(w, r, scopeCost...)
+	if !ok {
 		return
 	}
 	var req apiv1.CostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad_request", err.Error())
+		return
+	}
+	if !ownsFolder(folder, req.Folder) {
+		denyCrossFolder(w, req.Folder)
 		return
 	}
 	if err := s.db.LogExternalCost(req.Folder, req.Provider, req.Model,

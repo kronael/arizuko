@@ -136,10 +136,11 @@ func TestStopFolderKillsActiveRun(t *testing.T) {
 }
 
 // TestStopFolderNoActiveRun: POST /v1/runs/stop for an idle folder is a no-op —
-// killed:false (routd renders gated's "No active container" text).
+// killed:false (routd renders gated's "No active container" text). The operator
+// /stop path runs as service:routd (folder=""), which may target any folder.
 func TestStopFolderNoActiveRun(t *testing.T) {
 	rec := &killRecorder{}
-	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:kill"}, folder: "demo"})
+	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:kill"}})
 	got := postJSON(t, srv.Handler(), "/v1/runs/stop", `{"folder":"idle"}`)
 	if got.Code != 200 {
 		t.Fatalf("stop = %d want 200", got.Code)
