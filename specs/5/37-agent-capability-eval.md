@@ -51,10 +51,11 @@ internal state.
   folder name, URL, message body, child id, and token the cases create;
   checkers match only that nonce, so concurrent and repeated runs never
   collide. Teardown is best-effort, not correctness-critical.
-- **Cost as a budget, not a readout.** Each case declares `max_tokens`,
-  `max_turns`, `max_wall_ms`; the driver aborts and fails a case that
-  breaches them, and the report totals real spend (routd cost via REST).
-  `--smoke` runs the tagged minimal basis; full runs all.
+- **Cost as a budget, not a readout.** Each case declares `max_wall_ms`
+  (a hard await deadline) and `max_tokens` (spend over it fails the case,
+  read from routd cost via REST); the report totals real spend. Turn
+  counts aren't exposed black-box, so there is no `max_turns`. `--smoke`
+  runs the tagged minimal basis; full runs all.
 
 WHY a shipped component, not a `go test`: capability must be checkable
 against a **live deployed** instance — release gate, post-migrate smoke,

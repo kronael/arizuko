@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/kronael/arizuko/agenteval/pkg/check"
 )
 
 // HTTPTarget is the live adapter: it reaches a real arizuko instance through
@@ -50,7 +52,7 @@ func (t *HTTPTarget) do(method, url string, body any) (*http.Response, error) {
 }
 
 // Inject posts the task into a chat via routd REST and returns the turn id.
-func (t *HTTPTarget) Inject(_, chat, prompt string) (string, error) {
+func (t *HTTPTarget) Inject(chat, prompt string) (string, error) {
 	resp, err := t.do(http.MethodPost, t.API+"/chats/"+url.PathEscape(chat)+"/messages",
 		map[string]string{"content": prompt})
 	if err != nil {
@@ -67,7 +69,7 @@ func (t *HTTPTarget) Inject(_, chat, prompt string) (string, error) {
 	return out.TurnID, nil
 }
 
-func (t *HTTPTarget) messages(base, chat string) ([]string, error) {
+func (t *HTTPTarget) messages(base, chat string) ([]check.Msg, error) {
 	if base == "" {
 		return nil, fmt.Errorf("surface not configured")
 	}
@@ -80,23 +82,24 @@ func (t *HTTPTarget) messages(base, chat string) ([]string, error) {
 		return nil, fmt.Errorf("read %s: %d", chat, resp.StatusCode)
 	}
 	var rows []struct {
-		Content string `json:"content"`
+		Content       string `json:"content"`
+		IsBotMessage  bool   `json:"is_bot_message"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
 		return nil, err
 	}
-	out := make([]string, len(rows))
+	out := make([]check.Msg, len(rows))
 	for i, r := range rows {
-		out[i] = r.Content
+		out[i] = check.Msg{FromBot: r.IsBotMessage, Text: r.Content}
 	}
 	return out, nil
 }
 
-// RestMessages reads a chat's bodies via routd REST.
-func (t *HTTPTarget) RestMessages(chat string) ([]string, error) { return t.messages(t.API, chat) }
+// RestMessages reads a chat via routd REST.
+func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.messages(t.API, chat) }
 
 // McpMessages reads the same chat via the MCP-over-HTTP face (5/5).
-func (t *HTTPTarget) McpMessages(chat string) ([]string, error) { return t.messages(t.MCPURL, chat) }
+func (t *HTTPTarget) McpMessages(chat string) ([]check.Msg, error) { return t.messages(t.MCPURL, chat) }
 
 // Cost returns the token spend for a turn via routd REST; best-effort.
 func (t *HTTPTarget) Cost(turnID string) (int, error) {

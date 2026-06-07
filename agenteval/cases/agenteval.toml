@@ -171,11 +171,14 @@ max_wall_ms = 150000
 [case.check]
 kind = "callback"
 
+# The injected message IS the sentinel: the harness reads it back over both
+# REST and MCP and requires an identical view (uniform surface, 5/5). No agent
+# action — this checks the platform, not the agent.
 [[case]]
 id = "rest-mcp-parity"
 dimension = "reach"
-prompt = "Post the marker {nonce} into THIS chat as a single message. (The harness will read it back over both REST and MCP and require an identical view.)"
-max_wall_ms = 90000
+prompt = "agenteval parity sentinel {nonce} — no reply needed."
+max_wall_ms = 60000
 [case.check]
 kind = "parity_sentinel"
 chat = "{chat}"

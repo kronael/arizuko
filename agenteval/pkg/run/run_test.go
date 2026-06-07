@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/agenteval/pkg/check"
 	"github.com/kronael/arizuko/agenteval/pkg/spec"
 )
 
@@ -18,10 +19,10 @@ var cbRe = regexp.MustCompile(`https?://[^\s"']+/cb/[^\s"']+`)
 // a real agent following the case instructions would.
 type agentSim struct {
 	token string
-	msgs  []string
+	msgs  []check.Msg
 }
 
-func (a *agentSim) Inject(_, _, prompt string) (string, error) {
+func (a *agentSim) Inject(_, prompt string) (string, error) {
 	url := cbRe.FindString(prompt)
 	if url != "" {
 		if a.token != "" {
@@ -35,9 +36,9 @@ func (a *agentSim) Inject(_, _, prompt string) (string, error) {
 	}
 	return "turn-1", nil
 }
-func (a *agentSim) RestMessages(string) ([]string, error) { return a.msgs, nil }
-func (a *agentSim) McpMessages(string) ([]string, error)  { return a.msgs, nil }
-func (a *agentSim) Cost(string) (int, error)              { return 7, nil }
+func (a *agentSim) RestMessages(string) ([]check.Msg, error) { return a.msgs, nil }
+func (a *agentSim) McpMessages(string) ([]check.Msg, error)  { return a.msgs, nil }
+func (a *agentSim) Cost(string) (int, error)                 { return 7, nil }
 
 func TestDriveCallback(t *testing.T) {
 	c := spec.Case{ID: "self-skill", Dimension: "self", Prompt: "curl {sink}/cb/{nonce}",
@@ -73,10 +74,23 @@ func TestDriveCbTokenExpand(t *testing.T) {
 
 type silentTarget struct{}
 
-func (silentTarget) Inject(_, _, _ string) (string, error) { return "t", nil }
-func (silentTarget) RestMessages(string) ([]string, error) { return nil, nil }
-func (silentTarget) McpMessages(string) ([]string, error)  { return nil, nil }
-func (silentTarget) Cost(string) (int, error)              { return 0, nil }
+func (silentTarget) Inject(_, _ string) (string, error)      { return "t", nil }
+func (silentTarget) RestMessages(string) ([]check.Msg, error) { return nil, nil }
+func (silentTarget) McpMessages(string) ([]check.Msg, error)  { return nil, nil }
+func (silentTarget) Cost(string) (int, error)                 { return 0, nil }
+
+func TestDriveTokenBudget(t *testing.T) {
+	c := spec.Case{ID: "b", Prompt: "curl {sink}/cb/{nonce}", MaxTokens: 5,
+		Check: spec.Check{Kind: "callback"}}
+	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if res[0].Pass {
+		t.Fatalf("want fail on token budget (cost 7 > 5), got %+v", res[0])
+	}
+	if !strings.Contains(res[0].Reason, "budget") {
+		t.Fatalf("want budget reason, got %q", res[0].Reason)
+	}
+}
 
 func TestDriveTimeout(t *testing.T) {
 	c := spec.Case{ID: "x", Prompt: "noop", MaxWallMs: 40, Check: spec.Check{Kind: "callback"}}

@@ -18,16 +18,24 @@ type Hit struct {
 	Body  string
 }
 
+// Msg is one chat message seen through a public surface. FromBot separates the
+// agent's own output from the harness-injected prompt, so rest_reply cannot
+// pass on the marker the harness itself sent.
+type Msg struct {
+	FromBot bool
+	Text    string
+}
+
 // Sink queries the harness callback sink for hits carrying a nonce.
 type Sink interface {
 	Hits(nonce string) []Hit
 }
 
-// Reader reads a target chat's recent message bodies through the public
-// REST and MCP surfaces (the two faces of the uniform surface, spec 5/5).
+// Reader reads a target chat through the public REST and MCP surfaces (the two
+// faces of the uniform surface, spec 5/5).
 type Reader interface {
-	RestMessages(chat string) ([]string, error)
-	McpMessages(chat string) ([]string, error)
+	RestMessages(chat string) ([]Msg, error)
+	McpMessages(chat string) ([]Msg, error)
 }
 
 // Ctx is what a checker needs: HTTP for URL probes, the sink, a chat reader,
@@ -59,10 +67,12 @@ func Run(ctx Ctx, c spec.Check) (bool, string) {
 			return true, fmt.Sprintf("GET %s == %d", url, c.Want)
 		}
 		return false, fmt.Sprintf("GET %s == %d, want %d", url, resp.StatusCode, c.Want)
-	case "rest_reply", "rest_observe":
-		return findText(ctx, c, false)
+	case "rest_reply":
+		return findText(ctx, c, false, true) // bot-authored only
+	case "rest_observe":
+		return findText(ctx, c, false, false)
 	case "mcp_roundtrip":
-		return findText(ctx, c, true)
+		return findText(ctx, c, true, false)
 	case "parity_sentinel":
 		return parity(ctx, c)
 	}
@@ -77,10 +87,10 @@ func wantText(ctx Ctx, c spec.Check) string {
 	return ctx.Expand(t)
 }
 
-func findText(ctx Ctx, c spec.Check, mcp bool) (bool, string) {
+func findText(ctx Ctx, c spec.Check, mcp, botOnly bool) (bool, string) {
 	chat := ctx.Expand(c.Chat)
 	want := wantText(ctx, c)
-	var msgs []string
+	var msgs []Msg
 	var err error
 	if mcp {
 		msgs, err = ctx.Reader.McpMessages(chat)
@@ -90,7 +100,7 @@ func findText(ctx Ctx, c spec.Check, mcp bool) (bool, string) {
 	if err != nil {
 		return false, "read " + chat + ": " + err.Error()
 	}
-	if has(msgs, want) {
+	if has(msgs, want, botOnly) {
 		return true, "found " + want + " in " + chat
 	}
 	return false, want + " not yet in " + chat
@@ -107,15 +117,18 @@ func parity(ctx Ctx, c spec.Check) (bool, string) {
 	if err != nil {
 		return false, "mcp read: " + err.Error()
 	}
-	if has(rest, want) && has(mcp, want) {
+	if has(rest, want, false) && has(mcp, want, false) {
 		return true, "sentinel " + want + " visible via REST and MCP"
 	}
-	return false, fmt.Sprintf("parity miss: rest=%t mcp=%t", has(rest, want), has(mcp, want))
+	return false, fmt.Sprintf("parity miss: rest=%t mcp=%t", has(rest, want, false), has(mcp, want, false))
 }
 
-func has(msgs []string, want string) bool {
+func has(msgs []Msg, want string, botOnly bool) bool {
 	for _, m := range msgs {
-		if strings.Contains(m, want) {
+		if botOnly && !m.FromBot {
+			continue
+		}
+		if strings.Contains(m.Text, want) {
 			return true
 		}
 	}

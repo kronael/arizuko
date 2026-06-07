@@ -18,11 +18,9 @@ type Case struct {
 	ID        string `toml:"id"`
 	Dimension string `toml:"dimension"`
 	Smoke     bool   `toml:"smoke"`
-	Surface   string `toml:"surface"` // how the harness injects the task: rest (default)
 	Prompt    string `toml:"prompt"`
 	Check     Check  `toml:"check"`
-	MaxTokens int    `toml:"max_tokens"`
-	MaxTurns  int    `toml:"max_turns"`
+	MaxTokens int    `toml:"max_tokens"` // budget: a case spending more than this fails
 	MaxWallMs int    `toml:"max_wall_ms"`
 }
 

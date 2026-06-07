@@ -18,7 +18,8 @@ make build
 ./agenteval run https://krons.fiu.wtf \
   --token "$AGENTEVAL_TOKEN" \    # bearer for an eval root folder
   --chat  web:eval \              # chat JID tasks are injected into
-  --sink  https://eval-host:9099 \# sink URL the agent containers can reach
+  --sink-addr :9099 \            # local bind for the callback sink (routable iface)
+  --sink  https://eval-host:9099 \# URL the agent containers call back to
   --smoke                         # gate subset; omit for all 19
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./agenteval dash report.json      # re-render a saved report
@@ -37,8 +38,9 @@ callback sink (e.g. a freshly minted chat-link token). Checkers:
   child) that fires `{sink}/cb/{nonce}`; firing is the proof.
 - `http_status` — a `{cb.url}`/`{cb.token}` URL returns the expected code
   (publish → 200, gated → 401, deleted/denied → 404).
-- `rest_reply` / `rest_observe` — a message carrying `{nonce}` is readable in
-  `{chat}` via REST.
+- `rest_reply` — a **bot-authored** message carrying `{nonce}` is readable in
+  `{chat}` via REST (the user-injected prompt is excluded, so the marker the
+  harness itself sent can't false-pass). `rest_observe` matches any author.
 - `mcp_roundtrip` — same over the MCP face (`--mcp`).
 - `parity_sentinel` — `{nonce}` is identical via REST and MCP (uniform surface).
 

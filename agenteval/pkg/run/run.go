@@ -5,6 +5,7 @@
 package run
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -21,7 +22,7 @@ import (
 // surfaces (routd REST / proxyd HTTP / MCP). Tests supply a fake.
 type Target interface {
 	check.Reader
-	Inject(surface, chat, prompt string) (turnID string, err error)
+	Inject(chat, prompt string) (turnID string, err error)
 	Cost(turnID string) (int, error)
 }
 
@@ -32,7 +33,8 @@ type Config struct {
 	Nonce      string        // run nonce; per-case nonce is Nonce+"-"+case.ID
 	TargetBase string        // public base URL of the instance (templated as {target})
 	Chat       string        // eval agent chat JID; every task is injected here (templated as {chat})
-	SinkURL    string        // externally reachable sink base URL; empty = local bind addr
+	SinkBind   string        // local bind addr for the callback sink (default 127.0.0.1:0; live: :PORT on a routable iface)
+	SinkURL    string        // externally reachable sink base URL agents call back to; empty = local bind addr
 	Poll       time.Duration // await interval (default 2s)
 }
 
@@ -42,8 +44,12 @@ func Drive(cfg Config) []report.Result {
 	if cfg.Poll <= 0 {
 		cfg.Poll = 2 * time.Second
 	}
+	bind := cfg.SinkBind
+	if bind == "" {
+		bind = "127.0.0.1:0"
+	}
 	s := newSink()
-	srv, addr := s.serve()
+	srv, addr := s.serve(bind)
 	defer srv.Close()
 	if cfg.SinkURL == "" {
 		cfg.SinkURL = addr
@@ -63,7 +69,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	}, s, nonce)
 	r := report.Result{ID: c.ID, Dimension: c.Dimension}
 
-	turn, err := cfg.Target.Inject(c.Surface, cfg.Chat, expand(c.Prompt))
+	turn, err := cfg.Target.Inject(cfg.Chat, expand(c.Prompt))
 	if err != nil {
 		r.Reason = "inject: " + err.Error()
 		r.LatencyMs = msSince(start)
@@ -84,6 +90,10 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 		time.Sleep(cfg.Poll)
 	}
 	r.Tokens, _ = cfg.Target.Cost(turn)
+	if r.Pass && c.MaxTokens > 0 && r.Tokens > c.MaxTokens {
+		r.Pass = false
+		r.Reason = fmt.Sprintf("token budget exceeded: %d > %d", r.Tokens, c.MaxTokens)
+	}
 	r.LatencyMs = msSince(start)
 	return r
 }
@@ -139,7 +149,7 @@ func (s *sink) Hits(nonce string) []check.Hit {
 	return append([]check.Hit(nil), s.hits[nonce]...)
 }
 
-func (s *sink) serve() (io.Closer, string) {
+func (s *sink) serve(bind string) (io.Closer, string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cb/", func(w http.ResponseWriter, r *http.Request) {
 		nonce := strings.TrimPrefix(r.URL.Path, "/cb/")
@@ -153,7 +163,7 @@ func (s *sink) serve() (io.Closer, string) {
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", bind)
 	if err != nil {
 		panic(err)
 	}
