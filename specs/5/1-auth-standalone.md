@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # auth: central authority daemon + offline-verify library
