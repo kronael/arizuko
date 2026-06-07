@@ -16,6 +16,71 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.50.0] — 2026-06-07
+
+> arizuko v0.50.0 — the monolith is gone
+>
+> arizuko now runs as three focused daemons instead of one — and Telegram replies that were silently failing are fixed.
+>
+> • The `gated` monolith is retired — auth, routing, and execution are now separate daemons (authd / routd / runed)
+> • Telegram replies work again — including second accounts that were silently dropping every outbound message
+> • Tighter isolation — every action is bound to your folder, identically on the agent (MCP) and REST surfaces
+> • Eight new creative skills — ASCII art, diagrams and more, auto-discovered on demand
+> • Routing is self-documenting — the agent explains trigger / observe / mention-only correctly
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Removed
+
+- **The `gated` monolith is deleted** (~8000 LOC: the `gated`, `gateway`, and
+  `api` packages). The daemon split — `authd` (sole token authority), `routd`
+  (conversation/router + in-process per-turn agent MCP host), `runed`
+  (container execution: the only daemon with the docker socket + crackbox) —
+  is now the only topology. The `CUTOVER_SPLIT` flag is gone; every instance
+  runs the split. Specs 5/1, 5/E, 5/P shipped.
+
+### Fixed
+
+- **Telegram replies failed whenever an adapter's channel name differed from
+  its daemon.** Channel adapters exchanged their service token under
+  `CHANNEL_NAME` (e.g. `telegram`, `telegram-rhias`) instead of their daemon
+  principal (`teled`), so `authd` 401'd the exchange and every outbound reply
+  fell back to a token `routd` rejects. Adapters now exchange as
+  `AUTHD_SERVICE_NAME` (the daemon, written per adapter by compose);
+  multi-account variants share the base principal. Telegram was the only
+  affected live instance.
+
+### Changed
+
+- **Uniform authz middleware in `routd`.** authn (who) and authz (may you do
+  THIS to THESE params) are two orthogonal layers; the authz gate binds
+  `(action, required-scopes, target-resolver)` at registration and runs one
+  folder-containment decision, identical across MCP and REST. Handlers that
+  resolve a `jid`/`folder`/`run_id` bind it to the caller's folder, closing
+  cross-folder access. Spec 5/5.
+- **`runed` run-control hardened** — run-control endpoints enforce folder
+  containment; the per-spawn token broker downscopes to per-turn agent tokens.
+- **Migrate-split integrity** — the split migrator no longer silently falls
+  back to a default token on a missing service key.
+
+### Added
+
+- **Eight creative skills** (adapted from NousResearch/hermes-agent, MIT):
+  ascii-art, and seven more pure-capability skills. No daemon/MCP/route/schema
+  change; all `/dispatch`-discoverable and user-invocable.
+- **Self-documenting routing** — `self/chat-routing.md`: the chat `routes`
+  table, first-match-wins ordering, and the trigger / observe / mention-only
+  intents the agent must tell apart.
+
+### Docs
+
+- Full split alignment across `ARCHITECTURE`, `README`, `ROUTING`, `SECURITY`,
+  `EXTENDING`, `GRANTS`, `CLAUDE`, and per-daemon READMEs — `gated`/`gateway`
+  references rewritten to `routd` (routing/MCP/secrets/ACL) + `runed`
+  (container spawn, egress isolation).
+
+---
+
 ## [v0.49.0] — 2026-06-01
 
 > arizuko v0.49.0 — sharper replies and an accurate reference site

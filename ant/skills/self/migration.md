@@ -6,7 +6,7 @@ On group create, Go (`container.seedSkills`) copies
 `~/.claude/.merge-base/`. The merge-base is the upstream version we
 last synced; the live copy is what Claude Code reads.
 
-When `MIGRATION_VERSION` is behind, the gateway enqueues `/migrate` on
+When `MIGRATION_VERSION` is behind, routd enqueues `/migrate` on
 the root group (per-spawn auto-cp was removed — the skill owns the
 sync now). The skill walks each stock file and does a 3-way merge:
 
@@ -27,7 +27,7 @@ To opt out of a stock skill, drop `~/.claude/skills/<name>/.disabled`.
 seedSkills will skip the dir AND remove its `SKILL.md` so Claude
 Code stops indexing it; the migrate skill skips it too.
 
-Latest migration version: **157**. Compare:
+Latest migration version: **158**. Compare:
 
 ```bash
 cat ~/.claude/skills/self/MIGRATION_VERSION

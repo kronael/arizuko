@@ -25,7 +25,7 @@
   // release via the sync workflow (rsync template/web/pub/ → krons
   // re-injects this string from CHANGELOG.md latest [vX.Y.Z] header).
   // Until automated: bumped manually with each release.
-  var ARIZUKO_VERSION = 'v0.49.0';
+  var ARIZUKO_VERSION = 'v0.50.0';
 
   function injectFooter() {
     // Site-wide footer with the version stamp + the two anchors the
