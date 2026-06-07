@@ -31,7 +31,7 @@ package-lock.json
 old/
 /arizuko
 bin/
-gated/gated
+agenteval/agenteval
 authd/authd
 routd/routd
 runed/runed
