@@ -17,7 +17,7 @@ route data shapes:
 
 No I/O (except `UserContextXml` reading `users/<id>.md` under the
 group dir), no goroutines, no state. The route table itself is owned
-by routd via `routd/routes.go`; this package just walks rules someone
+by routd via `routd/routes_http.go`; this package just walks rules someone
 else loaded.
 
 ## Public API
