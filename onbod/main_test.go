@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -1617,10 +1618,10 @@ func TestDashboardUnauthenticated(t *testing.T) {
 	}
 }
 
-// sendReply must POST to cfg.gatedURL with a bearer secret when configured.
-// promptUnprompted indirectly exercises sendReply; using a test HTTP server
-// captures the wire format without mocking.
-func TestSendReplyUsesSecretHeader(t *testing.T) {
+// promptUnprompted POSTs the greeting + onboard link to routd's /v1/outbound,
+// presenting the service:onbod bearer. A test HTTP server captures the wire
+// format without mocking.
+func TestPromptUnpromptedSendsGreeting(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO onboarding (jid, status, created) VALUES ('telegram:1', 'awaiting_message', '2026-01-01')`)
 
@@ -1633,11 +1634,12 @@ func TestSendReplyUsesSecretHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := config{secret: "s3cret", gatedURL: srv.URL, authBaseURL: "https://ex.com"}
+	cfg := config{gatedURL: srv.URL, authBaseURL: "https://ex.com",
+		svcToken: func(context.Context) (string, error) { return "svc-jwt", nil }}
 	promptUnprompted(db, cfg)
 
-	if gotAuth != "Bearer s3cret" {
-		t.Errorf("want Bearer secret header, got %q", gotAuth)
+	if gotAuth != "Bearer svc-jwt" {
+		t.Errorf("want Bearer service token, got %q", gotAuth)
 	}
 	if !strings.Contains(string(gotBody), "telegram:1") ||
 		!strings.Contains(string(gotBody), "/onboard?token=") {
@@ -1905,12 +1907,15 @@ func TestTokenHash(t *testing.T) {
 // pollInterval parsing.
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
+	authd, _ := fakeAuthdToken(t)
 	t.Setenv("DATA_DIR", dir)
 	t.Setenv("ARIZUKO_DEV", "true")
 	t.Setenv("ONBOARD_POLL_INTERVAL", "5s")
 	t.Setenv("ONBOARDING_GREETING", "hi")
 	t.Setenv("ROUTER_URL", "http://r:1")
 	t.Setenv("AUTH_BASE_URL", "https://auth.example.com")
+	t.Setenv("AUTHD_URL", authd.URL)
+	t.Setenv("AUTHD_SERVICE_KEY", "boot-onbod")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -1928,17 +1933,20 @@ func TestLoadConfig(t *testing.T) {
 	if !cfg.secureCookie {
 		t.Errorf("secureCookie should be true for https AUTH_BASE_URL")
 	}
-	if !strings.HasSuffix(cfg.dsn, "/store/messages.db") {
-		t.Errorf("unexpected dsn: %s", cfg.dsn)
+	if cfg.svcToken == nil {
+		t.Errorf("svcToken must be set (AUTHD required)")
 	}
 }
 
 // loadConfig with invalid poll interval falls back to default (10s).
 func TestLoadConfigBadPollInterval(t *testing.T) {
 	dir := t.TempDir()
+	authd, _ := fakeAuthdToken(t)
 	t.Setenv("DATA_DIR", dir)
 	t.Setenv("ARIZUKO_DEV", "true")
 	t.Setenv("ONBOARD_POLL_INTERVAL", "not-a-duration")
+	t.Setenv("AUTHD_URL", authd.URL)
+	t.Setenv("AUTHD_SERVICE_KEY", "boot-onbod")
 
 	cfg, err := loadConfig()
 	if err != nil {

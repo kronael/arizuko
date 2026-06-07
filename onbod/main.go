@@ -41,17 +41,15 @@ type gate struct {
 
 type config struct {
 	core         *core.Config
-	dsn          string
-	ownDSN       string // ONBOD_DB_PATH: split-mode onbod.db for the OWNED tables; empty = monolith (messages.db)
-	secret       string
+	ownDSN       string // ONBOD_DB_PATH: onbod.db for the OWNED tables
 	listenAddr   string
 	gatedURL     string
 	pollInterval time.Duration
 	greeting     string
 	authBaseURL  string
 	secureCookie bool
-	// svcToken is onbod's service:onbod JWT source for routd /v1/outbound in the
-	// split (spec 5/1). nil → monolith path: CHANNEL_SECRET rides /v1/outbound.
+	// svcToken is onbod's service:onbod JWT source for routd's JWT-gated
+	// /v1/outbound (spec 5/1); always set (required at load).
 	svcToken func(context.Context) (string, error)
 }
 
@@ -80,40 +78,31 @@ func main() {
 	// onbod stops touching messages.db entirely. audit.Init targets obdb so the
 	// invite/gate store writers' in-tx audit rows land with the mutation (onbod.db
 	// owns its own audit_log; monolith reuses messages.db's).
-	var obdb, xdb *sql.DB
-	if cfg.ownDSN != "" {
-		obdb, err = openOwnedDB(cfg.ownDSN)
-		if err != nil {
-			slog.Error("open onbod.db", "err", err)
-			os.Exit(1)
-		}
-		defer obdb.Close()
-		slog.Info("onbod owns split DB", "path", cfg.ownDSN)
-
-		// Split implies the split topology: routd OWNS the cross tables in
-		// routd.db. A missing routd.db is a misconfigured split (not a fallback
-		// case), so a failure to open is fatal — onbod must not silently
-		// cross-read an empty DB, and it opens NO messages.db in the split.
-		routdPath := filepath.Join(filepath.Dir(cfg.dsn), "routd.db")
-		xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
-		if err != nil {
-			slog.Error("open routd.db", "path", routdPath, "err", err)
-			os.Exit(1)
-		}
-		defer xdb.Close()
-		slog.Info("onbod cross-reads routd.db", "path", routdPath)
-	} else {
-		db, derr := sql.Open("sqlite", cfg.dsn+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
-		if derr != nil {
-			slog.Error("open db", "err", derr)
-			os.Exit(1)
-		}
-		defer db.Close()
-		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-			slog.Warn("set WAL mode", "err", err)
-		}
-		obdb, xdb = db, db
+	// Split is the only topology: onbod owns onbod.db and cross-reads routd.db
+	// (routd OWNS the cross tables). ONBOD_DB_PATH is required — compose always
+	// emits it; onbod opens NO messages.db. A missing routd.db is a misconfigured
+	// split, so a failure to open is fatal (no silent empty-DB cross-read).
+	if cfg.ownDSN == "" {
+		slog.Error("ONBOD_DB_PATH required")
+		os.Exit(1)
 	}
+	var obdb, xdb *sql.DB
+	obdb, err = openOwnedDB(cfg.ownDSN)
+	if err != nil {
+		slog.Error("open onbod.db", "err", err)
+		os.Exit(1)
+	}
+	defer obdb.Close()
+	slog.Info("onbod owns split DB", "path", cfg.ownDSN)
+
+	routdPath := filepath.Join(filepath.Dir(cfg.ownDSN), "routd.db")
+	xdb, err = sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
+	if err != nil {
+		slog.Error("open routd.db", "path", routdPath, "err", err)
+		os.Exit(1)
+	}
+	defer xdb.Close()
+	slog.Info("onbod cross-reads routd.db", "path", routdPath)
 
 	audit.Init(obdb, os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
@@ -220,13 +209,11 @@ func loadConfig() (config, error) {
 	}
 	cfg := config{
 		core:         coreCfg,
-		dsn:          filepath.Join(coreCfg.ProjectRoot, "store", "messages.db"),
 		ownDSN:       os.Getenv("ONBOD_DB_PATH"),
-		secret:       coreCfg.ChannelSecret,
 		authBaseURL:  coreCfg.AuthBaseURL,
 		secureCookie: strings.HasPrefix(coreCfg.AuthBaseURL, "https://"),
 		greeting:     os.Getenv("ONBOARDING_GREETING"),
-		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://gated:8080"),
+		gatedURL:     chanlib.EnvOr("ROUTER_URL", "http://routd:8080"),
 		listenAddr:   chanlib.EnvOr("ONBOD_LISTEN_ADDR", ":8080"),
 		pollInterval: 10 * time.Second,
 	}
@@ -235,15 +222,18 @@ func loadConfig() (config, error) {
 			cfg.pollInterval = d
 		}
 	}
-	// Split: exchange AUTHD_SERVICE_KEY for a service:onbod JWT and present it on
-	// routd's JWT-gated /v1/outbound (spec 5/1). Unset → CHANNEL_SECRET fallback.
-	if authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY"); authdURL != "" && key != "" {
-		src, err := auth.ServiceToken(authdURL, "onbod", key)
-		if err != nil {
-			return config{}, fmt.Errorf("onbod service-token source: %w", err)
-		}
-		cfg.svcToken = src.Token
+	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
+	// service:onbod JWT, presented on routd's JWT-gated /v1/outbound. Required —
+	// compose always emits it; no CHANNEL_SECRET fallback (routd rejects it).
+	authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
+	if authdURL == "" || key == "" {
+		return config{}, fmt.Errorf("onbod: AUTHD_URL + AUTHD_SERVICE_KEY required")
 	}
+	src, err := auth.ServiceToken(authdURL, "onbod", key)
+	if err != nil {
+		return config{}, fmt.Errorf("onbod service-token source: %w", err)
+	}
+	cfg.svcToken = src.Token
 	return cfg, nil
 }
 
@@ -1122,20 +1112,19 @@ func sendReply(cfg config, jid, text string) {
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", cfg.gatedURL+"/v1/outbound", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	// Split: present the service:onbod JWT (messages:write); monolith: the shared
-	// CHANNEL_SECRET. A service-token blip degrades to CHANNEL_SECRET rather than
-	// dropping the greeting.
-	bearer := cfg.secret
-	if cfg.svcToken != nil {
-		if tok, err := cfg.svcToken(req.Context()); err == nil {
-			bearer = tok
-		} else {
-			slog.Error("onbod service-token exchange failed; using CHANNEL_SECRET", "err", err)
-		}
+	// Present the service:onbod JWT (messages:write) on routd's JWT-gated
+	// /v1/outbound. A nil source or token blip drops the reply rather than sending
+	// a credential routd rejects. svcToken is always set in production (loadConfig).
+	if cfg.svcToken == nil {
+		slog.Error("onbod has no service token; dropping reply", "jid", jid)
+		return
 	}
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+	tok, err := cfg.svcToken(req.Context())
+	if err != nil {
+		slog.Error("onbod service-token exchange failed; dropping reply", "jid", jid, "err", err)
+		return
 	}
+	req.Header.Set("Authorization", "Bearer "+tok)
 	obs.InjectRequest(req.Context(), req)
 	resp, err := httpClient.Do(req)
 	if err != nil {

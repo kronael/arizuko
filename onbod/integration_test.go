@@ -6,6 +6,7 @@ package main
 // logic; these tests wire the whole mux together.
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,7 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils
 		gatedURL:    fake.URL(),
 		authBaseURL: "https://example.com",
 		greeting:    "Hi!",
+		svcToken:    func(context.Context) (string, error) { return "test-svc-token", nil },
 	}
 
 	mux := http.NewServeMux()

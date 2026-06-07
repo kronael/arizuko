@@ -67,11 +67,11 @@ func TestSendReplyUsesServiceToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("service token source: %v", err)
 	}
-	cfg := config{gatedURL: out.URL, secret: "channel-secret", svcToken: src.Token}
+	cfg := config{gatedURL: out.URL, svcToken: src.Token}
 	sendReply(cfg, "telegram:1", "welcome")
 
-	if bearer == "channel-secret" || bearer == "" {
-		t.Fatalf("sendReply presented %q, want a service JWT", bearer)
+	if bearer == "" {
+		t.Fatalf("sendReply presented no bearer, want a service JWT")
 	}
 	ks := auth.NewKeySet(map[string]*ecdsa.PublicKey{key.Kid: &key.Priv.PublicKey})
 	sub, err := auth.VerifyToken(bearer, ks)
@@ -83,17 +83,5 @@ func TestSendReplyUsesServiceToken(t *testing.T) {
 	}
 	if !auth.HasScope(sub.Scope, "messages", "write") {
 		t.Fatalf("service:onbod token must carry messages:write, got %v", sub.Scope)
-	}
-}
-
-// TestSendReplyFallsBackToChannelSecret: no service-token source → CHANNEL_SECRET
-// rides /v1/outbound (the monolith path, unchanged).
-func TestSendReplyFallsBackToChannelSecret(t *testing.T) {
-	var bearer string
-	out := captureOutbound(t, &bearer)
-	cfg := config{gatedURL: out.URL, secret: "channel-secret"} // svcToken nil
-	sendReply(cfg, "telegram:1", "welcome")
-	if bearer != "channel-secret" {
-		t.Fatalf("monolith bearer = %q, want channel-secret", bearer)
 	}
 }

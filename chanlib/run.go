@@ -40,27 +40,32 @@ func Run(opts RunOpts) {
 	defer cancel()
 
 	rc := NewRouterClient(opts.RouterURL, opts.ChannelSecret)
-	// Split (spec 5/1): exchange AUTHD_SERVICE_KEY for a service:<adapter> JWT
-	// and present it on routd's JWT-gated calls (/v1/messages, /v1/pane).
-	// Registration still uses CHANNEL_SECRET regardless.
+	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
+	// service:<adapter> JWT and present it on routd's JWT-gated calls
+	// (/v1/messages, /v1/pane). Registration still uses CHANNEL_SECRET.
+	//
+	// AUTHD_URL + AUTHD_SERVICE_KEY are required — compose always emits them, and
+	// local-dev brings up authd through the same tooling. No registration-token
+	// fallback: routd's verifier rejects it, so a missing key must fail loudly,
+	// not silently 401 every outbound (cost a krons telegram outage 2026-06-07).
 	//
 	// The exchange principal is the DAEMON name (AUTHD_SERVICE_NAME, set by compose
 	// to the base daemon — e.g. teled), NOT opts.Name (the CHANNEL_NAME, e.g.
-	// telegram / telegram-rhias). authd seeds + grants service:<daemon>, and
-	// multi-account variants share the base principal (spec 5/R). Falling back to
-	// opts.Name only when AUTHD_SERVICE_NAME is unset would 401 whenever the
-	// channel name differs from the daemon (cost a krons telegram outage 2026-06-07).
+	// telegram / telegram-rhias). authd seeds + grants service:<daemon>;
+	// multi-account variants share the base principal (spec 5/R).
 	authdURL, svcKey := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
-	svcName := EnvOr("AUTHD_SERVICE_NAME", opts.Name)
-	if authdURL != "" && svcKey != "" {
-		src, err := auth.ServiceToken(authdURL, svcName, svcKey)
-		if err != nil {
-			slog.Error("service-token source", "daemon", svcName, "err", err)
-			os.Exit(1)
-		}
-		rc.SetServiceToken(src.Token)
-		slog.Info("service-token auth enabled", "daemon", svcName, "authd", authdURL)
+	if authdURL == "" || svcKey == "" {
+		slog.Error("AUTHD_URL + AUTHD_SERVICE_KEY required", "daemon", opts.Name)
+		os.Exit(1)
 	}
+	svcName := EnvOr("AUTHD_SERVICE_NAME", opts.Name)
+	src, err := auth.ServiceToken(authdURL, svcName, svcKey)
+	if err != nil {
+		slog.Error("service-token source", "daemon", svcName, "err", err)
+		os.Exit(1)
+	}
+	rc.SetServiceToken(src.Token)
+	slog.Info("service-token auth enabled", "daemon", svcName, "authd", authdURL)
 	if _, err := rc.Register(opts.Name, opts.ListenURL, opts.Prefixes, opts.Caps); err != nil {
 		slog.Error("router registration failed", "err", err)
 		os.Exit(1)
