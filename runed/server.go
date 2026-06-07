@@ -83,7 +83,8 @@ func ownsFolder(tokenFolder, target string) bool {
 // check (not a bare bearer) is the gate so a stray agent/user token that
 // reaches it cannot start arbitrary runs (spec 5/P § Auth).
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.authz(w, r, "runs:run"); !ok {
+	folder, ok := s.authz(w, r, "runs:run")
+	if !ok {
 		return
 	}
 	var req runedv1.RunRequest
@@ -93,6 +94,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Folder == "" {
 		writeErr(w, 400, "missing_field", "folder required")
+		return
+	}
+	// Bind the spawn to the caller's folder — same containment as stop/status/kill
+	// (a folder-scoped runs:run holder must not spawn in another tenant's folder,
+	// which would run the agent with that folder's secrets + network). service:routd
+	// carries folder="" (root) so dispatch is unaffected.
+	if !ownsFolder(folder, string(req.Folder)) {
+		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+string(req.Folder))
 		return
 	}
 	out, err := s.mgr.Run(r.Context(), req)

@@ -30,7 +30,6 @@ var serviceGrants = map[string][]string{
 	"service:authd": {"grants:read"},
 	"service:timed": {"messages:write", "tasks:read", "tasks:write"},
 	"service:onbod": {"messages:write", "groups:write"},
-	"service:gated": {"messages:write", "messages:read", "tasks:read", "tasks:write"},
 	// service:routd dispatches runs (runs:run → runed), resolves identities at
 	// authd's identity endpoint (identity:read → GET /v1/identities/{sub}), and
 	// federates the /invite + /gate slash commands to onbod (invites:write +

@@ -7,6 +7,7 @@ package routd
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
@@ -58,6 +59,40 @@ func (s *Server) handleWebRoutePut(w http.ResponseWriter, r *http.Request) {
 	if !ownsFolder(folder, req.Folder) {
 		writeErr(w, 403, "forbidden", "folder outside caller subtree: "+req.Folder)
 		return
+	}
+	// Path/access validation + redirect self-slot + first-claim ownership — these
+	// MUST mirror the set_web_route MCP twin (ipc/ipc.go, spec 5/V §4): both faces
+	// enforce the same containment, else the REST path is a cross-folder web-path
+	// hijack + open-redirect (one renderer, many sinks).
+	if req.PathPrefix == "" || req.PathPrefix[0] != '/' {
+		writeErr(w, 400, "bad_request", "path_prefix must start with /")
+		return
+	}
+	switch req.Access {
+	case "public", "auth", "deny", "redirect":
+	default:
+		writeErr(w, 400, "bad_request", "access must be one of: public, auth, deny, redirect")
+		return
+	}
+	inOwnSlot := strings.HasPrefix(req.PathPrefix, "/pub/"+req.Folder+"/") ||
+		strings.HasPrefix(req.PathPrefix, "/priv/"+req.Folder+"/")
+	if req.Access == "redirect" {
+		if req.RedirectTo == "" {
+			writeErr(w, 400, "bad_request", "redirect_to required when access=redirect")
+			return
+		}
+		if !strings.HasPrefix(req.RedirectTo, "/pub/"+req.Folder+"/") &&
+			!strings.HasPrefix(req.RedirectTo, "/priv/"+req.Folder+"/") {
+			writeErr(w, 403, "forbidden",
+				"redirect_to must point into this folder's own slot: /pub/"+req.Folder+"/ or /priv/"+req.Folder+"/")
+			return
+		}
+	}
+	if !inOwnSlot {
+		if owner, ok := s.db.WebRouteOwner(req.PathPrefix); ok && owner != req.Folder {
+			writeErr(w, 403, "forbidden", "path prefix already claimed by folder: "+owner)
+			return
+		}
 	}
 	err := s.db.PutWebRoute(WebRouteRow{PathPrefix: req.PathPrefix, Access: req.Access,
 		RedirectTo: req.RedirectTo, Folder: req.Folder})

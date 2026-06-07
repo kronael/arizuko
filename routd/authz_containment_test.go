@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -67,5 +68,31 @@ func TestRESTCostFolderBound(t *testing.T) {
 	wrong := doJSON(t, h2, "POST", "/v1/cost", "", apiv1.CostRequest{Folder: "alice", Provider: "openai", Model: "m"})
 	if wrong.Code != 403 {
 		t.Fatalf("cost with messages:send = %d want 403 (dedicated scope)", wrong.Code)
+	}
+}
+
+// The REST web_route PUT must enforce the SAME path-claim + redirect-self-slot
+// containment as its set_web_route MCP twin (2026-06-07 bug sweep): a scoped
+// caller cannot hijack another folder's web path or set a cross-folder redirect.
+func TestRESTWebRoutePutContainment(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"}) // web_routes.folder FKs groups
+	_ = db.PutGroup(core.Group{Folder: "bob"})
+	// own-slot public route: allowed.
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/pub/alice/app", Access: "public"}); r.Code != 200 {
+		t.Fatalf("own-slot public = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	// redirect into another folder's slot: forbidden (open-redirect / impersonation).
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/pub/alice/r", Access: "redirect", RedirectTo: "/pub/bob/x"}); r.Code != 403 {
+		t.Fatalf("cross-folder redirect = %d want 403", r.Code)
+	}
+	// first-claim: a top-level path bob already owns cannot be hijacked by alice.
+	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "bob"})
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/shared", Access: "public"}); r.Code != 403 {
+		t.Fatalf("claim hijack = %d want 403", r.Code)
+	}
+	// cross-folder target folder is still rejected by ownsFolder.
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "bob", PathPrefix: "/pub/bob/x", Access: "public"}); r.Code != 403 {
+		t.Fatalf("cross-folder folder = %d want 403", r.Code)
 	}
 }

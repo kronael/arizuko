@@ -197,10 +197,13 @@ func main() {
 	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
-	// routd owns the residual config + conversation tables per spec 5/36
-	// resource catalog (inherits gated's schema authority).
+	// routd owns the residual config + conversation tables (spec 5/36 catalog).
+	// List ONLY resources routd actually serves over REST so /openapi.json can't
+	// advertise phantom 404 endpoints — these names must match the mounted /v1
+	// handlers below. (groups/acl_membership are dashd-FS-managed; network_rules
+	// is MCP-only via network_allow/deny/list — none are routd REST resources.)
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
-		"groups", "routes", "web_routes", "acl", "acl_membership", "secrets", "network_rules",
+		"routes", "web_routes", "acl", "secrets",
 	}))
 
 	httpd := &http.Server{Addr: listenAddr, Handler: mux}

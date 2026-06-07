@@ -45,3 +45,16 @@ func TestRunControlRootUnrestricted(t *testing.T) {
 		t.Fatalf("root kill called Runtime.Kill %d times, want 1", rec.killed)
 	}
 }
+
+// A folder-scoped runs:run token may not spawn a run in another folder — that
+// would execute the agent with the victim folder's secrets + network. The 403
+// must fire before mgr.Run (the lone run-control verb left unbound by the #21
+// hardening, found in the 2026-06-07 bug sweep).
+func TestRunSpawnFolderBound(t *testing.T) {
+	rec := &killRecorder{}
+	_, srv := serverWith(t, rec, fakeVerifier{scope: []string{"runs:run"}, folder: "alice"})
+	h := srv.Handler()
+	if got := postJSON(t, h, "/v1/runs", `{"folder":"bob"}`); got.Code != 403 {
+		t.Fatalf("cross-folder spawn = %d want 403", got.Code)
+	}
+}
