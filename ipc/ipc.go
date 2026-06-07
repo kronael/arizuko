@@ -1850,17 +1850,17 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"queued": true})
 		})
 
-	granted("list_routes", "Return the routing table rows this group can see. Use for a raw route dump; prefer inspect_routing when you also want JID→folder resolution or errored-chat context.", nil,
+	granted("list_routes", "Return the routing table rows this group can see, each annotated with mode (trigger/observe), fires_turn, triggers_on, a plain explain, and shadowed_by (earlier rule that intercepts it). Prefer inspect_routing when you also want JID→folder resolution or errored-chat context.", nil,
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.ListRoutes == nil {
 				return toolErr("list_routes not configured")
 			}
-			return toolJSON(map[string]any{"routes": db.ListRoutes(folder, identity.Tier == 0)})
+			return toolJSON(map[string]any{"routes": router.Describe(db.ListRoutes(folder, identity.Tier == 0))})
 		})
 
 	granted("set_routes",
 		"Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. "+
-			"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix).",
+			"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
 		[]mcp.ToolOption{mcp.WithString("routes", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.SetRoutes == nil {
@@ -1912,7 +1912,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 
 	granted("add_route",
 		"Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. "+
-			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix).",
+			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
 		[]mcp.ToolOption{mcp.WithString("route", mcp.Required())},
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if db.AddRoute == nil {
