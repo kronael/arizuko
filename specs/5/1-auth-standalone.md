@@ -127,6 +127,18 @@ auth/
 genuinely-new layer: ES256 + JWKS, the `/v1/*` API, service-token exchange,
 refresh-token storage, `auth.db` schema.
 
+**Current placement vs target.** `auth.Authorize` (`auth/authorize.go`)
+is the row-based ACL gate ([`../4/9-acl-unified.md`](../4/9-acl-unified.md)).
+arizuko's structural policy still lives in `auth/policy.go`
+(`AuthorizeStructural`) — it moves to `grants/` once `gated` is removed
+(gated still imports it). Tier-drop is staged: the data-plane decision
+is scope- and folder-containment-based and consults no tier (the
+uniform authorization lens, [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
+§ Authorization lens). Tier still gates management actions
+(register/escalate/delegate/inject) inside `AuthorizeStructural`; that
+tier check retires with the move-out, mapped to default scopes in one
+place (`grants.DeriveRules`), not as decision branches.
+
 ## auth.db schema
 
 `authd` owns `auth.db` — its own SQLite file + `migrations/` subdir

@@ -292,6 +292,47 @@ single source of mint, revocation, and audit; every other daemon is a
 consumer. See [`1-auth-standalone.md`](1-auth-standalone.md) for the
 crypto (ES256 + JWKs) and the standalone-first sequencing.
 
+## Authorization lens
+
+Both surfaces enforce the SAME gate. It is one lens composing two
+checks, not two policies:
+
+1. **Scope / ACL** — `auth.Authorize` over the unified ACL row table
+   ([`../4/9-acl-unified.md`](../4/9-acl-unified.md)). Answers "may this
+   principal perform this action at this scope". This is the canonical
+   decision; the lens does not replace it.
+2. **Folder containment** — for a subtree-bound resource, the caller's
+   folder must own the target's folder (target folder is the caller's
+   folder or a descendant). Empty caller folder = root / service token
+   = unrestricted (adapters and `service:routd` legitimately span
+   folders).
+
+The two surfaces differ only in the IDENTITY SOURCE feeding the lens:
+MCP reads the folder from the socket-bound capability token; REST reads
+it from the JWT `arz/folder` claim (surfaced as
+`Identity.Extra["folder"]`). The containment primitive is identical —
+the MCP path is `ipc.authorizeJID`; the REST path mirrors its
+resolution exactly (route-target lookup → `web:<folder>` 1:1 fallback →
+verb-agnostic routable-to-folder fallback). A folder-scoped token must
+not read or act cross-folder over either face.
+
+Containment binds per resource to its folder-bearing parameter:
+
+- A `jid` resolves to its routing-target folder before the check
+  (messages inspect/thread/find, sessions, routing resolve, engagement
+  get + set).
+- A `run_id` resolves to its run's folder (runed `GET`/`DELETE
+/v1/runs/{id}`, `POST /v1/runs/stop`); a cross-folder run reads as
+  absent (404) rather than leaking.
+- A bare `folder` param is contained directly.
+
+`POST /v1/messages` stays cross-folder by design — one channel adapter
+routes many folders. Cost reporting uses a dedicated `cost:write` scope
+(distinct from `messages:send`) plus folder containment.
+
+Tier does not participate in this data-plane decision; containment is
+scope- and folder-based (see [`1-auth-standalone.md`](1-auth-standalone.md)).
+
 ## Daemon ownership of `/v1/*`
 
 Each daemon owns its tables and serves the matching API. No
