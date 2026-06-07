@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/runed"
@@ -376,7 +377,29 @@ func migrateSplit(storeDir string, dryRun bool) error {
 	fmt.Printf("\norphan tables LEFT IN messages.db (not copied — messages.db is NOT retired):\n  %v\n",
 		orphanTables)
 	fmt.Println("  (dashd keeps writing messages.db; acl+secrets+tasks+pane copied to routd.db; identity copied to auth.db; onboarding+invites+gates copied to onbod.db; routd opens NO sibling DB.)")
+	if !dryRun {
+		chownMatch(msgPath, storeDir, "routd.db", "runed.db", "auth.db", "onbod.db")
+	}
 	return nil
+}
+
+// chownMatch sets each <storeDir>/<name>{,-wal,-shm} to messages.db's owner so
+// the uid-1000 daemons can WRITE them. migrate-split typically runs under sudo
+// (to read the root-owned data dir), which would leave the new DBs root-owned →
+// every daemon then crash-loops on SQLITE_READONLY (cost a sloth outage
+// 2026-06-07). Best-effort: a chown error (already-correct owner, non-root run)
+// is harmless.
+func chownMatch(refPath, storeDir string, names ...string) {
+	var st syscall.Stat_t
+	if err := syscall.Stat(refPath, &st); err != nil {
+		return
+	}
+	uid, gid := int(st.Uid), int(st.Gid)
+	for _, n := range names {
+		for _, suf := range []string{"", "-wal", "-shm"} {
+			_ = os.Chown(filepath.Join(storeDir, n+suf), uid, gid)
+		}
+	}
 }
 
 // copyInto ATTACHes messages.db read-only on a single pooled connection and
