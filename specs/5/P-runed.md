@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 depends:
   [
     U-genericization,
@@ -11,6 +11,8 @@ depends:
 ---
 
 # runed — the execution plane
+
+> **Status (2026-06-07): partial.** Core shipped + live — runed is the sole container-spawner (docker.sock + crackbox), owns the queue / circuit-breaker / runTTL / steer + the per-turn token broker. Deferred: `GET /v1/runs/{run_id}/output` (spawn-log replay) and `POST /v1/runs/{run_id}/spawn` (sub-agent spawn on runed's own queue) — delegation currently flows through routd's in-process MCP, not these endpoints.
 
 > **Status note (2026-05-30).** The build descoped runed's MCP-host
 > role. **`routd` hosts the per-turn agent MCP socket in-process**

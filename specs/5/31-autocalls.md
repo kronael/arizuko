@@ -4,7 +4,7 @@ status: shipped
 
 > Shipped 2026-04-22 (commits `90215aa`, `b3465ee`): `<autocalls>` block
 > rendered at prompt build time with `now`, `instance`, `folder`, `tier`,
-> `session`. Replaces `router.ClockXml`. Registry in `gateway/autocalls.go`.
+> `session`. Replaces `router.ClockXml`. Registry in `routd/prompt.go`.
 > No MCP tools were moved — the "candidates" listed below didn't exist as
 > distinct tools; autocalls pre-empts the need.
 >

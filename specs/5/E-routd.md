@@ -39,15 +39,14 @@ row written by `routd` and nobody else. The atomic unit is the chat:
 "append inbound → resolve route → start/continue turn" share one
 transactional view per `(chat, group)`.
 
-`status: partial` = not yet built. The loop lives today inside
-`gateway/gateway.go` + `api/api.go` + `store/` + `router/`; this spec
-extracts it verbatim into a standalone daemon. routd ships in the
-**second** gated-split release — the `routd` + `runed` big-bang multi-DB
-cutover, after `authd` ships standalone first
-([`U-genericization.md`](U-genericization.md) § Phase C, § HMAC
-retirement). One coordinated migration: the two daemons carve their
-tables into their own DBs, the monolithic `messages.db` schema-authority
-is deleted, no shared-DB interim, no compat shim
+`status: shipped` (2026-06). The loop was extracted verbatim from the
+former `gateway/gateway.go` + `api/api.go` (now deleted) + `store/` +
+`router/` into this standalone daemon. routd shipped in the gated-split
+release alongside `runed` (the `authd` daemon shipped standalone first;
+[`U-genericization.md`](U-genericization.md) § Phase C, § HMAC
+retirement). It landed as one coordinated migration: the daemons carved
+their tables into their own DBs (`routd.db`/`runed.db`), the monolithic
+`messages.db` schema-authority was deleted, no shared-DB interim, no compat shim
 ([`U-genericization.md`](U-genericization.md) NO BACKWARD COMPATIBILITY).
 The agent MCP socket is hosted **in-process by routd**
 (`ServeTurnMCP`) — no separate MCP-host daemon and no runed federation

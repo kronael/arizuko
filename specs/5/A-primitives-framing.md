@@ -74,9 +74,10 @@ and the routing differ. Ownership is what makes deep customization
 possible — the thing you need at this stage of AI, against opaque SaaS
 agents you can only tune through a text box (`6/9`).
 
-The primitives are invariant across topologies. The shipped monolith
-(`gated`) and the split (`authd` + `routd` + `runed`, specs `5/E`/`5/P`)
-reorganise the _daemons_; the primitives beneath don't move — README
+The primitives are invariant across topologies. The former monolith
+(`gated`, now removed) and the split (`authd` + `routd` + `runed`, specs
+`5/E`/`5/P`, the only topology) reorganised the _daemons_; the primitives
+beneath don't move — README
 "Direction" (`README.md:56`): "the per-folder runtime — all unchanged."
 So the docs **name primitives, not daemons.** A reader who learns
 Event/Routing/Agent/Authorization/Turn/State understands arizuko
@@ -315,10 +316,9 @@ story):
   README, but the operator-facing site keeps three layers
   (primitives → daemons → products), not four. Don't invent a docs
   section for packages.
-- **The lived shape is still `gated`-centric.** The split plane
-  (`authd`+`routd`+`runed`) is partial; say "the monolith bundles every
-  component; the split moves planes into their own daemons," not "four
-  daemons own four planes today."
+- **The lived shape is the split.** `gated` is removed; the three planes
+  (`authd`+`routd`+`runed`) are the only topology. Say "the split moves each
+  plane into its own daemon," not "the monolith bundles every component."
 - **A product is not a skin.** It earns the word "product" by carrying
   bounded execution (Turn), an ACL (Authorization), state separation
   (State + folder), and channel-native presence (Event sources) — not

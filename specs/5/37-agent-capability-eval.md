@@ -1,8 +1,10 @@
 ---
-status: draft
+status: partial
 ---
 
 # 5/37 — agent-capability eval (`agenteval`)
+
+> **Status (2026-06-07): partial.** The `agenteval/` component is built + unit-tested (`validate`: 19 cases, 8 smoke); NOT yet run live (needs a folder token + `--chat` + `--sink` on the folder's crackbox egress allowlist). Two known gaps, honest not silent: (a) routd exposes **no cost-READ endpoint**, so `HTTPTarget.Cost()` is 0 over REST and `max_tokens` budgets are not enforced live until a cost source is wired; (b) `--mcp` expects an inspect-compatible MCP-over-HTTP face — unset, the `mcp_roundtrip`/`parity` cases fail loudly ("surface not configured"), never false-pass.
 
 ## Problem
 

@@ -238,7 +238,7 @@ image = "arizuko:latest"
 entrypoint = ["slakd"]
 
 [environment]
-ROUTER_URL = "http://gated:8080"
+ROUTER_URL = "http://routd:8080"
 SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
 SLACK_SIGNING_SECRET = "${SLACK_SIGNING_SECRET}"
 LISTEN_ADDR = ":8080"

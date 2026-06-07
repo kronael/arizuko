@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends: [E-routd, P-runed, G-engagement]
 ---
 
@@ -163,7 +163,7 @@ Per CLAUDE.md's business-vs-infra split:
 
 When a proactive turn fires, routd's prompt build appends one ephemeral
 `<proactive_reason>` block (the convention + single-renderer rule:
-`gateway/README.md` "Per-turn ephemeral XML blocks"). It marks the turn
+`routd/README.md` "Per-turn ephemeral XML blocks"). It marks the turn
 as proactive — the agent reads it to mean "a moment to consider
 speaking", not "a question to answer":
 
@@ -243,7 +243,7 @@ black-box "the agent decided to speak."
   ([`E-routd.md`](E-routd.md)); runed is unchanged — a proactive turn is
   an ordinary `POST /v1/runs`.
 - routd prompt build — append `<proactive_reason>`; refresh the
-  `gateway/README.md` "Per-turn ephemeral XML blocks" row (drop the
+  `routd/README.md` "Per-turn ephemeral XML blocks" row (drop the
   stale `score=` attribute, use `check=`).
 - `routd/migrations/<next>-chat-proactive.sql` — the `chat_proactive`
   table.

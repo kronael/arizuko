@@ -1,8 +1,10 @@
 ---
-status: shipped
+status: partial
 ---
 
 # auth: central authority daemon + offline-verify library
+
+> **Status (2026-06-07): partial.** Core shipped + live — authd is the sole ES256 minter, serves JWKS, mints `service:<daemon>` tokens, and every daemon offline-verifies. Deferred: HMAC retirement (`PROXYD_HMAC_SECRET`/`CHANNEL_SECRET` still live), `POST /v1/keys/rotate` + `authd rotate-key`, the account-unlink endpoint, and the `authd/api/v1` package. (Stale below: `gated` is deleted — grants now live with routd.)
 
 **DECISION.** Token authority is centralized in a single `authd` daemon —
 the **sole signer**. `authd` mints every token, holds the ES256 private key,
