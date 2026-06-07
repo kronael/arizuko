@@ -8,10 +8,11 @@ visible throughout this document and in the [README](README.md) tables.
 New integrations are added via the extension points described in
 [EXTENDING.md](EXTENDING.md); the core evolves as a unit.
 
-- **Core daemons / libraries** define the system shape: gateway, store,
-  ipc, auth, grants, proxyd, webd, dashd, timed, onbod, vited, davd, the
-  container runner, chanlib/chanreg, plus the `gated` daemon that wires
-  them. The package graph below is core.
+- **Core daemons / libraries** define the system shape: `routd` (router
+  plane), `runed` (execution plane), `authd` (auth authority), plus
+  store, ipc, auth, grants, proxyd, webd, dashd, timed, onbod, vited,
+  davd, the container runner, chanlib/chanreg. The package graph below
+  is core.
 - **Integrations** are pluggable: per-platform channel adapters
   (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`, `reditd`, `emaid`,
   `twitd`, `linkd`) talking to core over the channel protocol; optional
@@ -27,26 +28,35 @@ deployment runs all of them.
 
 ## Package Dependency Graph (core)
 
-```
-cmd/arizuko/main
-  ├── core          Config, types, Channel interface
-  ├── store         SQLite persistence
-  ├── api           HTTP API: channel registration, inbound messages
-  │   └── chanreg, store
-  ├── auth          identity, JWT, OAuth, middleware
-  ├── chanreg       channel registry, HTTP channel proxy
-  ├── gateway       main loop, message routing
-  │   ├── container docker spawn, volume mounts, runtime
-  │   │   └── groupfolder, mountsec
-  │   ├── queue     per-group concurrency, stdin piping
-  │   ├── router    message formatting, routing rules
-  │   ├── ipc       MCP server on unix socket
-  │   └── diary, groupfolder
-  └── compose       docker-compose generation
+The platform splits into three core planes — `routd` (conversation /
+routing), `runed` (execution), `authd` (auth authority) — each owning
+its own DB and migrations. No single process wires everything; the
+planes talk over HTTP (`/v1/*`) and verify each other's tokens offline.
 
-gated/    wires core + store + gateway + api + chanreg + ipc + auth
-timed/    scheduler: polls scheduled_tasks, inserts messages
-onbod/    onboarding state machine + gated admission queue
+```
+routd/    conversation/routing plane (sole message appender, token verifier)
+  ├── core          Config, types, Channel interface
+  ├── store         SQLite persistence helpers (shared library)
+  ├── auth          identity, JWT verify, OAuth, middleware
+  ├── chanreg       channel registry, HTTP channel egress (Deliverer)
+  ├── router        message formatting, routing rules
+  ├── ipc           per-turn agent MCP socket (ServeMCP, hosted in-process)
+  ├── grants        DeriveRules → MCP manifest filter
+  └── diary, groupfolder
+  routd.db: messages, routes, chats, secrets, acl, cost, tasks, sessions, pane
+
+runed/    execution plane (the ONLY daemon wired to docker.sock + crackbox)
+  ├── container     docker spawn, volume mounts, runtime
+  │   └── groupfolder, mountsec
+  └── auth          verify; per-spawn token downscope via authd (broker.go)
+  runed.db: spawns, session_log, spawn_logs, mcp_tokens
+
+authd/    auth authority (sole ES256 signer, JWKS publisher, OAuth provider)
+  └── auth          token mint/downscope, key rotation
+  auth.db: signing_keys, refresh_tokens, auth_users, oauth_identities
+
+timed/    scheduler: claims due scheduled_tasks, federates fires over routd
+onbod/    onboarding state machine + admission queue (onbod.db)
 dashd/    operator dashboard (HTMX read views + TIER 1 routes/groups/secrets CRUD)
 webd/     web chat channel adapter (HTTP/SSE, registers as "web")
 vited/    Vite dev server / static origin behind proxyd
@@ -55,10 +65,17 @@ grants/   CheckAction, MatchingRules, DeriveRules
 chanlib/  RouterClient, InboundMsg, auth middleware, URLCache (CDN-id
           proxy cache for discd/mastd/reditd), fsutil (CopyDirNoSymlinks,
           CopyFile), env helpers (EnvOr/EnvInt/EnvDur), ShortHash — shared
-          by adapters + gateway + container + onbod + webd
+          by adapters + routd + container + onbod + webd
+compose/  docker-compose generation
 theme/    shared CSS + HTML helpers (used by onbod, dashd)
 db_utils/ SQL migration runner
 ```
+
+Every channel adapter, `webd`, and `proxyd` talk to `routd` over HTTP
+(`/v1/*`). `routd` dispatches each turn to `runed` (`POST /v1/runs`);
+`runed` brokers a per-spawn token from `authd` and spawns the agent
+container. The per-turn agent MCP socket is hosted in-process by
+`routd` (`ipc.ServeMCP`); `runed` only mounts the ipc dir.
 
 ## Integrations
 
@@ -67,11 +84,12 @@ teled/ discd/ slakd/ mastd/ bskyd/ reditd/ emaid/ whapd/ twitd/ linkd/
         channel adapters — separate processes, register with core via
         the HTTP channel protocol (see "Channel Protocol" below)
 
-sidecar/ whisper-cpp container; gateway calls Whisper for inbound
+sidecar/ whisper-cpp container; routd calls Whisper for inbound
         voice when VOICE_TRANSCRIPTION_ENABLED=true
 crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
         in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
-        Shippable separately; specs/11/A-orthogonal-components.md
+        Wired to runed (the execution plane) only. Shippable separately;
+        specs/11/A-orthogonal-components.md
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
@@ -88,32 +106,38 @@ capabilities" for the pattern + the current list.
 
 ## Message Flow
 
+Ingest, routing, prompt assembly, and channel egress live in `routd`;
+container spawn lives in `runed`. The hand-off is one HTTP call
+(`routd → runed POST /v1/runs`); everything else is in-process to one
+of the two planes.
+
 ```
-Channel adapter → POST /v1/messages (api) → store.PutMessage
-  → gateway.messageLoop → pollOnce (polls every PollInterval)
-  → store.NewMessages (since lastTimestamp)
+Channel adapter → POST /v1/messages (routd) → PutMessage (sole appender)
+  → routd.Loop.pollOnce (polls every PollInterval)
+  → NewMessages (since lastTimestamp)
   → resolveGroup (route table lookup)
   → handleCommand (prefix dispatch)
   → route lookup: trigger fires a turn; #observe stores only
-  → resolveOrEngaged: on route miss or #observe, fires turn if chat_reply_state.engaged_until active
-  → queue.SendMessages (steer into running container) OR
-  → queue.EnqueueMessageCheck → processGroupMessages
-    → enrichAttachments: download media → Whisper for voice
-    → store.EnrichMessage + MessagesSince + FlushSysMsgs
-    → gateway.renderAutocalls (<autocalls> block, prompt top)
-    → router.FormatMessages (XML batch, errored rows tagged
-      errored="true") + grants.DeriveRules → start.json
-    → container.Run → stream output → router.FormatOutbound
-    → HTTPChannel.Send → POST /send
+  → on route miss or #observe, fires turn if chat_reply_state.engaged_until active
+  → enrichAttachments: download media → Whisper for voice
+  → router.FormatMessages (XML batch, errored rows tagged errored="true")
+    + grants.DeriveRules → run request
+  → routd stands up the per-turn MCP socket in-process (ipc.ServeMCP)
+  → routd → runed: POST /v1/runs (dispatch the turn)
+    → runed: steer into a live spawn (SIGUSR1 + IPC) OR new docker run --rm
+    → runed brokers a per-spawn token from authd, mounts the ipc dir
+  → agent runs the turn; per-turn results return over MCP (submit_turn)
+    and the run outcome returns on the /v1/runs response
+  → routd: chanreg Deliverer → POST <adapter>/send (channel egress)
 ```
 
 ## Web Channel (proxyd)
 
 Web chat uses `web:<folder>` JIDs. `webd` is a channel adapter that registers
-with the router as `"web"` (prefix `web:`), receives messages via HTTP/SSE,
+with `routd` as `"web"` (prefix `web:`), receives messages via HTTP/SSE,
 and stores them through the standard `/v1/messages` API. When
-`processGroupMessages` encounters a `web:` JID it delegates to
-`processWebTopics`, which splits by topic and runs one agent per topic.
+`routd.processGroupMessages` encounters a `web:` JID it splits the batch
+by topic and dispatches one run per topic (first-seen order).
 
 **Path model** (overview; full prefix table + DB-backed `web_routes`
 fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
@@ -131,10 +155,11 @@ fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 - `/*` — DB-backed `web_routes` longest-prefix, else auth-gated to vited
 
 **Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
-cookie → redirect to `/auth/login`. JWT claims include `groups` —
-a JSON array of allow-scopes computed by `store.UserScopes(sub)` from
-the `acl` table (transitively expanded via `acl_membership`). Operator
-membership surfaces as `**` in this list; see "Operator" below.
+cookie → redirect to `/auth/login`. `authd` is the OAuth provider and
+mints the ES256 JWT; its claims include `groups` — a JSON array of
+allow-scopes computed by `UserScopes(sub)` from the `acl` table
+(transitively expanded via `acl_membership`). Operator membership
+surfaces as `**` in this list; see "Operator" below.
 `webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
 
 WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
@@ -195,41 +220,48 @@ hit. Drift between handler + doc is structurally impossible because
 both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 §"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
 
-## Roadmap: daemon genericization (not shipped)
+## The three planes
 
-The package graph above is today's reality: one `gated` process wires
-core, with adapters and optional daemons around it. The direction
-([`specs/5/U-genericization.md`](specs/5/U-genericization.md), status
-`partial`) splits `gated` into `routd` (tenants / rules / events, and
-the per-turn agent MCP socket hosted in-process), `runed` (a pure
-container spawner; the MCP host is folded into the routd plane, not a
-separate daemon), and `authd` (the auth authority — OAuth
-host, JWT signer, revocation list, JWKs publisher;
-[`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md), status
-`partial`). `auth/` ships today as a Go library (offline JWT verify,
-OAuth, ACL, middleware) and stays the offline verifier; `authd` is the
-central authority it verifies against — `routd` and other daemons
-call `authd` to mint/downscope tokens rather than minting themselves.
-The shared-secret HMAC (`PROXYD_HMAC_SECRET` / `CHANNEL_SECRET`) retires
-once `authd`-minted JWTs replace it; capability scopes replace the
-folder-depth `tier` int. The split daemons (`routd`/`runed`/`authd`)
-are built and tested in-tree but dormant: the default compose runs
-`gated`; `CUTOVER_SPLIT=true` opts into the split plane, still under
-soak.
+The router/executor/auth split is the only topology — the former
+`gated` monolith (and its `gateway`/`api` packages) is removed. Each
+plane is a standalone daemon owning its own DB:
 
-## Daemon genericization conventions
+- **`routd`** — conversation/routing plane. Sole appender of messages,
+  token **verifier** (not signer). Owns `routd.db`, resolves routing
+  rules, runs the orchestration loop, and dispatches each turn to
+  `runed` (`POST /v1/runs`). Hosts the per-turn agent MCP socket
+  in-process (`ipc.ServeMCP`) and builds the agent prompt. No docker
+  socket, no crackbox. Spec
+  [`specs/5/E-routd.md`](specs/5/E-routd.md).
+- **`runed`** — execution plane. The only daemon wired to the docker
+  socket, crackbox, and the per-folder agent networks. Owns the work
+  queue, circuit breaker, `MaxConcurrent` cap, run TTL, steer
+  (SIGUSR1), and a per-spawn token broker that downscopes its
+  `service:runed` token to a per-turn agent token. Owns `runed.db`
+  (`spawns`, `session_log`, `spawn_logs`, `mcp_tokens`). Spec
+  [`specs/5/P-runed.md`](specs/5/P-runed.md).
+- **`authd`** — auth authority. The sole ES256 token minter; serves
+  JWKS so every daemon verifies offline via the `auth/` library. Acts
+  as the OAuth provider and mints `service:<daemon>` tokens from each
+  daemon's `AUTHD_SERVICE_KEY`. Owns `auth.db`. Spec
+  [`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md).
 
-Durable rules the package layout obeys. Realized incrementally as the
-`gated` split lands (`specs/5/1-auth-standalone.md` authd first, then
-`specs/5/E-routd.md` routd + `specs/5/P-runed.md` runed).
+`auth/` ships as a Go library (offline JWT verify, OAuth helpers, ACL,
+middleware): it is the offline verifier that backends use against
+`authd`'s JWKS. `routd` and other daemons call `authd` to
+mint/downscope tokens rather than minting themselves.
 
-- **Naming.** Daemons end in `d` (`gated`, `proxyd`, `webd`, channel
-  adapters). A daemon is a process, owns at most one DB, exposes REST
-  and/or MCP. Short names use a ≤4-letter root + `d` — the gated-split
-  products are `routd`, `runed` (MCP host folded into `runed`), **not**
-  `routerd`/`agent-runnerd`. Libraries don't end in `d` (`auth`,
-  `audit`, `obs`, `resreg`, `chanlib`, `grants`, `core`, `types`):
-  imported, never run. Utility packages follow Go convention
+## Daemon conventions
+
+Durable rules the package layout obeys.
+
+- **Naming.** Daemons end in `d` (`routd`, `runed`, `authd`, `proxyd`,
+  `webd`, channel adapters). A daemon is a process, owns at most one DB,
+  exposes REST and/or MCP. Short names use a ≤4-letter root + `d` — the
+  router/executor products are `routd`, `runed` (MCP host folded into
+  `routd`), **not** `routerd`/`agent-runnerd`. Libraries don't end in
+  `d` (`auth`, `audit`, `obs`, `resreg`, `chanlib`, `grants`, `core`,
+  `types`): imported, never run. Utility packages follow Go convention
   (`httputil/`, not `http_utils/`). One Go module
   (`github.com/kronael/arizuko`); sibling shippable components stay
   inside it (`specs/11/A-orthogonal-components.md`).
@@ -258,14 +290,16 @@ Durable rules the package layout obeys. Realized incrementally as the
   canonical, REST the impedance match). `v2/` lives next to `v1/` when
   the shape breaks. Adopt per daemon as its API stabilizes.
 
-- **DB ownership.** Daemons own DBs + migrations + REST/MCP APIs; a
-  daemon needing state opens its own SQLite file and runs its own
-  `migrations/`. Libraries own no DB, no API, no migrations — a library
-  that writes rows takes the caller's `*sql.Tx` (`audit/` is the
-  model). Cross-daemon data access goes through the receiving daemon's
-  `api/v1/` (REST for sync, MCP for agents) — never direct SQL across
-  daemons. Shared `messages.db` stays as-is until a daemon is extracted
-  to its own DB.
+- **DB ownership.** Each daemon owns its own DB + migrations + REST/MCP
+  APIs: `routd` owns `routd.db` (`routd/migrations/`), `runed` owns
+  `runed.db` (`runed/migrations/`), `authd` owns `auth.db`
+  (`authd/migrations/`), `onbod` owns `onbod.db` (`onbod/migrations/`).
+  Libraries own no DB, no API, no migrations — a library that writes
+  rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
+  data access goes through the receiving daemon's `api/v1/` (REST for
+  sync, MCP for agents) — never direct SQL across daemons. The shared
+  `store/` package and its `messages.db` are legacy monolith artifacts;
+  in the split each daemon owns its own DB and runs its own migrations.
 
 - **No backward compatibility.** Cutovers are one-shot: a migration
   ships in one release, old paths delete in that same release. No dual
@@ -290,15 +324,16 @@ servers. Full protocol: `specs/4/1-channel-protocol.md`.
   (`chanlib.TypingRefresher` / `whapd/src/typing.ts`) — re-sends presence on
   short interval with hard TTL
 
-Packages: `chanreg/` (registry, health, `HTTPChannel`), `api/` (router-side
-handlers), `chanlib/` (shared by Go adapters).
+Packages: `chanreg/` (registry, health, `HTTPChannel`, the egress
+Deliverer), `routd/` (router-side `/v1/*` handlers), `chanlib/`
+(shared by Go adapters).
 
 ## Inbound Media Pipeline
 
 1. Adapter populates `Attachments []InboundAttachment` in `/v1/messages`
-2. `store.PutMessage` stores attachment JSON
+2. routd `PutMessage` stores attachment JSON
 3. Enricher fetches URLs, writes to `groups/<folder>/media/<YYYYMMDD>/`,
-   calls `store.EnrichMessage` to prepend
+   calls routd `EnrichMessage` to prepend
    `<attachment path="..." mime="..." filename="..."/>` and clear column
 4. Voice (`audio/*`) → Whisper if `VOICE_TRANSCRIPTION_ENABLED=true`
 5. Container path: `/home/node/media/...`
@@ -322,6 +357,26 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `Channel`     | Connect, Send, SendFile, Owns, Typing, Disconnect |
 
 ## SQLite Schema
+
+Each daemon owns its own SQLite file and migrations. The tables below
+are grouped by owner; column shapes are stable across the split, but
+the migration numbers cited inline are the legacy-monolith sequence —
+each daemon re-sequences its own `migrations/` from `0001`.
+
+- **`routd.db`** (`routd/migrations/`): `chats`, `messages`,
+  `messages_fts`, `groups`, `routes`, `route_tokens`, `sessions`,
+  `system_messages`, `scheduled_tasks`, `task_run_logs`, `channels`,
+  `acl`, `acl_membership`, `chat_reply_state`, `email_threads`,
+  `secrets`, `identities`, `identity_claims`, `turn_results`,
+  `network_rules`, `web_routes`, `config_meta`, `router_state`, plus
+  the per-user cost-cap column on `auth_users`.
+- **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
+  `spawn_logs`, `mcp_tokens` — runtime execution state.
+- **`authd.db`** (`authd/migrations/`): `signing_keys`,
+  `refresh_tokens`, `auth_users` (full identity record),
+  `oauth_identities`.
+- **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
+  `invites`.
 
 | Table              | Key columns                                                                                                                                    |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -355,35 +410,37 @@ Config: `MEDIA_ENABLED=true`, `VOICE_TRANSCRIPTION_ENABLED=true`,
 | `config_meta`      | key (PK), value — holds `config_version` for resreg manifest CAS (migration 0067)                                                              |
 | `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (migration 0070)                   |
 
-`route_tokens.owner_folder` also carries an FK → `groups.folder` ON
-DELETE CASCADE (migration 0069). WAL mode, 5s busy timeout, FK
-enforcement via the DSN pragma `_pragma=foreign_keys(on)` on both
-`store.Open` and `OpenMem` — it rides the DSN (not a one-shot
-`db.Exec`) so every pooled `database/sql` connection enforces it, or the
-CASCADE FKs would silently no-op on connections that never ran the
-pragma. Migrations via `db_utils.Migrate` (`migrations` table keyed by
+`route_tokens.owner_folder` carries an FK → `groups.folder` ON DELETE
+CASCADE; `web_routes.folder` likewise. WAL mode, 5s busy timeout, FK
+enforcement via the DSN pragma `_pragma=foreign_keys(on)` on every
+daemon's `Open`/`OpenMem` — it rides the DSN (not a one-shot `db.Exec`)
+so every pooled `database/sql` connection enforces it, or the CASCADE
+FKs would silently no-op on connections that never ran the pragma.
+Migrations via `db_utils.Migrate` (per-DB `migrations` table keyed by
 service+version).
 
-`messages.source` is the canonical adapter-of-record stamped by
-`api.handleMessage`; outbound reads `store.LatestSource(jid)`. All agent
+`messages.source` is the canonical adapter-of-record stamped by routd's
+`handleMessages`; outbound reads routd `LatestSource(jid)`. All agent
 output, delegation, and escalation flow through `PutMessage` — bot rows are
 `is_from_me=1 is_bot_message=1` and filtered from inbound polling. `topic`
 and `routed_to` capture audit metadata. Spec: `specs/3/c-audit-log.md`.
 
 ## Container Lifecycle
 
-One ephemeral container per turn (`docker run --rm`), always bound to
-the same per-group folder, network, and DB view. The container runs one
-turn from stdin and exits; the group folder mounts at `/home/node/` so
-conversation state, diary, skills, and the Claude Code session jsonl
-persist between turns — context accumulates per-group because each run
-resumes the session jsonl, not because the process is long-lived.
-Per-group web slots (`~/public_html`, `~/private_html`) bind-mount into
-the unified `<data>/web/{pub,priv}/<folder>/` trees — writes appear at
-both the agent's home path and the URL-serving path. Sibling groups get
-their own containers on their own networks with their own DB views — the
-cross-tenant boundary is the group (folder + network + DB view), not the
-turn. Threat model + isolated axes in `SECURITY.md` § Model.
+`runed` is the only daemon that spawns containers. One ephemeral
+container per turn (`docker run --rm`), always bound to the same
+per-group folder and network. The container runs one turn and exits;
+the group folder mounts at `/home/node/` so conversation state, diary,
+skills, and the Claude Code session jsonl persist between turns —
+context accumulates per-group because each run resumes the session
+jsonl, not because the process is long-lived. Per-group web slots
+(`~/public_html`, `~/private_html`) bind-mount into the unified
+`<data>/web/{pub,priv}/<folder>/` trees — writes appear at both the
+agent's home path and the URL-serving path. The agent reaches platform
+data only over the in-process MCP socket routd hosts (no DB mount).
+Sibling groups get their own containers on their own networks — the
+cross-tenant boundary is the group (folder + network + scoped token),
+not the turn. Threat model + isolated axes in `SECURITY.md` § Model.
 
 **Why per-group context isolation matters.** Each group is one agent
 with one accumulating context window (carried in its session jsonl).
@@ -392,6 +449,9 @@ concerns in one context causes the model to blend them: wrong answers,
 hallucinated references, noise from irrelevant history. The group
 boundary is the context boundary: each group keeps a clean, persistent,
 focused context that accumulates only the conversations relevant to it.
+
+routd resolves the route, derives grants, and dispatches the turn to
+runed (`POST /v1/runs`). runed performs the spawn:
 
 1. `container.EnsureRunning()` — verify docker
 2. `container.CleanupOrphans()` — stop stale `arizuko-*`
@@ -407,42 +467,58 @@ focused context that accumulates only the conversations relevant to it.
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
    - `docker run -i --rm`; spawn + wait. Per-turn results arrive
      over MCP (`submit_turn`), not stdout.
-   - Output: `{ status, error }` from runner; `newSessionId` and
-     `result` flow back to gateway via `submit_turn` callbacks.
-   - Timer timeout: graceful stop then kill
+   - Output: `{ status, error }` from the runner; `newSessionId` and
+     `result` flow back to routd via `submit_turn` callbacks, and the
+     run outcome returns on the `/v1/runs` response.
+   - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
-Session: new session ID updates `store.sessions`. Error with no output →
-evict session (cursor rolled back, retry). Error with output → cursor
-advances (partial work preserved).
+Session: new session ID updates routd's `sessions` table. Error with no
+output → evict session (cursor rolled back, retry). Error with output →
+cursor advances (partial work preserved).
 
 ## IPC (ipc package)
 
-MCP server on unix socket (`mark3labs/mcp-go`). One per group at
-`ipc/<folder>/gated.sock`. Tools filtered by grants for the caller's group.
-Runtime auth via `auth.Authorize`. `list_acl(folder)` inspects the
-effective ACL rows for the caller's principal set.
+MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
+routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
+at `ipc/<folder>/gated.sock` (the socket file keeps its historical
+name). Tools filtered by grants for the caller's group. Runtime auth via
+`auth.Authorize`. `list_acl(folder)` inspects the effective ACL rows for
+the caller's principal set.
 
-socat bridges the host socket into the container; agent-runner configures
-`arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`. Server
-starts before `docker run`, stops after exit; socket cleaned up.
+socat bridges the host socket into the container; the agent configures
+the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
+routd binds the socket before runed spawns the container and removes it
+when the run returns; runed sets `Input.ExternalMCP=true` and only
+mounts the ipc dir.
 
-Identity resolved from socket path (folder, tier); authorization delegated
-to `auth.Authorize`.
+Identity resolved from the socket path (folder, tier); authorization
+delegated to `auth.Authorize`.
 
 ## Queue (queue package)
 
-`GroupQueue` serializes agent invocations per group:
+Two layers serialize work. routd's `GroupQueue` serializes inbound
+dispatch per folder; runed's Manager enforces the docker-level
+concurrency cap, circuit breaker, and steer at the spawn boundary.
 
-- `maxConcurrent` global (default 5), per-group active flag + container name
-- Circuit breaker: 3 consecutive failures opens; reset by new message
-- `EnqueueMessageCheck(jid)` — signal-only; queue calls back into
-  `HasPendingMessages`/`processMessages`
-- `drainGroupLocked` — on completion, starts next waiting group if capacity
-- `SendMessages(jid, []string)` — steer batch into running container (write
-  one IPC input file per message, signal once). Agent drains via
+routd-side `GroupQueue`:
+
+- per-group active flag + container name; `EnqueueMessageCheck(jid)` is
+  signal-only — the queue calls back into routd's
+  `HasPendingMessages`/`processGroupMessages`
+- `SendMessages(jid, []string)` — steer batch into a running container
+  (write one IPC input file per message, signal once). Agent drains via
   `PostToolUse` hook for mid-loop injection, with `pollIpcDuringQuery` as
   next-turn fallback; `drainIpcInputMutex` prevents double-drain
+
+runed Manager (`runed/manager.go`):
+
+- `MaxConcurrent` global cap (`MAX_CONCURRENT_CONTAINERS`, default 5),
+  one live spawn per folder
+- circuit breaker: 3 consecutive folder failures opens; reset by a new run
+- run TTL (`RUNED_RUN_TIMEOUT`, default 20m); hourly GC of expired
+  spawns + tokens
+- steer into a live spawn via `docker kill --signal=SIGUSR1` + IPC write
 
 Delegation, escalation, and `#topic` routing are not special — each writes
 a row via `PutMessage` and calls `EnqueueMessageCheck`.
@@ -489,7 +565,7 @@ row in `acl` (directly or via membership).
 
 Open design questions for proactive-operator delivery (not yet shipped):
 
-- Error / health-check trigger plumbing (`InsertSysMsg` from `gated`).
+- Error / health-check trigger plumbing (`InsertSysMsg` from routd).
 - Dedup / rate-limit policy for error bursts.
 - Listener-digest delivery format.
 
@@ -501,11 +577,16 @@ flag) is settled.
 `compose.Generate(dataDir)` builds `docker-compose.yml` from:
 
 1. **Built-in** — emitted per `.env` profile and feature flags:
-   `gated` (always), `timed` (profile != minimal/web),
+   `authd`+`routd`+`runed` (always — the three planes),
    `webd`+`proxyd`+`vited` (WEB_PORT set, profile != minimal),
+   `timed` (profile != minimal/web),
    `dashd` (profile=full), `davd` (profile=full, WEBDAV_ENABLED=true),
    `onbod` (profile=full, ONBOARDING_ENABLED=true)
 2. **Extra** — `<dataDir>/services/*.toml` appended
+
+Adapters reach the router at `ROUTER_URL=http://routd:8080` (pinned by
+`compose.routerURL`). `runed` is the only built-in service granted the
+docker socket; `authd` exposes JWKS for offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
 `/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
@@ -516,11 +597,11 @@ TOML format:
 ```toml
 image = "arizuko:latest"
 entrypoint = ["teled"]
-depends_on = ["gated"]
+depends_on = ["routd"]
 volumes = ["${DATA_DIR}/..."]
 
 [environment]
-ROUTER_URL = "http://gated:${API_PORT}"
+ROUTER_URL = "http://routd:8080"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ```
 
@@ -533,13 +614,14 @@ listen on :8080 internally except ttsd at :8880 — historical default
 that predates the invariant.
 
 `crackbox` (sibling component, see `specs/11/A-orthogonal-components.md`)
-and an `agents` internal network are emitted when `CRACKBOX_ADMIN_API` is set.
-The internal network has no default route to the internet; crackbox is
-the only container with both NICs (internal + default bridge). gated
-spawns agent containers on the `agents` network and registers their
-per-spawn IP with crackbox via the admin API. crackbox enforces the
-per-folder allowlist by host name on every CONNECT/HTTP request. See
-`crackbox/README.md` and `SECURITY.md` (Network egress isolation).
+is emitted when `CRACKBOX_ADMIN_API` is set. Per-folder agent networks
+are created at runtime by `runed`, which attaches crackbox to each via
+`docker network connect`; crackbox stays on the compose default bridge
+for outbound internet access. `runed` spawns agent containers on the
+per-folder network and registers their per-spawn IP with crackbox via
+the admin API. crackbox enforces the per-folder allowlist by host name
+on every CONNECT/HTTP request. See `crackbox/README.md` and
+`SECURITY.md` (Network egress isolation).
 
 ## Onboarding (onbod/)
 
@@ -549,12 +631,14 @@ See `onbod/README.md`.
 
 ## Scheduler (timed/)
 
-Standalone daemon that turns `scheduled_tasks` rows into messages on the
-shared DB; gateway picks them up via normal poll. See `timed/README.md`.
+Standalone daemon that fires due `scheduled_tasks` as messages. It
+federates the fire loop over routd (`ROUTER_URL`), authenticating with a
+`service:timed` token exchanged from `AUTHD_SERVICE_KEY` at `AUTHD_URL`;
+routd picks the message up via normal poll. See `timed/README.md`.
 
 ## Operator Dashboard (dashd/)
 
-HTMX portal over the shared SQLite plus TIER 1 write surface (routes
+HTMX portal over routd's data plus a TIER 1 write surface (routes
 editor, groups CRUD, per-user secrets) gated by admin auth. Spec:
 `specs/3/d-dashboards.md`. See `dashd/README.md`.
 
@@ -595,14 +679,14 @@ Three substrates, clearly split:
 Per-message `errored` flag (`messages.errored`, migration 0030). No
 per-chat quarantine.
 
-- Agent error, no output: `store.MarkMessagesErrored(ids)` tags the
+- Agent error, no output: routd `MarkMessagesErrored(ids)` tags the
   failing batch; cursor stays so the batch reappears next poll. The
   prompt carries `errored="true"` on those rows so the agent sees
   it failed the last attempt and must try differently.
 - Agent error with output: same tag + cursor advances (partial work
   preserved).
-- Queue circuit breaker: 3 consecutive failures →
-  `gateway.onCircuitBreakerOpen` calls `store.DeleteErroredMessages`
+- Circuit breaker: 3 consecutive failures →
+  `routd.Loop.onCircuitBreakerOpen` calls routd `DeleteErroredMessages`
   and resets the session. No permanent quarantine — the next inbound
   message gets a clean run.
 - Container timeout: graceful `docker stop` → `Process.Kill`.
@@ -649,35 +733,34 @@ change required):
 
 ## Prompt Assembly
 
-Every inbound turn the gateway emits an envelope of small XML-shaped
+Every inbound turn routd emits an envelope of small XML-shaped
 blocks, prepended (or attached) to the agent's prompt. They share
 three properties: **XML-shaped**, **never persisted to `messages`**,
 **per-turn scope only** (recomputed next turn). The blocks emitted
 today:
 
 - `<autocalls>` — zero-arg facts (`now`, `instance`, `folder`,
-  `tier`, `session`); `gateway/autocalls.go`
+  `tier`, `session`); `routd/prompt.go`
 - `<persona name=…>` — `PERSONA.md` frontmatter `summary:` re-anchor;
-  `gateway/persona.go`
+  `routd/prompt.go`
 - `<previous_session/>` — last session id/timing on a fresh session;
-  `gateway/gateway.go`
+  `routd/prompt.go`
 - `<knowledge layer=…>` — recent diary entries with age labels;
   `diary/diary.go`
 - `<messages>` + `<reply-to>` + `<message>` — inbound batch;
   `router/router.go`
 - `<attachment …/>` — inbound media path + optional `transcript=`;
-  `gateway/gateway.go`
+  `routd/enrich.go`
 - `<observed>` — trailing window of `is_observed=1` messages stored
-  under this folder via `#observe` routes; `gateway/gateway.go`
+  under this folder via `#observe` routes; `routd/prompt.go`
 - `<topic name=…/>` — scope envelope on every turn (empty for main).
   Parent topic context arrives via the forked Claude Code session,
-  not via injection (spec 7/F rev6); `gateway/gateway.go`
+  not via injection (spec 7/F rev6); `routd/prompt.go`
 - `<surface>slack-pane</surface>` + `<pane-context jid=…/>` —
   emitted when the trigger arrives via an open Slack assistant pane
-  (spec 7/D); `gateway/gateway.go`
+  (spec 7/D); `routd/prompt.go`
 
-Full table with line cites and the convention for adding a block
-lives in `gateway/README.md` ("Per-turn ephemeral XML blocks"). See
+The convention for adding a block lives in `routd/README.md`. See
 `EXTENDING.md` for the autocall extension point in particular.
 
 ## MCP Surface
@@ -734,5 +817,5 @@ tool arguments) against symlink escapes and a blocklist (`.ssh`, `.gnupg`,
 
 ## Docker-in-Docker Paths
 
-`container.hp()` translates local to host paths when gateway runs in docker.
+`container.hp()` translates local to host paths when runed runs in docker.
 `HOST_DATA_DIR` and `HOST_APP_DIR` provide the host-side base paths.
