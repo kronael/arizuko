@@ -123,7 +123,7 @@ is additive and out of scope for the gate.
 
 `agenteval/` is a sibling component (11/A), structured like `crackbox/`:
 
-- `agenteval/cmd/agenteval/main.go` — `run <target>` | `dash`
+- `agenteval/cmd/agenteval/main.go` — `run <target>` | `validate` | `dash`
 - `agenteval/pkg/spec` — TOML case schema + loader
 - `agenteval/pkg/check` — checker vocabulary: `http_status`,
   `callback`, `rest_reply`, `rest_observe`, `mcp_roundtrip`,

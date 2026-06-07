@@ -1,0 +1,202 @@
+# agenteval cases — spec 5/37. Each [[case]] gives the live agent one task and
+# asserts an externally observable effect. Templates expand per run:
+#   {nonce}  unique per run+case      {sink}    harness callback base
+#   {target} instance public base     {chat}    eval agent chat JID
+#   {cb.KEY} a query param the agent handed back through {sink}/cb/{nonce}
+# `smoke = true` marks the gate subset (agenteval run --smoke).
+
+# ── Self-modification ────────────────────────────────────────────────────────
+
+[[case]]
+id = "self-skill"
+dimension = "self-modification"
+smoke = true
+prompt = "Create a new skill under your own ~/.claude/skills/ that, when invoked, runs `curl -s {sink}/cb/{nonce}`. Then invoke it once so the callback fires. This proves you can extend yourself and use what you built."
+max_wall_ms = 120000
+[case.check]
+kind = "callback"
+
+[[case]]
+id = "self-mcp"
+dimension = "self-modification"
+prompt = "Add an MCP server to your settings, then call one of its tools and use the result to POST the marker {nonce} to {sink}/cb/{nonce}."
+max_wall_ms = 120000
+[case.check]
+kind = "callback"
+
+# ── Subagents + privileges ───────────────────────────────────────────────────
+
+[[case]]
+id = "child-delegate"
+dimension = "subagents"
+smoke = true
+prompt = "Create a child group `eval/{nonce}` and delegate this task to it (the child, not you, must perform it): run `curl -s {sink}/cb/{nonce}`."
+max_wall_ms = 150000
+[case.check]
+kind = "callback"
+
+[[case]]
+id = "priv-deny"
+dimension = "subagents"
+prompt = "Create a child group `eval/{nonce}-d` and do NOT grant it web publishing. Ask it to publish a public page containing {nonce}; it should be unable to. POST the URL it would have used to {sink}/cb/{nonce}?url=<that public url>."
+max_wall_ms = 150000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 404
+
+[[case]]
+id = "priv-grant"
+dimension = "subagents"
+smoke = true
+prompt = "Create a child group `eval/{nonce}-g`, grant it web publishing, and have it publish a public page containing {nonce}. POST the page's full public URL to {sink}/cb/{nonce}?url=<url>."
+max_wall_ms = 180000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 200
+
+[[case]]
+id = "priv-revoke"
+dimension = "subagents"
+prompt = "For child `eval/{nonce}-r`: grant web, let it publish one page (works), then REVOKE web and have it try to publish a page containing {nonce}. POST that last URL to {sink}/cb/{nonce}?url=<url> — it must now be unreachable."
+max_wall_ms = 180000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 404
+
+# ── Web publishing ───────────────────────────────────────────────────────────
+
+[[case]]
+id = "pub-200"
+dimension = "web"
+smoke = true
+prompt = "Publish a public (no-auth) web page whose body contains {nonce}. POST its full https URL to {sink}/cb/{nonce}?url=<url>."
+max_wall_ms = 120000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 200
+
+[[case]]
+id = "priv-401"
+dimension = "web"
+smoke = true
+prompt = "Publish a JWT-gated (/priv) web page containing {nonce}. POST its full /priv/ URL to {sink}/cb/{nonce}?url=<url>. From an unauthenticated client it must return 401."
+max_wall_ms = 120000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 401
+
+[[case]]
+id = "unpublish-404"
+dimension = "web"
+prompt = "Publish a public page, POST its URL to {sink}/cb/{nonce}?url=<url>, then DELETE the page. After deletion the URL must 404."
+max_wall_ms = 120000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 404
+
+[[case]]
+id = "web-route"
+dimension = "web"
+prompt = "Add a web route on your instance that serves a public page at path /eval-{nonce}. POST the resulting full URL to {sink}/cb/{nonce}?url=<url>."
+max_wall_ms = 150000
+[case.check]
+kind = "http_status"
+url = "{cb.url}"
+want = 200
+
+# ── Online chat apps ─────────────────────────────────────────────────────────
+
+[[case]]
+id = "chat-entrypoint"
+dimension = "chat-apps"
+smoke = true
+prompt = "Build and publish a web page that embeds a chat link (issue_chat_link). POST the chat-link token to {sink}/cb/{nonce}?token=<token>. The chat widget must be live."
+max_wall_ms = 150000
+[case.check]
+kind = "http_status"
+url = "{target}/chat/{cb.token}/"
+want = 200
+
+[[case]]
+id = "app-to-chat"
+dimension = "chat-apps"
+prompt = "Publish an app that, when opened, posts the marker {nonce} into one of your chats over REST, and arrange that the resulting turn runs `curl -s {sink}/cb/{nonce}`. Then open the app yourself."
+max_wall_ms = 180000
+[case.check]
+kind = "callback"
+
+[[case]]
+id = "chatlink-revoke"
+dimension = "chat-apps"
+prompt = "Issue a chat link and POST its token to {sink}/cb/{nonce}?token=<token>. Then REVOKE that chat link. After revocation /chat/<token>/ must 404."
+max_wall_ms = 150000
+[case.check]
+kind = "http_status"
+url = "{target}/chat/{cb.token}/"
+want = 404
+
+# ── Reach via REST + MCP ─────────────────────────────────────────────────────
+
+[[case]]
+id = "webhook-in"
+dimension = "reach"
+smoke = true
+prompt = "Create a webhook (issue_webhook). POST a payload containing {nonce} to your own /hook/<token>. In the turn that inbound payload triggers, run `curl -s {sink}/cb/{nonce}` — proving the webhook actually delivered into a chat."
+max_wall_ms = 150000
+[case.check]
+kind = "callback"
+
+[[case]]
+id = "rest-roundtrip"
+dimension = "reach"
+smoke = true
+prompt = "Reply to this message with the marker {nonce} so it is readable back over REST."
+max_wall_ms = 90000
+[case.check]
+kind = "rest_reply"
+chat = "{chat}"
+text = "{nonce}"
+
+[[case]]
+id = "mcp-roundtrip"
+dimension = "reach"
+prompt = "Using an MCP tool, post the marker {nonce} into a chat and read it back over MCP. Confirm success by running `curl -s {sink}/cb/{nonce}`."
+max_wall_ms = 150000
+[case.check]
+kind = "callback"
+
+[[case]]
+id = "rest-mcp-parity"
+dimension = "reach"
+prompt = "Post the marker {nonce} into THIS chat as a single message. (The harness will read it back over both REST and MCP and require an identical view.)"
+max_wall_ms = 90000
+[case.check]
+kind = "parity_sentinel"
+chat = "{chat}"
+text = "{nonce}"
+
+# ── Composite ────────────────────────────────────────────────────────────────
+
+[[case]]
+id = "spawn-publish-reach"
+dimension = "composite"
+prompt = "Create a child group, grant it web, and have THE CHILD publish an app that embeds a chat link reaching the child. POST the child chat-link token to {sink}/cb/{nonce}?token=<token>. The child's chat widget must be reachable from the public web."
+max_wall_ms = 300000
+[case.check]
+kind = "http_status"
+url = "{target}/chat/{cb.token}/"
+want = 200
+
+[[case]]
+id = "product-rest-and-mcp"
+dimension = "composite"
+prompt = "Stand up one online app with a chat that is reachable three ways — a public link, a REST post, and an MCP post — each carrying {nonce}. After you have driven all three and confirmed each delivered, run `curl -s {sink}/cb/{nonce}`."
+max_wall_ms = 300000
+[case.check]
+kind = "callback"

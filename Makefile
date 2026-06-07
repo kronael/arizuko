@@ -2,7 +2,7 @@ DAEMONS = authd routd runed onbod dashd proxyd webd timed teled discd emaid mast
 # COMPONENTS are sibling tools shipped alongside arizuko (see specs/11/b).
 # They live in this monorepo but are orthogonal: their code does not import
 # arizuko-internal packages. Each has its own Makefile, README, and image.
-COMPONENTS = crackbox
+COMPONENTS = crackbox agenteval
 
 # DOCKER may be overridden by the caller for hosts where the invoking user is
 # in the docker group (then `make images DOCKER=docker`). Default is
