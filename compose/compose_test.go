@@ -128,10 +128,14 @@ CHANNEL_SECRET = "${CHANNEL_SECRET}"
 		return string(b)
 	}
 
-	// slakd's env file carries its service identity.
+	// slakd's env file carries its service identity: key + the exchange principal
+	// name (so chanlib exchanges as service:slakd regardless of CHANNEL_NAME).
 	slakd := read("slakd")
 	if !strings.Contains(slakd, "AUTHD_SERVICE_KEY=") {
 		t.Errorf("env/slakd.env must carry AUTHD_SERVICE_KEY; got:\n%s", slakd)
+	}
+	if !strings.Contains(slakd, "AUTHD_SERVICE_NAME=slakd") {
+		t.Errorf("env/slakd.env must carry AUTHD_SERVICE_NAME=slakd; got:\n%s", slakd)
 	}
 	if !strings.Contains(slakd, "AUTHD_URL=") {
 		t.Errorf("env/slakd.env must carry AUTHD_URL; got:\n%s", slakd)

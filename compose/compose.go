@@ -100,6 +100,10 @@ var commonKeys = []string{
 	"ASSISTANT_NAME", "TZ", "LOG_LEVEL", "ARIZUKO_DEV",
 	"HOST_DATA_DIR", "HOST_APP_DIR", "WEB_HOST",
 	"API_PORT",
+	// AUTHD_SERVICE_NAME: the daemon's service-token exchange principal, set per
+	// daemon by wireServiceKey. Here so it reaches every wired adapter's env file
+	// (the adapter exchanges as this, not its CHANNEL_NAME — see chanlib/run.go).
+	"AUTHD_SERVICE_NAME",
 	// OTLP export (spec 5/O). Unset -> stock JSON handler, zero overhead.
 	"ARIZUKO_INSTANCE",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -435,7 +439,11 @@ func Generate(dataDir string) (string, error) {
 			return // already wired (e.g. two multi-account variants of one adapter)
 		}
 		key := provisionServiceKey(dataDir, daemon, env)
-		perDaemon[daemon] = map[string]string{"AUTHD_SERVICE_KEY": key}
+		// AUTHD_SERVICE_NAME pins the exchange principal to the DAEMON name so an
+		// adapter whose CHANNEL_NAME differs (telegram→teled) — and its multi-account
+		// variants (teled-rhias) sharing this env file — exchange as service:<daemon>,
+		// matching what we seed below + authd grants.
+		perDaemon[daemon] = map[string]string{"AUTHD_SERVICE_KEY": key, "AUTHD_SERVICE_NAME": daemon}
 		if seedKeys {
 			keyPairs = append(keyPairs, fmt.Sprintf("service:%s=%s", daemon, key))
 		}
