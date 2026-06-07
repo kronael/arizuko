@@ -23,8 +23,8 @@ func TestRunControlFolderBound(t *testing.T) {
 	if atomic.LoadInt32(&rec.killed) != 0 {
 		t.Fatal("cross-folder kill actually stopped the container")
 	}
-	if got := postJSON(t, h, "/v1/runs/stop", `{"folder":"bob"}`); got.Code != 403 {
-		t.Fatalf("cross-folder stop = %d want 403", got.Code)
+	if got := postJSON(t, h, "/v1/runs/stop", `{"folder":"bob"}`); got.Code != 404 {
+		t.Fatalf("cross-folder stop = %d want 404 (uniform with status/kill)", got.Code)
 	}
 }
 

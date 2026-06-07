@@ -177,6 +177,10 @@ func (s *Server) handleErroredChats(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		q = folder
 	}
+	if !ownsFolder(folder, q) {
+		denyCrossFolder(w, q)
+		return
+	}
 	chats, err := s.db.ErroredChats(q, q == "")
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())

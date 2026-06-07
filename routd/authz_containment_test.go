@@ -42,6 +42,13 @@ func TestRESTReadFolderBound(t *testing.T) {
 	if c := getCode(t, "alice", "/v1/sessions?folder=alice", read...); c != 200 {
 		t.Fatalf("own session = %d want 200", c)
 	}
+	// routing/errored binds an explicit ?folder= to the token's subtree.
+	if c := getCode(t, "alice", "/v1/routing/errored?folder=bob", "routes:read:own_group"); c != 403 {
+		t.Fatalf("cross-folder errored = %d want 403", c)
+	}
+	if c := getCode(t, "alice", "/v1/routing/errored?folder=alice", "routes:read:own_group"); c != 200 {
+		t.Fatalf("own errored = %d want 200", c)
+	}
 }
 
 func TestRESTCostFolderBound(t *testing.T) {

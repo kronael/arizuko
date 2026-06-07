@@ -122,7 +122,7 @@ func (s *Server) handleRunStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ownsFolder(folder, req.Folder) {
-		writeErr(w, 403, "forbidden", "run folder "+req.Folder+" is outside your folder")
+		writeErr(w, 404, "unknown_run", "no such run") // uniform with status/kill; don't leak other folders
 		return
 	}
 	runID, killed, err := s.mgr.StopFolder(req.Folder)
