@@ -7,21 +7,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/kronael/arizuko/agenteval/pkg/check"
 )
 
 // HTTPTarget is the live adapter: it reaches a real arizuko instance through
-// its public surfaces only. Paths are the documented routd/proxyd REST shape;
-// they are the single wiring seam to adjust if the surface moves. No arizuko
-// package is imported — this is a black-box client.
+// its REST contract only (no arizuko package imported). Paths track routd's
+// `/v1` surface and proxyd's public URLs; this file is the single wiring seam
+// to adjust if the surface moves.
 type HTTPTarget struct {
-	Base   string // proxyd base, e.g. https://krons.fiu.wtf
-	API    string // routd REST base, e.g. https://krons.fiu.wtf/api
-	Token  string // bearer token scoped to the eval root folder
-	MCPURL string // MCP-over-HTTP endpoint (5/5 uniform face); empty disables MCP checks
+	API    string // routd REST base reachable from the eval host (serves /v1/*)
+	Token  string // bearer token; needs messages:write + read scope on the eval folder
+	MCPURL string // base of an inspect-compatible MCP-over-HTTP face; empty disables mcp checks
 	Client *http.Client
 }
 
@@ -51,10 +49,12 @@ func (t *HTTPTarget) do(method, url string, body any) (*http.Response, error) {
 	return t.client().Do(req)
 }
 
-// Inject posts the task into a chat via routd REST and returns the turn id.
+// Inject posts the task as an inbound message (routd POST /v1/messages) and
+// returns the stored id. routd mints/echoes the id and routes the message to
+// the chat's agent.
 func (t *HTTPTarget) Inject(chat, prompt string) (string, error) {
-	resp, err := t.do(http.MethodPost, t.API+"/chats/"+url.PathEscape(chat)+"/messages",
-		map[string]string{"content": prompt})
+	resp, err := t.do(http.MethodPost, t.API+"/v1/messages",
+		map[string]any{"chat_jid": chat, "content": prompt, "sender": "user:agenteval"})
 	if err != nil {
 		return "", err
 	}
@@ -62,18 +62,19 @@ func (t *HTTPTarget) Inject(chat, prompt string) (string, error) {
 	if resp.StatusCode >= 300 {
 		return "", fmt.Errorf("inject %s: %d", chat, resp.StatusCode)
 	}
-	var out struct {
-		TurnID string `json:"turn_id"`
+	var ack struct {
+		OK bool   `json:"ok"`
+		ID string `json:"id"`
 	}
-	json.NewDecoder(resp.Body).Decode(&out)
-	return out.TurnID, nil
+	json.NewDecoder(resp.Body).Decode(&ack)
+	return ack.ID, nil
 }
 
 func (t *HTTPTarget) messages(base, chat string) ([]check.Msg, error) {
 	if base == "" {
 		return nil, fmt.Errorf("surface not configured")
 	}
-	resp, err := t.do(http.MethodGet, base+"/chats/"+url.PathEscape(chat)+"/messages", nil)
+	resp, err := t.do(http.MethodGet, base+"/v1/messages/inspect?jid="+url.QueryEscape(chat), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -81,43 +82,31 @@ func (t *HTTPTarget) messages(base, chat string) ([]check.Msg, error) {
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("read %s: %d", chat, resp.StatusCode)
 	}
-	var rows []struct {
-		Content       string `json:"content"`
-		IsBotMessage  bool   `json:"is_bot_message"`
+	var out struct {
+		Messages []struct {
+			Content  string `json:"content"`
+			IsBotMsg bool   `json:"is_bot_message"`
+		} `json:"messages"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	out := make([]check.Msg, len(rows))
-	for i, r := range rows {
-		out[i] = check.Msg{FromBot: r.IsBotMessage, Text: r.Content}
+	msgs := make([]check.Msg, len(out.Messages))
+	for i, m := range out.Messages {
+		msgs[i] = check.Msg{FromBot: m.IsBotMsg, Text: m.Content}
 	}
-	return out, nil
+	return msgs, nil
 }
 
-// RestMessages reads a chat via routd REST.
+// RestMessages reads a chat via routd REST (GET /v1/messages/inspect).
 func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.messages(t.API, chat) }
 
-// McpMessages reads the same chat via the MCP-over-HTTP face (5/5).
+// McpMessages reads the same chat via an inspect-compatible MCP-over-HTTP face
+// (--mcp). Empty MCPURL → "surface not configured", so mcp/parity cases fail
+// loudly rather than false-pass.
 func (t *HTTPTarget) McpMessages(chat string) ([]check.Msg, error) { return t.messages(t.MCPURL, chat) }
 
-// Cost returns the token spend for a turn via routd REST; best-effort.
-func (t *HTTPTarget) Cost(turnID string) (int, error) {
-	if turnID == "" {
-		return 0, nil
-	}
-	resp, err := t.do(http.MethodGet, t.API+"/turns/"+url.PathEscape(turnID)+"/cost", nil)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
-	var out struct {
-		Tokens int `json:"tokens"`
-	}
-	if json.Unmarshal(b, &out) == nil && out.Tokens > 0 {
-		return out.Tokens, nil
-	}
-	n, _ := strconv.Atoi(string(bytes.TrimSpace(b)))
-	return n, nil
-}
+// Cost reports the turn's token spend. routd exposes no cost READ endpoint
+// (cost is write-only via POST /v1/cost), so this is 0 over pure REST; token
+// budgets are enforced only where a cost source is wired.
+func (t *HTTPTarget) Cost(string) (int, error) { return 0, nil }

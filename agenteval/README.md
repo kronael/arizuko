@@ -16,8 +16,9 @@ external tool uses (sibling component, `specs/11/A`).
 ```bash
 make build
 ./agenteval run https://krons.fiu.wtf \
-  --token "$AGENTEVAL_TOKEN" \    # bearer for an eval root folder
-  --chat  web:eval \              # chat JID tasks are injected into
+  --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
+  --token "$AGENTEVAL_TOKEN" \    # bearer (messages:write + read) for the eval folder
+  --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
   --sink  https://eval-host:9099 \# URL the agent containers call back to
   --smoke                         # gate subset; omit for all 19
@@ -50,8 +51,19 @@ idempotent and never collide; teardown is best-effort.
 ## Wiring seam
 
 `pkg/run/target.go` (`HTTPTarget`) is the only place that knows the surface
-paths (routd REST `/chats/{jid}/messages`, `/turns/{id}/cost`; proxyd `/pub`
-`/priv` `/chat` `/hook`; MCP via `--mcp`). Adjust there if the surface moves.
+contract: it injects tasks via routd `POST /v1/messages` (ack `{ok,id}`) and
+reads chats via `GET /v1/messages/inspect?jid=` (rows carry `content` +
+`is_bot_message`). `--api` points at routd's reachable `/v1` base (the eval is
+an operator-host tool, like the `eval` skill reaching localhost ports); the
+target arg is proxyd's public base for `/pub` `/priv` `/chat` probes. The
+injecting token needs `messages:write` + read scope on the eval folder, and the
+`--chat` JID must be a real chat that folder owns.
+
+Two known gaps (honest, not silent): routd exposes **no cost READ** endpoint
+(cost is write-only), so `Cost()` is 0 over pure REST and `max_tokens` budgets
+don't bite live until a cost source is wired; and `--mcp` expects an
+inspect-compatible MCP-over-HTTP face — unset, the `mcp_roundtrip`/`parity`
+cases fail loudly ("surface not configured") rather than false-pass.
 
 The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress

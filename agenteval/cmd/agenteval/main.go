@@ -58,8 +58,8 @@ func cmdValidate(args []string) {
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	casesDir := fs.String("cases", "cases", "directory of *.toml case files")
-	api := fs.String("api", "", "routd REST base (default <target>/api)")
-	mcp := fs.String("mcp", "", "MCP-over-HTTP base (enables mcp checks)")
+	api := fs.String("api", "", "routd REST base serving /v1 (default = <target>)")
+	mcp := fs.String("mcp", "", "inspect-compatible MCP-over-HTTP base (enables mcp/parity checks)")
 	token := fs.String("token", os.Getenv("AGENTEVAL_TOKEN"), "bearer token for the eval root folder")
 	chat := fs.String("chat", "", "eval agent chat JID to inject tasks into (e.g. web:eval)")
 	sinkAddr := fs.String("sink-addr", "", "local bind for the callback sink (e.g. :9099; default 127.0.0.1:0)")
@@ -76,7 +76,7 @@ func cmdRun(args []string) {
 	}
 	base := fs.Arg(0)
 	if *api == "" {
-		*api = base + "/api"
+		*api = base
 	}
 	if *nonce == "" {
 		*nonce = "e" + strconv.FormatInt(time.Now().Unix(), 36)
@@ -91,7 +91,7 @@ func cmdRun(args []string) {
 		fatal(fmt.Errorf("no cases match selectors"))
 	}
 
-	tgt := &run.HTTPTarget{Base: base, API: *api, MCPURL: *mcp, Token: *token}
+	tgt := &run.HTTPTarget{API: *api, MCPURL: *mcp, Token: *token}
 	results := run.Drive(run.Config{
 		Target: tgt, Cases: cases, Nonce: *nonce, TargetBase: base, Chat: *chat,
 		SinkBind: *sinkAddr, SinkURL: *sink,
