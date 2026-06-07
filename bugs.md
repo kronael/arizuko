@@ -2244,3 +2244,16 @@ breaker on the delegate-spawn path, name reuse on respawn. PREVENTED BY THE SPLI
 runed has MaxConcurrent cap + circuit breaker (threshold 3) + runTTL + unique
 millisecond container names (manager.go:168). FIX = convert every instance off gated
 to the split, then delete gated. (User mandate 2026-06-07.)
+
+## FOLLOW-UP (deferred from 2026-06-07 gated removal): dead monolith dual-paths
+
+gated/gateway/api are deleted + all instances on split, but two now-dead monolith
+fallbacks remain (harmless — they 401 against JWT-gated routd, functionally inert):
+- chanlib.RouterClient.bearer(): falls back to the registration token on svcToken
+  error (chanlib/chanlib.go:107).
+- onbod.sendReply(): falls back to CHANNEL_SECRET when svcToken unset (onbod/main.go:1128).
+Removing them cascades into ~4 test rewrites (onbod TestSendReplyUsesSecretHeader/
+FallsBackToChannelSecret/OnboardingFlow + chanlib monolith case) that pin the old
+behavior. Deferred to a clean session (not worth marathon-end hot-path risk). Also
+deferred: move auth/policy.go (AuthorizeStructural) → grants/ now that gated (its other
+importer) is gone — spec 5/1 records this as staged.
