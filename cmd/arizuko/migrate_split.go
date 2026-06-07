@@ -139,18 +139,26 @@ var routdSpecs = []copySpec{
 	{dst: "pane_sessions", src: "pane_sessions",
 		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at, last_status_at",
 		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at, last_status_at"},
+	// auth_users: routd.db OWNS it (routd migration 0011; cost_log.user_sub references
+	// it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST be copied
+	// — left an orphan, every existing user vanishes from onboarding / world-create.
+	{dst: "auth_users", src: "auth_users",
+		cols: "id, sub, username, hash, name, created_at, linked_to_sub, cost_cap_cents_per_day",
+		sel:  "id, sub, username, hash, name, created_at, linked_to_sub, cost_cap_cents_per_day"},
 
 	// transforms (schemas differ — explicit column remap)
 	// system_messages: group_id→folder, origin→source, event→kind, created_at→created; `attrs` dropped.
 	{dst: "system_messages", src: "system_messages", transfm: true,
 		cols: "id, folder, source, kind, body, created",
 		sel:  "id, group_id, origin, event, body, created_at"},
-	// cost_log: messages.db has no turn_id column (routd PK is folder,turn_id,model)
-	// → default ''. input_tok→input_tokens, output_tok→output_tokens, cents→cost_cents,
-	// ts→recorded_at; user_sub/cache_read/cache_write dropped.
+	// cost_log: messages.db has no turn_id column (routd PK is folder,turn_id,model).
+	// Synthesize a UNIQUE turn_id per source row ('mig-'||rowid) — a constant ''
+	// would collapse every legacy (folder,model) pair to ONE row under INSERT OR
+	// IGNORE, dropping cost history. input_tok→input_tokens, output_tok→output_tokens,
+	// cents→cost_cents, ts→recorded_at; user_sub/cache_read/cache_write dropped.
 	{dst: "cost_log", src: "cost_log", transfm: true,
 		cols: "folder, turn_id, model, input_tokens, output_tokens, cost_cents, recorded_at",
-		sel:  "folder, '', model, input_tok, output_tok, cents, ts"},
+		sel:  "folder, 'mig-'||rowid, model, input_tok, output_tok, cents, ts"},
 }
 
 // runedSpecs map messages.db → runed.db. session_log is a straight copy
@@ -268,15 +276,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );`
 
 // orphanTables stay in messages.db post-cutover: dashd owns some (audit_log,
-// …); auth.db starts fresh (auth_* not migrated). routd reads NONE of them —
-// every table it needs moved to routd.db or federated over HTTP. onboarding/
-// invites/onboarding_gates are NOT orphans: onbod OWNS them now and they copy to
-// onbod.db (onbodSpecs). Listed so the summary tells the operator messages.db is
-// NOT retired.
+// …); authd's auth.db starts fresh. routd reads NONE of them — every table it
+// needs moved to routd.db or federated over HTTP. onboarding/invites/
+// onboarding_gates are NOT orphans (onbod OWNS them → onbodSpecs); auth_users is
+// NOT an orphan either (routd.db owns it → routdSpecs, read cross-DB by onbod).
+// auth_sessions stays — login sessions are ephemeral, re-minted on next login.
+// Listed so the summary tells the operator messages.db is NOT retired.
 var orphanTables = []string{
 	"audit_log", "router_state",
 	"proxyd_routes", "config_meta", "cli_audit", "ipc_audit",
-	"auth_users", "auth_sessions",
+	"auth_sessions",
 }
 
 func migrateSplit(storeDir string, dryRun bool) error {

@@ -67,10 +67,19 @@ func main() {
 	// (local-dev).
 	var broker runed.Broker
 	if authdURL != "" {
-		if ts, terr := auth.ServiceToken(authdURL, "runed", os.Getenv("AUTHD_SERVICE_KEY")); terr == nil {
+		svcKey := os.Getenv("AUTHD_SERVICE_KEY")
+		if ts, terr := auth.ServiceToken(authdURL, "runed", svcKey); terr == nil {
 			broker = runed.NewHTTPBrokerWithSource(authdURL, ts.Token)
 			slog.Info("runed service-token bootstrap via authd", "authd", authdURL)
 		} else {
+			// With a key set, a failed exchange means every per-spawn downscope
+			// will 401 (the static fallback is not compose-provisioned in split) —
+			// fail loud instead of silently brokering with an unusable token.
+			if svcKey != "" {
+				slog.Error("runed service-token exchange FAILED though AUTHD_SERVICE_KEY is set; "+
+					"per-spawn token downscope will 401 — check authd reachability + key",
+					"authd", authdURL, "err", terr)
+			}
 			broker = runed.NewHTTPBroker(authdURL, os.Getenv("RUNED_SERVICE_TOKEN"))
 		}
 	} else {

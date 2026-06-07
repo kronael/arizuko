@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/routd"
@@ -64,9 +65,16 @@ func seedMessagesDB(t *testing.T, storeDir string) {
 	// transform: system_messages (group_id→folder, origin→source, event→kind, created_at→created; attrs dropped)
 	exec(`INSERT INTO system_messages(group_id, origin, event, attrs, body, created_at)
 		VALUES('main','system','migrate','{"k":1}','hello','2026-01-03T00:00:00Z')`)
-	// transform: cost_log (no turn_id in source; input_tok/output_tok/cents/ts remap)
+	// transform: cost_log (no turn_id in source; input_tok/output_tok/cents/ts remap).
+	// TWO rows with the SAME (folder, model) — both must survive (synthetic per-row
+	// turn_id, not a constant that would collapse them under INSERT OR IGNORE).
 	exec(`INSERT INTO cost_log(ts, folder, user_sub, model, input_tok, cache_read, cache_write, output_tok, cents)
 		VALUES('2026-01-04T00:00:00Z','main','u:1','claude',100,5,3,50,12)`)
+	exec(`INSERT INTO cost_log(ts, folder, user_sub, model, input_tok, cache_read, cache_write, output_tok, cents)
+		VALUES('2026-01-04T01:00:00Z','main','u:1','claude',200,5,3,80,24)`)
+	// auth_users: routd.db OWNS it; split onbod reads it cross-DB → must be copied.
+	exec(`INSERT INTO auth_users(sub, username, hash, name, created_at)
+		VALUES('github:alice','alice','h','Alice','2026-01-01T00:00:00Z')`)
 
 	// session_log → runed.db (straight copy)
 	exec(`INSERT INTO session_log(group_folder, session_id, started_at, message_count)
@@ -135,7 +143,10 @@ func TestMigrateSplit(t *testing.T) {
 		"route_tokens": 1, "turn_results": 1, "web_routes": 1,
 		// network_rules: routd seeds 2 base rows (folder='') + our 1 → 3.
 		"network_rules": 3, "chat_reply_state": 1, "group_watchers": 1,
-		"system_messages": 1, "cost_log": 1,
+		// cost_log: 2 same-(folder,model) rows BOTH survive (synthetic per-row turn_id).
+		"system_messages": 1, "cost_log": 2,
+		// auth_users: routd.db owns it → copied (split onbod reads it cross-DB).
+		"auth_users": 1,
 		// acl: our 1 seeded row + the role:operator row migration 0053 seeds = 2.
 		"acl": 2, "acl_membership": 1,
 		// secrets: routd OWNS them now → copied (1 row each).
@@ -185,7 +196,8 @@ func TestMigrateSplit(t *testing.T) {
 			folder, source, kind, body, created)
 	}
 
-	// transform: cost_log remapped; turn_id defaulted to ''.
+	// transform: cost_log remapped; turn_id synthesized 'mig-'||rowid (UNIQUE per
+	// source row so INSERT OR IGNORE doesn't collapse same-(folder,model) history).
 	var cf, cTurn, cModel, cRecorded string
 	var cin, cout, cents int
 	if err := r.QueryRow(
@@ -193,9 +205,25 @@ func TestMigrateSplit(t *testing.T) {
 		Scan(&cf, &cTurn, &cModel, &cin, &cout, &cents, &cRecorded); err != nil {
 		t.Fatalf("read routd.cost_log: %v", err)
 	}
-	if cf != "main" || cTurn != "" || cModel != "claude" || cin != 100 || cout != 50 || cents != 12 || cRecorded != "2026-01-04T00:00:00Z" {
+	if cf != "main" || !strings.HasPrefix(cTurn, "mig-") || cModel != "claude" || cRecorded == "" {
 		t.Errorf("cost_log remap wrong: folder=%q turn=%q model=%q in=%d out=%d cents=%d at=%q",
 			cf, cTurn, cModel, cin, cout, cents, cRecorded)
+	}
+	// #5: both same-(folder,model) rows survive (no PK collapse).
+	var costN int
+	if err := r.QueryRow(`SELECT COUNT(*) FROM cost_log`).Scan(&costN); err != nil {
+		t.Fatalf("count routd.cost_log: %v", err)
+	}
+	if costN != 2 {
+		t.Errorf("cost_log rows = %d, want 2 (turn_id collapse dropped history)", costN)
+	}
+	// #6: auth_users copied to routd.db (split onbod reads it cross-DB).
+	var auName string
+	if err := r.QueryRow(`SELECT username FROM auth_users WHERE sub='github:alice'`).Scan(&auName); err != nil {
+		t.Fatalf("auth_users not copied to routd.db: %v", err)
+	}
+	if auName != "alice" {
+		t.Errorf("auth_users.username = %q, want alice", auName)
 	}
 
 	// acl: copied to routd.db (routd OWNS it now) with columns intact.

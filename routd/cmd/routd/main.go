@@ -94,12 +94,20 @@ func main() {
 	// nil when ONBOD_URL or the service key is unwired → the commands report the
 	// federation gap, exactly as the pre-federation stubs did.
 	var onbod routd.OnbodClient
-	if ts, err := auth.ServiceToken(authdURL, "routd", os.Getenv("AUTHD_SERVICE_KEY")); err == nil {
+	svcKey := os.Getenv("AUTHD_SERVICE_KEY")
+	if ts, err := auth.ServiceToken(authdURL, "routd", svcKey); err == nil {
 		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runTimeout)
 		identity = routd.NewIdentityResolver(authdURL, ts.Token)
 		onbod = routd.NewOnbodClient(onbodURL, ts.Token)
 		slog.Info("routd service-token bootstrap via authd", "authd", authdURL)
 	} else {
+		// Split wires authd + a key; a failed exchange there means every federated
+		// call (runed/authd/onbod) will 401 and the static fallback is NOT compose-
+		// provisioned — fail loud instead of looking healthy until the first call.
+		if authdURL != "" && svcKey != "" {
+			slog.Error("routd service-token exchange FAILED though AUTHD_SERVICE_KEY is set; "+
+				"federated calls will 401 — check authd reachability + key", "authd", authdURL, "err", err)
+		}
 		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
 	}
 
