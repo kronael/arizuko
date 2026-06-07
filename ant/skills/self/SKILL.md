@@ -5,7 +5,8 @@ description: >
   workspace layout, MCP tool catalog, skill seeding, migration version,
   chat links and webhooks. Directory of focused per-topic files; this
   SKILL.md is the index. USE for "who are you", "what version", "what's
-  my chat URL", "what can I do here", blocked-and-unsure. NOT for
+  my chat URL", "how does routing work", "why am I replying / observing",
+  "set up a channel", "what can I do here", blocked-and-unsure. NOT for
   quick status check (use info).
 user-invocable: true
 ---
@@ -40,6 +41,7 @@ directly) — don't load the whole `self/` directory into context. The
 | `<system>` messages, origins, events           | `messages.md`       |
 | Topics: active, drift, observed, reset         | `topics.md`         |
 | Migration version, skill seeding, `/migrate`   | `migration.md`      |
+| Chat routing: why I reply, observe vs trigger, seq, mention-only | `chat-routing.md` |
 | Web URL structure, route tokens, `/pub` vs `/priv` | `web-routing.md` |
 | Chat links + webhooks (issue/use/revoke)       | `chat-link.md`      |
 | Gateway-intercepted `/new`, `/stop`, ...       | `commands.md`       |
