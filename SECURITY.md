@@ -13,7 +13,7 @@ Three isolation axes:
 2. **User isolation** — users reach groups only via `acl` allow rows
    (directly or through `acl_membership`). OAuth → JWT at the proxy
    edge; `auth.Authorize` enforces.
-3. **Daemon isolation** — adapters reach gated only over the internal
+3. **Daemon isolation** — adapters reach routd only over the internal
    docker network with a shared `CHANNEL_SECRET` bearer token.
 
 ### The group is the tenant boundary
@@ -80,8 +80,8 @@ makes the cross-tenant threat go away.
 | Channel ingress     | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                                                                                                                         | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                       | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                      | `emaid/imap.go`, spec 10/17                                                                       |
-| Mention promotion   | Gateway-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                      | `gateway/gateway.go`, spec 6/J                                                                    |
-| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — gated refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows migrated in place on boot, never deleted | `store/secrets.go`, `gated/main.go`, migration `0034-secrets.sql`                                 |
+| Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                        | `routd/loop.go`, spec 6/J                                                                         |
+| Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows migrated in place on boot, never deleted | `store/secrets.go`, `routd/main.go`, migration `0034-secrets.sql`                                 |
 | Secret injection    | Folder/user secrets env injection planned (spec 7/Y); today only API keys from host env injected                                                                                                                                      | `container/runner.go` (`resolveSpawnEnv`)                                                         |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                    | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                                                                                                          | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
@@ -141,7 +141,7 @@ anonymous-from-trusted-IP); even there, the call is a boolean
 │                                                          │
 │  ┌─ arizuko_<instance> (docker-compose, trusted) ──────┐ │
 │  │                                                     │ │
-│  │  gated   onbod   dashd   webd   proxyd   timed      │ │
+│  │  authd routd runed onbod dashd webd proxyd timed │ │
 │  │  teled   discd   slakd   mastd   whapd   ...        │ │
 │  │                                                     │ │
 │  │  ┌─ agent container (per-group, partially trusted) ┐│ │
@@ -171,7 +171,7 @@ which runs on both the internal network and the project default bridge.
 - Non-cooperating clients fail closed: the internal Docker network
   has no default route, so a client that ignores `HTTPS_PROXY` cannot
   reach the internet at all.
-- Per-source-IP allowlist populated by gated at container spawn from
+- Per-source-IP allowlist populated by runed at container spawn from
   `store.ResolveAllowlist(folder)` (folder ancestry walk + dedupe).
 - Default seed: `anthropic.com`, `api.anthropic.com`. Operators add
   rules via `arizuko network <instance> allow <folder> <target>`.
@@ -197,7 +197,7 @@ Caveats:
 
 **DNS filter** (`crackbox/pkg/dns/`,
 `specs/11/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
-listener is shipped: gated allowlisted hostnames forward to the
+listener is shipped: runed allowlisted hostnames forward to the
 upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.
 **Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from

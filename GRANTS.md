@@ -34,7 +34,7 @@ in code (`grants.DeriveRules`); operator overrides become `acl` rows.
 - `specs/4/19-action-grants.md` — rule grammar (`!send`,
   `send(jid=telegram:*)`) used inside the tier-default rule list.
 - `specs/5/6-middleware-pipeline.md` — MCP call-site wrapping
-  (`gated(Authorize)`).
+  (`routd(Authorize)`).
 
 Earlier revisions of this file documented a 4-layer composition
 (`groups` + `user_groups` + `routes` + `secrets`) that the v0.38.0

@@ -6,7 +6,7 @@ get back.
 ## Platform JID prefixes
 
 Each adapter declares the `platform:` prefixes it owns when it registers
-with gated. The post-`:` portion is platform-private; routing predicates
+with routd. The post-`:` portion is platform-private; routing predicates
 treat it as an opaque string with `path.Match` glob semantics over `/`.
 
 | Adapter | Prefix      | Example                                                             |
@@ -30,7 +30,7 @@ and `room=` globs to filter by kind/segment.
 ### Web JID model — 1:1 with groups, no route table
 
 `web:<folder>` addresses group `<folder>` **directly**. The route table
-does NOT apply to web JIDs; the gateway resolves them via
+does NOT apply to web JIDs; routd resolves them via
 `GroupByFolder` without consulting `routes`. To carve a chat surface
 into sub-flows (form intake threads, separate report channels), create
 sub-groups (`<parent>/<sub>`) — each gets its own `web:<parent>/<sub>`
@@ -142,9 +142,9 @@ without a schema change — one column, free-form fragment.
 
 Spec: `specs/5/B-route-mode-ingestion.md`.
 
-### Verb promotion + annotation (gateway-side)
+### Verb promotion + annotation (routd-side)
 
-Gateway rewrites `verb` at inbound ingest before routing, uniformly
+routd rewrites `verb` at inbound ingest before routing, uniformly
 across adapters: reactions or text replies pointing at a bot-authored
 message promote to `verb=mention` (spec 6/J); emaid stamps
 `verb=untrusted` on mail failing DMARC + allowlist (spec 10/17). Route
@@ -189,7 +189,7 @@ seq  match                                             target
 
 A message in any Slack channel or private group without `@atlas` hits
 seq 100 and is stored as observed context — no turn fires, atlas stays
-silent. An `@atlas` mention promotes `verb=mention` (gateway-side verb
+silent. An `@atlas` mention promotes `verb=mention` (routd-side verb
 promotion, spec 6/J), which matches seq 40 first and fires a turn.
 
 DMs (`slack:*/dm/*`) are routed separately at a lower seq number with
@@ -203,12 +203,12 @@ to `atlas`.
 ### Inline `@name` / `#topic` prefix layer
 
 The `@` and `#` prefix layer is **not** in the routes table; it lives
-in `gateway.handlePrefixLayer`. An anchored regex
+in `routd.handlePrefixLayer`. An anchored regex
 (`^\s*@(\w[\w-]*)` / `^\s*#(\w[\w-]*)`) matches a sigil at the very
 start of `msg.Content`; mid-content `@handle` or `#hashtag` (e.g.
 forwarded tweets) do not trigger.
 
-- **`@name`** at start of message: gateway looks up
+- **`@name`** at start of message: routd looks up
   `<current-group>/<name>` as a child group. If found, delegates the
   message (with `@name` stripped) to that child group's agent.
 
@@ -219,7 +219,7 @@ forwarded tweets) do not trigger.
   Delegation: "write about cats" → atlas/content agent
   ```
 
-- **`#topic`** at start of message: gateway runs the message (with
+- **`#topic`** at start of message: routd runs the message (with
   `#topic` stripped) in a topic-scoped session within the current group.
 
   ```
@@ -232,7 +232,7 @@ and the message falls through to the agent unchanged.
 
 ## Resolution Order
 
-When a message arrives, the gateway resolves which group handles it
+When a message arrives, routd resolves which group handles it
 through several layers. The full resolution in `resolveTarget`:
 
 ```
@@ -247,7 +247,7 @@ through several layers. The full resolution in `resolveTarget`:
 ```
 
 The inline `@name` / `#topic` prefix layer is handled separately in
-`gateway.handlePrefixLayer`, before route-table lookup.
+`routd.handlePrefixLayer`, before route-table lookup.
 
 If the resolved target differs from the current group AND is an
 authorized child (same world, direct child), the message is delegated
@@ -283,7 +283,7 @@ its own Claude session, reply chain, and message history.
    format is `web:<folder>`, and topics arrive pre-set.
 
 3. **`#topic` prefix routing**: when a message matches a `#` prefix
-   route, the gateway runs the agent with topic `#name`.
+   route, routd runs the agent with topic `#name`.
 
 4. **Sticky topic**: the `#topic` command sets a persistent topic
    for the chat (see Sticky Routing below).
@@ -304,7 +304,7 @@ its own Claude session, reply chain, and message history.
 - **Lineage (spec 6/F)**: every non-main topic carries
   `parent_topic`, `forked_at`, `observed_cursor` in `sessions`. New
   topics default to parent = topic of the message they reply to (or
-  `""`/main if no reply-to). On fork the gateway `cp`s the parent's
+  `""`/main if no reply-to). On fork routd `cp`s the parent's
   Claude Code session jsonl to the child's UUID so the child resumes
   natively from parent's tail — no inline `<inherited>` injection. Every
   turn carries a `<topic name=…/>` envelope so the agent always knows
@@ -350,7 +350,7 @@ store.PutMessage(core.Message{
 ```
 
 The `messages` table has a `routed_to` column. When a user replies to a
-message (platform provides `reply_to_id`), the gateway looks it up:
+message (platform provides `reply_to_id`), routd looks it up:
 
 ```go
 func resolveTarget(msg, routes, selfFolder) string {
@@ -389,7 +389,7 @@ Groups: atlas, atlas/content, atlas/social
 
 ### Reply chain for outbound threading
 
-The gateway tracks the last-sent message ID per `(jid, topic)` to build
+The routd tracks the last-sent message ID per `(jid, topic)` to build
 reply chains on the platform side:
 
 ```
@@ -403,7 +403,7 @@ reply. Updated in three cases:
 
 1. **Bot sends a chunk** — `SetLastReplyID` to the bot's sent message ID
 2. **Steering message** — when a follow-up is injected into a running
-   container, the gateway sets `lastReplyID` to the steering message's ID
+   container, routd sets `lastReplyID` to the steering message's ID
 3. **New agent run** — starts from `firstMsgID` (triggering user message),
    then re-reads `GetLastReplyID` before each chunk to pick up mid-run
    steering updates
@@ -429,7 +429,7 @@ one of these — no additional text:
 | `#`              | Clear sticky topic                    | `topic reset to default`   |
 
 `@<unknown>` (name doesn't match any group folder) is **not** consumed —
-the gateway passes the message through to the agent unchanged, no
+routd passes the message through to the agent unchanged, no
 confirmation, no error. Rationale: messages starting with `@` have too
 many other meanings (mentions like `@everyone`, cross-instance refs like
 `@sloth`, Czech/English sentences) for an unknown name to safely imply
@@ -516,7 +516,7 @@ Groups: atlas (root), atlas/content (tier 2), atlas/social (tier 2)
 Routes (in routes table):
   seq=0  match='platform=telegram'  target=atlas
 
-Prefix layer (in gateway code, not table):
+Prefix layer (in routd code, not table):
   @<name> at message start → delegate to atlas/<name>
   #<name> at message start → topic-scoped session in atlas
 ```
@@ -524,10 +524,10 @@ Prefix layer (in gateway code, not table):
 ### User sends "hello" to telegram:12345
 
 ```
-1. teled receives Telegram update, POST /v1/messages to gated
+1. teled receives Telegram update, POST /v1/messages to routd
 2. store.PutMessage({id:"tg-789", chat_jid:"telegram:12345",
      sender:"telegram:67890", content:"hello", topic:""})
-3. gateway.pollOnce():
+3. routd.pollOnce():
    - store.NewMessages(["telegram:12345"], since) → [{id:"tg-789",...}]
    - groupForJid("telegram:12345") → atlas (via 'platform=telegram' route)
    - handleStickyCommand? No (not a sticky command)
@@ -553,7 +553,7 @@ Prefix layer (in gateway code, not table):
 
 ```
 1-2. Same as above, message stored
-3. gateway.pollOnce():
+3. routd.pollOnce():
    - handlePrefixLayer matches ^\s*@(\w[\w-]*)
    - parsePrefix("@content write about cats") → name="content", rest="write about cats"
    - child = atlas/content, exists
@@ -571,7 +571,7 @@ Prefix layer (in gateway code, not table):
 
 ```
 1-2. Message stored with reply_to_id pointing to bot's message
-3. gateway.pollOnce():
+3. routd.pollOnce():
    - tryExternalRoute:
      - findPrefixRoute? No @ or # in content
      - resolveTarget:

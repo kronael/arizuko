@@ -5,9 +5,10 @@ Catalog of extension points. Keep current as the system evolves.
 Extension points are how you **add an integration** — a new channel
 adapter, a TTS backend, an oracle skill, a per-folder mount, a custom
 autocall, a scheduled task, a network-egress rule. They are NOT how you
-change the **system core** (gateway, store, ipc, auth, grants, proxyd,
-webd, dashd, timed, onbod, container runner, chanlib/chanreg). Core
-evolves as a unit through specs, not via these extension points. See
+change the **system core** (routd, runed, authd, store, ipc, auth,
+grants, proxyd, webd, dashd, timed, onbod, container runner,
+chanlib/chanreg). Core evolves as a unit through specs, not via these
+extension points. See
 [README.md](README.md) for the core-vs-integration breakdown and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the package graph.
 
@@ -20,7 +21,7 @@ evolves as a unit through specs, not via these extension points. See
 | Slink         | `webd/slink*.go`                | External agent | Chat UI + MCP transport at `/slink/<token>`   |
 | Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`              |
 | Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                |
-| Autocalls     | `gateway/autocalls.go`          | Gateway dev    | Registry slice                                |
+| Autocalls     | `routd/prompt.go`               | Router dev     | Registry slice                                |
 | Routing rules | `router/`                       | Agent          | MCP tools; `target=<folder>[#mode]` fragment  |
 | Mounts        | `container/`                    | Agent          | Container config                              |
 | Skills        | `ant/skills/`                   | Agent          | File-based                                    |
@@ -55,13 +56,13 @@ Rules:
 
 - Result is ≤ 1 line of text. Empty string = skip the line.
 - No args, no I/O, no locks. Must resolve in microseconds.
-- Derives from `AutocallCtx` (instance, folder, session, tier, now).
+- Derives from `autocallCtx` (instance, folder, session, tier, now).
 - If any of these don't hold, use an MCP tool instead.
 
-Add an entry to the registry slice in `gateway/autocalls.go`:
+Add an entry to the `autocalls` registry slice in `routd/prompt.go`:
 
 ```go
-{"world", func(c AutocallCtx) string {
+{"world", func(c autocallCtx) string {
     return strings.SplitN(c.Folder, "/", 2)[0]
 }},
 ```
@@ -168,7 +169,7 @@ routing.
 ## Adding a channel adapter
 
 A channel adapter is a standalone HTTP daemon that bridges a chat
-platform to `gated` via `chanlib`. It registers a JID prefix, serves
+platform to `routd` via `chanlib`. It registers a JID prefix, serves
 inbound webhooks (or polls), and exposes outbound verbs (`/send`,
 `/like`, `/edit`, …) plus `/health`. Latest reference:
 [`slakd/`](slakd/) (Slack Events API, signing-secret HMAC, dislike-
@@ -215,7 +216,7 @@ proxyd. Reference: `specs/5/35-proxyd-standalone.md`,
 
 Third-party MCP servers (github-mcp, linear-mcp, gdrive-mcp…) plug
 in via `<data_dir>/connectors.toml`. Each `[[mcp_connector]]` block
-declares one stdio subprocess; gated discovers its tools at boot
+declares one stdio subprocess; routd discovers its tools at boot
 with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
 registers each through the broker chain. Per-call invocation
 resolves the declared secrets, renders the env template, spawns the
@@ -235,7 +236,7 @@ scope        = "per_call"
   call time via `user(caller.Sub)` → `folder(caller.Folder)` fallback.
 - `env_template` keys are the env vars the subprocess sees;
   `{secret:KEY}` references the corresponding entry in `secrets`.
-  Nothing else from gated's env leaks in.
+  Nothing else from routd's env leaks in.
 - `scope = "per_call"` is the only v1 mode — subprocess lives one
   call. `per_session` (pool keyed by `(connector, caller.Sub)`) is
   reserved for a future spec.
@@ -243,7 +244,7 @@ scope        = "per_call"
   exact-string-replaced with `«redacted»` in the
   `mcp.CallToolResult` before the agent sees it.
 - `CONNECTOR_CALL_TIMEOUT_MS` (env) caps each call (default 30 s).
-- Connector subprocess stderr sinks into gated's `slog.Debug` under
+- Connector subprocess stderr sinks into routd's `slog.Debug` under
   the connector name; never reaches the agent.
 
 Operator writes per-user tokens via `arizuko user-secret <inst> set
@@ -336,13 +337,13 @@ mounts host state into it) and ships a skill that drives it as a
 subprocess. The agent sees an ordinary command on `PATH`; the
 skill is the discovery surface; auth flows from a host-side mount or
 folder secret. Distinct from MCP tools (in-band, schema-typed,
-gateway-mediated) and channel adapters (out-of-band, HTTP).
+routd-mediated) and channel adapters (out-of-band, HTTP).
 
 Currently shipping:
 
-| Capability | Binary  | Skill                        | Auth                                                                                    |
-| ---------- | ------- | ---------------------------- | --------------------------------------------------------------------------------------- |
-| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on gated **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` folder secret |
+| Capability | Binary  | Skill                        | Auth                                                                                                  |
+| ---------- | ------- | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `oracle`   | `codex` | `ant/skills/oracle/SKILL.md` | `HOST_CODEX_DIR` mount on the agent container **OR** `CODEX_API_KEY` / `OPENAI_API_KEY` folder secret |
 
 Adding one:
 
