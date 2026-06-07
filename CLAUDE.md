@@ -67,11 +67,11 @@ them on each request.
 ## Essence
 
 arizuko is a multitenant Claude agent router built on plain primitives:
-Go daemons, SQLite WAL, HTTP between adapters and `gated`, MCP over a
+Go daemons, SQLite WAL, HTTP between adapters and `routd`, MCP over a
 unix socket, Docker per-group containers. Every primitive scales —
 `solo/inbox` and `corp/eng/sre/oncall` run the same code. Schema and
-migrations live in `gated`; everything else is a thin daemon talking to
-it. Read `README.md` for the daemon map, `ARCHITECTURE.md` for message
+migrations live in each split daemon (`routd`/`runed`/`authd` own their
+own DBs); adapters are thin daemons talking to `routd`. Read `README.md` for the daemon map, `ARCHITECTURE.md` for message
 flow, the per-package `README.md` for details, this file for the
 operator runbook + the philosophy.
 
@@ -88,11 +88,11 @@ make images            # all docker images (router + adapters + agent)
 make agent             # agent docker image (make -C ant image)
 
 # Run a single test package
-go test ./gateway/... -count=1 -run TestName
+go test ./routd/... -count=1 -run TestName
 ```
 
 Tests use `modernc.org/sqlite` (pure Go, no CGO).
-Exception: `gated` requires `CGO_ENABLED=1` (see Makefile).
+Exception: the `arizuko` binary builds with `CGO_ENABLED=1` (see Makefile).
 Pre-commit hooks configured via `.pre-commit-config.yaml`.
 
 ## Architecture
@@ -104,9 +104,9 @@ See ARCHITECTURE.md for package graph, message flow, container model.
 Two flavors of feature, kept distinct in the docs:
 
 - **System core** — always-present primitives that define the system
-  shape: `gateway`, `store`, `ipc`, `auth`, `grants`, `proxyd`, `webd`,
-  `dashd`, `timed`, `onbod`, `vited`, `davd`, the container runner,
-  `chanlib`/`chanreg`, plus the `gated` daemon that wires them.
+  shape: `authd`, `routd`, `runed`, `store`, `ipc`, `auth`, `grants`,
+  `proxyd`, `webd`, `dashd`, `timed`, `onbod`, `vited`, `davd`, the
+  container runner, `chanlib`/`chanreg`.
 - **Integrations** — pluggable, deployments mix and match: per-platform
   channel adapters (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`,
   `reditd`, `emaid`, `twitd`, `linkd`); optional capability hooks
@@ -199,8 +199,9 @@ overwriting.
 ## Layout
 
 See `ARCHITECTURE.md` for the package graph and `README.md` for the
-daemon + library tables. Schema and migrations live in `store/` (gated
-owns them). Per-package details co-located in each `<pkg>/README.md`.
+daemon + library tables. Each split daemon owns + migrates its own DB
+(`routd.db`/`runed.db`/`auth.db`/`onbod.db`); `store/` is the shared
+schema library. Per-package details co-located in each `<pkg>/README.md`.
 
 ## Refine scope
 
@@ -293,7 +294,7 @@ needed; don't fight it where it is.
 
 `/srv/data/arizuko_<name>/` per instance:
 
-- `.env` — config (gateway reads from cwd)
+- `.env` — config (daemons read from cwd)
 - `store/` — SQLite DB (`messages.db`)
 - `groups/<folder>/` — group files, logs, diary
 - `groups/<folder>/media/<YYYYMMDD>/` — downloaded inbound attachments
@@ -318,14 +319,14 @@ arizuko invite <instance> ...  issue/list/revoke onboarding invites
 ```
 
 Full command list in `cmd/arizuko/README.md`. Daemons are standalone
-binaries (`gated`, `timed`, ...); see README for the full table.
+binaries (`authd`, `routd`, `runed`, `timed`, ...); see README for the full table.
 
 ## Service Architecture
 
 Daemons end in `d`. Libraries don't. Shared SQLite (WAL). The full
 daemon + library table lives in `README.md` — don't duplicate it here.
-`gated` owns the schema; everything else connects read/write but never
-migrates.
+Each split daemon owns + migrates its own schema; no daemon migrates
+another's.
 
 ## Operational check (post-deploy)
 
@@ -371,7 +372,7 @@ Spec: [`specs/5/O-otlp-export.md`](specs/5/O-otlp-export.md), library:
 5. Rebuild agent image
 
 Spec: `specs/4/P-personas.md ## Versioning`. The auto-migrate hook
-in `gateway.checkMigrationVersion` is the single trigger for both
+in `routd.checkMigrationVersion` is the single trigger for both
 skill updates AND chat broadcasts; bumping `MIGRATION_VERSION` is
 what fires it. Tag and broadcast travel together.
 
@@ -419,9 +420,9 @@ Healthchecks green but the agent doesn't reply — usually one of:
 1. **`arizuko-ant` image missing**. Look for `pull access denied for arizuko-ant` in journalctl. Fix: `sudo make -C ant image`.
 2. **Adapter disconnected**. `docker ps` shows `(unhealthy)` or `/health`
    returns 503 — platform link is down. whapd waits for QR scan, mastd
-   stream dropped, etc. Check adapter logs, not gated's.
+   stream dropped, etc. Check adapter logs, not routd's.
 3. **Adapter silent**. `sudo journalctl -u arizuko_<inst> --since "10 min ago" | grep -viE health`.
-4. **Container exit 125** in gated logs = image/compose mismatch, not a code bug.
+4. **Container exit 125** in runed logs = image/compose mismatch, not a code bug.
 
 Docker log driver is `none` — use `journalctl -u arizuko_<inst>`, not `docker logs`.
 
