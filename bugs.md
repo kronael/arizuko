@@ -2193,3 +2193,41 @@ route table resolves nothing (routed web JIDs like web:X/sub→groupY still win 
 the route table). Regression: ipc.TestAuthorizeJID_BareWebChat. NB: submit_turn
 only records turn outcome + fires round_done; the visible reply comes from the
 reply/send tools — so this gap silently swallowed web-chat agent replies.
+
+## CODEX ADVERSARIAL REVIEW of the split (2026-06-07) — REST auth weaker than MCP + migrate integrity
+
+Ran codex to disprove "split works end-to-end / production-ready." Verdict: CLAIM
+FALSE — happy path works (verified), but the split's HTTP boundaries don't enforce
+the folder-binding the MCP twin does, violating arizuko's "uniform MCP+REST, same
+auth gate" spec (CLAUDE.md). My severity triage (agent ceiling = ONLY
+{messages:send:own_group, chats:read:own_group}, authd/http.go:43):
+
+1. **[HIGH, agent-reachable] routd REST read surface ignores token folder.**
+   reads_http.go handleInspectMessages(44)/handleThreadMessages(62)/handleFindMessages(81)/
+   handleSessionGet(192) gate on scopeRead {chats:read:own_group,...} then read
+   ARBITRARY jid/topic/folder. Agents HOLD chats:read:own_group AND can reach routd
+   by hostname (NO_PROXY lists routd, container/runner.go:645). The MCP twin enforces
+   JIDRoutedToFolder; the REST twin doesn't → cross-folder read. FIX: fold the
+   token's folder into these handlers (JIDRoutedToFolder/folder-claim), matching MCP.
+2. **[MED] handleCost (reads_http.go:206) writes caller-supplied req.Folder** under
+   scopeSend (agents hold messages:send:own_group) → cross-folder cost-log rows.
+   Low blast radius (cost accounting). FIX: bind folder to token; cost-specific scope.
+3. **[LOW, not agent-reachable] POST /v1/messages (server.go:310) discards folder.**
+   Needs messages:write — only trusted adapters hold it (cross-folder BY DESIGN:
+   one adapter routes many folders). Not an agent escape; tighten only as defense-in-depth.
+4. **[LOW, not agent-reachable] runed run-control not folder-bound.** server.go:99/120/139
+   need runs:kill (NOT in agent ceiling) / "" (status-by-id = minor info leak). Held by
+   service:routd (operator-kill). FIX: folder-check kill/stop for defense-in-depth.
+5. **[HIGH, affects migrated instances] migrate-split cost_log PK collapse.** turn_id=''
+   for all legacy cost rows (migrate_split.go:148) vs PK (folder,turn_id,model) +
+   INSERT OR IGNORE → all-but-one cost row per (folder,model) dropped. (Already flagged.)
+6. **[HIGH, may affect krons NOW] auth_users not copied** (migrate_split.go:270 orphan)
+   but split onbod reads/writes auth_users from routd.db (onbod/main.go:493,686) →
+   existing users' onboarding/world-create breaks. (Already flagged.) VERIFY on krons.
+7. **[MED] silent service-token fallback.** routd (cmd/routd/main.go:97) + runed
+   (cmd/runed/main.go:69) fall back to static ROUTD/RUNED_SERVICE_TOKEN with no error
+   log; compose doesn't provision those in split → "healthy" until first real call
+   401s. FIX: log loudly / fail-fast when AUTHD_SERVICE_KEY set but exchange fails.
+
+Codex "no defect found": NULL-scan sweep (clean post-fix), 13 MCP tools (all wired),
+authorizeJID web fix (no regression), compose service-key wiring (complete).
