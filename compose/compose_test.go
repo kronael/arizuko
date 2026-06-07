@@ -19,12 +19,12 @@ func TestGenerateMinimal(t *testing.T) {
 	if !strings.Contains(out, "services:") {
 		t.Error("missing services header")
 	}
-	// Default (CUTOVER_SPLIT unset): the gated monolith is the canonical router.
-	if !strings.Contains(out, "  gated:\n") {
-		t.Error("missing gated service (the default monolith router)")
+	// Split is the only topology: routd is the canonical router; gated is gone.
+	if !strings.Contains(out, "  routd:\n") {
+		t.Error("missing routd service (the canonical router)")
 	}
-	if strings.Contains(out, "  routd:\n") {
-		t.Error("routd service must NOT be emitted by default (split is opt-in)")
+	if strings.Contains(out, "  gated:\n") {
+		t.Error("gated service must NOT be emitted (removed)")
 	}
 	if !strings.Contains(out, "arizuko:latest") {
 		t.Error("missing arizuko image")
@@ -32,78 +32,47 @@ func TestGenerateMinimal(t *testing.T) {
 	if !strings.Contains(out, "user: '1000:1000'") {
 		t.Error("daemons missing user:1000 — will create root-owned files in shared data dir")
 	}
-	// gated spawns agent containers → group_add for docker.sock.
-	gated := serviceBlock(out, "gated")
-	if !strings.Contains(gated, "group_add:") {
-		t.Error("gated missing group_add — docker.sock inaccessible as uid 1000")
-	}
-	if !strings.Contains(gated, "host.docker.internal:host-gateway") {
-		t.Error("gated missing extra_hosts for host.docker.internal — host-side services unreachable")
+	// runed spawns agent containers → group_add for docker.sock.
+	runed := serviceBlock(out, "runed")
+	if !strings.Contains(runed, "group_add:") {
+		t.Error("runed missing group_add — docker.sock inaccessible as uid 1000")
 	}
 }
 
-// TestCutoverFlagSelectsPlane: the CUTOVER_SPLIT flag is the single switch.
-// OFF (default) → gated emitted, no split daemons, adapter ROUTER_URL pinned to
-// gated. ON → split daemons emitted, no gated, ROUTER_URL pinned to routd.
-func TestCutoverFlagSelectsPlane(t *testing.T) {
-	gen := func(split bool) string {
-		dir := t.TempDir()
-		os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-		env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\n"
-		if split {
-			env += "CUTOVER_SPLIT=true\n"
-		}
-		os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
-		os.WriteFile(filepath.Join(dir, "services/teled.toml"), []byte(`
+// TestAdapterPointsAtRoutd: the split is the only topology — adapters' ROUTER_URL
+// is re-pinned to routd, they depend_on routd, gated appears nowhere.
+func TestAdapterPointsAtRoutd(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"),
+		[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "services/teled.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["teled"]
 [environment]
 ROUTER_URL = "http://gated:8080"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 `), 0o644)
-		out, err := Generate(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return out
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	off := gen(false)
-	if !strings.Contains(off, "  gated:\n") {
-		t.Error("flag OFF: gated service must be emitted")
+	if strings.Contains(out, "  gated:\n") {
+		t.Error("gated service must NOT be emitted (removed)")
 	}
 	for _, svc := range []string{"  authd:\n", "  routd:\n", "  runed:\n"} {
-		if strings.Contains(off, svc) {
-			t.Errorf("flag OFF: split service %q must NOT be emitted", svc)
+		if !strings.Contains(out, svc) {
+			t.Errorf("split service %q must be emitted", svc)
 		}
 	}
-	if !strings.Contains(serviceBlock(off, "teled"), `ROUTER_URL: "http://gated:8080"`) {
-		t.Errorf("flag OFF: ROUTER_URL must be gated; got:\n%s", serviceBlock(off, "teled"))
+	if !strings.Contains(serviceBlock(out, "teled"), `ROUTER_URL: "http://routd:8080"`) {
+		t.Errorf("adapter ROUTER_URL must re-point to routd; got:\n%s", serviceBlock(out, "teled"))
 	}
-	if strings.Contains(off, "routd:8080") {
-		t.Errorf("flag OFF: no routd:8080 reference allowed; got:\n%s", off)
+	if strings.Contains(out, "gated:8080") {
+		t.Errorf("no gated:8080 reference allowed; got:\n%s", out)
 	}
-	if !strings.Contains(serviceBlock(off, "teled"), "depends_on: [gated]") {
-		t.Errorf("flag OFF: adapter must depend on gated; got:\n%s", serviceBlock(off, "teled"))
-	}
-
-	on := gen(true)
-	if strings.Contains(on, "  gated:\n") {
-		t.Error("flag ON: gated service must NOT be emitted")
-	}
-	for _, svc := range []string{"  authd:\n", "  routd:\n", "  runed:\n"} {
-		if !strings.Contains(on, svc) {
-			t.Errorf("flag ON: split service %q must be emitted", svc)
-		}
-	}
-	if !strings.Contains(serviceBlock(on, "teled"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("flag ON: ROUTER_URL must be re-pointed to routd; got:\n%s", serviceBlock(on, "teled"))
-	}
-	if strings.Contains(on, "gated:8080") {
-		t.Errorf("flag ON: no gated:8080 reference allowed; got:\n%s", on)
-	}
-	if !strings.Contains(serviceBlock(on, "teled"), "depends_on: [routd]") {
-		t.Errorf("flag ON: adapter must depend on routd; got:\n%s", serviceBlock(on, "teled"))
+	if !strings.Contains(serviceBlock(out, "teled"), "depends_on: [routd]") {
+		t.Errorf("adapter must depend on routd; got:\n%s", serviceBlock(out, "teled"))
 	}
 }
 
@@ -233,15 +202,14 @@ CHANNEL_SECRET = "${CHANNEL_SECRET}"
 	if !strings.Contains(out, "s3cr3t") {
 		t.Error("CHANNEL_SECRET not interpolated")
 	}
-	if !strings.Contains(out, "depends_on: [gated]") {
-		t.Error("adapter should depend on gated (default monolith router)")
+	if !strings.Contains(out, "depends_on: [routd]") {
+		t.Error("adapter should depend on routd (the canonical router)")
 	}
-	// Default: ROUTER_URL is pinned to gated (the canonical router).
-	if !strings.Contains(out, `ROUTER_URL: "http://gated:8080"`) {
-		t.Errorf("ROUTER_URL must be pinned to gated by default; got:\n%s", out)
+	if !strings.Contains(out, `ROUTER_URL: "http://routd:8080"`) {
+		t.Errorf("ROUTER_URL must be pinned to routd; got:\n%s", out)
 	}
-	if strings.Contains(out, "http://routd:8080") {
-		t.Errorf("no routd reference allowed when split is off; got:\n%s", out)
+	if strings.Contains(out, "http://gated:8080") {
+		t.Errorf("no gated reference allowed (removed); got:\n%s", out)
 	}
 }
 
@@ -314,16 +282,16 @@ func TestGenerateWebServices(t *testing.T) {
 		t.Error("missing webd service")
 	}
 	// Shared env flows via env_file; peer URLs default in code to
-	// http://<svc>:8080. gated carries its own scoped env file (default plane).
-	if !strings.Contains(out, "env_file:\n      - env/gated.env") {
-		t.Error("gated missing scoped env_file: env/gated.env")
+	// http://<svc>:8080. routd carries its own scoped env file.
+	if !strings.Contains(out, "env_file:\n      - env/routd.env") {
+		t.Error("routd missing scoped env_file: env/routd.env")
 	}
 	if !strings.Contains(out, "'8095:8080'") {
 		t.Error("proxyd external mapping should be WEB_PORT:8080")
 	}
-	// proxyd depends on gated (default router) + webd.
-	if !strings.Contains(out, "depends_on: [gated, dashd, webd]") {
-		t.Error("proxyd depends_on should be [gated, dashd, webd]")
+	// proxyd depends on routd (the canonical router) + dashd + webd.
+	if !strings.Contains(out, "depends_on: [routd, dashd, webd]") {
+		t.Error("proxyd depends_on should be [routd, dashd, webd]")
 	}
 }
 
@@ -399,25 +367,27 @@ func TestGenerateProfiles(t *testing.T) {
 		wantIn  []string
 		wantOut []string
 	}{
+		// authd/routd/runed (the split plane) are emitted in EVERY profile; gated
+		// is gone. Profiles only gate the web/aux daemons.
 		{
 			profile: "minimal",
-			wantIn:  []string{"  gated:\n"},
-			wantOut: []string{"  authd:", "  routd:", "  runed:", "  webd:", "  proxyd:", "  vited:", "  timed:", "  dashd:"},
+			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n"},
+			wantOut: []string{"  gated:\n", "  webd:", "  proxyd:", "  vited:", "  timed:", "  dashd:"},
 		},
 		{
 			profile: "web",
-			wantIn:  []string{"  gated:\n", "  webd:", "  proxyd:", "  vited:"},
-			wantOut: []string{"  authd:", "  routd:", "  runed:", "  timed:", "  dashd:", "  davd:", "  onbod:"},
+			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  webd:", "  proxyd:", "  vited:"},
+			wantOut: []string{"  gated:\n", "  timed:", "  dashd:", "  davd:", "  onbod:"},
 		},
 		{
 			profile: "standard",
-			wantIn:  []string{"  gated:\n", "  timed:", "  webd:", "  proxyd:", "  vited:"},
-			wantOut: []string{"  authd:", "  routd:", "  runed:", "  dashd:", "  davd:", "  onbod:"},
+			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  timed:", "  webd:", "  proxyd:", "  vited:"},
+			wantOut: []string{"  gated:\n", "  dashd:", "  davd:", "  onbod:"},
 		},
 		{
 			profile: "full",
-			wantIn:  []string{"  gated:\n", "  timed:", "  webd:", "  proxyd:", "  vited:", "  dashd:", "  davd:"},
-			wantOut: []string{"  authd:", "  routd:", "  runed:", "  onbod:"}, // ONBOARDING_ENABLED unset
+			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  timed:", "  webd:", "  proxyd:", "  vited:", "  dashd:", "  davd:"},
+			wantOut: []string{"  gated:\n", "  onbod:"}, // ONBOARDING_ENABLED unset
 		},
 	}
 	for _, tc := range cases {
@@ -490,8 +460,8 @@ func TestProxydDependsOnDefinedServicesOnly(t *testing.T) {
 			if strings.Contains(out, "  dashd:\n") {
 				t.Fatalf("PROFILE=%s should not emit dashd", profile)
 			}
-			if !strings.Contains(out, "depends_on: [gated, webd]") {
-				t.Errorf("PROFILE=%s: proxyd depends_on must be [gated, webd] (omit dashd); got:\n%s", profile, out)
+			if !strings.Contains(out, "depends_on: [routd, webd]") {
+				t.Errorf("PROFILE=%s: proxyd depends_on must be [routd, webd] (omit dashd); got:\n%s", profile, out)
 			}
 		})
 	}
@@ -735,18 +705,6 @@ func TestTimedSplitWiring(t *testing.T) {
 		t.Errorf("split: timed env missing AUTHD_SERVICE_KEY; got:\n%s", timedEnv)
 	}
 
-	// Monolith: no ROUTER_URL on timed → direct-DB path preserved.
-	monoDir := t.TempDir()
-	os.MkdirAll(filepath.Join(monoDir, "services"), 0o755)
-	os.WriteFile(filepath.Join(monoDir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
-	off, err := Generate(monoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(serviceBlock(off, "timed"), "ROUTER_URL") {
-		t.Errorf("monolith: timed must NOT carry ROUTER_URL; got:\n%s", serviceBlock(off, "timed"))
-	}
 }
 
 // TestSplitWiring_KeysStableAcrossRegen: a second Generate (redeploy) reuses
@@ -904,16 +862,16 @@ func TestRouterEnvPassthrough(t *testing.T) {
 	// Shared config flows via env_file — compose doesn't duplicate these
 	// keys in per-service environment blocks anymore. Asserting env_file
 	// is enough: docker-compose reads .env at container start.
-	if !strings.Contains(out, "env_file:\n      - env/gated.env") {
-		t.Error("gated missing scoped env_file: env/gated.env")
+	if !strings.Contains(out, "env_file:\n      - env/routd.env") {
+		t.Error("routd missing scoped env_file: env/routd.env")
 	}
-	// gated is the default router and publishes the host API port.
-	if !strings.Contains(out, `API_PORT: "8080"`) {
-		t.Error("gated missing API_PORT override pinning internal listen to 8080")
+	// routd is the router and publishes the host API port.
+	if !strings.Contains(serviceBlock(out, "routd"), "ports:") {
+		t.Error("routd should publish the host API port")
 	}
 }
 
-// services/ttsd.toml present → auto-enable TTS on the execution plane (gated,
+// services/ttsd.toml present → auto-enable TTS on the execution plane (runed,
 // the default). Operator opts in by dropping the TOML; no second flag flip.
 func TestGenerateTTSAutoEnabled(t *testing.T) {
 	dir := t.TempDir()
@@ -934,20 +892,20 @@ entrypoint = []
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	gatedEnv, err := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
+	runedEnv, err := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(gatedEnv)
+	s := string(runedEnv)
 	if !strings.Contains(s, "TTS_ENABLED=true") {
-		t.Errorf("expected TTS_ENABLED=true in gated env, got:\n%s", s)
+		t.Errorf("expected TTS_ENABLED=true in runed env, got:\n%s", s)
 	}
 	if !strings.Contains(s, "TTS_BASE_URL=http://ttsd:8880") {
-		t.Errorf("expected TTS_BASE_URL=http://ttsd:8880 in gated env, got:\n%s", s)
+		t.Errorf("expected TTS_BASE_URL=http://ttsd:8880 in runed env, got:\n%s", s)
 	}
 }
 
-// services/ttsd.toml absent → no TTS_* leak into gated env. Default stays off.
+// services/ttsd.toml absent → no TTS_* leak into runed env. Default stays off.
 func TestGenerateTTSOffByDefault(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
@@ -956,12 +914,12 @@ func TestGenerateTTSOffByDefault(t *testing.T) {
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	gatedEnv, err := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
+	runedEnv, err := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(gatedEnv), "TTS_ENABLED") {
-		t.Errorf("TTS_ENABLED should be absent when ttsd.toml missing, got:\n%s", string(gatedEnv))
+	if strings.Contains(string(runedEnv), "TTS_ENABLED") {
+		t.Errorf("TTS_ENABLED should be absent when ttsd.toml missing, got:\n%s", string(runedEnv))
 	}
 }
 
@@ -980,8 +938,8 @@ entrypoint = ["ttsd"]
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
 	}
-	gatedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "gated.env"))
-	s := string(gatedEnv)
+	runedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
+	s := string(runedEnv)
 	if !strings.Contains(s, "TTS_BASE_URL=https://api.openai.com") {
 		t.Errorf("explicit TTS_BASE_URL should win, got:\n%s", s)
 	}

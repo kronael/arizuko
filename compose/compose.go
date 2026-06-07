@@ -24,21 +24,11 @@ const containerDataMount = "/srv/app/home"
 // containerSrcMount is the container-side path where HOST_APP_DIR is mounted.
 const containerSrcMount = "/srv/app/arizuko"
 
-// splitOn reports whether the split-daemon cutover is enabled. Default OFF:
-// the generated compose is the working gated monolith. CUTOVER_SPLIT=true
-// opts an instance into the authd/routd/runed plane (still under validation).
-func splitOn(env map[string]string) bool {
-	return envOr(env, "CUTOVER_SPLIT", "") == "true"
-}
-
-// routerSvc is the canonical router service name: gated (default) or routd
-// (split cutover). Every depends_on default and the host-published API port
-// follow this.
-func routerSvc(env map[string]string) string {
-	if splitOn(env) {
-		return "routd"
-	}
-	return "gated"
+// routerSvc is the canonical router service name. The split (authd/routd/runed)
+// is the only topology — gated is gone — so the router is always routd. Every
+// depends_on default and the host-published API port follow this.
+func routerSvc(map[string]string) string {
+	return "routd"
 }
 
 // routerURL is the in-network base URL of the canonical router. webd/onbod and
@@ -48,7 +38,7 @@ func routerURL(env map[string]string) string {
 }
 
 // dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
-// gated (monolith) / runed (split) must be in this group to spawn agent
+// runed must be in this group to spawn agent
 // containers as uid 1000.
 func dockerGID() int {
 	var st syscall.Stat_t
@@ -124,23 +114,7 @@ var commonKeys = []string{
 
 // daemonKeys: per-daemon secrets + config. Unlisted keys never reach the daemon.
 var daemonKeys = map[string][]string{
-	"gated": {
-		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",
-		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
-		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
-		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
-		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
-		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
-		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
-		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
-		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
-		"CRACKBOX_CONTAINER", "CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL",
-		"CRACKBOX_ADMIN_SECRET",
-		"HOST_CODEX_DIR",
-		"PROXYD_HMAC_SECRET",
-	},
-	// timed: scheduler. Monolith → DATABASE/DATA_DIR direct messages.db.
-	// Split → federates the fire loop over routd (ROUTER_URL) with a
+	// timed: scheduler. Federates the fire loop over routd (ROUTER_URL) with a
 	// service:timed token exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
 	"timed": {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
 	// authd: auth authority. auth.db only; no message DB, no docker, no crackbox.
@@ -553,19 +527,13 @@ func Generate(dataDir string) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
 	b.WriteString("services:\n")
-	if splitOn(env) {
-		// CUTOVER_SPLIT=true: the split daemons (spec 5/E + 5/P) are the
-		// conversation/auth/execution plane — authd (auth.db) + routd (routd.db,
-		// the router every adapter/webd/proxyd talks to) + runed (runed.db, the
-		// ONLY daemon wired to docker.sock + crackbox + per-folder agent
-		// networks). gated is not emitted. Still under validation; opt-in only.
-		b.WriteString(authdService(app, flavor, dataDir, env))
-		b.WriteString(routdService(app, flavor, dataDir, env))
-		b.WriteString(runedService(app, flavor, dataDir, env))
-	} else {
-		// Default: the gated monolith is the canonical router + execution plane.
-		b.WriteString(gatedService(app, flavor, dataDir, env))
-	}
+	// The split daemons (spec 5/E + 5/P) are the conversation/auth/execution
+	// plane — authd (auth.db) + routd (routd.db, the router every adapter/webd/
+	// proxyd talks to) + runed (runed.db, the ONLY daemon wired to docker.sock +
+	// crackbox + per-folder agent networks). This is the only topology.
+	b.WriteString(authdService(app, flavor, dataDir, env))
+	b.WriteString(routdService(app, flavor, dataDir, env))
+	b.WriteString(runedService(app, flavor, dataDir, env))
 	webPort := envOr(env, "WEB_PORT", "")
 	if webPort != "" && profile != "minimal" {
 		b.WriteString(webdService(app, flavor, dataDir, env))
@@ -702,44 +670,6 @@ func writeSvc(def svcDef) string {
 	return b.String()
 }
 
-// gatedService emits the monolith router+execution plane (default, when
-// CUTOVER_SPLIT is unset). It owns the message DB, docker.sock, crackbox, and
-// the per-folder agent networks, and publishes API_PORT to the host.
-func gatedService(app, flavor, dataDir string, env map[string]string) string {
-	var b strings.Builder
-	b.WriteString("  gated:\n")
-	fmt.Fprintf(&b, "    container_name: %s_gated_%s\n", app, flavor)
-	b.WriteString("    image: arizuko:latest\n")
-	b.WriteString("    entrypoint: ['gated']\n")
-	// uid 1000 matches agent container so shared data dir files round-trip;
-	// group_add into docker gid grants docker.sock access for spawning agents.
-	b.WriteString("    user: '1000:1000'\n")
-	fmt.Fprintf(&b, "    group_add: ['%d']\n", dockerGID())
-	b.WriteString("    volumes:\n")
-	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
-	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
-	gatedEnv := map[string]string{
-		"API_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
-		"DATA_DIR": containerDataMount,
-	}
-	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
-		fmt.Fprintf(&b, "      - %s:%s:ro\n", hostApp, containerSrcMount)
-		gatedEnv["APP_SRC_DIR"] = containerSrcMount
-	}
-	b.WriteString("    ports:\n")
-	fmt.Fprintf(&b, "      - '%s:%d'\n", envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort)), core.DefaultAPIPort)
-	b.WriteString("    extra_hosts:\n")
-	b.WriteString("      - 'host.docker.internal:host-gateway'\n")
-	b.WriteString(envFileFor("gated"))
-	// API_PORT override pins gated's internal listen to 8080 (unified).
-	// Host-publish side uses the .env value as external port.
-	b.WriteString("    environment:\n")
-	writeEnv(&b, gatedEnv)
-	b.WriteString(healthBlock)
-	b.WriteString("    restart: on-failure\n")
-	return b.String()
-}
-
 // authdService emits the auth authority. auth.db only — NO message DB, NO
 // docker socket, NO crackbox. Serves JWKS to every verifier; reads its own
 // service keys + OAuth provider config from env/authd.env. No depends_on:
@@ -819,12 +749,9 @@ func timedService(app, flavor, dataDir string, env map[string]string) string {
 	// TIMEZONE is the only compose-side transform; timed reads this name while
 	// the rest of the world uses TZ.
 	environment := map[string]string{"TIMEZONE": envOr(env, "TZ", "UTC")}
-	// Split: pin ROUTER_URL to routd so timed federates its fire loop over HTTP
-	// (no messages.db). AUTHD_URL + AUTHD_SERVICE_KEY arrive via env/timed.env.
-	// Monolith: no ROUTER_URL → timed keeps the direct messages.db path.
-	if splitOn(env) {
-		environment["ROUTER_URL"] = routerURL(env)
-	}
+	// timed federates its fire loop over routd HTTP (no messages.db). AUTHD_URL +
+	// AUTHD_SERVICE_KEY arrive via env/timed.env.
+	environment["ROUTER_URL"] = routerURL(env)
 	return writeSvc(svcDef{
 		name:        "timed",
 		app:         app,
@@ -845,12 +772,9 @@ func onbodService(app, flavor, dataDir string, env map[string]string) string {
 		"ONBOARDING_ENABLED": "true",
 		"ROUTER_URL":         routerURL(env),
 	}
-	// Split: onbod OWNS onboarding/invites/onboarding_gates in onbod.db (spec
-	// 5/5). ONBOD_DB_PATH points it there; unset (monolith) keeps the shared
-	// messages.db path. Container-internal, so .env can't know it.
-	if splitOn(env) {
-		environment["ONBOD_DB_PATH"] = containerDataMount + "/store/onbod.db"
-	}
+	// onbod OWNS onboarding/invites/onboarding_gates in onbod.db (spec 5/5).
+	// ONBOD_DB_PATH points it there. Container-internal, so .env can't know it.
+	environment["ONBOD_DB_PATH"] = containerDataMount + "/store/onbod.db"
 	return writeSvc(svcDef{
 		name:        "onbod",
 		app:         app,
@@ -997,10 +921,9 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 		for k, v := range cfg.Environment {
 			interped[k] = interpolate(v, env)
 		}
-		// Force-pin any declared ROUTER_URL to the canonical router so an
+		// Force-pin any declared ROUTER_URL to the canonical router (routd) so an
 		// adapter TOML carrying a stale value re-points on regenerate without
 		// re-seeding services/. Narrow: only ROUTER_URL, only when present.
-		// Default plane is gated; CUTOVER_SPLIT=true selects routd.
 		if _, ok := interped["ROUTER_URL"]; ok {
 			interped["ROUTER_URL"] = routerURL(env)
 		}
