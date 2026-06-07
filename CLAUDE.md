@@ -51,6 +51,26 @@ them on each request.
   Spec: `specs/5/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions, the same scopes, the same auth gate.
+- **Auth is a uniform middleware, bound to handler + params**: authn
+  (who) and authz (may you do THIS to THESE params) are two orthogonal
+  middleware layers every daemon applies the SAME way. The authz gate
+  binds `(action, required-scopes, target-resolver)` at route/tool
+  registration and runs ONE decision (`auth.AuthorizeStructural` over
+  the token's folder/scope) — so MCP and REST are the same gate viewed
+  through a different identity source (socket-folder vs JWT-folder),
+  never a second hand-rolled check. A handler that resolves a `jid` /
+  `folder` / `run_id` param MUST bind it to the caller's folder. Drift
+  here = cross-folder access (cost a krons split review 2026-06-07).
+
+## Spec-first change discipline
+
+Every non-trivial change is **spec-first**: find the governing spec
+(`specs/index.md` is the index); reconcile code↔spec; if the design is
+unspecced or stale, draft the **minimal** consistent spec edit in the
+same pass (never contradict neighbors). A change that introduces an
+unspecced structure is incomplete. Don't drift specs unless the drift
+makes the code more minimal/orthogonal/simpler — and the end state must
+be exactly that: more minimal, orthogonal, simpler than before.
 
 ## Essence
 
