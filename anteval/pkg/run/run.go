@@ -1,4 +1,4 @@
-// Package run drives agenteval cases against a live target and hosts the
+// Package run drives anteval cases against a live target and hosts the
 // callback sink the agent's artifacts call back into. The harness only ever
 // injects a task and observes a public-surface effect; the live agent does
 // the real work with its own MCP tools.
@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kronael/arizuko/agenteval/pkg/check"
-	"github.com/kronael/arizuko/agenteval/pkg/report"
-	"github.com/kronael/arizuko/agenteval/pkg/spec"
+	"github.com/kronael/arizuko/anteval/pkg/check"
+	"github.com/kronael/arizuko/anteval/pkg/report"
+	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
 // Target is the live instance under test, reached only through public

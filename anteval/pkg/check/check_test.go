@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/agenteval/pkg/spec"
+	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
 type fakeSink struct{ hits map[string][]Hit }

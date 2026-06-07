@@ -1,4 +1,4 @@
-// Package report renders agenteval run results as JSON and markdown.
+// Package report renders anteval run results as JSON and markdown.
 package report
 
 import (
@@ -65,7 +65,7 @@ func JSON(rs []Result) ([]byte, error) {
 func Markdown(rs []Result) string {
 	s := Summarize(rs)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# agenteval — %d/%d passed (%d tokens)\n\n", s.Passed, s.Total, s.Tokens)
+	fmt.Fprintf(&b, "# anteval — %d/%d passed (%d tokens)\n\n", s.Passed, s.Total, s.Tokens)
 	dims := make([]string, 0, len(s.ByDim))
 	for d := range s.ByDim {
 		dims = append(dims, d)

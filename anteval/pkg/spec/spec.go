@@ -1,4 +1,4 @@
-// Package spec defines agenteval's declarative case schema and loader.
+// Package spec defines anteval's declarative case schema and loader.
 // A case is data: a task prompt for the live agent plus the public-surface
 // check that decides pass/fail. No Go edit is needed to add a capability test.
 package spec

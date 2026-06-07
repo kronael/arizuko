@@ -2,9 +2,9 @@
 status: partial
 ---
 
-# 5/37 — agent-capability eval (`agenteval`)
+# 5/37 — agent-capability eval (`anteval`)
 
-> **Status (2026-06-07): partial.** The `agenteval/` component is built + unit-tested (`validate`: 19 cases, 8 smoke); NOT yet run live (needs a folder token + `--chat` + `--sink` on the folder's crackbox egress allowlist). Two known gaps, honest not silent: (a) routd exposes **no cost-READ endpoint**, so `HTTPTarget.Cost()` is 0 over REST and `max_tokens` budgets are not enforced live until a cost source is wired; (b) `--mcp` expects an inspect-compatible MCP-over-HTTP face — unset, the `mcp_roundtrip`/`parity` cases fail loudly ("surface not configured"), never false-pass.
+> **Status (2026-06-07): partial.** The `anteval/` component is built + unit-tested (`validate`: 19 cases, 8 smoke); NOT yet run live (needs a folder token + `--chat` + `--sink` on the folder's crackbox egress allowlist). Two known gaps, honest not silent: (a) routd exposes **no cost-READ endpoint**, so `HTTPTarget.Cost()` is 0 over REST and `max_tokens` budgets are not enforced live until a cost source is wired; (b) `--mcp` expects an inspect-compatible MCP-over-HTTP face — unset, the `mcp_roundtrip`/`parity` cases fail loudly ("surface not configured"), never false-pass.
 
 ## Problem
 
@@ -25,7 +25,7 @@ _given a real task, does the live agent know how to do it?_
 
 ## Approach
 
-`agenteval` is a **black-box capability prober**. For each case it
+`anteval` is a **black-box capability prober**. For each case it
 injects a real task through a public surface, lets the live agent
 perform it with its own MCP tools, then asserts the **externally
 observable effect** — never the agent's prose, never the instance's
@@ -37,7 +37,7 @@ internal state.
   cannot be proven through a public surface, that is a _surface gap to
   fix_, not a reason to inspect internals. Reading the instance data
   dir (fs/sqlite) is a `--debug` aid only and **never gates a case**.
-  Zero `github.com/kronael/arizuko/*` imports (11/A) — `agenteval`
+  Zero `github.com/kronael/arizuko/*` imports (11/A) — `anteval`
   could eval a different agent platform behind a thin surface adapter.
 - **Callback sink, not prose.** The driver serves `POST /cb/{nonce}`.
   A case that must prove "the agent built something that works" tells
@@ -124,20 +124,20 @@ is additive and out of scope for the gate.
 
 ## Component shape
 
-`agenteval/` is a sibling component (11/A), structured like `crackbox/`:
+`anteval/` is a sibling component (11/A), structured like `crackbox/`:
 
-- `agenteval/cmd/agenteval/main.go` — `run <target>` | `validate` | `dash`
-- `agenteval/pkg/spec` — TOML case schema + loader
-- `agenteval/pkg/check` — checker vocabulary: `http_status`,
+- `anteval/cmd/anteval/main.go` — `run <target>` | `validate` | `dash`
+- `anteval/pkg/spec` — TOML case schema + loader
+- `anteval/pkg/check` — checker vocabulary: `http_status`,
   `callback`, `rest_reply`, `rest_observe`, `mcp_roundtrip`,
   `parity_sentinel`
-- `agenteval/pkg/run` — driver; hosts the callback sink; nonce → inject
+- `anteval/pkg/run` — driver; hosts the callback sink; nonce → inject
   → await → check → record
-- `agenteval/pkg/report` — JSON + markdown/HTML render (the `dash`
+- `anteval/pkg/report` — JSON + markdown/HTML render (the `dash`
   subcommand reads these artifacts; no daemon)
-- `agenteval/cases/*.toml` — the ~19 cases
-- `agenteval/{Dockerfile,Makefile,README.md}` — standalone
-  build/test/ship; root `Makefile` `COMPONENTS += agenteval`
+- `anteval/cases/*.toml` — the ~19 cases
+- `anteval/{Dockerfile,Makefile,README.md}` — standalone
+  build/test/ship; root `Makefile` `COMPONENTS += anteval`
 
 Cases are data; checkers are a small fixed vocabulary; driver and report
 are thin. The dashboard is a subcommand rendering report artifacts —
@@ -152,5 +152,5 @@ arizuko Go imports; fs/sqlite reads are a non-gating `--debug` aid.
 
 Distinct from: the `eval` skill (operational health), `create-eval`
 (generates a project eval skill), `make test-e2e` (one in-tree round).
-`agenteval` is the **agent-capability gate** — what the platform
+`anteval` is the **agent-capability gate** — what the platform
 promises the agent can do for itself, certified against a live instance.

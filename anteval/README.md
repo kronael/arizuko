@@ -1,4 +1,4 @@
-# agenteval
+# anteval
 
 Agent-capability eval — a black-box prober that certifies a live arizuko
 agent can operate the platform itself. Spec:
@@ -15,7 +15,7 @@ external tool uses (sibling component, `specs/11/A`).
 
 ```bash
 make build
-./agenteval run https://krons.fiu.wtf \
+./anteval run https://krons.fiu.wtf \
   --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
   --token "$AGENTEVAL_TOKEN" \    # bearer (messages:write + read) for the eval folder
   --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
@@ -23,7 +23,7 @@ make build
   --sink  https://eval-host:9099 \# URL the agent containers call back to
   --smoke                         # gate subset; omit for all 19
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
-./agenteval dash report.json      # re-render a saved report
+./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
 ```
 

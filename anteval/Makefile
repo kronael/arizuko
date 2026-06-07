@@ -1,8 +1,8 @@
 build:
-	go build -o agenteval ./cmd/agenteval/
+	go build -o anteval ./cmd/anteval/
 
 validate:
-	go run ./cmd/agenteval validate --cases ./cases
+	go run ./cmd/anteval validate --cases ./cases
 
 test:
 	go test ./... -count=1
@@ -11,6 +11,6 @@ lint:
 	go vet ./...
 
 clean:
-	rm -f agenteval
+	rm -f anteval
 
 .PHONY: build validate test lint clean

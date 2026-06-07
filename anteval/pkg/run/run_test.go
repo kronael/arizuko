@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kronael/arizuko/agenteval/pkg/check"
-	"github.com/kronael/arizuko/agenteval/pkg/spec"
+	"github.com/kronael/arizuko/anteval/pkg/check"
+	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
 var cbRe = regexp.MustCompile(`https?://[^\s"']+/cb/[^\s"']+`)

@@ -1,9 +1,9 @@
-# agenteval cases — spec 5/37. Each [[case]] gives the live agent one task and
+# anteval cases — spec 5/37. Each [[case]] gives the live agent one task and
 # asserts an externally observable effect. Templates expand per run:
 #   {nonce}  unique per run+case      {sink}    harness callback base
 #   {target} instance public base     {chat}    eval agent chat JID
 #   {cb.KEY} a query param the agent handed back through {sink}/cb/{nonce}
-# `smoke = true` marks the gate subset (agenteval run --smoke).
+# `smoke = true` marks the gate subset (anteval run --smoke).
 
 # ── Self-modification ────────────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ kind = "callback"
 [[case]]
 id = "rest-mcp-parity"
 dimension = "reach"
-prompt = "agenteval parity sentinel {nonce} — no reply needed."
+prompt = "anteval parity sentinel {nonce} — no reply needed."
 max_wall_ms = 60000
 [case.check]
 kind = "parity_sentinel"

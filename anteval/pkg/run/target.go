@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/kronael/arizuko/agenteval/pkg/check"
+	"github.com/kronael/arizuko/anteval/pkg/check"
 )
 
 // HTTPTarget is the live adapter: it reaches a real arizuko instance through
@@ -54,7 +54,7 @@ func (t *HTTPTarget) do(method, url string, body any) (*http.Response, error) {
 // the chat's agent.
 func (t *HTTPTarget) Inject(chat, prompt string) (string, error) {
 	resp, err := t.do(http.MethodPost, t.API+"/v1/messages",
-		map[string]any{"chat_jid": chat, "content": prompt, "sender": "user:agenteval"})
+		map[string]any{"chat_jid": chat, "content": prompt, "sender": "user:anteval"})
 	if err != nil {
 		return "", err
 	}

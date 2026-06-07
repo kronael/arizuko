@@ -1,4 +1,4 @@
-// Command agenteval runs the agent-capability eval (spec 5/37) against a live
+// Command anteval runs the agent-capability eval (spec 5/37) against a live
 // arizuko instance and reports pass/fail per capability. See README.
 package main
 
@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kronael/arizuko/agenteval/pkg/report"
-	"github.com/kronael/arizuko/agenteval/pkg/run"
-	"github.com/kronael/arizuko/agenteval/pkg/spec"
+	"github.com/kronael/arizuko/anteval/pkg/report"
+	"github.com/kronael/arizuko/anteval/pkg/run"
+	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: agenteval run <target-base> [flags] | agenteval validate [--cases dir] | agenteval dash <report.json>")
+	fmt.Fprintln(os.Stderr, "usage: anteval run <target-base> [flags] | anteval validate [--cases dir] | anteval dash <report.json>")
 	os.Exit(2)
 }
 

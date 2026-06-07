@@ -1,4 +1,4 @@
-// Package check implements agenteval's public-surface checkers. Every checker
+// Package check implements anteval's public-surface checkers. Every checker
 // asserts an externally observable effect — an HTTP status, a callback the
 // agent's artifact made, or a message visible via REST/MCP — never the agent's
 // prose and never the instance's internal state.
@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kronael/arizuko/agenteval/pkg/spec"
+	"github.com/kronael/arizuko/anteval/pkg/spec"
 )
 
 // Hit is one callback the agent's artifact made to the harness sink.
