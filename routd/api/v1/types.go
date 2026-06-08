@@ -27,6 +27,7 @@ type Message struct {
 	Reaction       string       `json:"reaction"` // emoji for verb=like
 	IsGroup        bool         `json:"is_group"`
 	ChatName       string       `json:"chat_name"`
+	Source         string       `json:"source"` // adapter channel name (CHANNEL_NAME); persisted for multi-account reply routing
 	Attachments    []Attachment `json:"attachments"`
 	Attachment     string       `json:"attachment"`      // whapd flat-attachment compatibility
 	AttachmentMime string       `json:"attachment_mime"` //

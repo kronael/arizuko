@@ -695,3 +695,31 @@ func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
 		t.Fatalf("double-send: want 1 send, got %d (%+v)", len(dl.sends), dl.sends)
 	}
 }
+
+// TestInboundSourcePersistedForReplyRouting: an inbound carrying source (the
+// adapter's CHANNEL_NAME) must persist it so LatestSource resolves the reply
+// back to the ORIGINATING account. Regression (live multi-bot outage): the split
+// dropped source in buildMessageRow → LatestSource returned "" → resolve fell to
+// ForJID → replies to the rhias bot went out via the main bot. The pre-existing
+// deliver_test MOCKED lookupSource, so it never caught that production never
+// wrote source — this exercises the real persist→read chain.
+func TestInboundSourcePersistedForReplyRouting(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	row := buildMessageRow(apiv1.Message{
+		ID: "in1", ChatJID: "telegram:user/42", Sender: "telegram:user/42",
+		Content: "hi", Source: "telegram-rhias",
+	}, time.Now(), "message")
+	if row.Source != "telegram-rhias" {
+		t.Fatalf("buildMessageRow dropped source: %q", row.Source)
+	}
+	if err := db.PutMessage(row); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.LatestSource("telegram:user/42"); got != "telegram-rhias" {
+		t.Fatalf("LatestSource = %q, want telegram-rhias (reply would route to the wrong bot)", got)
+	}
+}

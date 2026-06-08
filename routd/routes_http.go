@@ -26,6 +26,9 @@ func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
 		ReplyToText: m.ReplyToText, ReplyToSender: m.ReplyToSender,
 		ForwardedFrom: m.ForwardedFrom,
 		Topic:         m.Topic, Verb: verb, Attachments: atts, ChatName: m.ChatName,
+		// Source = the originating adapter/account; LatestSource(jid) reads it so a
+		// reply resolves back to the bot that received it (multi-account routing).
+		Source: m.Source,
 		Status: core.MessageStatusSent,
 	}
 }

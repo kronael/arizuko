@@ -66,6 +66,13 @@ type InboundMsg struct {
 	// Stored on the message so the agent can identify the channel without
 	// a separate tool call.
 	ChatName string `json:"chat_name,omitempty"`
+	// Source is the adapter's channel name (CHANNEL_NAME — e.g. "telegram" or
+	// "telegram-rhias"). routd persists it on the row so a reply resolves back to
+	// the ORIGINATING bot/account: multi-account adapters share one
+	// service:<daemon> JWT, so auth alone can't disambiguate them (gated derived
+	// this from the per-adapter registration token; the split must carry it
+	// explicitly). Stamped from the registered channel name in SendMessage.
+	Source string `json:"source,omitempty"`
 }
 
 type RouterClient struct {
@@ -184,6 +191,13 @@ func (r *RouterClient) Deregister() error {
 }
 
 func (r *RouterClient) SendMessage(msg InboundMsg) error {
+	// Stamp the originating channel name so routd can route the reply back to the
+	// correct bot/account (multi-account: both share one service:<daemon> JWT).
+	if msg.Source == "" {
+		r.regMu.Lock()
+		msg.Source = r.regName
+		r.regMu.Unlock()
+	}
 	var last error
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
