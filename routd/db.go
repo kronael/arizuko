@@ -790,6 +790,17 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 	return n == 1, nil
 }
 
+// TurnHasBotReply reports whether the agent already delivered a bot message for
+// this turn via the reply/send tools. recordTurnResult consults it before
+// delivering the submit_turn prose result so an explicit reply is not
+// double-sent (the result-delivery is the fallback for turns that produced
+// prose but called no reply tool).
+func (d *DB) TurnHasBotReply(turnID string) bool {
+	var n int
+	d.db.QueryRow("SELECT 1 FROM messages WHERE turn_id=? AND is_bot_message=1 LIMIT 1", turnID).Scan(&n)
+	return n == 1
+}
+
 // TurnResultRecorded reports whether submit_turn already recorded an outcome for
 // (folder, turn_id). The run-response path checks this before persisting its
 // session_id backstop so submit_turn's value wins.

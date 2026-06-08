@@ -464,6 +464,19 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		return false, err
 	}
 	if first {
+		// Deliver the agent's prose result as the reply when it called no
+		// reply/send tool this turn. The agent's contract (ant/CLAUDE.md: "text
+		// outside <think> is delivered") relies on submit_turn's result reaching
+		// the user; the split had dropped it, so a normal Q&A turn produced output
+		// that never left routd (krons no-reply outage 2026-06-08). Same
+		// strip-think/format/deliver path as an explicit reply; skipped when the
+		// agent already delivered a row (no double-send), and BEFORE marking the
+		// turn done so the callback isn't yet closed.
+		if req.Result != "" && !s.db.TurnHasBotReply(turnID) {
+			if _, _, row := s.appendAndDeliver(turnID, tc.ChatJID, req.Result, "", true); row != nil {
+				_ = s.db.PutMessage(*row)
+			}
+		}
 		if req.SessionID != "" {
 			_ = s.db.PutSession(tc.Folder, tc.Topic, req.SessionID)
 		}

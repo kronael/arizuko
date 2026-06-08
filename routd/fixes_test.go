@@ -645,3 +645,53 @@ func TestDocumentStampsPlatformID(t *testing.T) {
 		t.Fatalf("stored document row platform_id=%q want doc-pid-99", pid)
 	}
 }
+
+// TestSubmitTurnResultDelivered: a submit_turn carrying a prose result for a
+// turn that called no reply/send tool delivers that result as the reply — the
+// agent's "text outside <think> is delivered" contract. Regression: the split
+// dropped result-delivery, so normal Q&A turns produced output that never
+// reached the user (krons no-reply outage 2026-06-08).
+func TestSubmitTurnResultDelivered(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
+		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success", Result: "the answer"})
+
+	if len(dl.sends) != 1 || dl.sends[0].text != "the answer" {
+		t.Fatalf("submit_turn result not delivered: sends=%+v", dl.sends)
+	}
+	if countBots(t, db, "slack:T/C/U") != 1 {
+		t.Fatal("result not persisted as a bot row")
+	}
+}
+
+// TestSubmitTurnResultSkippedWhenAlreadyReplied: when the agent already delivered
+// via the reply tool, submit_turn's result is NOT delivered again (no double-send).
+func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
+		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "explicit reply"})
+	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
+		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "would-be duplicate"})
+
+	if len(dl.sends) != 1 {
+		t.Fatalf("double-send: want 1 send, got %d (%+v)", len(dl.sends), dl.sends)
+	}
+}
