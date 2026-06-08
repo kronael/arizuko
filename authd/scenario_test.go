@@ -283,6 +283,41 @@ func TestHTTPRefreshExpiredRejected(t *testing.T) {
 	}
 }
 
+// Refresh narrows on shrunk grants: a refresh row was issued with a BROAD scope,
+// but the user's grants have since been revoked down. On refresh authd
+// re-snapshots grants, so the new access token carries the NARROWED current
+// grants — a revoked grant must NOT survive via the stored refresh-row scope
+// (spec 5/1 § refresh re-snapshots grants). The standalone fakeGrants tests
+// cover the fetcher; this drives the full Refresh narrowing path.
+func TestRefreshNarrowsOnShrunkGrants(t *testing.T) {
+	db := testDB(t)
+	a := newTestAuthd(t, db)
+	// The refresh family was minted when the user held two scopes. r.sub is the
+	// BARE canonical sub (issueSession stores it bare; "user:" is added at mint).
+	r0, err := a.IssueRefresh("1", []string{"tasks:read", "tasks:write"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Grants have since shrunk to a single scope (one was revoked). Keyed by the
+	// bare sub, matching the login-snapshot fetch authd does on refresh.
+	a.grants = fakeGrants{"1": {Scope: []string{"tasks:read"}}}
+
+	access, _, err := a.Refresh(context.Background(), r0)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	sub, err := auth.VerifyToken(access, a.LocalKeySet())
+	if err != nil {
+		t.Fatalf("refreshed access invalid: %v", err)
+	}
+	if !auth.HasScope(sub.Scope, "tasks", "read") {
+		t.Fatalf("refreshed scope must keep the still-granted tasks:read, got %v", sub.Scope)
+	}
+	if auth.HasScope(sub.Scope, "tasks", "write") {
+		t.Fatalf("refreshed scope kept the REVOKED tasks:write (grant survived via refresh), got %v", sub.Scope)
+	}
+}
+
 // Service-token (HTTP, scope bounding): the minted service token carries
 // EXACTLY the principal's declared serviceGrants — not the full vocabulary, not
 // the union of all daemons. A leaked boot secret buys only that one daemon's

@@ -327,6 +327,53 @@ func TestKillDoesNotRelabelCompletedRun(t *testing.T) {
 	}
 }
 
+// capBroker records the want (brokered scope) it was handed by the Manager.
+type capBroker struct {
+	want []types.Scope
+}
+
+func (b *capBroker) Broker(_ context.Context, _ types.UserSub, _ string, want []types.Scope,
+	_ time.Duration) (string, string, string, error) {
+	b.want = want
+	return "jws", "jti", "2099-01-01T00:00:00Z", nil
+}
+
+// TestSpawnAppliesScopeCeiling: a RunRequest whose CapabilityScopes is a
+// SUPERSET of the manager's service ceiling must broker only the INTERSECTION —
+// the spawn path can never escalate a token past runed's ceiling (spec 5/P §
+// brokering). The standalone TestIntersectFailClosed proves intersect(); this
+// proves Manager.Run actually wires its ceiling into the broker call.
+func TestSpawnAppliesScopeCeiling(t *testing.T) {
+	rt := FakeRuntime{Fn: func(context.Context, RunSpec) RunResult {
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+	}}
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	cb := &capBroker{}
+	mgr := NewManager(db, rt, cb, ManagerConfig{
+		Scopes:        []types.Scope{"messages:send:own_group", "chats:read:own_group"},
+		Instance:      "test",
+		MaxConcurrent: 5,
+	})
+
+	// The caller requests MORE than the ceiling grants: one in-ceiling scope plus
+	// an escalation attempt.
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{
+		Folder:           "demo",
+		MessageBatch:     "m",
+		CapabilityScopes: []types.Scope{"messages:send:own_group", "admin:everything"},
+	})
+	if out.Outcome != runedv1.OutcomeOK {
+		t.Fatalf("run outcome=%q want ok", out.Outcome)
+	}
+	if len(cb.want) != 1 || cb.want[0] != "messages:send:own_group" {
+		t.Fatalf("brokered want=%v, want [messages:send:own_group] (escalation must be intersected out)", cb.want)
+	}
+}
+
 // errBroker always fails brokering.
 type errBroker struct{}
 

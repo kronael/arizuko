@@ -20,6 +20,9 @@ type recDeliverer struct {
 	dislikes int
 	failSend bool
 	pid      string
+	// roundDones records every RoundDone call's folder key (the SSE subscriber
+	// key), to assert publishRoundDone keys on the chat-JID folder.
+	roundDones []string
 	// history is the canned HistoryResponse JSON the FetchHistory fake returns;
 	// historyErr forces the adapter-failed branch (→ cache fallback). Empty
 	// history + nil err → an empty-but-valid response.
@@ -65,7 +68,10 @@ func (d *recDeliverer) Repost(_, _ string) (string, error)                 { ret
 func (d *recDeliverer) Dislike(_, _ string) error                          { d.dislikes++; return nil }
 func (d *recDeliverer) SetSuggestions(_ string, _ []core.PanePrompt) error { return nil }
 func (d *recDeliverer) SetName(_, _ string) error                          { return nil }
-func (d *recDeliverer) RoundDone(_, _, _, _ string) error                  { return nil }
+func (d *recDeliverer) RoundDone(folder, _, _, _ string) error {
+	d.roundDones = append(d.roundDones, folder)
+	return nil
+}
 func (d *recDeliverer) FetchHistory(_ string, _ time.Time, _ int) ([]byte, error) {
 	return d.history, d.historyErr
 }
@@ -450,6 +456,43 @@ func TestAppendAndFinishAtomic(t *testing.T) {
 	}
 	if len(dl.sends) != 1 {
 		t.Fatalf("replay re-delivered (sends=%d)", len(dl.sends))
+	}
+}
+
+// TestRoundDoneKeysOnChatJIDFolder guards the SSE-key-mismatch bug-class:
+// publishRoundDone must key on the CHAT-JID folder (the webd SSE subscriber's
+// key), not the routing-target folder. A turn whose ChatJID is
+// "web:alice/submissions" gets routed to group "bob"; the round_done notice must
+// reach "alice/submissions" (where the form UI subscribes), never "bob" — else
+// the web form hangs waiting for a notice that landed on the wrong key.
+func TestRoundDoneKeysOnChatJIDFolder(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "bob"})
+	// A routing rule maps the web submission JID to a DIFFERENT target group.
+	doSetRoutes(t, db, []core.Route{{Match: "platform=web", Target: "bob"}})
+
+	dl := &recDeliverer{}
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	srv := NewServer(db, loop, dl, nil, 0, "")
+	loop.BindServer(srv)
+	h := srv.Handler()
+
+	// The turn's chat JID is the web submission folder; its routed target is "bob".
+	db.PutTurnContext("t1", "bob", "", "web:alice/submissions", "u1", "")
+
+	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
+		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success"})
+
+	if len(dl.roundDones) != 1 {
+		t.Fatalf("RoundDone fired %d times, want 1: %+v", len(dl.roundDones), dl.roundDones)
+	}
+	if got := dl.roundDones[0]; got != "alice/submissions" {
+		t.Fatalf("RoundDone keyed on %q, want alice/submissions (the SSE subscriber key, not target bob)", got)
 	}
 }
 

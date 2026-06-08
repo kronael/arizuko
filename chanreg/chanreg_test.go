@@ -200,6 +200,39 @@ func TestResolveEmptyName(t *testing.T) {
 	}
 }
 
+// TestResolveMultiAccountPrecedence guards the multi-bot outbound routing bug:
+// two adapters own the same telegram: prefix, distinguished only by name.
+// Resolve must pin by name (source-based routing), never first-by-prefix.
+func TestResolveMultiAccountPrecedence(t *testing.T) {
+	r := New("s")
+	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
+	r.Register("telegram-rhias", "http://rhias:9001", []string{"telegram:"}, nil)
+
+	jid := "telegram:user/42"
+
+	e := r.Resolve("telegram-rhias", jid)
+	if e == nil || e.Name != "telegram-rhias" {
+		t.Fatalf("Resolve(telegram-rhias) = %+v, want telegram-rhias by name", e)
+	}
+	if e.URL != "http://rhias:9001" {
+		t.Errorf("resolved URL = %q, want http://rhias:9001 (wrong account)", e.URL)
+	}
+
+	e = r.Resolve("telegram", jid)
+	if e == nil || e.Name != "telegram" {
+		t.Fatalf("Resolve(telegram) = %+v, want telegram by name", e)
+	}
+
+	// Empty name falls back to ForJID (some owner of the prefix).
+	e = r.Resolve("", jid)
+	if e == nil {
+		t.Fatal("Resolve(\"\") = nil, want ForJID fallback to some owner")
+	}
+	if e.Name != "telegram" && e.Name != "telegram-rhias" {
+		t.Errorf("Resolve(\"\") = %s, want one of telegram/telegram-rhias", e.Name)
+	}
+}
+
 func TestEntryOwns(t *testing.T) {
 	e := &Entry{JIDPrefixes: []string{"telegram:", "tg:"}}
 	if !e.Owns("telegram:123") {
