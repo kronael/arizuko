@@ -190,12 +190,19 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 
 	slog.Info("dispatch run", "folder", folder, "topic", topic, "turn_id", turnID,
 		"chat_jid", chatJID, "trigger", last.Sender)
+	// Type on the chat that RECEIVES the reply: for a delegated/forwarded turn
+	// that's the origin (ForwardedFrom), not the child folder JID the run
+	// addresses (which usually has no presence channel). Matches gated's deliverTo.
+	typingJID := chatJID
+	if last.ForwardedFrom != "" {
+		typingJID = last.ForwardedFrom
+	}
 	if l.deliver != nil {
-		_ = l.deliver.Typing(chatJID, true)
+		_ = l.deliver.Typing(typingJID, true)
 	}
 	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
 	if l.deliver != nil {
-		_ = l.deliver.Typing(chatJID, false)
+		_ = l.deliver.Typing(typingJID, false)
 	}
 	if derr != nil {
 		slog.Warn("dispatch run transport failure", "folder", folder, "turn_id", turnID, "err", derr)
@@ -327,6 +334,16 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 // produced no usable output, so the user isn't left silent.
 const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
 
+// jidScheme returns the JID scheme (telegram|slack|discord|web) — the
+// per-surface output-style selector — or "" for a bare folder / scheme-less JID
+// (operator/timed/auto-migrate), which must map to the default style.
+func jidScheme(jid string) string {
+	if s, _, ok := strings.Cut(jid, ":"); ok {
+		return s
+	}
+	return ""
+}
+
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // agent's conversation frames arrive out-of-band during the run via the
 // /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
@@ -354,8 +371,10 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 		// Channel = the JID scheme (telegram|slack|discord|web) so the container
 		// picks the per-surface output style. gated derived this; the split dropped
 		// it → every channel got default formatting (markdown unrendered on
-		// Telegram, etc.). Bare-folder/operator JIDs have no scheme → default.
-		Channel:          strings.SplitN(chatJID, ":", 2)[0],
+		// Telegram, etc.). A bare-folder/operator/timed JID (no scheme) yields ""
+		// → default style; SplitN would wrongly return the whole folder path as a
+		// bogus style name, so use jidScheme.
+		Channel:          jidScheme(chatJID),
 		SessionID:        l.db.SessionID(folder, topic),
 		MessageBatch:     batch,
 		TriggerSender:    trigger,

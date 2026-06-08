@@ -767,3 +767,24 @@ func TestInboundSourcePersistedForReplyRouting(t *testing.T) {
 		t.Fatalf("LatestSource = %q, want telegram-rhias (reply would route to the wrong bot)", got)
 	}
 }
+
+// TestJidScheme: the per-surface output-style selector. A bare folder / operator
+// / timed / auto-migrate JID (no scheme) must map to "" (default style), NOT the
+// whole folder path — the SplitN bug the adversarial parity review caught
+// (ChatJID="corp/eng" → bogus outputStyle="corp/eng").
+func TestJidScheme(t *testing.T) {
+	cases := map[string]string{
+		"telegram:user/1112": "telegram",
+		"slack:T/C/U":        "slack",
+		"discord:dm/9":       "discord",
+		"web:krons":          "web",
+		"corp/eng":           "", // bare folder (auto-migrate/proactive path) → default
+		"krons":              "", // operator
+		"":                   "",
+	}
+	for jid, want := range cases {
+		if got := jidScheme(jid); got != want {
+			t.Errorf("jidScheme(%q) = %q, want %q", jid, got, want)
+		}
+	}
+}
