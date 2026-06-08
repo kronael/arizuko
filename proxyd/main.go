@@ -420,17 +420,11 @@ func (rl *rateLimiter) allow(key string) bool {
 	return true
 }
 
-func (s *server) handler(cfg *core.Config, aud *audit.Audit) http.Handler {
+func (s *server) handler(aud *audit.Audit) http.Handler {
 	mux := http.NewServeMux()
-	// Soak: route NEW logins to authd's ES256 OAuth. When AUTHD_URL is set,
-	// 302 /auth/* to authd's /auth/* (existing HS256 sessions still verify via
-	// tryAuth's dual path); unset → serve the local HS256 OAuth flow as today.
-	// Reversible: clearing AUTHD_URL restores RegisterRoutes.
-	if s.cfg.authdURL != "" {
-		mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
-	} else {
-		auth.RegisterRoutes(mux, s.st, cfg)
-	}
+	// Compose always sets AUTHD_URL, so new logins 302 to authd's ES256 OAuth.
+	// Existing HS256 sessions still verify via tryAuth's dual path.
+	mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	mux.HandleFunc("/", s.route)
@@ -960,7 +954,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    cfg.port,
-		Handler: s.handler(coreCfg, aud),
+		Handler: s.handler(aud),
 	}
 
 	stop := make(chan os.Signal, 1)

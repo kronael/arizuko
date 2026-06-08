@@ -298,6 +298,7 @@ var coreProxydRoutes = []ProxydRoute{
 	{Path: "/dav/", Backend: "http://davd:8080", Auth: "user", StripPrefix: true, GatedBy: "WEBDAV_ENABLED"},
 	{Path: "/onboard", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
 	{Path: "/onboard/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
+	{Path: "/invite/", Backend: "http://onbod:8080", Auth: "public", GatedBy: "ONBOARDING_ENABLED"},
 }
 
 // gatedByOn reports whether the named env-gate is enabled. Empty key = no

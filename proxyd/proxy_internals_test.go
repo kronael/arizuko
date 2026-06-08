@@ -434,21 +434,3 @@ func TestRedirectAuthToAuthd(t *testing.T) {
 		t.Errorf("Location = %q", loc)
 	}
 }
-
-// With AUTHD_URL unset, the handler serves the local HS256 OAuth flow
-// (RegisterRoutes) — /auth/login returns the login page, not a redirect to authd.
-func TestHandler_AuthLocalWhenAuthdUnset(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	s := &server{cfg: config{authSecret: "s"}, st: st, rr: newRoutesResource(st, nil)}
-	h := s.handler(&core.Config{AuthSecret: "s"}, nil)
-	r := httptest.NewRequest("GET", "/auth/login", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code == http.StatusFound {
-		t.Errorf("with AUTHD_URL unset, /auth/login must not 302 to authd (got %d)", w.Code)
-	}
-}

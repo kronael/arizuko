@@ -844,9 +844,10 @@ func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
 
 // --- oauth / auth routes via handler ----------------------------------------
 
-// /auth/login reaches the auth package handler without hitting requireAuth.
-// This guards that proxyd wires auth routes through the mux (not the catch-all).
-func TestProxydHandlerAuthLoginBypassesGate(t *testing.T) {
+// /auth/* 302s to authd (the only OAuth host since the local HS256 mount was
+// removed). Path + query carry through so logins and provider callbacks reach
+// authd unchanged, bypassing requireAuth.
+func TestProxydHandlerAuthRedirectsToAuthd(t *testing.T) {
 	st, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -855,42 +856,19 @@ func TestProxydHandlerAuthLoginBypassesGate(t *testing.T) {
 
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
+	s.cfg.authdURL = "http://authd:8080"
+	h := s.handler(nil)
 
-	h := s.handler(&core.Config{AuthSecret: "testsecret"}, nil)
-	req := httptest.NewRequest("GET", "/auth/login", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != 200 {
-		t.Errorf("status = %d, want 200 (login page served by auth package)", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
-		t.Errorf("content-type = %q, want text/html*", ct)
-	}
-}
-
-// OAuth callbacks are only wired when a client ID is configured. A bare
-// config therefore exposes /auth/login but not /auth/google/callback, so
-// requests to the latter must not bypass the mux and must hit the auth gate.
-func TestProxydHandlerOAuthCallbackGatedWhenUnconfigured(t *testing.T) {
-	st, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	s, up := testRouteServer(t, st, "testsecret")
-	defer up.Close()
-
-	h := s.handler(&core.Config{AuthSecret: "testsecret"}, nil)
-	req := httptest.NewRequest("GET", "/auth/google/callback?code=x&state=y", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	// Unconfigured callback falls through to s.route, which treats /auth/*
-	// as a private path and redirects to /auth/login (it's NOT under /pub/).
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("status = %d, want 303 when callback unconfigured", w.Code)
+	for _, path := range []string{"/auth/login", "/auth/google/callback?code=x&state=y"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusFound {
+			t.Errorf("%s status = %d, want 302 to authd", path, w.Code)
+		}
+		if loc := w.Header().Get("Location"); loc != "http://authd:8080"+path {
+			t.Errorf("%s Location = %q, want authd + path", path, loc)
+		}
 	}
 }
 

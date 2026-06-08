@@ -831,6 +831,39 @@ gated_by = "SLACK_BOT_TOKEN"
 	}
 }
 
+// /invite/<token> accept links (emitted by invite_create) must reach onbod;
+// without this route a browser hitting /invite/TOKEN 302s to /pub/invite/TOKEN
+// and vited 404s.
+func TestProxydRoutes_InviteForwardedToOnbod(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `\"path\":\"/invite/\"`) {
+		t.Errorf("/invite/ route missing when ONBOARDING_ENABLED=true; got:\n%s", out)
+	}
+}
+
+func TestProxydRoutes_InviteSkippedWhenOnboardingOff(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(
+		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+
+	out, err := Generate(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, `\"path\":\"/invite/\"`) {
+		t.Errorf("/invite/ route should be skipped when ONBOARDING_ENABLED unset; got:\n%s", out)
+	}
+}
+
 func TestGenerateEgressIsolation(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)

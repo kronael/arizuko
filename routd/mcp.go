@@ -35,6 +35,7 @@ type turnMCP struct {
 // tools stay nil. ipc.ServeMCP registers only the non-nil ones.
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
+		AcceptURLBase:        s.webHost,
 		EngagementTTL:        s.engagementT,
 		GroupsDir:            s.groupsDir,
 		WebDir:               s.webDir,
