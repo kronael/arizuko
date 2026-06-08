@@ -17,6 +17,7 @@ type RunSpec struct {
 	ContainerName   string // the Manager's pinned name; the Runtime spawns + Kills by it
 	Topic           string
 	ChatJID         string
+	Channel         string // JID scheme → container.Input.Channel → pickOutputStyle
 	SessionID       string // resume; empty = fresh
 	MessageBatch    string // rendered prompt STRING
 	TriggerSender   string

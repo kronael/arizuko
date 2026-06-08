@@ -77,6 +77,7 @@ func (d *dockerRuntime) Run(_ context.Context, spec RunSpec) RunResult {
 		Prompt:      spec.MessageBatch,
 		SessionID:   spec.SessionID,
 		ChatJID:     spec.ChatJID,
+		Channel:     spec.Channel, // drives pickOutputStyle → per-surface formatting
 		Folder:      spec.Folder,
 		Topic:       spec.Topic,
 		MessageID:   spec.TurnID,

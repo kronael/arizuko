@@ -351,6 +351,11 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 		Folder:           types.Folder(folder),
 		Topic:            topic,
 		ChatJID:          chatJID,
+		// Channel = the JID scheme (telegram|slack|discord|web) so the container
+		// picks the per-surface output style. gated derived this; the split dropped
+		// it → every channel got default formatting (markdown unrendered on
+		// Telegram, etc.). Bare-folder/operator JIDs have no scheme → default.
+		Channel:          strings.SplitN(chatJID, ":", 2)[0],
 		SessionID:        l.db.SessionID(folder, topic),
 		MessageBatch:     batch,
 		TriggerSender:    trigger,

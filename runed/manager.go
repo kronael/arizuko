@@ -210,7 +210,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	// into it instead of spawning afresh.
 	res := m.runtime.Run(ctx, RunSpec{
 		RunID: runID, Folder: folder, ContainerName: containerName,
-		Topic: req.Topic, ChatJID: req.ChatJID,
+		Topic: req.Topic, ChatJID: req.ChatJID, Channel: req.Channel,
 		SessionID: sessionID, MessageBatch: req.MessageBatch,
 		TriggerSender: req.TriggerSender, CallerSub: req.CallerSub,
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,

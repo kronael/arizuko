@@ -19,6 +19,7 @@ type RunRequest struct {
 	Folder           types.Folder   `json:"folder"`
 	Topic            string         `json:"topic"`
 	ChatJID          string         `json:"chat_jid"`
+	Channel          string         `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web); drives the per-surface output style. Empty = default.
 	SessionID        string         `json:"session_id"`     // empty = fresh; runed resumes if non-empty
 	MessageBatch     string         `json:"message_batch"`  // rendered prompt STRING
 	TriggerSender    string         `json:"trigger_sender"` // engagement-skip policy only; NOT token identity
