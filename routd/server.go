@@ -384,7 +384,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if verb == "" {
 		verb = "message"
 	}
-	if m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo) {
+	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
+	// 10/17) must NOT escalate to a mention by replying to a bot message — that
+	// would let a spoofed inbound drive an agent turn. gated guarded this; the
+	// split had dropped it.
+	if verb != "untrusted" && m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo) {
 		verb = "mention"
 	}
 	// Reaction topic-inheritance: a reaction/reply with no topic of its own
