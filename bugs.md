@@ -7,39 +7,49 @@ general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
 ## OPEN — gated→split parity gaps (2026-06-08 audit)
 
-The split silently dropped several gated behaviors. Found via gated↔routd parity
-subs (read `git show 24d57a3e^:<path>`). **FIXED this session**: submit_turn result
-delivery (91937baf), multi-account source routing (cfb16465), typing indicator
-(441804ea), untrusted→mention guard (4a8fb007), per-surface output style (9a969517).
-**STILL OPEN** — fix-paths verified against both trees:
+The split silently dropped a CLASS of gated behaviors (verified via gated↔routd parity
+subs reading `git show 24d57a3e^:<path>`). The split's GOAL was independent, fully
+MCP+REST-steerable daemons — NOT to lose behavior; parity is a hard requirement.
 
-- **HIGH — chat-initiated onboarding is dead.** gated `gateway/gateway.go:663-666`
-  inserted an `awaiting_message` row on an unrouted inbound from an onboarding-allowed
-  platform; the split's routd no-route branch (`routd/dispatch.go` / `loop.go:499 resolve`)
-  never does → onbod polls an empty set, DM self-service onboarding broken.
-  `store.InsertOnboarding` has zero non-test callers. Fix: routd federates the insert to
-  onbod (onbod OWNS the table now) on a route miss when onboarding-enabled + platform
-  allowed (port `onboardingAllowed` + the discord-guild⇒mention guard).
-- **MED — ingress lost the adapter JID-ownership check.** gated `api/api.go handleMessage`
-  rejected `!entry.Owns(req.ChatJID)`; `routd/server.go:342 handleMessages` gates on the
-  `messages:write` scope only → any adapter token can forge inbound for any platform.
-  Fix: after deriving `adapter` from the verified sub, reject when the registry entry
-  doesn't own `m.ChatJID`'s prefix.
-- **MED — orphaned containers never reaped + no docker preflight.** gated startup called
-  `container.EnsureRunning()` + `CleanupOrphans()`; runed startup
-  (`runed/cmd/runed/main.go`) calls neither (both now dead code). Fix: wire both into
-  runed startup.
-- **MED — codex `.codex` dir not pre-seeded.** gated `seedCodexDirs` MkdirAll'd each
-  group's `.codex` (uid-1000) before any spawn; the split only lazy-mkdirs inside
-  `container/runner.go:561` → cold-start parallel spawns can root-own the bind source →
-  codex/oracle skill silently fails. Fix: port `seedCodexDirs` into runed startup.
-- **MED — chat link-code identity binding unwired (dead both ends).** `auth/link.go` +
-  `auth/routes.go` mounted by no daemon; routd has no `tryConsumeLinkCode`. authd OAuth
-  `intent=link` is the surviving path. Decision: retire the chat-paste flow OR re-wire;
-  likely retire (minimality).
-- **LOW — breaker-open notice wording.** gated sent "⚠️ Agent error… Send another message
-  to retry"; the split's `onCircuitBreakerOpen` sends nothing (a generic failure notice
-  still fires). Cosmetic.
+**FIXED this session**: submit_turn result delivery (91937baf), multi-account source
+routing (cfb16465), typing indicator (441804ea), untrusted→mention guard (4a8fb007),
+per-surface output style (9a969517), runed startup: docker preflight + orphan reap +
+codex-dir pre-seed (ea77aa6a).
+
+**STILL OPEN** — fix-paths verified against both trees, ranked:
+
+- **HIGH — chat-initiated onboarding is dead.** gated `gateway.go:660-667` (pollOnce) on a
+  route-miss, when `OnboardingEnabled` + `onboardingAllowed(jid, platforms)` + the
+  discord-guild⇒`verb==mention` gate, called `InsertOnboarding(chatJid)`. routd's route-miss
+  branch (`loop.go:447`) never does → `store.InsertOnboarding` has zero callers, onbod polls
+  an empty set, DM self-service onboarding broken on every instance. Fix: port the insert into
+  routd's route-miss branch (routd owns the onboarding table in routd.db — direct write);
+  plumb OnboardingEnabled+OnboardingPlatforms into LoopConfig.
+- **HIGH — whapd WhatsApp media 100% dropped.** gated `api/api.go:271-277` folded the flat
+  `attachment`/`attachment_mime`/`attachment_name` fields (whapd's only shape) into the
+  attachments array before persist. `routd/routes_http.go:16 buildMessageRow` dumps the raw
+  base64 into the column + ignores mime/name → `enrich.go:57` json.Unmarshal fails → attachment
+  silently dropped. Fix: fold the flat fields into m.Attachments before marshal. Add a
+  whapd-flat ingest test.
+- **HIGH — register_group manual path makes unreachable orphans.** gated `gateway.go:1975`
+  did PutGroup + AddRoute(room=JidRoom(jid)→folder, with rollback) + ensureGroupGitRepo. The
+  split's `routd/mcp.go:95 RegisterGroup` only PutGroup — ignores the jid, adds no route, no
+  git. An agent's `register_group(jid, folder, fromPrototype=false)` → group unreachable +
+  no per-group git. (The prototype path via spawn.go:69 is fine.) Fix: mirror
+  spawnFromPrototype's tail (route + git) in RegisterGroup.
+- **MED — ingress lost the adapter JID-ownership check.** gated rejected `!entry.Owns(req.ChatJID)`;
+  `routd/server.go:342` gates on the `messages:write` scope only → any adapter token can forge
+  inbound for any platform. Fix: reject when the registry entry doesn't own m.ChatJID's prefix.
+- **MED — chat link-code identity binding dropped.** gated `api/api.go:350` consumed a bare
+  `link-[0-9a-f]{12}` message via `tryConsumeLinkCode`→`ConsumeLinkCode`; routd handleMessages
+  has no such branch (`ConsumeLinkCode` never called). authd OAuth intent=link survives.
+  Decision: re-wire the chat-paste consume in routd, OR retire (delete dead mint+consume).
+- **LOW — agent-error diary breadcrumb.** gated `gateway.go:876 logAgentError` wrote
+  `diary.WriteRecovery` on agent error; split's OutcomeError branch doesn't (WriteRecovery dead).
+- **LOW — /v1/outbound explicit Channel override ignored.** gated honored `req.Channel`
+  (`api.go:197`); split's handleOutbound never passes it (timed/onbod→routd adapter override lost).
+- **LOW — breaker-open notice wording.** gated sent "⚠️ Agent error… Send another message to
+  retry"; split's `onCircuitBreakerOpen` sends nothing (generic notice still fires). Cosmetic.
 
 ## ✅ SPLIT VERIFIED WORKING ON KRONS (2026-06-06)
 
