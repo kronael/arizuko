@@ -161,6 +161,17 @@ func (s *Store) ConsumeInviteNoGrant(token, userSub string) (*Invite, error) {
 	return s.consumeInvite(token, userSub, false)
 }
 
+// RestoreInvite reverses a ConsumeInviteNoGrant — decrements used_count — when
+// the caller's downstream grant write (to routd.db in the split, a separate DB
+// so the two can't share a tx) fails. Without this the invite is burned with no
+// grant → the user is permanently locked out with no admin access.
+func (s *Store) RestoreInvite(token string) error {
+	_, err := s.db.Exec(
+		`UPDATE invites SET used_count = used_count - 1 WHERE token = ? AND used_count > 0`,
+		token)
+	return err
+}
+
 func (s *Store) consumeInvite(token, userSub string, grantACL bool) (*Invite, error) {
 	if userSub == "" {
 		return nil, errors.New("user_sub required")

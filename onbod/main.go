@@ -966,7 +966,19 @@ func handleInvite(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg 
 			Principal: userSub, Action: "admin", Scope: target,
 			Effect: "allow", GrantedBy: "invite",
 		}); perr != nil {
-			slog.Error("invite acl grant", "user", userSub, "scope", target, "err", perr)
+			// The grant (routd.db) failed AFTER the consume (onbod.db) — separate
+			// DBs, no shared tx. Roll back the consume so the invite isn't burned
+			// without a grant (silent permanent lockout), and surface the failure
+			// instead of redirecting as success.
+			slog.Error("invite acl grant failed; rolling back consume",
+				"user", userSub, "scope", target, "err", perr)
+			if rerr := st.RestoreInvite(token); rerr != nil {
+				slog.Error("invite rollback FAILED — invite burned without grant",
+					"token_hash", chanlib.ShortHash(token), "err", rerr)
+			}
+			renderPage(w, "Setup Failed", template.HTML(
+				"<p>We couldn't finish setting up your access. Please try the invite link again.</p>"))
+			return
 		}
 	}
 

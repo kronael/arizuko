@@ -224,3 +224,29 @@ func TestConsumeInviteAtomicConcurrent(t *testing.T) {
 		t.Errorf("DB used_count = %d, succeed = %d", got.UsedCount, succeed)
 	}
 }
+
+// TestRestoreInviteRollsBackConsume: a single-use invite consumed (used_count→max)
+// then RestoreInvite'd (decremented) is redeemable AGAIN — the split's rollback
+// when the cross-DB acl grant fails, so an invite is never burned without a grant.
+func TestRestoreInviteRollsBackConsume(t *testing.T) {
+	s, _ := OpenMem()
+	inv, err := s.CreateInvite("acme", "github:alice", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob"); err != nil {
+		t.Fatalf("first consume: %v", err)
+	}
+	// Exhausted now — a second consume must fail.
+	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:carol"); err == nil {
+		t.Fatal("expected exhausted invite to reject the second consume")
+	}
+	// Roll back the first consume (simulating a failed downstream grant).
+	if err := s.RestoreInvite(inv.Token); err != nil {
+		t.Fatalf("RestoreInvite: %v", err)
+	}
+	// Redeemable again — not burned without a grant.
+	if _, err := s.ConsumeInviteNoGrant(inv.Token, "github:bob"); err != nil {
+		t.Fatalf("consume after restore should succeed: %v", err)
+	}
+}
