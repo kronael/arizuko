@@ -265,14 +265,18 @@ func (b *bot) staleConfig() (staleSec int64, every time.Duration, limit int) {
 	return
 }
 
-// watchdog detects a silently-dead inbound stream and recovers it. slakd has no
-// socket to reconnect — Slack PUSHES events to /slack/events — so when delivery
-// stops while auth.test still succeeds (Slack-side subscription pause, app
-// reinstall, repeated non-2xx disabling the subscription) there is nothing to
-// re-dial. The honest recovery is to re-probe auth.test (refresh /health) and,
-// if inbound stays stale past the fail limit, os.Exit(1) so the on-failure
-// restart policy re-creates the container and clears the transient Slack-side
-// state. Costs an 11h outage on 2026-06-05 when nothing detected the freeze.
+// watchdog distinguishes a genuinely-dead stream from a merely-quiet one. slakd
+// has no socket: Slack PUSHES events to /slack/events, so inbound silence looks
+// identical whether the channel is idle or the subscription is broken. Measuring
+// silence alone is wrong — it bounced the container every 10 min on any quiet
+// instance, and each restart drops the POSTs Slack is mid-delivery, which is
+// exactly what makes Slack disable the subscription (a self-inflicted outage:
+// chronic flap on marinade 2026-06-08). The honest liveness signal is auth.test:
+// silence + auth.test OK = quiet, stay up; silence + auth.test FAILING = a real
+// token/connectivity death, exit so the on-failure policy re-creates the
+// container. auth.test also drives /health every tick. (The original
+// silence-only exit was added after an 11h freeze on 2026-06-05; the auth.test
+// gate keeps that detection without the false-positive churn.)
 func (b *bot) watchdog(ctx context.Context) {
 	staleSec, every, limit := b.staleConfig()
 	t := time.NewTicker(every)
@@ -284,22 +288,22 @@ func (b *bot) watchdog(ctx context.Context) {
 			return
 		case <-t.C:
 			age := time.Now().Unix() - b.lastInboundAt.Load()
-			stale := age > staleSec
-			if stale {
-				// Re-probe so /health and a genuine token death surface fast;
-				// also gives Slack a round-trip to recover before we count it.
-				if _, _, err := b.authTest(ctx); err != nil {
-					b.connected.Store(false)
-				} else {
-					b.connected.Store(true)
-				}
-				fails++
-				slog.Warn("slack inbound stale", "stale_seconds", age, "consecutive", fails, "limit", limit)
-			} else {
+			if age <= staleSec {
 				fails = 0
+				continue
 			}
-			if watchdogShouldExit(stale, fails, limit) {
-				slog.Error("slack inbound dead past deadline; exiting for restart",
+			// Stale: probe auth.test to tell "quiet" from "dead" and refresh /health.
+			_, _, authErr := b.authTest(ctx)
+			b.connected.Store(authErr == nil)
+			if authErr == nil {
+				fails = 0
+				slog.Warn("slack inbound quiet; token healthy, not restarting", "stale_seconds", age)
+				continue
+			}
+			fails++
+			slog.Warn("slack inbound stale and auth.test failing", "stale_seconds", age, "consecutive", fails, "limit", limit)
+			if watchdogShouldExit(true, fails, limit) {
+				slog.Error("slack auth.test dead past deadline; exiting for restart",
 					"stale_seconds", age, "consecutive_fails", fails, "limit", limit)
 				os.Exit(1)
 			}

@@ -1341,6 +1341,36 @@ func TestWatchdog_QuietWhenFresh(t *testing.T) {
 	}
 }
 
+// Stale inbound with a HEALTHY auth.test must never exit, even at limit=1 — a
+// quiet channel is not a dead stream. Guards the chronic-flap regression
+// (marinade 2026-06-08): the old watchdog counted every silent tick toward the
+// exit, bouncing the container every 10 min and dropping the very POSTs Slack
+// was delivering. If this regresses, os.Exit(1) fires in the goroutine and kills
+// the whole test binary — a loud failure, which is the point.
+func TestWatchdog_QuietHealthyNeverExits(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+	b.cfg.StaleSeconds = 1
+	b.cfg.WatchdogEvery = 2 * time.Millisecond
+	b.cfg.StaleFailLimit = 1 // old code would exit on the first stale tick
+	b.lastInboundAt.Store(time.Now().Add(-time.Hour).Unix())
+	b.connected.Store(false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.watchdog(ctx)
+
+	// Many stale ticks pass; a healthy probe must keep it alive (and restore health).
+	if !waitFor(500*time.Millisecond, func() bool { return b.isConnected() }) {
+		t.Fatal("watchdog did not restore connected on a healthy probe")
+	}
+	time.Sleep(30 * time.Millisecond) // several more ticks; old code would have exited by now
+	if !b.isConnected() {
+		t.Fatal("watchdog dropped connected on a healthy-but-quiet stream")
+	}
+}
+
 // The restart-backstop decision: exit only when currently stale AND the stale
 // streak has reached the limit; a recovered tick (stale=false) never exits and
 // resets the streak.
