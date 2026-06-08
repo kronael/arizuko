@@ -10,7 +10,18 @@ function pubFallback() {
         const q = url.indexOf('?');
         const p = q >= 0 ? url.slice(0, q) : url;
         const qs = q >= 0 ? url.slice(q) : '';
+        // A trailing-slash directory request must serve its index.html — vite's
+        // MPA serving 404s nested dir requests (foo/index.html works, foo/ does
+        // not). diskPrefix is where p lives under cwd; urlPrefix is prepended to
+        // the rewritten request. Returns true once it rewrote req.url.
+        const serveIndex = (diskPrefix, urlPrefix) => {
+          if (!p.endsWith('/')) return false;
+          if (!existsSync(join(process.cwd(), diskPrefix, p, 'index.html'))) return false;
+          req.url = urlPrefix + p + 'index.html' + qs;
+          return true;
+        };
         if (p === '/' || p.startsWith('/pub/') || p.startsWith('/priv/') || p.startsWith('/@')) {
+          serveIndex('', ''); // p already carries the /pub prefix; files at cwd+p
           return next();
         }
         const abs = join(process.cwd(), p);
@@ -23,7 +34,7 @@ function pubFallback() {
           res.end();
           return;
         }
-        req.url = '/pub' + url;
+        if (!serveIndex('pub', '/pub')) req.url = '/pub' + url;
         next();
       });
     },
