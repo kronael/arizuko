@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -109,6 +110,22 @@ func main() {
 			}
 		}
 	}()
+
+	// Startup parity with the former gateway.Run (spec 5/P): fail fast if the
+	// container runtime is unreachable, then stop any orphaned spawn containers
+	// left by a prior crash before we start accepting new runs.
+	if err := container.EnsureRunning(); err != nil {
+		slog.Error("container runtime check failed", "err", err)
+		os.Exit(1)
+	}
+	container.CleanupOrphans(cfg.Name, cfg.Image)
+
+	// Pre-seed each group's .codex/ (uid 1000) before any spawn so cold-start
+	// parallel docker run can't materialize the bind source as root. Only when
+	// the codex feature is enabled (HOST_CODEX_DIR set).
+	if cfg.HostCodexDir != "" {
+		container.SeedCodexDirs(cfg.GroupsDir)
+	}
 
 	srv := runed.NewServer(mgr, db, verify)
 	mux := srv.Handler().(*http.ServeMux)

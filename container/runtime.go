@@ -4,12 +4,39 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 const Bin = "docker"
+
+// SeedCodexDirs pre-creates each group's `.codex/` (uid 1000) before any
+// spawn, so cold-start parallel `docker run` can't race the runner's lazy
+// MkdirAll and let Docker materialize the bind source as root (gated did
+// this in gateway.seedCodexDirs). A group dir is any directory under
+// groupsDir holding a `.claude/` subdir (the seedGroupDir marker); runed
+// has no groups table to enumerate, so it walks the tree. Group folders
+// nest (corp/eng/sre), so the walk is recursive. No-op when codex is off.
+func SeedCodexDirs(groupsDir string) {
+	filepath.WalkDir(groupsDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if fi, e := os.Stat(filepath.Join(p, ".claude")); e != nil || !fi.IsDir() {
+			return nil
+		}
+		codexDir := filepath.Join(p, ".codex")
+		if e := os.MkdirAll(codexDir, 0o755); e != nil {
+			slog.Warn("seed codex dir", "group", p, "err", e)
+			return nil
+		}
+		chownR(codexDir, containerUID, containerUID)
+		return nil
+	})
+}
 
 func StopContainerArgs(name string) []string {
 	return []string{"stop", name}
