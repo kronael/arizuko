@@ -83,6 +83,15 @@ func main() {
 	// AUTHD_URL or AUTHD_SERVICE_KEY is unset, fall back to the static env
 	// (additive, local-dev safe).
 	runTimeout := durOr("RUNED_RUN_TIMEOUT", 20*time.Minute)
+	// routd must OUT-WAIT runed's kill-deadline. runed enforces RUNED_RUN_TIMEOUT
+	// as the container RunTTL (it kills the container at that mark); routd's
+	// HTTP-client + dispatch deadline therefore gets a grace margin on top. If
+	// they were equal, routd's deadline could fire first → transport error →
+	// turn_context stays `running` → the next poll re-feeds the SAME turn into a
+	// second container = the user's message executed twice (runed does not cancel
+	// the run on a dropped routd request). The grace lets runed's RunTTL kill +
+	// respond first, so routd always sees a real outcome.
+	runedWait := runTimeout + 2*time.Minute
 	var runedClient *runedv1.Client
 	// identity resolves a sender sub → canonical identity at authd's
 	// GET /v1/identities/{sub} (authd OWNS identity — spec 5/9), reusing the same
@@ -96,7 +105,7 @@ func main() {
 	var onbod routd.OnbodClient
 	svcKey := os.Getenv("AUTHD_SERVICE_KEY")
 	if ts, err := auth.ServiceToken(authdURL, "routd", svcKey); err == nil {
-		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runTimeout)
+		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runedWait)
 		identity = routd.NewIdentityResolver(authdURL, ts.Token)
 		onbod = routd.NewOnbodClient(onbodURL, ts.Token)
 		slog.Info("routd service-token bootstrap via authd", "authd", authdURL)
@@ -108,7 +117,7 @@ func main() {
 			slog.Error("routd service-token exchange FAILED though AUTHD_SERVICE_KEY is set; "+
 				"federated calls will 401 — check authd reachability + key", "authd", authdURL, "err", err)
 		}
-		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runTimeout)
+		runedClient = runedv1.NewClient(runedURL, os.Getenv("ROUTD_SERVICE_TOKEN"), runedWait)
 	}
 
 	// Channel plane (ported from gated): adapters register their egress URL +
@@ -120,7 +129,7 @@ func main() {
 		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
 	loop := routd.NewLoop(db, runedClient, routd.LoopConfig{
-		RunTimeout: runTimeout,
+		RunTimeout: runedWait,
 		IpcDir:     filepath.Join(dataDir, "ipc"),
 		RunScopes: []types.Scope{
 			"messages:send:own_group", "chats:read:own_group",
