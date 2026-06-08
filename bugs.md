@@ -2351,3 +2351,26 @@ failures. NOT a product bug; only the test harness. Other packages (auth/ipc/onb
 routd/proxyd/compose/webd) are clean. Fix-path: give each test its own DB (unique
 `file:<name>?mode=memory` DSN or a temp file per OpenMem call), or `t.Cleanup` truncation.
 Pre-existing — unrelated to the 5/5 MCP+REST uniformity work (which touched none of store/).
+
+## LOW/MED — deferred audit findings (2026-06-08 simplify+test sweep)
+
+Surfaced by 3 read-only audit subs; the high-payoff items were fixed (commits
+a473bff6 + 876d1b7c). Remaining, deferred:
+
+- MED proxyd `rateLimiter` (main.go:382) sweeps ALL buckets on every allow() —
+  O(keys) latency landmine under distinct-IP DoS; webd's token-bucket is better.
+  Unify into chanlib, or bound the sweep. (audit-3 #7)
+- MED proxyd `routesAuthz` (resource.go:289) is a no-op stub returning empty
+  scope — looks like row-based authz on the routes resource but isn't (the real
+  gate is the operator check in callerFromHTTP). Delete it or give it a real
+  scope. (audit-3 #8)
+- LOW proxyd `Route.GatedBy` (routes.go:22) is persisted + round-tripped but
+  never read at runtime (compose-time-only concept). Comment it or drop from the
+  runtime type. (audit-3 #9)
+- MED-TEST gaps still open: authd handleTokens default-downscope path (no
+  tokens:mint, typ=""); authd FetchGrants 404→ErrNoGrants mapping; authd
+  concurrent Rotate() one-active-key invariant; proxyd tryAuth CanonicalSub
+  linked-account path; runed drainLocked 2+ same-folder waiters; onbod
+  handleGatePut malformed-body partial decode. (audit-2 #7/#10/#12 + audit-3 #10)
+- chanlib monolith fallback dead-code remains deferred (test-rewrite cascade —
+  see the gated-removal FOLLOW-UP entry above).
