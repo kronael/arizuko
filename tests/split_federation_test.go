@@ -160,6 +160,7 @@ func (fedDeliverer) Edit(_, _, _ string) error                         { return 
 func (fedDeliverer) Delete(_, _ string) error                          { return nil }
 func (fedDeliverer) Pin(_, _ string) error                             { return nil }
 func (fedDeliverer) Unpin(_, _ string, _ bool) error                   { return nil }
+func (fedDeliverer) Typing(_ string, _ bool) error                     { return nil }
 func (fedDeliverer) Document(_, _, _, _, _, _ string) (string, error)  { return "platform-fed-doc", nil }
 func (fedDeliverer) SendVoice(_, _, _, _ string) (string, error)       { return "platform-fed-voice", nil }
 func (fedDeliverer) Post(_, _ string, _ []string) (string, error)      { return "platform-fed-post", nil }
