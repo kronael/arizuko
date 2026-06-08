@@ -159,6 +159,36 @@ func (a *admin) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+type insertOnboardingBody struct {
+	JID string `json:"jid"`
+}
+
+// handleOnboardingInsert is POST /v1/onboarding — record a chat-initiated
+// onboarding row (status awaiting_message) for an unrouted JID. routd's poll
+// loop hits this on a route miss; onbod OWNS the onboarding table, so routd
+// can't insert directly (it's not mounted to onbod.db). Bearer scope
+// invites:write (the onboarding-admission scope family). Idempotent: store's
+// INSERT OR IGNORE makes a re-post a no-op.
+func (a *admin) handleOnboardingInsert(w http.ResponseWriter, r *http.Request) {
+	if !a.authed(w, r, "invites:write") {
+		return
+	}
+	var body insertOnboardingBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if body.JID == "" {
+		writeErr(w, http.StatusBadRequest, "missing_field", "jid required")
+		return
+	}
+	if err := store.New(a.db).InsertOnboarding(body.JID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "insert_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 type gateJSON struct {
 	Gate        string `json:"gate"`
 	LimitPerDay int    `json:"limit_per_day"`

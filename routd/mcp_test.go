@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 )
 
@@ -36,6 +37,45 @@ func TestBuildGatedFnsSendReply(t *testing.T) {
 	}
 	if len(deliver.sends) != 1 || deliver.sends[0].text != "answer" {
 		t.Fatalf("deliver.sends=%+v want one 'answer'", deliver.sends)
+	}
+}
+
+// TestRegisterGroupAddsRoute: the manual register_group path persists the group
+// AND adds a room-matched default route + git-inits the group dir (ported from
+// gateway.registerGroupIPC). Without the route the group is an unreachable,
+// un-respawnable orphan — the bug this closes.
+func TestRegisterGroupAddsRoute(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	groupsDir := t.TempDir()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	srv.SetDirs(groupsDir, "")
+	if err := os.MkdirAll(filepath.Join(groupsDir, "ops"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := srv.registerGroup("telegram:777", core.Group{Folder: "ops"}); err != nil {
+		t.Fatalf("registerGroup: %v", err)
+	}
+
+	if !db.GroupExists("ops") {
+		t.Fatal("group not persisted")
+	}
+	routes, _ := db.Routes()
+	var found bool
+	for _, r := range routes {
+		if r.Match == "room=777" && r.Target == "ops" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("room route not added; routes=%+v", routes)
+	}
+	if _, err := os.Stat(filepath.Join(groupsDir, "ops", ".git")); err != nil {
+		t.Fatalf("group dir not git-inited: %v", err)
 	}
 }
 

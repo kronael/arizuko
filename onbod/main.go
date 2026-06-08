@@ -158,6 +158,7 @@ func main() {
 	// Verified against authd's JWKS (ks); nil ks (AUTHD_URL unset / monolith) =
 	// open, like routd's nil-verifier local-dev path.
 	adm := &admin{db: obdb, ks: ks}
+	mux.HandleFunc("POST /v1/onboarding", adm.handleOnboardingInsert)
 	mux.HandleFunc("POST /v1/invites", adm.handleInviteCreate)
 	mux.HandleFunc("GET /v1/invites", adm.handleInviteList)
 	mux.HandleFunc("DELETE /v1/invites/{token}", adm.handleInviteRevoke)

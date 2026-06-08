@@ -360,6 +360,19 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
 		return
 	}
+	// Ingress JID-ownership (ported from gated api.handleMessage's entry.Owns
+	// reject): a platform-scheme inbound must land under a registered channel's
+	// prefixes — a caller can't inject JIDs no adapter owns. Internal schemes
+	// (web:/hook:/bare-folder, used by web chat + timed + onbod) carry no channel
+	// prefix and are exempt. NOTE the split decouples the JWT principal
+	// (AUTHD_SERVICE_NAME, e.g. teled) from the channel-registration name (e.g.
+	// telegram), so this binds to "some registered channel owns it", not to the
+	// caller's own entry; cross-adapter spoofing needs a principal↔channel map
+	// that the registry doesn't carry yet (see report).
+	if s.reg != nil && isChannelJID(m.ChatJID) && s.reg.ForJID(m.ChatJID) == nil {
+		writeErr(w, 400, "jid_prefix_mismatch", "no registered channel owns "+m.ChatJID)
+		return
+	}
 	// Idempotency for the append-only log keys on the message id (the PK).
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
 	// id=<adapter>-<key> so the two keys collapse. A stable id AND a key together
@@ -777,6 +790,17 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// isChannelJID reports whether jid is a platform-channel JID (subject to the
+// ingress ownership check) vs an internal scheme. web:/hook:/bare-folder JIDs
+// address groups directly (web chat, timed, onbod) and carry no channel prefix,
+// so they're exempt; everything with a "platform:" prefix is a channel JID.
+func isChannelJID(jid string) bool {
+	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
+		return false
+	}
+	return strings.Contains(jid, ":")
 }
 
 // --- helpers ---

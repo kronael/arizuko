@@ -295,16 +295,21 @@ func TestCmdGateFederation(t *testing.T) {
 // fakeOnbod records calls and returns canned results for the /invite + /gate
 // federation tests (the production OnbodClient is httpOnbod against onbod).
 type fakeOnbod struct {
-	created  []string // target globs passed to CreateInvite
-	gates    []GateRow
-	putCalls []string // "gate=N"
-	rmCalls  []string
-	enCalls  []string // "gate=true|false"
+	created   []string // target globs passed to CreateInvite
+	onboarded []string // jids passed to InsertOnboarding
+	gates     []GateRow
+	putCalls  []string // "gate=N"
+	rmCalls   []string
+	enCalls   []string // "gate=true|false"
 }
 
 func (f *fakeOnbod) CreateInvite(targetGlob string, maxUses int) (string, error) {
 	f.created = append(f.created, targetGlob)
 	return "tok-123", nil
+}
+func (f *fakeOnbod) InsertOnboarding(jid string) error {
+	f.onboarded = append(f.onboarded, jid)
+	return nil
 }
 func (f *fakeOnbod) ListGates() ([]GateRow, error) { return f.gates, nil }
 func (f *fakeOnbod) PutGate(gate string, n int) error {

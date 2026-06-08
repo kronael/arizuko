@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/chanreg"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 const testChanSecret = "test-channel-secret"
@@ -26,6 +27,46 @@ func newChannelRoutd(t *testing.T) (*Server, *chanreg.Registry) {
 	reg := chanreg.New(testChanSecret)
 	srv.SetChannelRegistry(reg, nil, nil)
 	return srv, reg
+}
+
+// TestIngressJIDOwnership ports gated api.handleMessage's entry.Owns reject: a
+// platform-scheme inbound must land under a registered channel's prefixes.
+// Unowned platform JIDs are rejected (400 jid_prefix_mismatch); owned JIDs and
+// internal schemes (web:/hook:, used by web chat + timed) are accepted.
+func TestIngressJIDOwnership(t *testing.T) {
+	srv, _ := newChannelRoutd(t)
+	h := srv.Handler()
+	// register a slack adapter owning slack:T1/.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", testChanSecret, map[string]any{
+		"name": "slakd", "url": "http://slakd:8080",
+		"jid_prefixes": []string{"slack:T1/"},
+		"capabilities": map[string]bool{"send_text": true},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name string
+		jid  string
+		want int
+	}{
+		{"owned slack", "slack:T1/C/U", http.StatusOK},
+		{"unowned telegram", "telegram:42", http.StatusBadRequest},
+		{"unowned slack team", "slack:T9/C/U", http.StatusBadRequest},
+		{"web exempt", "web:demo", http.StatusOK},
+		{"hook exempt", "hook:demo/gh", http.StatusOK},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := doJSON(t, h, "POST", "/v1/messages", "",
+				apiv1.Message{ChatJID: c.jid, Sender: "u", Content: "hi", Verb: "message"})
+			if r.Code != c.want {
+				t.Fatalf("jid %q: code=%d want %d (%s)", c.jid, r.Code, c.want, r.Body.String())
+			}
+		})
+	}
 }
 
 func chanReq(method, path, token string, body any) *http.Request {

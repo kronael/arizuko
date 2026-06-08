@@ -102,6 +102,13 @@ type Loop struct {
 	// commands report the federation gap (ONBOD_URL unset / no service key). Set
 	// via SetOnbodClient.
 	onbod OnbodClient
+
+	// Chat-initiated onboarding (ported from gateway.pollOnce route-miss branch).
+	// onboardingEnabled false → a route miss never inserts an onboarding row.
+	// onboardingPlatforms restricts which jid platform prefixes may onboard
+	// (empty = all). routd OWNS the onboarding table in routd.db.
+	onboardingEnabled   bool
+	onboardingPlatforms []string
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -155,6 +162,13 @@ type LoopConfig struct {
 	// SessionIdle is the spawn-time stale-session reset threshold
 	// (SESSION_IDLE_EXPIRY). Zero falls back to sessionIdleExpiry (2 days).
 	SessionIdle time.Duration
+
+	// Chat-initiated onboarding (ONBOARDING_ENABLED / ONBOARDING_PLATFORMS).
+	// OnboardingEnabled false → a route miss never inserts an onboarding row.
+	// OnboardingPlatforms restricts which jid platform prefixes may onboard
+	// (empty = all).
+	OnboardingEnabled   bool
+	OnboardingPlatforms []string
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -188,6 +202,9 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		media:           cfg.Media,
 		sessionIdle:     cfg.SessionIdle,
 		folders:         &groupfolder.Resolver{GroupsDir: cfg.GroupsDir, IpcDir: cfg.IpcDir},
+
+		onboardingEnabled:   cfg.OnboardingEnabled,
+		onboardingPlatforms: cfg.OnboardingPlatforms,
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)
@@ -455,6 +472,20 @@ func (l *Loop) pollOnce() {
 				if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
 					slog.Warn("poll: mark observed", "jid", chatJID, "err", err)
 				}
+			} else if l.onboardingEnabled && l.onbod != nil {
+				// Genuine route miss (no observe rule): chat-initiated onboarding.
+				// Ported from gateway.pollOnce — discord guild channels only onboard
+				// on an explicit @mention so a busy server doesn't queue every poster.
+				// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
+				// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
+				discordGuild := strings.HasPrefix(chatJID, "discord:") &&
+					!strings.HasPrefix(chatJID, "discord:dm/")
+				if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
+					(!discordGuild || last.Verb == "mention") {
+					if err := l.onbod.InsertOnboarding(chatJID); err != nil {
+						slog.Warn("insert onboarding", "jid", chatJID, "err", err)
+					}
+				}
 			}
 			l.advance(chatJID, last)
 			continue
@@ -605,4 +636,20 @@ func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
 	if folder != "" {
 		_ = l.db.DeleteSession(folder, "")
 	}
+}
+
+// onboardingAllowed reports whether jid's platform prefix is eligible for
+// chat-initiated onboarding. Empty platforms = all allowed. Ported verbatim from
+// gateway.onboardingAllowed.
+func onboardingAllowed(jid string, platforms []string) bool {
+	if len(platforms) == 0 {
+		return true
+	}
+	p, _, _ := strings.Cut(jid, ":")
+	for _, allowed := range platforms {
+		if allowed == p {
+			return true
+		}
+	}
+	return false
 }

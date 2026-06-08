@@ -140,6 +140,10 @@ func main() {
 		// Spawn-time stale-session reset threshold (default 2 days, matching
 		// gateway.sessionIdleExpiry). SESSION_IDLE_EXPIRY overrides.
 		SessionIdle: durOr("SESSION_IDLE_EXPIRY", 0),
+		// Chat-initiated onboarding (ONBOARDING_ENABLED / ONBOARDING_PLATFORMS).
+		// A route miss federates an onboarding insert to onbod when enabled.
+		OnboardingEnabled:   envOr("ONBOARDING_ENABLED", "false") == "true",
+		OnboardingPlatforms: parseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(

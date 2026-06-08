@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -92,7 +94,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		AddGroupWatcher:       s.db.AddGroupWatcher,
 		RemoveGroupWatcher:    s.db.RemoveGroupWatcher,
 		GetGroups:             s.db.AllGroups,
-		RegisterGroup:         func(_ string, g core.Group) error { return s.db.PutGroup(g) },
+		RegisterGroup:         s.registerGroup,
 		InjectMessage: func(jid, content, sender, senderName string) (string, error) {
 			id := "in-" + randHex(8)
 			err := s.db.PutMessage(core.Message{
@@ -109,6 +111,42 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		RevokeRouteToken: s.mcpRevokeRouteToken,
 		SubmitTurn:       s.mcpSubmitTurn,
 	}
+}
+
+// registerGroup is the manual register_group path (ipc.GatedFns.RegisterGroup).
+// Ported from gateway.registerGroupIPC: persist the group, add a room-matched
+// default route (rolling the group row back if the route insert fails so a
+// route-less, unreachable, un-respawnable orphan is never left behind), then
+// git-init the group dir. The jid supplies the route's room literal.
+func (s *Server) registerGroup(jid string, g core.Group) error {
+	if err := s.db.PutGroup(g); err != nil {
+		return err
+	}
+	match := "room=" + core.JidRoom(jid)
+	if _, err := s.db.AddRoute(core.Route{Seq: 0, Match: match, Target: g.Folder}); err != nil {
+		_ = s.db.DeleteGroup(g.Folder)
+		return fmt.Errorf("add route for %s: %w", g.Folder, err)
+	}
+	ensureGroupGitRepo(filepath.Join(s.groupsDir, g.Folder))
+	return nil
+}
+
+// ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither
+// exists. Non-fatal: a missing git binary or dir leaves the group untracked.
+// Ported verbatim from gateway.ensureGroupGitRepo.
+func ensureGroupGitRepo(groupDir string) {
+	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
+		return
+	}
+	if err := exec.Command("git", "init", groupDir).Run(); err != nil {
+		return // git unavailable or dir missing — non-fatal
+	}
+	gitignore := filepath.Join(groupDir, ".gitignore")
+	if _, err := os.Stat(gitignore); err == nil {
+		return
+	}
+	lines := []string{"diary/", "episodes/", "users/", "logs/", "media/", "tmp/", "*.jl"}
+	os.WriteFile(gitignore, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 // mcpDeliver is the in-process reply/send: it ONLY delivers via the Deliverer.

@@ -75,6 +75,66 @@ func TestRouteMissDrops(t *testing.T) {
 	}
 }
 
+// TestRouteMissInsertsOnboarding checks the ported gateway.pollOnce route-miss
+// branch: when onboarding is enabled and the platform is allowed, an unrouted
+// chat federates an InsertOnboarding to onbod (which OWNS the table). Disabled or
+// platform-filtered chats do NOT. Discord guild channels onboard only on mention.
+func TestRouteMissInsertsOnboarding(t *testing.T) {
+	mk := func(t *testing.T, enabled bool, platforms []string) *fakeOnbod {
+		db, err := OpenMem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { db.Close() })
+		loop := NewLoop(db, nopRunner{}, LoopConfig{
+			OnboardingEnabled: enabled, OnboardingPlatforms: platforms,
+		})
+		loop.StopQueue()
+		fo := &fakeOnbod{}
+		loop.SetOnbodClient(fo)
+		now := time.Now().UTC()
+		// unrouted telegram chat + a discord guild post (no mention) + a discord dm.
+		_ = db.PutMessage(core.Message{ID: "t1", ChatJID: "telegram:42", Sender: "u", Content: "hi", Timestamp: now, Verb: "message"})
+		_ = db.PutMessage(core.Message{ID: "g1", ChatJID: "discord:guild/c", Sender: "u", Content: "yo", Timestamp: now, Verb: "message"})
+		_ = db.PutMessage(core.Message{ID: "d1", ChatJID: "discord:dm/u", Sender: "u", Content: "yo", Timestamp: now, Verb: "message"})
+		loop.pollOnce()
+		return fo
+	}
+
+	t.Run("enabled all platforms", func(t *testing.T) {
+		fo := mk(t, true, nil)
+		// telegram + discord dm onboard; discord guild (no mention) does not.
+		got := map[string]bool{}
+		for _, j := range fo.onboarded {
+			got[j] = true
+		}
+		if !got["telegram:42"] || !got["discord:dm/u"] {
+			t.Fatalf("expected telegram + discord dm onboarded, got %v", fo.onboarded)
+		}
+		if got["discord:guild/c"] {
+			t.Fatalf("discord guild channel onboarded without a mention: %v", fo.onboarded)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		if fo := mk(t, false, nil); len(fo.onboarded) != 0 {
+			t.Fatalf("onboarding disabled but inserted: %v", fo.onboarded)
+		}
+	})
+
+	t.Run("platform filtered", func(t *testing.T) {
+		fo := mk(t, true, []string{"telegram"})
+		for _, j := range fo.onboarded {
+			if j != "telegram:42" {
+				t.Fatalf("platform filter telegram leaked %q: %v", j, fo.onboarded)
+			}
+		}
+		if len(fo.onboarded) == 0 {
+			t.Fatal("telegram allowed but not onboarded")
+		}
+	})
+}
+
 // TestTransportFailureNoAdvance checks a transport failure leaves the
 // cursor un-advanced (re-fed next poll; spec 5/E § Transport failure).
 func TestTransportFailureNoAdvance(t *testing.T) {

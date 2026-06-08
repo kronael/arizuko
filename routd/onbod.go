@@ -18,6 +18,7 @@ import (
 // human-readable line for the steering ack.
 type OnbodClient interface {
 	CreateInvite(targetGlob string, maxUses int) (token string, err error)
+	InsertOnboarding(jid string) error
 	ListGates() ([]GateRow, error)
 	PutGate(gate string, limitPerDay int) error
 	DeleteGate(gate string) error
@@ -102,6 +103,12 @@ func (o *httpOnbod) CreateInvite(targetGlob string, maxUses int) (string, error)
 	err := o.do(http.MethodPost, "/v1/invites",
 		map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": "routd"}, &out)
 	return out.Token, err
+}
+
+// InsertOnboarding records a chat-initiated onboarding row for an unrouted JID
+// via onbod's POST /v1/onboarding (onbod OWNS the table). Idempotent onbod-side.
+func (o *httpOnbod) InsertOnboarding(jid string) error {
+	return o.do(http.MethodPost, "/v1/onboarding", map[string]any{"jid": jid}, nil)
 }
 
 func (o *httpOnbod) ListGates() ([]GateRow, error) {
