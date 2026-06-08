@@ -14,7 +14,17 @@ import (
 
 // buildMessageRow maps the ingress wire Message to a core.Message row.
 func buildMessageRow(m apiv1.Message, ts time.Time, verb string) core.Message {
-	atts := m.Attachment
+	// whapd sends a single attachment via the flat fields (its only shape); fold
+	// it into the array so the stored `attachments` column is always valid JSON
+	// that enrich.go can unmarshal. gated did this (api.go:271); the split dropped
+	// it → the raw base64 landed in the column, json.Unmarshal failed, and 100% of
+	// WhatsApp media was silently lost (never downloaded/transcribed).
+	if m.Attachment != "" {
+		m.Attachments = append([]apiv1.Attachment{{
+			Mime: m.AttachmentMime, Filename: m.AttachmentName, Data: m.Attachment,
+		}}, m.Attachments...)
+	}
+	atts := ""
 	if len(m.Attachments) > 0 {
 		if raw, err := json.Marshal(m.Attachments); err == nil {
 			atts = string(raw)

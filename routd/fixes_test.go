@@ -788,3 +788,22 @@ func TestJidScheme(t *testing.T) {
 		}
 	}
 }
+
+// TestWhapdFlatAttachmentFolded: whapd sends media via the flat
+// attachment/attachment_mime/attachment_name fields (no array). buildMessageRow
+// must fold them into a valid-JSON attachments array (gated api.go:271) so
+// enrich.go can unmarshal + download it. Regression: the split stored the raw
+// base64 → unmarshal fail → 100% of WhatsApp media silently dropped.
+func TestWhapdFlatAttachmentFolded(t *testing.T) {
+	row := buildMessageRow(apiv1.Message{
+		ID: "w1", ChatJID: "whatsapp:user/5", Sender: "whatsapp:user/5",
+		Attachment: "BASE64DATA", AttachmentMime: "image/jpeg", AttachmentName: "photo.jpg",
+	}, time.Now(), "message")
+	var atts []apiv1.Attachment
+	if err := json.Unmarshal([]byte(row.Attachments), &atts); err != nil {
+		t.Fatalf("attachments column is not valid JSON (media dropped): %v — got %q", err, row.Attachments)
+	}
+	if len(atts) != 1 || atts[0].Data != "BASE64DATA" || atts[0].Mime != "image/jpeg" || atts[0].Filename != "photo.jpg" {
+		t.Fatalf("flat fields not folded: %+v", atts)
+	}
+}
