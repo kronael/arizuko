@@ -2340,3 +2340,14 @@ FallsBackToChannelSecret/OnboardingFlow + chanlib monolith case) that pin the ol
 behavior. Deferred to a clean session (not worth marathon-end hot-path risk). Also
 deferred: move auth/policy.go (AuthorizeStructural) → grants/ now that gated (its other
 importer) is gone — spec 5/1 records this as staged.
+
+## LOW — store package test contamination (OpenMem cache=shared), 2026-06-08
+
+`go test ./store/... -count=1 -short` fails ~20 tests (FTS, secrets, fork_topic,
+groups, route_token, sessions) but EACH passes in isolation (`-run TestPutAndGetMessage$`
+→ ok). Root cause: `store.OpenMem` uses a process-wide `cache=shared` in-memory SQLite,
+so tests sharing the package binary leak rows/schema across each other → order-dependent
+failures. NOT a product bug; only the test harness. Other packages (auth/ipc/onbod/
+routd/proxyd/compose/webd) are clean. Fix-path: give each test its own DB (unique
+`file:<name>?mode=memory` DSN or a temp file per OpenMem call), or `t.Cleanup` truncation.
+Pre-existing — unrelated to the 5/5 MCP+REST uniformity work (which touched none of store/).
