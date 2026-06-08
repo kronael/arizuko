@@ -69,5 +69,4 @@ in `state=queued` (broker or docker unavailable).
 
 ## Status
 
-Built and tested in-tree, NOT yet deployed (behind `CUTOVER_SPLIT`);
-`gated` is the live monolith. Spec: `specs/5/P`.
+Live — the split is the only topology (gated removed, v0.50.0). Spec: `specs/5/P`.
