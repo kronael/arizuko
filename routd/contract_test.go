@@ -244,6 +244,7 @@ func (d *fakeDeliverer) Edit(_, _, _ string) error       { return nil }
 func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
 func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
 func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
+func (d *fakeDeliverer) Typing(_ string, _ bool) error   { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }

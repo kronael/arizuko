@@ -34,6 +34,9 @@ type Deliverer interface {
 	Delete(jid, platformID string) error
 	Pin(jid, platformID string) error
 	Unpin(jid, platformID string, all bool) error
+	// Typing toggles the platform "typing…" presence while the agent works the
+	// turn (best-effort; web / no-presence channels are no-ops).
+	Typing(jid string, on bool) error
 	// Document delivers a file at path. The file lives on the shared group
 	// volume both routd and the adapter mount.
 	Document(jid, path, name, caption, replyToID, idempotencyKey string) (platformID string, err error)

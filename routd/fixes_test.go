@@ -50,6 +50,7 @@ func (d *recDeliverer) Edit(_, _, _ string) error       { return nil }
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
+func (d *recDeliverer) Typing(_ string, _ bool) error   { return nil }
 func (d *recDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
 	return d.pid, nil
 }
