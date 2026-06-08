@@ -60,13 +60,18 @@ func dockerKill(name string) error {
 // no federation. Before spawning it registers the steer closure so a
 // concurrent POST /v1/runs writes into this live container instead of
 // spawning a second (spec 5/P § Steer-into-running-container).
-func (d *dockerRuntime) Run(_ context.Context, spec RunSpec) RunResult {
+func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 	if spec.RegisterSteer != nil {
 		ipcDir, _ := d.folders.IpcPath(spec.Folder)
 		spec.RegisterSteer(d.steerInto(ipcDir, spec.ContainerName))
 	}
 	stopTTL := d.armRunTTL(spec.RunTTL, spec.ContainerName)
 	defer stopTTL()
+	// Honor cancellation: if routd drops the request (a network blip mid-run),
+	// kill the container instead of orphaning it — else it runs to RunTTL while
+	// routd re-feeds the same turn into a second container (double execution).
+	stopCancel := d.armCancel(ctx, spec.ContainerName)
+	defer stopCancel()
 	var gc core.GroupConfig
 	if len(spec.ContainerConfig) > 0 {
 		b, _ := json.Marshal(spec.ContainerConfig)
@@ -147,6 +152,27 @@ func (d *dockerRuntime) armRunTTL(ttl time.Duration, containerName string) func(
 				return
 			case <-time.After(runTTLPollInterval):
 			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// armCancel kills the container if ctx is cancelled mid-run (routd dropped the
+// POST /v1/runs request — a network blip). Without it the container orphans
+// until runTTL and routd re-feeds the turn into a second container (double
+// execution). Returns a stop func the caller defers so a completed run cancels
+// the watcher — no kill fires after the run returns. Kill is idempotent.
+func (d *dockerRuntime) armCancel(ctx context.Context, containerName string) func() {
+	if ctx == nil || containerName == "" {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			_ = d.Kill(containerName)
 		}
 	}()
 	var once sync.Once
