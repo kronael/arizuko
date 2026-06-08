@@ -13,6 +13,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 // chatMCPWaitCap caps get_round blocking so forgotten clients can't pin goroutines.
@@ -27,7 +28,7 @@ func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := jidFolder(row.JID)
+	folder := groupfolder.JidFolder(row.JID)
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -132,7 +133,7 @@ func TestSetUserHeaders_NoSecret(t *testing.T) {
 	}
 }
 
-// jidFolder (proxyd-local copy) mirrors the webd helper.
+// proxyd stamps X-Folder via the canonical groupfolder.JidFolder.
 func TestProxydJIDFolder(t *testing.T) {
 	cases := []struct {
 		jid  string
@@ -146,9 +147,9 @@ func TestProxydJIDFolder(t *testing.T) {
 		{"other:x", ""},
 	}
 	for _, c := range cases {
-		got := jidFolder(c.jid)
+		got := groupfolder.JidFolder(c.jid)
 		if got != c.want {
-			t.Errorf("jidFolder(%q) = %q, want %q", c.jid, got, c.want)
+			t.Errorf("JidFolder(%q) = %q, want %q", c.jid, got, c.want)
 		}
 	}
 }

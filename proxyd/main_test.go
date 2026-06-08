@@ -369,6 +369,42 @@ func TestProxydPubWebRouteDeny(t *testing.T) {
 	}
 }
 
+// web_routes auth: an Access="auth" row gates the proxy — no credential
+// bounces to /auth/login (303), a valid bearer reaches the upstream.
+func TestProxydPubWebRouteAuth(t *testing.T) {
+	s, up := testServerWithUpstream(t)
+	defer up.Close()
+	s.rr.installManualWeb([]store.WebRoute{
+		{PathPrefix: "/pub/members/", Access: "auth", Folder: "atlas"},
+	})
+
+	// (a) no credentials → bounce to login, upstream untouched.
+	req := httptest.NewRequest("GET", "/pub/members/x.html", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("unauthed status = %d, want 303", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("unauthed location = %q, want /auth/login", loc)
+	}
+	if w.Header().Get("X-Upstream") == "hit" {
+		t.Error("upstream reached without credentials")
+	}
+
+	// (b) valid bearer → upstream reached.
+	req = httptest.NewRequest("GET", "/pub/members/x.html", nil)
+	req.Header.Set("Authorization", "Bearer "+testMintJWT([]byte("testsecret"), "user:carol"))
+	w = httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != 200 {
+		t.Fatalf("authed status = %d, want 200", w.Code)
+	}
+	if w.Header().Get("X-Upstream") != "hit" {
+		t.Error("upstream not reached with valid bearer")
+	}
+}
+
 // web_routes longest-prefix wins: a more specific deny under a broader
 // redirect takes precedence.
 func TestProxydPubWebRouteLongestPrefix(t *testing.T) {

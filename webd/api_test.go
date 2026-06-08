@@ -8,8 +8,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 )
+
+// POST /v1/round_done — the channelSecret gate rejects an unauthenticated
+// caller; a valid POST resolves turn_id→topic and publishes round_done to the
+// folder/topic key the SSE subscriber listens on. This drives every SSE
+// turn-close, so a regression hangs the chat widget.
+func TestHandleRoundDone(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+
+	// (a) channelSecret gate: a non-empty secret + no Authorization → 401.
+	gated := chanlib.Auth("sekret", s.handleRoundDone)
+	req := httptest.NewRequest("POST", "/v1/round_done",
+		strings.NewReader(`{"turn_id":"t1","folder":"main","status":"ok"}`))
+	w := httptest.NewRecorder()
+	gated(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthed status = %d, want 401", w.Code)
+	}
+
+	// (b) valid call: seed the turn message so turn_id→topic resolves, then
+	// assert publish lands on the matching folder/topic key.
+	turnID := "turn-rd"
+	if err := st.PutMessage(core.Message{
+		ID: turnID, ChatJID: "web:main", Content: "q",
+		Timestamp: time.Now(), Topic: "tt", TurnID: turnID,
+	}); err != nil {
+		t.Fatalf("PutMessage: %v", err)
+	}
+	ch, unsub := s.hub.subscribe("main", "tt")
+	defer unsub()
+
+	body := `{"turn_id":"` + turnID + `","folder":"main","status":"ok"}`
+	req = httptest.NewRequest("POST", "/v1/round_done", strings.NewReader(body))
+	w = httptest.NewRecorder()
+	gated.ServeHTTP(w, withBearer(req, "sekret"))
+	if w.Code != 200 {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	select {
+	case frame := <-ch:
+		if !strings.Contains(frame, `"turn_id":"`+turnID+`"`) ||
+			!strings.Contains(frame, "round_done") {
+			t.Errorf("round_done frame wrong: %s", frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no round_done publish on the turn's folder/topic key")
+	}
+}
+
+func withBearer(r *http.Request, tok string) *http.Request {
+	r.Header.Set("Authorization", "Bearer "+tok)
+	return r
+}
 
 // GET /api/groups returns groups the user has ACL for, via s.groupList().
 func TestAPIGroups_ListsAll(t *testing.T) {

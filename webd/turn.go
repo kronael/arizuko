@@ -10,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 )
 
 type frame struct {
@@ -46,7 +47,7 @@ func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, 
 		http.Error(w, "not found", http.StatusNotFound)
 		return "", ""
 	}
-	folder = jidFolder(row.JID)
+	folder = groupfolder.JidFolder(row.JID)
 	if _, ok := s.st.MessageTimestampByID(turnID, row.JID); !ok {
 		http.Error(w, "turn not found", http.StatusNotFound)
 		return "", ""

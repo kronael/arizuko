@@ -15,13 +15,12 @@ import (
 
 // admin serves onbod's bearer-gated /v1/* surface: the invite + gate writers
 // that dashd, the host CLI, and routd's /invite + /gate commands reach instead
-// of touching onbod's tables directly in the split (spec 5/5 § Daemon
-// ownership). All mutations go through store.New(db) against onbod's OWNED DB
-// (onbod.db in the split, messages.db in the monolith) so the same audited
-// writers gated used apply verbatim.
+// of touching onbod's tables directly (spec 5/5 § Daemon ownership). All
+// mutations go through store.New(db) against onbod's OWNED DB (onbod.db) using
+// the same audited writers.
 type admin struct {
 	db *sql.DB
-	ks *auth.KeySet // authd JWKS; nil (AUTHD_URL unset / monolith) → open, like routd's nil verifier
+	ks *auth.KeySet // authd JWKS; nil (AUTHD_URL unset, e.g. local-dev) → open, like routd's nil verifier
 }
 
 // authed verifies the bearer token against authd's JWKS and checks the token

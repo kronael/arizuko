@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -123,7 +123,7 @@ func tokenRevoke(st *store.Store, args []string) {
 	if len(args) >= 2 {
 		folder = args[1]
 	} else {
-		folder = jidFolder(jid)
+		folder = groupfolder.JidFolder(jid)
 	}
 	if folder == "" {
 		die("Failed: unrecognised JID format %q", jid)
@@ -137,24 +137,4 @@ func tokenRevoke(st *store.Store, args []string) {
 	}
 	auditCLI(st, "token revoke", []string{jid})
 	fmt.Println("revoked:", jid)
-}
-
-// jidFolder extracts the owner folder from a route-token JID, matching the
-// grammar used by webd/proxyd. web:<folder>[/<suffix>] → the folder may itself
-// contain "/" (acme/eng), so the whole rest is the folder for the no-suffix
-// case. hook:<folder>/<source>[...] → folder is everything up to the last
-// segment. Tokens minted with a JID suffix or a divergent owner can't be
-// recovered from the JID alone — pass owner_folder explicitly to revoke those.
-func jidFolder(jid string) string {
-	switch {
-	case strings.HasPrefix(jid, "web:"):
-		return strings.TrimPrefix(jid, "web:")
-	case strings.HasPrefix(jid, "hook:"):
-		rest := strings.TrimPrefix(jid, "hook:")
-		if i := strings.LastIndexByte(rest, '/'); i > 0 {
-			return rest[:i]
-		}
-		return rest
-	}
-	return ""
 }

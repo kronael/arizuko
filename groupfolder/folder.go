@@ -76,6 +76,24 @@ func (r *Resolver) IpcPath(folder string) (string, error) {
 	return resolve(r.IpcDir, folder)
 }
 
+// JidFolder extracts the owner folder from a route-token / web-chat JID by
+// prefix grammar alone. web:<folder>[/<suffix>] → the whole rest (the folder
+// may itself contain "/", e.g. acme/eng). hook:<folder>/<source>[/...] →
+// everything up to the last segment. Returns "" for any other scheme; callers
+// that must resolve non-web/hook JIDs go through the routes table.
+func JidFolder(jid string) string {
+	if rest, ok := strings.CutPrefix(jid, "web:"); ok {
+		return rest
+	}
+	if rest, ok := strings.CutPrefix(jid, "hook:"); ok {
+		if i := strings.LastIndexByte(rest, '/'); i > 0 {
+			return rest[:i]
+		}
+		return rest
+	}
+	return ""
+}
+
 // IPC subdirectory conventions.
 func IpcInputDir(ipcDir string) string          { return filepath.Join(ipcDir, "input") }
 func IpcSocket(ipcDir string) string            { return filepath.Join(ipcDir, "gated.sock") }

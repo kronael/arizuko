@@ -673,7 +673,7 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 	}
 	if token != "" && s.st != nil {
 		if row, ok := s.st.LookupRouteToken(token); ok {
-			folder := jidFolder(row.JID)
+			folder := groupfolder.JidFolder(row.JID)
 			r = r.Clone(r.Context())
 			r.Header.Set("X-Folder", folder)
 			r.Header.Set("X-Group-Name", groupfolder.NameOf(folder))
@@ -683,22 +683,6 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 		}
 	}
 	rp.ServeHTTP(w, r)
-}
-
-// jidFolder mirrors webd/route_token.go's helper — strip the
-// web:/hook: prefix and (for hook:) the source segment.
-func jidFolder(jid string) string {
-	switch {
-	case strings.HasPrefix(jid, "web:"):
-		return strings.TrimPrefix(jid, "web:")
-	case strings.HasPrefix(jid, "hook:"):
-		rest := strings.TrimPrefix(jid, "hook:")
-		if i := strings.LastIndexByte(rest, '/'); i > 0 {
-			return rest[:i]
-		}
-		return rest
-	}
-	return ""
 }
 
 func (s *server) davRoute(rp *httputil.ReverseProxy, w http.ResponseWriter, r *http.Request) {

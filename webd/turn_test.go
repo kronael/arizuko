@@ -12,6 +12,59 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+// authorizeTurn is the data-isolation boundary between chat widgets: a turn is
+// reachable only through the route-token whose JID owns it. (a) an unknown token
+// 404s; (b) a turn owned by a DIFFERENT token's JID 404s even with a valid token
+// — otherwise widget A could read widget B's turn frames.
+func TestTurnSnapshot_CrossTokenIsolation(t *testing.T) {
+	s, _, st := newTestServer(t)
+	seedGroup(t, st, "alpha", "Alpha")
+	seedGroup(t, st, "bravo", "Bravo")
+	tokA := seedChatToken(t, st, "alpha")
+	tokB := seedChatToken(t, st, "bravo")
+
+	// A turn that belongs to alpha's JID only.
+	if err := st.PutMessage(core.Message{
+		ID: "turnA", ChatJID: "web:alpha", Content: "secret",
+		Timestamp: time.Now(), Topic: "tt", TurnID: "turnA",
+	}); err != nil {
+		t.Fatalf("put turnA: %v", err)
+	}
+
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	// (a) unknown route-token → 404.
+	resp, err := http.Get(srv.URL + "/chat/nope-not-a-token/turnA")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown token status = %d, want 404", resp.StatusCode)
+	}
+
+	// (b) tokB is valid but turnA belongs to alpha's JID → 404 (containment).
+	resp, err = http.Get(srv.URL + "/chat/" + tokB + "/turnA")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("cross-token turn status = %d, want 404 (isolation breach)", resp.StatusCode)
+	}
+
+	// Sanity: tokA (the owner) reaches its own turn.
+	resp, err = http.Get(srv.URL + "/chat/" + tokA + "/turnA")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("owner token status = %d, want 200", resp.StatusCode)
+	}
+}
+
 // A round_done for a different turn sharing the same topic must NOT close
 // this turn's per-turn SSE stream; only the matching turn_id closes it.
 func TestTurnSSE_RoundDoneFilteredByTurnID(t *testing.T) {

@@ -15,11 +15,9 @@ const onbodServiceName = "onbod"
 
 // openOwnedDB opens the DB that holds onbod's OWNED tables (onboarding, invites,
 // onboarding_gates) + its own audit_log, running the onbod migration sequence.
-// Split topology: ownDSN points at <datadir>/store/onbod.db so onbod stops
-// sibling-writing gated's messages.db. Monolith: ownDSN is empty and the caller
-// keeps using the shared messages.db handle (which already carries these tables
-// via store/migrations) — openOwnedDB is never called. Mirrors routd.Open /
-// runed.Open: WAL, migrations first so the tables exist before any read/write.
+// ownDSN points at <datadir>/store/onbod.db (onbod owns + migrates this DB).
+// Mirrors routd.Open / runed.Open: WAL, migrations first so the tables exist
+// before any read/write.
 func openOwnedDB(ownDSN string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", ownDSN+"?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)")
 	if err != nil {

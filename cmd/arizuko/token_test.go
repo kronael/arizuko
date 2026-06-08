@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kronael/arizuko/groupfolder"
+)
 
 func TestJidFolder(t *testing.T) {
 	cases := []struct {
@@ -18,8 +22,8 @@ func TestJidFolder(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := jidFolder(c.jid); got != c.want {
-			t.Errorf("jidFolder(%q) = %q, want %q", c.jid, got, c.want)
+		if got := groupfolder.JidFolder(c.jid); got != c.want {
+			t.Errorf("JidFolder(%q) = %q, want %q", c.jid, got, c.want)
 		}
 	}
 }

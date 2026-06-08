@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -110,19 +111,13 @@ func (d *dash) requireOperator(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // jidFolder maps a message chat_jid to its routing-target folder for
-// visibility filtering. web:<folder>[/...] and hook:<folder>/... carry the
-// folder in the prefix; any other platform JID resolves through the routes
+// visibility filtering. web:/hook: JIDs carry the folder in the prefix
+// (groupfolder.JidFolder); any other platform JID resolves through the routes
 // table (store.DefaultFolderForJID). Empty when no folder can be determined —
 // such a message is invisible to every non-operator (fail-closed).
 func (d *dash) jidFolder(jid string) string {
-	if rest, ok := strings.CutPrefix(jid, "web:"); ok {
-		return rest
-	}
-	if rest, ok := strings.CutPrefix(jid, "hook:"); ok {
-		if i := strings.LastIndexByte(rest, '/'); i > 0 {
-			return rest[:i]
-		}
-		return rest
+	if strings.HasPrefix(jid, "web:") || strings.HasPrefix(jid, "hook:") {
+		return groupfolder.JidFolder(jid)
 	}
 	return store.New(d.adminDB()).DefaultFolderForJID(jid)
 }

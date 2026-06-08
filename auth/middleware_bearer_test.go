@@ -83,6 +83,41 @@ func TestRequireSignedOrBearer_ES256_Accepted(t *testing.T) {
 	}
 }
 
+// TestRequireSignedOrBearer_ES256_GrantsResolved is the production webd shape:
+// grants != nil (st.UserScopes). The bearer's narrow arz/folder claim is
+// IGNORED in favor of the resolver's full DB-sourced grant set — so an operator
+// whose token only claims arz/folder=atlas/main still gets X-User-Groups=["**"].
+// A regression here silently strips operator privileges (the `**` continuity
+// path) in webd.
+func TestRequireSignedOrBearer_ES256_GrantsResolved(t *testing.T) {
+	ks, tok := bearerKeySet(t, TokenClaims{
+		Sub: "u_7", Typ: "user",
+		Extra: map[string]string{"arz/folder": "atlas/main", "name": "alice"},
+	})
+	var gotSub string
+	grants := func(bareSub string) []string {
+		gotSub = bareSub
+		return []string{"**", "corp/eng"} // operator + a folder, from the DB
+	}
+	var seen *http.Request
+	h := RequireSignedOrBearer(mwSecret, ks, grants)(func(w http.ResponseWriter, r *http.Request) {
+		seen = r
+	})
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h(w, r)
+	if seen == nil {
+		t.Fatal("valid ES256 bearer rejected")
+	}
+	if gotSub != "u_7" {
+		t.Fatalf("grants resolver got bareSub %q, want u_7 (user: prefix stripped)", gotSub)
+	}
+	if g := seen.Header.Get("X-User-Groups"); g != `["**","corp/eng"]` {
+		t.Fatalf("X-User-Groups = %q, want DB-sourced [**,corp/eng] (not the token's arz/folder)", g)
+	}
+}
+
 func TestRequireSignedOrBearer_HMAC_StillWorks_WithKeySet(t *testing.T) {
 	ks, _ := bearerKeySet(t, TokenClaims{Sub: "u_7", Typ: "user"})
 	var seen *http.Request

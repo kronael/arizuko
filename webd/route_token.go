@@ -64,31 +64,6 @@ func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request) (store
 	return row, true
 }
 
-// jidFolder extracts the folder from a route_tokens JID. For web:<folder>
-// returns the folder; for hook:<folder>/<source>[/<suffix>] returns
-// <folder>. Used for engagement bookkeeping + the chat widget header.
-func jidFolder(jid string) string {
-	switch {
-	case strings.HasPrefix(jid, "web:"):
-		// web:<folder>[/<suffix>] — strip the prefix and take everything;
-		// folder may contain "/" itself (acme/eng).
-		return strings.TrimPrefix(jid, "web:")
-	case strings.HasPrefix(jid, "hook:"):
-		// hook:<folder>/<source>[/<suffix>]: folder is everything up to
-		// the last segment(s). Heuristic: a single-segment folder ("acme")
-		// means "acme/<source>"; multi-segment ("acme/eng") means
-		// "acme/eng/<source>". We can't disambiguate without DB lookup,
-		// so callers that need the exact folder should resolve via
-		// store.DefaultFolderForJID.
-		rest := strings.TrimPrefix(jid, "hook:")
-		if i := strings.LastIndexByte(rest, '/'); i > 0 {
-			return rest[:i]
-		}
-		return rest
-	}
-	return ""
-}
-
 // GET /chat/<token>/  → built-in widget.
 // Hook tokens hitting /chat/ still serve the widget (kind is metadata).
 func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +71,7 @@ func (s *server) handleChatTokenRoot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := jidFolder(row.JID)
+	folder := groupfolder.JidFolder(row.JID)
 	name := groupfolder.NameOf(folder)
 	token := r.PathValue("token")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -111,7 +86,7 @@ func (s *server) handleChatTokenConfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := jidFolder(row.JID)
+	folder := groupfolder.JidFolder(row.JID)
 	token := r.PathValue("token")
 	chanlib.WriteJSON(w, map[string]any{
 		"token":  token,
@@ -169,7 +144,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	folder := jidFolder(row.JID)
+	folder := groupfolder.JidFolder(row.JID)
 
 	if !s.limiter.allow(row.JID) {
 		slog.Warn("route-token rate limit", "folder", folder,
@@ -266,7 +241,7 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.limiter.allow(row.JID) {
-		slog.Warn("hook rate limit", "folder", jidFolder(row.JID),
+		slog.Warn("hook rate limit", "folder", groupfolder.JidFolder(row.JID),
 			"token_hash", chanlib.ShortHash(r.PathValue("token")))
 		http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 		return
@@ -280,7 +255,7 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 
 	sender := senderFromJID(row.JID)
 	jid := row.JID
-	folder := jidFolder(jid)
+	folder := groupfolder.JidFolder(jid)
 
 	m := core.Message{
 		ID:        core.MsgID("hook"),

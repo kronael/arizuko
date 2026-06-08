@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
-// jidFolder — all JID prefix shapes.
+// groupfolder.JidFolder — all JID prefix shapes (webd's route-token consumer).
 func TestJIDFolder(t *testing.T) {
 	cases := []struct {
 		jid  string
@@ -29,9 +30,9 @@ func TestJIDFolder(t *testing.T) {
 		{"other:x", ""},
 	}
 	for _, c := range cases {
-		got := jidFolder(c.jid)
+		got := groupfolder.JidFolder(c.jid)
 		if got != c.want {
-			t.Errorf("jidFolder(%q) = %q, want %q", c.jid, got, c.want)
+			t.Errorf("JidFolder(%q) = %q, want %q", c.jid, got, c.want)
 		}
 	}
 }
