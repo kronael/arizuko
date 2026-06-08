@@ -18,11 +18,27 @@ import (
 // human-readable line for the steering ack.
 type OnbodClient interface {
 	CreateInvite(targetGlob string, maxUses int) (token string, err error)
+	CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error)
+	ListInvites(issuedBy string) ([]Invite, error)
+	RevokeInvite(token string) error
 	InsertOnboarding(jid string) error
 	ListGates() ([]GateRow, error)
 	PutGate(gate string, limitPerDay int) error
 	DeleteGate(gate string) error
 	EnableGate(gate string, enabled bool) error
+}
+
+// Invite is one invite row decoded from onbod's invite JSON (onbod's inviteJSON
+// shape). routd-local so the MCP invite tools see the full row (token, target,
+// issuer, expiry, use counts) — not just the token CreateInvite returns.
+type Invite struct {
+	Token       string     `json:"token"`
+	TargetGlob  string     `json:"target_glob"`
+	IssuedBySub string     `json:"issued_by_sub"`
+	IssuedAt    time.Time  `json:"issued_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	MaxUses     int        `json:"max_uses"`
+	UsedCount   int        `json:"used_count"`
 }
 
 // GateRow is one onboarding gate as returned by onbod's GET /v1/gates.
@@ -103,6 +119,42 @@ func (o *httpOnbod) CreateInvite(targetGlob string, maxUses int) (string, error)
 	err := o.do(http.MethodPost, "/v1/invites",
 		map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": "routd"}, &out)
 	return out.Token, err
+}
+
+// CreateInviteFull mints an invite and decodes onbod's full invite JSON (not
+// just the token). issuedBySub records the agent folder so ListInvites can
+// scope to the issuer; expiresAt is optional (nil → no expiry).
+func (o *httpOnbod) CreateInviteFull(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (Invite, error) {
+	body := map[string]any{"target_glob": targetGlob, "max_uses": maxUses, "issued_by_sub": issuedBySub}
+	if expiresAt != nil {
+		body["expires_at"] = expiresAt.Format(time.RFC3339)
+	}
+	var out Invite
+	err := o.do(http.MethodPost, "/v1/invites", body, &out)
+	return out, err
+}
+
+// ListInvites returns invites onbod has on record for issuedBy (GET
+// /v1/invites?issued_by=). Empty issuedBy lists all (operator surface); the MCP
+// twin always passes "agent:<folder>" so an agent sees only its own.
+func (o *httpOnbod) ListInvites(issuedBy string) ([]Invite, error) {
+	var out struct {
+		Invites []Invite `json:"invites"`
+	}
+	path := "/v1/invites"
+	if issuedBy != "" {
+		path += "?issued_by=" + url.QueryEscape(issuedBy)
+	}
+	if err := o.do(http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Invites, nil
+}
+
+// RevokeInvite deletes an invite by token (DELETE /v1/invites/{token}). onbod's
+// DELETE is token-only; the MCP twin enforces folder ownership before calling.
+func (o *httpOnbod) RevokeInvite(token string) error {
+	return o.do(http.MethodDelete, "/v1/invites/"+url.PathEscape(token), nil, nil)
 }
 
 // InsertOnboarding records a chat-initiated onboarding row for an unrouted JID

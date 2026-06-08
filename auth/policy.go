@@ -143,6 +143,19 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: target outside own world")
 		}
 		return nil
+	case "invite_revoke":
+		// Mirrors invite_create: tier 2+ can't manage invites; tier 1 is
+		// confined to its own world. Per-token ownership (the token was issued
+		// by THIS folder) is enforced downstream in routd, not here — this gate
+		// is the structural tier/world check. invite_list is read-only +
+		// self-filtered, so it carries no structural case.
+		if id.Tier >= 2 {
+			return fmt.Errorf("unauthorized: tier %d cannot revoke invites", id.Tier)
+		}
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
+			return fmt.Errorf("unauthorized: target outside own world")
+		}
+		return nil
 	case "add_acl", "remove_acl":
 		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage acl", id.Tier)

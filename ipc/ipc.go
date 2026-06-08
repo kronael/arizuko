@@ -56,6 +56,8 @@ type GatedFns struct {
 	SpawnGroup           func(parentFolder, childJID string) (core.Group, error)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
+	ListInvites          func(issuedBy string) ([]InviteInfo, error)
+	RevokeInvite         func(token string) error
 	GrantACL             func(principal, scope, action, effect string) error
 	RevokeACL            func(principal, scope, action, effect string) error
 	SubmitTurn           func(folder string, t TurnResult) error
@@ -2261,6 +2263,64 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			slog.Info("invite_create", "folder", folder, "target_glob", targetGlob, "max_uses", maxUses)
 			return toolJSON(out)
+		})
+
+	// invite_list/invite_revoke: the MCP twins of REST GET/DELETE /v1/invites
+	// (spec 5/5). invite_list is read-only + self-filtered (this folder's
+	// invites only), so it carries no authzStructural — like list_routes. The
+	// folder scope is applied by the routd closure (issued_by="agent:"+folder),
+	// not from any caller arg.
+	granted("invite_list",
+		"List the invite tokens THIS agent has issued (token, target glob, expiry, use count). Read-only; shows only your own folder's invites, never another folder's. Use to audit outstanding invites before invite_revoke. Not for issuing (invite_create) or revoking (invite_revoke).",
+		nil,
+		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.ListInvites == nil {
+				return toolErr("invite_list not configured")
+			}
+			invs, err := gated.ListInvites("agent:" + folder)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			out := make([]map[string]any, 0, len(invs))
+			for _, inv := range invs {
+				row := map[string]any{
+					"token":       inv.Token,
+					"target_glob": inv.TargetGlob,
+					"max_uses":    inv.MaxUses,
+					"used_count":  inv.UsedCount,
+				}
+				if inv.ExpiresAt != nil {
+					row["expires_at"] = inv.ExpiresAt.Format(time.RFC3339)
+				}
+				out = append(out, row)
+			}
+			return toolJSON(map[string]any{"invites": out})
+		})
+
+	registerRaw("invite_revoke",
+		"Revoke an invite token YOU issued so it can no longer be redeemed. You may only revoke invites issued by your own folder — revoking another folder's token is rejected. Use invite_list to find your tokens. Not for issuing (invite_create). Tier 0-1 only.",
+		[]mcp.ToolOption{
+			mcp.WithString("token", mcp.Required()),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.RevokeInvite == nil {
+				return toolErr("invite_revoke not configured")
+			}
+			token := req.GetString("token", "")
+			if token == "" {
+				return toolErr("token required")
+			}
+			if err := authzStructural("invite_revoke", auth.AuthzTarget{TargetFolder: folder}); err != nil {
+				return toolErr(err.Error())
+			}
+			// Ownership (this token belongs to this folder) is enforced in the
+			// routd closure, which lists the folder's invites before DELETE.
+			if err := gated.RevokeInvite(token); err != nil {
+				emitSys("invite_revoke", folder, callerSub, map[string]any{"token": token}, err)
+				return toolErr(err.Error())
+			}
+			emitSys("invite_revoke", folder, callerSub, map[string]any{"token": token}, nil)
+			return toolJSON(map[string]any{"ok": true, "token": token})
 		})
 
 	// add_acl/remove_acl: the MCP write-face of REST POST/DELETE /v1/acl.

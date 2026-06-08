@@ -38,7 +38,9 @@ split; federating those to routd/authd is follow-up, out of this pass.
 - Binary: `onbod/main.go`; admin surface: `onbod/admin.go`; owned-DB
   open: `onbod/db.go`
 - Listen: `$ONBOD_LISTEN_ADDR` (default `:8080`); mounts `GET /openapi.json`
-  (`resreg.OpenAPIHandler("onbod", ["onboarding_gates"])`). Bearer-gated
+  (`resreg.OpenAPIHandler("onbod", ["onboarding_gates"])` — only
+  `onboarding_gates` is a resreg resource; the invite endpoints below are
+  hand-mounted, so they don't appear in `/openapi.json`). Bearer-gated
   admin endpoints (verified against authd JWKS; nil keyset = open):
   `POST /v1/invites`, `GET /v1/invites`, `DELETE /v1/invites/{token}`,
   `GET /v1/gates`, `PUT /v1/gates/{gate}`, `DELETE /v1/gates/{gate}`

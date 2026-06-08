@@ -497,6 +497,17 @@ walking `r.Endpoints` produces the spec; MCP `tools/list` walks
 `r.MCPTools`.
 Drift is structurally impossible.
 
+Two daemons mount intentionally sparse OpenAPI docs, and both are
+correct, not gaps: **runed** mounts `OpenAPIHandler("runed", []string{})`
+(empty) because runs + sessions are control-plane verbs, not resreg
+`Resource`s (see the run-control anti-pattern above) — runed exposes no
+resreg resources by design. **onbod** mounts `["onboarding_gates"]` but
+also serves `/v1/invites` (POST/GET/DELETE), which is hand-mounted in
+`onbod/main.go`, not a resreg resource — so it does not appear in onbod's
+`/openapi.json`. Don't fabricate a resreg resource to satisfy the doc;
+the invite surface is a hand-rolled federation endpoint that routd's
+`/invite` + `/gate` commands and the agent's `invite_*` MCP tools reach.
+
 ## Audit + observability
 
 Every adapter logs one row per request with a fixed shape:
@@ -549,22 +560,22 @@ Every store write below is a candidate for `resreg` exposure. Columns:
 **Today** = where it's invoked from; **MCP** = is there an existing
 MCP tool; **REST** = is there an existing endpoint.
 
-| Operation                           | Store call                                                     | Today                             | MCP                                                          | REST          |
-| ----------------------------------- | -------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ | ------------- |
-| Group create                        | `PutGroup` (`store/groups.go:20`)                              | onbod/SetupGroup, CLI             | `register_group`                                             | —             |
-| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                           | CLI                               | —                                                            | —             |
-| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)       | CLI, agent MCP, dashd             | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —             |
-| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                        | CLI (`arizuko grant`)             | —                                                            | —             |
-| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                             | agent MCP                         | `set_grants`                                                 | —             |
-| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)             | dashd (`/dash/me/secrets`), CLI   | —                                                            | dashd-private |
-| Invite create / revoke              | `CreateInvite`/`RevokeInvite` (`store/invites.go`)             | CLI, onbod                        | —                                                            | onbod         |
-| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`) | CLI                               | —                                                            | —             |
-| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)    | CLI                               | —                                                            | —             |
-| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)      | crackbox register, CLI, agent MCP | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | —             |
-| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)            | agent MCP                         | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —             |
-| Scheduled tasks                     | `schedule_task` family                                         | agent MCP                         | `schedule_task`+                                             | —             |
-| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)           | CLI                               | —                                                            | —             |
-| ACL rows (per 4/9)                  | `grantACL`/`revokeACL` (`routd/server.go`)                     | REST `/v1/acl`, agent MCP, CLI    | `add_acl`/`remove_acl` (`ipc/ipc.go`)                        | one writer    |
+| Operation                           | Store call                                                       | Today                             | MCP                                                          | REST                                  |
+| ----------------------------------- | ---------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
+| Group create                        | `PutGroup` (`store/groups.go:20`)                                | onbod/SetupGroup, CLI             | `register_group`                                             | —                                     |
+| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                             | CLI                               | —                                                            | —                                     |
+| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)         | CLI, agent MCP, dashd             | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —                                     |
+| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                          | CLI (`arizuko grant`)             | —                                                            | —                                     |
+| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                               | agent MCP                         | `set_grants`                                                 | —                                     |
+| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)               | dashd (`/dash/me/secrets`), CLI   | —                                                            | dashd-private                         |
+| Invite create / list / revoke       | `CreateInvite`/`ListInvites`/`RevokeInvite` (`store/invites.go`) | CLI, onbod, agent MCP             | `invite_create`/`invite_list`/`invite_revoke` (`ipc/ipc.go`) | onbod `/v1/invites` (POST/GET/DELETE) |
+| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`)   | CLI                               | —                                                            | —                                     |
+| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)      | CLI                               | —                                                            | —                                     |
+| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)        | crackbox register, CLI, agent MCP | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | —                                     |
+| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)              | agent MCP                         | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —                                     |
+| Scheduled tasks                     | `schedule_task` family                                           | agent MCP                         | `schedule_task`+                                             | —                                     |
+| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)             | CLI                               | —                                                            | —                                     |
+| ACL rows (per 4/9)                  | `grantACL`/`revokeACL` (`routd/server.go`)                       | REST `/v1/acl`, agent MCP, CLI    | `add_acl`/`remove_acl` (`ipc/ipc.go`)                        | one writer                            |
 
 Columns with `—` are the gap. Most operator concepts are either
 CLI-only with direct store calls (`cmd/arizuko/*.go`) or MCP-only with
@@ -650,6 +661,17 @@ event, or stream rather than CRUD verb.
   Substrate every other tool consumes, not a user-tool itself.
 - **Migrations.** Schema changes are file-driven (`store/migrations/`)
   and run by `gated` at startup. Not a resource.
+- **runed run-control + sessions** (`POST /v1/runs`, `/v1/runs/stop`,
+  `GET`/`DELETE /v1/runs/{run_id}`, `GET /v1/sessions[/recent]` —
+  `runed/server.go`). REST-only BY DESIGN: this is the internal
+  routd→runed execution control plane (spawn / steer / stop a container
+  turn, inspect run + session history). Agents never spawn or kill runs —
+  they reply and act through the in-process conversation MCP, not by
+  driving the runner. So runed exposes no resreg `Resource`s
+  (`OpenAPIHandler("runed", []string{})` is empty by design — control
+  verbs, not CRUD); the absence is correct, not a uniformity gap. This is
+  a designed single-faced exception: a control plane, not an agent CRUD
+  verb.
 
 The rule: if it's user-initiated, audit-worthy, and fits an
 allow/deny answer, it belongs in `resreg`. If it's a high-rate

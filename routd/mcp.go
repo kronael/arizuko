@@ -111,12 +111,85 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		ListRouteTokens:  s.mcpListRouteTokens,
 		RevokeRouteToken: s.mcpRevokeRouteToken,
 		SubmitTurn:       s.mcpSubmitTurn,
+		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
+			oc := s.onbodClient()
+			if oc == nil {
+				return ipc.InviteInfo{}, fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
+			}
+			inv, err := oc.CreateInviteFull(targetGlob, issuedBySub, maxUses, expiresAt)
+			if err != nil {
+				return ipc.InviteInfo{}, err
+			}
+			return toInviteInfo(inv), nil
+		},
+		ListInvites: func(issuedBy string) ([]ipc.InviteInfo, error) {
+			oc := s.onbodClient()
+			if oc == nil {
+				return nil, fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
+			}
+			invs, err := oc.ListInvites(issuedBy)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]ipc.InviteInfo, len(invs))
+			for i, inv := range invs {
+				out[i] = toInviteInfo(inv)
+			}
+			return out, nil
+		},
+		RevokeInvite: func(token string) error {
+			oc := s.onbodClient()
+			if oc == nil {
+				return fmt.Errorf("invites unavailable: onbod not wired (ONBOD_URL unset)")
+			}
+			// Ownership gate: onbod's DELETE is token-only, so confirm the token
+			// is among THIS folder's invites before revoking — an agent must not
+			// revoke another folder's invite even though the wire call would.
+			owned, err := oc.ListInvites("agent:" + t.folder)
+			if err != nil {
+				return err
+			}
+			found := false
+			for _, inv := range owned {
+				if inv.Token == token {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("invite not found or not owned by this folder")
+			}
+			return oc.RevokeInvite(token)
+		},
 		GrantACL: func(p, sc, a, e string) error {
 			return s.grantACL(p, sc, a, e, "agent:"+t.folder)
 		},
 		RevokeACL: func(p, sc, a, e string) error {
 			return s.revokeACL(p, sc, a, e, "agent:"+t.folder)
 		},
+	}
+}
+
+// onbodClient reaches the onbod federation handle (the same client /invite +
+// /gate slash commands use). nil → onbod not wired (ONBOD_URL unset).
+func (s *Server) onbodClient() OnbodClient {
+	if s.loop == nil {
+		return nil
+	}
+	return s.loop.onbod
+}
+
+// toInviteInfo maps a routd-local Invite (decoded from onbod's JSON) to the ipc
+// layer's InviteInfo so the MCP tools never import store.
+func toInviteInfo(inv Invite) ipc.InviteInfo {
+	return ipc.InviteInfo{
+		Token:       inv.Token,
+		TargetGlob:  inv.TargetGlob,
+		IssuedBySub: inv.IssuedBySub,
+		IssuedAt:    inv.IssuedAt,
+		ExpiresAt:   inv.ExpiresAt,
+		MaxUses:     inv.MaxUses,
+		UsedCount:   inv.UsedCount,
 	}
 }
 
