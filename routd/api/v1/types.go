@@ -66,6 +66,46 @@ type DocumentRequest struct {
 	ReplyToID string `json:"reply_to_id"`
 }
 
+// PostRequest is POST /v1/turns/{turn_id}/post — author a fresh top-level
+// post (feed/social channels). MediaPaths live on the shared group volume.
+type PostRequest struct {
+	JID        string   `json:"jid"`
+	Content    string   `json:"content"`
+	MediaPaths []string `json:"media_paths"`
+}
+
+// ForwardRequest is POST /v1/turns/{turn_id}/forward — relay SourceMsgID to
+// TargetJID with an optional leading comment.
+type ForwardRequest struct {
+	SourceMsgID string `json:"source_msg_id"`
+	TargetJID   string `json:"target_jid"`
+	Comment     string `json:"comment"`
+}
+
+// QuoteRequest is POST /v1/turns/{turn_id}/quote — quote SourceMsgID in JID
+// with a comment.
+type QuoteRequest struct {
+	JID         string `json:"jid"`
+	SourceMsgID string `json:"source_msg_id"`
+	Comment     string `json:"comment"`
+}
+
+// RepostRequest is POST /v1/turns/{turn_id}/repost — amplify SourceMsgID into
+// JID (no comment).
+type RepostRequest struct {
+	JID         string `json:"jid"`
+	SourceMsgID string `json:"source_msg_id"`
+}
+
+// VoiceRequest is POST /v1/turns/{turn_id}/send_voice — synthesize Text to a
+// voice note (Voice picks the TTS voice; empty = default) and deliver it.
+type VoiceRequest struct {
+	JID      string `json:"jid"`
+	Text     string `json:"text"`
+	Voice    string `json:"voice"`
+	ThreadID string `json:"thread_id"`
+}
+
 // SendResult is the response of reply/send (carries platform_id) and
 // document (no platform_id until delivered).
 type SendResult struct {

@@ -292,6 +292,142 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePost/Forward/Quote/Repost/SendVoice are the REST twins of the
+// social/feed MCP tools (mcp.go buildGatedFns). Each hits the SAME Deliverer
+// method (or s.mcpSendVoice) the in-process MCP closure does — one renderer,
+// many sinks (CLAUDE.md). post/forward/quote/repost are pure relays: no routd
+// messages row (matching the MCP closures, whose recordOutbound layer keys on
+// the returned platform id), returning SendResult{PlatformID, sent}. They use
+// idem(required=false) so a retry dedups. returnTarget redirects a delegated
+// turn's jid to its origin chat, exactly as handleDocument does.
+
+func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
+		return
+	}
+	s.idem(w, r, "POST /v1/turns/post", false, func(body []byte) (int, any, *core.Message) {
+		var req apiv1.PostRequest
+		if json.Unmarshal(body, &req) != nil || req.JID == "" {
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid required"}, nil
+		}
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
+			return status, errResp, nil
+		}
+		if s.deliver == nil {
+			return relay("", nil)
+		}
+		return relay(s.deliver.Post(returnTarget(tc, req.JID), req.Content, req.MediaPaths))
+	})
+}
+
+func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
+		return
+	}
+	s.idem(w, r, "POST /v1/turns/forward", false, func(body []byte) (int, any, *core.Message) {
+		var req apiv1.ForwardRequest
+		if json.Unmarshal(body, &req) != nil || req.SourceMsgID == "" || req.TargetJID == "" {
+			return 400, apiv1.Err{Error: "bad_request", Message: "source_msg_id and target_jid required"}, nil
+		}
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
+			return status, errResp, nil
+		}
+		if s.deliver == nil {
+			return relay("", nil)
+		}
+		return relay(s.deliver.Forward(req.SourceMsgID, returnTarget(tc, req.TargetJID), req.Comment))
+	})
+}
+
+func (s *Server) handleQuote(w http.ResponseWriter, r *http.Request) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
+		return
+	}
+	s.idem(w, r, "POST /v1/turns/quote", false, func(body []byte) (int, any, *core.Message) {
+		var req apiv1.QuoteRequest
+		if json.Unmarshal(body, &req) != nil || req.JID == "" || req.SourceMsgID == "" {
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid and source_msg_id required"}, nil
+		}
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
+			return status, errResp, nil
+		}
+		if s.deliver == nil {
+			return relay("", nil)
+		}
+		return relay(s.deliver.Quote(returnTarget(tc, req.JID), req.SourceMsgID, req.Comment))
+	})
+}
+
+func (s *Server) handleRepost(w http.ResponseWriter, r *http.Request) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
+		return
+	}
+	s.idem(w, r, "POST /v1/turns/repost", false, func(body []byte) (int, any, *core.Message) {
+		var req apiv1.RepostRequest
+		if json.Unmarshal(body, &req) != nil || req.JID == "" || req.SourceMsgID == "" {
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid and source_msg_id required"}, nil
+		}
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
+			return status, errResp, nil
+		}
+		if s.deliver == nil {
+			return relay("", nil)
+		}
+		return relay(s.deliver.Repost(returnTarget(tc, req.JID), req.SourceMsgID))
+	})
+}
+
+func (s *Server) handleSendVoice(w http.ResponseWriter, r *http.Request) {
+	turnID := r.PathValue("turn_id")
+	if !s.authzTurn(w, r, turnID, scopeSend...) {
+		return
+	}
+	s.idem(w, r, "POST /v1/turns/send_voice", false, func(body []byte) (int, any, *core.Message) {
+		var req apiv1.VoiceRequest
+		if json.Unmarshal(body, &req) != nil || req.JID == "" || req.Text == "" {
+			return 400, apiv1.Err{Error: "bad_request", Message: "jid and text required"}, nil
+		}
+		tc, status, errResp := s.openTurn(turnID)
+		if errResp != nil {
+			return status, errResp, nil
+		}
+		// mcpSendVoice re-applies returnTarget + thread default internally; pass
+		// tc.Folder for the synthesis config lookup, mirroring the MCP closure.
+		return relay(s.mcpSendVoice(turnID, req.JID, req.Text, req.Voice, tc.Folder, req.ThreadID))
+	})
+}
+
+// openTurn fetches the turn context and rejects a closed turn — the guard the
+// relay handlers run before touching the Deliverer. (0, nil) errResp on success.
+func (s *Server) openTurn(turnID string) (TurnContext, int, any) {
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		return tc, 409, apiv1.Err{Error: "unknown_turn", Message: "no turn context for turn_id"}
+	}
+	if s.callbackClosed(tc) {
+		return tc, 409, apiv1.Err{Error: "turn_done", Message: "turn already terminal"}
+	}
+	return tc, 0, nil
+}
+
+// relay shapes a Deliverer social-verb call (platform id + err) into the idem
+// exec triple: 422 unsupported on an adapter error, else 200 SendResult{sent}.
+// No messages row (the social verbs are deliver-only, matching the MCP closures).
+func relay(pid string, err error) (int, any, *core.Message) {
+	if err != nil {
+		return 422, apiv1.Err{Error: "unsupported", Message: err.Error()}, nil
+	}
+	return 200, apiv1.SendResult{PlatformID: pid, Status: core.MessageStatusSent}, nil
+}
+
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	turnID := r.PathValue("turn_id")
 	if !s.authzTurn(w, r, turnID, scopeRead...) {

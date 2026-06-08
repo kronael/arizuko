@@ -245,6 +245,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/turns/{turn_id}/delete", s.handleDelete)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/pin", s.handlePin)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/unpin", s.handleUnpin)
+	// social/feed turn-face — the REST twins of the post/forward/quote/repost/
+	// send_voice MCP tools; pure relays to the same Deliverer methods (5/5).
+	mux.HandleFunc("POST /v1/turns/{turn_id}/post", s.handlePost)
+	mux.HandleFunc("POST /v1/turns/{turn_id}/forward", s.handleForward)
+	mux.HandleFunc("POST /v1/turns/{turn_id}/quote", s.handleQuote)
+	mux.HandleFunc("POST /v1/turns/{turn_id}/repost", s.handleRepost)
+	mux.HandleFunc("POST /v1/turns/{turn_id}/send_voice", s.handleSendVoice)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/result", s.handleResult)
 	s.mountChannels(mux)
 	return mux

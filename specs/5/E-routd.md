@@ -851,6 +851,8 @@ design — see Status note.)
 | `get_history` / `get_thread`                                                     | `GET /v1/turns/{id}/history`,`/thread` | routd (in-process) | `chats:read:own_group`       |
 | `like` / `edit` / `delete`                                                       | `POST /v1/turns/{id}/{verb}`           | routd (in-process) | `messages:send:own_group`    |
 | `dislike` / `pin_message` / `unpin_message` / `unpin_all`                        | mapped paths (§ verb→path exceptions)  | routd (in-process) | `messages:send:own_group`    |
+| `post` / `forward` / `quote` / `repost`                                          | `POST /v1/turns/{id}/{verb}`           | routd (in-process) | `messages:send:own_group`    |
+| `send_voice`                                                                     | `POST /v1/turns/{id}/send_voice`       | routd (in-process) | `messages:send:own_group`    |
 | `engage` / `disengage`                                                           | engagement write (5/G)                 | routd (in-process) | self/owned jid (3-arm authz) |
 | `fork_topic`                                                                     | lineage write (5/F)                    | routd (in-process) | `messages:send:own_group`    |
 | `set_routes` / `add_route` / `delete_route`                                      | route CRUD                             | routd (in-process) | `routes:write:own_group`     |
@@ -952,15 +954,20 @@ HTTP callbacks from runed's federation; the flip serves them in-process —
 see Status note. The wire shapes still hold for the REST twin.) The full
 `/v1/turns/{turn_id}/*` surface:
 
-| `/v1/turns/{turn_id}/*`             | When                  | Auth (every call)               |
-| ----------------------------------- | --------------------- | ------------------------------- |
-| `POST /v1/turns/{turn_id}/reply`    | agent `reply`         | agent capability token (Bearer) |
-| `POST /v1/turns/{turn_id}/send`     | agent `send`          | agent capability token          |
-| `POST /v1/turns/{turn_id}/document` | agent `send_file`     | agent capability token          |
-| `GET  /v1/turns/{turn_id}/history`  | agent `get_history`   | agent capability token          |
-| `GET  /v1/turns/{turn_id}/thread`   | agent `get_thread`    | agent capability token          |
-| `POST /v1/turns/{turn_id}/{verb}`   | like/edit/delete/pin… | agent capability token          |
-| `POST /v1/turns/{turn_id}/result`   | agent `submit_turn`   | agent capability token          |
+| `/v1/turns/{turn_id}/*`               | When                  | Auth (every call)               |
+| ------------------------------------- | --------------------- | ------------------------------- |
+| `POST /v1/turns/{turn_id}/reply`      | agent `reply`         | agent capability token (Bearer) |
+| `POST /v1/turns/{turn_id}/send`       | agent `send`          | agent capability token          |
+| `POST /v1/turns/{turn_id}/document`   | agent `send_file`     | agent capability token          |
+| `GET  /v1/turns/{turn_id}/history`    | agent `get_history`   | agent capability token          |
+| `GET  /v1/turns/{turn_id}/thread`     | agent `get_thread`    | agent capability token          |
+| `POST /v1/turns/{turn_id}/{verb}`     | like/edit/delete/pin… | agent capability token          |
+| `POST /v1/turns/{turn_id}/post`       | agent `post`          | agent capability token          |
+| `POST /v1/turns/{turn_id}/forward`    | agent `forward`       | agent capability token          |
+| `POST /v1/turns/{turn_id}/quote`      | agent `quote`         | agent capability token          |
+| `POST /v1/turns/{turn_id}/repost`     | agent `repost`        | agent capability token          |
+| `POST /v1/turns/{turn_id}/send_voice` | agent `send_voice`    | agent capability token          |
+| `POST /v1/turns/{turn_id}/result`     | agent `submit_turn`   | agent capability token          |
 
 The last row is the **turn outcome**: the agent's `submit_turn` is the
 in-process MCP twin of `POST /v1/turns/{turn_id}/result` (§ turn
