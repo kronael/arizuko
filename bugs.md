@@ -51,6 +51,43 @@ codex-dir pre-seed (ea77aa6a).
 - **LOW — breaker-open notice wording.** gated sent "⚠️ Agent error… Send another message to
   retry"; split's `onCircuitBreakerOpen` sends nothing (generic notice still fires). Cosmetic.
 
+## OPEN — round-2 disparities (2026-06-08 creative audit: concurrency / failure / MCP+REST)
+
+The split made the turn's lifetime an HTTP-call return, not the container's exit — gated's
+in-process `runner.Run` made those identical. **FIXED**: routd now out-waits runed RunTTL
+(fd4a55e4, prevents the timeout-triggered double-execution). STILL OPEN:
+
+- **HIGH — runed ignores the run context (`runed/docker.go:63` `Run(_ context.Context,…)`).**
+  A dropped routd→runed request (network blip mid-run, not just timeout) never cancels the
+  container → orphan until RunTTL + routd re-feeds the SAME turn → second container = the user's
+  message executed twice. fd4a55e4 fixes the timeout case; the blip case needs runed to honor
+  ctx (kill on ctx.Done) AND a routd re-feed guard (don't re-dispatch a turn whose run is
+  in-flight; gate on turn_context state). gated (in-process) couldn't double-execute.
+- **HIGH — invite consume lost cross-DB atomicity** (`onbod/main.go:946`). gated did
+  mark-used + acl-grant in ONE tx (`store/invites.go:149`); split marks used in onbod.db then
+  writes the grant to routd.db as a separate step — on grant failure it only logs + redirects as
+  success → invite burned, no grant, silent permanent lockout. Fix: on PutACLRow failure roll
+  back the consume (or make consume idempotent + retry the grant), never redirect-as-success.
+- **MED — per-turn MCP socket torn down on dispatchRun return** (`routd/dispatch.go:161`,
+  `turns.go:121` callbackClosed=RunReturned). A late reply/submit_turn from a still-running
+  container is dropped (MCP refused / REST 409). Subsumed by the ctx-honoring fix above.
+- **MED — MCP+REST uniformity ~44%** (audit). Real face-gaps (vs designed exceptions):
+  routd social actions post/forward/quote/repost/send_voice are MCP-only — the REST turn-face is
+  a subset of the same Deliverer (add `/v1/turns/{id}/{post,forward,quote,repost,voice}`); `acl`
+  is MCP read-only (list_acl) but REST full-CRUD; onbod `invites` MCP create-only + dual handlers
+  (no MCP list/revoke). Designed single-faced (document, don't fix): network_rules/fork/escalate/
+  delegate/inject/reset (MCP-only agent caps), secrets-write/channels/authd/gates/onboarding/
+  runed-run-control (REST/infra-only). OpenAPI: routd catalog already trimmed correct; note that
+  /v1/turns,/route_tokens,/engagement,/channels are hand-mounted outside the resreg doc.
+
+## PROCESS NOTE — worktree subs branch from a STALE base
+Two subs (runed-tests, docs) got a worktree cut from an OLD commit (431a8e26), missing this
+session's fixes → false "X is uncalled / not a behavior" reports. Verify sub findings against
+current HEAD before trusting; for test/doc work against just-added code, run subs on the shared
+tree (sequential) or cut the worktree from current HEAD. Docs still need a clean pass from HEAD
+(status-live + residual gated code-comments in authd/onbod) — the stale docs worktree was
+discarded unapplied.
+
 ## ✅ SPLIT VERIFIED WORKING ON KRONS (2026-06-06)
 
 `CUTOVER_SPLIT=true` is live on krons and proven end-to-end: operator-inject →
