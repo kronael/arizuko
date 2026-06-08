@@ -5,6 +5,42 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — gated→split parity gaps (2026-06-08 audit)
+
+The split silently dropped several gated behaviors. Found via gated↔routd parity
+subs (read `git show 24d57a3e^:<path>`). **FIXED this session**: submit_turn result
+delivery (91937baf), multi-account source routing (cfb16465), typing indicator
+(441804ea), untrusted→mention guard (4a8fb007), per-surface output style (9a969517).
+**STILL OPEN** — fix-paths verified against both trees:
+
+- **HIGH — chat-initiated onboarding is dead.** gated `gateway/gateway.go:663-666`
+  inserted an `awaiting_message` row on an unrouted inbound from an onboarding-allowed
+  platform; the split's routd no-route branch (`routd/dispatch.go` / `loop.go:499 resolve`)
+  never does → onbod polls an empty set, DM self-service onboarding broken.
+  `store.InsertOnboarding` has zero non-test callers. Fix: routd federates the insert to
+  onbod (onbod OWNS the table now) on a route miss when onboarding-enabled + platform
+  allowed (port `onboardingAllowed` + the discord-guild⇒mention guard).
+- **MED — ingress lost the adapter JID-ownership check.** gated `api/api.go handleMessage`
+  rejected `!entry.Owns(req.ChatJID)`; `routd/server.go:342 handleMessages` gates on the
+  `messages:write` scope only → any adapter token can forge inbound for any platform.
+  Fix: after deriving `adapter` from the verified sub, reject when the registry entry
+  doesn't own `m.ChatJID`'s prefix.
+- **MED — orphaned containers never reaped + no docker preflight.** gated startup called
+  `container.EnsureRunning()` + `CleanupOrphans()`; runed startup
+  (`runed/cmd/runed/main.go`) calls neither (both now dead code). Fix: wire both into
+  runed startup.
+- **MED — codex `.codex` dir not pre-seeded.** gated `seedCodexDirs` MkdirAll'd each
+  group's `.codex` (uid-1000) before any spawn; the split only lazy-mkdirs inside
+  `container/runner.go:561` → cold-start parallel spawns can root-own the bind source →
+  codex/oracle skill silently fails. Fix: port `seedCodexDirs` into runed startup.
+- **MED — chat link-code identity binding unwired (dead both ends).** `auth/link.go` +
+  `auth/routes.go` mounted by no daemon; routd has no `tryConsumeLinkCode`. authd OAuth
+  `intent=link` is the surviving path. Decision: retire the chat-paste flow OR re-wire;
+  likely retire (minimality).
+- **LOW — breaker-open notice wording.** gated sent "⚠️ Agent error… Send another message
+  to retry"; the split's `onCircuitBreakerOpen` sends nothing (a generic failure notice
+  still fires). Cosmetic.
+
 ## ✅ SPLIT VERIFIED WORKING ON KRONS (2026-06-06)
 
 `CUTOVER_SPLIT=true` is live on krons and proven end-to-end: operator-inject →
