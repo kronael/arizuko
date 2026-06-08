@@ -197,6 +197,52 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 	}
 }
 
+// TestDockerRuntimeCancelKills: when routd drops the POST /v1/runs request
+// mid-run (ctx cancelled), armCancel Kills the live container exactly once so
+// it doesn't orphan to runTTL while the turn gets re-fed into a second
+// container (double execution). The kill fake releases the run so it returns.
+func TestDockerRuntimeCancelKills(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{Status: "error", Error: "cancelled", ExitCode: 137},
+	}
+	var kills int32
+	rt := &dockerRuntime{
+		cfg: &core.Config{}, folders: folders, runner: runner,
+		signal: func(string) error { return nil },
+		kill: func(string) error {
+			atomic.AddInt32(&kills, 1)
+			select {
+			case <-runner.release:
+			default:
+				close(runner.release)
+			}
+			return nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan RunResult, 1)
+	go func() {
+		done <- rt.Run(ctx, RunSpec{
+			RunID: "run_cancel", Folder: "demo", ContainerName: "arizuko-test-demo-cancel",
+			MessageBatch: "m", RegisterSteer: func(func(string) bool) {},
+		})
+	}()
+	<-runner.started // container is live and blocked in the runner.
+	cancel()         // routd dropped the request.
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel did not Kill the live container; Run never returned")
+	}
+	if n := atomic.LoadInt32(&kills); n != 1 {
+		t.Fatalf("cancel fired %d kills, want exactly 1", n)
+	}
+}
+
 // TestContainerConfigToGroupConfig: the opaque RunRequest.ContainerConfig map
 // round-trips into container.Input.Config (core.GroupConfig) via JSON, and the
 // per-group Model override flows onto Input.Model. routd owns the MCP socket

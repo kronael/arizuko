@@ -146,7 +146,7 @@ func main() {
 		handleOnboard(w, r, xdb, obdb, cfg)
 	}))
 	mux.HandleFunc("POST /onboard", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, xdb, obdb, cfg)
+		handleOnboardPost(w, r, xdb, cfg)
 	}))
 	mux.HandleFunc("GET /invite/{token}", stripUnsigned(func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, xdb, obdb, cfg)
@@ -534,10 +534,8 @@ func checkCSRF(r *http.Request) bool {
 
 // handleOnboardPost dispatches the dashboard form actions. All three
 // (create_world / delete_route / add_route) operate on CROSS-table state
-// (auth_users/groups/acl/routes); none touches an onbod-owned table, so obdb is
-// threaded for signature symmetry only.
-func handleOnboardPost(w http.ResponseWriter, r *http.Request, db, obdb *sql.DB, cfg config) {
-	_ = obdb
+// (auth_users/groups/acl/routes); none touches an onbod-owned table.
+func handleOnboardPost(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config) {
 	userSub := r.Header.Get("X-User-Sub")
 	if userSub == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

@@ -295,7 +295,7 @@ func (o *oauth) issueSession(w http.ResponseWriter, r *http.Request, sub, return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "refresh_token", Value: refresh, Path: "/",
-		Expires: time.Now().Add(refreshTTL), HttpOnly: true,
+		Expires: time.Now().Add(o.a.refreshTTL), HttpOnly: true,
 		Secure: o.secure, SameSite: http.SameSiteLaxMode,
 	})
 	dest := "/"

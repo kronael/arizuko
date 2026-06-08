@@ -740,6 +740,35 @@ func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
 	}
 }
 
+// TestSubmitTurnResultPureThinkDropsSilently: a result that is only a <think>
+// block strips to empty in appendAndDeliver (clean=="") → no reply sent, no bot
+// row persisted, and the turn still completes successfully (200). Guards the
+// silent-drop path: a pure-reasoning turn must not 500 or leave a blank bot row.
+func TestSubmitTurnResultPureThinkDropsSilently(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	rec := doJSON(t, h, "POST", "/v1/turns/t1/result", "",
+		apiv1.TurnResult{TurnID: "t1", SessionID: "sX", Status: "success",
+			Result: "<think>just reasoning, nothing to say</think>"})
+	if rec.Code != 200 {
+		t.Fatalf("pure-think result status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(dl.sends) != 0 {
+		t.Fatalf("pure-think delivered a message: sends=%+v", dl.sends)
+	}
+	if n := countBots(t, db, "slack:T/C/U"); n != 0 {
+		t.Fatalf("pure-think persisted %d bot rows, want 0", n)
+	}
+}
+
 // TestInboundSourcePersistedForReplyRouting: an inbound carrying source (the
 // adapter's CHANNEL_NAME) must persist it so LatestSource resolves the reply
 // back to the ORIGINATING account. Regression (live multi-bot outage): the split

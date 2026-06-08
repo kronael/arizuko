@@ -426,6 +426,11 @@ func beforeStr(t time.Time) string {
 // Deferred nil: LogIPCAudit — routd does not write a SQLite audit_log table;
 // it emits audit events via slog/.jl (see buildGatedFns.Audit).
 func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
+	// Set and Bump engagement are the same write — one closure, two names the
+	// tool layer distinguishes (extend vs. start a window) but the store doesn't.
+	setEngagement := func(jid, topic, folder string, until time.Time) error {
+		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
+	}
 	return ipc.StoreFns{
 		// Task reads + writes: schedule_task → CreateTask; pause/resume →
 		// UpdateTaskStatus; cancel → DeleteTask.
@@ -493,12 +498,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		PutMessage:     s.db.PutMessage,
 		GetLastReplyID: s.db.LastReplyID,
 		SetLastReply:   s.db.SetLastReply,
-		SetEngagement: func(jid, topic, folder string, until time.Time) error {
-			return s.db.SetEngagement(jid, topic, folder, time.Until(until))
-		},
-		BumpEngagement: func(jid, topic, folder string, until time.Time) error {
-			return s.db.SetEngagement(jid, topic, folder, time.Until(until))
-		},
+		SetEngagement:  setEngagement,
+		BumpEngagement: setEngagement,
 		EngagedFolder:   func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
 		LogExternalCost: s.db.LogExternalCost,
 		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {

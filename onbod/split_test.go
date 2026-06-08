@@ -142,6 +142,47 @@ func TestSplitCreateWorldWritesCrossToRoutd(t *testing.T) {
 	}
 }
 
+// TestSplitInviteGrantFailureRollsBack: when the acl grant write to routd.db
+// (xdb) fails AFTER ConsumeInviteNoGrant succeeded on onbod.db (obdb), there's
+// no shared tx — handleInvite must RestoreInvite so used_count goes back to 0
+// (no burned invite = permanent lockout) and return a non-2xx Setup-Failed
+// page instead of redirecting as success. Guards the silent-lockout bug.
+func TestSplitInviteGrantFailureRollsBack(t *testing.T) {
+	xdb := testDB(t)
+	obdb := testDB(t)
+
+	xdb.Exec(`INSERT INTO auth_users (sub, username, name, hash, created_at)
+		VALUES ('github:bob', 'bob', 'Bob', '', '2026-01-01')`)
+	xdb.Exec(`INSERT INTO groups (folder, added_at) VALUES ('alice', '2026-01-01')`)
+	// Break the routd.db acl write so PutACLRow errors after the consume.
+	if _, err := xdb.Exec(`DROP TABLE acl`); err != nil {
+		t.Fatalf("drop acl: %v", err)
+	}
+
+	token := createInvite(t, obdb, "alice", "telegram:1", 1)
+
+	cfg := config{authBaseURL: "https://example.com"}
+	req := httptest.NewRequest("GET", "/invite/"+token, nil)
+	req.SetPathValue("token", token)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	handleInvite(w, req, xdb, obdb, cfg)
+
+	if w.Code == http.StatusSeeOther {
+		t.Fatalf("grant failure returned 303 success; want Setup-Failed page")
+	}
+	if !strings.Contains(w.Body.String(), "Setup Failed") {
+		t.Errorf("want Setup-Failed page, got body: %s", w.Body.String())
+	}
+
+	// The consume must be rolled back: used_count back to 0, invite not burned.
+	var used int
+	obdb.QueryRow(`SELECT used_count FROM invites WHERE token = ?`, token).Scan(&used)
+	if used != 0 {
+		t.Errorf("invite burned without grant: used_count=%d want 0 (RestoreInvite)", used)
+	}
+}
+
 func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/onboard", strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -149,6 +190,6 @@ func postOnboardSplit(xdb, obdb *sql.DB, sub string, vals url.Values) *httptest.
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, xdb, obdb, config{})
+	handleOnboardPost(w, req, xdb, config{})
 	return w
 }

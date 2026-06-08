@@ -224,7 +224,7 @@ func TestCreateWorldValidUsername(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("want 303, got %d", w.Code)
@@ -262,7 +262,7 @@ func TestCreateWorldInvalidUsername(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -280,7 +280,7 @@ func TestCreateWorldDuplicateUsername(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:new")
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("want 200 (error page), got %d", w.Code)
@@ -499,7 +499,7 @@ func TestCreateWorldRoutesLinkedJIDs(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -539,7 +539,7 @@ func TestCreateWorldNoLinkedJIDs(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -626,7 +626,7 @@ func TestCreateWorldOperatorAllowed(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: "c"})
 	req.AddCookie(&http.Cookie{Name: "pending_target", Value: "/"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("want 303, got %d; body: %s", w.Code, w.Body.String())
@@ -1054,7 +1054,7 @@ func postOnboard(db *sql.DB, cfg config, sub string,
 	req.Header.Set("X-User-Sub", sub)
 	req.AddCookie(&http.Cookie{Name: "onbod_csrf", Value: csrf})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 	return w
 }
 
@@ -1188,7 +1188,7 @@ func TestCSRFRejected(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-User-Sub", "alice")
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, cfg)
+	handleOnboardPost(w, req, db, cfg)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("want 403 (csrf), got %d", w.Code)
 	}
@@ -1354,7 +1354,7 @@ func TestHandleOnboardPostUnauthenticated(t *testing.T) {
 	db := testDB(t)
 	req := httptest.NewRequest("POST", "/onboard", nil)
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, config{})
+	handleOnboardPost(w, req, db, config{})
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("want 401, got %d", w.Code)
 	}
@@ -1996,7 +1996,7 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 	req.Header.Set("X-User-Sub", "github:alice")
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "abc"})
 	w := httptest.NewRecorder()
-	handleOnboardPost(w, req, db, db, config{})
+	handleOnboardPost(w, req, db, config{})
 	if w.Code != http.StatusForbidden {
 		t.Errorf("want 403 when csrf form value absent, got %d", w.Code)
 	}

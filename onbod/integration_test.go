@@ -53,7 +53,7 @@ func newOnbodServer(t *testing.T) (*httptest.Server, *testutils.Inst, *testutils
 		handleOnboard(w, r, inst.DB, inst.DB, cfg)
 	})
 	mux.HandleFunc("POST /onboard", func(w http.ResponseWriter, r *http.Request) {
-		handleOnboardPost(w, r, inst.DB, inst.DB, cfg)
+		handleOnboardPost(w, r, inst.DB, cfg)
 	})
 	mux.HandleFunc("GET /invite/{token}", func(w http.ResponseWriter, r *http.Request) {
 		handleInvite(w, r, inst.DB, inst.DB, cfg)
