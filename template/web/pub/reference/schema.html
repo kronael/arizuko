@@ -117,7 +117,7 @@
 
     <div class="tablecard">
       <h3><code>identities</code> + <code>identity_claims</code> + <code>identity_codes</code></h3>
-      <p>Cross-channel identity merge (spec 5/9). One <code>identities</code> row is a canonical person; <code>identity_claims</code> binds one or more platform sender subs to it; <code>identity_codes</code> are short-lived link codes minted by <code>/auth/link-code</code>. Advisory — agents read via <code>inspect_identity</code>, never enforce.</p>
+      <p>Cross-channel identity merge (spec 5/9). One <code>identities</code> row is a canonical person; <code>identity_claims</code> binds one or more platform sender subs to it. Subs are bound via the authd OAuth <code>intent=link</code> flow. Advisory — agents read via <code>inspect_identity</code>, never enforce. (<code>identity_codes</code> survives as a migration-history table; the chat-paste link-code flow that wrote it was retired.)</p>
       <table>
         <tr><th>table.column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>identities.id</code></td><td>TEXT PK</td><td>canonical identity ID</td></tr>
@@ -131,8 +131,8 @@
         <tr><td><code>identity_codes.expires_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_identity_claims_id</code> on <code>identity_claims(identity_id)</code>.</p>
-      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L34"><code>store/identities.go:34</code></a> (INSERT identity), <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L111"><code>:111</code></a> (INSERT OR REPLACE claim), <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L119"><code>:119</code></a> (DELETE claim), <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L134"><code>:134</code></a> (INSERT code), <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L169"><code>:169</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L175"><code>:175</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/store/identities.go#L186"><code>:186</code></a> (claim on code redeem + GC).</p>
-      <p class="meta"><strong>Readers:</strong> gated (<code>inspect_identity</code> MCP tool), <code>api/api.go</code> (link-code inbound detection).</p>
+      <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/identities.go"><code>store/identities.go</code></a> — <code>CreateIdentity</code> (INSERT identity), <code>LinkSub</code> (INSERT OR REPLACE claim), <code>UnlinkSub</code> (DELETE claim). <code>identity_codes</code> has no live writer.</p>
+      <p class="meta"><strong>Readers:</strong> authd (<code>inspect_identity</code> MCP tool; OAuth <code>intent=link</code> binds subs).</p>
       <p class="meta"><strong>Migrations:</strong> all three created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0035-identities.sql">0035</a>.</p>
     </div>
 
@@ -693,7 +693,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

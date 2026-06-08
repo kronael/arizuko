@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"time"
 
@@ -22,8 +21,6 @@ type IdentityClaim struct {
 	IdentityID string
 	ClaimedAt  time.Time
 }
-
-var ErrLinkCodeInvalid = errors.New("link code invalid or expired")
 
 func (s *Store) CreateIdentity(name string) (Identity, error) {
 	b := make([]byte, 16)
@@ -151,76 +148,4 @@ func (s *Store) UnlinkSub(sub string) (bool, error) {
 		}, nil
 	})
 	return hit, err
-}
-
-func (s *Store) MintLinkCode(identityID string, ttl time.Duration) (string, error) {
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("rand: %w", err)
-	}
-	code := "link-" + hex.EncodeToString(b)
-	if _, err := s.db.Exec(
-		`INSERT INTO identity_codes (code, identity_id, expires_at)
-		 VALUES (?, ?, ?)`,
-		code, identityID, time.Now().Add(ttl).Format(time.RFC3339)); err != nil {
-		return "", err
-	}
-	return code, nil
-}
-
-// ConsumeLinkCode claims sub for the identity, single-shot. Pruned on expiry.
-func (s *Store) ConsumeLinkCode(code, sub string) (string, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-
-	var idID, expires string
-	err = tx.QueryRow(
-		`SELECT identity_id, expires_at FROM identity_codes WHERE code = ?`,
-		code).Scan(&idID, &expires)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrLinkCodeInvalid
-	}
-	if err != nil {
-		return "", err
-	}
-
-	exp, _ := time.Parse(time.RFC3339, expires)
-	if !exp.IsZero() && time.Now().After(exp) {
-		if _, err := tx.Exec(`DELETE FROM identity_codes WHERE code = ?`, code); err != nil {
-			return "", err
-		}
-		if err := tx.Commit(); err != nil {
-			return "", errors.Join(ErrLinkCodeInvalid, err)
-		}
-		return "", ErrLinkCodeInvalid
-	}
-
-	if _, err := tx.Exec(
-		`INSERT OR REPLACE INTO identity_claims (sub, identity_id, claimed_at)
-		 VALUES (?, ?, ?)`,
-		sub, idID, time.Now().Format(time.RFC3339)); err != nil {
-		return "", err
-	}
-	if _, err := tx.Exec(
-		`DELETE FROM identity_codes WHERE code = ?`, code); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", err
-	}
-	return idID, nil
-}
-
-func (s *Store) PruneExpiredLinkCodes() (int64, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM identity_codes WHERE expires_at < ?`,
-		time.Now().Format(time.RFC3339))
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return n, nil
 }
