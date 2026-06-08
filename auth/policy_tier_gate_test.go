@@ -45,3 +45,35 @@ func TestAuthorizeStructural_ListACL_TierGated(t *testing.T) {
 		t.Error("list_acl must deny tier 2 (Tier 0-1 only) — tier gate present here")
 	}
 }
+
+// add_acl/remove_acl are the MCP write-face of REST POST/DELETE /v1/acl. Tier 0
+// (operator) may grant any scope including "**" (operator role); tier 1 is
+// confined to its own world and cannot grant "**"; tier 2+ is denied.
+func TestAuthorizeStructural_ACLWrite(t *testing.T) {
+	tier0 := Resolve("root")     // 0 slashes
+	tier1 := Resolve("w/a")      // 1 slash
+	tier2 := Resolve("w/a/b")    // 2 slashes
+	for _, tool := range []string{"add_acl", "remove_acl"} {
+		// tier 0: any scope OK, including the operator role "**".
+		if err := AuthorizeStructural(tier0, tool, AuthzTarget{TargetFolder: "w/eng"}); err != nil {
+			t.Errorf("tier-0 %s any scope should pass, got %v", tool, err)
+		}
+		if err := AuthorizeStructural(tier0, tool, AuthzTarget{TargetFolder: "**"}); err != nil {
+			t.Errorf("tier-0 %s ** (operator) should pass, got %v", tool, err)
+		}
+		// tier 1: in-world OK; out-of-world and "**" rejected.
+		if err := AuthorizeStructural(tier1, tool, AuthzTarget{TargetFolder: "w/x"}); err != nil {
+			t.Errorf("tier-1 %s in-world should pass, got %v", tool, err)
+		}
+		if err := AuthorizeStructural(tier1, tool, AuthzTarget{TargetFolder: "other/x"}); err == nil {
+			t.Errorf("tier-1 %s out-of-world must be denied", tool)
+		}
+		if err := AuthorizeStructural(tier1, tool, AuthzTarget{TargetFolder: "**"}); err == nil {
+			t.Errorf("tier-1 %s ** (operator) must be denied", tool)
+		}
+		// tier 2: denied outright.
+		if err := AuthorizeStructural(tier2, tool, AuthzTarget{TargetFolder: "w/a/b"}); err == nil {
+			t.Errorf("tier-2 %s must be denied", tool)
+		}
+	}
+}

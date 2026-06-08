@@ -56,6 +56,8 @@ type GatedFns struct {
 	SpawnGroup           func(parentFolder, childJID string) (core.Group, error)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
+	GrantACL             func(principal, scope, action, effect string) error
+	RevokeACL            func(principal, scope, action, effect string) error
 	SubmitTurn           func(folder string, t TurnResult) error
 	// Per-group ambient controls (spec 6/F).
 	SetGroupOpen          func(folder string, open bool) error
@@ -2259,6 +2261,68 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			}
 			slog.Info("invite_create", "folder", folder, "target_glob", targetGlob, "max_uses", maxUses)
 			return toolJSON(out)
+		})
+
+	// add_acl/remove_acl: the MCP write-face of REST POST/DELETE /v1/acl.
+	// Both funnel through gated.GrantACL/RevokeACL — one writer, MCP and REST
+	// produce identical rows (spec 5/5). authzStructural binds scope to the
+	// caller's authority; scope "**" (operator role) is tier-0 only.
+	granted("add_acl",
+		"Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Not for routes (add_route) or invites (invite_create).",
+		[]mcp.ToolOption{
+			mcp.WithString("principal", mcp.Required()),
+			mcp.WithString("scope", mcp.Required()),
+			mcp.WithString("action"),
+			mcp.WithString("effect"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.GrantACL == nil {
+				return toolErr("add_acl not configured")
+			}
+			principal := req.GetString("principal", "")
+			scope := req.GetString("scope", "")
+			if principal == "" || scope == "" {
+				return toolErr("principal and scope required")
+			}
+			if err := authzStructural("add_acl", auth.AuthzTarget{TargetFolder: scope}); err != nil {
+				return toolErr(err.Error())
+			}
+			err := gated.GrantACL(principal, scope, req.GetString("action", ""), req.GetString("effect", ""))
+			emitSys("add_acl", folder, callerSub,
+				map[string]any{"principal": principal, "scope": scope}, err)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"ok": true, "principal": principal, "scope": scope})
+		})
+
+	granted("remove_acl",
+		"Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority. Not for routes (delete_route) or invites.",
+		[]mcp.ToolOption{
+			mcp.WithString("principal", mcp.Required()),
+			mcp.WithString("scope", mcp.Required()),
+			mcp.WithString("action"),
+			mcp.WithString("effect"),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if gated.RevokeACL == nil {
+				return toolErr("remove_acl not configured")
+			}
+			principal := req.GetString("principal", "")
+			scope := req.GetString("scope", "")
+			if principal == "" || scope == "" {
+				return toolErr("principal and scope required")
+			}
+			if err := authzStructural("remove_acl", auth.AuthzTarget{TargetFolder: scope}); err != nil {
+				return toolErr(err.Error())
+			}
+			err := gated.RevokeACL(principal, scope, req.GetString("action", ""), req.GetString("effect", ""))
+			emitSys("remove_acl", folder, callerSub,
+				map[string]any{"principal": principal, "scope": scope}, err)
+			if err != nil {
+				return toolErr(err.Error())
+			}
+			return toolJSON(map[string]any{"ok": true, "principal": principal, "scope": scope})
 		})
 
 	// Route-token issuance. Spec 5/W. Two distinct intents (chat link

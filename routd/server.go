@@ -489,8 +489,47 @@ type aclWriteBody struct {
 	GrantedBy string `json:"granted_by"`
 }
 
+// grantACL is the single ACL-grant writer behind both REST (handleACLAdd) and
+// MCP (add_acl). Defaults action/effect/grantedBy; scope "**" → operator-role
+// membership, else one acl row. One renderer, many sinks (CLAUDE.md).
+func (s *Server) grantACL(principal, scope, action, effect, grantedBy string) error {
+	if grantedBy == "" {
+		grantedBy = "routd"
+	}
+	if scope == "**" {
+		return s.db.AddMembership(principal, "role:operator", grantedBy)
+	}
+	if action == "" {
+		action = "admin"
+	}
+	if effect == "" {
+		effect = "allow"
+	}
+	return s.db.AddACLRow(core.ACLRow{
+		Principal: principal, Action: action, Scope: scope,
+		Effect: effect, GrantedBy: grantedBy,
+	})
+}
+
+// revokeACL is the single ACL-revoke writer behind both REST (handleACLRemove)
+// and MCP (remove_acl). Mirrors grantACL.
+func (s *Server) revokeACL(principal, scope, action, effect, grantedBy string) error {
+	if scope == "**" {
+		return s.db.RemoveMembership(principal, "role:operator")
+	}
+	if action == "" {
+		action = "admin"
+	}
+	if effect == "" {
+		effect = "allow"
+	}
+	return s.db.RemoveACLRow(core.ACLRow{
+		Principal: principal, Action: action, Scope: scope, Effect: effect,
+	})
+}
+
 // handleACLAdd grants one acl row (or operator membership for scope=="**").
-// Bearer-gated by acl:write.
+// Bearer-gated by acl:write. Shares grantACL with the MCP add_acl tool.
 func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "acl:write") {
 		return
@@ -504,30 +543,7 @@ func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "principal and scope required")
 		return
 	}
-	grantedBy := body.GrantedBy
-	if grantedBy == "" {
-		grantedBy = "routd"
-	}
-	if body.Scope == "**" {
-		if err := s.db.AddMembership(body.Principal, "role:operator", grantedBy); err != nil {
-			writeErr(w, 400, "invalid", err.Error())
-			return
-		}
-		writeJSON(w, 200, apiv1.OK{OK: true})
-		return
-	}
-	action := body.Action
-	if action == "" {
-		action = "admin"
-	}
-	effect := body.Effect
-	if effect == "" {
-		effect = "allow"
-	}
-	if err := s.db.AddACLRow(core.ACLRow{
-		Principal: body.Principal, Action: action, Scope: body.Scope,
-		Effect: effect, GrantedBy: grantedBy,
-	}); err != nil {
+	if err := s.grantACL(body.Principal, body.Scope, body.Action, body.Effect, body.GrantedBy); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}
@@ -535,7 +551,7 @@ func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleACLRemove revokes one acl row (or operator membership for scope=="**").
-// Bearer-gated by acl:write.
+// Bearer-gated by acl:write. Shares revokeACL with the MCP remove_acl tool.
 func (s *Server) handleACLRemove(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "acl:write") {
 		return
@@ -549,25 +565,7 @@ func (s *Server) handleACLRemove(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "principal and scope required")
 		return
 	}
-	if body.Scope == "**" {
-		if err := s.db.RemoveMembership(body.Principal, "role:operator"); err != nil {
-			writeErr(w, 500, "db_error", err.Error())
-			return
-		}
-		writeJSON(w, 200, apiv1.OK{OK: true})
-		return
-	}
-	action := body.Action
-	if action == "" {
-		action = "admin"
-	}
-	effect := body.Effect
-	if effect == "" {
-		effect = "allow"
-	}
-	if err := s.db.RemoveACLRow(core.ACLRow{
-		Principal: body.Principal, Action: action, Scope: body.Scope, Effect: effect,
-	}); err != nil {
+	if err := s.revokeACL(body.Principal, body.Scope, body.Action, body.Effect, body.GrantedBy); err != nil {
 		writeErr(w, 500, "db_error", err.Error())
 		return
 	}

@@ -143,6 +143,17 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 			return fmt.Errorf("unauthorized: target outside own world")
 		}
 		return nil
+	case "add_acl", "remove_acl":
+		if id.Tier >= 2 {
+			return fmt.Errorf("unauthorized: tier %d cannot manage acl", id.Tier)
+		}
+		// Scope "**" has no world (WorldOf returns "**"), so a tier-1 caller's
+		// isInWorld check fails for it — only tier-0/operator can grant the
+		// operator role.
+		if id.Tier == 1 && !isInWorld(id.Folder, target.TargetFolder) {
+			return fmt.Errorf("unauthorized: scope outside own world")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown tool: %s", tool)
 	}

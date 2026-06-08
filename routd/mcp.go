@@ -111,6 +111,12 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		ListRouteTokens:  s.mcpListRouteTokens,
 		RevokeRouteToken: s.mcpRevokeRouteToken,
 		SubmitTurn:       s.mcpSubmitTurn,
+		GrantACL: func(p, sc, a, e string) error {
+			return s.grantACL(p, sc, a, e, "agent:"+t.folder)
+		},
+		RevokeACL: func(p, sc, a, e string) error {
+			return s.revokeACL(p, sc, a, e, "agent:"+t.folder)
+		},
 	}
 }
 

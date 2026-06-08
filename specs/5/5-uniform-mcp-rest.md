@@ -564,7 +564,7 @@ MCP tool; **REST** = is there an existing endpoint.
 | Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)            | agent MCP                         | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —             |
 | Scheduled tasks                     | `schedule_task` family                                         | agent MCP                         | `schedule_task`+                                             | —             |
 | Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)           | CLI                               | —                                                            | —             |
-| ACL rows (per 4/9)                  | (`acl` table writes)                                           | n/a (new)                         | —                                                            | —             |
+| ACL rows (per 4/9)                  | `grantACL`/`revokeACL` (`routd/server.go`)                     | REST `/v1/acl`, agent MCP, CLI    | `add_acl`/`remove_acl` (`ipc/ipc.go`)                        | one writer    |
 
 Columns with `—` are the gap. Most operator concepts are either
 CLI-only with direct store calls (`cmd/arizuko/*.go`) or MCP-only with
