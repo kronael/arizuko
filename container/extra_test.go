@@ -127,7 +127,7 @@ func TestEgressConfigActive(t *testing.T) {
 func TestBuildArgsWithEgress(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
 	egress := EgressConfig{ProxyURL: "http://crackbox:3128"}
-	args := buildArgs(cfg, nil, "c1", egress, "net-atlas", "10.99.5.42")
+	args := buildArgs(cfg, nil, "c1", egress, "net-atlas", "10.99.5.42", "claude-fable-5", 1800000)
 	joined := strings.Join(args, " ")
 
 	if !strings.Contains(joined, "--network net-atlas") {
@@ -142,12 +142,32 @@ func TestBuildArgsWithEgress(t *testing.T) {
 	if !strings.Contains(joined, "NO_PROXY=localhost,127.0.0.1,gated,routd,crackbox") {
 		t.Errorf("missing NO_PROXY: %s", joined)
 	}
+	// model + query timeout MUST reach ant as real container env (-e), not just
+	// settings.json — ant reads them from process.env.
+	if !strings.Contains(joined, "ARIZUKO_MODEL=claude-fable-5") {
+		t.Errorf("missing ARIZUKO_MODEL -e: %s", joined)
+	}
+	if !strings.Contains(joined, "ARIZUKO_QUERY_TIMEOUT_MS=1800000") {
+		t.Errorf("missing ARIZUKO_QUERY_TIMEOUT_MS -e: %s", joined)
+	}
+}
+
+func TestBuildArgsNoModelNoTimeout(t *testing.T) {
+	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
+	args := buildArgs(cfg, nil, "c3", EgressConfig{}, "", "", "", 0)
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "ARIZUKO_MODEL") {
+		t.Errorf("empty model must omit -e ARIZUKO_MODEL: %s", joined)
+	}
+	if strings.Contains(joined, "ARIZUKO_QUERY_TIMEOUT_MS") {
+		t.Errorf("zero timeout must omit -e ARIZUKO_QUERY_TIMEOUT_MS: %s", joined)
+	}
 }
 
 func TestBuildArgsDefaultProxyURL(t *testing.T) {
 	cfg := &core.Config{Timezone: "UTC", Image: "img:latest"}
 	// ProxyURL empty → falls back to default
-	args := buildArgs(cfg, nil, "c2", EgressConfig{}, "net-x", "10.0.0.5")
+	args := buildArgs(cfg, nil, "c2", EgressConfig{}, "net-x", "10.0.0.5", "", 0)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "HTTP_PROXY=http://crackbox:3128") {
 		t.Errorf("expected default proxy URL: %s", joined)

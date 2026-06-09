@@ -187,7 +187,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	}
 	defer unregisterEgress(in.Egress, egressIP)
 
-	args := buildArgs(cfg, mounts, containerName, in.Egress, egressNet, egressIP)
+	args := buildArgs(cfg, mounts, containerName, in.Egress, egressNet, egressIP, in.Model, in.QueryTimeoutMs)
 
 	logsDir := filepath.Join(groupDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
@@ -628,12 +628,24 @@ func buildMounts(
 
 func buildArgs(
 	cfg *core.Config, mounts []volumeMount, name string, egress EgressConfig, network, ip string,
+	model string, queryTimeoutMs int64,
 ) []string {
 	args := []string{
 		"run", "-i", "--rm",
 		"--name", name,
 		"--shm-size=1g",
 		"-e", "TZ=" + cfg.Timezone,
+	}
+	// ant reads these from process.env (index.ts model:, claude.ts timeout const at
+	// module load) — settings.json's env block reaches the SDK subprocess, not ant
+	// itself, so the model/timeout MUST arrive as real container env or they silently
+	// fall to ant's opus default + 15min hardcode. Cost: sloth's fable override and
+	// every RUNED_RUN_TIMEOUT bump were dead until 2026-06-09.
+	if model != "" {
+		args = append(args, "-e", "ARIZUKO_MODEL="+model)
+	}
+	if queryTimeoutMs > 0 {
+		args = append(args, "-e", "ARIZUKO_QUERY_TIMEOUT_MS="+strconv.FormatInt(queryTimeoutMs, 10))
 	}
 	if network != "" {
 		proxy := egress.ProxyURL
