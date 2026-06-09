@@ -61,11 +61,17 @@ header for rotation):
 - JWKS: `PublicJWKS(keys ...*SigningKey) ([]byte, error)` (authd's `/v1/keys`); `FetchKeys(ctx, authdURL)` + `KeySet` (backend-side cache).
 - Service bootstrap: `ServiceToken(authdURL, daemon, key) (*TokenSource, error)`; `(*TokenSource).Token(ctx)` returns a live, auto-refreshed `service:<name>` token.
 - Session JWT (legacy HS256, `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`.
-- OAuth: GitHub, Google, Discord, Telegram widget — shared `createOAuthSession`.
+- OAuth: GitHub, Google, Discord, Telegram widget — pure exchange/userinfo
+  wrappers; authd mounts and issues the session.
 - HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`.
-- Password: `HashToken`, argon2 verify.
-- Middleware: `RegisterRoutes(mux, store, cfg)` mounts `/auth/*`;
-  `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
+- Token hash: `HashToken`.
+- OAuth wrappers (authd drives `/auth/*`, this lib has no mount layer):
+  `ExchangeGitHub`/`FetchGitHubUser`, `ExchangeGoogle`/`FetchGoogleUser`,
+  `ExchangeDiscord`/`FetchDiscordUser`, `VerifyTelegramWidget`,
+  `SignState`/`VerifyState`/`StateIntent`, `WritePKCE`/`ConsumePKCE`,
+  `WriteStateCookie`, `SafeReturn`, `JSSafe`, `MatchEmailAllowlist`,
+  `CheckGitHubOrgMember`, `AuthBaseURL`.
+- Middleware: `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
   identity headers; `RequireSignedOrBearer(secret, ks)` /
   `StripUnsignedOrBearer(secret, ks)` accept either a proxyd signature
   or a Bearer ES256 token.
@@ -103,10 +109,9 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `scope.go` — `HasScope`, scope intersection/coverage helpers
 - `service.go` — daemon service-token bootstrap (`ServiceToken`, `TokenSource`)
 - `acl.go` — `MatchGroups`, glob ACL
-- `routes.go` — `RegisterRoutes` mounts `/auth/*`
-- `link.go` — account link-code redemption; `collide.go` — sub-collision resolution UI
-- `jwt.go`, `middleware.go`, `web.go` — legacy session handling + login routes
-- `oauth.go` — provider dance
+- `jwt.go`, `middleware.go` — legacy session JWT + signed-header middleware
+- `web.go` — `HashToken` + `safeReturn`/`jsSafe` (token/url helpers)
+- `oauth.go` — provider exchange/userinfo + state/PKCE wrappers (authd owns the routes)
 - `hmac.go` — inter-daemon header signing
 
 ## Related docs

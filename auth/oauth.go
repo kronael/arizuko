@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
 )
 
 const stateTTL = 10 * time.Minute
@@ -39,69 +38,6 @@ func postForm(ctx context.Context, url string, data url.Values) (*http.Response,
 	return httpClient.Do(req)
 }
 
-func oauthRedirect(s *store.Store, secret []byte, secure bool, authURL string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		intent := stateIntent{}
-		if r.URL.Query().Get("intent") == "link" {
-			intent.Intent = "link"
-			intent.LinkFrom = currentSub(s, secret, r)
-			if rt := r.URL.Query().Get("return"); rt != "" {
-				if safe, ok := safeReturn(rt); ok {
-					intent.Return = safe
-				}
-			}
-			if intent.LinkFrom == "" {
-				intent.Intent = ""
-			}
-		}
-		state := signStateP(secret, intent)
-		http.SetCookie(w, &http.Cookie{
-			Name: "oauth_state", Value: state, Path: "/",
-			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
-			Secure: secure, SameSite: http.SameSiteLaxMode,
-		})
-		vb := make([]byte, 32)
-		if _, err := rand.Read(vb); err != nil {
-			slog.Error("pkce gen failed", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		verifier := base64.RawURLEncoding.EncodeToString(vb)
-		http.SetCookie(w, &http.Cookie{
-			Name: "oauth_pkce", Value: verifier, Path: "/",
-			MaxAge: int(stateTTL.Seconds()), HttpOnly: true,
-			Secure: secure, SameSite: http.SameSiteLaxMode,
-		})
-		sum := sha256.Sum256([]byte(verifier))
-		challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-		dst := authURL +
-			"&state=" + url.QueryEscape(state) +
-			"&code_challenge=" + url.QueryEscape(challenge) +
-			"&code_challenge_method=S256"
-		http.Redirect(w, r, dst, http.StatusTemporaryRedirect)
-	}
-}
-
-func currentSub(s *store.Store, secret []byte, r *http.Request) string {
-	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
-		if c, err := VerifyJWT(secret, strings.TrimPrefix(hdr, "Bearer ")); err == nil {
-			return c.Sub
-		}
-	}
-	if s == nil {
-		return ""
-	}
-	cookie, err := r.Cookie(cookieName)
-	if err != nil {
-		return ""
-	}
-	sess, ok := s.AuthSession(HashToken(cookie.Value))
-	if !ok || time.Now().After(sess.ExpiresAt) {
-		return ""
-	}
-	return s.CanonicalSub(sess.UserSub)
-}
-
 func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	c, err := r.Cookie("oauth_pkce")
 	if err != nil || c.Value == "" {
@@ -112,141 +48,6 @@ func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 		MaxAge: -1, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
 	return c.Value
-}
-
-func handleGitHubRedirect(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	cb := authBaseURL(cfg) + "/auth/github/callback"
-	u := fmt.Sprintf(
-		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:user",
-		url.QueryEscape(cfg.GitHubClientID), url.QueryEscape(cb))
-	return oauthRedirect(s, secret, secure, u)
-}
-
-func oauthCallbackCode(secret []byte, w http.ResponseWriter, r *http.Request, secure bool) (code, verifier string, intent stateIntent, ok bool) {
-	intent, ok = verifyState(secret, r)
-	if !ok {
-		http.Error(w, "invalid state", http.StatusForbidden)
-		return "", "", intent, false
-	}
-	code = r.URL.Query().Get("code")
-	if code == "" {
-		http.Error(w, "missing code", http.StatusBadRequest)
-		return "", "", intent, false
-	}
-	verifier = consumePKCE(w, r, secure)
-	return code, verifier, intent, true
-}
-
-func handleGitHubCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		code, verifier, intent, ok := oauthCallbackCode(secret, w, r, secure)
-		if !ok {
-			return
-		}
-		token, err := exchangeGitHub(r.Context(), cfg, code, verifier)
-		if err != nil {
-			slog.Error("github token exchange failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		sub, name, err := fetchGitHubUser(r.Context(), token)
-		if err != nil {
-			slog.Error("github user fetch failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		if org := cfg.GitHubAllowedOrg; org != "" {
-			if !checkGitHubOrgMember(r.Context(), token, org, sub) {
-				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
-				return
-			}
-		}
-		dispatchOAuth(w, r, s, secret, "github:"+sub, name, intent, secure)
-	}
-}
-
-func handleDiscordRedirect(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	cb := authBaseURL(cfg) + "/auth/discord/callback"
-	u := fmt.Sprintf(
-		"https://discord.com/api/oauth2/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=identify",
-		url.QueryEscape(cfg.DiscordClientID), url.QueryEscape(cb))
-	return oauthRedirect(s, secret, secure, u)
-}
-
-func handleDiscordCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		code, verifier, intent, ok := oauthCallbackCode(secret, w, r, secure)
-		if !ok {
-			return
-		}
-		token, err := exchangeDiscord(r.Context(), cfg, code, verifier)
-		if err != nil {
-			slog.Error("discord token exchange failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		sub, name, err := fetchDiscordUser(r.Context(), token)
-		if err != nil {
-			slog.Error("discord user fetch failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		dispatchOAuth(w, r, s, secret, "discord:"+sub, name, intent, secure)
-	}
-}
-
-func handleGoogleRedirect(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	cb := authBaseURL(cfg) + "/auth/google/callback"
-	hd := ""
-	if cfg.GoogleAllowedEmails != "" {
-		seen := map[string]struct{}{}
-		for _, p := range strings.Split(cfg.GoogleAllowedEmails, ",") {
-			p = strings.TrimSpace(p)
-			if i := strings.Index(p, "@"); i >= 0 {
-				d := strings.TrimPrefix(p[i+1:], "*.")
-				if d != "" {
-					seen[d] = struct{}{}
-				}
-			}
-		}
-		if len(seen) == 1 {
-			for d := range seen {
-				hd = "&hd=" + url.QueryEscape(d)
-			}
-		}
-	}
-	u := fmt.Sprintf(
-		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile%s",
-		url.QueryEscape(cfg.GoogleClientID), url.QueryEscape(cb), hd)
-	return oauthRedirect(s, secret, secure, u)
-}
-
-func handleGoogleCallback(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		code, verifier, intent, ok := oauthCallbackCode(secret, w, r, secure)
-		if !ok {
-			return
-		}
-		token, err := exchangeGoogle(r.Context(), cfg, code, verifier)
-		if err != nil {
-			slog.Error("google token exchange failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		sub, name, email, verified, err := fetchGoogleUser(r.Context(), token)
-		if err != nil {
-			slog.Error("google user fetch failed", "err", err)
-			http.Error(w, "oauth failed", http.StatusBadGateway)
-			return
-		}
-		if allowed := cfg.GoogleAllowedEmails; allowed != "" {
-			if !verified || !matchEmailAllowlist(email, allowed) {
-				http.Redirect(w, r, "/auth/login?error=unauthorized", http.StatusTemporaryRedirect)
-				return
-			}
-		}
-		dispatchOAuth(w, r, s, secret, "google:"+sub, name, intent, secure)
-	}
 }
 
 func exchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
@@ -331,80 +132,6 @@ func checkGitHubOrgMember(ctx context.Context, token, org, username string) bool
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode == http.StatusNoContent
-}
-
-func handleTelegram(cfg *core.Config, s *store.Store, secret []byte, secure bool) http.HandlerFunc {
-	botToken := cfg.TelegramToken
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		if !verifyTelegramWidget(r.Form, botToken) {
-			http.Error(w, "invalid telegram auth", http.StatusForbidden)
-			return
-		}
-		sub := r.FormValue("id")
-		name := r.FormValue("first_name")
-		if ln := r.FormValue("last_name"); ln != "" {
-			name += " " + ln
-		}
-		dispatchOAuth(w, r, s, secret, "telegram:"+sub, name, stateIntent{}, secure)
-	}
-}
-
-func dispatchOAuth(w http.ResponseWriter, r *http.Request, s *store.Store, secret []byte, sub, name string, intent stateIntent, secure bool) {
-	if i := strings.Index(sub, ":"); i < 0 || i == len(sub)-1 {
-		slog.Error("oauth empty identity", "sub", sub)
-		http.Error(w, "oauth failed", http.StatusBadGateway)
-		return
-	}
-
-	existing, exists := s.AuthUserBySub(sub)
-	subCanonical := ""
-	if exists {
-		if existing.LinkedToSub != "" {
-			subCanonical = existing.LinkedToSub
-		} else {
-			subCanonical = sub
-		}
-	}
-
-	sessionSub := currentSub(s, secret, r)
-	linking := intent.Intent == "link" && intent.LinkFrom != ""
-
-	switch {
-	case linking && exists && existing.LinkedToSub == intent.LinkFrom:
-		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
-
-	case linking && exists && subCanonical != intent.LinkFrom:
-		renderCollision(w, secret, sub, name, subCanonical, intent.LinkFrom)
-
-	case linking && !exists:
-		if err := s.LinkSubToCanonical(sub, name, intent.LinkFrom); err != nil {
-			slog.Error("link sub to canonical", "sub", sub, "canonical", intent.LinkFrom, "err", err)
-			http.Error(w, "link failed", http.StatusBadGateway)
-			return
-		}
-		issueSession(w, r, s, secret, intent.LinkFrom, name, secure)
-
-	case !linking && sessionSub != "" && !exists:
-		renderCollision(w, secret, sub, name, "", sessionSub)
-
-	case !linking && sessionSub != "" && exists && subCanonical != sessionSub:
-		renderCollision(w, secret, sub, name, subCanonical, sessionSub)
-
-	case !linking && sessionSub == "" && !exists:
-		if err := s.CreateAuthUser(sub, sub, "", name); err != nil {
-			slog.Error("create oauth user failed", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		issueSession(w, r, s, secret, sub, name, secure)
-
-	default:
-		issueSession(w, r, s, secret, sub, name, secure)
-	}
 }
 
 type stateIntent struct {
@@ -635,11 +362,10 @@ func fetchDiscordUser(ctx context.Context, token string) (string, string, error)
 	return u.ID, name, nil
 }
 
-// Exported provider primitives. authd's /auth/* handlers (specs/5/1) drive the
-// SAME OAuth dance as proxyd's HS256 RegisterRoutes path — these wrappers let
-// authd reuse the exchange + userinfo code without forking it. They are pure
-// (store-free, secret-free); only the issuance (ES256 + authd refresh store)
-// differs and lives in authd.
+// Exported provider primitives. authd's /auth/* handlers (specs/5/1) own the
+// OAuth flow and call these wrappers to reuse the exchange + userinfo code
+// without forking it. They are pure (store-free, secret-free); the issuance
+// (ES256 + authd refresh store) lives in authd.
 
 func ExchangeGoogle(ctx context.Context, cfg *core.Config, code, verifier string) (string, error) {
 	return exchangeGoogle(ctx, cfg, code, verifier)

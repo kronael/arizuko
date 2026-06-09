@@ -1,12 +1,11 @@
 package main
 
-// OAuth / login surface (/auth/*), ported into authd from auth/web.go +
-// auth/oauth.go + auth/routes.go (spec 5/1 § OAuth routes). authd is now the
-// OAuth provider: the provider dance (Google/GitHub/Discord/Telegram) is reused
-// verbatim from the auth library; only issuance changes — authd mints an ES256
-// access token (~15m) and a rotating refresh in its own refresh_tokens store
-// (NOT messages.db store.AuthSession). The dual-verify soak keeps proxyd's
-// HS256 RegisterRoutes path alive in parallel; this is additive.
+// OAuth / login surface (/auth/*), owned by authd (spec 5/1 § OAuth routes).
+// authd is the OAuth provider: the provider dance (Google/GitHub/Discord/
+// Telegram) is reused from the auth library's pure wrappers; only issuance
+// differs — authd mints an ES256 access token (~15m) and a rotating refresh
+// in its own refresh_tokens store (NOT messages.db store.AuthSession). proxyd
+// no longer mounts any /auth/* routes; it 302s unauthenticated callers here.
 
 import (
 	"context"

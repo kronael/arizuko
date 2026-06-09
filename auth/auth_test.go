@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -12,10 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/store"
-	argon2id "golang.org/x/crypto/argon2"
 )
 
 func sha256sum(b []byte) [32]byte { return sha256.Sum256(b) }
@@ -24,13 +19,6 @@ func hmacSHA256(key, msg []byte) string {
 	h := hmac.New(sha256.New, key)
 	h.Write(msg)
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-func hashArgon2(password string, salt []byte) string {
-	derived := argon2id.IDKey([]byte(password), salt, 3, 65536, 4, 32)
-	s := base64.RawStdEncoding.EncodeToString(salt)
-	h := base64.RawStdEncoding.EncodeToString(derived)
-	return fmt.Sprintf("$argon2id$v=19$m=65536,t=3,p=4$%s$%s", s, h)
 }
 
 var testSecret = []byte("test-secret-key-for-testing-only")
@@ -65,199 +53,6 @@ func TestJWTBadSignature(t *testing.T) {
 	}
 }
 
-func newTestServer(s *store.Store) *httptest.Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /auth/login", handleLoginPage(&core.Config{}))
-	mux.HandleFunc("POST /auth/login", handleLogin(s, testSecret, false))
-	mux.HandleFunc("POST /auth/refresh",
-		handleRefresh(s, testSecret, false))
-	mux.HandleFunc("POST /auth/logout", handleLogout(s, false))
-	return httptest.NewServer(mux)
-}
-
-func seedUser(t *testing.T, s *store.Store) {
-	t.Helper()
-	h := hashArgon2("password123", []byte("testsalt"))
-	if err := s.CreateAuthUser(
-		"local:admin", "admin", h, "Admin",
-	); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func extractCookie(resp *http.Response, name string) *http.Cookie {
-	for _, c := range resp.Cookies() {
-		if c.Name == name {
-			return c
-		}
-	}
-	return nil
-}
-
-func TestLoginCycle(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedUser(t, s)
-
-	srv := newTestServer(s)
-	defer srv.Close()
-
-	// GET login page
-	resp, err := http.Get(srv.URL + "/auth/login")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("login page: got %d", resp.StatusCode)
-	}
-
-	// POST login with wrong password
-	resp, err = http.PostForm(srv.URL+"/auth/login", url.Values{
-		"username": {"admin"}, "password": {"wrong"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("bad login: got %d, want 401", resp.StatusCode)
-	}
-}
-
-// issueSession folds a linked sub onto its canonical at JWT mint time
-// so downstream sees the canonical identity regardless of which
-// provider the user authenticated with.
-func TestIssueSessionResolvesLinkedToCanonical(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	if err := s.CreateAuthUser("google:alice", "alice", "", "Alice"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.LinkSubToCanonical("github:alice2", "Alice GH", "google:alice"); err != nil {
-		t.Fatal(err)
-	}
-
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/auth/login", nil)
-	issueSession(w, r, s, testSecret, "github:alice2", "Alice GH", false)
-
-	body := w.Body.String()
-	// Extract JWT from the inline localStorage script.
-	i := strings.Index(body, `'jwt',"`)
-	if i < 0 {
-		t.Fatalf("no jwt in body: %s", body)
-	}
-	rest := body[i+len(`'jwt',"`):]
-	j := strings.Index(rest, `"`)
-	if j < 0 {
-		t.Fatalf("malformed jwt envelope: %s", body)
-	}
-	tok := rest[:j]
-	claims, err := VerifyJWT(testSecret, tok)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if claims.Sub != "google:alice" {
-		t.Fatalf("got sub=%q, want google:alice (canonical)", claims.Sub)
-	}
-}
-
-func TestFullLoginRefreshLogout(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedUser(t, s)
-
-	srv := newTestServer(s)
-	defer srv.Close()
-
-	// no-redirect client to inspect responses
-	cl := &http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	// 1. login with correct password
-	resp, err := cl.PostForm(srv.URL+"/auth/login", url.Values{
-		"username": {"admin"}, "password": {"password123"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("login: got %d, want 200", resp.StatusCode)
-	}
-	rc := extractCookie(resp, cookieName)
-	if rc == nil {
-		t.Fatal("login: no refresh cookie")
-	}
-
-	// 2. refresh with that cookie
-	req, _ := http.NewRequest("POST", srv.URL+"/auth/refresh", nil)
-	req.AddCookie(rc)
-	resp, err = cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("refresh: got %d, want 200", resp.StatusCode)
-	}
-	rc2 := extractCookie(resp, cookieName)
-	if rc2 == nil {
-		t.Fatal("refresh: no new cookie")
-	}
-	if rc2.Value == rc.Value {
-		t.Fatal("refresh: cookie should rotate")
-	}
-
-	// old refresh token should be deleted (replay fails)
-	req, _ = http.NewRequest("POST", srv.URL+"/auth/refresh", nil)
-	req.AddCookie(rc) // old cookie
-	resp, err = cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("replay: got %d, want 401", resp.StatusCode)
-	}
-
-	// 3. logout with new cookie
-	req, _ = http.NewRequest("POST", srv.URL+"/auth/logout", nil)
-	req.AddCookie(rc2)
-	resp, err = cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("logout: got %d, want 303", resp.StatusCode)
-	}
-	cleared := extractCookie(resp, cookieName)
-	if cleared == nil || cleared.MaxAge != -1 {
-		t.Fatal("logout: cookie not cleared")
-	}
-
-	// refresh with logged-out cookie should fail
-	req, _ = http.NewRequest("POST", srv.URL+"/auth/refresh", nil)
-	req.AddCookie(rc2)
-	resp, err = cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("post-logout refresh: got %d, want 401",
-			resp.StatusCode)
-	}
-}
-
 func TestOAuthStateExpired(t *testing.T) {
 	// create state with timestamp 11 minutes in the past
 	ts := fmt.Sprintf("%d", time.Now().Add(-11*time.Minute).Unix())
@@ -267,114 +62,20 @@ func TestOAuthStateExpired(t *testing.T) {
 	r := httptest.NewRequest(
 		"GET", "/callback?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
-	if _, ok := verifyState(testSecret, r); ok {
+	if _, ok := VerifyState(testSecret, r); ok {
 		t.Fatal("expired state should not verify")
 	}
 }
 
-func TestSplitArgon2EdgeCases(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-	}{
-		{"empty", ""},
-		{"no dollars", "argon2id"},
-		{"partial", "$argon2id$v=19$m=65536,t=3,p=4$salt"},
-		{"wrong algo", "$bcrypt$v=19$m=65536,t=3,p=4$s$h"},
-		{"no hash part", "$argon2id$v=19$m=65536,t=3,p=4$saltonly"},
-	}
-	for _, tc := range cases {
-		if p := splitArgon2(tc.input); p != nil {
-			t.Errorf("%s: expected nil, got %+v", tc.name, p)
-		}
-	}
-}
-
-func TestRefreshExpiredSession(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedUser(t, s)
-
-	// create session with past expiry
-	token := "expired-refresh-token"
-	h := HashToken(token)
-	past := time.Now().Add(-time.Hour)
-	if err := s.CreateAuthSession(h, "local:admin", past); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := newTestServer(s)
-	defer srv.Close()
-
-	cl := &http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	req, _ := http.NewRequest("POST", srv.URL+"/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
-	resp, err := cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expired session: got %d, want 401",
-			resp.StatusCode)
-	}
-}
-
-func TestLogoutWithoutCookie(t *testing.T) {
-	s, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	srv := newTestServer(s)
-	defer srv.Close()
-
-	cl := &http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	req, _ := http.NewRequest("POST", srv.URL+"/auth/logout", nil)
-	resp, err := cl.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("logout no cookie: got %d, want 303",
-			resp.StatusCode)
-	}
-	cleared := extractCookie(resp, cookieName)
-	if cleared == nil || cleared.MaxAge != -1 {
-		t.Fatal("logout: cookie not cleared")
-	}
-}
-
-func TestVerifyArgon2(t *testing.T) {
-	hash := hashArgon2("password123", []byte("somesalt8"))
-	if !verifyArgon2(hash, "password123") {
-		t.Fatal("expected valid password to verify")
-	}
-	if verifyArgon2(hash, "wrongpassword") {
-		t.Fatal("expected wrong password to fail")
-	}
-}
-
 func TestOAuthStateCookie(t *testing.T) {
-	state := signStateP(testSecret, stateIntent{})
+	state := SignState(testSecret, StateIntent{})
 	if !strings.Contains(state, ".") {
 		t.Fatal("state should contain timestamp.signature")
 	}
 	// simulate verification
 	r := httptest.NewRequest("GET", "/callback?state="+url.QueryEscape(state), nil)
 	r.AddCookie(&http.Cookie{Name: "oauth_state", Value: state})
-	if _, ok := verifyState(testSecret, r); !ok {
+	if _, ok := VerifyState(testSecret, r); !ok {
 		t.Fatal("valid state should verify")
 	}
 }
@@ -393,7 +94,7 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	h := hmacSHA256(secret[:], []byte(check))
 	form.Set("hash", h)
 
-	if !verifyTelegramWidget(form, botToken) {
+	if !VerifyTelegramWidget(form, botToken) {
 		t.Fatal("valid telegram widget should verify")
 	}
 	// stale auth_date should fail
@@ -405,11 +106,11 @@ func TestTelegramWidgetVerify(t *testing.T) {
 	staleCheck := "auth_date=1234567890\nfirst_name=Test\nid=12345"
 	staleH := hmacSHA256(secret[:], []byte(staleCheck))
 	staleForm.Set("hash", staleH)
-	if verifyTelegramWidget(staleForm, botToken) {
+	if VerifyTelegramWidget(staleForm, botToken) {
 		t.Fatal("stale auth_date should fail")
 	}
 	form.Set("hash", "invalid")
-	if verifyTelegramWidget(form, botToken) {
+	if VerifyTelegramWidget(form, botToken) {
 		t.Fatal("invalid hash should fail")
 	}
 }
