@@ -5,6 +5,16 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — chanlib dead monolith service-token path (2026-06-09, refine r3)
+
+`chanlib` still carries the pre-split fallback: `bearer()` / `SetServiceToken(nil)`
+("no service source → bare CHANNEL_NAME"). Unreachable in production — `run.go`
+hard-requires AUTHD_URL+AUTHD_SERVICE_KEY and always wires a real `auth.TokenSource`.
+Severity: low (dead, not wrong). Fix-path: drop the nil-source branch + `bearer()`
+fallback once confirmed no local-dev tooling relies on it; this is a "remove
+dual-path" concern (behavior-change-adjacent), deliberately out of the zero-behavior
+refine sweep. Sibling of the #14 monolith-fallback removal.
+
 ## OPEN — gated→split parity gaps (2026-06-08 audit)
 
 The split silently dropped a CLASS of gated behaviors (verified via gated↔routd parity
