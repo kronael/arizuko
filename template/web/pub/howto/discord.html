@@ -47,8 +47,8 @@
     <p>Discord messages travel through the stack in five steps:</p>
     <ol>
       <li><strong>discd</strong> receives the message via Discord&rsquo;s Gateway WebSocket and converts it to an internal <code>InboundMsg</code> with a typed <a href="../concepts/jid.html">JID</a>.</li>
-      <li><strong>gated</strong> stores the message and looks it up in the <strong>routing table</strong>. The first matching route determines which group folder receives it.</li>
-      <li><strong>gated</strong> spawns a Docker container with the agent for that group and delivers the message.</li>
+      <li><strong>routd</strong> stores the message and looks it up in the <strong>routing table</strong>. The first matching route determines which group folder receives it.</li>
+      <li><strong>routd</strong> dispatches the turn; <strong>runed</strong> spawns a Docker container with the agent for that group and delivers the message.</li>
       <li>The agent runs, calls MCP tools, and eventually calls <code>reply</code> or <code>send</code>.</li>
       <li><strong>discd</strong> sends the agent&rsquo;s response back to the Discord channel.</li>
     </ol>
@@ -129,7 +129,7 @@ sudo systemctl restart arizuko_&lt;instance&gt;</code></pre>
     <p>Watch logs to confirm the adapter connected:</p>
     <pre><code>sudo journalctl -u arizuko_&lt;instance&gt; --since "30s ago" --no-pager \
   | grep -E "discord connected|channel registered"</code></pre>
-    <p>You should see <code>"discord connected"</code> from discd and <code>"channel registered"</code> from gated.</p>
+    <p>You should see <code>"discord connected"</code> from discd and <code>"channel registered"</code> from routd.</p>
 
     <h2>step 4 — set up routing</h2>
     <p>Without a routing entry, messages from Discord are stored but no agent is fired. Add at least one route. The easiest ways:</p>
@@ -258,7 +258,7 @@ send_file chatJid:="discord:123456789/987654321" \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/discord.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

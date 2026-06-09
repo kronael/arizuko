@@ -62,11 +62,11 @@
         </li>
         <li>
           <strong>slakd</strong> verifies the HMAC, converts the event to an
-          internal <code>InboundMsg</code>, posts it to <strong>gated</strong>.
+          internal <code>InboundMsg</code>, posts it to <strong>routd</strong>.
         </li>
         <li>
-          <strong>gated</strong> routes to a group and spawns the agent
-          container.
+          <strong>routd</strong> routes to a group and dispatches the turn;
+          <strong>runed</strong> spawns the agent container.
         </li>
         <li>
           The agent runs, calls <code>reply</code> or <code>send</code>; slakd
@@ -331,7 +331,7 @@ target: engineering</code></pre>
             <td>
               optional per-adapter override of
               <code>CHANNEL_SECRET</code>. slakd presents this bearer to
-              gated; registration binds it to the slack channel record so
+              routd; registration binds it to the slack channel record so
               a leaked Slack manifest does not compromise other adapters
             </td>
           </tr>
@@ -368,7 +368,7 @@ target: engineering</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/slack.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

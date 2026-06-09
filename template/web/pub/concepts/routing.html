@@ -102,7 +102,7 @@
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
-        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, the gateway ignores this mode and fires a turn anyway. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, <code>routd</code> ignores this mode and fires a turn anyway. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
         <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>
@@ -123,7 +123,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/routing.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-09">2026-06-09</time>
       </div>
     </main>
 

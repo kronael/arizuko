@@ -78,7 +78,7 @@ Skill instructions here...</code></pre>
     <p><code>/reconcile</code> handles the late case &mdash; if the agent produced output and then realized a skill applied, reconcile re-runs the work under the correct skill so the output doesn&rsquo;t contradict the skill&rsquo;s rules.</p>
 
     <h2>migration and versioning</h2>
-    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code> &mdash; a single integer. Every release that ships skill changes bumps this number. On agent startup, <code>gateway.checkMigrationVersion</code> compares the image&rsquo;s version against the group&rsquo;s last-seen value:</p>
+    <p>The agent image carries a version number in <code>ant/skills/self/MIGRATION_VERSION</code> &mdash; a single integer. Every release that ships skill changes bumps this number. On agent startup, <code>routd</code> compares the image&rsquo;s version against the group&rsquo;s last-seen value:</p>
     <ul>
       <li>If higher, the agent runs <code>/migrate</code>, which copies new and changed skill files from the image into the group&rsquo;s <code>.claude/skills/</code> &mdash; preserving user skills, replacing built-ins.</li>
       <li>The same hook fires the release broadcast: the <code>&gt;</code> blockquote at the top of the new <code>CHANGELOG.md</code> entry is extracted and posted into the chat. Skill update and announcement travel together &mdash; bumping the version is the single trigger.</li>
@@ -94,7 +94,7 @@ Skill instructions here...</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/skills.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

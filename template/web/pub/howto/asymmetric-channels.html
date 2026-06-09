@@ -44,7 +44,7 @@
     <p>Ingest signal from one or more channels into a folder's memory <em>without</em> the agent replying there. The agent reads everything that lands; it speaks only on the channel you nominated. Useful when one source is high-volume context (a busy WhatsApp group, an RSS firehose, a mirrored mailing list) and another is the actual conversation surface.</p>
 
     <h2>the mechanism: target fragment</h2>
-    <p>The <code>routes.target</code> column carries an optional <code>#mode</code> URI fragment that decides what the gateway does <em>after</em> the message lands in the folder:</p>
+    <p>The <code>routes.target</code> column carries an optional <code>#mode</code> URI fragment that decides what <code>routd</code> does <em>after</em> the message lands in the folder:</p>
 
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
@@ -53,7 +53,7 @@
         <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The message is visible to the agent in history on the next trigger turn.</td></tr>
       </tbody>
     </table>
-    <p>One folder, two routes, two effects. The agent's ACL is folder-scoped &mdash; observed messages are fully readable. The mode is the gateway's contract about when to invoke the agent, nothing about visibility.</p>
+    <p>One folder, two routes, two effects. The agent's ACL is folder-scoped &mdash; observed messages are fully readable. The mode is <code>routd</code>'s contract about when to invoke the agent, nothing about visibility.</p>
 
     <h2>recipe</h2>
     <p>Two routes against the same folder, one in each mode:</p>
@@ -78,7 +78,7 @@
     <p>This was first deployed as &ldquo;Nemo&rdquo; under the <a href="../products/reality/">reality product</a> &mdash; the agent holds context across both channels without forking the conversation. The reality page treats it as a case study; this page is the generic recipe.</p>
 
     <h2>defence in depth (optional)</h2>
-    <p>The route mode is the platform-level enforcement: the gateway will not schedule a turn for an observed message, full stop. If you want a second layer the agent itself acknowledges, drop a soft rule into the folder&rsquo;s <code>CLAUDE.md</code>:</p>
+    <p>The route mode is the platform-level enforcement: <code>routd</code> will not schedule a turn for an observed message, full stop. If you want a second layer the agent itself acknowledges, drop a soft rule into the folder&rsquo;s <code>CLAUDE.md</code>:</p>
     <pre><code>## Channels
 
 Reply on Telegram only. Never call `send_message` targeting WhatsApp,
@@ -110,7 +110,7 @@ context; the response goes on Telegram.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/asymmetric-channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

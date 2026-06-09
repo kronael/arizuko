@@ -79,7 +79,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <h2>4. Run it</h2>
     <p><code>arizuko run</code> generates <code>docker-compose.yml</code> from the instance state and brings the stack up in the foreground.</p>
     <pre><code>sudo arizuko run demo</code></pre>
-    <p>You should see <code>gated</code>, <code>timed</code>, <code>onbod</code>, <code>dashd</code>, and the agent runner come up. In another shell, check status:</p>
+    <p>You should see <code>authd</code>, <code>routd</code>, <code>runed</code>, <code>timed</code>, <code>onbod</code>, <code>dashd</code>, and the agent runner come up. In another shell, check status:</p>
     <pre><code>sudo arizuko status demo</code></pre>
     <p>For production, run arizuko as a systemd service named <code>arizuko_demo</code> instead of in the foreground. Logs then live in <code>journalctl -u arizuko_demo</code> &mdash; the docker log driver is <code>none</code> on purpose, so <code>docker logs</code> shows nothing.</p>
 
@@ -101,7 +101,7 @@ sudo install -m 0755 arizuko /usr/local/bin/arizuko</code></pre>
     <p>Two ways to confirm the loop is live.</p>
     <p><strong>From the host</strong>, inject a message and wait for the reply:</p>
     <pre><code>sudo arizuko send demo main "ping" --wait</code></pre>
-    <p><strong>From the channel</strong>, send a message in the wired chat and watch the gateway pick it up:</p>
+    <p><strong>From the channel</strong>, send a message in the wired chat and watch <code>routd</code> pick it up:</p>
     <pre><code>sudo journalctl -u arizuko_demo --since "2 min ago" --no-pager | grep -iE 'mention|spawn|reply'</code></pre>
     <p>Red flags in the log: <code>error in message loop</code>, <code>container timeout</code>, <code>circuit breaker open</code>, <code>pull access denied for arizuko-ant</code> (means <code>make images</code> never ran on this host).</p>
 
@@ -141,14 +141,14 @@ arizuko apply demo demo.yaml        # apply the manifest back</code></pre>
     </ul>
 
     <h2 id="audit-mode">Audit mode (mute outbound)</h2>
-    <p>Two env vars on the gateway run a group or platform in shadow mode: the agent keeps producing turns, every outbound row lands in <code>messages</code>, but nothing reaches the channel.</p>
+    <p>Two env vars on <code>routd</code> run a group or platform in shadow mode: the agent keeps producing turns, every outbound row lands in <code>messages</code>, but nothing reaches the channel.</p>
     <dl>
       <dt><code>SEND_DISABLED_GROUPS</code></dt>
       <dd>CSV of folder names. Example: <code>SEND_DISABLED_GROUPS=atlas,research</code>.</dd>
       <dt><code>SEND_DISABLED_CHANNELS</code></dt>
       <dd>CSV of platform prefixes (the part before <code>:</code> in a JID). Example: <code>SEND_DISABLED_CHANNELS=discord</code>.</dd>
     </dl>
-    <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>reply</code> and <code>send</code> return success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>gateway/gateway.go</code> (group + platform mute), <code>core/config.go</code> (parsing), <code>gateway/gateway_test.go</code> <code>TestMakeOutputCallback_MutedGroup</code> (locked behaviour).</p>
+    <p>Inbound is unaffected. The agent does not know it was muted &mdash; <code>reply</code> and <code>send</code> return success. Rows are visible at <code>/dash/activity/</code> and via the <code>inspect_messages</code> MCP tool. Source: <code>routd/server.go</code> (group mute via <code>SEND_DISABLED_GROUPS</code>; <code>SEND_DISABLED_CHANNELS</code> mutes in the channel Deliverer), <code>core/config.go</code> (parsing).</p>
 
 
       <nav class="docs-pager" aria-label="Pager">

@@ -51,15 +51,20 @@
       </p>
       <p>
         This guide covers a single-pod deployment — all daemons in one pod
-        sharing a PersistentVolumeClaim. That&rsquo;s the right starting point
-        because <code>gated</code> and the channel adapters communicate over
-        a Unix socket, and SQLite WAL has a single-writer constraint anyway.
-        Split into separate Deployments only once you have a concrete reason.
+        sharing a PersistentVolumeClaim. arizuko runs as three core daemons
+        &mdash; <code>authd</code> (token authority), <code>routd</code>
+        (conversation/router), <code>runed</code> (agent execution) &mdash;
+        plus adapters and the web layer. They talk over HTTP (<code>/v1/*</code>);
+        the per-turn agent MCP is a Unix socket <code>routd</code> hosts and
+        <code>runed</code> mounts into the agent container. Each daemon owns its
+        own SQLite DB on the shared PVC, and SQLite WAL has a single-writer
+        constraint, so keep them in one pod (one replica). Split into separate
+        Deployments only once you have a concrete reason.
       </p>
 
       <div class="note">
         <strong>Known gap &mdash; agent containers:</strong> on a bare Linux
-        host, <code>gated</code> spawns per-group agent containers via the
+        host, <code>runed</code> spawns per-group agent containers via the
         Docker socket. In Kubernetes, mounting <code>docker.sock</code> from
         a node is discouraged and unreliable. A
         <code>CONTAINER_BACKEND=kubernetes</code> mode is specced but not yet
@@ -71,9 +76,11 @@
 
       <h2>why Kubernetes for secret management</h2>
       <p>
-        arizuko needs a handful of long-lived secrets: <code>AUTH_SECRET</code>
-        (also the encryption key for the secrets table), <code>CHANNEL_SECRET</code>,
-        and one or more adapter tokens
+        arizuko needs a handful of long-lived secrets: <code>SECRETS_KEY</code>
+        (the encryption key for the secrets table, read by <code>routd</code>),
+        <code>CHANNEL_SECRET</code>, the per-daemon <code>AUTHD_SERVICE_KEY</code>
+        each daemon uses to mint its <code>service:</code> token from
+        <code>authd</code>, and one or more adapter tokens
         (<code>TELEGRAM_BOT_TOKEN</code>, <code>SLACK_BOT_TOKEN</code>, etc.).
         On a single host these live in a mode-0600 <code>.env</code> file
         &mdash; fine, but manual to rotate and invisible to audit logs.
@@ -106,14 +113,24 @@
         </thead>
         <tbody>
           <tr>
-            <td><code>gated</code></td>
+            <td><code>authd</code></td>
             <td>container in Pod</td>
-            <td>owns SQLite, IPC socket; must be first to start</td>
+            <td>token authority; serves JWKS; must be first to start</td>
+          </tr>
+          <tr>
+            <td><code>routd</code></td>
+            <td>container in Pod</td>
+            <td>owns <code>routd.db</code>, hosts the per-turn agent MCP socket; dispatches turns to <code>runed</code></td>
+          </tr>
+          <tr>
+            <td><code>runed</code></td>
+            <td>container in Pod</td>
+            <td>agent execution; the only daemon needing the Docker socket (see the agent-container gap)</td>
           </tr>
           <tr>
             <td><code>timed</code>, <code>onbod</code>, <code>dashd</code></td>
             <td>containers in same Pod</td>
-            <td>connect to gated over loopback or shared unix socket</td>
+            <td>connect to <code>routd</code>/<code>authd</code> over loopback HTTP</td>
           </tr>
           <tr>
             <td><code>proxyd</code>, <code>webd</code></td>
@@ -138,7 +155,7 @@
           <tr>
             <td><code>.env</code> secret vars</td>
             <td>Secret &rarr; <code>envFrom</code></td>
-            <td>AUTH_SECRET, CHANNEL_SECRET, adapter tokens</td>
+            <td>SECRETS_KEY, CHANNEL_SECRET, AUTHD_SERVICE_KEY, adapter tokens</td>
           </tr>
         </tbody>
       </table>
@@ -204,7 +221,6 @@ data:
   CONTAINER_IMAGE: "arizuko-ant:latest"
   HOST_DATA_DIR: "/srv/data/arizuko_demo"
   HOST_APP_DIR: "/workspace"
-  LISTEN_ADDR: ":8080"
   LOG_LEVEL: "info"</code></pre>
 
       <h2>step 3 &mdash; Secret</h2>
@@ -221,8 +237,9 @@ metadata:
   name: arizuko-secrets
 type: Opaque
 stringData:
-  AUTH_SECRET: "change-me-32-char-random-string"
+  SECRETS_KEY: "change-me-32-char-random-string"
   CHANNEL_SECRET: "change-me-another-32-char-string"
+  AUTHD_SERVICE_KEY: "change-me-per-daemon-service-key"
   TELEGRAM_BOT_TOKEN: "123456:ABC..."   # if using teled
   SLACK_BOT_TOKEN: "xoxb-..."           # if using slakd
   SLACK_SIGNING_SECRET: "..."           # if using slakd</code></pre>
@@ -269,9 +286,40 @@ spec:
               mountPath: /srv/data
 
       containers:
-        - name: gated
+        - name: authd
           image: arizuko:latest
-          command: ["/usr/local/bin/gated"]
+          command: ["/usr/local/bin/authd"]
+          env:
+            - name: LISTEN_ADDR
+              value: ":8081"
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+        - name: routd
+          image: arizuko:latest
+          command: ["/usr/local/bin/routd"]
+          env:
+            # authd's JWKS + token mint, and the runed dispatch target.
+            # Containers in one pod share localhost; give each daemon its
+            # own port (LISTEN_ADDR) so they don't collide.
+            - name: LISTEN_ADDR
+              value: ":8080"
+            - name: AUTHD_URL
+              value: "http://localhost:8081"
+            - name: RUNED_URL
+              value: "http://localhost:8082"
           envFrom:
             - configMapRef:
                 name: arizuko-config
@@ -286,6 +334,23 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+
+        - name: runed
+          image: arizuko:latest
+          command: ["/usr/local/bin/runed"]
+          env:
+            - name: LISTEN_ADDR
+              value: ":8082"
+            - name: AUTHD_URL
+              value: "http://localhost:8081"
+          envFrom:
+            - configMapRef:
+                name: arizuko-config
+            - secretRef:
+                name: arizuko-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /srv/data
 
         - name: timed
           image: arizuko:latest
@@ -392,8 +457,8 @@ kubectl apply -f service.yaml
 # watch the pod come up
 kubectl get pods -w
 
-# check gated is ready
-kubectl logs deploy/arizuko -c gated --tail=30
+# check routd is ready
+kubectl logs deploy/arizuko -c routd --tail=30
 
 # hit the health endpoint
 kubectl port-forward svc/arizuko 8080:80 &amp;
@@ -443,10 +508,10 @@ spec:
   target:
     name: arizuko-secrets   # creates the K8s Secret
   data:
-    - secretKey: AUTH_SECRET
+    - secretKey: SECRETS_KEY
       remoteRef:
         key: arizuko/demo
-        property: AUTH_SECRET
+        property: SECRETS_KEY
     - secretKey: CHANNEL_SECRET
       remoteRef:
         key: arizuko/demo
@@ -470,7 +535,7 @@ spec:
 
       <h2>agent containers (known gap)</h2>
       <p>
-        <code>gated</code> spawns a per-group <code>arizuko-ant</code> container
+        <code>runed</code> spawns a per-group <code>arizuko-ant</code> container
         for each agent run. On bare Docker it calls
         <code>docker run</code> via the Docker socket. In Kubernetes the socket
         isn&rsquo;t reliably available, and even if it is, containers spawned
@@ -483,7 +548,7 @@ spec:
         <li>
           <strong>Docker-in-Docker</strong> &mdash; add a <code>dind</code>
           sidecar container (image: <code>docker:dind</code>) and mount its
-          socket into the <code>gated</code> container as
+          socket into the <code>runed</code> container as
           <code>/var/run/docker.sock</code>. Works; not recommended for
           production because DinD requires <code>privileged: true</code>.
         </li>
@@ -511,14 +576,19 @@ spec:
         </thead>
         <tbody>
           <tr>
-            <td><code>AUTH_SECRET</code></td>
+            <td><code>SECRETS_KEY</code></td>
             <td>Secret</td>
-            <td>32-byte random; encrypts the secrets table in SQLite</td>
+            <td>32-byte random; <code>routd</code> uses it to encrypt the secrets table in SQLite</td>
+          </tr>
+          <tr>
+            <td><code>AUTHD_SERVICE_KEY</code></td>
+            <td>Secret</td>
+            <td>per-daemon key each daemon presents to <code>authd</code> to mint its <code>service:</code> token</td>
           </tr>
           <tr>
             <td><code>CHANNEL_SECRET</code></td>
             <td>Secret</td>
-            <td>bearer token adapters present to gated</td>
+            <td>bearer token adapters present to <code>routd</code></td>
           </tr>
           <tr>
             <td><code>TELEGRAM_BOT_TOKEN</code></td>
@@ -553,7 +623,7 @@ spec:
           <tr>
             <td><code>CONTAINER_IMAGE</code></td>
             <td>ConfigMap</td>
-            <td>agent image name; gated pulls this per agent spawn</td>
+            <td>agent image name; <code>runed</code> pulls this per agent spawn</td>
           </tr>
           <tr>
             <td><code>HOST_DATA_DIR</code></td>
@@ -586,7 +656,7 @@ spec:
           <code>hostPath</code> PV manually.
         </dd>
 
-        <dt><code>gated</code> crashloops on startup</dt>
+        <dt><code>routd</code> crashloops on startup</dt>
         <dd>
           Usually the data dir isn&rsquo;t seeded. Check that the initContainer
           ran and exited 0. If <code>arizuko create</code> failed, it logs why
@@ -594,12 +664,13 @@ spec:
           Check <code>kubectl logs deploy/arizuko -c init-data</code>.
         </dd>
 
-        <dt>Adapter can&rsquo;t reach gated</dt>
+        <dt>Adapter can&rsquo;t reach routd</dt>
         <dd>
-          All containers in the same Pod share localhost and the IPC socket
-          path. Confirm <code>ROUTER_URL</code> is set to
-          <code>http://localhost:8080</code> (gated&rsquo;s default
-          <code>LISTEN_ADDR</code>) in the adapter&rsquo;s env.
+          All containers in the same Pod share localhost. Confirm
+          <code>ROUTER_URL</code> is set to <code>http://localhost:8080</code>
+          (<code>routd</code>&rsquo;s port in this manifest) in the
+          adapter&rsquo;s env, and that adapters wait for <code>routd</code>
+          and <code>authd</code> to be ready.
         </dd>
 
         <dt>Secrets not updating after Vault rotation</dt>
@@ -626,7 +697,7 @@ spec:
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/kubernetes.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-19">2026-05-19</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

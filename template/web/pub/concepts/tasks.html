@@ -58,7 +58,7 @@
 
     <h2>mechanism</h2>
     <p>The <code>timed</code> daemon ticks every 60 seconds. On each tick it claims every row where <code>status='active'</code> and <code>next_run &le; now</code>, flips them to <code>'firing'</code>, then for each claimed row inserts the prompt into the <code>messages</code> table with sender <code>timed</code> (or <code>timed-isolated:&lt;id&gt;</code>) and the task&rsquo;s <code>chat_jid</code>.</p>
-    <p>The gateway polls <code>messages</code> the same way it polls every other inbound source. It sees the new row, routes by <code>chat_jid</code>, and fires a turn. The agent has no idea this prompt came from a clock instead of a person &mdash; same code path.</p>
+    <p><code>routd</code> polls <code>messages</code> the same way it polls every other inbound source. It sees the new row, routes by <code>chat_jid</code>, and fires a turn. The agent has no idea this prompt came from a clock instead of a person &mdash; same code path.</p>
     <p>After insert, <code>timed</code> writes the next <code>next_run</code> (parsed from the cron expression or added from the interval), or marks the row <code>'completed'</code> if there is no schedule. Every fire writes one row to <code>task_run_logs</code> with duration and status.</p>
 
     <h2>triggers</h2>
@@ -81,7 +81,7 @@
       <li><code>ContextMode</code> &mdash; either <code>group</code> (default) or <code>isolated</code>.</li>
       <li><code>Created</code> &mdash; insertion timestamp, useful for audit and dedup.</li>
     </ul>
-    <p>Context mode decides what session the agent runs under. With <code>group</code> the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which the gateway treats as its own conversation. Useful for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context.</p>
+    <p>Context mode decides what session the agent runs under. With <code>group</code> the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which <code>routd</code> treats as its own conversation. Useful for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context.</p>
 
     <h2>managing tasks</h2>
     <p>Five MCP tools, exposed to agents whose tier permits scheduling:</p>
@@ -97,7 +97,7 @@
 
     <h2>failure model</h2>
     <p>If the synthetic message insert itself fails, <code>timed</code> logs an error row to <code>task_run_logs</code> and flips the task back to <code>active</code> without advancing <code>next_run</code>. The next tick will try again.</p>
-    <p>If the insert succeeds but the agent run downstream errors out, <code>timed</code> never knows &mdash; from the scheduler&rsquo;s point of view the fire was successful. <code>next_run</code> advances normally and the task fires again at its scheduled time. There is no automatic retry of the failed turn. The error sits in the gateway&rsquo;s logs and the folder&rsquo;s chat history; an operator (or the agent itself, on its next run) decides what to do.</p>
+    <p>If the insert succeeds but the agent run downstream errors out, <code>timed</code> never knows &mdash; from the scheduler&rsquo;s point of view the fire was successful. <code>next_run</code> advances normally and the task fires again at its scheduled time. There is no automatic retry of the failed turn. The error sits in <code>routd</code>&rsquo;s logs and the folder&rsquo;s chat history; an operator (or the agent itself, on its next run) decides what to do.</p>
     <p>The status field never auto-flips to <code>paused</code> based on failures. A failing recurring task keeps firing until somebody pauses it or fixes the underlying problem.</p>
 
     <h2>go deeper</h2>
@@ -109,7 +109,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tasks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

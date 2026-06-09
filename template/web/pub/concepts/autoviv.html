@@ -63,7 +63,7 @@
         The <code>#observe</code> row stores every channel message so the agent has context. The mention row fires a turn when someone calls <code>@atlas</code>.
       </li>
       <li><strong>The tier-1 agent notices an unrouted channel.</strong> When <code>atlas</code> runs a turn, it sees the inbound message&rsquo;s <code>chat_jid</code>. If no specific child folder is wired to that JID and the sender holds operator grant, it calls the MCP tool <code>register_group</code> with the JID and a sanitized folder name.</li>
-      <li><strong><code>register_group</code> does the rest.</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1309"><code>ipc/ipc.go:1309</code></a> &rarr; <code>gateway.registerGroupIPC</code> writes the group row, seeds the folder with skills and settings (<code>SetupGroup</code>), and inserts a high-priority route <code>room=&lt;jid-room&gt; &rarr; &lt;folder&gt;</code> in one step. The next message in that channel lands in <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
+      <li><strong><code>register_group</code> does the rest.</strong> <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1309"><code>ipc/ipc.go:1309</code></a> &rarr; <code>routd</code> writes the group row, seeds the folder with skills and settings (<code>SetupGroup</code>), and inserts a high-priority route <code>room=&lt;jid-room&gt; &rarr; &lt;folder&gt;</code> in one step. The next message in that channel lands in <code>atlas/eng-support</code> instead of <code>atlas</code>.</li>
     </ol>
 
     <h2>worked example</h2>
@@ -71,7 +71,7 @@
     <ul>
       <li>Route table has no specific row for <code>C5678</code>; the catch-all rule sends the message to <code>atlas</code> with <code>verb=mention</code>.</li>
       <li><code>atlas</code> runs a turn, sees the JID and the sender&rsquo;s operator grant, and calls <code>register_group(jid="slack:T1234/channel/C5678", folder="atlas/eng-support")</code>.</li>
-      <li>Gateway writes the group, seeds <code>groups/atlas/eng-support/</code> with the default skills, inserts route <code>room=T1234/channel/C5678 &rarr; atlas/eng-support</code> at <code>seq=0</code>.</li>
+      <li><code>routd</code> writes the group, seeds <code>groups/atlas/eng-support/</code> with the default skills, inserts route <code>room=T1234/channel/C5678 &rarr; atlas/eng-support</code> at <code>seq=0</code>.</li>
       <li>The agent replies in-thread from <code>atlas</code>. The next message in that channel routes to <code>atlas/eng-support</code> directly &mdash; its own folder, its own session, its own CLAUDE.md.</li>
     </ul>
 
@@ -98,9 +98,9 @@ senders &mdash; ask the operator instead.</code></pre>
     <ul>
       <li><strong>Operator grant required.</strong> <code>register_group</code> goes through <code>auth.AuthorizeStructural</code> (<a href="https://github.com/kronael/arizuko/blob/main/auth/policy.go"><code>auth/policy.go</code></a>): tier-1 callers may only create direct children of their own folder. <code>atlas</code> can register <code>atlas/eng-support</code>; it cannot register <code>main/foo</code>. Tier-0 (root) is needed for top-level folders.</li>
       <li><strong>Spawn quota.</strong> <code>auth.CheckSpawnAllowed</code> caps direct children at <code>max_children</code> (default <code>16</code>, set via the parent group&rsquo;s <code>container_config</code>). Set <code>max_children=-1</code> for unlimited; <code>0</code> disables spawning entirely.</li>
-      <li><strong>Folder name sanitization is the agent&rsquo;s job.</strong> Pass a clean folder string &mdash; the gateway accepts what you give it. Stick to lowercase, hyphens, slashes.</li>
+      <li><strong>Folder name sanitization is the agent&rsquo;s job.</strong> Pass a clean folder string &mdash; <code>routd</code> accepts what you give it. Stick to lowercase, hyphens, slashes.</li>
       <li><strong>Idempotency is partial.</strong> <code>PutGroup</code> uses <code>ON CONFLICT(folder) DO UPDATE</code>, so re-registering the same folder is safe. The route insert is unconditional, so calling <code>register_group</code> twice with the same JID writes a duplicate route row. Have the agent check existing routes (via <code>list_routes</code>) before registering.</li>
-      <li><strong>Folder seeding is best-effort.</strong> If <code>SetupGroup</code> fails (filesystem error, missing prototype), the group + route are still written; the gateway logs a warning and continues. Inspect <code>groups/&lt;folder&gt;/</code> if the new agent acts blank.</li>
+      <li><strong>Folder seeding is best-effort.</strong> If <code>SetupGroup</code> fails (filesystem error, missing prototype), the group + route are still written; <code>routd</code> logs a warning and continues. Inspect <code>groups/&lt;folder&gt;/</code> if the new agent acts blank.</li>
     </ul>
 
     <h2>go deeper</h2>
@@ -112,7 +112,7 @@ senders &mdash; ask the operator instead.</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/autoviv.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

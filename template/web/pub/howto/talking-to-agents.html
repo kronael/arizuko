@@ -70,11 +70,11 @@
         </tbody>
       </table>
 
-      <h2>gateway slash commands</h2>
+      <h2><code>routd</code> slash commands</h2>
       <p>
         Six commands work on every platform &mdash; they short-circuit
         before the agent runs. The handler list is
-        <a href="https://github.com/kronael/arizuko/blob/main/gateway/commands.go#L36"><code>gateway/commands.go:36</code></a>.
+        <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go"><code>routd/steer.go</code></a>.
         Type them as the first non-whitespace token of a message;
         Telegram's <code>/cmd@botname</code> suffix is accepted.
       </p>
@@ -103,7 +103,7 @@
         On its own line at the start of a message, these change
         where subsequent messages in this chat go &mdash; until
         cleared. Implementation:
-        <a href="https://github.com/kronael/arizuko/blob/main/gateway/gateway.go#L1876"><code>gateway/gateway.go:1876</code></a>.
+        <a href="https://github.com/kronael/arizuko/blob/main/routd/steer.go"><code>routd/steer.go</code></a>.
       </p>
       <ul>
         <li><code>@&lt;folder&gt;</code> &mdash; pin this chat to
@@ -120,7 +120,7 @@
       </ul>
       <p>
         With a leading <code>@&lt;child&gt; &lt;text&gt;</code>
-        (single message, not on its own line), the gateway
+        (single message, not on its own line), <code>routd</code>
         delegates that one message to the child folder &mdash;
         same effect as a single-shot <code>delegate_group</code>
         from inside the agent.
@@ -218,7 +218,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
           double-fires (see <a href="../howto/slack.html">Slack adapter</a>, step 3).</li>
         <li><strong>Telegram</strong> &mdash; slash commands keep
           the <code>@botname</code> suffix (<code>/new@mybot</code>);
-          the gateway strips it before matching.</li>
+          <code>routd</code> strips it before matching.</li>
         <li><strong>WhatsApp</strong> &mdash; pure-reply-without-text
           (just hitting "reply" with no body) was promoted to a
           mention in v0.40.2; before then, the agent never saw it.</li>
@@ -246,7 +246,7 @@ hook:&lt;folder&gt;/&lt;source&gt;     # webhook ingest at folder (via /hook/&lt
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/talking-to-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
       </div>
     </main>
 

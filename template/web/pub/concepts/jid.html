@@ -55,7 +55,7 @@
 
     <h2>the shape</h2>
     <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each platform has its own odd IDs.</p>
-    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon is the platform&rsquo;s business, kept as an opaque string the gateway only matches with globs:</p>
+    <p>arizuko writes one shape over all of them. The platform goes before the colon. Everything after the colon is the platform&rsquo;s business, kept as an opaque string <code>routd</code> only matches with globs:</p>
     <pre><code>telegram:user/123              # telegram DM with user 123
 telegram:group/-100456         # telegram group, supergroup, or channel
 discord:dm/456                 # discord DM channel
@@ -74,10 +74,10 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
     <p>Because the platform sits in its own segment, you can write <code>platform=telegram</code> to mean &ldquo;every Telegram chat, regardless of kind&rdquo; without thinking about Telegram&rsquo;s sign-bit trick.</p>
 
     <h2>in Go</h2>
-    <p>Inside the codebase a JID is just a <code>string</code>. Two helpers in <code>core/types.go</code> split it: <code>core.JidPlatform(jid)</code> returns everything before the first colon, and <code>core.JidRoom(jid)</code> returns everything after. Matching is Go&rsquo;s <code>path.Match</code> against the route&rsquo;s glob &mdash; the same call the router runs in <code>router.RouteMatches</code>. There is no parse step and no separate chat-vs-sender type; both are addresses the gateway only ever glob-matches.</p>
+    <p>Inside the codebase a JID is just a <code>string</code>. Two helpers in <code>core/types.go</code> split it: <code>core.JidPlatform(jid)</code> returns everything before the first colon, and <code>core.JidRoom(jid)</code> returns everything after. Matching is Go&rsquo;s <code>path.Match</code> against the route&rsquo;s glob &mdash; the same call the router runs in <code>router.RouteMatches</code>. There is no parse step and no separate chat-vs-sender type; both are addresses <code>routd</code> only ever glob-matches.</p>
 
     <h2>per-platform shapes belong to adapters</h2>
-    <p>The gateway treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>teled/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; the gateway and the routes table don&rsquo;t move.</p>
+    <p><code>routd</code> treats everything after <code>platform:</code> as an opaque string and only ever glob-matches it. Each adapter (<code>teled/</code>, <code>discd/</code>, <code>whapd/</code>, &hellip;) parses and constructs its own paths. Adding a new platform &mdash; or a new <em>kind</em> inside an existing platform &mdash; is a one-place change in that adapter; <code>routd</code> and the routes table don&rsquo;t move.</p>
 
     <h2>colons in the rest</h2>
     <p><code>core.JidPlatform</code> splits on the <em>first</em> colon and hands back everything before it; the rest stays untouched. So an ID that itself contains a colon doesn&rsquo;t break the platform/rest split. A Bluesky DID is a <code>did:plc:&hellip;</code> string &mdash; the adapter percent-encodes its colons (<code>bluesky:user/did%3Aplc%3A&hellip;</code>) so a glob never trips on them.</p>
@@ -90,7 +90,7 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 
