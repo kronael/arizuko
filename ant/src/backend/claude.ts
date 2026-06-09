@@ -21,6 +21,12 @@ import type { ModelUsage } from '../mcp.js';
 const HOME = '/home/node';
 const MAX_QUEUE = 100;
 const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
+// Standard-context Opus is the platform default — subscription-covered, never
+// the 1M-context beta (which needs usage credits the subscription excludes).
+// Leaving model undefined lets the SDK pick its own default, which now resolves
+// to a 1M-context model → "Usage credits required for 1M context" on every turn.
+// A group may still override via cfg.model.
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const IPC_INPUT_DIR = '/run/ipc/input';
 
 interface SDKUserMessage {
@@ -271,7 +277,7 @@ class ClaudeSession implements Session {
     const cfg = this.cfg;
     const extraDirs = cfg.addDirs ?? [];
     const agentMcpServers = cfg.mcpServers ?? {};
-    const groupModel = cfg.model || undefined;
+    const groupModel = cfg.model || DEFAULT_MODEL;
 
     try {
       for await (const message of query({
