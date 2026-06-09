@@ -425,7 +425,11 @@ func cmdGroup(args []string) {
 	case "rm":
 		need(args, 3, "arizuko group <instance> rm <folder>")
 		folder := args[2]
-		if err := s.DeleteGroup(folder); err != nil {
+		// groups live in routd.db post-split — use the routd.db-preferring handle
+		// + audit-free DeleteGroupRow (routd.db has no audit_log), matching `add`.
+		gs := mustOpenACL(dataDir)
+		defer gs.Close()
+		if err := gs.DeleteGroupRow(folder); err != nil {
 			die("Failed: remove group: %v", err)
 		}
 		auditCLI(s, "group rm", []string{folder})

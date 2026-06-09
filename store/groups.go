@@ -82,6 +82,14 @@ func (s *Store) PutGroupRow(g core.Group) error {
 	return err
 }
 
+// DeleteGroupRow removes a group without an audit row — the audit-free twin of
+// DeleteGroup, for callers writing to routd.db (which has no audit_log table),
+// mirroring PutGroupRow. The CLI `group rm` uses it post-split.
+func (s *Store) DeleteGroupRow(folder string) error {
+	_, err := s.db.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
+	return err
+}
+
 func (s *Store) DeleteGroup(folder string) error {
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
