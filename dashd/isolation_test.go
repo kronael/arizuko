@@ -302,6 +302,66 @@ func TestIso_Bob_SeesSalesNotEng(t *testing.T) {
 	}
 }
 
+// 7. Portal dot-counts (countVisible* on authz.go) MUST scope to the caller.
+//    A non-operator's group/errored-chat/failed-task counts include only their
+//    own subtree; a bug in the per-row visible() filter leaks other tenants'
+//    totals onto the landing page (alice would see "3 errored" when 2 are
+//    sales'). Operator gets the raw COUNT(*).
+func TestIso_PortalCounts_Scoped(t *testing.T) {
+	_, inst := isoEnv(t)
+	d := &dash{db: inst.DB, dbRW: inst.DB}
+
+	// Errored chats: one per tenant + a JID with no resolvable folder.
+	for _, m := range []struct{ id, jid string }{
+		{"e-eng", "web:" + folderEng},
+		{"e-sre", "web:" + folderSre},
+		{"e-sales", "web:" + folderSales},
+		{"e-orphan", "tel:99999"}, // no route → jidFolder "" → invisible to non-op
+	} {
+		if _, err := inst.DB.Exec(
+			`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, errored)
+			 VALUES (?, ?, 's', 'x', datetime('now'), 'web', 1)`, m.id, m.jid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Failed task runs in the last day: one per tenant.
+	for _, ft := range []struct{ taskID, owner string }{
+		{"ft-eng", folderEng}, {"ft-sre", folderSre}, {"ft-sales", folderSales},
+	} {
+		seedTask(t, inst, ft.taskID, ft.owner)
+		if _, err := inst.DB.Exec(
+			`INSERT INTO task_run_logs (task_id, run_at, status) VALUES (?, datetime('now'), 'error')`,
+			ft.taskID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	alice := []string{folderEng}
+	// alice: corp/eng + corp/eng/sre groups (NOT corp, corp/sales).
+	if n := d.countVisibleGroups(alice, false); n != 2 {
+		t.Errorf("countVisibleGroups(alice) = %d, want 2 (eng+sre)", n)
+	}
+	// alice: eng + sre errored chats; sales + orphan excluded.
+	if n := d.countVisibleErroredChats(alice, false); n != 2 {
+		t.Errorf("countVisibleErroredChats(alice) = %d, want 2 (eng+sre)", n)
+	}
+	// alice: eng + sre failed tasks; sales excluded.
+	if n := d.countVisibleFailedTasks(alice, false); n != 2 {
+		t.Errorf("countVisibleFailedTasks(alice) = %d, want 2 (eng+sre)", n)
+	}
+
+	// Operator: raw totals across all tenants (incl. the orphan errored chat).
+	if n := d.countVisibleGroups(nil, true); n != 4 {
+		t.Errorf("countVisibleGroups(op) = %d, want 4 (corp+eng+sre+sales)", n)
+	}
+	if n := d.countVisibleErroredChats(nil, true); n != 4 {
+		t.Errorf("countVisibleErroredChats(op) = %d, want 4", n)
+	}
+	if n := d.countVisibleFailedTasks(nil, true); n != 3 {
+		t.Errorf("countVisibleFailedTasks(op) = %d, want 3", n)
+	}
+}
+
 // visible() unit coverage: the subtree predicate and cross-tenant exclusion,
 // independent of HTTP wiring.
 func TestIso_VisiblePredicate(t *testing.T) {

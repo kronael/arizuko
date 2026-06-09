@@ -162,6 +162,35 @@ func TestTurnReplyAppendsAndDelivers(t *testing.T) {
 	}
 }
 
+// TestReplyRequiresIdempotencyKey: reply/send/document are required=true on the
+// idem ledger — a call with NO X-Idempotency-Key is 400 and must NOT execute
+// (no bot row, no platform send). The key is the only dedup a runed retry has;
+// if the required gate regressed to ledger-less at-least-once, a retried reply
+// would double-send the agent's answer.
+func TestReplyRequiresIdempotencyKey(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &fakeDeliverer{platformID: "9.9"}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "", // no key
+		apiv1.ReplyRequest{JID: "slack:T/C/U", Text: "answer"})
+	if rec.Code != 400 {
+		t.Fatalf("reply without idempotency key = %d want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if dl.sends != 0 {
+		t.Fatalf("keyless reply delivered (sends=%d) — required gate must reject before execute", dl.sends)
+	}
+	if countBots(t, db, "slack:T/C/U") != 0 {
+		t.Fatal("keyless reply appended a bot row despite the 400")
+	}
+}
+
 // TestResultRecordsOutcome checks /v1/turns/{id}/result records session_id,
 // cost, flips turn state, and dedups on (folder, turn_id).
 func TestResultRecordsOutcome(t *testing.T) {

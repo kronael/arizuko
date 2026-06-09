@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -217,6 +218,70 @@ func TestHandlerSendFileError(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != 502 {
 		t.Fatalf("status = %d, want 502", w.Code)
+	}
+}
+
+func TestHandlerSendFileBadMultipart(t *testing.T) {
+	bot := &mockBot{}
+	h := mux(bot)
+	// multipart content-type header but a body that isn't a valid multipart stream.
+	req := httptest.NewRequest("POST", "/send-file", bytes.NewReader([]byte("garbage")))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=xyz")
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400 for bad multipart", w.Code)
+	}
+}
+
+// receiveUpload sanitizes the attacker-controlled filename so an upload can't
+// escape the temp dir. Pure-traversal names are rejected (400); names with a
+// safe basename are collapsed to that basename. Either way the bot must never
+// see a path separator or "..". Regression = path-traversal write.
+func TestHandlerSendFilePathTraversalFilename(t *testing.T) {
+	for _, tt := range []struct {
+		name, want string // want="" ⇒ expect 400 reject
+	}{
+		{"..", ""},
+		{"../..", ""},
+		{"../escape", "escape"},
+		{"../../etc/passwd", "passwd"},
+		{"a/b", "b"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bot := &mockBot{}
+			h := mux(bot)
+			var buf bytes.Buffer
+			mw := multipart.NewWriter(&buf)
+			mw.WriteField("chat_jid", "test:1")
+			mw.WriteField("filename", tt.name)
+			fw, _ := mw.CreateFormFile("file", "pic.jpg")
+			fw.Write([]byte("data"))
+			mw.Close()
+
+			req := httptest.NewRequest("POST", "/send-file", &buf)
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			req.Header.Set("Authorization", "Bearer secret")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			if tt.want == "" {
+				if w.Code != 400 {
+					t.Fatalf("status = %d, want 400 reject for %q", w.Code, tt.name)
+				}
+				return
+			}
+			if w.Code != 200 {
+				t.Fatalf("status = %d, want 200 for %q", w.Code, tt.name)
+			}
+			if bot.fileName != tt.want {
+				t.Errorf("filename %q sanitized to %q, want %q", tt.name, bot.fileName, tt.want)
+			}
+			if strings.ContainsAny(bot.fileName, `/\`) || strings.Contains(bot.fileName, "..") {
+				t.Errorf("filename %q reached bot unsanitized as %q", tt.name, bot.fileName)
+			}
+		})
 	}
 }
 

@@ -57,6 +57,17 @@ func TestMdToHTML(t *testing.T) {
 		{"`code`", "<code>code</code>"},
 		{"```\nblock\n```", "<pre>block\n</pre>"},
 		{"# Header", "<b>Header</b>"},
+		// italic: the (^|[^*]) anchor must not swallow the surrounding chars
+		// and must not fire on a lone/bold asterisk run.
+		{"a *italic* b", "a <i>italic</i> b"},
+		{"*italic*", "<i>italic</i>"},
+		{"**bold** and *italic*", "<b>bold</b> and <i>italic</i>"},
+		{"x*y", "x*y"}, // single unmatched asterisk stays literal
+		// HTML metachars inside code must be entity-escaped (escape runs before
+		// the code wrap), else Telegram rejects the message as malformed HTML.
+		{"`a < b > c`", "<code>a &lt; b &gt; c</code>"},
+		// unclosed bold stays literal — must not emit a dangling <b>.
+		{"**unclosed", "**unclosed"},
 	}
 	for _, tt := range tests {
 		if got := mdToHTML(tt.in); got != tt.want {

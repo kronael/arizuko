@@ -482,6 +482,32 @@ func TestDeriveRules_Tier2(t *testing.T) {
 	}
 }
 
+// A bare `!param` inside the parens is a presence-deny: the rule matches only
+// when that param is ABSENT. Guards the ruleMatchesParams pr.Deny branch — a
+// regression that ignored it would let a denied param through.
+func TestCheckAction_ParamPresenceDeny(t *testing.T) {
+	rules := []string{"send(!silent)"}
+	// param absent -> rule matches -> allowed.
+	if !CheckAction(rules, "send", map[string]string{"jid": "tg:1"}) {
+		t.Fatal("send(!silent) should allow when silent is absent")
+	}
+	// param present -> rule does not match -> no allow rule -> denied.
+	if CheckAction(rules, "send", map[string]string{"silent": "true"}) {
+		t.Fatal("send(!silent) must not match when silent is present")
+	}
+}
+
+func TestParseRule_NegatedParamName(t *testing.T) {
+	r := ParseRule("send(!silent)")
+	pr, ok := r.Params["silent"]
+	if !ok {
+		t.Fatal("expected silent param")
+	}
+	if !pr.Deny {
+		t.Fatal("!silent should be a deny param")
+	}
+}
+
 func TestParseRule_UnterminatedParens(t *testing.T) {
 	// Malformed rule must not silently match: Action empty so no action matches.
 	r := ParseRule("foo(a=1")

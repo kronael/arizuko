@@ -8,6 +8,7 @@ package main
 // integration_test.go (same package).
 
 import (
+	"errors"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -335,5 +336,22 @@ func TestBotForward_HappyPath(t *testing.T) {
 	}
 	if fwdHits.Load() != 1 {
 		t.Errorf("forwardMessage hits = %d, want 1", fwdHits.Load())
+	}
+}
+
+// Forward validates the "<sourceChatJid>|<msgId>" shape before touching the
+// platform. A missing pipe is the agent's mistake → Unsupported with a hint;
+// a malformed id is a hard error. Both must never reach the Telegram API.
+func TestBotForward_MalformedSource(t *testing.T) {
+	b := &bot{}
+
+	_, err := b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:100", TargetJID: "telegram:555"})
+	if !errors.Is(err, chanlib.ErrUnsupported) {
+		t.Errorf("no-pipe source = %v, want Unsupported", err)
+	}
+
+	_, err = b.Forward(chanlib.ForwardRequest{SourceMsgID: "telegram:100|notanum", TargetJID: "telegram:555"})
+	if err == nil || errors.Is(err, chanlib.ErrUnsupported) {
+		t.Errorf("bad msg id = %v, want a plain error", err)
 	}
 }

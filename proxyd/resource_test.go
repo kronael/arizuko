@@ -227,6 +227,48 @@ func TestRoutesResource_NonOperatorForbidden(t *testing.T) {
 	}
 }
 
+// Trust boundary: callerFromHTTP MUST reject a request whose X-User-Groups
+// were flipped to operator (`**`) after signing. The sig binds sub+name+groups
+// (auth.UserSigMessage), so the stale sig no longer matches the forged groups
+// → 401, never an operator-grade admit. A regression here lets anyone who can
+// set request headers escalate to operator on the routes resource.
+func TestRoutesResource_TamperedGroupsRejected(t *testing.T) {
+	mux, _, _ := testResourceMux(t, nil)
+	// Validly sign as a NON-operator, then forge groups to operator post-sign.
+	nonOp := `["atlas/support"]`
+	req := httptest.NewRequest("POST", "/v1/routes", strings.NewReader(`{"path":"/x/","backend":"http://x:8080","auth":"user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Sub", "user@example")
+	req.Header.Set("X-User-Name", "user")
+	req.Header.Set("X-User-Sig",
+		auth.SignHMAC(testHMAC, auth.UserSigMessage("user@example", "user", nonOp)))
+	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim, sig covers nonOp
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("tampered operator groups status = %d, want 401 (escalation gap)", w.Code)
+	}
+}
+
+// Trust boundary: a request with operator groups and a sig signed under the
+// WRONG secret (the request never traversed proxyd) is rejected. Proves the
+// HMAC secret — not mere header presence — is the gate.
+func TestRoutesResource_WrongSecretSigRejected(t *testing.T) {
+	mux, _, _ := testResourceMux(t, nil)
+	groups := `["**"]`
+	req := httptest.NewRequest("GET", "/v1/routes", nil)
+	req.Header.Set("X-User-Sub", "op@example")
+	req.Header.Set("X-User-Name", "op")
+	req.Header.Set("X-User-Groups", groups)
+	req.Header.Set("X-User-Sig",
+		auth.SignHMAC("attacker-secret", auth.UserSigMessage("op@example", "op", groups)))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("wrong-secret sig status = %d, want 401", w.Code)
+	}
+}
+
 // Persistence: a new routesResource opened against the same store sees
 // what the previous one wrote. Validates the "mutations are durable"
 // invariant from spec 6/2 Phase-3.
