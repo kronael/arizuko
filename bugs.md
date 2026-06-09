@@ -2374,3 +2374,16 @@ a473bff6 + 876d1b7c). Remaining, deferred:
   handleGatePut malformed-body partial decode. (audit-2 #7/#10/#12 + audit-3 #10)
 - chanlib monolith fallback dead-code remains deferred (test-rewrite cascade —
   see the gated-removal FOLLOW-UP entry above).
+
+## DESIGN — Slack/channel mention-promotion refinement (2026-06-09, user req)
+
+Refine when a channel/thread message promotes to a mention (triggers atlas) vs
+falls to the timed engagement window (spec 5/L mention-promotion + 5/G engagement):
+- A platform "reply to a message" (reply_to set) → treat as a mention (trigger).
+- A reply inside a THREAD → mention IF atlas started the thread OR atlas has
+  posted in it (atlas is a participant); else the normal engagement/attention
+  window (that times out) applies.
+- Otherwise: normal attention mechanism with timeout.
+Needs thread-participation tracking (does the thread contain an atlas message?).
+Design in spec 5/L; implement in the routing/mention-promotion path. Not a bug —
+a behavior refinement the user specified while debugging atlas channels.
