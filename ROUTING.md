@@ -133,7 +133,7 @@ a route miss. The route table is bypassed for the duration of the engagement TTL
 
 Observed messages are visible to the agent in two ways: prepended to
 the next trigger turn's prompt as an `<observed>` block, and via the
-`inspect_messages` / `get_history` MCP tools. Access is governed by
+`inspect_messages` MCP tool. Access is governed by
 folder ACL, not by route mode — anything routed to a folder is
 readable by that folder's agent.
 

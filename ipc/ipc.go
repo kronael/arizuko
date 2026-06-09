@@ -2581,12 +2581,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			mcp.WithNumber("limit"),
 			mcp.WithString("before"),
 		), inspectMessages)
-		srv.AddTool(mcp.NewTool("get_history",
-			mcp.WithDescription("DEPRECATED alias for inspect_messages. Do not use in new code — pick inspect_messages for whole-chat DB audit, get_thread for a single (chat_jid, topic) slice, or fetch_history for platform-truth context."),
-			mcp.WithString("chat_jid", mcp.Required()),
-			mcp.WithNumber("limit"),
-			mcp.WithString("before"),
-		), inspectMessages)
 	}
 
 	if db.FindMessages != nil {

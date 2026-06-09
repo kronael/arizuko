@@ -273,19 +273,6 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source, cap}</code>. <code>source</code> is <code>platform</code> / <code>platform-capped</code> / <code>cache-only</code> / <code>unsupported</code> / <code>cache</code>; <code>messages</code> rendered by <code>router.FormatMessages</code>.</p>
 
-    <h3 id="get_history"><code>get_history</code></h3>
-    <p>DEPRECATED alias for <code>inspect_messages</code>. Same handler, same params, same return. Do not use in new code &mdash; pick <code>inspect_messages</code> for whole-chat DB audit, <code>get_thread</code> for a single (chat_jid, topic) slice, or <code>fetch_history</code> for platform-truth context.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2413"><code>ipc/ipc.go:2413</code></a></p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">chat_jid</td><td class="type">string</td><td class="req req-y">yes</td><td>Chat to query.</td></tr>
-        <tr><td class="name">limit</td><td class="type">number</td><td class="req req-n">no</td><td>Default 100; clamped to <code>(0, 200]</code>.</td></tr>
-        <tr><td class="name">before</td><td class="type">string</td><td class="req req-n">no</td><td>RFC3339 cursor.</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{messages, count, oldest, source:"local-db"}</code>.</p>
-
     <h3 id="get_thread"><code>get_thread</code></h3>
     <p>Return rows from local <code>messages.db</code> scoped to one thread (chat_jid + topic). Use when a chat fans out into per-topic conversations (Telegram forum topics, web-chat topics).</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2492"><code>ipc/ipc.go:2492</code></a> &middot; Registered only when <code>db.MessagesByThread != nil</code>.</p>
@@ -807,7 +794,7 @@
       <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>list_acl</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 2), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
       <li><strong>Spec 5/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 7/Y) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
-      <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_history</code>, <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
+      <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. See <a href="openapi.html">OpenAPI</a> and the <a href="../components/gated.html">gated</a> registry.</li>
       <li><strong>Route tools are granted at tier 1.</strong> <code>tier1FixedActions</code> lists <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code> &mdash; the names match the registered tools, so tier-1 callers get them by default. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants/grants.go:160</code></a>.</li>
     </ul>
@@ -818,7 +805,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 
