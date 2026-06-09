@@ -143,6 +143,8 @@ var daemonKeys = map[string][]string{
 		// routd OWNS secrets in the split (routd 0008) → needs the key to
 		// decrypt connector/scoped secrets. Without it: "SECRETS_KEY unset".
 		"SECRETS_KEY",
+		// Instance-wide fallback model when a group has no per-group model.
+		"ARIZUKO_DEFAULT_MODEL",
 	},
 	// runed: execution plane. The ONLY daemon wired to docker.sock +
 	// crackbox + the per-folder agent networks.

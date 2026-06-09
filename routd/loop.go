@@ -109,6 +109,11 @@ type Loop struct {
 	// (empty = all). routd OWNS the onboarding table in routd.db.
 	onboardingEnabled   bool
 	onboardingPlatforms []string
+
+	// defaultModel is the instance-wide fallback model (ARIZUKO_DEFAULT_MODEL)
+	// applied when a group has no per-group model. A per-group model wins; if
+	// both are empty the container's ant SDK uses its own hardcoded default.
+	defaultModel string
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -169,6 +174,11 @@ type LoopConfig struct {
 	// (empty = all).
 	OnboardingEnabled   bool
 	OnboardingPlatforms []string
+
+	// DefaultModel is the instance-wide fallback model (ARIZUKO_DEFAULT_MODEL)
+	// applied when a group has no per-group model. Empty leaves resolution to the
+	// container's ant SDK default.
+	DefaultModel string
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -205,6 +215,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 
 		onboardingEnabled:   cfg.OnboardingEnabled,
 		onboardingPlatforms: cfg.OnboardingPlatforms,
+		defaultModel:        cfg.DefaultModel,
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)

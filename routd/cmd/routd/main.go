@@ -154,6 +154,10 @@ func main() {
 		// A route miss federates an onboarding insert to onbod when enabled.
 		OnboardingEnabled:   envOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms: parseCSV(os.Getenv("ONBOARDING_PLATFORMS")),
+		// Instance-wide default model: a group with no per-group model falls back
+		// to this so the container never goes empty → ant SDK default. Default keeps
+		// behavior correct with no .env entry.
+		DefaultModel: envOr("ARIZUKO_DEFAULT_MODEL", "claude-opus-4-8"),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(

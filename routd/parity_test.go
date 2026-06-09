@@ -14,7 +14,7 @@ import (
 
 // turnRec is one dispatched run captured by recRunner.
 type turnRec struct {
-	turnID, folder, topic, batch, trigger string
+	turnID, folder, topic, batch, trigger, model string
 }
 
 // recRunner records every POST /v1/runs and returns a clean ok outcome. Used
@@ -25,7 +25,7 @@ type recRunner struct{ runs []turnRec }
 func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.runs = append(r.runs, turnRec{
 		turnID: req.TurnID, folder: string(req.Folder), topic: req.Topic,
-		batch: req.MessageBatch, trigger: req.TriggerSender,
+		batch: req.MessageBatch, trigger: req.TriggerSender, model: req.Model,
 	})
 	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
 }
@@ -41,6 +41,37 @@ func recLoop(t *testing.T) (*DB, *Loop, *recRunner) {
 	loop := NewLoop(db, rr, LoopConfig{})
 	loop.StopQueue()
 	return db, loop, rr
+}
+
+// TestDefaultModelFallback: a group with no per-group model dispatches the
+// instance-wide default (Loop.defaultModel); a per-group model still wins.
+func TestDefaultModelFallback(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	loop.defaultModel = "claude-opus-4-8"
+	_ = db.PutGroup(core.Group{Folder: "nomodel"})
+	_ = db.PutGroup(core.Group{Folder: "pinned", Model: "claude-sonnet-4-5"})
+	now := time.Now().UTC()
+	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:nomodel", Sender: "u",
+		Content: "q", Timestamp: now})
+	_ = db.PutMessage(core.Message{ID: "b", ChatJID: "web:pinned", Sender: "u",
+		Content: "q", Timestamp: now})
+
+	if _, err := loop.processGroupMessages("web:nomodel"); err != nil {
+		t.Fatalf("process nomodel: %v", err)
+	}
+	if _, err := loop.processGroupMessages("web:pinned"); err != nil {
+		t.Fatalf("process pinned: %v", err)
+	}
+	got := map[string]string{}
+	for _, r := range rr.runs {
+		got[r.folder] = r.model
+	}
+	if got["nomodel"] != "claude-opus-4-8" {
+		t.Fatalf("empty group model: spec.Model=%q want claude-opus-4-8 (default)", got["nomodel"])
+	}
+	if got["pinned"] != "claude-sonnet-4-5" {
+		t.Fatalf("per-group model: spec.Model=%q want claude-sonnet-4-5 (override)", got["pinned"])
+	}
 }
 
 // TestTurnContextRunIDPersisted: a dispatched turn records the runed-assigned

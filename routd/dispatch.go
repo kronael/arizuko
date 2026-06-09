@@ -359,6 +359,9 @@ func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string
 		caller = types.UserSub(trigger)
 	}
 	model, containerCfg := l.db.GroupConfig(folder)
+	if model == "" {
+		model = l.defaultModel
+	}
 	// Resolve the per-folder grant rules + egress allowlist HERE (routd is the
 	// authz plane; runed has neither store) and ship them so runed can attach the
 	// spawn to the crackbox network + honor share_mount. nil allowlist on error
