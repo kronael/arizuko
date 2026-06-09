@@ -1,8 +1,6 @@
 package compose
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -55,7 +53,7 @@ func provisionServiceKey(dataDir, daemon string, env map[string]string) string {
 	if existing := readEnvFileKey(filepath.Join(dataDir, "env", daemon+".env"), "AUTHD_SERVICE_KEY"); existing != "" {
 		return existing
 	}
-	return randomHex(32)
+	return core.GenHexToken()
 }
 
 // readEnvFileKey scans a KEY=VALUE env file for one key. Empty on miss/error —
@@ -71,15 +69,6 @@ func readEnvFileKey(path, key string) string {
 		}
 	}
 	return ""
-}
-
-// randomHex returns n random bytes as a lowercase hex string.
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic("compose: crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }
 
 // imageRefRE constrains docker image references to alnum, dots, colons,
