@@ -68,60 +68,8 @@ func loadConfig() config {
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
-		vhostAliases:   parseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
+		vhostAliases:   groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	}
-}
-
-// parseVhostAliases parses `host=world,host2=world2` into a host→world map.
-// Hosts are lowercased. An entry is skipped (with a warn) when it lacks `=`,
-// has an empty side, has an invalid hostname, or names an invalid world —
-// silent acceptance would let a typo'd alias 302 traffic to /pub/<garbage>/.
-// Used only where the host label ≠ world name (marinade: fab.krons.cx→atlas);
-// the common case is derived from HOSTING_DOMAIN and needs no entry.
-func parseVhostAliases(s string) map[string]string {
-	m := map[string]string{}
-	for _, part := range strings.Split(s, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		host, world, ok := strings.Cut(part, "=")
-		host = strings.ToLower(strings.TrimSpace(host))
-		world = strings.TrimSpace(world)
-		if !ok || host == "" || world == "" {
-			slog.Warn("WEB_VHOST_ALIASES: skipping malformed entry", "entry", part)
-			continue
-		}
-		if !validVhostName(host) {
-			slog.Warn("WEB_VHOST_ALIASES: skipping invalid hostname", "host", host)
-			continue
-		}
-		if !groupfolder.IsValidFolder(world) {
-			slog.Warn("WEB_VHOST_ALIASES: skipping invalid world folder", "world", world, "host", host)
-			continue
-		}
-		m[host] = world
-	}
-	return m
-}
-
-// validVhostName accepts a hostname: letters, digits, dot, dash, colon,
-// length-bounded. Mirrors ipc.validHostname (kept local; ipc's is unexported).
-func validVhostName(h string) bool {
-	if h == "" || len(h) > 253 {
-		return false
-	}
-	for _, r := range h {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '.' || r == '-' || r == ':':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // parseTrustedProxies parses comma-separated CIDRs; bare IP → /32 or /128.

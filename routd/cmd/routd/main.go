@@ -21,6 +21,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources" // side-effect: register cold-tier resources
@@ -181,7 +182,7 @@ func main() {
 	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (spec 5/V).
 	srv.SetVhosts(
 		strings.ToLower(strings.TrimSuffix(os.Getenv("HOSTING_DOMAIN"), ".")),
-		routd.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
+		groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	)
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
 	// (gateway.canSendToGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the

@@ -23,7 +23,7 @@ const msgReadCols = `id, chat_jid, sender, COALESCE(sender_name,''), content, ti
 	COALESCE(platform_id,''), COALESCE(chat_name,''), COALESCE(forwarded_from,'')`
 
 // MessagesBefore returns rows for one chat_jid older than `before`, oldest
-// first (inspect_messages / get_history). before="" → now.
+// first (inspect_messages). before="" → now.
 func (d *DB) MessagesBefore(jid, before string, limit int) ([]core.Message, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100

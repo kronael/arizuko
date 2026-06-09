@@ -18,6 +18,7 @@ import (
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -1111,7 +1112,7 @@ func TestProxydVhostRejectsTraversal(t *testing.T) {
 }
 
 func TestParseVhostAliases(t *testing.T) {
-	got := parseVhostAliases("fab.krons.cx=atlas, FOO.example.com=bar ,bad,=x,y=, ")
+	got := groupfolder.ParseVhostAliases("fab.krons.cx=atlas, FOO.example.com=bar ,bad,=x,y=, ")
 	want := map[string]string{"fab.krons.cx": "atlas", "foo.example.com": "bar"}
 	if len(got) != len(want) {
 		t.Fatalf("parsed %v, want %v", got, want)
@@ -1121,14 +1122,14 @@ func TestParseVhostAliases(t *testing.T) {
 			t.Errorf("alias[%q] = %q, want %q", k, got[k], v)
 		}
 	}
-	if m := parseVhostAliases(""); len(m) != 0 {
+	if m := groupfolder.ParseVhostAliases(""); len(m) != 0 {
 		t.Errorf("empty input → %v, want empty map", m)
 	}
 
 	// Validation (BUG #6): an invalid hostname or invalid world folder is
 	// skipped loudly, never accepted — a typo'd alias must not 302 traffic to
 	// /pub/<garbage>/. The valid entry survives alongside the rejects.
-	got = parseVhostAliases("ok.example.com=atlas,bad host=x,foo.com=../escape")
+	got = groupfolder.ParseVhostAliases("ok.example.com=atlas,bad host=x,foo.com=../escape")
 	if len(got) != 1 || got["ok.example.com"] != "atlas" {
 		t.Fatalf("validation: got %v, want only {ok.example.com:atlas}", got)
 	}
