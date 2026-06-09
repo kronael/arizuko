@@ -52,10 +52,10 @@
 
     <h1>auth</h1>
 
-    <p class="lede">Grants and scopes decide what a principal may do &mdash; but first something has to mint that principal. That&rsquo;s <code>auth</code>. Every daemon needs to know who is talking to it, and arizuko answers once: <code>auth</code> turns a browser login (GitHub, Google, Discord, Telegram, or a local password) into one canonical user id, then carries that id across the daemon graph as a signed HTTP header. The id <code>auth.Authorize</code> checked on the last page is the id this page produces.</p>
+    <p class="lede">Grants and scopes decide what a principal may do &mdash; but first something has to mint that principal. That&rsquo;s <code>authd</code>, the sole token authority. Every daemon needs to know who is talking to it, and arizuko answers once: <code>authd</code> turns a browser login (GitHub, Google, Discord, Telegram, or a local password) into one canonical user id and an ES256-signed JWT. Every other daemon verifies that token offline against <code>authd</code>&rsquo;s published JWKS &mdash; nobody else signs. The id <code>auth.Authorize</code> checked on the last page is the id this token carries.</p>
 
     <h2>why identity at all</h2>
-    <p>arizuko is a bunch of small Go daemons (<code>gated</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>gated</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If the answer were "look at the cookie yourself," every daemon would re-implement login. Instead, exactly one daemon (<code>proxyd</code>) reads the cookie, looks up the user, and writes the answer into headers the others trust.</p>
+    <p>arizuko is a bunch of small Go daemons (<code>routd</code>, <code>runed</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>routd</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If each daemon re-implemented login, every one would be a place to get it wrong. Instead exactly one daemon (<code>authd</code>) runs OAuth and mints the token; <code>proxyd</code> sits in front, verifies it, and writes the answer into headers the backends trust.</p>
 
     <h2>where identity comes from</h2>
     <p>You log in with any provider. Each provider gives back a string the auth code calls a <strong>sub</strong> &mdash; short for "subject," but think "this user's id with this provider." subs always carry their provider as a prefix:</p>
@@ -76,24 +76,24 @@ local:alice</code></pre>
     <h2>two tokens</h2>
     <p>After login, the browser holds two things:</p>
     <ul>
-      <li>An <strong>access JWT</strong>, 1-hour lifetime, in <code>localStorage</code>. Carries <code>{sub, name, provider, exp}</code>. Sent as <code>Authorization: Bearer &hellip;</code> on API calls.</li>
+      <li>An <strong>access JWT</strong>, 1-hour lifetime, in <code>localStorage</code>. ES256-signed by <code>authd</code>; carries <code>{sub, name, provider, exp}</code>. Sent as <code>Authorization: Bearer &hellip;</code> on API calls. Any daemon verifies it offline against <code>authd</code>&rsquo;s JWKS.</li>
       <li>A <strong>refresh token</strong>, 32 random bytes, stored server-side as a SHA-256 hash. Set as an <code>HttpOnly; SameSite=Strict; Secure; Path=/auth</code> cookie with a 30-day TTL. Each refresh rotates the cookie single-use &mdash; a stolen one is good for one swap, then dead.</li>
     </ul>
 
     <h2>one resolve point</h2>
-    <p>The canonical sub is decided exactly once: <code>auth.issueSession</code> calls <code>store.CanonicalSub(sub)</code> right before minting the JWT. Whatever provider you logged in with, the minted token carries your canonical sub. Downstream daemons never re-resolve &mdash; the sub they see is the answer. Link chains are not allowed; <code>LinkSubToCanonical</code> rejects them, so the lookup is always one hop.</p>
+    <p>The canonical sub is decided exactly once, inside <code>authd</code>: it resolves the canonical sub right before minting the JWT. Whatever provider you logged in with, the minted token carries your canonical sub. Downstream daemons never re-resolve &mdash; the sub they see is the answer. Link chains are not allowed; <code>LinkSubToCanonical</code> rejects them, so the lookup is always one hop.</p>
 
     <h2>a request, end to end</h2>
     <p>Suppose you click a button in the operator dashboard. The browser sends an HTTPS request to <code>https://your-instance/dash/groups</code>. Trace it:</p>
     <ol>
       <li>The request arrives at <code>proxyd</code> on port 443. It looks for the <code>Authorization: Bearer</code> header (or, on web pages, the refresh-token cookie).</li>
-      <li><code>proxyd.tryAuth</code> verifies the JWT signature with <code>AUTH_SECRET</code>. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>.</li>
+      <li><code>proxyd.tryAuth</code> verifies the JWT &mdash; an ES256 signature checked offline against <code>authd</code>&rsquo;s JWKS. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>. A bare <code>/auth/*</code> login request is instead 302&rsquo;d to <code>authd</code>, which owns the OAuth flow.</li>
       <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>PROXYD_HMAC_SECRET</code>.</li>
       <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
       <li><code>dashd</code> wraps every <code>/dash/*</code> handler in <code>auth.RequireSigned(PROXYD_HMAC_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
       <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
     </ol>
-    <div class="callout"><strong>Why two secrets?</strong> <code>AUTH_SECRET</code> signs the JWT the browser holds. <code>PROXYD_HMAC_SECRET</code> signs the header <code>proxyd</code> stamps for backends. They are different boundaries: browser&hairsp;&harr;&hairsp;proxyd vs proxyd&hairsp;&harr;&hairsp;backend.</div>
+    <div class="callout"><strong>Two boundaries, two keys.</strong> <code>authd</code>&rsquo;s ES256 private key signs the JWT the browser holds; every daemon verifies it against the public JWKS. <code>PROXYD_HMAC_SECRET</code> signs the identity header <code>proxyd</code> stamps for backends. Different boundaries: browser&hairsp;&harr;&hairsp;proxyd (JWT) vs proxyd&hairsp;&harr;&hairsp;backend (HMAC header).</div>
 
     <h2>collision &mdash; logged in as A, OAuth as B</h2>
     <p>You are logged in as <code>google:114alice</code> and you click "Link GitHub." The callback gets a fresh sub <code>github:48291744</code>. Three cases the code handles cleanly:</p>
@@ -113,7 +113,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-05">2026-06-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

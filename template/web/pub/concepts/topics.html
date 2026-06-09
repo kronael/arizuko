@@ -54,16 +54,16 @@
     <p class="lede">Engagement keeps turns flowing to the same folder; topics keep two conversations inside that folder apart. A topic is a label on a message that splits one folder&rsquo;s chat into separate threads. Each thread has its own session and its own reply chain. Messages in <code>#support</code> don&rsquo;t see messages in <code>#billing</code>.</p>
 
     <h2>where topics come from</h2>
-    <p>The gateway reads the topic from one of three places:</p>
+    <p><code>routd</code> reads the topic from one of three places:</p>
     <ul>
-      <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>gated</code>.</li>
+      <li><strong>Platform-native threads.</strong> Telegram&rsquo;s <code>MessageThreadID</code>, Discord&rsquo;s thread channel ID, and similar fields land on <code>Message.Topic</code> when the adapter hands the message to <code>routd</code>.</li>
       <li><strong>The web channel.</strong> A web message carries a topic slug directly &mdash; the chat widget chooses it before the request goes out.</li>
-      <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, the gateway strips the prefix and runs the rest under topic <code>#name</code>.</li>
+      <li><strong>The <code>#topic</code> prefix.</strong> When a user starts a message with <code>#name</code>, <code>routd</code> strips the prefix and runs the rest under topic <code>#name</code>.</li>
     </ul>
 
     <h2>what a topic isolates</h2>
     <p>The agent keeps one Claude session per <code>(folder, topic)</code> pair. So <code>/new #support</code> resets the support thread without touching anything else in the folder. The store also tracks the last bot message per topic, so reply threading on the platform stays clean &mdash; replies anchor to the right message.</p>
-    <p>For the web channel, the gateway groups inbound messages by topic and runs one agent per topic, one after another.</p>
+    <p>For the web channel, <code>routd</code> groups inbound messages by topic and runs one agent per topic, one after another.</p>
 
     <h2>forks</h2>
     <p>A fork copies the parent topic&rsquo;s Claude Code session file to a fresh session UUID. The child resumes natively from the parent&rsquo;s tail &mdash; every prior turn is already in the child&rsquo;s history, because it got the real session file, not a pasted-in summary. The <code>sessions</code> row records <code>parent_topic</code> and <code>forked_at</code> for audit.</p>
@@ -77,7 +77,7 @@
     <p><code>sessions.observed_cursor</code> is per topic too, so two topics in the same folder both see the ambient <code>&lt;observed&gt;</code> sidechannel without one consuming it for the other.</p>
 
     <h2>sticky topic</h2>
-    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. The gateway stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. A sticky topic wins over the thread ID the platform sent.</p>
+    <p>A user can pin a chat to a topic by sending <code>#support</code> on its own as the entire message. <code>routd</code> stores it on the <code>chats</code> row (<code>sticky_topic</code>), and every later message in that chat runs under <code>#support</code> until someone sends bare <code>#</code> to clear it. A sticky topic wins over the thread ID the platform sent.</p>
 
     <h2>go deeper</h2>
     <p>Topics ride inside one folder; <a href="../concepts/routing.html">routing</a> picks the folder first, then topic isolation kicks in. How folders relate to each other and what counts as ambient context: <a href="../concepts/scopes.html">scopes</a>. Full fork mechanics and the per-topic observed cursor: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/F-topic-lineage.md">specs/5/F</a>. Resolution order: <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</p>
@@ -88,7 +88,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/topics.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

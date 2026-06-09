@@ -165,7 +165,7 @@
         <tbody>
           <tr><td>Primitives</td><td>invariant concepts</td><td>Event, Routing, Agent, Authorization, Turn, State (+ Identity)</td></tr>
           <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>grants</code>, <code>ipc</code>, <code>runed</code>, <code>groupfolder</code></td></tr>
-          <tr><td>Daemons</td><td>deployable processes</td><td><code>gated</code> (monolith), or <code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code>&hellip;</td></tr>
+          <tr><td>Daemons</td><td>deployable processes</td><td><code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code>&hellip;</td></tr>
           <tr><td>Products</td><td>installable agents</td><td><a href="../products/slack-team/">Slack team agent</a>, <a href="../products/reality/">reality agent</a>, company brain</td></tr>
         </tbody>
       </table>
@@ -182,9 +182,9 @@
         authorization is several gates, not one switch; a turn needs grants and
         egress resolved before it spawns. The wedge is &ldquo;one job each,
         fixed pipeline, no special cases,&rdquo; not strict orthogonality. The
-        lived shape is still <code>gated</code>-centric &mdash; the split into
-        <code>authd</code>/<code>routd</code>/<code>runed</code> is rolling out
-        &mdash; and the one MCP+REST surface is converging, not finished.</div>
+        three-daemon split (<code>authd</code>/<code>routd</code>/<code>runed</code>)
+        is the only topology now; the one-handler MCP+REST surface is shipping
+        resource by resource, converging, not finished.</div>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="./">&larr; Concepts</a>

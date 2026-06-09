@@ -63,7 +63,7 @@ arizuko invite &lt;instance&gt; revoke &lt;token&gt;</code></pre>
     <p>The recipient opens the link, picks an OAuth provider (GitHub, Google, Discord, Telegram widget &mdash; whichever the instance has configured), and <code>onbod</code> writes an <code>auth_users</code> row keyed by the returned <strong>sub</strong>. See <a href="../concepts/auth.html">auth</a> for what a sub is and how linking works.</p>
 
     <h2>admission queue</h2>
-    <p>When <code>ONBOARDING_ENABLED=1</code>, a new JID that hits the instance without an invite doesn&rsquo;t go straight into a group. <code>onbod</code> sends an auth link via <code>gated</code>&rsquo;s outbound API and writes the user into the queue.</p>
+    <p>When <code>ONBOARDING_ENABLED=1</code>, a new JID that hits the instance without an invite doesn&rsquo;t go straight into a group. <code>onbod</code> sends an auth link via <code>routd</code>&rsquo;s outbound API and writes the user into the queue.</p>
     <p>The queue is gated by <code>ONBOARDING_GATES</code> &mdash; a list of rules like <code>github-org=kronael</code>, <code>google-domain=example.com</code>, or a catch-all. Each gate carries an optional daily limit. The <code>admitFromQueue</code> loop runs roughly every 60 seconds, counts admissions in the current day, and promotes queued users to <code>approved</code> until the gate&rsquo;s limit is hit.</p>
     <p>Queued users see their position on <code>/onboard</code>, which auto-refreshes every 30 seconds. Operators approve manually through <a href="../components/dashd.html">dashd</a> or by adjusting gate config.</p>
 

@@ -65,7 +65,8 @@
         <tr><td>form intake</td><td>POSTs land at <code>web:&lt;folder&gt;/&lt;sub&gt;</code> &mdash; that JID requires a real sub-group (e.g. <code>setup_group atlas/strengths/submissions</code>); web JIDs are 1:1 with groups.</td><td><code>/chat/&lt;token&gt;/</code> (suffixed JID)</td></tr>
         <tr><td>generated content</td><td>Agent writes HTML, PNG, or JSON into <code>~/public_html/</code> over WebDAV; <code>vited</code> serves it next request.</td><td>same <code>/pub/&lt;folder&gt;/</code> tree</td></tr>
       </table>
-      <p>Diary, facts, and per-user notes accumulate in the same folder. A gated counterpart, <code>~/private_html/</code>, serves at <code>/priv/&lt;folder&gt;/</code> behind OAuth for content not meant to be public.</p>
+      <p>Diary, facts, and per-user notes accumulate in the same folder. A private counterpart, <code>~/private_html/</code>, serves at <code>/priv/&lt;folder&gt;/</code> behind OAuth for content not meant to be public.</p>
+      <p>The <code>/pub/&lt;folder&gt;/</code> path always works, but a world also gets a friendly hostname for free: with <code>HOSTING_DOMAIN</code> set, <code>&lt;folder&gt;.&lt;HOSTING_DOMAIN&gt;</code> 302-redirects to its <code>/pub/&lt;folder&gt;/</code> slot &mdash; no per-host config, no map file. An agent discovers its own public URL with the <code>get_web_presence</code> tool.</p>
     </section>
 
     <section>
@@ -78,7 +79,7 @@
   POST /chat/&lt;form-token&gt;/  ──&gt;  webd  ──&gt;  message at web:&lt;folder&gt;/submissions
                                           │
                                           ▼
-                                        gated
+                                        routd
                                           │
                                           ▼
                                    container (agent)
@@ -96,7 +97,7 @@
       <p>A visitor opens <code>/pub/atlas/strengths/</code> and sees an intake form. They paste their Gallup CliftonStrengths results and click submit.</p>
       <ol>
         <li>The form POSTs to <code>/chat/&lt;form-token&gt;/</code>; <code>webd</code> writes a message into <code>web:atlas/strengths/submissions</code>. The <code>atlas/strengths/submissions</code> group must exist — web JIDs map 1:1 to group folders, the route table does not apply.</li>
-        <li><code>gated</code> spawns the <code>atlas/strengths/submissions</code> container to process the form post.</li>
+        <li><code>routd</code> dispatches the turn (<code>runed</code> spawns the <code>atlas/strengths/submissions</code> container) to process the form post.</li>
         <li>The agent dispatches its <code>process-strengths</code> skill and writes <code>~/public_html/strengths/&lt;name&gt;.html</code> via <code>davd</code> &mdash; served at <code>/pub/atlas/strengths/submissions/strengths/&lt;name&gt;.html</code>.</li>
         <li>The visitor is redirected to that new path. <code>vited</code> serves the personalised report on the next request.</li>
       </ol>
@@ -110,7 +111,7 @@
     <section>
       <h2>use cases</h2>
       <ul>
-        <li>Personalised reports &mdash; paste data, get a report URL; gated CliftonStrengths, resume reviews, lab results.</li>
+        <li>Personalised reports &mdash; paste data, get a report URL; CliftonStrengths, resume reviews, lab results.</li>
         <li>Tools &mdash; calculators, generators, and intake forms where the answer needs an LLM to compose it.</li>
         <li>Customer-facing demos &mdash; a one-page site that shows what the agent does, with a working chat next to it.</li>
         <li>Submission queues &mdash; intake forms whose entries the agent triages, replies to, or escalates to a topic.</li>
@@ -145,7 +146,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/web-native-agents.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 
