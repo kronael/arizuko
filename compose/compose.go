@@ -149,6 +149,9 @@ var daemonKeys = map[string][]string{
 	"runed": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"CONTAINER_IMAGE", "CONTAINER_TIMEOUT",
+		// RUNED_RUN_TIMEOUT bounds the run: the container hard-kill AND
+		// (minus 30s) the agent query timeout (spec, runed/README). Default 20m.
+		"RUNED_RUN_TIMEOUT",
 		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
