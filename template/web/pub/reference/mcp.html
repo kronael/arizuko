@@ -39,7 +39,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; MCP tools</p>
 <h1>MCP tools reference</h1>
 
-    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>set_web_host</code> is tier 0 only).</p>
+    <p class="lede">Every Model Context Protocol tool the arizuko platform registers on a per-group unix socket. Generated from <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go"><code>ipc/ipc.go</code></a> and <a href="https://github.com/kronael/arizuko/blob/main/ipc/inspect.go"><code>ipc/inspect.go</code></a>. The tool set a given session sees is filtered by <code>grants.MatchingRules</code> against the group's rule list &mdash; tools whose name doesn't match any rule are not registered. A handful of tools also gate registration on tier (e.g. <code>list_acl</code> is tier 0&ndash;1; <code>get_web_presence</code> is tier 0&ndash;1).</p>
 
     <div class="callout">
       <strong>Tier shorthand.</strong> Tier 0 = operator (single user; rules <code>["*"]</code>). Tier 1 = inner group (full platform-scoped send + group ops). Tier 2 = guest (basic send + folder-scoped routes). Tier 3+ = stranger (reply/send_file/like/edit only). Defaults live in <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L143"><code>grants/grants.go DeriveRules</code></a>. Many tools also do inline <code>auth.Authorize</code> checks past the grant filter.
@@ -58,7 +58,7 @@
         <li><a href="#egress">egress</a></li>
         <li><a href="#grants-tools">grants</a></li>
         <li><a href="#invites">invites</a></li>
-        <li><a href="#web">web routes &amp; vhosts</a></li>
+        <li><a href="#web">web routes &amp; web presence</a></li>
         <li><a href="#identity">identity</a></li>
         <li><a href="#cost">cost accounting</a></li>
         <li><a href="#system">system / JSON-RPC</a></li>
@@ -69,7 +69,7 @@
 
     <h3 id="post"><code>post</code> <span class="tier">tier 0&ndash;2</span></h3>
     <p>Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (<code>reply</code>), direct messages (<code>send</code>), or file delivery (<code>send_file</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1052"><code>ipc/ipc.go:1052</code></a> &middot; Grant action: <code>post(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1052"><code>ipc/ipc.go:1052</code></a> &middot; Grant action: <code>post(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/post</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -121,7 +121,7 @@
 
     <h3 id="send_voice"><code>send_voice</code></h3>
     <p>Deliver <code>text</code> as a synthesized voice message on the platform &mdash; push-to-talk on Telegram/WhatsApp, audio attachment on Discord. <code>voice</code> defaults to <code>PERSONA.md</code> frontmatter or the instance default; pass an explicit name to override.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1009"><code>ipc/ipc.go:1009</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1009"><code>ipc/ipc.go:1009</code></a> &middot; Grant action: <code>send_voice(jid=...)</code> &middot; Max 5000 chars; requires <code>TTS_BASE_URL</code> (otherwise <code>UnsupportedError</code> propagates). REST twin: <code>POST /v1/turns/{turn_id}/send_voice</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -174,7 +174,7 @@
 
     <h3 id="forward"><code>forward</code></h3>
     <p>Redeliver an existing message to a different chat with provenance preserved (Telegram forward, WhatsApp forward, email <code>Fwd:</code>). Not for replying within the same chat (<code>reply</code>) or amplifying on a public feed (<code>repost</code> / <code>quote</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1183"><code>ipc/ipc.go:1183</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1183"><code>ipc/ipc.go:1183</code></a> &middot; Grant action: <code>forward(jid=&lt;targetJid&gt;)</code> &mdash; <code>jidArg</code> is <code>targetJid</code>, not the source. REST twin: <code>POST /v1/turns/{turn_id}/forward</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -200,7 +200,7 @@
 
     <h3 id="quote"><code>quote</code></h3>
     <p>Republish a message on your own feed with added commentary (Bluesky quote, X quote-tweet). Native only &mdash; Mastodon has no quote primitive and returns unsupported with a hint to use <code>post(content=..., source_url=...)</code>.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1198"><code>ipc/ipc.go:1198</code></a> &middot; Grant action: <code>quote(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1198"><code>ipc/ipc.go:1198</code></a> &middot; Grant action: <code>quote(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/quote</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -213,7 +213,7 @@
 
     <h3 id="repost"><code>repost</code></h3>
     <p>Amplify a message on your own feed without added text (Mastodon boost, Bluesky repost, X retweet). Use to endorse-and-share. Not for commentary (<code>quote</code>) or sending a copy to a different chat (<code>forward</code>).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1212"><code>ipc/ipc.go:1212</code></a> &middot; Grant action: <code>repost(jid=...)</code></p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1212"><code>ipc/ipc.go:1212</code></a> &middot; Grant action: <code>repost(jid=...)</code> &middot; REST twin: <code>POST /v1/turns/{turn_id}/repost</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -672,6 +672,34 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"folder": "&lt;f&gt;", "acl": [{principal, action, scope, effect, params, predicate}, ...]}</code>.</p>
 
+    <h3 id="add_acl"><code>add_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Grant a principal access to a folder scope (writes an <code>acl</code> row). <code>scope='**'</code> confers the operator role. You can only grant within your own authority. Not for routes (<code>add_route</code>) or invites (<code>invite_create</code>). REST twin: <code>POST /v1/acl</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2353"><code>ipc/ipc.go:2353</code></a> &middot; Grant action: <code>add_acl</code> &middot; <code>auth.AuthorizeStructural</code> on <code>scope</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">principal</td><td class="type">string</td><td class="req req-y">yes</td><td>Subject receiving access, e.g. <code>user:alice</code>.</td></tr>
+        <tr><td class="name">scope</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder path or <code>**</code> for operator role.</td></tr>
+        <tr><td class="name">action</td><td class="type">string</td><td class="req req-n">no</td><td>Grant action; defaults to the authd GrantACL default.</td></tr>
+        <tr><td class="name">effect</td><td class="type">string</td><td class="req req-n">no</td><td>Grant effect; defaults to <code>allow</code>.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "principal": "&lt;p&gt;", "scope": "&lt;s&gt;"}</code>.</p>
+
+    <h3 id="remove_acl"><code>remove_acl</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Revoke a principal's access to a folder scope (drops the <code>acl</code> row). <code>scope='**'</code> revokes the operator role. You can only revoke within your own authority. REST twin: <code>DELETE /v1/acl</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2382"><code>ipc/ipc.go:2382</code></a> &middot; Grant action: <code>remove_acl</code> &middot; <code>auth.AuthorizeStructural</code> on <code>scope</code>.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">principal</td><td class="type">string</td><td class="req req-y">yes</td><td>Subject whose access to remove.</td></tr>
+        <tr><td class="name">scope</td><td class="type">string</td><td class="req req-y">yes</td><td>Folder path or <code>**</code>.</td></tr>
+        <tr><td class="name">action</td><td class="type">string</td><td class="req req-n">no</td><td>Action filter for the row to remove.</td></tr>
+        <tr><td class="name">effect</td><td class="type">string</td><td class="req req-n">no</td><td>Effect filter for the row to remove.</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "principal": "&lt;p&gt;", "scope": "&lt;s&gt;"}</code>.</p>
+
     <h2 id="invites">invites</h2>
 
     <h3 id="invite_create"><code>invite_create</code> <span class="tier">tier 0&ndash;1</span></h3>
@@ -687,7 +715,24 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{token, target_glob, max_uses, expires_at?, accept_url?}</code>.</p>
 
-    <h2 id="web">web routes &amp; vhosts</h2>
+    <h3 id="invite_list"><code>invite_list</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>List the invite tokens this agent has issued — token, target glob, expiry, use count. Read-only; shows only this folder's invites. Use to audit outstanding invites before revoking. REST twin: <code>GET /v1/invites</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2296"><code>ipc/ipc.go:2296</code></a> &middot; Grant action: <code>invite_list</code> &middot; Scoped to <code>issued_by="agent:&lt;folder&gt;"</code>; no caller-supplied folder arg.</p>
+    <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"invites": [{token, target_glob, max_uses, used_count, expires_at?}, ...]}</code>.</p>
+
+    <h3 id="invite_revoke"><code>invite_revoke</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Revoke an invite token you issued so it can no longer be redeemed. You may only revoke tokens issued by your own folder. Use <code>invite_list</code> to find your tokens. REST twin: <code>DELETE /v1/invites/{token}</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2323"><code>ipc/ipc.go:2323</code></a> &middot; Grant action: <code>invite_revoke</code> &middot; <code>auth.AuthorizeStructural</code> on caller's folder; ownership enforced in routd closure.</p>
+    <table class="params">
+      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
+      <tbody>
+        <tr><td class="name">token</td><td class="type">string</td><td class="req req-y">yes</td><td>Token to revoke (from <code>invite_list</code> or <code>invite_create</code>).</td></tr>
+      </tbody>
+    </table>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "token": "&lt;t&gt;"}</code>.</p>
+
+    <h2 id="web">web routes &amp; web presence</h2>
+    <p>Each group folder has a derived public hostname (<code>&lt;folder&gt;.&lt;HOSTING_DOMAIN&gt;</code>) that 302-redirects to its <code>/pub/&lt;folder&gt;/</code> slot. No <code>vhosts.json</code>, no per-host config &mdash; the host is purely <code>folder + "." + HOSTING_DOMAIN</code>. An explicit <code>WEB_VHOST_ALIASES</code> entry overrides for the rare case where the folder label and the desired hostname differ. Use <code>get_web_presence</code> to discover the canonical host. The <code>web_routes</code> table (managed by <code>set_web_route</code>/<code>del_web_route</code>) is the inner layer: it controls access and redirects within <code>/pub/&lt;folder&gt;/</code> after the vhost 302 lands.</p>
 
     <h3 id="del_web_route"><code>del_web_route</code></h3>
     <p>Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).</p>
@@ -700,33 +745,21 @@
     </table>
     <p class="returns"><strong>Returns:</strong> text <code>"ok"</code>, or error if not found / not owned.</p>
 
-    <h3 id="get_web_host"><code>get_web_host</code> <span class="tier">tier 0&ndash;2</span></h3>
-    <p>Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Non-root can only query own folder or descendants.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2756"><code>ipc/ipc.go:2756</code></a> &middot; Registration gated on <code>id.Tier &le; 2</code>; grant action <code>get_web_host</code>.</p>
+    <h3 id="get_web_presence"><code>get_web_presence</code> <span class="tier">tier 0&ndash;1</span></h3>
+    <p>Report a folder's public web presence: derived canonical hostname, public/private base URLs, and the <code>/pub/&lt;folder&gt;/</code> path that works even without <code>HOSTING_DOMAIN</code>. Read-only. Tier-1+ may only query own folder or descendants; tier-0 any. REST twin: <code>GET /v1/web_presence?folder=&lt;f&gt;</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2883"><code>ipc/ipc.go:2883</code></a> &middot; Grant action: <code>get_web_presence</code> &middot; Computed by <code>ipc.WebPresenceFor</code> from <code>WEB_HOST</code>, <code>HOSTING_DOMAIN</code>, <code>WEB_VHOST_ALIASES</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
         <tr><td class="name">folder</td><td class="type">string</td><td class="req req-n">no</td><td>Folder to query; defaults to caller's folder.</td></tr>
       </tbody>
     </table>
-    <p class="returns"><strong>Returns:</strong> JSON <code>{"hostname": "&lt;host&gt;", "folder": "&lt;f&gt;"}</code>; <code>hostname</code> empty when no binding.</p>
+    <p class="returns"><strong>Returns:</strong> JSON <code>{hosting_domain, derived_host, alias_host?, canonical_host, public_base_url, private_base_url, pub_path}</code>. <code>pub_path</code> is the vhost-independent canonical path.</p>
 
     <h3 id="list_web_routes"><code>list_web_routes</code></h3>
     <p>List all web routes owned by this folder.</p>
     <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2743"><code>ipc/ipc.go:2743</code></a> &middot; Grant action: <code>list_web_routes</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>{path_prefix, access, redirect_to, folder, created_at}</code>.</p>
-
-    <h3 id="set_web_host"><code>set_web_host</code> <span class="tier">tier 0</span></h3>
-    <p>Bind a hostname to a group folder in <code>vhosts.json</code> so proxyd serves that folder at that host. Use when exposing a group's <code>web/</code> via a custom domain.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2576"><code>ipc/ipc.go:2576</code></a> &middot; Registration gated on <code>id.Tier == 0</code>; grant action <code>set_web_host</code>. Atomic <code>vhosts.json</code> rewrite.</p>
-    <table class="params">
-      <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
-      <tbody>
-        <tr><td class="name">hostname</td><td class="type">string</td><td class="req req-y">yes</td><td>Valid hostname (a&ndash;z, 0&ndash;9, <code>.</code> <code>-</code> <code>:</code>; &le; 253 chars).</td></tr>
-        <tr><td class="name">folder</td><td class="type">string</td><td class="req req-y">yes</td><td>Must be an existing directory under <code>GroupsDir</code>.</td></tr>
-      </tbody>
-    </table>
-    <p class="returns"><strong>Returns:</strong> JSON of the full <code>vhosts</code> map after the write.</p>
 
     <h3 id="set_web_route"><code>set_web_route</code></h3>
     <p>Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. Scoped to the caller's folder.</p>
@@ -791,7 +824,7 @@
     <h2 id="notes">notes &amp; gotchas</h2>
     <ul>
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>grants.MatchingRules(rules, name)</code>; if no rule matches the tool name, the tool is never added to <code>tools/list</code>. The matched rules are appended to the tool description as <code>grants: [...]</code> so the agent sees what it has been granted.</li>
-      <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), <code>list_acl</code> (tier &le; 1), <code>get_web_host</code> (tier &le; 2), and <code>set_web_host</code> (tier == 0) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
+      <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), and <code>list_acl</code> (tier &le; 1) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
       <li><strong>Spec 5/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 7/Y) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
@@ -805,7 +838,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-09">2026-06-09</time>
       </div>
     </main>
 
