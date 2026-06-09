@@ -47,8 +47,21 @@ GET /biotech-swe-guide/  Host: krons.fiu.wtf  → 302 /pub/krons/biotech-swe-gui
 GET /x?a=1               Host: krons.fiu.wtf  → 302 /pub/krons/x?a=1
 ```
 
-The mapping is the deterministic composition `W.<HOSTING_DOMAIN>` and
-its reverse — no file, no row. This keeps "identity is configured,
+### Alias override (host label ≠ world name)
+
+When a world must be reached at a host whose label is not its folder
+name, an explicit alias supplies the mapping: `WEB_VHOST_ALIASES`
+(env, `host=world,host2=world2`) is consulted **before** derivation.
+marinade serves world `atlas` at `fab.krons.cx` via
+`WEB_VHOST_ALIASES=fab.krons.cx=atlas`. Aliases are still just
+host→world → `302 /pub/world/`; they are the small configured
+exception to the derived default, not a return of the `vhosts.json`
+file (operator env, not a hand-edited web-dir file). `proxyd`'s
+`worldForHost` checks the alias map, then the derived suffix.
+
+The mapping is the deterministic composition `W.<HOSTING_DOMAIN>` (or
+an explicit alias) and its reverse — no file in the web tree, no DB
+row. This keeps "identity is configured,
 never derived" (CLAUDE.md) honest: the world _name_ (its folder) and
 `HOSTING_DOMAIN` are both configured; the host is only their
 composition. The redirect `Location` is always a relative `/pub/<W>/…`

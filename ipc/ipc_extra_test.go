@@ -455,41 +455,6 @@ func TestServeMCP_ScheduleTask_RFC3339OneShot(t *testing.T) {
 	}
 }
 
-// --- set_web_host tier-0-only ---
-
-func TestServeMCP_SetWebHost_Tier0Only(t *testing.T) {
-	// set_web_host is only registered at tier 0 (depth 0, no slashes).
-	// Tier-1 (world/a) must not see it in tools/list.
-	dir := t.TempDir()
-	sock := dir + "/gated.sock"
-	stop, err := ServeMCP(sock, GatedFns{GroupsDir: dir, WebDir: dir}, StoreFns{},
-		"world/a", []string{"*"}, 0, "")
-	if err != nil {
-		t.Fatalf("ServeMCP: %v", err)
-	}
-	defer stop()
-
-	if listContainsTool(t, sock, "set_web_host") {
-		t.Errorf("set_web_host must not be registered at tier 1")
-	}
-}
-
-func TestServeMCP_SetWebHost_Tier0Present(t *testing.T) {
-	dir := t.TempDir()
-	sock := dir + "/gated.sock"
-	// Tier-0: depth-0 folder "root" (no slashes).
-	stop, err := ServeMCP(sock, GatedFns{GroupsDir: dir, WebDir: dir}, StoreFns{},
-		"root", []string{"*"}, 0, "")
-	if err != nil {
-		t.Fatalf("ServeMCP: %v", err)
-	}
-	defer stop()
-
-	if !listContainsTool(t, sock, "set_web_host") {
-		t.Errorf("set_web_host must be registered at tier 0")
-	}
-}
-
 // --- routeTargetWithin additional cases ---
 
 func TestRouteTargetWithin_ExtraEdgeCases(t *testing.T) {

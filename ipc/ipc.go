@@ -729,42 +729,6 @@ func decodePanePrompts(raw any) ([]core.PanePrompt, error) {
 	return out, nil
 }
 
-func readVhosts(webDir string) (map[string]string, error) {
-	p := filepath.Join(webDir, "vhosts.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]string), nil
-		}
-		return nil, err
-	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func writeVhosts(webDir string, m map[string]string) error {
-	if err := os.MkdirAll(webDir, 0755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	fp := filepath.Join(webDir, "vhosts.json")
-	tmp := fp + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, fp); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
 func parseBefore(req mcp.CallToolRequest) (time.Time, error) {
 	s := req.GetString("before", "")
 	if s == "" {
@@ -2720,41 +2684,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	if identity.Tier == 0 {
-		granted("set_web_host", "Bind a hostname to a group folder in vhosts.json so proxyd serves that folder at that host. Use when exposing a group's web/ via a custom domain. Tier 0 only.",
-			[]mcp.ToolOption{
-				mcp.WithString("hostname", mcp.Required()),
-				mcp.WithString("folder", mcp.Required()),
-			},
-			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				hostname := req.GetString("hostname", "")
-				targetFolder := req.GetString("folder", "")
-				if hostname == "" {
-					return toolErr("hostname required")
-				}
-				if !validHostname(hostname) {
-					return toolErr("invalid hostname")
-				}
-				if targetFolder == "" {
-					return toolErr("folder required")
-				}
-				groupDir := filepath.Join(gated.GroupsDir, targetFolder)
-				if fi, err := os.Stat(groupDir); err != nil || !fi.IsDir() {
-					return toolErr("folder does not exist: " + targetFolder)
-				}
-				vhosts, err := readVhosts(gated.WebDir)
-				if err != nil {
-					return toolErr("read vhosts: " + err.Error())
-				}
-				vhosts[hostname] = targetFolder
-				if err := writeVhosts(gated.WebDir, vhosts); err != nil {
-					return toolErr("write vhosts: " + err.Error())
-				}
-				slog.Info("set_web_host", "hostname", hostname, "folder", targetFolder, "sourceGroup", folder)
-				return toolJSON(vhosts)
-			})
-	}
-
 	srv.AddTool(mcp.NewTool("get_work",
 		mcp.WithDescription("Read this group's work.md — current work, blockers, next steps. Use at the start of a turn to recover what was in-flight. Returns empty content when the file doesn't exist."),
 	), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2899,31 +2828,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 
 	registerInspect(srv, db, identity, folder)
-
-	if identity.Tier <= 2 {
-		granted("get_web_host", "Return the hostname currently bound to a folder (or this folder by default). Use to verify vhost wiring before pointing users at a URL. Tier 0-2; non-root can only query own folder or descendants.",
-			[]mcp.ToolOption{mcp.WithString("folder")},
-			func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				targetFolder := req.GetString("folder", folder)
-				if targetFolder == "" {
-					targetFolder = folder
-				}
-				if identity.Tier > 0 && targetFolder != folder &&
-					!strings.HasPrefix(targetFolder, folder+"/") {
-					return toolErr("get_web_host: can only query own folder or descendants")
-				}
-				vhosts, err := readVhosts(gated.WebDir)
-				if err != nil {
-					return toolErr("read vhosts: " + err.Error())
-				}
-				for h, f := range vhosts {
-					if f == targetFolder {
-						return toolJSON(map[string]any{"hostname": h, "folder": f})
-					}
-				}
-				return toolJSON(map[string]any{"hostname": "", "folder": targetFolder})
-			})
-	}
 
 	return srv
 }
