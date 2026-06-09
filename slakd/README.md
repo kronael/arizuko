@@ -116,9 +116,9 @@ LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
-SLAKD_STALE_SECONDS=300       inbound silence past this ⇒ /health 503 + watchdog
+SLAKD_STALE_SECONDS=300       inbound silence past this ⇒ /health 503 + watchdog auth.test probe
 SLAKD_WATCHDOG_SECONDS=60     watchdog re-check interval
-SLAKD_STALE_FAIL_LIMIT=5      consecutive stale checks before os.Exit(1) restart
+SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures (while stale) before os.Exit(1) restart
 ```
 
 `SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` on the
@@ -165,10 +165,15 @@ unhealthy.
 
 A watchdog goroutine (`SLAKD_WATCHDOG_SECONDS` cadence) re-probes
 `auth.test` while stale — the only recovery slakd can self-perform,
-since there is no socket to reconnect — and after `SLAKD_STALE_FAIL_LIMIT`
-consecutive stale checks calls `os.Exit(1)` so the `restart: on-failure`
-policy re-creates the container and clears the transient Slack-side
-state. A single inbound message resets the streak.
+since there is no socket to reconnect. Silence alone never restarts:
+stale inbound with `auth.test` OK is treated as merely quiet (it bounced
+the container every ~10 min on idle instances, and each restart drops
+Slack's in-flight POSTs — a self-inflicted flap, marinade 2026-06-08).
+Only when the channel is stale AND `auth.test` keeps failing for
+`SLAKD_STALE_FAIL_LIMIT` consecutive ticks does it call `os.Exit(1)`,
+letting the `restart: on-failure` policy re-create the container. A
+single inbound message — or a single passing `auth.test` — resets the
+streak.
 
 ## Threat model
 

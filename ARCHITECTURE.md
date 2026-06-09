@@ -163,7 +163,9 @@ surfaces as `**` in this list; see "Operator" below.
 `webd.requireFolder` checks `X-User-Groups` on folder-specific endpoints.
 
 WebDAV requires `DAV_ADDR`; the dufs container mounts `groups/` read-only.
-proxyd reads `web/vhosts.json` every 5s. Full protocol: `specs/5/V-web-vhosts.md`.
+proxyd derives each world's host as `<world>.<HOSTING_DOMAIN>` and 302s it
+to `/pub/<world>/` (no host-map file; `WEB_VHOST_ALIASES` overrides labels
+that differ from the world name). Full protocol: `specs/5/V-web-vhosts.md`.
 
 ### Route generation pipeline
 

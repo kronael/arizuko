@@ -194,7 +194,8 @@ clone from `groups/<prototype>/` instead of bare `template/`.
 | Cross-channel preemption    | Not implemented                           |
 
 Previously listed as not-ported, now shipped: prototype spawning (see
-above), per-group web prefix / vhosts (proxyd `vhosts.json` hot-reload).
+above), per-group web slots + derived per-world hosts (proxyd derives
+`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`; `specs/5/V-web-vhosts.md`).
 
 ## Data Directory
 

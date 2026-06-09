@@ -64,13 +64,17 @@ Live in your session — callable directly, no skill invocation needed.
 | `list_tokens`     | List route tokens (chat links + webhooks) owned by your folder. Raw tokens not returned. |
 | `revoke_token`    | Revoke a route token by JID. Takes effect immediately (URL returns 404). Caller must own the token. |
 | `invite_create`   | Issue an invite token granting access to a path glob. Recipient accepts via `/invite/<token>`. Tier 0-2 only. |
+| `invite_list`     | List invites issued under your folder (self-filtered). Raw tokens not returned. |
+| `invite_revoke`   | Revoke an invite by token. Caller must own the invite (tier 0-2). |
 
 ## Web routing
 
+A world's hostname is derived (`<folder>.<HOSTING_DOMAIN>` → `302 /pub/<folder>/`),
+not assigned — there is no host-mapping tool. `web_routes` rows layer
+redirects/auth on top.
+
 | Tool              | Description                                                                    |
 | ----------------- | ------------------------------------------------------------------------------ |
-| `get_web_host`    | Get web hostname for a vhost (tier 0-1 only)                                   |
-| `set_web_host`    | Set web hostname mapping in vhosts.json (tier 0 only)                          |
 | `set_web_route`   | Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. `access` ∈ {public, auth, deny, redirect}. |
 | `del_web_route`   | Delete a web route by path. Only routes owned by this folder.                  |
 | `list_web_routes` | List all web routes owned by this folder.                                      |
@@ -101,6 +105,8 @@ Live in your session — callable directly, no skill invocation needed.
 | `inspect_session`  | Current session_id + recent `session_log` entries                           |
 | `inspect_identity` | Resolve a platform sender sub to its canonical identity and all claimed subs. Use to recognize a user across channels. |
 | `list_acl`         | List ACL rules visible to this group.                                       |
+| `add_acl`          | Grant a principal access to a folder `scope` (acl row; `scope='**'` grants operator role). Write-face of REST `POST /v1/acl`. Tier 0-1, within your authority. |
+| `remove_acl`       | Revoke a principal's access to a `scope`. Write-face of REST `DELETE /v1/acl`. Tier 0-1, within your authority. |
 | `reset_session`    | Clear this group's session and start fresh                                  |
 | `log_external_cost`| Record a non-Anthropic LLM call against the folder's daily budget (e.g. after `/oracle`). Pass provider, model, token counts, cost_usd. |
 

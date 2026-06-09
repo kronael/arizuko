@@ -15,7 +15,9 @@ headers with an HMAC secret shared with `webd`.
 - Inject `X-User-Sub`, `X-User-Groups`, signature (`PROXYD_HMAC_SECRET`).
 - Route by TOML-declared prefix table (see "Routes are TOML-declared").
 - Rewrite `X-Forwarded-*` from `TRUSTED_PROXIES` CIDRs only.
-- Poll `web/vhosts.json` every 5s for hostname → world routing (`specs/5/V-web-vhosts.md`).
+- Derive each world's host (`<world>.<HOSTING_DOMAIN>`) and 302 it to
+  `/pub/<world>/`; `WEB_VHOST_ALIASES` overrides labels ≠ world name
+  (`specs/5/V-web-vhosts.md`).
 
 ## Routes are TOML-declared
 
@@ -37,7 +39,7 @@ Bespoke handling for `/slink/` (rate limiter + token resolver) and
 
 Routes not in the TOML table (hand-wired in `main.go`): `/auth/*`
 (login flow), `/health`, `/pub/*` (vited fallback + external redirect),
-vhost host-header rewriting.
+the derived-host `302 → /pub/<world>/` redirect.
 
 See `specs/5/35-proxyd-standalone.md` for the field semantics.
 

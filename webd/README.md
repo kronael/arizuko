@@ -24,12 +24,13 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
 
 Per `specs/5/5-uniform-mcp-rest.md`: `web_routes` and the `route_tokens`
 table (created in migration `0059-route-tokens.sql`, which also dropped
-the legacy `groups.slink_token` column). Vhost config lives in
-`web/vhosts.json` (file, not table). webd does not own messages — it
-writes them as a client of `gated/v1/messages` (channel adapter inbound)
-and today reads them via its own `/api/*` paths directly off the shared
-DB. Once federation lands those reads migrate to `gated/v1/messages`
-(flagged future work).
+the legacy `groups.slink_token` column). Per-world hostnames are derived
+by proxyd (`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`), not stored
+(`specs/5/V-web-vhosts.md`); webd has no vhost config. webd does not own
+messages — it writes them as a client of `routd/v1/messages` (channel
+adapter inbound) and today reads them via its own `/api/*` paths directly
+off the shared DB. Once federation lands those reads migrate to
+`routd/v1/messages` (flagged future work).
 
 ## Surface
 
@@ -72,9 +73,8 @@ Planned per `specs/5/5-uniform-mcp-rest.md`:
 ## Future work
 
 webd's `/api/*` chat reads currently hit the shared DB directly. Once
-gated ships `/v1/messages` per the platform API spec, migrate these
-reads to gated. A `/v1/vhosts` REST surface over `web/vhosts.json` is
-also planned.
+routd ships `/v1/messages` per the platform API spec, migrate these
+reads to routd.
 
 ## Entry points
 

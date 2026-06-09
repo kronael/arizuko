@@ -28,8 +28,10 @@ to `~/private_html/` (bind-mounted from
 `/pub/`. Fail-closed when `AUTH_SECRET` empty — private routes
 unreachable, `/pub` + `/auth` still work.
 
-vhosts: `vhosts.json` hot-reloaded every 5s; matching `Host` rewrites
-to `/<world>/<path>` via viteProxy regardless of prefix.
+vhosts: per-world hosts are **derived**, not configured — `Host`
+`<world>.<HOSTING_DOMAIN>` 302s to `/pub/<world>/<path>`
+(`WEB_VHOST_ALIASES` overrides labels ≠ world name). Canonical:
+`specs/5/V-web-vhosts.md`.
 
 Web channel is a separate adapter (`webd/`), registered via chanreg
 like any other.

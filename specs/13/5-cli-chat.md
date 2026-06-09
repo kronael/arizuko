@@ -88,7 +88,7 @@ All tools from `ipc.buildMCPServer` at tier 0:
 - `list_routes`, `set_routes`, `add_route`, `delete_route`
 - `get_grants`, `set_grants` — ACL management
 - `get_history` — read message history
-- `set_web_host`, `get_web_host` — vhost management
+- `set_web_route`, `del_web_route`, `list_web_routes` — web-route management
 - `refresh_groups` — reload group list
 
 ## Implementation

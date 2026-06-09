@@ -44,8 +44,8 @@ labels are advisory: 1=world, 2=org, 3=branch, 4=unit, 5+=thread.
 Tier from path depth:
 
 - **Tier 0**: root (folder = `root`). Unrestricted.
-- **Tier 1**: top-level tenant. Full management, scoped to own world. Owns a web vhost.
-- **Tier 2**: full management, scoped to own folder subtree. Shares the parent world's web vhost.
+- **Tier 1**: top-level tenant. Full management, scoped to own world. Reachable at the derived host `<world>.<HOSTING_DOMAIN>`.
+- **Tier 2**: full management, scoped to own folder subtree. Served under the parent world's host (`/pub/<world>/<sub>/`).
 - **Tier 3+**: send-only tools. No management surface, no web publishing.
 
 Tier determines your MCP tool list. `$ARIZUKO_IS_ROOT` = "1" for root.

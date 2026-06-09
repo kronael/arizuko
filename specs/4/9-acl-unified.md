@@ -153,7 +153,8 @@ Postgres / IAM mapping:
 - `role:operator` — has `(role:operator, *, **, allow)`. First OAuth
   sub bound via `acl_membership` at create time.
 - `role:org-admin`, `role:org-member` — empty templates operators wire
-  up via `acl.grant` / `membership.add` MCP tools.
+  up via the ACL write tools (shipped as MCP `add_acl`/`remove_acl`,
+  the twins of REST `POST`/`DELETE /v1/acl`).
 
 **Cycle prevention** on `acl_membership` writes: transactional
 recursive walk from the new edge's parent; abort if `child` is

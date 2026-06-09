@@ -1,8 +1,16 @@
 ---
-status: shipped
+status: superseded
+superseded_by: 5/V-web-vhosts
 ---
 
 # Web Virtual Hosts
+
+> **Superseded by [`specs/5/V-web-vhosts.md`](../5/V-web-vhosts.md).**
+> The `web_host` column, the `set_web_host`/`get_web_host` IPC actions,
+> and the `arizuko config … set-web-host` CLI are all retired. Per-world
+> hostnames are now **derived** (`<world>.<HOSTING_DOMAIN>` → `302
+/pub/<world>/`), not stored or assigned. This file is kept for history;
+> read 5/V for the live model.
 
 One DNS hostname per world. Root controls routing. World-level web
 management is deferred to the world.
