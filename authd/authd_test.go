@@ -28,6 +28,12 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func userExists(db *sql.DB, userID string) bool {
+	var n int
+	db.QueryRow(`SELECT 1 FROM auth_users WHERE user_id = ?`, userID).Scan(&n)
+	return n == 1
+}
+
 func newTestAuthd(t *testing.T, db *sql.DB) *Authd {
 	t.Helper()
 	a, err := newAuthd(db, 15*time.Minute, time.Hour, time.Hour)

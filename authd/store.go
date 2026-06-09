@@ -127,12 +127,6 @@ func upsertOAuthUser(db *sql.DB, userID, name, provider, providerSub string) err
 	return tx.Commit()
 }
 
-func userExists(db *sql.DB, userID string) bool {
-	var n int
-	db.QueryRow(`SELECT 1 FROM auth_users WHERE user_id = ?`, userID).Scan(&n)
-	return n == 1
-}
-
 // issueRefresh stores a new refresh token (raw returned to caller, only the
 // hash persisted) starting a fresh family.
 func issueRefresh(db *sql.DB, sub string, scope []string, aud string, ttl time.Duration) (string, error) {

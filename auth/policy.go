@@ -35,7 +35,7 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 	case "reset_session", "fork_topic":
 		if target.TargetFolder != id.Folder &&
 			!strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
-			return fmt.Errorf("unauthorized: can only %s own or descendant folders", "act on")
+			return fmt.Errorf("unauthorized: can only act on own or descendant folders")
 		}
 		return nil
 	case "inject_message":

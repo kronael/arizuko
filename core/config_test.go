@@ -144,6 +144,43 @@ func TestLoadConfigEgress(t *testing.T) {
 	}
 }
 
+func TestSecretKeyring(t *testing.T) {
+	if got := SecretKeyring(""); got != nil {
+		t.Errorf("empty: got %v, want nil", got)
+	}
+	if got := SecretKeyring("  ,  "); got != nil {
+		t.Errorf("blank entries: got %v, want nil", got)
+	}
+	// First non-empty entry is the active seal key; rest are decrypt-only,
+	// in order. Surrounding whitespace is trimmed, blank entries dropped.
+	got := SecretKeyring(" k1 , ,k2,k3 ")
+	want := []string{"k1", "k2", "k3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d keys, want %d (%q)", len(got), len(want), got)
+	}
+	for i := range want {
+		if string(got[i]) != want[i] {
+			t.Errorf("key %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestParseCSV(t *testing.T) {
+	if got := parseCSV(""); got != nil {
+		t.Errorf("empty: got %v, want nil", got)
+	}
+	got := parseCSV(" a , ,b,  c ")
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("item %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestSanitizeInstance(t *testing.T) {
 	ok := []string{"alpha", "A1", "instance-1", "_under", "a", strings.Repeat("a", 32)}
 	for _, s := range ok {
