@@ -331,11 +331,19 @@ func buildRouteProxy(r Route) *httputil.ReverseProxy {
 	return rp
 }
 
+// sweepEvery bounds the full stale-bucket sweep to once per N allow() calls.
+// Sweeping every call made allow() O(all-keys): a distinct-IP flood turned
+// each anon request into a walk of every live bucket. Amortizing to 1/N keeps
+// the hot path O(1) while still reclaiming dead keys often enough to bound the
+// map under sustained flood.
+const sweepEvery = 256
+
 type rateLimiter struct {
 	mu      sync.Mutex
 	limit   int
 	window  time.Duration
 	buckets map[string][]time.Time
+	calls   int
 }
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
@@ -348,10 +356,14 @@ func (rl *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-rl.window)
 
-	// Sweep stale buckets to bound map size under distinct-IP flood.
-	for k, hits := range rl.buckets {
-		if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
-			delete(rl.buckets, k)
+	// Reclaim stale buckets once per sweepEvery calls, not every call.
+	rl.calls++
+	if rl.calls >= sweepEvery {
+		rl.calls = 0
+		for k, hits := range rl.buckets {
+			if len(hits) == 0 || hits[len(hits)-1].Before(cutoff) {
+				delete(rl.buckets, k)
+			}
 		}
 	}
 

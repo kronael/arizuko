@@ -242,6 +242,23 @@ func TestRateLimiterDifferentKeys(t *testing.T) {
 	}
 }
 
+// TestRateLimiterSweepReclaims drives a distinct-IP flood past the amortized
+// sweep boundary and asserts stale buckets are reclaimed (map stays bounded).
+func TestRateLimiterSweepReclaims(t *testing.T) {
+	rl := newRateLimiter(1, time.Nanosecond) // window so short every hit is instantly stale
+	for i := 0; i < sweepEvery+10; i++ {
+		rl.allow(fmt.Sprintf("ip-%d", i))
+	}
+	// The sweep fires at call sweepEvery; afterwards only buckets added since
+	// remain, so the map is far smaller than the number of distinct keys seen.
+	rl.mu.Lock()
+	n := len(rl.buckets)
+	rl.mu.Unlock()
+	if n > 16 {
+		t.Errorf("buckets = %d after flood, sweep did not reclaim (want small)", n)
+	}
+}
+
 // testServerWithUpstream returns a server whose viteProxy points at an
 // httptest upstream. The caller must Close the returned upstream.
 func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {

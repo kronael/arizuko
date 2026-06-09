@@ -282,10 +282,15 @@ func normalisePath(v any) string {
 	return s
 }
 
-// routesAuthz is the per-action ACL scope/params derivation. routes is
-// a global resource — no per-folder axis, scope="" and no params.
-// Operators carry an ACL row like `(google:op, '*', '**')`; the
-// canonical auth.Authorize call is the gate.
+// routesAuthz derives the ACL scope/params for the routes resource. routes
+// is GLOBAL (no per-folder axis), so the derivation is genuinely empty:
+// scope="" and no params. This is NOT a bypass — resreg.invoke still runs
+// auth.Authorize(store, caller, "routes.<action>", "", nil), and an empty
+// scope is matched by an operator ACL row like `(google:op, '*', '**')`
+// (`**` covers scope "", `*` covers any action). A non-operator presents no
+// matching row and no mcp:* tier fallback applies, so the call is denied.
+// The gate is the ACL row, not this function and not the operator marker in
+// callerFromHTTP (which only records the `**` claim for predicate matching).
 func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[string]string, error) {
 	return "", nil, nil
 }

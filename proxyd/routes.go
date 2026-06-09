@@ -19,7 +19,12 @@ type Route struct {
 	Path            string   `json:"path"`
 	Backend         string   `json:"backend"`
 	Auth            string   `json:"auth"` // "public" | "user" | "operator"
-	GatedBy         string   `json:"gated_by,omitempty"`
+	// GatedBy is compose-time-only metadata: compose.collectProxydRoutes drops
+	// a route whose gated_by env var is unset before emitting PROXYD_ROUTES_JSON.
+	// proxyd NEVER reads it at runtime (a route in the table is already a
+	// survivor) — it is round-tripped through CRUD only to preserve the route's
+	// declared shape. It does NOT gate request authz; Auth does.
+	GatedBy string `json:"gated_by,omitempty"`
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 }

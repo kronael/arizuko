@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/kronael/arizuko/db_utils"
 	_ "modernc.org/sqlite"
@@ -118,16 +119,28 @@ func OpenOnbod(dir string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// memDBSeq names each OpenMem's in-memory DB uniquely so two stores in the
+// same process never share rows/schema. A bare `file::memory:?cache=shared`
+// DSN is process-wide: every OpenMem in a test binary mapped onto ONE shared
+// DB, leaking rows across tests -> order-dependent failures (commit 5671e695).
+var memDBSeq atomic.Int64
+
 func OpenMem() (*Store, error) {
 	// `:memory:` SQLite is per-connection; database/sql can pool a second
-	// connection that sees an empty DB. `cache=shared` makes the in-memory
-	// DB shared across connections in the same process. File-backed Open()
-	// doesn't have this constraint.
-	dsn := "file::memory:?cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)"
+	// connection that sees an empty DB. A NAMED memdb with `cache=shared` is
+	// shared across the connections of THIS pool yet private to this DSN, so
+	// each OpenMem gets an isolated DB. SQLite drops a shared-cache memdb when
+	// its last connection closes, so pin one idle connection for the pool's
+	// lifetime (the schema would otherwise vanish between calls).
+	dsn := fmt.Sprintf(
+		"file:memdb-%d?mode=memory&cache=shared&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=journal_mode(WAL)",
+		memDBSeq.Add(1))
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
 	s := &Store{db: db}
 	if err := db_utils.Migrate(db, migrationFS, "migrations", serviceName); err != nil {
 		db.Close()
