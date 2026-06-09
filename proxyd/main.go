@@ -261,11 +261,22 @@ func loadInitialRoutes(routesJSON string, st *store.Store) []Route {
 		os.Exit(1)
 	}
 	if st != nil && len(routes) > 0 {
+		ctx := context.Background()
+		tx, err := st.DB().BeginTx(ctx, nil)
+		if err != nil {
+			slog.Error("seed proxyd_routes", "err", err)
+			os.Exit(1)
+		}
 		for _, r := range routes {
-			if err := st.InsertProxydRoute(toStoreRoute(r)); err != nil {
+			if err := insertProxydRouteTx(ctx, tx, toStoreRoute(r)); err != nil {
+				tx.Rollback()
 				slog.Error("seed proxyd_routes", "path", r.Path, "err", err)
 				os.Exit(1)
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			slog.Error("seed proxyd_routes", "err", err)
+			os.Exit(1)
 		}
 		slog.Info("proxyd routes seeded from env", "count", len(routes))
 	}

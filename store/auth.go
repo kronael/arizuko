@@ -12,8 +12,6 @@ import (
 type AuthUser struct {
 	ID          int64
 	Sub         string
-	Username    string
-	Hash        string
 	Name        string
 	CreatedAt   time.Time
 	LinkedToSub string // empty = canonical; non-empty = points at canonical sub
@@ -35,13 +33,13 @@ func (s *Store) CreateAuthUser(sub, username, hash, name string) error {
 	return err
 }
 
-const authUserCols = `id, sub, username, hash, name, created_at, linked_to_sub`
+const authUserCols = `id, sub, name, created_at, linked_to_sub`
 
 func scanAuthUser(r rowScanner) (AuthUser, bool) {
 	var u AuthUser
 	var created string
 	var linked sql.NullString
-	if err := r.Scan(&u.ID, &u.Sub, &u.Username, &u.Hash, &u.Name, &created, &linked); err != nil {
+	if err := r.Scan(&u.ID, &u.Sub, &u.Name, &created, &linked); err != nil {
 		return u, false
 	}
 	u.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -54,11 +52,6 @@ func scanAuthUser(r rowScanner) (AuthUser, bool) {
 func (s *Store) AuthUserBySub(sub string) (AuthUser, bool) {
 	return scanAuthUser(s.db.QueryRow(
 		`SELECT `+authUserCols+` FROM auth_users WHERE sub = ?`, sub))
-}
-
-func (s *Store) AuthUserByUsername(username string) (AuthUser, bool) {
-	return scanAuthUser(s.db.QueryRow(
-		`SELECT `+authUserCols+` FROM auth_users WHERE username = ?`, username))
 }
 
 // CanonicalSub returns sub if it's canonical, else the sub it's linked to.
@@ -162,20 +155,6 @@ func (s *Store) AuthSession(tokenHash string) (AuthSession, bool) {
 	a.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
 	a.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	return a, true
-}
-
-func (s *Store) DeleteAuthSession(tokenHash string) error {
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(`DELETE FROM auth_sessions WHERE token_hash = ?`, tokenHash)
-		return audit.Event{
-			Category: audit.CategoryAuthN,
-			Action:   "logout",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "sessions/" + tokenHash[:min(len(tokenHash), 8)],
-			Outcome:  audit.OutcomeOK,
-		}, err
-	})
 }
 
 // User-folder grants live in the `acl` table (post-0053). See

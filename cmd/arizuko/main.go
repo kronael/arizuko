@@ -383,11 +383,16 @@ func cmdGroup(args []string) {
 		if err := container.SetupGroup(cfg, folder, productDir); err != nil {
 			die("Failed: setup group dir: %v", err)
 		}
-		if err := s.SeedDefaultTasks(folder, folder); err != nil {
+		// groups/routes/scheduled_tasks live in routd.db post-split. Use the
+		// routd.db-preferring handle + audit-free writers (PutGroupRow/PutRouteRow):
+		// routd.db has no audit_log table, so the audited PutGroup/AddRoute would
+		// roll back — same discipline as dashd's group-create + `arizuko grant`.
+		gs := mustOpenACL(dataDir)
+		defer gs.Close()
+		if err := gs.SeedDefaultTasks(folder, folder); err != nil {
 			slog.Warn("failed to seed default tasks", "folder", folder, "err", err)
 		}
-
-		if err := s.PutGroup(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
+		if err := gs.PutGroupRow(core.Group{Folder: folder, AddedAt: time.Now()}); err != nil {
 			die("Failed: add group: %v", err)
 		}
 		auditCLI(s, "group add", []string{jid, folder})
@@ -396,21 +401,21 @@ func cmdGroup(args []string) {
 		// observe row. Non-mention messages accumulate as context
 		// without firing the agent.
 		if strings.HasPrefix(jid, "discord:") && !strings.HasPrefix(jid, "discord:dm/") {
-			if _, err := s.AddRoute(core.Route{
+			if _, err := gs.PutRouteRow(core.Route{
 				Seq:    -1,
 				Match:  "room=" + core.JidRoom(jid) + " verb=mention",
 				Target: folder,
 			}); err != nil {
 				die("Failed: add route: %v", err)
 			}
-			if _, err := s.AddRoute(core.Route{
+			if _, err := gs.PutRouteRow(core.Route{
 				Seq:    0,
 				Match:  "room=" + core.JidRoom(jid),
 				Target: folder + "#observe",
 			}); err != nil {
 				die("Failed: add route: %v", err)
 			}
-		} else if _, err := s.AddRoute(core.Route{
+		} else if _, err := gs.PutRouteRow(core.Route{
 			Seq: 0, Match: "room=" + core.JidRoom(jid), Target: folder,
 		}); err != nil {
 			die("Failed: add route: %v", err)

@@ -1,11 +1,8 @@
 package store
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
-
-	"github.com/kronael/arizuko/audit"
 )
 
 // ProxydRoute mirrors proxyd's `Route` shape for persistence. Kept here
@@ -44,35 +41,4 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-func proxydRouteFields(r ProxydRoute) (headers string, strip int) {
-	b, _ := json.Marshal(r.PreserveHeaders)
-	if r.PreserveHeaders == nil {
-		b = []byte("[]")
-	}
-	return string(b), btoi(r.StripPrefix)
-}
-
-func (s *Store) InsertProxydRoute(r ProxydRoute) error {
-	headers, strip := proxydRouteFields(r)
-	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
-		_, err := tx.Exec(`INSERT INTO proxyd_routes
-		                     (path, backend, auth, gated_by, preserve_headers, strip_prefix)
-		                     VALUES (?, ?, ?, ?, ?, ?)`,
-			r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
-		return audit.Event{
-			Category: audit.CategoryMutation,
-			Action:   "route.create",
-			Actor:    "system",
-			Surface:  audit.SurfaceGateway,
-			Resource: "proxyd_routes/" + r.Path,
-			Outcome:  audit.OutcomeOK,
-			ParamsSummary: map[string]any{
-				"backend":  r.Backend,
-				"auth":     r.Auth,
-				"gated_by": r.GatedBy,
-			},
-		}, err
-	})
 }

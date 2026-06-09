@@ -2387,3 +2387,10 @@ falls to the timed engagement window (spec 5/L mention-promotion + 5/G engagemen
 Needs thread-participation tracking (does the thread contain an atlas message?).
 Design in spec 5/L; implement in the routing/mention-promotion path. Not a bug —
 a behavior refinement the user specified while debugging atlas channels.
+
+## LOW — `arizuko group rm` writes to wrong DB post-split (2026-06-09)
+
+Sibling of the group-add fix: `cmdGroup` `rm` case calls `s.DeleteGroup` (audited)
+on messages.db, but groups live in routd.db post-split → targets the wrong DB and
+would fail audit on routd.db (no audit_log table). Fix: route rm through the
+routd.db-preferring handle + an audit-free DeleteGroupRow, matching the add fix.
