@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 shipped: 2026-05-18
 ---
 
@@ -120,6 +120,60 @@ they keep the engagement/mention path; no over-triggering.
 (`slakd/bot.go`). Other threaded adapters (`discd` parent channel,
 `teled` forum topics) should follow the same rule when their thread model
 is wired.
+
+## Refinement — thread _participation_, not just thread _root_ (draft)
+
+> status of this section: **draft** (the rest of the spec is shipped).
+> Requested 2026-06-09 after the atlas/Slack channel debugging.
+
+The shipped rule promotes a thread reply only when the thread _root_ is
+bot-authored (`ReplyTo` = root → `IsBotMessageByID`). That misses the
+common case: the bot **joined** a human-started thread (answered once),
+the user replies again later in that thread — root is human, so it
+arrives `verb=message` and the bot only re-attends while the `5/G`
+engagement window is open, then goes silent until re-@mentioned. The
+user experiences "it stopped listening mid-thread."
+
+Refined intent (operator words): _a reply is a mention if it replies to
+a bot message OR lands in a thread the bot **started or participated
+in**; otherwise the normal engagement/attention window applies._
+
+So extend the ONE promotion site with a second, broader test:
+
+```
+if msg.Verb != "mention" && msg.ReplyToID != "" {
+    if store.IsBotMessageByID(msg.ReplyToID) ||           // reply to a bot msg (shipped)
+       store.ThreadHasBotMessage(msg.Topic, folder) {     // bot participated in this thread (new)
+        msg.Verb = "mention"
+    }
+}
+```
+
+- **`ThreadHasBotMessage(topic, folder)`** — does this thread/topic
+  already contain a bot message from this folder? (`SELECT 1 FROM
+messages WHERE topic=? AND routed_to=? AND is_bot_message=1 LIMIT 1`).
+  The topic is the thread key (`Message.Topic`, set from the platform
+  thread anchor — `5/F`). "Started" is the `is_bot_message` root;
+  "participated" is _any_ bot row in the thread — this query covers both,
+  so it subsumes the shipped root-only rule for threaded messages.
+- Threads the bot never spoke in stay on the engagement/attention path
+  (`5/G`) — no over-triggering in busy channels the bot merely observes.
+- Bounded + cheap: indexed by `(topic, routed_to)`; one `LIMIT 1` per
+  inbound that has a topic. DMs (no topic) fall through to the
+  reply-to-bot rule unchanged.
+
+This is still **one renderer at one ring** (routd ingest, before
+PutMessage): participation is a property of the stored thread, not new
+adapter state. No adapter change beyond the already-required
+`ReplyTo`/`Topic` wiring.
+
+### Code surface (refinement)
+
+| File                | Change                                                                           |
+| ------------------- | -------------------------------------------------------------------------------- | --- | -------------------------------- |
+| `store/messages.go` | new `ThreadHasBotMessage(topic, folder) bool`                                    |
+| `routd` ingest      | add the second `                                                                 |     | ` term at the existing promotion |
+| Tests               | thread w/ prior bot msg → promote; bot-silent thread → no promote; DM unaffected |
 
 ## Migration
 
