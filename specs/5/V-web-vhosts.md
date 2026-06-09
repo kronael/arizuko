@@ -1,65 +1,106 @@
 ---
-status: shipped
+status: partial
 ---
 
 # Web Virtual Hosts + Agent Web Slots
 
-Hostname-based routing via proxyd + per-group writable web slots in
-the agent's home. Root agent manages vhost mappings; every group
-writes to its own slot via Apache-mod_userdir-style paths.
+Per-group writable web slots in the agent's home, served through
+proxyd. Each world is reachable at a **derived** hostname that
+redirects to its public slot — no per-host config, no vhost file, no
+DB table. (The agent web-slot + mount model is shipped; the derived
+host-redirect supersedes the retired `vhosts.json` mechanism and is
+the `partial` part.)
 
 ## Problem
 
 A single arizuko instance hosts multiple worlds. Each world needs its
-own hostname (`REDACTED`, `atlas.REDACTED`) without per-world
-configuration in the gateway. Each group also needs a place to
-publish web content — public for everyone, private behind OAuth —
-without growing platform mechanism per-group.
+own hostname (`krons.fiu.wtf`, `atlas.fiu.wtf`) without per-world
+configuration in the proxy. Each group also needs a place to publish
+web content — public for everyone, private behind OAuth — without
+growing platform mechanism per-group. The original `vhosts.json` map
+was the only web-routing mechanism that was neither derived nor
+DB-backed: a hand-edited file, out of step with the rest of the
+routing surface, and drifted (spec said `301`, code did an in-place
+rewrite). It is retired.
 
 ## Design
 
-### Hostname → redirect
+### Hostname → world (derived redirect)
 
-`proxyd` reads `vhosts.json`, matches `Host` header, and issues a
-`301` redirect to the world's subdirectory. Vite serves the
-subdirectory normally.
+A world's vhost is **derived**, never configured per host. The
+deployment sets one `HOSTING_DOMAIN` (krons: `fiu.wtf`); world `W` is
+reached at `W.<HOSTING_DOMAIN>`. proxyd recovers `W` from the `Host`
+header by _boundary-checked_ suffix removal — `host == W + "." +
+HOSTING_DOMAIN` after lower-casing, port-stripping, and trimming a
+trailing dot, NOT a raw `HasSuffix` (so `notkrons.fiu.wtf` never maps
+to `krons`). `W` must be a single label (no dot — worlds are
+single-label folders) and a real world; anything else is treated as
+un-mapped and falls through to normal routing. Bare `HOSTING_DOMAIN`
+(no subdomain → `W==""`) is un-mapped — never `/pub//`.
+
+On a mapped host, proxyd issues a same-origin `302` to the world's
+canonical public slot, preserving sub-path and query:
 
 ```
-GET / Host: REDACTED
-→ 301 Location: /REDACTED/
-→ Vite serves DATA_DIR/web/REDACTED/index.html
+GET /                    Host: krons.fiu.wtf  → 302 /pub/krons/
+GET /biotech-swe-guide/  Host: krons.fiu.wtf  → 302 /pub/krons/biotech-swe-guide/
+GET /x?a=1               Host: krons.fiu.wtf  → 302 /pub/krons/x?a=1
 ```
 
-### vhosts.json
+The mapping is the deterministic composition `W.<HOSTING_DOMAIN>` and
+its reverse — no file, no row. This keeps "identity is configured,
+never derived" (CLAUDE.md) honest: the world _name_ (its folder) and
+`HOSTING_DOMAIN` are both configured; the host is only their
+composition. The redirect `Location` is always a relative `/pub/<W>/…`
+path, never an absolute URL, so an attacker-supplied `Host` cannot
+open-redirect.
 
-```json
-{
-  "REDACTED": "REDACTED",
-  "*.atlas.REDACTED": "atlas"
-}
-```
+### Where the redirect runs — and why it can't loop
 
-Lives at `DATA_DIR/web/vhosts.json`. Hostname keys support glob
-patterns (`*` prefix wildcard). Root agent (tier 0) writes it
-directly — no gateway code, no DB table, no IPC actions.
+The world-redirect replaces ONLY the final public catch-all
+(`proxyd/main.go:612`, today `http.Redirect(…, "/pub"+path)`). Every
+reserved surface is dispatched BEFORE that point, so it is served in
+place on every vhost (see below). The 302 lands on `/pub/W/…`; the
+follow-up request — same host — enters the `/pub/` branch and stops. A
+reserved prefix never re-enters the catch-all, so the redirect cannot
+loop. The `..` / `%2e%2e` / `%2f` rejection that guarded the old
+in-place rewrite moves onto the redirect builder. Running the
+derivation anywhere earlier than the catch-all would both reintroduce
+loop risk and shadow the reserved surfaces — so it lives only there.
 
-Matching: exact first, then glob via `path.Match`. Port stripped
-before matching.
+`vhosts.json`, the `vhosts` struct, its mtime-reload loop, and the
+in-place Host-match rewrite (`proxyd/main.go` ~118-175, ~494-517) are
+**retired**.
 
-### Path safety
+### Reserved prefixes are global
 
-Two layers prevent cross-world serving:
+`/auth /dash /pub /priv /dav /chat /hook /me /x /api /health` and
+every `[[proxyd_route]]` backend prefix are served identically on
+**every** vhost, because they are matched ahead of the catch-all. So
+`krons.fiu.wtf/dash/`, `/auth/login`, `/pub/other/` all work from any
+world's hostname — no separate dashboard/system domain. A world's
+hostname is just a friendly front door to its `/pub/<W>/` slot; the
+platform surfaces are everywhere.
 
-1. **Mount isolation** — each group's container bind-mounts only its
-   own slot into `~/public_html/` and `~/private_html/`. The unified
-   `<data>/web/{pub,priv}/` trees live on the host; vited/webd serve
-   from there directly.
+### Layering — rewrites compose on top
 
-2. **Redirect validation** — proxyd rejects `..` in the raw URL
-   (400), then normalizes with `path.Clean` before redirecting.
+The derived host-redirect is the OUTER layer; the existing DB-backed
+redirects ("One URL, one backing store", below) are INNER and
+unchanged:
 
-`vhosts.json` is only writable by root (tier 0), so worlds cannot
-redirect to each other's namespaces.
+1. `W.<HOSTING_DOMAIN>/<path>` → 302 → `/pub/W/<path>` (derived).
+2. `/pub/W/<path>` → longest-prefix `web_routes` match
+   (`redirect`/`deny`/`auth`), else vited serves the file (the
+   agent-managed aliases via `set_web_route`).
+3. vited serves `<data>/web/pub/W/<path>`, resolving `index.html` for
+   a trailing-slash directory request (`ant/vite.config.js`
+   `serveIndex`).
+
+A world only writes into `~/public_html/`; its hostname and the
+redirect are platform-derived — it never edits a host map. The one
+residual loop risk is a `web_routes` row that redirects back to a
+non-reserved same-host path; that is the agent's own misconfiguration,
+not the platform's, and is bounded to its own slot by `set_web_route`.
 
 ## Agent web slots (v0.45.11+)
 
@@ -147,9 +188,10 @@ projects into the unified tree.
 Root agent gets an `infra` skill (`~/.claude/skills/infra/`) for
 instance-level setup:
 
-- Hostname assignment (write to `vhosts.json`)
-- DNS verification (resolve check)
-- SSL/TLS notes
+- `HOSTING_DOMAIN` (set once in the instance `.env`) — per-world
+  hostnames are derived from it, so there is no per-host assignment step
+- DNS: a wildcard `*.<HOSTING_DOMAIN>` record + TLS cert points every
+  world host at the deployment (resolve check)
 - Web directory structure
 
 Baked into agent image for tier 0 only.
@@ -171,10 +213,12 @@ serves `~/public_html/` at `{world}.{domain}/`.
 
 ## Implementation notes
 
-- `proxyd/main.go`: `vhosts.load()` checks mtime every 5s, swaps
-  atomically under `sync.RWMutex`. Redirect runs before auth check.
-- `core.Config.WebDir` = `DATA_DIR/web`; vhosts path =
-  `filepath.Join(cfg.WebDir, "vhosts.json")`.
+- `proxyd/main.go`: world derivation + the `302` live in the final
+  public catch-all (the former `http.Redirect(…, "/pub"+path)` site),
+  never earlier — that placement is what makes reserved prefixes
+  global and the redirect loop-free.
+- `HOSTING_DOMAIN` is read from instance config (`core.Config`); empty
+  → no world derivation (single-host deployments behave as before).
 - `container/runner.go` adds two bind mounts per group:
   `<data>/web/pub/<folder>/` → `~/public_html` and
   `<data>/web/priv/<folder>/` → `~/private_html`. Both are created
