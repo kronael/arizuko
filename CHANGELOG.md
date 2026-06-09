@@ -16,6 +16,54 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.51.0] — 2026-06-09
+
+> arizuko v0.51.0 — uniform MCP+REST, web vhosts, leaner core
+>
+> Every operator action is now reachable both ways (agent MCP and HTTP REST), each world gets its own web address, and a big internal cleanup makes each daemon own its surface.
+>
+> • Uniform MCP+REST — manage ACLs (`add_acl`/`remove_acl`), invites (`invite_create`/`list`/`revoke`), and post/forward/quote/repost/voice from agents OR HTTP, one handler each
+> • Web virtual hosts — each world is reachable at its own derived hostname (e.g. `krons.fiu.wtf` → that world), no per-host config; `get_web_presence` tells an agent its public URL
+> • Slack stays put on quiet channels — the watchdog no longer restarts on silence, only on real auth failure (fixes the marinade flap)
+> • Directory URLs serve `index.html` (`/pub/<x>/foo/` now resolves)
+> • Leaner core — removed ~900 lines of dead monolith-era code; each daemon owns its own auth/routes/groups surface
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Uniform MCP+REST surfaces (spec 5/5).** `add_acl`/`remove_acl` MCP tools
+  (twins of `POST`/`DELETE /v1/acl`); `invite_list`/`invite_revoke` MCP tools +
+  revived `invite_create` (was dead in the split); REST turn-face
+  `POST /v1/turns/{id}/{post,forward,quote,repost,send_voice}` for the social/feed
+  verbs that were MCP-only. One shared renderer per resource feeds both faces.
+- **Web virtual hosts (spec 5/V).** A world `W` is reached at the derived host
+  `W.<HOSTING_DOMAIN>`; proxyd 302s it to `/pub/W/`. `WEB_VHOST_ALIASES` overrides
+  the host for label≠world cases. `get_web_presence` MCP tool + `GET /v1/web_presence`
+  report a folder's canonical host + public/private URLs.
+
+### Fixed
+
+- **proxyd:** `/invite/{token}` accept URLs were unreachable (no route + unset
+  `AcceptURLBase`); both wired.
+- **slakd:** the inbound watchdog restarted on quiet channels (Events-API silence
+  ≠ dead), causing redeploy-window flapping that disabled Slack subscriptions; now
+  exits only on `auth.test` failure.
+- **vited:** trailing-slash directory requests (`/pub/<x>/foo/`) 404'd instead of
+  serving `index.html`.
+- **cli:** `arizuko group add`/`rm` wrote to `messages.db`, but groups/routes live
+  in `routd.db` post-split — now routd.db-preferring + audit-free.
+
+### Removed
+
+- Retired `vhosts.json` + the in-place host rewrite (replaced by the derived
+  redirect); the `set_web_host`/`get_web_host` MCP tools; the dead `get_history`
+  MCP alias; the entire dead proxyd-era local-OAuth mount layer in `auth/` (authd
+  owns OAuth); and monolith-era leftovers in `store/`/`core`. Each daemon owns its
+  own surface (~900 lines net).
+
+---
+
 ## [v0.50.0] — 2026-06-07
 
 > arizuko v0.50.0 — the monolith is gone
