@@ -72,6 +72,14 @@ type GatedFns struct {
 	GroupsDir          string
 	WebDir             string
 
+	// Web-presence discovery (spec 5/V get_web_presence). WebHost is the
+	// instance's canonical host (WEB_HOST); HostingDomain derives per-world
+	// hosts as <folder>.<HostingDomain>; VhostAliases maps a host label that
+	// differs from the world to its folder (host→folder). All read-only.
+	WebHost       string
+	HostingDomain string
+	VhostAliases  map[string]string
+
 	// Slack assistant-pane controls (spec 6/D). Both stage values on the
 	// owning adapter; values fire after the next outbound into the pane.
 	// Adapters without pane semantics return chanlib.ErrUnsupported.
@@ -635,6 +643,57 @@ func validHostname(h string) bool {
 		}
 	}
 	return true
+}
+
+// WebPresence is a folder's public web presence (spec 5/V get_web_presence):
+// its derived/aliased canonical hostname plus the always-works /pub path and
+// the OAuth /priv base. One renderer, two sinks — the MCP tool and routd's
+// REST twin both call WebPresenceFor.
+type WebPresence struct {
+	Folder         string `json:"folder"`
+	HostingDomain  string `json:"hosting_domain"`
+	DerivedHost    string `json:"derived_host"`
+	AliasHost      string `json:"alias_host,omitempty"`
+	CanonicalHost  string `json:"canonical_host"`
+	PublicBaseURL  string `json:"public_base_url"`
+	PrivateBaseURL string `json:"private_base_url"`
+	PubPath        string `json:"pub_path"`
+}
+
+// WebPresenceFor computes a folder's web presence from the instance host config.
+// derivedHost = <folder>.<hostingDomain> when hostingDomain set, else "".
+// aliasHost = the first host in aliases whose world == folder, else "".
+// canonicalHost prefers the alias, then the derived host, then webHost.
+// pubPath/privateBaseURL are path-based and always work regardless of vhosting.
+func WebPresenceFor(folder, webHost, hostingDomain string, aliases map[string]string) WebPresence {
+	derived := ""
+	if hostingDomain != "" {
+		derived = folder + "." + hostingDomain
+	}
+	alias := ""
+	for h, w := range aliases {
+		if w == folder {
+			alias = h
+			break
+		}
+	}
+	canonical := webHost
+	if derived != "" {
+		canonical = derived
+	}
+	if alias != "" {
+		canonical = alias
+	}
+	return WebPresence{
+		Folder:         folder,
+		HostingDomain:  hostingDomain,
+		DerivedHost:    derived,
+		AliasHost:      alias,
+		CanonicalHost:  canonical,
+		PublicBaseURL:  "https://" + canonical + "/",
+		PrivateBaseURL: "https://" + webHost + "/priv/" + folder + "/",
+		PubPath:        "https://" + webHost + "/pub/" + folder + "/",
+	}
 }
 
 // authorizeJID prevents a sub-folder agent from dispatching to a JID owned
@@ -2825,6 +2884,22 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("list_web_routes not configured")
 			}
 			return toolJSON(db.ListWebRoutes(folder))
+		})
+
+	granted("get_web_presence",
+		"Report this folder's public web presence: its canonical hostname (derived <folder>.<HOSTING_DOMAIN> or an operator alias), the /pub/<folder>/ path that always works, and the OAuth /priv base. Use to tell a user where your site is. Read-only.",
+		[]mcp.ToolOption{mcp.WithString("folder")},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			target := req.GetString("folder", folder)
+			if target == "" {
+				target = folder
+			}
+			// tier-1+ may only inspect own folder or descendants; tier-0 any.
+			if identity.Tier > 0 && target != folder &&
+				!strings.HasPrefix(target, folder+"/") {
+				return toolErr("get_web_presence: can only query own folder or descendants")
+			}
+			return toolJSON(WebPresenceFor(target, gated.WebHost, gated.HostingDomain, gated.VhostAliases))
 		})
 
 	registerInspect(srv, db, identity, folder)

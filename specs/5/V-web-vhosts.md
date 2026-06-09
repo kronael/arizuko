@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 ---
 
 # Web Virtual Hosts + Agent Web Slots
@@ -7,9 +7,9 @@ status: partial
 Per-group writable web slots in the agent's home, served through
 proxyd. Each world is reachable at a **derived** hostname that
 redirects to its public slot — no per-host config, no vhost file, no
-DB table. (The agent web-slot + mount model is shipped; the derived
-host-redirect supersedes the retired `vhosts.json` mechanism and is
-the `partial` part.)
+DB table. The agent web-slot + mount model, the derived host-redirect
+(supersedes the retired `vhosts.json` mechanism), and the
+`get_web_presence` discovery tool (MCP + REST) are all shipped.
 
 ## Problem
 
@@ -34,9 +34,11 @@ header by _boundary-checked_ suffix removal — `host == W + "." +
 HOSTING_DOMAIN` after lower-casing, port-stripping, and trimming a
 trailing dot, NOT a raw `HasSuffix` (so `notkrons.fiu.wtf` never maps
 to `krons`). `W` must be a single label (no dot — worlds are
-single-label folders) and a real world; anything else is treated as
-un-mapped and falls through to normal routing. Bare `HOSTING_DOMAIN`
-(no subdomain → `W==""`) is un-mapped — never `/pub//`.
+single-label folders); anything else is treated as un-mapped and falls
+through to normal routing. proxyd does NOT check that `W` names a real
+world — a single-label subdomain maps to `/pub/<W>/`, which simply 404s
+if no such world exists (graceful, no existence lookup). Bare
+`HOSTING_DOMAIN` (no subdomain → `W==""`) is un-mapped — never `/pub//`.
 
 On a mapped host, proxyd issues a same-origin `302` to the world's
 canonical public slot, preserving sub-path and query:
@@ -115,6 +117,30 @@ residual loop risk is a `web_routes` row that redirects back to a
 non-reserved same-host path; that is the agent's own misconfiguration,
 not the platform's, and is bounded to its own slot by `set_web_route`.
 
+### Discovery — `get_web_presence`
+
+A world derives its hostname but is never told it. `get_web_presence`
+(routd MCP tool + `GET /v1/web_presence?folder=<f>` REST twin, spec 5/5
+uniform) is the read-only discovery surface that closes that gap. Given
+a folder (default: the caller's own), it reports:
+
+| Field              | Value                                                               |
+| ------------------ | ------------------------------------------------------------------- |
+| `hosting_domain`   | `HOSTING_DOMAIN` (empty on single-host)                             |
+| `derived_host`     | `<folder>.<HOSTING_DOMAIN>`, else `""`                              |
+| `alias_host`       | a `WEB_VHOST_ALIASES` host mapping to this folder (omitted if none) |
+| `canonical_host`   | alias → derived → `WEB_HOST` (first non-empty)                      |
+| `public_base_url`  | `https://<canonical_host>/`                                         |
+| `private_base_url` | `https://<WEB_HOST>/priv/<folder>/` (path, OAuth)                   |
+| `pub_path`         | `https://<WEB_HOST>/pub/<folder>/` (always works)                   |
+
+`pub_path` is the vhost-independent canonical path — it works even when
+no `HOSTING_DOMAIN`/alias is configured. Both faces enforce the same
+folder containment: tier-1+ may inspect only its own folder + descendants;
+tier-0 any. routd reads `WEB_HOST` + `HOSTING_DOMAIN` + `WEB_VHOST_ALIASES`
+from env and computes the shape via one shared renderer
+(`ipc.WebPresenceFor`) so MCP and REST never drift.
+
 ## Agent web slots (v0.45.11+)
 
 Every group container has two writable web slots in its home, plus a
@@ -151,15 +177,19 @@ subgroup's content shows up as RO via `/var/lib/www/atlas/support/`
 
 ### URL → filesystem mapping
 
-| URL                       | Filesystem (on host)   | Auth                       |
-| ------------------------- | ---------------------- | -------------------------- |
-| `https://<host>/pub/<X>`  | `<data>/web/pub/<X>`   | none                       |
-| `https://<host>/priv/<X>` | `<data>/web/priv/<X>`  | JWT (proxyd-gated)         |
-| `https://<host>/<X>`      | rewrites to `/pub/<X>` | JWT (existing fallthrough) |
+| URL                       | Filesystem (on host)    | Auth                     |
+| ------------------------- | ----------------------- | ------------------------ |
+| `https://<host>/pub/<X>`  | `<data>/web/pub/<X>`    | none                     |
+| `https://<host>/priv/<X>` | `<data>/web/priv/<X>`   | JWT (proxyd-gated)       |
+| `https://<host>/<X>`      | public 302 → `/pub/<X>` | none (then `/pub` rules) |
 
-The `/pub/<X>` and `/<X>` URLs serve the SAME file — different doors.
-The `/priv/<X>` URL serves a DIFFERENT filesystem tree; content
-under `web/priv/` is NEVER served via `/pub/` URLs.
+The bare-path catch-all is PUBLIC: proxyd's final fallthrough issues a
+302 to `/pub/<X>` (no auth on the redirect itself). After the redirect,
+the `/pub/<X>` request is subject to any longest-prefix `web_routes`
+rule (`redirect`/`deny`/`auth`), so an agent can tighten a path's
+behavior — but the default door is open. The `/pub/<X>` and `/<X>` URLs
+land on the SAME file. The `/priv/<X>` URL serves a DIFFERENT filesystem
+tree; content under `web/priv/` is NEVER served via `/pub/` URLs.
 
 ### Truly private (off-web) storage
 
@@ -230,8 +260,10 @@ serves `~/public_html/` at `{world}.{domain}/`.
   public catch-all (the former `http.Redirect(…, "/pub"+path)` site),
   never earlier — that placement is what makes reserved prefixes
   global and the redirect loop-free.
-- `HOSTING_DOMAIN` is read from instance config (`core.Config`); empty
-  → no world derivation (single-host deployments behave as before).
+- `HOSTING_DOMAIN` + `WEB_VHOST_ALIASES` are read from env directly
+  (proxyd's `loadConfig`; routd reads the same env for `get_web_presence`),
+  not `core.Config`. Empty `HOSTING_DOMAIN` → no world derivation
+  (single-host deployments behave as before).
 - `container/runner.go` adds two bind mounts per group:
   `<data>/web/pub/<folder>/` → `~/public_html` and
   `<data>/web/priv/<folder>/` → `~/private_html`. Both are created

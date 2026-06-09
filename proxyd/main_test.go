@@ -1124,6 +1124,14 @@ func TestParseVhostAliases(t *testing.T) {
 	if m := parseVhostAliases(""); len(m) != 0 {
 		t.Errorf("empty input → %v, want empty map", m)
 	}
+
+	// Validation (BUG #6): an invalid hostname or invalid world folder is
+	// skipped loudly, never accepted — a typo'd alias must not 302 traffic to
+	// /pub/<garbage>/. The valid entry survives alongside the rejects.
+	got = parseVhostAliases("ok.example.com=atlas,bad host=x,foo.com=../escape")
+	if len(got) != 1 || got["ok.example.com"] != "atlas" {
+		t.Fatalf("validation: got %v, want only {ok.example.com:atlas}", got)
+	}
 }
 
 // --- /dav rewrite ------------------------------------------------------------

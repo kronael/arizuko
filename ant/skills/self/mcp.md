@@ -78,6 +78,7 @@ redirects/auth on top.
 | `set_web_route`   | Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. `access` ∈ {public, auth, deny, redirect}. |
 | `del_web_route`   | Delete a web route by path. Only routes owned by this folder.                  |
 | `list_web_routes` | List all web routes owned by this folder.                                      |
+| `get_web_presence` | Read-only: report this folder's canonical hostname (derived `<folder>.<HOSTING_DOMAIN>` or an operator alias), the `/pub/<folder>/` path that always works, and the OAuth `/priv` base. Use to tell a user where your site is. |
 
 ## Workspace
 

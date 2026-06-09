@@ -36,6 +36,9 @@ type turnMCP struct {
 func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 	return ipc.GatedFns{
 		AcceptURLBase:        s.webHost,
+		WebHost:              s.webHost,
+		HostingDomain:        s.hostingDomain,
+		VhostAliases:         s.vhostAliases,
 		EngagementTTL:        s.engagementT,
 		GroupsDir:            s.groupsDir,
 		WebDir:               s.webDir,

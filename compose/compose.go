@@ -137,6 +137,9 @@ var daemonKeys = map[string][]string{
 		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
+		// get_web_presence reports a folder's derived/aliased canonical host
+		// (spec 5/V) — routd reads the same vhost env proxyd does, to report.
+		"HOSTING_DOMAIN", "WEB_VHOST_ALIASES",
 		// routd OWNS secrets in the split (routd 0008) → needs the key to
 		// decrypt connector/scoped secrets. Without it: "SECRETS_KEY unset".
 		"SECRETS_KEY",

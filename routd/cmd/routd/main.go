@@ -177,6 +177,12 @@ func main() {
 	// file-path tools resolve against (web dir = dataDir/web, per core.Config).
 	loop.BindServer(srv)
 	srv.SetDirs(filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "web"))
+	// Mirror proxyd's vhost config so get_web_presence can report a folder's
+	// derived (<folder>.<HOSTING_DOMAIN>) / aliased canonical host (spec 5/V).
+	srv.SetVhosts(
+		strings.ToLower(strings.TrimSuffix(os.Getenv("HOSTING_DOMAIN"), ".")),
+		routd.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
+	)
 	// SEND_DISABLED_GROUPS: muted folders persist outbound but don't deliver it
 	// (gateway.canSendToGroup). SEND_DISABLED_CHANNELS (jid-prefix) stays in the
 	// Deliverer; this is the group-folder mute applied in appendAndDeliver.

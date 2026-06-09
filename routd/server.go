@@ -82,6 +82,12 @@ type Server struct {
 	engagementT time.Duration
 	webHost     string
 
+	// hostingDomain + vhostAliases mirror proxyd's vhost config so the
+	// get_web_presence MCP tool + /v1/web_presence REST twin can report a
+	// folder's derived/aliased canonical host (spec 5/V). Set via SetVhosts.
+	hostingDomain string
+	vhostAliases  map[string]string
+
 	// identity resolves a sender sub → canonical identity via authd's
 	// GET /v1/identities/{sub}. Backs the inspect_identity MCP tool; nil → the
 	// tool answers unclaimed. Set via SetIdentityResolver.
@@ -139,6 +145,20 @@ func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagemen
 func (s *Server) SetDirs(groupsDir, webDir string) {
 	s.groupsDir = groupsDir
 	s.webDir = webDir
+}
+
+// SetVhosts supplies HOSTING_DOMAIN + the WEB_VHOST_ALIASES host→folder map so
+// get_web_presence can report a folder's derived/aliased canonical host. These
+// mirror proxyd's vhost config; routd never serves vhosts, it only reports them.
+func (s *Server) SetVhosts(hostingDomain string, aliases map[string]string) {
+	s.hostingDomain = hostingDomain
+	s.vhostAliases = aliases
+}
+
+// webPresence is the single renderer feeding both the get_web_presence MCP tool
+// (via buildGatedFns) and the /v1/web_presence REST twin.
+func (s *Server) webPresence(folder string) ipc.WebPresence {
+	return ipc.WebPresenceFor(folder, s.webHost, s.hostingDomain, s.vhostAliases)
 }
 
 // SetDisabledGroups supplies SEND_DISABLED_GROUPS: muted folders whose outbound
@@ -208,6 +228,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/routes", s.handleRouteAdd)
 	mux.HandleFunc("DELETE /v1/routes/{id}", s.handleRouteDelete)
 	mux.HandleFunc("GET /v1/web_routes", s.handleWebRoutesList)
+	mux.HandleFunc("GET /v1/web_presence", s.handleWebPresence)
 	mux.HandleFunc("PUT /v1/web_routes", s.handleWebRoutePut)
 	mux.HandleFunc("DELETE /v1/web_routes", s.handleWebRouteDelete)
 	mux.HandleFunc("POST /v1/route_tokens/chat", s.handleTokenChat)
