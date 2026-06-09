@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +41,8 @@ type config struct {
 	routesJSON     string
 	trustedProxies []*net.IPNet
 	chatAnonDosRPM int
+	hostingDomain  string            // world W reached at W.<hostingDomain> → 302 /pub/W/
+	vhostAliases   map[string]string // host→world where the label ≠ world name (fab.krons.cx→atlas)
 }
 
 func loadConfig() config {
@@ -67,7 +67,31 @@ func loadConfig() config {
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
+		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
+		vhostAliases:   parseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
 	}
+}
+
+// parseVhostAliases parses `host=world,host2=world2` into a host→world map.
+// Hosts are lowercased; malformed entries (no `=`, empty side) are skipped.
+// Used only where the host label ≠ world name (marinade: fab.krons.cx→atlas);
+// the common case is derived from HOSTING_DOMAIN and needs no entry.
+func parseVhostAliases(s string) map[string]string {
+	m := map[string]string{}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		host, world, ok := strings.Cut(part, "=")
+		host = strings.ToLower(strings.TrimSpace(host))
+		world = strings.TrimSpace(world)
+		if !ok || host == "" || world == "" {
+			continue
+		}
+		m[host] = world
+	}
+	return m
 }
 
 // parseTrustedProxies parses comma-separated CIDRs; bare IP → /32 or /128.
@@ -115,71 +139,11 @@ func proxy(target string) *httputil.ReverseProxy {
 	return httputil.NewSingleHostReverseProxy(u)
 }
 
-type vhosts struct {
-	mu      sync.RWMutex
-	entries map[string]string
-	path    string
-	mtime   time.Time
-}
-
-func newVhosts(p string) *vhosts {
-	v := &vhosts{path: p, entries: map[string]string{}}
-	v.load()
-	return v
-}
-
-func (v *vhosts) load() {
-	info, err := os.Stat(v.path)
-	if os.IsNotExist(err) {
-		return
-	}
-	if err != nil {
-		slog.Warn("vhosts stat failed", "err", err)
-		return
-	}
-	if !info.ModTime().After(v.mtime) {
-		return
-	}
-	raw, err := os.ReadFile(v.path)
-	if err != nil {
-		slog.Warn("vhosts read failed", "err", err)
-		return
-	}
-	m := map[string]string{}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		slog.Warn("vhosts parse failed", "err", err)
-		return
-	}
-	v.mu.Lock()
-	v.entries = m
-	v.mtime = info.ModTime()
-	v.mu.Unlock()
-	slog.Info("vhosts loaded", "count", len(m))
-}
-
-func (v *vhosts) match(host string) (string, bool) {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	if world, ok := v.entries[host]; ok {
-		return world, true
-	}
-	for pattern, world := range v.entries {
-		if ok, _ := path.Match(pattern, host); ok {
-			return world, true
-		}
-	}
-	return "", false
-}
-
 type server struct {
 	cfg         config
 	st          *store.Store
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
-	vh          *vhosts
 	ks          *auth.KeySet // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
@@ -278,7 +242,7 @@ func (p *pubRedirect) reachable() bool {
 	return p.ok
 }
 
-func newServer(cfg config, st *store.Store, vh *vhosts, ks *auth.KeySet) *server {
+func newServer(cfg config, st *store.Store, ks *auth.KeySet) *server {
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
 	return &server{
@@ -286,7 +250,6 @@ func newServer(cfg config, st *store.Store, vh *vhosts, ks *auth.KeySet) *server
 		st:          st,
 		rr:          rr,
 		viteProxy:   proxy(cfg.viteAddr),
-		vh:          vh,
 		ks:          ks,
 		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
 		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
@@ -487,35 +450,55 @@ func (s *server) fixForwardedFor(r *http.Request) {
 	r.Header.Set("X-Forwarded-For", peer)
 }
 
+// worldForHost recovers a world name from the request Host. An explicit
+// WEB_VHOST_ALIASES entry wins; otherwise the world is derived as the single
+// label in `W.<HOSTING_DOMAIN>` via boundary-checked suffix removal — a raw
+// HasSuffix would let `notkrons.fiu.wtf` map to `krons`. Returns "" for any
+// un-mapped host (bare domain, multi-label subdomain, unknown suffix), which
+// falls through to normal routing. Never trusts X-Forwarded-Host.
+func (s *server) worldForHost(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if w, ok := s.cfg.vhostAliases[host]; ok {
+		return w
+	}
+	dom := s.cfg.hostingDomain
+	if dom == "" || !strings.HasSuffix(host, "."+dom) {
+		return ""
+	}
+	label := host[:len(host)-len(dom)-1]
+	if label == "" || strings.Contains(label, ".") {
+		return ""
+	}
+	return label
+}
+
+// vhostRedirect 302s a mapped-host request to the world's canonical public
+// slot `/pub/<world>/<path>`, preserving sub-path, trailing slash, and query.
+// The same `..` / `%2e%2e` / `%2f` rejection that guarded the retired in-place
+// rewrite lives here. Location is always a relative `/pub/...` path so an
+// attacker-supplied Host cannot open-redirect.
+func (s *server) vhostRedirect(w http.ResponseWriter, r *http.Request, world string) {
+	rawPath := r.URL.Path
+	lowRaw := strings.ToLower(r.URL.RawPath)
+	if strings.Contains(rawPath, "..") ||
+		strings.Contains(lowRaw, "%2e%2e") ||
+		strings.Contains(lowRaw, "%2f") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	loc := "/pub/" + world + rawPath
+	if r.URL.RawQuery != "" {
+		loc += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, loc, http.StatusFound)
+}
+
 func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	stripClientHeaders(r)
 	s.fixForwardedFor(r)
-
-	if world, ok := s.vh.match(r.Host); ok {
-		rawPath := r.URL.Path
-		lowRaw := strings.ToLower(r.URL.RawPath)
-		if strings.Contains(rawPath, "..") ||
-			strings.Contains(lowRaw, "%2e%2e") ||
-			strings.Contains(lowRaw, "%2f") {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		// path.Clean strips trailing slashes; preserve them so static
-		// handlers serve `<world>/index.html` for bare-root requests.
-		trailing := rawPath == "" || rawPath == "/" || strings.HasSuffix(rawPath, "/")
-		cleaned := path.Clean("/" + world + "/" + strings.TrimPrefix(rawPath, "/"))
-		if trailing && !strings.HasSuffix(cleaned, "/") {
-			cleaned += "/"
-		}
-		r.URL.Path = cleaned
-		r.URL.RawPath = ""
-		if s.viteProxy != nil {
-			s.viteProxy.ServeHTTP(w, r)
-		} else {
-			http.NotFound(w, r)
-		}
-		return
-	}
 
 	if r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
@@ -530,6 +513,15 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			s.viteProxy.ServeHTTP(w, r)
 			return
+		}
+		// A mapped vhost front-doors to its public slot. `/pub` stays reserved
+		// in place — only bare `/` redirects, so the follow-up `/pub/W/` lands
+		// in the /pub/ branch below and the redirect can't loop.
+		if r.URL.Path == "/" {
+			if world := s.worldForHost(r.Host); world != "" {
+				s.vhostRedirect(w, r, world)
+				return
+			}
 		}
 		if s.pubRedir != nil && s.pubRedir.reachable() {
 			http.Redirect(w, r, s.pubRedir.url+"/", http.StatusFound)
@@ -609,6 +601,14 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Final public catch-all. A mapped vhost front-doors its world's slot;
+	// every reserved prefix was dispatched above, so this is the only place
+	// the derivation runs — that placement keeps reserved surfaces global and
+	// the redirect loop-free (the 302 lands on /pub/W/… → /pub/ branch → stop).
+	if world := s.worldForHost(r.Host); world != "" {
+		s.vhostRedirect(w, r, world)
+		return
+	}
 	http.Redirect(w, r, "/pub"+r.URL.Path, http.StatusFound)
 }
 
@@ -890,9 +890,6 @@ func main() {
 	}
 	defer st.Close()
 
-	os.MkdirAll(coreCfg.WebDir, 0o755)
-	vh := newVhosts(filepath.Join(coreCfg.WebDir, "vhosts.json"))
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -907,7 +904,7 @@ func main() {
 		}
 	}
 
-	s := newServer(cfg, st, vh, ks)
+	s := newServer(cfg, st, ks)
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
@@ -924,14 +921,6 @@ func main() {
 			"routes": len(s.routes()),
 		},
 	})
-
-	go func() {
-		t := time.NewTicker(5 * time.Second)
-		defer t.Stop()
-		for range t.C {
-			vh.load()
-		}
-	}()
 
 	slog.Info("proxyd starting",
 		"port", cfg.port, "vite", cfg.viteAddr, "routes", len(s.routes()))

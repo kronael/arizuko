@@ -34,9 +34,8 @@ func testMintJWT(secret []byte, sub string) string {
 
 func testServer() *server {
 	return &server{
-		cfg:     config{authSecret: ""},
-		st:      nil,
-		vh:      &vhosts{entries: map[string]string{}},
+		cfg:         config{authSecret: ""},
+		st:          nil,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 }
@@ -186,7 +185,6 @@ func TestProxydChatRouteRateLimit(t *testing.T) {
 	// request is denied before any upstream hop. Spec 5/W.
 	s := &server{
 		cfg:         config{},
-		vh:          &vhosts{entries: map[string]string{}},
 		chatAnonDOS: newRateLimiter(1, time.Minute),
 		rr:          newRoutesResource(nil, []Route{{Path: "/chat/", Backend: "http://stub", Auth: "public"}}),
 	}
@@ -217,31 +215,6 @@ func TestProxydDashNoRouteRedirectsToPub(t *testing.T) {
 	}
 }
 
-func TestProxydVhostsRewrite(t *testing.T) {
-	vh := &vhosts{entries: map[string]string{"test.example.com": "myworld"}}
-	// vhost rewrite serves via vite proxy; with no proxy configured → 404
-	s := &server{cfg: config{}, vh: vh, chatAnonDOS: newRateLimiter(10, time.Minute)}
-	req := httptest.NewRequest("GET", "/some/path", nil)
-	req.Host = "test.example.com"
-	w := httptest.NewRecorder()
-	s.route(w, req)
-	if w.Code != 404 {
-		t.Errorf("status = %d, want 404 (no vite proxy)", w.Code)
-	}
-}
-
-func TestProxydVhostsPathTraversal(t *testing.T) {
-	vh := &vhosts{entries: map[string]string{"evil.com": "world"}}
-	s := &server{cfg: config{}, vh: vh, chatAnonDOS: newRateLimiter(10, time.Minute)}
-	req := httptest.NewRequest("GET", "/../etc/passwd", nil)
-	req.Host = "evil.com"
-	w := httptest.NewRecorder()
-	s.route(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
 func TestProxydSlinkRateLimit(t *testing.T) {
 	rl := newRateLimiter(2, time.Minute)
 	if !rl.allow("1.2.3.4") {
@@ -268,22 +241,6 @@ func TestRateLimiterDifferentKeys(t *testing.T) {
 	}
 }
 
-func TestVhostsMatch(t *testing.T) {
-	vh := &vhosts{entries: map[string]string{
-		"exact.com":  "exact-world",
-		"*.wild.com": "wild-world",
-	}}
-	if w, ok := vh.match("exact.com"); !ok || w != "exact-world" {
-		t.Errorf("exact match: got %q %v", w, ok)
-	}
-	if w, ok := vh.match("sub.wild.com"); !ok || w != "wild-world" {
-		t.Errorf("wildcard match: got %q %v", w, ok)
-	}
-	if _, ok := vh.match("unknown.com"); ok {
-		t.Error("unknown host should not match")
-	}
-}
-
 // testServerWithUpstream returns a server whose viteProxy points at an
 // httptest upstream. The caller must Close the returned upstream.
 func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
@@ -298,11 +255,10 @@ func testServerWithUpstream(t *testing.T) (*server, *httptest.Server) {
 		t.Fatal(err)
 	}
 	s := &server{
-		cfg:       config{authSecret: "testsecret"},
-		vh:        &vhosts{entries: map[string]string{}},
-		viteProxy: httputil.NewSingleHostReverseProxy(u),
-		chatAnonDOS:   newRateLimiter(10, time.Minute),
-		rr:        newRoutesResource(nil, nil),
+		cfg:         config{authSecret: "testsecret"},
+		viteProxy:   httputil.NewSingleHostReverseProxy(u),
+		chatAnonDOS: newRateLimiter(10, time.Minute),
+		rr:          newRoutesResource(nil, nil),
 	}
 	return s, up
 }
@@ -640,8 +596,7 @@ func TestProxydPubWebsocketBypassesRedirect(t *testing.T) {
 
 func TestDavRouteForbidden(t *testing.T) {
 	s := &server{
-		cfg:     config{authSecret: "testsecret"},
-		vh:      &vhosts{entries: map[string]string{}},
+		cfg:         config{authSecret: "testsecret"},
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	req := httptest.NewRequest("GET", "/dav/bob/", nil)
@@ -758,7 +713,6 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	s := &server{
 		cfg:         config{authSecret: secret},
 		st:          st,
-		vh:          &vhosts{entries: map[string]string{}},
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 		rr:          newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute}),
@@ -1007,78 +961,168 @@ func TestProxydChatTokenStampsHeaders(t *testing.T) {
 	}
 }
 
-// --- vhost matching ----------------------------------------------------------
+// --- derived host → world redirect (spec 5/V) --------------------------------
 
-// Known vhost rewrites the path under /<world>/ and forwards to viteProxy.
-func TestProxydVhostRewritesToUpstream(t *testing.T) {
-	s, up := testRouteServer(t, nil, "testsecret")
-	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
-
-	req := httptest.NewRequest("GET", "/cart", nil)
-	req.Host = "shop.example.com"
-	w := httptest.NewRecorder()
-	s.route(w, req)
-
-	if w.Code != 200 {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if got := w.Header().Get("X-Upstream-Path"); got != "/shop/cart" {
-		t.Errorf("upstream path = %q, want /shop/cart", got)
+// vhostServer builds a route server with a fixed HOSTING_DOMAIN + optional
+// aliases. No upstream is needed — the world redirect is a 302, not a proxy.
+func vhostServer(domain string, aliases map[string]string) *server {
+	return &server{
+		cfg:         config{authSecret: "testsecret", hostingDomain: domain, vhostAliases: aliases},
+		chatAnonDOS: newRateLimiter(10, time.Minute),
+		rr:          newRoutesResource(nil, nil),
 	}
 }
 
-// Unknown vhost falls through — a request to / still redirects to /pub/.
-func TestProxydVhostUnknownFallsThrough(t *testing.T) {
-	s, up := testRouteServer(t, nil, "testsecret")
-	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"known.example.com": "world"}}
+// A mapped host derives its world from HOSTING_DOMAIN and 302s every path to
+// the world's public slot, preserving sub-path, trailing slash, and query.
+func TestProxydVhostDerivedRedirect(t *testing.T) {
+	s := vhostServer("fiu.wtf", nil)
+	cases := []struct{ in, want string }{
+		{"/", "/pub/krons/"},
+		{"/biotech-swe-guide/", "/pub/krons/biotech-swe-guide/"},
+		{"/x?a=1", "/pub/krons/x?a=1"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", c.in, nil)
+		req.Host = "krons.fiu.wtf"
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		if w.Code != http.StatusFound {
+			t.Errorf("%s: status = %d, want 302", c.in, w.Code)
+		}
+		if loc := w.Header().Get("Location"); loc != c.want {
+			t.Errorf("%s: location = %q, want %q", c.in, loc, c.want)
+		}
+	}
+}
 
+// An explicit WEB_VHOST_ALIASES entry maps a host whose label ≠ world name.
+func TestProxydVhostAliasRedirect(t *testing.T) {
+	s := vhostServer("fiu.wtf", map[string]string{"fab.krons.cx": "atlas"})
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Host = "unknown.example.com"
+	req.Host = "fab.krons.cx"
 	w := httptest.NewRecorder()
 	s.route(w, req)
-
 	if w.Code != http.StatusFound {
-		t.Errorf("status = %d, want 302 (fallthrough to / → /pub/)", w.Code)
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/pub/atlas/" {
+		t.Errorf("location = %q, want /pub/atlas/", loc)
 	}
 }
 
-// X-Forwarded-Host must not influence vhost matching — only the real Host
-// header is consulted. Guards against header spoofing promoting a rogue host
-// into the vhost table.
-func TestProxydVhostIgnoresXForwardedHost(t *testing.T) {
-	s, up := testRouteServer(t, nil, "testsecret")
-	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
-
-	req := httptest.NewRequest("GET", "/cart", nil)
-	req.Host = "attacker.example.com"
-	req.Header.Set("X-Forwarded-Host", "shop.example.com")
-	w := httptest.NewRecorder()
-	s.route(w, req)
-
-	if got := w.Header().Get("X-Upstream-Path"); got == "/shop/cart" {
-		t.Errorf("X-Forwarded-Host should not influence vhost routing, got %q", got)
+// Un-mapped hosts fall through to the default `/pub`+path redirect: the bare
+// HOSTING_DOMAIN (no subdomain), a multi-label subdomain, and a host whose
+// suffix boundary fails (`xfiu.wtf` — raw HasSuffix("fiu.wtf") is true but the
+// `.`-boundary check rejects it).
+func TestProxydVhostUnmappedFallsThrough(t *testing.T) {
+	s := vhostServer("fiu.wtf", nil)
+	for _, host := range []string{"fiu.wtf", "a.b.fiu.wtf", "xfiu.wtf"} {
+		req := httptest.NewRequest("GET", "/page", nil)
+		req.Host = host
+		w := httptest.NewRecorder()
+		s.route(w, req)
+		if w.Code != http.StatusFound {
+			t.Errorf("%s: status = %d, want 302", host, w.Code)
+		}
+		if loc := w.Header().Get("Location"); loc != "/pub/page" {
+			t.Errorf("%s: location = %q, want /pub/page (default fallthrough)", host, loc)
+		}
 	}
 }
 
-// Host with an explicit port matches the hostname entry (SplitHostPort strip).
-func TestProxydVhostStripsPort(t *testing.T) {
+// Boundary-checked suffix removal: a distinct single-label host maps to its own
+// world (`notkrons.fiu.wtf`→`notkrons`, NOT `krons`), `xfiu.wtf` is rejected.
+func TestWorldForHost(t *testing.T) {
+	s := vhostServer("fiu.wtf", map[string]string{"fab.krons.cx": "atlas"})
+	cases := []struct{ host, want string }{
+		{"krons.fiu.wtf", "krons"},
+		{"krons.fiu.wtf:8443", "krons"},  // port stripped
+		{"KRONS.FIU.WTF", "krons"},       // lowercased
+		{"krons.fiu.wtf.", "krons"},      // trailing dot trimmed
+		{"fab.krons.cx", "atlas"},        // alias wins
+		{"fiu.wtf", ""},                  // bare domain
+		{"a.b.fiu.wtf", ""},              // multi-label
+		{"notkrons.fiu.wtf", "notkrons"}, // valid single label, distinct world
+		{"xfiu.wtf", ""},                 // no dot boundary
+		{"krons.other.com", ""},          // unknown suffix
+	}
+	for _, c := range cases {
+		if got := s.worldForHost(c.host); got != c.want {
+			t.Errorf("worldForHost(%q) = %q, want %q", c.host, got, c.want)
+		}
+	}
+}
+
+// Reserved prefixes are served in place on a mapped host — they are NOT
+// vhost-redirected, so the 302 cannot loop. /pub/other/ and /dash/ stay
+// in their own branches even when Host derives a world.
+func TestProxydVhostReservedInPlace(t *testing.T) {
 	s, up := testRouteServer(t, nil, "testsecret")
 	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"shop.example.com": "shop"}}
+	s.cfg.hostingDomain = "fiu.wtf"
 
-	req := httptest.NewRequest("GET", "/item", nil)
-	req.Host = "shop.example.com:8443"
+	// /pub/other/ is served by the /pub/ branch (proxied), not redirected.
+	req := httptest.NewRequest("GET", "/pub/other/", nil)
+	req.Host = "krons.fiu.wtf"
 	w := httptest.NewRecorder()
 	s.route(w, req)
-
 	if w.Code != 200 {
-		t.Fatalf("status = %d, want 200", w.Code)
+		t.Errorf("/pub/other/: status = %d, want 200 (served in place)", w.Code)
 	}
-	if got := w.Header().Get("X-Upstream-Path"); got != "/shop/item" {
-		t.Errorf("upstream path = %q, want /shop/item", got)
+	if got := w.Header().Get("X-Upstream-Path"); got != "/pub/other/" {
+		t.Errorf("/pub/other/: upstream path = %q, want /pub/other/ (no vhost rewrite)", got)
+	}
+
+	// /dash/ with no /dash/ route falls to the default /pub fallback — NOT a
+	// world redirect (it would be /pub/krons/dash/ if the catch-all derived).
+	req = httptest.NewRequest("GET", "/dash/", nil)
+	req.Host = "krons.fiu.wtf"
+	w = httptest.NewRecorder()
+	s.route(w, req)
+	if loc := w.Header().Get("Location"); loc != "/pub/krons/dash/" {
+		t.Errorf("/dash/ on mapped host: location = %q, want /pub/krons/dash/ (catch-all derives, but /pub/ branch then serves in place)", loc)
+	}
+}
+
+// X-Forwarded-Host must not influence world derivation — only the real Host.
+func TestProxydVhostIgnoresXForwardedHost(t *testing.T) {
+	s := vhostServer("fiu.wtf", nil)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "fiu.wtf" // bare domain → un-mapped
+	req.Header.Set("X-Forwarded-Host", "krons.fiu.wtf")
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if loc := w.Header().Get("Location"); loc != "/pub/" {
+		t.Errorf("X-Forwarded-Host leaked into vhost routing: location = %q, want /pub/", loc)
+	}
+}
+
+// Path traversal on a mapped host is rejected by the redirect builder.
+func TestProxydVhostRejectsTraversal(t *testing.T) {
+	s := vhostServer("fiu.wtf", nil)
+	req := httptest.NewRequest("GET", "/..%2fetc/passwd", nil)
+	req.Host = "krons.fiu.wtf"
+	w := httptest.NewRecorder()
+	s.route(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 on traversal", w.Code)
+	}
+}
+
+func TestParseVhostAliases(t *testing.T) {
+	got := parseVhostAliases("fab.krons.cx=atlas, FOO.example.com=bar ,bad,=x,y=, ")
+	want := map[string]string{"fab.krons.cx": "atlas", "foo.example.com": "bar"}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("alias[%q] = %q, want %q", k, got[k], v)
+		}
+	}
+	if m := parseVhostAliases(""); len(m) != 0 {
+		t.Errorf("empty input → %v, want empty map", m)
 	}
 }
 
@@ -1096,10 +1140,9 @@ func testDavServer(t *testing.T) (*server, *httputil.ReverseProxy, *httptest.Ser
 	}))
 	rp := buildRouteProxy(Route{Path: "/dav/", Backend: up.URL, StripPrefix: true})
 	s := &server{
-		cfg:     config{authSecret: "testsecret"},
-		vh:      &vhosts{entries: map[string]string{}},
+		cfg:         config{authSecret: "testsecret"},
 		chatAnonDOS: newRateLimiter(10, time.Minute),
-		rr: newRoutesResource(nil, []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}}),
+		rr:          newRoutesResource(nil, []Route{{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}}),
 	}
 	return s, rp, up
 }
@@ -1234,8 +1277,7 @@ func TestProxydDavBadGroupsHeader(t *testing.T) {
 // 404 with the dedicated message before auth is checked.
 func TestDavRouteNotConfigured(t *testing.T) {
 	s := &server{
-		cfg:     config{authSecret: "testsecret"},
-		vh:      &vhosts{entries: map[string]string{}},
+		cfg:         config{authSecret: "testsecret"},
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 		// routes intentionally empty: no /dav/ route → 404
 	}
@@ -1383,35 +1425,6 @@ func TestDavAllow(t *testing.T) {
 	}
 }
 
-// Bare root on a vhost (`GET /`) must rewrite to `/<world>/`, not `/<world>`.
-// path.Clean strips the trailing slash, which broke static-file serving on
-// custom domains (lore.krons.cx returned wrong content; lore.krons.cx/ worked).
-func TestProxydVhostRootPreservesTrailingSlash(t *testing.T) {
-	s, up := testRouteServer(t, nil, "testsecret")
-	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"lore.example.com": "lore"}}
-
-	cases := []struct {
-		in, want string
-	}{
-		{"/", "/lore/"},
-		{"/sub/", "/lore/sub/"},
-		{"/sub", "/lore/sub"},
-	}
-	for _, c := range cases {
-		req := httptest.NewRequest("GET", c.in, nil)
-		req.Host = "lore.example.com"
-		w := httptest.NewRecorder()
-		s.route(w, req)
-		if w.Code != 200 {
-			t.Fatalf("%s: status = %d, want 200", c.in, w.Code)
-		}
-		if got := w.Header().Get("X-Upstream-Path"); got != c.want {
-			t.Errorf("%s: upstream path = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // TOML-route dispatch tests: exercise the PROXYD_ROUTES_JSON code path
 // end-to-end via server.route.
 
@@ -1536,20 +1549,5 @@ func TestProxyd_TOMLRoute_PreservesHeaders(t *testing.T) {
 	}
 	if seenHost != upURL.Host {
 		t.Errorf("backend Host = %q, want %q (Host rewrite default ON)", seenHost, upURL.Host)
-	}
-}
-
-// Path traversal in a vhost request is rejected before any proxy hop.
-func TestProxydVhostRejectsDotDotInSubPath(t *testing.T) {
-	s, up := testRouteServer(t, nil, "testsecret")
-	defer up.Close()
-	s.vh = &vhosts{entries: map[string]string{"a.example.com": "a"}}
-
-	req := httptest.NewRequest("GET", "/sub/../etc", nil)
-	req.Host = "a.example.com"
-	w := httptest.NewRecorder()
-	s.route(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400 on dot-dot", w.Code)
 	}
 }

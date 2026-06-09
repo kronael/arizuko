@@ -39,7 +39,6 @@ func newIntegProxy(t *testing.T, secret string) (*server, *httptest.Server, *tes
 	s := &server{
 		cfg:         config{authSecret: secret, hmacSecret: "test-hmac"},
 		st:          st,
-		vh:          &vhosts{entries: map[string]string{}},
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(100, 0),
 		rr:          newRoutesResource(nil, []Route{panelRoute}),

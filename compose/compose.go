@@ -171,7 +171,7 @@ var daemonKeys = map[string][]string{
 	},
 	"dashd":    {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET"},
 	"webd":     {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
-	"proxyd":   {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
+	"proxyd":   {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
 	// service:<adapter> messages:write JWT for routd's /v1/messages (spec 5/1).
 	// Monolith (no AUTHD_SERVICE_KEY in the env file) keeps the CHANNEL_SECRET
