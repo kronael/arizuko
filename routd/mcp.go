@@ -114,6 +114,9 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		ListRouteTokens:  s.mcpListRouteTokens,
 		RevokeRouteToken: s.mcpRevokeRouteToken,
 		SubmitTurn:       s.mcpSubmitTurn,
+		SubmitStatus: func(_ string, turnID, text string) error {
+			return s.mcpSubmitStatus(turnID, text)
+		},
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
 			oc := s.onbodClient()
 			if oc == nil {
@@ -363,7 +366,7 @@ func (s *Server) mcpRevokeRouteToken(jid, ownerFolder string) (bool, error) {
 func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	req := apiv1.TurnResult{
 		TurnID: t.TurnID, SessionID: t.SessionID, Status: t.Status,
-		Result: t.Result, Error: t.Error, CallerSub: t.CallerSub,
+		Result: t.Result, Error: t.Error, CallerSub: t.CallerSub, TimedOut: t.TimedOut,
 	}
 	if len(t.Models) > 0 {
 		req.Models = make(map[string]apiv1.ModelCost, len(t.Models))
@@ -373,6 +376,28 @@ func (s *Server) mcpSubmitTurn(_ string, t ipc.TurnResult) error {
 	}
 	_, err := s.recordTurnResult(t.TurnID, req)
 	return err
+}
+
+// mcpSubmitStatus delivers a mid-turn <status> notice immediately as an
+// interim "⏳ ..." message, without ending the turn or threading it as the
+// reply. Serialized per turn_id like the other turn writes; a closed turn is a
+// no-op (a trailing status after the run returned has nothing to add).
+func (s *Server) mcpSubmitStatus(turnID, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	unlock := lockTurn(turnID)
+	defer unlock()
+	tc, ok := s.db.GetTurnContext(turnID)
+	if !ok {
+		return fmt.Errorf("no turn context for turn_id")
+	}
+	if s.callbackClosed(tc) {
+		return nil
+	}
+	s.deliverStatus(tc, returnTarget(tc, tc.ChatJID), text)
+	return nil
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter

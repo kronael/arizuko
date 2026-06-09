@@ -336,7 +336,8 @@ class ClaudeSession implements Session {
       // re-throws to preserve today's behavior; runed's hard kill bounds it.
       if (!this.timedOut) throw err;
       log('Query timeout: delivering graceful summary instead of aborting silently');
-      yield (await this.summarizeMaxTurns(this.sessionId)) ?? this.timeoutFallback();
+      const summary = (await this.summarizeMaxTurns(this.sessionId)) ?? this.timeoutFallback();
+      yield { ...summary, timedOut: true };
     } finally {
       clearTimeout(this.timeoutTimer);
     }

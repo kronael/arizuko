@@ -176,6 +176,9 @@ type TurnResult struct {
 	Error     string               `json:"error"`
 	CallerSub string               `json:"caller_sub"`
 	Models    map[string]ModelCost `json:"models"`
+	// TimedOut marks the graceful query-timeout summary. routd logs a WARN;
+	// the outcome stays OK (no breaker trip).
+	TimedOut bool `json:"timed_out"`
 }
 
 // ModelCost is one per-model cost row in TurnResult.Models.

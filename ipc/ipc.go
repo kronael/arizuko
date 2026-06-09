@@ -61,6 +61,9 @@ type GatedFns struct {
 	GrantACL             func(principal, scope, action, effect string) error
 	RevokeACL            func(principal, scope, action, effect string) error
 	SubmitTurn           func(folder string, t TurnResult) error
+	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
+	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
+	SubmitStatus func(folder, turnID, text string) error
 	// Per-group ambient controls (spec 6/F).
 	SetGroupOpen          func(folder string, open bool) error
 	SetGroupObserveWindow func(folder string, msgs, chars int) error
@@ -119,6 +122,9 @@ type TurnResult struct {
 	Status    string `json:"status"` // success | error
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// TimedOut marks a result that is the graceful query-timeout summary
+	// rather than a normal completion. routd logs a WARN; outcome stays OK.
+	TimedOut bool `json:"timed_out,omitempty"`
 
 	// Models carries per-model token usage + pre-computed cost.
 	// Optional; nil/empty when the agent doesn't report (e.g. ant
@@ -429,6 +435,10 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			handleSubmitTurn(raw, head.ID, gated, folder, writeJSON)
 			continue
 		}
+		if head.Method == "submit_status" {
+			handleSubmitStatus(raw, head.ID, gated, folder, writeJSON)
+			continue
+		}
 
 		resp := srv.HandleMessage(ctx, raw)
 		if resp != nil {
@@ -472,6 +482,50 @@ func handleSubmitTurn(raw []byte, id any, gated GatedFns, folder string, write f
 	slog.Debug("submit_turn ok", "folder", folder,
 		"turn_id", req.Params.TurnID, "session", req.Params.SessionID,
 		"status", req.Params.Status)
+	write(map[string]any{
+		"jsonrpc": "2.0", "id": id,
+		"result": map[string]any{"ok": true},
+	})
+}
+
+// handleSubmitStatus is the mid-turn progress hook: it delivers the agent's
+// interim <status> text immediately (as a "⏳ ..." notice) without ending the
+// turn. Hidden from tools/list, same as submit_turn.
+func handleSubmitStatus(raw []byte, id any, gated GatedFns, folder string, write func(any)) {
+	var req struct {
+		Params struct {
+			TurnID string `json:"turn_id"`
+			Text   string `json:"text"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "invalid params: " + err.Error()},
+		})
+		return
+	}
+	if req.Params.TurnID == "" {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32602, "message": "turn_id required"},
+		})
+		return
+	}
+	if gated.SubmitStatus == nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": "submit_status not configured"},
+		})
+		return
+	}
+	if err := gated.SubmitStatus(folder, req.Params.TurnID, req.Params.Text); err != nil {
+		write(map[string]any{
+			"jsonrpc": "2.0", "id": id,
+			"error": map[string]any{"code": -32603, "message": err.Error()},
+		})
+		return
+	}
 	write(map[string]any{
 		"jsonrpc": "2.0", "id": id,
 		"result": map[string]any{"ok": true},

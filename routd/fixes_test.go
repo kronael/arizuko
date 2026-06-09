@@ -124,6 +124,44 @@ func TestEarlySubmitTurnKeepsCallbacksLive(t *testing.T) {
 	}
 }
 
+// TestSubmitStatusDeliversInterimWithoutEndingTurn is the mid-turn streaming
+// fix: submit_status delivers the agent's <status> text immediately as a "⏳ ..."
+// notice and leaves the turn open — the turn ends only on submit_turn. So the
+// user sees progress during a long turn instead of nothing until the end.
+func TestSubmitStatusDeliversInterimWithoutEndingTurn(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+
+	if err := srv.mcpSubmitStatus("t1", "reading 12 files"); err != nil {
+		t.Fatalf("submit_status: %v", err)
+	}
+	if len(dl.sends) != 1 || dl.sends[0].text != "⏳ reading 12 files" {
+		t.Fatalf("interim notice not delivered, got %+v", dl.sends)
+	}
+	if countBots(t, db, "slack:T/C/U") != 1 {
+		t.Fatal("interim status row not persisted")
+	}
+	// The turn must remain open: no submit_turn yet, so state is not done.
+	if tc, _ := db.GetTurnContext("t1"); tc.State == "done" || tc.RunReturned {
+		t.Fatalf("submit_status ended the turn: state=%q run_returned=%v", tc.State, tc.RunReturned)
+	}
+
+	// After the run returns the callback closes — a trailing status is a no-op.
+	_ = db.SetRunReturned("t1")
+	if err := srv.mcpSubmitStatus("t1", "too late"); err != nil {
+		t.Fatalf("submit_status post-close: %v", err)
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("status delivered after run returned: %+v", dl.sends)
+	}
+}
+
 // TestSubmitTurnSessionWinsOverRunResponse is the session_id-clobber fix: when
 // submit_turn already recorded a session, the run-response's session_id does
 // NOT overwrite it (spec 5/E § Completion reconciliation).

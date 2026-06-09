@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { submitTurn } from './mcp.js';
+import { submitTurn, submitStatus } from './mcp.js';
 import { loadAgentMcpServers } from './mcp-servers.js';
 import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from './backend/index.js';
 
@@ -31,6 +31,8 @@ interface ContainerOutput {
   // Per-model usage harvested from the SDK's result message (Anthropic
   // usage only; oracle/codex skill captures separately). Spec 5/34.
   models?: Record<string, import('./mcp.js').ModelUsage>;
+  // timedOut marks a result that is the graceful query-timeout summary.
+  timedOut?: boolean;
 }
 
 const HOME = '/home/node';
@@ -39,7 +41,7 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 const MAX_STDIN_BYTES = 1024 * 1024;
 
-const PROGRESS_INTERVAL_MS = 15 * 60_000;
+const PROGRESS_INTERVAL_MS = 90_000;
 
 function buildSystemPrompt(ci: ContainerInput):
     string | { type: 'preset'; preset: 'claude_code' } {
@@ -98,6 +100,7 @@ async function deliverTurn(turnID: string, output: ContainerOutput): Promise<voi
       result: output.result ?? undefined,
       error: output.error,
       models: output.models,
+      timed_out: output.timedOut,
     });
   } catch (err) {
     log(`submit_turn failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -122,6 +125,40 @@ function nudgeProgress(): void {
     log('Nudged agent for progress report');
   } catch (err) {
     log(`Progress nudge write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// STATUS_RE matches one <status>...</status> block. The agent emits these for
+// interim progress (ant/CLAUDE.md "Status updates"); we forward each mid-turn so
+// the user sees ⏳ progress on a long turn instead of nothing until the end.
+const STATUS_RE = /<status>([\s\S]*?)<\/status>/g;
+
+// assistantText flattens an SDK assistant message's text parts, mirroring
+// parseTranscript's assistant branch.
+function assistantText(raw: Record<string, unknown>): string {
+  const content = (raw as { message?: { content?: unknown } }).message?.content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((p: { type?: string }) => p.type === 'text')
+    .map((p: { text?: string }) => p.text || '')
+    .join('');
+}
+
+// streamStatuses forwards any <status> blocks in an intermediate assistant
+// message to routd (delivered immediately as ⏳ interim notices). seen dedups
+// across the turn so a status that also lands in the final result isn't
+// double-delivered — the final result flows through submit_turn separately.
+async function streamStatuses(turnID: string, text: string, seen: Set<string>): Promise<void> {
+  if (!turnID) return;
+  for (const m of text.matchAll(STATUS_RE)) {
+    const s = m[1].trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    try {
+      await submitStatus({ turn_id: turnID, text: s });
+    } catch (err) {
+      log(`submit_status failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 
@@ -264,6 +301,7 @@ async function runQuery(
   let resultCount = 0;
   let sessionError = false;
   let lastProgressAt = Date.now();
+  const seenStatuses = new Set<string>();
 
   try {
     for await (const event of session.events()) {
@@ -273,6 +311,7 @@ async function runQuery(
       if (event.type === 'assistant') {
         const uuid = (event.raw as { uuid?: string }).uuid;
         if (uuid) lastAssistantUuid = uuid;
+        await streamStatuses(turnID, assistantText(event.raw), seenStatuses);
       }
 
       const now = Date.now();
@@ -296,7 +335,7 @@ async function runQuery(
           log('Session error, will retry without session');
           sessionError = true;
         } else {
-          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId, models });
+          await deliverTurn(turnID, { status: 'success', result: textResult || null, newSessionId, models, timedOut: event.timedOut });
         }
       }
     }

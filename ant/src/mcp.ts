@@ -24,11 +24,24 @@ export interface SubmitTurnPayload {
   models?: Record<string, ModelUsage>;
   // user_sub the turn ran on behalf of. Empty/undefined = channel-scoped.
   caller_sub?: string;
+  // True when this turn's result is the graceful query-timeout summary, not a
+  // normal completion. routd logs a WARN annotation; outcome stays OK.
+  timed_out?: boolean;
+}
+
+// SubmitStatusPayload is a mid-turn progress notice. routd delivers the text
+// immediately as a "⏳ ..." interim message and does NOT end the turn.
+export interface SubmitStatusPayload {
+  turn_id: string;
+  text: string;
 }
 
 let nextId = 1;
 
-export async function submitTurn(p: SubmitTurnPayload): Promise<void> {
+// rpc fires one JSON-RPC request at the gated MCP socket and resolves when the
+// daemon answers (or rejects on rpc-level error). One round-trip, one connection
+// — shared by submit_turn (turn-end) and submit_status (mid-turn).
+function rpc(method: string, params: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const sock = net.createConnection(MCP_SOCK);
     const id = nextId++;
@@ -51,7 +64,7 @@ export async function submitTurn(p: SubmitTurnPayload): Promise<void> {
       try {
         const resp = JSON.parse(line);
         if (resp.error) {
-          finish(new Error(`submit_turn rpc error: ${resp.error.message ?? line}`));
+          finish(new Error(`${method} rpc error: ${resp.error.message ?? line}`));
           return;
         }
         finish();
@@ -60,11 +73,18 @@ export async function submitTurn(p: SubmitTurnPayload): Promise<void> {
       }
     });
     sock.on('error', err => finish(err));
-    sock.on('end', () => finish(new Error('submit_turn: socket closed before response')));
+    sock.on('end', () => finish(new Error(`${method}: socket closed before response`)));
 
     sock.on('connect', () => {
-      const req = JSON.stringify({ jsonrpc: '2.0', id, method: 'submit_turn', params: p });
-      sock.write(req + '\n');
+      sock.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });
   });
+}
+
+export async function submitTurn(p: SubmitTurnPayload): Promise<void> {
+  return rpc('submit_turn', p);
+}
+
+export async function submitStatus(p: SubmitStatusPayload): Promise<void> {
+  return rpc('submit_status', p);
 }

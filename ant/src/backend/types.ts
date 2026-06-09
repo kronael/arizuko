@@ -30,6 +30,9 @@ export interface Event {
   // models is per-model token/cost accounting, set on result events when the
   // harness reports it. Snake_case to match the submit_turn payload (5/34).
   models?: Record<string, import('../mcp.js').ModelUsage>;
+  // timedOut is set on a result the backend synthesised after the query-timeout
+  // deadline (graceful summary, not a normal completion). routd logs a WARN.
+  timedOut?: boolean;
 }
 
 // SessionConfig is the union of what any backend might accept. Backends ignore

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -205,9 +206,7 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 	// Interim progress notices: delivered + persisted out-of-band, not threaded
 	// and not the returned reply row.
 	for _, st := range statuses {
-		row := s.outboundRow(tc, jid, "⏳ "+st, "")
-		s.deliverRow(tc, jid, &row)
-		_ = s.db.PutMessage(row)
+		s.deliverStatus(tc, jid, st)
 	}
 
 	clean := router.FormatOutbound(stripped)
@@ -239,6 +238,17 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 		ReplyToID: replyToID, Topic: tc.Topic, RoutedTo: tc.Folder,
 		TurnID: tc.TurnID, Status: core.MessageStatusPending,
 	}
+}
+
+// deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
+// build an out-of-band row, deliver it, persist it. Not threaded, never the
+// turn's reply. Shared by appendAndDeliver's final-result status loop and the
+// mid-turn submit_status MCP path so the two can't drift (CLAUDE.md "one
+// renderer, many sinks").
+func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
+	row := s.outboundRow(tc, jid, "⏳ "+text, "")
+	s.deliverRow(tc, jid, &row)
+	_ = s.db.PutMessage(row)
 }
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
@@ -600,6 +610,10 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		return false, err
 	}
 	if first {
+		if req.TimedOut {
+			slog.Warn("agent turn timed out; summary delivered",
+				"folder", tc.Folder, "turn_id", turnID)
+		}
 		// Deliver the agent's prose result as the reply when it called no
 		// reply/send tool this turn. The agent's contract (ant/CLAUDE.md: "text
 		// outside <think> is delivered") relies on submit_turn's result reaching
