@@ -78,20 +78,21 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		_ = json.Unmarshal(b, &gc)
 	}
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
-		Name:        spec.ContainerName,
-		Prompt:      spec.MessageBatch,
-		SessionID:   spec.SessionID,
-		ChatJID:     spec.ChatJID,
-		Channel:     spec.Channel, // drives pickOutputStyle → per-surface formatting
-		Folder:      spec.Folder,
-		Topic:       spec.Topic,
-		MessageID:   spec.TurnID,
-		Sender:      spec.TriggerSender,
-		Model:       spec.Model,
-		Config:      gc,
-		Grants:      spec.Grants,
-		ExternalMCP: true,
-		Egress:      d.egress(spec.EgressAllowlist),
+		Name:           spec.ContainerName,
+		Prompt:         spec.MessageBatch,
+		SessionID:      spec.SessionID,
+		ChatJID:        spec.ChatJID,
+		Channel:        spec.Channel, // drives pickOutputStyle → per-surface formatting
+		Folder:         spec.Folder,
+		Topic:          spec.Topic,
+		MessageID:      spec.TurnID,
+		Sender:         spec.TriggerSender,
+		Model:          spec.Model,
+		Config:         gc,
+		Grants:         spec.Grants,
+		ExternalMCP:    true,
+		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
+		Egress:         d.egress(spec.EgressAllowlist),
 	})
 	return RunResult{
 		Outcome:      outcomeFor(out),
@@ -119,6 +120,21 @@ func (d *dockerRuntime) egress(allowlist []string) container.EgressConfig {
 		AdminSecret:       d.cfg.EgressAdminSecret,
 		AllowlistFn:       func(string) ([]string, error) { return allowlist, nil },
 	}
+}
+
+// queryTimeoutMs derives the agent's in-container query timeout from the run
+// ceiling: 30s below RunTTL so the agent aborts + delivers a graceful summary
+// BEFORE armRunTTL's hard kill, floored at 60s. RunTTL<=0 (no ceiling) → 0
+// (agent keeps its built-in default).
+func queryTimeoutMs(runTTL time.Duration) int64 {
+	if runTTL <= 0 {
+		return 0
+	}
+	q := runTTL - 30*time.Second
+	if q < 60*time.Second {
+		q = 60 * time.Second
+	}
+	return q.Milliseconds()
 }
 
 // runTTLPollInterval is how often the runTTL watcher retries Kill after the

@@ -197,6 +197,55 @@ func TestDockerRuntimeRunTTLNoKillOnFastRun(t *testing.T) {
 	}
 }
 
+// TestQueryTimeoutMs: the agent query timeout is derived 30s below RunTTL,
+// floored at 60s, and disarmed (0) when RunTTL has no ceiling — so the agent
+// aborts + delivers a graceful summary before armRunTTL's hard kill.
+func TestQueryTimeoutMs(t *testing.T) {
+	cases := []struct {
+		ttl  time.Duration
+		want int64
+	}{
+		{0, 0},                                 // no ceiling → unset, agent default
+		{20 * time.Minute, 19*60_000 + 30_000}, // 20m − 30s = 19m30s
+		{70 * time.Second, 60_000},             // 70s − 30s = 40s, floored to 60s
+		{30 * time.Second, 60_000},             // below floor → 60s
+	}
+	for _, c := range cases {
+		if got := queryTimeoutMs(c.ttl); got != c.want {
+			t.Errorf("queryTimeoutMs(%s)=%d want %d", c.ttl, got, c.want)
+		}
+	}
+}
+
+// TestDockerRuntimeQueryTimeoutPlumbed: dockerRuntime.Run threads the derived
+// query timeout into container.Input so runner.go can set
+// ARIZUKO_QUERY_TIMEOUT_MS — the env the agent reads to abort gracefully.
+func TestDockerRuntimeQueryTimeoutPlumbed(t *testing.T) {
+	folders := &groupfolder.Resolver{GroupsDir: t.TempDir(), IpcDir: t.TempDir()}
+	runner := &blockingRunner{
+		started: make(chan struct{}), release: make(chan struct{}),
+		out: container.Output{Status: "success", ExitCode: 0},
+	}
+	close(runner.release)
+	rt := &dockerRuntime{
+		cfg: &core.Config{}, folders: folders, runner: runner,
+		signal: func(string) error { return nil },
+		kill:   func(string) error { return nil },
+	}
+	rt.Run(context.Background(), RunSpec{
+		RunID: "run_qt", Folder: "demo", ContainerName: "arizuko-test-demo-qt",
+		MessageBatch: "m", RunTTL: 20 * time.Minute,
+		RegisterSteer: func(func(string) bool) {},
+	})
+	in := runner.last.Load()
+	if in == nil {
+		t.Fatal("runner never received an Input")
+	}
+	if want := int64(19*60_000 + 30_000); in.QueryTimeoutMs != want {
+		t.Fatalf("Input.QueryTimeoutMs=%d want %d (RunTTL−30s)", in.QueryTimeoutMs, want)
+	}
+}
+
 // TestDockerRuntimeCancelKills: when routd drops the POST /v1/runs request
 // mid-run (ctx cancelled), armCancel Kills the live container exactly once so
 // it doesn't orphan to runTTL while the turn gets re-fed into a second

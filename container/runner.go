@@ -89,13 +89,18 @@ type Input struct {
 	Soul      string            `json:"soul,omitempty"`
 	SystemMd  string            `json:"systemMd,omitempty"`
 
-	GroupPath   string           `json:"-"`
-	Name        string           `json:"-"`
-	Config      core.GroupConfig `json:"-"`
-	Model       string           `json:"-"` // per-group model override; empty = instance default
-	Annotations []string         `json:"-"`
-	GatedFns    ipc.GatedFns     `json:"-"`
-	StoreFns    ipc.StoreFns     `json:"-"`
+	GroupPath string           `json:"-"`
+	Name      string           `json:"-"`
+	Config    core.GroupConfig `json:"-"`
+	Model     string           `json:"-"` // per-group model override; empty = instance default
+	// QueryTimeoutMs is the agent's in-container query timeout, derived from
+	// runed's RunTTL and set just below it so the agent aborts + delivers a
+	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
+	// uses its built-in default).
+	QueryTimeoutMs int64        `json:"-"`
+	Annotations    []string     `json:"-"`
+	GatedFns       ipc.GatedFns `json:"-"`
+	StoreFns       ipc.StoreFns `json:"-"`
 	// ExternalMCP: the MCP socket is owned by the caller (routd hosts it
 	// in-process); skip the in-container ServeMCP, just mount the ipc dir.
 	ExternalMCP bool `json:"-"`
@@ -756,6 +761,9 @@ func seedSettings(
 		env["ARIZUKO_MODEL"] = in.Model
 	} else {
 		delete(env, "ARIZUKO_MODEL")
+	}
+	if in.QueryTimeoutMs > 0 {
+		env["ARIZUKO_QUERY_TIMEOUT_MS"] = strconv.FormatInt(in.QueryTimeoutMs, 10)
 	}
 	if in.Channel != "" {
 		if name := pickOutputStyle(in.Channel, in.ChatJID, in.Topic, in.PaneLookup); name != "" {

@@ -20,7 +20,7 @@ import type { ModelUsage } from '../mcp.js';
 
 const HOME = '/home/node';
 const MAX_QUEUE = 100;
-const QUERY_TIMEOUT_MS = 15 * 60_000;
+const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60_000;
 const IPC_INPUT_DIR = '/run/ipc/input';
 
 interface SDKUserMessage {
@@ -230,11 +230,16 @@ class ClaudeSession implements Session {
   private stream = new MessageStream();
   private abortController = new AbortController();
   private timeoutTimer: ReturnType<typeof setTimeout>;
+  // Set only when the abort came from the query-timeout deadline (not a manual
+  // interrupt() or close()). events() reads it to deliver a graceful summary
+  // instead of letting the aborted for-await throw into a code-1 silent exit.
+  private timedOut = false;
 
   constructor(private cfg: SessionConfig, private drain: DrainIpcInput) {
     this.stream.push(cfg.prompt);
     this.timeoutTimer = setTimeout(() => {
       log(`Query timeout (${QUERY_TIMEOUT_MS}ms) reached, aborting`);
+      this.timedOut = true;
       this.abortController.abort();
       this.stream.end();
     }, QUERY_TIMEOUT_MS);
@@ -268,61 +273,85 @@ class ClaudeSession implements Session {
     const agentMcpServers = cfg.mcpServers ?? {};
     const groupModel = cfg.model || undefined;
 
-    for await (const message of query({
-      prompt: this.stream,
-      options: {
-        abortController: this.abortController,
-        cwd: cfg.cwd ?? HOME,
-        additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-        resume: cfg.resume,
-        resumeSessionAt: cfg.resumeAt,
-        systemPrompt: cfg.systemPrompt,
-        model: groupModel,
-        // No allowedTools allowlist: under bypassPermissions every tool is
-        // available with no prompt (allowedTools is only an auto-approve hint,
-        // not a restriction). arizuko gates side effects at the gated MCP
-        // socket + crackbox egress, never Claude Code's permission layer.
-        // sandbox off for the same reason — the container IS the sandbox.
-        sandbox: { enabled: false },
-        env: cfg.env,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        settingSources: ['project', 'user'],
-        mcpServers: agentMcpServers,
-        hooks: {
-          PreCompact: [{ hooks: [createPreCompactHook(cfg.assistantName)] }],
-          PreToolUse: [
-            { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
-            { hooks: [createToolLogPreHook()] },
-          ],
-          PostToolUse: [{ hooks: [createIpcDrainHook(this.drain), createToolLogPostHook()] }],
+    try {
+      for await (const message of query({
+        prompt: this.stream,
+        options: {
+          abortController: this.abortController,
+          cwd: cfg.cwd ?? HOME,
+          additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
+          resume: cfg.resume,
+          resumeSessionAt: cfg.resumeAt,
+          systemPrompt: cfg.systemPrompt,
+          model: groupModel,
+          // No allowedTools allowlist: under bypassPermissions every tool is
+          // available with no prompt (allowedTools is only an auto-approve hint,
+          // not a restriction). arizuko gates side effects at the gated MCP
+          // socket + crackbox egress, never Claude Code's permission layer.
+          // sandbox off for the same reason — the container IS the sandbox.
+          sandbox: { enabled: false },
+          env: cfg.env,
+          permissionMode: 'bypassPermissions',
+          allowDangerouslySkipPermissions: true,
+          settingSources: ['project', 'user'],
+          mcpServers: agentMcpServers,
+          hooks: {
+            PreCompact: [{ hooks: [createPreCompactHook(cfg.assistantName)] }],
+            PreToolUse: [
+              { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
+              { hooks: [createToolLogPreHook()] },
+            ],
+            PostToolUse: [{ hooks: [createIpcDrainHook(this.drain), createToolLogPostHook()] }],
+          },
         },
-      },
-    })) {
-      const m = message as { type?: string; subtype?: string };
-      if (m.type === 'system' && m.subtype === 'task_notification') {
-        const tn = message as { task_id: string; status: string; summary: string };
-        log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+      })) {
+        const m = message as { type?: string; subtype?: string };
+        if (m.type === 'system' && m.subtype === 'task_notification') {
+          const tn = message as { task_id: string; status: string; summary: string };
+          log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+        }
+        const ev = normalize(message);
+        if (!ev) continue;
+        if (ev.type === 'system_init' && ev.sessionId) this.sessionId = ev.sessionId;
+        // A result terminates the turn: close the prompt stream so the SDK
+        // generator concludes (matches the pre-seam stream.end() on result).
+        if (ev.type === 'result') this.stream.end();
+        // error_max_turns is a claude-specific terminal state: the harness ran
+        // out of turns mid-task. Run a short summary subquery and emit a success
+        // result carrying the summary, so the runtime delivers exactly one turn
+        // (behavior preserved from the pre-seam runtime).
+        if (ev.type === 'result' && (ev.raw as { subtype?: string }).subtype === 'error_max_turns') {
+          const summary = await this.summarizeMaxTurns(this.sessionId);
+          // No session to resume → deliver nothing (pre-seam behavior).
+          if (summary) yield summary;
+          continue;
+        }
+        yield ev;
       }
-      const ev = normalize(message);
-      if (!ev) continue;
-      if (ev.type === 'system_init' && ev.sessionId) this.sessionId = ev.sessionId;
-      // A result terminates the turn: close the prompt stream so the SDK
-      // generator concludes (matches the pre-seam stream.end() on result).
-      if (ev.type === 'result') this.stream.end();
-      // error_max_turns is a claude-specific terminal state: the harness ran
-      // out of turns mid-task. Run a short summary subquery and emit a success
-      // result carrying the summary, so the runtime delivers exactly one turn
-      // (behavior preserved from the pre-seam runtime).
-      if (ev.type === 'result' && (ev.raw as { subtype?: string }).subtype === 'error_max_turns') {
-        const summary = await this.summarizeMaxTurns(this.sessionId);
-        // No session to resume → deliver nothing (pre-seam behavior).
-        if (summary) yield summary;
-        continue;
-      }
-      yield ev;
+    } catch (err) {
+      // The query-timeout abort surfaces here as a thrown AbortError. Without
+      // this catch it propagated out of the runtime → container exit code 1 →
+      // the user got NO reply (silent failure on a long turn). Deliver exactly
+      // one graceful result instead. A manual interrupt() (no timedOut flag)
+      // re-throws to preserve today's behavior; runed's hard kill bounds it.
+      if (!this.timedOut) throw err;
+      log('Query timeout: delivering graceful summary instead of aborting silently');
+      yield (await this.summarizeMaxTurns(this.sessionId)) ?? this.timeoutFallback();
+    } finally {
+      clearTimeout(this.timeoutTimer);
     }
-    clearTimeout(this.timeoutTimer);
+  }
+
+  // timeoutFallback is the minimal graceful turn when no session is resumable
+  // for a summary subquery — the user still gets one reply, never silence.
+  private timeoutFallback(): Event {
+    return {
+      type: 'result',
+      raw: { type: 'result', subtype: 'success' },
+      text: 'Hit the time limit on this turn — narrow the request or ask me to continue.',
+      final: true,
+      status: 'success',
+    };
   }
 
   // sessionId is captured from the system/init event so the max-turns summary

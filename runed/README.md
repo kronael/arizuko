@@ -50,7 +50,11 @@ paths (emitted only for aggregator uniformity).
 - `AUTHD_URL` — authd base URL; unset → verify open + static broker (local-dev)
 - `AUTHD_SERVICE_KEY` — exchanged for an auto-refreshing `service:runed`
   token; falls back to static `RUNED_SERVICE_TOKEN`
-- `RUNED_RUN_TIMEOUT` (default 20m), `RUNED_SHUTDOWN_GRACE`
+- `RUNED_RUN_TIMEOUT` (default 20m) — the run ceiling: bounds BOTH the
+  container hard-kill AND the in-container agent query timeout
+  (`ARIZUKO_QUERY_TIMEOUT_MS` = `RUNED_RUN_TIMEOUT − 30s`), so the agent aborts
+  and delivers a graceful summary before runed kills the container.
+- `RUNED_SHUTDOWN_GRACE`
 - `LISTEN_ADDR`; container config via `core.LoadConfig` (`MaxContainers`, dirs)
 
 ## Health signal
