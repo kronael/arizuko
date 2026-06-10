@@ -1,10 +1,19 @@
 ---
-status: partial
+status: shipped
 ---
 
 # auth: central authority daemon + offline-verify library
 
-> **Status (2026-06-07): partial.** Core shipped + live — authd is the sole ES256 minter, serves JWKS, mints `service:<daemon>` tokens, and every daemon offline-verifies. Deferred: HMAC retirement (`PROXYD_HMAC_SECRET`/`CHANNEL_SECRET` still live), `POST /v1/keys/rotate` + `authd rotate-key`, the account-unlink endpoint, and the `authd/api/v1` package. (Stale below: `gated` is deleted — grants now live with routd.)
+> **Shipped.** authd is the sole ES256 minter — holds the private key, serves
+> JWKS at `/v1/keys`, runs the OAuth login flow, issues `service:<daemon>` +
+> user tokens, rotates refresh tokens. Every other daemon offline-verifies
+> against cached JWKS via the `auth/` library; none mint. HMAC identity is
+> **fully retired** — `PROXYD_HMAC_SECRET`/`CHANNEL_SECRET` are gone, ES256
+> service tokens carry every inter-daemon identity (see CHANGELOG). The only
+> symmetric secret left is the OAuth CSRF-state HMAC (a CSRF token, not
+> identity). Deferred, non-blocking: the `/v1/keys/rotate` endpoint + `authd
+rotate-key` CLI ([`39-auth-api.md`](39-auth-api.md) § JWK rotation has the
+> mechanism; short-TTL + redeploy rotates today).
 
 **DECISION.** Token authority is centralized in a single `authd` daemon —
 the **sole signer**. `authd` mints every token, holds the ES256 private key,
@@ -16,20 +25,16 @@ down doesn't stop verification of already-issued tokens. The single issuer is
 the one place to record issuance and rotate the signing key (the
 emergency-revoke lever, below).
 
-This spec is **build-ready** (`status: partial` = not yet built, not open
-design). Two artifacts:
+Two artifacts:
 
 - **`authd`** — the daemon. Owns the ES256 private key, `auth.db`, the OAuth
   login flow, token issuance, refresh-token rotation, JWKs publication. The
   one process that can sign.
 - **`auth/`** — the library. Offline verification, scope-check, JWKs-cache
   refresh, mountable OAuth handlers, MCP tool handlers. Every daemon imports
-  it; none sign.
-
-`authd` is **extracted standalone first** — the first piece of the gated
-split, proving the `<daemon>/api/v1/` + `types/` pattern before
-`routd`/`runed`/`mcpd` follow ([`U-genericization.md`](U-genericization.md)
-"gated split").
+  it; none sign. The library IS authd's published client contract — there is no
+  separate `authd/api/v1` package (verification is offline; the few mint calls
+  use the library's typed helpers).
 
 ## Crypto stack — mature, minimal (LOCKED)
 
@@ -86,7 +91,7 @@ never learn per-token revocation. Three cases cover everything:
   until its own `exp`; no new ones issue. Server-side state change at
   `authd`, not a verifier concern.
 - **EMERGENCY revoke** (key compromise, "kill every token now") = **rotate
-  the signing key** (§ JWK rotation). Every token signed by the retired `kid`
+  the signing key** ([`39-auth-api.md`](39-auth-api.md)). Every token signed by the retired `kid`
   fails verification once verifiers refresh the JWK Set (≤ JWKS cache TTL).
 
 ## Sessions — short access JWT + refresh token (LOCKED)
@@ -107,45 +112,11 @@ a reuse signal: `authd` invalidates the entire family (all rows in the
 rotation chain) and returns 401. A missing/expired refresh token returns 401;
 the client must re-login.
 
-## Today's `auth/` (refactor base)
-
-```
-auth/
-  hmac.go             generic — HMAC sign/verify of identity headers (RETIRES, see § HMAC retirement)
-  jwt.go              generic — hand-rolled HS256 JWT (REPLACED by go-jose ES256)
-  oauth.go            generic — hand-rolled OAuth HTTP (REPLACED by x/oauth2 + go-oidc)
-  web.go              generic — login/refresh/logout/issueSession handlers (MOVE to authd, port to ES256)
-  routes.go           generic — provider route registration (MOVE to authd as auth.Mount)
-  link.go             generic — link-code minting (MOVE to authd)
-  collide.go          generic — two-providers-one-user collision UI (MOVE to authd)
-  middleware.go       generic — RequireSigned / StripUnsigned guards (KEEP, repoint at JWKs verify)
-  ───
-  acl.go              arizuko — folder/scope ACL evaluator (MOVE OUT to arizuko/identity.go)
-  policy.go           arizuko — tier-based structural policy (MOVE OUT; tier dropped, scope-based)
-  identity.go         arizuko — Identity{Folder,Tier,World} (MOVE OUT; tier dropped)
-```
-
-`auth/` slims to verify-only (`middleware.go` + new `jwks.go`/`mcp.go`). The
-genuinely-new layer: ES256 + JWKS, the `/v1/*` API, service-token exchange,
-refresh-token storage, `auth.db` schema.
-
-**Current placement vs target.** `auth.Authorize` (`auth/authorize.go`)
-is the row-based ACL gate ([`../4/9-acl-unified.md`](../4/9-acl-unified.md)).
-arizuko's structural policy still lives in `auth/policy.go`
-(`AuthorizeStructural`) — it moves to `grants/` once `gated` is removed
-(gated still imports it). Tier-drop is staged: the data-plane decision
-is scope- and folder-containment-based and consults no tier (the
-uniform authorization lens, [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
-§ Authorization lens). Tier still gates management actions
-(register/escalate/delegate/inject) inside `AuthorizeStructural`; that
-tier check retires with the move-out, mapped to default scopes in one
-place (`grants.DeriveRules`), not as decision branches.
-
 ## auth.db schema
 
 `authd` owns `auth.db` — its own SQLite file + `migrations/` subdir
-([`U-genericization.md`](U-genericization.md) DB-ownership rule), **not** in
-gated's `messages.db`. Times are RFC3339 TEXT; all `*_hash` columns store hex
+(each daemon owns its own DB), separate from the message store. Times are
+RFC3339 TEXT; all `*_hash` columns store hex
 SHA-256, never the secret. Migrations run from `authd/migrations/*.sql` at
 startup, same numbering as `store/migrations/`.
 
@@ -265,40 +236,6 @@ nonce(12) || ciphertext || tag(16) )` — standard `cipher.AEAD.Seal(nonce,
 nonce, plaintext, nil)` with nonce prepended. Plaintext is the PKCS8 PEM;
   AAD is the `kid`. `v1` is the envelope version for forward-compat.
 
-### Migrating from messages.db
-
-The cutover (step 2) copies the existing `auth_users` and `auth_sessions`
-rows out of gated's `messages.db` into `auth.db`, then drops the source
-tables (one-shot, [`U-genericization.md`](U-genericization.md) NO
-BACKWARD COMPATIBILITY). Source schemas (today, `store/migrations/0001`
-
-- `0040`):
-
-```sql
-auth_users(id, sub UNIQUE, username UNIQUE, hash, name, created_at, linked_to_sub)
-auth_sessions(token_hash PRIMARY KEY, user_sub, expires_at, created_at)
-```
-
-Field mapping:
-
-| Source (`messages.db`)                            | Target (`auth.db`)                                                                         | Rule                                                                                                       |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `auth_users` (canonical: `linked_to_sub IS NULL`) | `users(sub, username, hash, name, created_at)`                                             | one `users` row per canonical sub; carry `username`/`hash` for local-password users (NULL for OAuth-only). |
-| `auth_users` (linked: `linked_to_sub = X`)        | `oauth_accounts(user_id, provider, provider_sub)`                                          | split each `sub` of form `"<provider>:<id>"` → `(provider, id)`; `user_id` = the row whose `sub` = `X`.    |
-| `auth_users` (canonical, OAuth sub `"<p>:<id>"`)  | also an `oauth_accounts` row                                                               | a canonical OAuth user is its own first linked account: insert `(user_id, provider, id)` for its own sub.  |
-| `auth_sessions(token_hash, user_sub, expires_at)` | `refresh_tokens(token_hash, user_sub, family_id=random, issued_at=created_at, expires_at)` | one family per migrated session; `rotated_to=NULL`. Local-password `hash` users keep working unchanged.    |
-
-`signing_keys` and `service_keys` have no source rows — generated fresh
-(first-boot keypair; compose-seeded service keys).
-
-**Service-key seed mechanism.** `AUTHD_SERVICE_KEYS_FILE` points at a
-compose-written JSON map `{ "<daemon>": { "secret_hash": "<hex>", "scope":
-[...] } }`. On startup authd UPSERTs each entry into `service_keys` by
-`daemon` (idempotent), so rotation = compose re-generates with new hashes and
-authd re-seeds on restart. No admin API; the seed file is the single
-provisioning path. Rows absent from the seed are left untouched (manual rows
-survive).
-
 ## JWT claim set
 
 Every minted token is an ES256 JWS, header
@@ -367,299 +304,11 @@ type Identity struct {
 }
 ```
 
-There is no `tier` field — scopes replace tier everywhere
-([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
+There is no `tier` field — scopes replace tier everywhere.
 
-## `/v1/*` API surface
-
-**DECISION (route naming).** Machine token + key endpoints live under
-`/v1/*` (the typed API contract, `authd/api/v1/`); the human OAuth browser
-flow keeps `/auth/*` (proxyd 302s to `authd_url/auth/login` —
-[`35-proxyd-standalone.md`](35-proxyd-standalone.md) § Login flow). The two
-prefixes don't overlap.
-
-All `/v1/*` JSON errors use `{"error":"<code>","message":"<human>"}` with the
-HTTP status carrying the class. `GET /v1/keys` is **public** (mounted before
-auth middleware); every other `/v1/*` endpoint requires a bootstrap secret
-(`/v1/service-token`) or a bearer token.
-
-### `GET /v1/keys` — JWK Set (public)
-
-Marshalled by go-jose from `signing_keys` rows that are `active` OR within
-their overlap window (`now < retired_at + max access TTL`). Purely
-time-based — no flag. An emergency-revoked kid is retired with the overlap
-already elapsed (below), so it falls out of this set immediately and ages
-out via the normal GC.
-
-```jsonc
-// 200
-{
-  "keys": [
-    {
-      "kty": "EC",
-      "crv": "P-256",
-      "alg": "ES256",
-      "use": "sig",
-      "kid": "1735000000-a1b2c3d4",
-      "x": "<b64url>",
-      "y": "<b64url>",
-    },
-  ],
-}
-```
-
-Cache headers `Cache-Control: public, max-age=3600` (= JWKS cache TTL).
-Verifiers also refresh on `kid`-miss (one re-fetch before failing) — go-oidc
-`RemoteKeySet` behavior, as-is.
-
-### `POST /v1/tokens` — mint (bearer or service required)
-
-One endpoint, two modes picked by whether the caller holds `tokens:mint` AND
-requested `sub` ≠ caller `sub` (issuer mint) vs same `sub` (downscope). No
-separate `/v1/downscope`. The two modes bound the minted scope against
-**different sources** — that's the only authority rule, stated per-mode below.
-
-- **Issuer mint** (caller has `tokens:mint`; onbod, dashd, proxyd-on-login):
-  mints a fresh `user`/`service` token for a **different** `sub`. The minted
-  `scope` is bounded by the **target sub's grants snapshot** — `authd` fetches
-  `GET <GRANTS_URL>/v1/users/{sub}/scopes` for the requested (bare) `sub` and
-  requires the requested `scope` ⊆ that snapshot, folder within the snapshot's
-  `folder` subtree. It is **not** bounded by the caller's own scope: login,
-  onbod, and dashd mint USER tokens for accounts whose grants the minter does
-  not itself hold. The caller's `tokens:mint` is the authority to mint _at
-  all_; the target's grants set the ceiling. An invite mints `user`, never
-  `service`. Delegation, never escalation. Violation → `403 scope_exceeds_minter`.
-- **Downscope** (any valid bearer, no `tokens:mint`): mints a `downscoped`
-  token for the **same** `sub` (the `sub` field is forced to the caller's),
-  narrowing the **presented parent token** — minted `scope` ⊆ the **caller's**
-  `scope`, folder within the caller's `arz/folder` subtree, `parent_jti` =
-  caller's `jti`, TTL capped at parent's remaining lifetime. Violation → `403
-scope_exceeds_parent`.
-
-```jsonc
-// POST /v1/tokens  Authorization: Bearer <caller>
-{ "typ":"user"|"service"|"downscoped", "sub":"...", "scope":["tasks:write"],
-  "folder":"atlas/main", "audience":"", "ttl_seconds": 900 }
-// 200
-{ "token":"<jws>", "jti":"...", "expires_at":"2026-05-29T12:15:00Z" }
-// 403 {"error":"scope_exceeds_parent"|"scope_exceeds_minter","message":"..."}
-// 400 {"error":"invalid_scope","message":"global *:* not allowed"}
-```
-
-### `POST /v1/service-token` — service-token exchange
-
-A daemon exchanges its bootstrap secret for a short-lived service JWT. The
-secret goes in the `Authorization` header (not the body — keeps it out of
-body-logging); daemon identity in the body. `authd` looks up `service_keys`
-by `daemon`, compares the hash in constant time, signs a `service` token with
-that row's `scope`.
-
-```jsonc
-// POST /v1/service-token  Authorization: Bearer <AUTHD_SERVICE_KEY>
-{ "daemon":"timed" }
-// 200
-{ "token":"<jws>", "expires_at":"2026-05-29T13:00:00Z",
-  "scope":["messages:write","tasks:read"] }
-// 401 {"error":"bad_service_key","message":"..."}  (unknown daemon or hash mismatch)
-```
-
-The `auth.ServiceToken` helper (library) calls this at startup and
-refreshes ~1 min before `expires_at`, the way `RemoteKeySet` refreshes —
-no per-request hop. The returned token's `sub` is `service:<daemon>`.
-
-### `POST /v1/refresh` — silent access-token refresh
-
-Consumes a refresh token, rotates it (§ Sessions), returns a new access JWT
-plus the successor refresh token by the **same channel it was presented on**:
-browser (cookie) → successor in `Set-Cookie`, omitted from JSON body (stays
-`HttpOnly`); non-browser (JSON body) → successor in JSON body, no `Set-Cookie`.
-
-```jsonc
-// Browser:    POST /v1/refresh   (cookie refresh_token=<opaque>)
-// 200  Set-Cookie: refresh_token=<new opaque>; HttpOnly; ...
-{ "token":"<access jws>", "expires_at":"2026-05-29T12:15:00Z" }
-
-// Non-browser: POST /v1/refresh   {"refresh_token":"<opaque>"}
-// 200  (no Set-Cookie)
-{ "token":"<access jws>", "expires_at":"2026-05-29T12:15:00Z",
-  "refresh_token":"<new opaque>" }
-
-// 401 {"error":"invalid_refresh","message":"..."}  (missing/expired/reused → family invalidated)
-```
-
-If a request presents both a cookie and a body token, the cookie wins
-(browser channel) and the body token is ignored.
-
-### `POST /v1/keys/rotate` — rotate the signing key (operator)
-
-Bearer with scope `keys:rotate`. Generates a new ES256 key, makes it
-`active`, retires the old (§ JWK rotation). HTTP equivalent of `authd
-rotate-key`.
-
-```jsonc
-// POST /v1/keys/rotate  Authorization: Bearer <operator>
-{ "revoke_old": false }   // true = emergency: retire old kid with overlap already elapsed → dropped from JWK Set now
-// 200
-{ "new_kid":"1735003600-9f8e7d6c", "retired_kid":"1735000000-a1b2c3d4",
-  "old_servable_until":"2026-06-28T12:00:00Z" }  // null when revoke_old=true
-// 403 {"error":"forbidden","message":"keys:rotate required"}
-```
-
-### `DELETE /v1/users/me/accounts/{provider}` — unlink an OAuth account
-
-Bearer = the user's own access JWT (the `sub` owns the `users` row). Removes
-the matching `oauth_accounts` row. `{provider}` ∈
-`{google,github,discord,telegram}`; `UNIQUE(user_id, provider)` means a user
-holds at most one link per provider, so `(user_id, {provider})` resolves to
-exactly one row and the path needs no `provider_sub`. Refused `409` when it
-would leave the user with no `oauth_accounts` row and no local password
-(`users.hash IS NULL`).
-
-```jsonc
-// DELETE /v1/users/me/accounts/google   Authorization: Bearer <user>
-// 204  (no body)
-// 404 {"error":"not_linked","message":"no google account on this user"}
-// 409 {"error":"last_login_method","message":"cannot unlink the only login method"}
-```
-
-### OAuth / login routes (browser, `/auth/*`)
-
-Ported from `web.go`/`oauth.go`/`routes.go` into `authd`, minting ES256.
-
-| Route                       | Method | Params / body                        | Result                                                                                                     |
-| --------------------------- | ------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `/auth/login`               | GET    | `?return=<rel-path>` `?error=`       | HTML login page (provider buttons). For local-password: also `POST`.                                       |
-| `/auth/login`               | POST   | form `username`,`password`           | Verify argon2id; on success → `issueSession` (sets refresh cookie, returns access JWT).                    |
-| `/auth/<provider>`          | GET    | `?intent=link` `?return=`            | Insert `oauth_state` row, redirect to provider authorize URL (PKCE S256 + nonce).                          |
-| `/auth/<provider>/callback` | GET    | `?code` `?state`                     | Validate state row, exchange code (x/oauth2), verify ID token (go-oidc), resolve identity → dispatchOAuth. |
-| `/auth/telegram`            | POST   | Telegram widget form                 | Verify widget HMAC, resolve `telegram:<id>` → dispatchOAuth.                                               |
-| `/auth/collide`             | POST   | form `token`,`choice=link\|logout`   | Resolve a two-provider collision (§ Account linking).                                                      |
-| `/auth/logout`              | POST   | cookie `refresh_token`               | Revoke the refresh token's family (set `revoked_at`), clear cookie, 303 → `/auth/login`.                   |
-| `/auth/me`                  | GET    | `Authorization: Bearer <access jwt>` | `200 {"sub":"...","name":"...","scope":[...],"folder":"...","expires_at":"..."}`; 401 if no valid token.   |
-
-- `<provider>` ∈ `{google, github, discord}`, mounted only when its client-id
-  config is set (conditional registration in `routes.go`).
-- `issueSession` (ported from `web.go`): canonicalize sub, snapshot scopes
-  from grants (§ Login-time scope snapshot), mint the access JWT, create a
-  `refresh_tokens` row, set the `HttpOnly` cookie, return the access JWT via
-  the `localStorage` bootstrap HTML.
-- **Response by `Accept`.** Browser (`text/html`): 302/callback complete with
-  the `localStorage` bootstrap HTML, refresh token in the `HttpOnly` cookie.
-  Programmatic (`application/json`): `200
-{"token":"<jws>","expires_at":...,"refresh_token":"<opaque>"}`, the initial
-  refresh token in the body (no cookie jar). Refresh token via cookie
-  (browser) **or** body (non-browser), never both, on initial login and
-  refresh alike. `/auth/me` reads the bearer, never the cookie.
-- `return` validated as a relative path (`safeReturn`); `POST /auth/login`
-  per-IP rate limit (`loginLimiter`, 5/15 min) carries forward.
-
-### Login-time scope snapshot
-
-`authd` does not own grants — gated does
-([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) § scope minter). At session
-issuance `authd` fetches the caller's scope over one HTTP call:
-
-```
-GET <GRANTS_URL>/v1/users/{sub}/scopes      Authorization: Bearer <authd service token>
-→ 200 {"scope":["messages:send","tasks:read","groups:read:own_group"], "folder":"atlas/main"}
-→ 404 {"error":"no_grants"}   (sub has no grant rows)
-```
-
-- `{sub}` is the **bare** canonical sub (no `user:`/`service:` prefix —
-  § JWT claim set "`sub` prefix rule"). Same call backs issuer-mint's
-  ceiling check (§ `POST /v1/tokens`).
-- Authenticated with `authd`'s own `service:authd` token (scope
-  `grants:read`). `authd` **self-mints** this token: it holds the signing
-  key, so it signs a `service:authd` JWT (`scope:["grants:read"]`, normal
-  service TTL) directly at startup and refreshes it like any service token —
-  no `service_keys` seed row, no bootstrap secret (the seed mechanism is for
-  **other** daemons, which lack the key). authd is the one daemon that needs
-  no bootstrap to obtain a service identity.
-- Returned `scope` + `folder` stamped into the access JWT as `scope` /
-  `arz/folder`. Snapshot taken **once at issuance**; later grant changes take
-  effect only at next refresh/login (short-TTL model).
-- **Failure / default**: `404 no_grants` → mint an **empty-scope** session,
-  no `arz/folder` (authenticated but unauthorized; browser → `/onboard`). A
-  5xx → `503 grants_unavailable`, login **fails closed** (no token minted)
-  rather than masking the outage with an empty-scope session.
-- `POST /v1/refresh` re-runs the snapshot so a refreshed token reflects
-  current grants.
-
-`GRANTS_URL` defaults to gated; a standalone `authd` deployment without
-arizuko grants sets it to its own static-scope stub or omits it (then
-every session is empty-scope, suitable for an auth-only deployment that
-authorizes elsewhere).
-
-## JWK rotation mechanics
-
-- **`kid` scheme**: `"<created-unix>-<8 hex rand>"` (sortable by
-  creation, collision-resistant). Written into every signed token's JWS
-  header.
-- **Startup-if-missing**: on boot, if no `active` row exists in
-  `signing_keys`, `authd` generates an ES256 keypair, inserts it
-  `active=1`, and signs with it. First boot needs no operator step.
-- **Rotation cadence**: scheduled (default every 30 days, configurable
-  via `AUTHD_KEY_ROTATION_DAYS`) **and** manual (`authd rotate-key` CLI /
-  `POST /v1/keys/rotate` operator endpoint, scope `keys:rotate`).
-- **Overlap window**: rotation inserts a new key `active=1`, sets the old
-  `active=0, retired_at = now`. Both public keys stay in `GET /v1/keys` until
-  `retired_at + max(access TTL, JWKS cache TTL)`, so old-`kid` tokens verify
-  until they'd have expired anyway; GC drops the row after. The retired key's
-  private half can be zeroed at retirement (never re-signed with).
-- **Compromise = emergency revoke** (§ Revocation): `authd rotate-key
---revoke-old` rotates to a fresh active key AND retires the compromised key
-  with **zero overlap** — `retired_at = now − (max access TTL)`, so the
-  `now < retired_at + overlap` serve check is already false and the kid
-  drops from `GET /v1/keys` immediately (then ages out via the normal GC, no
-  permanent flag). Every token signed by it fails
-  within one JWKS cache TTL (≤1 h; force-purge by restarting verifiers). The
-  single lever that invalidates everything at once.
-
-## TTL table
-
-Defaults; `AUTHD_*` overrides each.
-
-| Token / cache         | Default      | Env override              | Notes                                                |
-| --------------------- | ------------ | ------------------------- | ---------------------------------------------------- |
-| Access JWT            | 15 min       | `AUTHD_ACCESS_TTL`        | Verified offline; the revocation blast-radius bound. |
-| Refresh token         | 30 days      | `AUTHD_REFRESH_TTL`       | Rotating, one-time-use; deletable on logout.         |
-| Service token         | 1 hour       | `AUTHD_SERVICE_TTL`       | Library refreshes ~1 min before expiry.              |
-| Downscoped token      | ≤ parent exp | (request `ttl_seconds`)   | Capped at the parent token's remaining lifetime.     |
-| OAuth state           | 10 min       | `AUTHD_STATE_TTL`         | `oauth_state.expires_at`; GC-swept.                  |
-| JWKS cache (verifier) | 1 hour       | `AUTHD_JWKS_CACHE_TTL`    | + refresh-on-`kid`-miss (go-oidc RemoteKeySet).      |
-| Key rotation cadence  | 30 days      | `AUTHD_KEY_ROTATION_DAYS` | Scheduled; manual rotate always available.           |
-
-## Service bootstrap
-
-Daemon-initiated work (`timed` firing a task, `onbod` admitting, a cron
-sweep) has no user in the loop but needs an identity to call gated/router: a
-**service identity** with `sub = service:<daemon>` and the daemon's
-capability scope. It verifies exactly like a user token — no second path.
-
-- **Secret generation**: compose generation (`compose/compose.go`) writes one
-  random `AUTHD_SERVICE_KEY` per daemon into its compose env and seeds
-  `service_keys` with `(daemon, sha256(secret), scope)`. The secret is never
-  shared; `authd` stores only its hash.
-- **Capability source of truth**: each daemon's `service_scope =
-["messages:write","tasks:read"]` is declared in its
-  `template/services/<daemon>.toml`, aggregated by `compose.go` into the seed
-  (no edit to `compose.go` for a new daemon's scope).
-- **Binding**: the exchange is authenticated by the secret (header) and
-  identified by `daemon` (body); `authd` binds via the `service_keys` row. A
-  leaked key buys exactly that **one** daemon's scoped token — never the
-  ability to sign, since only `authd` holds the private key.
-- **Rotation**: re-generate compose (updates env secret + `service_keys`
-  hash), restart the daemon; `service_keys.rotated_at` records it.
-
-```go
-// auth/ library, inside a daemon. Exchanges the bootstrap secret for a
-// short-lived service JWT and keeps it refreshed; the daemon presents
-// the returned token on daemon→daemon calls; it never holds a signing key.
-func ServiceToken(authdURL, daemon, bootstrapKey string) (*TokenSource, error)
-```
-
-Bootstrap secrets are the **only** symmetric secret left after the HMAC
-retirement (below).
+The `/v1/*` token/key endpoints, JWK rotation, TTL table, and service bootstrap
+live in [`39-auth-api.md`](39-auth-api.md). The OAuth `/auth/*` flow + the
+`auth/` library surfaces are below.
 
 ## Account linking + collision rules
 
@@ -790,7 +439,7 @@ func MCPTools(authdURL string, jwks *KeySet) []MCPTool
 `mint_token` forwards to `authd /v1/tokens` (downscope mode); the host never
 signs. This makes agent → sub-agent delegation safe without admin in the
 loop: the agent's own token is the parent, `authd` signs a narrower token.
-The MCP host (gated's ipc subsystem today; `mcpd` after the split) mounts
+routd hosts the MCP socket in-process (`ServeTurnMCP`) and mounts
 these alongside its tools.
 
 ## Mounting pattern (a verifying daemon)
@@ -817,21 +466,6 @@ func main() {
 Only `authd` holds the private key and mounts `auth.Mount` (OAuth + mint).
 Every other daemon carries public JWKs and verifies offline.
 
-## HMAC retirement plan
-
-The authd cutover retires the two remaining shared symmetric secrets.
-One-shot, no dual-secret period.
-
-| Secret today                                                     | Used for                                                                   | Replaced by                                                                                                                                             |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PROXYD_HMAC_SECRET` / `AUTH_SECRET` (`hmac.go` `VerifyUserSig`) | proxyd signing identity headers (`X-User-Sub`/`-Sig`) that backends verify | ES256 bearer token: proxyd verifies the authd-minted JWT and forwards `Authorization: Bearer`; backends verify the same JWT offline. `hmac.go` deletes. |
-| `CHANNEL_SECRET` (`hmac.go` `VerifyChatSig`)                     | channel adapters signing chat-token headers (`X-Chat-Token`/`-Sig`)        | service token: each adapter exchanges `AUTHD_SERVICE_KEY` for a `service:<adapter>` JWT and presents it; gated verifies offline.                        |
-
-After the cutover the only symmetric secrets left are the per-daemon
-`AUTHD_SERVICE_KEY` bootstrap secrets and the `authd`-internal collision-CSRF
-key. `auth/middleware.go` `RequireSigned`/`StripUnsigned` is re-pointed from
-HMAC-header to JWKs-bearer verification in the same cutover.
-
 ## What this spec is not
 
 - Not distributed minting (`authd` is the sole signer; backends verify).
@@ -842,40 +476,6 @@ HMAC-header to JWKs-bearer verification in the same cutover.
 - Not a per-token revocation list or feed (§ Revocation).
 - Not issuer-side OIDC conformance — we are an OIDC relying party; our issued
   tokens are plain ES256 JWTs.
-
-## Implementation phases (build order; one-shot cutover per U-genericization)
-
-`authd` is extracted **standalone first**, before the rest of the gated
-split. Each step is committed + verified; the final cutover is one
-release ([`U-genericization.md`](U-genericization.md) NO BACKWARD
-COMPATIBILITY).
-
-1. **Extract arizuko-specific code.** Move `acl.go`, `policy.go`,
-   `identity.go` out of `auth/` into `arizuko/identity.go` (folder
-   helpers reading `Identity.Extra["folder"]`; tier dropped). `auth/`
-   left with generic primitives only. Pure refactor.
-2. **Stand up `authd` + `auth.db`.** New daemon; `auth.db` schema +
-   migrations (§ auth.db schema). Generate ES256 keypair on first boot;
-   serve `GET /v1/keys` (go-jose JWK Set). Implement `Mint` +
-   `MintNarrower`, `POST /v1/tokens`. Migrate the `auth_users` /
-   `auth_sessions` rows out of `messages.db`.
-3. **Port OAuth + session handlers into `authd`.** Move
-   `web.go`/`oauth.go`/`routes.go`/`link.go`/`collide.go` into `authd`,
-   re-point at `auth.db` + the ES256 signer; swap hand-rolled OAuth for
-   x/oauth2 + go-oidc. Implement `/v1/refresh` (rotating refresh tokens),
-   `/v1/service-token`, `/auth/me`.
-4. **Offline verification everywhere.** `auth/jwks.go` wraps
-   `oidc.NewRemoteKeySet`; `RequireSigned` re-points from HMAC headers to
-   JWKs-bearer. Backends call `auth.FetchKeys` + `auth.ServiceToken`. MCP
-   `mint_token` forwards to `authd`. HMAC retirement (delete `hmac.go`,
-   drop `PROXYD_HMAC_SECRET`/`CHANNEL_SECRET`).
-5. **Document for non-arizuko deployment.** `authd/README.md` +
-   `auth/README.md`: standalone `authd`, "verify with the library",
-   provider config (Google/GitHub/Discord/OIDC), account linking, MCP
-   integration, `authd/api/v1/` types + client.
-
-After step 2 `authd` signs and JWKs are live; after step 4 every backend
-verifies offline and HMAC is gone. The rest of the gated split follows later.
 
 ## Code pointers
 
@@ -893,13 +493,10 @@ verifies offline and HMAC is gone. The rest of the gated split follows later.
   `arizuko/identity.go` (tier dropped, scope-based).
 - `authd/` (new daemon) — ES256 private key, `auth.db` + `migrations/`,
   mounts `auth.Mount` + `/v1/*`. The sole signer.
-- `authd/api/v1/` (new) — wire types + thin client (the first instance of
-  the [`U-genericization.md`](U-genericization.md) `<daemon>/api/v1/`
-  pattern).
 - `compose/compose.go` — seed `service_keys` + write per-daemon
   `AUTHD_SERVICE_KEY`; aggregate `service_scope` from
   `template/services/*.toml`.
 - `proxyd/main.go` — delegates login to `authd`; verifies via
   `auth.FetchKeys`; no local mint; HMAC header path deleted.
-- `gated/ipc/...` (or `mcpd` after the split) — registers `auth.MCPTools`;
+- `routd/mcp.go` (in-process MCP host) — registers `auth.MCPTools`;
   `mint_token` forwards to `authd`.
