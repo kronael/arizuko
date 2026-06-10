@@ -134,6 +134,18 @@ var daemonKeys = map[string][]string{
 		"SECRETS_KEY",
 		// Instance-wide fallback model when a group has no per-group model.
 		"ARIZUKO_DEFAULT_MODEL",
+		// Inbound media enrichment (download + Whisper transcription) and outbound
+		// send_voice (TTS) run IN routd (routd/enrich.go, routd/tts.go). The split
+		// lifted these out of gated but left the env only on runed (which uses a
+		// SUBSET for the agent's in-container [media] config, container/runner.go),
+		// so routd defaulted MEDIA_ENABLED off → every inbound attachment silently
+		// dropped + send_voice disabled (krons poj.zip, 2026-06-10). Both daemons
+		// need them: routd to download/transcribe/synthesize, runed for the agent's
+		// own media settings — so these are duplicated, not moved.
+		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES",
+		"WHISPER_BASE_URL", "WHISPER_MODEL",
+		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED",
+		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
 	},
 	// runed: execution plane. The ONLY daemon wired to docker.sock +
 	// crackbox + the per-folder agent networks.

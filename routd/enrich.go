@@ -89,6 +89,11 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 
 		if att.URL == "" {
 			if att.Data == "" {
+				// Neither a download URL nor inline base64 → nothing to fetch. An
+				// empty URL means the adapter built the attachment without a
+				// reachable file ref (e.g. teled with LISTEN_URL unset); WARN so it
+				// is never a silent drop.
+				slog.Warn("enrich: attachment has no URL or data", "id", msg.ID, "mime", att.Mime, "filename", att.Filename)
 				continue
 			}
 			raw, err := base64.StdEncoding.DecodeString(att.Data)
