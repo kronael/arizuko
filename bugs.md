@@ -25,6 +25,28 @@ Severity: low (dead, not wrong). Fix-path: drop the nil-source branch + `bearer(
 fallback once confirmed no local-dev tooling relies on it; this is a "remove
 dual-path" concern (behavior-change-adjacent), deliberately out of the zero-behavior
 refine sweep. Sibling of the #14 monolith-fallback removal.
+## OPEN — runed manager.go holds in-memory runtime state (2026-06-10, spec drift)
+
+`runed/manager.go` keeps in-memory `active` / `failures` / `activeCount` / `waiting`
+maps for admission. Per `specs/5/P-runed.md` § Run state, runed must be a DB-stateless
+executor: `spawns` is the run-state source of truth, read per admission, nothing cached.
+Refactor: atomic spawns-table admission claim (`BEGIN IMMEDIATE`; if folder-not-running
+AND running-count<cap → INSERT running row, COMMIT; else return **busy** to routd —
+routd already re-feeds), deterministic steer (derive container name + IPC socket path
+from the folder/run_id on the spawns row, no stored closure), boot reconciliation (mark
+orphaned `state='running'` rows whose containers are gone as `killed`), and **drop runed's
+internal admission queue** — it duplicated routd's queue; routd owns all queueing. Breaker
+failure count becomes a persisted column/small table (e.g. `spawns.failures`), not a map.
+Severity: design-debt, not a live break (current maps work; the spec leads).
+
+## OPEN — `spawn_logs` is an unused table (2026-06-10)
+
+`spawn_logs` (defined in `runed/migrations/0001`) has no write or read path — only
+comments (`db.go` SweepExpired cascade note) and the migrate-split source note reference
+it; no `INSERT`, no `SELECT`, no output-replay endpoint. The originally-specced
+`GET /v1/runs/{run_id}/output` spawn-log replay was never built (dropped from P-runed per
+"keep only what's there"). Operator's call: either drop the table from `runed/migrations/0001`
+(and the `db.go` comment), or build the replay surface that justifies it. Flag, don't decide.
 
 ## OPEN — gated→split parity gaps (2026-06-08 audit)
 
