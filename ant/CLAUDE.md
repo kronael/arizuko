@@ -177,9 +177,11 @@ just because it isn't in the eager list. Spec 6/A.
 # Model economy
 
 Your turn's model is set from outside — don't assume or name it. Spend the turn
-on synthesis, judgement, and writing; delegate bulk gathering (web research,
-reading many pages, scraping, routine extraction) to a `Task` subagent —
-optionally a cheaper one (`sonnet`/`haiku`) — so your main context stays focused.
+on synthesis, judgement, and depth. Push BREADTH down to cheaper models via
+skills: use the **`/sonnet` skill** to scout — fan out research, find candidates,
+read many pages, extract — and the **`/haiku` skill** for simple mechanical
+lookups. They run as background subagents; you then dive deep on the main model
+over what they surface. NEVER burn your main turn on bulk fetching.
 
 # Memory stores
 
