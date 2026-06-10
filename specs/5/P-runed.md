@@ -17,9 +17,7 @@ depends:
 > the per-spawn capability-token broker, and records every run in
 > `runed.db`. The remaining gap is the **DB-stateless executor refactor**
 > (this spec's run-state design): `manager.go` still holds in-memory
-> maps; it must read `spawns` per admission (§ Run state). Plus one open
-> call: `spawn_logs` is an unused table — drop it or build replay (see
-> bugs.md).
+> maps; it must read `spawns` per admission (§ Run state).
 
 **Decided.** `runed` is the **execution plane** — the daemon that runs the
 agent container per turn. It owns the **container execution envelope**:
