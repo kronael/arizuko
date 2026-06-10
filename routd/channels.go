@@ -28,16 +28,45 @@ func (s *Server) SetChannelRegistry(reg *chanreg.Registry,
 }
 
 // mountChannels adds the channel-registration routes when a registry is wired.
-// Register/list are CHANNEL_SECRET-gated (chanlib.Auth); deregister carries the
-// adapter's own session token.
+// Register/list are gated on the adapter's ES256 service:<adapter> token
+// (HMAC→ES256 retire step 4); deregister carries the adapter's own session
+// token. With no Verifier (local dev) the gate falls back to CHANNEL_SECRET.
 func (s *Server) mountChannels(mux *http.ServeMux) {
 	if s.reg == nil {
 		return
 	}
-	auth := func(h http.HandlerFunc) http.HandlerFunc { return chanlib.Auth(s.reg.Secret(), h) }
-	mux.HandleFunc("POST /v1/channels/register", auth(s.handleChannelRegister))
+	mux.HandleFunc("POST /v1/channels/register", s.channelAuth(s.handleChannelRegister))
 	mux.HandleFunc("POST /v1/channels/deregister", s.handleChannelDeregister)
-	mux.HandleFunc("GET /v1/channels", auth(s.handleChannelList))
+	mux.HandleFunc("GET /v1/channels", s.channelAuth(s.handleChannelList))
+}
+
+// channelAuth admits a caller presenting a valid ES256 service token (the
+// adapter's service:<adapter>, verified via the Verifier's JWKS). The "service:"
+// sub prefix is authd's marker for typ=service principals (authd never mints it
+// for users), so the prefix check is the typ gate; a non-service sub or a verify
+// failure is 401. With no Verifier (local dev, s.verify==nil) it falls back to
+// the CHANNEL_SECRET constant-time compare.
+//
+// Trust note: the gate admits ANY seeded service principal, not one bound to
+// req.Name. The registration `name` is the CHANNEL_NAME (telegram, telegram-rhias),
+// while the token sub is the daemon principal (service:teled) — multi-account
+// variants share one principal across many names, so name↔sub can't be pinned.
+// The origin pin (handleChannelRegister) locks a name to its FIRST (originIP,
+// principal) pair, blocking later hijack; first-claim squatting by a valid
+// service principal is accepted, same as the prior CHANNEL_SECRET model (any
+// secret holder could register any name) — ES256 only narrows the caller set.
+func (s *Server) channelAuth(next http.HandlerFunc) http.HandlerFunc {
+	if s.verify == nil {
+		return chanlib.Auth(s.reg.Secret(), next) // ks==nil → CHANNEL_SECRET compare
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		sub, _, _, err := s.verify.Verify(r)
+		if err != nil || !strings.HasPrefix(sub, "service:") {
+			chanlib.WriteErr(w, http.StatusUnauthorized, "invalid service token")
+			return
+		}
+		next(w, r)
+	}
 }
 
 type channelRegisterReq struct {
@@ -58,12 +87,20 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Origin pin: future re-registrations of this name must come from the same
-	// source IP + present the same secret (blocks adapter-name hijack by other
-	// CHANNEL_SECRET holders).
+	// source IP + same caller identity (blocks adapter-name hijack). Under ES256
+	// the bearer is a service token that rotates ~hourly, so pin on the verified
+	// service principal (stable per adapter), NOT the rotating token — pinning the
+	// raw JWT would reject every legitimate re-register after a refresh. Local dev
+	// (no Verifier) pins on the raw CHANNEL_SECRET, as before.
 	originIP := clientIP(r)
-	presentedSecret := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	pinID := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if s.verify != nil {
+		if sub, _, _, err := s.verify.Verify(r); err == nil {
+			pinID = sub
+		}
+	}
 	token, err := s.reg.RegisterWithOrigin(req.Name, req.URL, req.JIDPrefixes, req.Capabilities,
-		originIP, presentedSecret)
+		originIP, pinID)
 	if err != nil {
 		status := http.StatusBadRequest
 		switch {
@@ -77,7 +114,7 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.onRegister != nil {
 		if entry := s.reg.Get(req.Name); entry != nil {
-			s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Secret()))
+			s.onRegister(req.Name, chanreg.NewHTTPChannel(entry, s.reg.Bearer()))
 		}
 	}
 	slog.Info("channel registered", "name", req.Name, "url", req.URL, "prefixes", req.JIDPrefixes)

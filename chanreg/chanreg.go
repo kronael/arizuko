@@ -50,6 +50,12 @@ type Registry struct {
 	entries map[string]*Entry // keyed by name
 	byToken map[string]*Entry // keyed by session token
 	secret  string
+
+	// bearer is the credential routd presents to adapters on egress: its
+	// service:routd ES256 token source (HMAC→ES256 retire step 4). nil → the
+	// CHANNEL_SECRET static fallback (local dev). Origin-pin registration still
+	// uses `secret`; this only feeds outbound HTTPChannel auth.
+	bearer func(context.Context) (string, error)
 }
 
 func New(secret string) *Registry {
@@ -58,6 +64,26 @@ func New(secret string) *Registry {
 		byToken: make(map[string]*Entry),
 		secret:  secret,
 	}
+}
+
+// SetBearer installs routd's service-token source for adapter egress. Call once
+// at boot; nil leaves the CHANNEL_SECRET fallback active.
+func (r *Registry) SetBearer(src func(context.Context) (string, error)) {
+	r.mu.Lock()
+	r.bearer = src
+	r.mu.Unlock()
+}
+
+// Bearer returns the egress credential getter for adapter HTTPChannels: the
+// service:routd token source when wired, else a static CHANNEL_SECRET getter.
+func (r *Registry) Bearer() func(context.Context) (string, error) {
+	r.mu.RLock()
+	src := r.bearer
+	r.mu.RUnlock()
+	if src != nil {
+		return src
+	}
+	return StaticBearer(r.secret)
 }
 
 // Register validates the URL and claims name. Tests and internal callers

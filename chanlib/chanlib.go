@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -276,21 +275,6 @@ func WriteErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": msg})
-}
-
-func Auth(secret string, next http.HandlerFunc) http.HandlerFunc {
-	if secret == "" {
-		return next
-	}
-	secretBytes := []byte(secret)
-	return func(w http.ResponseWriter, r *http.Request) {
-		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(tok), secretBytes) != 1 {
-			WriteErr(w, 401, "invalid secret")
-			return
-		}
-		next(w, r)
-	}
 }
 
 func Chunk(s string, max int) []string {

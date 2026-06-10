@@ -182,7 +182,7 @@ func TestDelivererReusesLiveChannel(t *testing.T) {
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil)
 
-	live := chanreg.NewHTTPChannel(reg.Get("slakd"), "")
+	live := chanreg.NewHTTPChannel(reg.Get("slakd"), chanreg.StaticBearer(""))
 	d.setLive("slakd", live)
 	if got := d.resolve("slack:T1/C/U"); got != live {
 		t.Fatal("resolve did not return the cached live channel")

@@ -16,7 +16,7 @@ func TestHTTPChannelOwns(t *testing.T) {
 		Name:        "telegram",
 		JIDPrefixes: []string{"tg:", "telegram:"},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	if !ch.Owns("tg:123") {
 		t.Error("expected to own tg:123")
@@ -49,13 +49,53 @@ func TestHTTPChannelSend(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	if _, err := ch.Send("tg:123", "hello", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got["chat_jid"] != "tg:123" || got["content"] != "hello" {
 		t.Errorf("got = %v", got)
+	}
+}
+
+// TestHTTPChannelDynamicBearer: the egress client presents the token its
+// bearer getter yields on each call (the service:routd token-source path), not
+// a fixed secret — and a getter error sends no Authorization header (the adapter
+// then 401s, surfacing the failure).
+func TestHTTPChannelDynamicBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+	e := &Entry{Name: "tg", URL: srv.URL, JIDPrefixes: []string{"tg:"}, Capabilities: map[string]bool{"send_text": true}}
+
+	token := "service-routd-jwt-1"
+	getter := func(context.Context) (string, error) { return token, nil }
+	ch := NewHTTPChannel(e, getter)
+	if _, err := ch.Send("tg:1", "hi", "", "", ""); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if gotAuth != "Bearer service-routd-jwt-1" {
+		t.Fatalf("auth header = %q, want Bearer service-routd-jwt-1", gotAuth)
+	}
+	// A rotated token rides the next call — the getter is consulted per request.
+	token = "service-routd-jwt-2"
+	if _, err := ch.Send("tg:1", "hi again", "", "", ""); err != nil {
+		t.Fatalf("send 2: %v", err)
+	}
+	if gotAuth != "Bearer service-routd-jwt-2" {
+		t.Fatalf("rotated auth header = %q, want Bearer service-routd-jwt-2", gotAuth)
+	}
+	// Getter error → no Authorization header (adapter would 401).
+	ch = NewHTTPChannel(e, func(context.Context) (string, error) { return "", errors.New("authd down") })
+	if _, err := ch.Send("tg:1", "x", "", "", ""); err != nil {
+		t.Fatalf("send with failing getter: %v", err)
+	}
+	if gotAuth != "" {
+		t.Fatalf("auth header on getter error = %q, want empty", gotAuth)
 	}
 }
 
@@ -66,7 +106,7 @@ func TestHTTPChannelSendNoCapErrors(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	// send_text not declared — must return error so caller knows the send was skipped
 	_, err := ch.Send("tg:123", "hello", "", "", "")
@@ -82,7 +122,7 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	_, err := ch.Send("tg:123", "hello", "", "", "")
 	if err == nil {
@@ -113,7 +153,7 @@ func TestHTTPChannelTypingPostsBody(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"typing": true},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	if err := ch.Typing("tg:123", true); err != nil {
 		t.Fatal(err)
@@ -144,7 +184,7 @@ func TestHTTPChannelTypingNoCap(t *testing.T) {
 			Name: "tg", URL: srv.URL, JIDPrefixes: []string{"tg:"},
 			Capabilities: caps,
 		}
-		ch := NewHTTPChannel(e, "secret")
+		ch := NewHTTPChannel(e, StaticBearer("secret"))
 		if err := ch.Typing("tg:123", true); err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +212,7 @@ func TestHTTPChannelTypingSwallowsFailures(t *testing.T) {
 				Name: "tg", URL: tt.url, JIDPrefixes: []string{"tg:"},
 				Capabilities: map[string]bool{"typing": true},
 			}
-			ch := NewHTTPChannel(e, "secret")
+			ch := NewHTTPChannel(e, StaticBearer("secret"))
 			if err := ch.Typing("tg:123", true); err != nil {
 				t.Fatal(err)
 			}
@@ -190,7 +230,7 @@ func TestHTTPChannelHealthCheck(t *testing.T) {
 	defer srv.Close()
 
 	e := &Entry{Name: "tg", URL: srv.URL}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	if err := ch.HealthCheck(); err != nil {
 		t.Fatal(err)
@@ -199,7 +239,7 @@ func TestHTTPChannelHealthCheck(t *testing.T) {
 
 func TestHTTPChannelName(t *testing.T) {
 	e := &Entry{Name: "telegram"}
-	ch := NewHTTPChannel(e, "s")
+	ch := NewHTTPChannel(e, StaticBearer("s"))
 	if ch.Name() != "telegram" {
 		t.Errorf("name = %q", ch.Name())
 	}
@@ -219,7 +259,7 @@ func TestHTTPChannelDrainOutbox(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 
 	// manually enqueue
 	ch.enqueue(outMsg{JID: "tg:1", Content: "a"})
@@ -245,7 +285,7 @@ func TestHTTPChannelPost501JSON(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	var ue *chanlib.UnsupportedError
 	if !errors.As(err, &ue) {
@@ -267,7 +307,7 @@ func TestHTTPChannelPost501Plain(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
-	ch := NewHTTPChannel(e, "secret")
+	ch := NewHTTPChannel(e, StaticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Errorf("want ErrUnsupported, got %v", err)

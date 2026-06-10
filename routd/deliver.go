@@ -87,7 +87,7 @@ func (d *chanDeliverer) resolve(jid string) *chanreg.HTTPChannel {
 	if ch != nil {
 		return ch
 	}
-	return chanreg.NewHTTPChannel(entry, d.reg.Secret())
+	return chanreg.NewHTTPChannel(entry, d.reg.Bearer())
 }
 
 func (d *chanDeliverer) latestSource(jid string) string {

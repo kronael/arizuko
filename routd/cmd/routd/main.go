@@ -104,8 +104,14 @@ func main() {
 	// nil when ONBOD_URL or the service key is unwired → the commands report the
 	// federation gap, exactly as the pre-federation stubs did.
 	var onbod routd.OnbodClient
+	// svcSrc is the service:routd token source, reused for the adapter-egress
+	// Bearer (chanreg) too: routd→adapter calls (/send, /files, /v1/pane, …)
+	// present this ES256 token instead of CHANNEL_SECRET (HMAC→ES256 retire step
+	// 4). nil → chanreg falls back to the CHANNEL_SECRET static getter.
+	var svcSrc func(context.Context) (string, error)
 	svcKey := os.Getenv("AUTHD_SERVICE_KEY")
 	if ts, err := auth.ServiceToken(authdURL, "routd", svcKey); err == nil {
+		svcSrc = ts.Token
 		runedClient = runedv1.NewClientWithSource(runedURL, ts.Token, runedWait)
 		identity = routd.NewIdentityResolver(authdURL, ts.Token)
 		onbod = routd.NewOnbodClient(onbodURL, ts.Token)
@@ -126,6 +132,7 @@ func main() {
 	// same order gated used (latest inbound source → registry prefix match).
 	// In-memory registry — adapters re-register on routd restart.
 	reg := chanreg.New(os.Getenv("CHANNEL_SECRET"))
+	reg.SetBearer(svcSrc) // service:routd egress token; nil → CHANNEL_SECRET fallback
 	deliver, onRegister, onDeregister := routd.NewChannelDeliverer(
 		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 

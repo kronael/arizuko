@@ -52,8 +52,11 @@ func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) er
 const maxOutbox = 1000
 
 type HTTPChannel struct {
-	entry  *Entry
-	secret string
+	entry *Entry
+	// bearer yields the credential presented to the adapter on every call: routd's
+	// service:routd ES256 JWT in the split (HMAC→ES256 retire step 4), or a static
+	// CHANNEL_SECRET in local dev. Never nil — NewHTTPChannel installs a getter.
+	bearer func(context.Context) (string, error)
 	client *http.Client
 
 	mu     sync.RWMutex
@@ -73,11 +76,38 @@ type outMsg struct {
 	FileReplyTo string
 }
 
-func NewHTTPChannel(e *Entry, secret string) *HTTPChannel {
+// NewHTTPChannel builds the routd-side egress client for an adapter. bearer
+// yields the credential presented on every call (service:routd token in the
+// split, CHANNEL_SECRET in local dev). A nil bearer means "no auth header"
+// (empty-secret single-process tests).
+func NewHTTPChannel(e *Entry, bearer func(context.Context) (string, error)) *HTTPChannel {
+	if bearer == nil {
+		bearer = func(context.Context) (string, error) { return "", nil }
+	}
 	return &HTTPChannel{
 		entry:  e,
-		secret: secret,
+		bearer: bearer,
 		client: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// StaticBearer wraps a fixed secret as a bearer getter (CHANNEL_SECRET local-dev
+// path). An empty secret yields no Authorization header.
+func StaticBearer(secret string) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) { return secret, nil }
+}
+
+// authHeader sets Authorization from the bearer getter when it yields a token.
+// A getter error is logged and the request goes out unauthenticated → the
+// adapter returns 401, surfacing the auth failure rather than masking it.
+func (h *HTTPChannel) authHeader(ctx context.Context, req *http.Request) {
+	tok, err := h.bearer(ctx)
+	if err != nil {
+		slog.Error("channel egress: bearer token unavailable", "channel", h.entry.Name, "err", err)
+		return
+	}
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 }
 
@@ -210,7 +240,7 @@ func (h *HTTPChannel) uploadMultipart(ctx context.Context, endpoint, jid, path, 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer "+h.secret)
+	h.authHeader(ctx, req)
 	return h.client.Do(req)
 }
 
@@ -267,7 +297,7 @@ func (h *HTTPChannel) FetchHistory(ctx context.Context, jid string, before time.
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+h.secret)
+	h.authHeader(ctx, req)
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("channel %s fetch_history: %w", h.entry.Name, err)
@@ -462,7 +492,7 @@ func (h *HTTPChannel) post(ctx context.Context, path string, body []byte) (*http
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+h.secret)
+	h.authHeader(ctx, req)
 	return h.client.Do(req)
 }
 
