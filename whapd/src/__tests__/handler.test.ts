@@ -5,7 +5,6 @@ import { startServer } from '../server';
 // WASocket. Proves the handler forwards (to, text) to sendMessage with the
 // normalized JID and returns ok=true (not queued) when connected.
 
-const SECRET = 'handler-test-secret';
 const PORT = 19124;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -25,9 +24,11 @@ const sock = {
 } as any;
 
 beforeAll(() => {
+  // null verifier = local-dev open gate (no AUTHD_URL); this test exercises
+  // handler routing, not the routd↔adapter auth boundary.
   server = startServer(
     `:${PORT}`,
-    SECRET,
+    null,
     () => sock,
     () => true,
     () => {
@@ -49,10 +50,7 @@ describe('send handler', () => {
         chat_jid: 'whatsapp:42',
         content: 'hello **world**',
       }),
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${SECRET}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
     expect(r.status).toBe(200);
     const b = await r.json();

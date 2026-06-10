@@ -1,6 +1,7 @@
 import http from 'node:http';
 import Busboy from 'busboy';
 import type { WAMessage, WASocket } from '@whiskeysockets/baileys';
+import { verifyRoutd, type RoutdVerifier } from './auth.js';
 import { PairError, type WhapdBot } from './bot.js';
 import { log } from './log.js';
 
@@ -138,7 +139,7 @@ async function act(res: http.ServerResponse, fn: () => Promise<string | void>) {
 
 export function startServer(
   addr: string,
-  secret: string,
+  verifier: RoutdVerifier,
   sock: () => WASocket | null,
   isConnected: () => boolean,
   queueOutbound: (jid: string, text: string) => void,
@@ -170,12 +171,11 @@ export function startServer(
       return;
     }
 
-    if (secret) {
-      const tok = (req.headers.authorization || '').replace('Bearer ', '');
-      if (tok !== secret) {
-        json(res, 401, { ok: false, error: 'invalid secret' });
-        return;
-      }
+    // routd→adapter gate: ES256 service:routd JWT (verifier null in local dev →
+    // open, mirroring Go chanlib.Auth's ks==nil). /health above stays public.
+    if (!(await verifyRoutd(req, verifier))) {
+      json(res, 401, { ok: false, error: 'invalid service token' });
+      return;
     }
 
     if (req.method === 'GET' && req.url === '/v1/pair/status') {

@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import { startServer } from './server';
 import type { Scraper } from './twitter';
 
@@ -59,7 +60,6 @@ function makeStub(): { sock: Scraper; calls: Call[] } {
   return { sock: stub, calls };
 }
 
-const SECRET = 'test-secret';
 const PORT = 19223;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -68,10 +68,33 @@ let stub = makeStub();
 let connected = true;
 let lastInboundAt = Math.floor(Date.now() / 1000);
 
-beforeAll(() => {
+// ES256 routd-token harness: sign service:routd JWTs against a local keypair and
+// gate the server on a createLocalJWKSet verifier (same shape as the production
+// RemoteJWKSet). routdToken is the only credential the gate admits.
+let signKey: CryptoKey;
+let routdToken = '';
+
+async function signToken(sub: string, typ: string): Promise<string> {
+  return new SignJWT({ typ })
+    .setProtectedHeader({ alg: 'ES256' })
+    .setSubject(sub)
+    .setIssuer('authd')
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(signKey);
+}
+
+beforeAll(async () => {
+  const { publicKey, privateKey } = await generateKeyPair('ES256', {
+    extractable: true,
+  });
+  signKey = privateKey;
+  const jwk = await exportJWK(publicKey);
+  const verifier = createLocalJWKSet({ keys: [{ ...jwk, alg: 'ES256' }] });
+  routdToken = await signToken('service:routd', 'service');
   server = startServer(
     `:${PORT}`,
-    SECRET,
+    verifier,
     () => stub.sock,
     () => connected,
     () => lastInboundAt,
@@ -83,7 +106,7 @@ afterAll(() => {
 });
 
 function auth() {
-  return { Authorization: `Bearer ${SECRET}` };
+  return { Authorization: `Bearer ${routdToken}` };
 }
 
 describe('GET /health', () => {
@@ -129,7 +152,7 @@ describe('auth gate', () => {
     expect(r.status).toBe(401);
   });
 
-  it('rejects wrong token', async () => {
+  it('rejects a non-JWT bearer', async () => {
     const r = await fetch(`${BASE}/post`, {
       method: 'POST',
       body: '{}',
@@ -139,6 +162,43 @@ describe('auth gate', () => {
       },
     });
     expect(r.status).toBe(401);
+  });
+
+  it('rejects a valid ES256 token whose sub is not service:routd', async () => {
+    const wrongSub = await signToken('service:teled', 'service');
+    const r = await fetch(`${BASE}/post`, {
+      method: 'POST',
+      body: '{}',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${wrongSub}`,
+      },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  it('rejects a service:routd-sub token whose typ is not service', async () => {
+    const wrongTyp = await signToken('service:routd', 'user');
+    const r = await fetch(`${BASE}/post`, {
+      method: 'POST',
+      body: '{}',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${wrongTyp}`,
+      },
+    });
+    expect(r.status).toBe(401);
+  });
+
+  it('admits a valid service:routd ES256 token', async () => {
+    connected = true;
+    stub = makeStub();
+    const r = await fetch(`${BASE}/post`, {
+      method: 'POST',
+      body: JSON.stringify({ content: 'gated ok' }),
+      headers: { 'Content-Type': 'application/json', ...auth() },
+    });
+    expect(r.status).toBe(200);
   });
 });
 

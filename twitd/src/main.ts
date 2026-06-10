@@ -1,3 +1,8 @@
+import {
+  ServiceTokenSource,
+  buildVerifier,
+  type RoutdVerifier,
+} from './auth.js';
 import { RouterClient } from './client.js';
 import { log } from './log.js';
 import { pollMentions } from './poll.js';
@@ -40,13 +45,30 @@ const cfg: TwitterConfig = {
 };
 
 const routerURL = env('ROUTER_URL');
-const channelSecret =
-  process.env['TWITD_CHANNEL_SECRET'] ?? env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':8080');
 const listenURL = env('LISTEN_URL', 'http://twitd:8080');
 const pollIntervalSec = parseInterval(envOpt('TWITTER_POLL_INTERVAL') ?? '90');
 
-const rc = new RouterClient(routerURL, channelSecret);
+// Split (spec 5/1) routd↔adapter auth — ES256 service tokens, no CHANNEL_SECRET
+// (HMAC retire step 6). Outbound: exchange AUTHD_SERVICE_KEY for a
+// service:<daemon> JWT (principal = AUTHD_SERVICE_NAME, the base daemon name)
+// and present it on every routd call. Inbound: verifyRoutd pins service:routd
+// against authd's JWKS. AUTHD_URL unset → local dev: bearer '' + verifier null
+// (gate open), mirroring Go chanlib.
+const authdURL = process.env['AUTHD_URL'];
+const verifier: RoutdVerifier = buildVerifier();
+let bearer: () => Promise<string> = async () => '';
+if (authdURL) {
+  const svcName = process.env['AUTHD_SERVICE_NAME'] || 'twitd';
+  const svcKey = env('AUTHD_SERVICE_KEY');
+  const src = new ServiceTokenSource(authdURL, svcName, svcKey);
+  bearer = () => src.token();
+  log('info', 'service-token auth enabled', {
+    daemon: svcName,
+    authd: authdURL,
+  });
+}
+const rc = new RouterClient(routerURL, bearer);
 let scraper: Scraper | null = null;
 let connected = false;
 let lastInboundAt = Math.floor(Date.now() / 1000);
@@ -165,7 +187,7 @@ async function main() {
 
   const srv = startServer(
     listenAddr,
-    channelSecret,
+    verifier,
     getScraper,
     isConnected,
     () => lastInboundAt,

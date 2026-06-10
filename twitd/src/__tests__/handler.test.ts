@@ -5,7 +5,6 @@ import type { Scraper } from '../twitter';
 // Integration test: prove the handler chain end-to-end with a stubbed
 // Scraper for a typical "post a tweet" round-trip.
 
-const SECRET = 'handler-twitd-secret';
 const PORT = 19224;
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -34,9 +33,11 @@ const scraper = {
 let server: ReturnType<typeof startServer>;
 
 beforeAll(() => {
+  // null verifier = local-dev open gate (no AUTHD_URL); this test exercises
+  // handler routing, not the routd↔adapter auth boundary.
   server = startServer(
     `:${PORT}`,
-    SECRET,
+    null,
     () => scraper,
     () => true,
     () => Math.floor(Date.now() / 1000),
@@ -52,10 +53,7 @@ describe('post handler', () => {
     const r = await fetch(`${BASE}/post`, {
       method: 'POST',
       body: JSON.stringify({ content: 'hello x' }),
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${SECRET}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
     expect(r.status).toBe(200);
     const b = await r.json();

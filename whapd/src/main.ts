@@ -11,6 +11,12 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
+import {
+  ServiceTokenSource,
+  buildVerifier,
+  verifyRoutd,
+  type RoutdVerifier,
+} from './auth.js';
 import { WhapdBot, authDirHasCreds, type SocketBuilder } from './bot.js';
 import { RouterClient } from './client.js';
 import {
@@ -198,11 +204,30 @@ const pairSocketBuilder: SocketBuilder = async (phone) => {
 const bot = new WhapdBot(pairSocketBuilder, () => authDirHasCreds(authDir));
 
 const routerURL = env('ROUTER_URL');
-const channelSecret =
-  process.env['WHAPD_CHANNEL_SECRET'] ?? env('CHANNEL_SECRET', '');
 const listenAddr = env('LISTEN_ADDR', ':9002');
 const listenURL = env('LISTEN_URL', 'http://whapd:9002');
-const rc = new RouterClient(routerURL, channelSecret);
+
+// Split (spec 5/1) routd↔adapter auth — ES256 service tokens, no CHANNEL_SECRET
+// (HMAC retire step 6). Outbound: exchange AUTHD_SERVICE_KEY for a
+// service:<daemon> JWT (principal = AUTHD_SERVICE_NAME, the base daemon name,
+// NOT the channel name) and present it on every routd call. Inbound: verifyRoutd
+// pins service:routd against authd's JWKS. AUTHD_URL unset → local dev: bearer
+// '' + verifier null (gate open), mirroring Go chanlib (run.go exits if a key is
+// missing only when AUTHD_URL is set; chanlib.Auth opens the gate at ks==nil).
+const authdURL = process.env['AUTHD_URL'];
+const verifier: RoutdVerifier = buildVerifier();
+let bearer: () => Promise<string> = async () => '';
+if (authdURL) {
+  const svcName = process.env['AUTHD_SERVICE_NAME'] || 'whapd';
+  const svcKey = env('AUTHD_SERVICE_KEY');
+  const src = new ServiceTokenSource(authdURL, svcName, svcKey);
+  bearer = () => src.token();
+  log('info', 'service-token auth enabled', {
+    daemon: svcName,
+    authd: authdURL,
+  });
+}
+const rc = new RouterClient(routerURL, bearer);
 let reconnectAttempts = 0;
 let connected = false;
 // Unix seconds of the most recent successful inbound delivery to the
@@ -476,7 +501,7 @@ async function main() {
 
   const srv = startServer(
     listenAddr,
-    channelSecret,
+    verifier,
     getSocket,
     isConnected,
     queueOutbound,

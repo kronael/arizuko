@@ -9,7 +9,8 @@
     "test": "bun test src/server.test.ts src/twitter.test.ts src/__tests__/handler.test.ts"
   },
   "dependencies": {
-    "agent-twitter-client": "0.0.18"
+    "agent-twitter-client": "0.0.18",
+    "jose": "6.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

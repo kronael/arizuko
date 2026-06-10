@@ -19,50 +19,47 @@ export interface InboundMsg {
   is_group?: boolean;
 }
 
-export class RouterClient {
-  private token = '';
+// Bearer returns the service:<adapter> ES256 token to present on routd calls
+// (HMAC retire step 6). Async because the token source refreshes before expiry.
+// Returns '' in local dev (no AUTHD_URL) → routd's no-JWKS gate is open.
+export type Bearer = () => Promise<string>;
 
+export class RouterClient {
   constructor(
     private url: string,
-    private secret: string,
+    private bearer: Bearer,
   ) {}
 
   async register(name: string, listenURL: string): Promise<void> {
-    const r = await this.post(
-      '/v1/channels/register',
-      {
-        name,
-        url: listenURL,
-        jid_prefixes: ['twitter:'],
-        capabilities: {
-          send_text: true,
-          send_file: true,
-          post: true,
-          reply: true,
-          repost: true,
-          quote: true,
-          like: true,
-          delete: true,
-        },
+    const r = await this.post('/v1/channels/register', {
+      name,
+      url: listenURL,
+      jid_prefixes: ['twitter:'],
+      capabilities: {
+        send_text: true,
+        send_file: true,
+        post: true,
+        reply: true,
+        repost: true,
+        quote: true,
+        like: true,
+        delete: true,
       },
-      this.secret,
-    );
+    });
     if (!r.ok) throw new Error(`register: ${r.error}`);
-    this.token = r.token!;
   }
 
   async deregister(): Promise<void> {
-    await this.post('/v1/channels/deregister', null, this.token).catch(
-      () => {},
-    );
+    await this.post('/v1/channels/deregister', null).catch(() => {});
   }
 
   async sendMessage(msg: InboundMsg): Promise<void> {
-    const r = await this.post('/v1/messages', msg, this.token);
+    const r = await this.post('/v1/messages', msg);
     if (!r.ok) throw new Error(`deliver: ${r.error}`);
   }
 
-  private async post(path: string, body: unknown, auth: string): Promise<Resp> {
+  private async post(path: string, body: unknown): Promise<Resp> {
+    const auth = await this.bearer();
     const r = await fetch(this.url + path, {
       method: 'POST',
       headers: {

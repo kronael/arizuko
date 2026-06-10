@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { verifyRoutd, type RoutdVerifier } from './auth.js';
 import { log } from './log.js';
 import type { Scraper } from './twitter.js';
 import * as v from './verbs.js';
@@ -77,7 +78,7 @@ async function act(res: http.ServerResponse, fn: () => Promise<string | void>) {
 
 export function startServer(
   addr: string,
-  secret: string,
+  verifier: RoutdVerifier,
   scraper: () => Scraper | null,
   isConnected: () => boolean,
   lastInboundAt: () => number,
@@ -107,12 +108,11 @@ export function startServer(
       return;
     }
 
-    if (secret) {
-      const tok = (req.headers.authorization || '').replace('Bearer ', '');
-      if (tok !== secret) {
-        json(res, 401, { ok: false, error: 'invalid secret' });
-        return;
-      }
+    // routd→adapter gate: ES256 service:routd JWT (verifier null in local dev →
+    // open, mirroring Go chanlib.Auth's ks==nil). /health above stays public.
+    if (!(await verifyRoutd(req, verifier))) {
+      json(res, 401, { ok: false, error: 'invalid service token' });
+      return;
     }
 
     if (req.method !== 'POST') {
