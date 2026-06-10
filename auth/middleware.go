@@ -34,6 +34,11 @@ type Grants func(bareSub string) []string
 func stampES256Identity(r *http.Request, sub Subject, grants Grants) {
 	bare := strings.TrimPrefix(sub.Sub, "user:")
 	r.Header.Set("X-User-Sub", bare)
+	// The bearer authenticated; a stale client-supplied X-User-Sig must not
+	// outlive the stamp. It cannot verify (the restamped message differs), but
+	// leaving attacker-controlled bytes on an admitted request is a sharp edge —
+	// after stamping, ONLY verified-token headers remain.
+	r.Header.Del("X-User-Sig")
 	if name := sub.Extra["name"]; name != "" {
 		r.Header.Set("X-User-Name", name)
 	} else {
@@ -57,12 +62,23 @@ func stampES256Identity(r *http.Request, sub Subject, grants Grants) {
 // success, stamps r's identity headers. Returns true when the request now
 // carries a verified ES256 identity. Env-gated: callers pass a nil ks when
 // AUTHD_URL is unset, so the live HMAC-only behavior is exactly preserved.
+//
+// These middlewares replace RequireSigned/StripUnsigned, which carried a
+// proxyd-signed HUMAN identity (post-OAuth). So the bearer path admits only
+// user-derived tokens: typ=user, or typ=downscoped (which descends from a
+// user). A typ=service token authenticates service-to-service calls and must
+// NOT impersonate a human on these surfaces — admitting it would be admission
+// widening versus the HMAC path it replaces. stampES256Identity also assumes a
+// user (it strips the `user:` sub prefix), so a service sub would stamp wrong.
 func tryES256(ks *KeySet, grants Grants, r *http.Request) bool {
 	if ks == nil {
 		return false
 	}
 	sub, err := VerifyHTTP(r, ks)
 	if err != nil {
+		return false
+	}
+	if sub.Typ != "user" && sub.Typ != "downscoped" {
 		return false
 	}
 	stampES256Identity(r, sub, grants)

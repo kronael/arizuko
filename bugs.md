@@ -5,6 +5,24 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — bearer-admitted callers fail downstream VerifyUserSig re-checks (2026-06-10, HMAC-retire blocker)
+
+The `auth/` middleware dual-accepts ES256 bearer ∥ HMAC, but several handlers
+re-check HMAC AFTER the middleware and treat a bearer-admitted request as
+unsigned: `webd/route_token.go:171`, `webd/route_token.go:401` (SSE `okUser :=
+auth.VerifyUserSig(...)`), `proxyd/resource.go:354`. Fail-closed (403), not a
+bypass — but a lost capability: "middleware-authenticated" no longer implies
+"passes later VerifyUserSig". These MUST read the middleware-stamped identity
+(request context) instead of re-verifying HMAC BEFORE any signer flips to
+bearer-only, or bearer users silently 403. On the HMAC-retire critical path.
+
+## OPEN — bearer path does not enforce `aud` (2026-06-10, HMAC-retire decision)
+
+`auth/middleware.go` `tryES256` ignores token audience. If authd ever issues
+audience-scoped tokens, a token minted for daemon A authenticates daemon B.
+Currently policy-dependent (no aud-scoped tokens issued yet). Decide whether
+`aud` binding belongs on the verify side before HMAC retirement completes.
+
 ## OPEN — `soul` field name persists in code after SOUL.md→PERSONA.md rename (2026-06-10, low)
 
 The file + headings are now PERSONA.md / `# Persona`, but the code that loads
