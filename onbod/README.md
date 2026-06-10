@@ -84,9 +84,13 @@ onbod uses the same `auth/` library every other daemon does — it is
 signer; onbod never holds a signing key.
 
 - **Verifier (today).** onbod fetches authd's JWKS at boot
-  (`auth.FetchKeys` → `KeySet`) and gates routes with
-  `auth.StripUnsignedOrBearer(PROXYD_HMAC_SECRET, ks)` — accepting either
-  a proxyd-signed header or a Bearer ES256 token. `/v1/invites` and
+  (`auth.FetchKeys` → `KeySet`) and gates its public routes with the local
+  `stripUnsignedGuard(PROXYD_HMAC_SECRET, ks)` — it keeps the
+  proxyd-stamped `X-User-Sub` (the OAuth'd end-user) only when the request
+  proves it transited proxyd, via a legacy HMAC `X-User-Sig` OR a valid
+  ES256 bearer (proxyd's `service:proxyd` transit token). The bearer is a
+  transit proof ONLY; its `service:proxyd` subject never overwrites the
+  end-user `X-User-Sub`. `/v1/invites` and
   `/v1/users` (planned) will additionally check `users:read` /
   `invites:write` scope via `auth.HasScope` — identical pattern to timed
   and routd.

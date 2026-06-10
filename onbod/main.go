@@ -117,9 +117,10 @@ func main() {
 		},
 	})
 
-	// Soak (spec 5/1 § cutover): when AUTHD_URL is set, additionally accept an
-	// authd-minted ES256 bearer alongside the live HMAC X-User-Sig. Unset →
-	// nil KeySet → StripUnsigned behavior, exactly as before.
+	// guard proves a request transited proxyd, then trusts the proxyd-stamped
+	// X-User-Sub as the END-USER (the OAuth'd visitor) identity. When AUTHD_URL
+	// is set, build authd's JWKS so the ES256 transit bearer (proxyd attaches
+	// its service:proxyd token) verifies; unset → nil ks → HMAC-only.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var ks *auth.KeySet
@@ -132,11 +133,15 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	// Post-flip the ES256 bearer carries only its narrow arz/folder claim;
-	// X-User-Groups is resolved from the full grant set (UserScopes over the
-	// cross DB — routd.db in the split) keyed on the bare sub, and the sub
-	// itself is prefix-stripped so matchGate's github:/google: checks fire.
-	stripUnsigned := auth.StripUnsignedOrBearer(os.Getenv("PROXYD_HMAC_SECRET"), ks, store.New(xdb).UserScopes)
+	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
+	// proxyd — a legacy HMAC X-User-Sig OR a valid authd ES256 bearer (the
+	// service:proxyd transit token). The bearer is a transit proof ONLY: onbod's
+	// /onboard reads X-User-Sub as the OAuth'd end-user (matchGate's
+	// github:/google: checks), so we must NOT stamp the bearer's own
+	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a
+	// request bypassing proxyd cannot forge identity); the public flow then
+	// redirects to /auth/login. Both proofs absent (local dev) → pass through.
+	stripUnsigned := stripUnsignedGuard(os.Getenv("PROXYD_HMAC_SECRET"), ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -196,6 +201,60 @@ func main() {
 			srv.Close()
 			slog.Info("onbod stopped")
 			return
+		}
+	}
+}
+
+// proxydTransitSub is the JWT subject of the service token proxyd attaches to
+// every forwarded request (spec 5/1). The transit bearer must be proxyd's OWN
+// token — VerifyHTTP only validates signature + claims, so without this pin any
+// holder of a valid authd token reaching onbod directly could forge X-User-Sub
+// and stall/forge onboarding as that end-user.
+const proxydTransitSub = "service:proxyd"
+
+// verifyProxydBearer reports whether r carries a valid authd ES256 bearer minted
+// FOR proxyd (sub == service:proxyd, typ == service) — the genuine "came through
+// proxyd" transit proof.
+func verifyProxydBearer(r *http.Request, ks *auth.KeySet) bool {
+	sub, err := auth.VerifyHTTP(r, ks)
+	return err == nil && sub.Typ == "service" && sub.Sub == proxydTransitSub
+}
+
+// stripUnsignedGuard is the lenient identity gate for onbod's public surface.
+// It keeps an inbound X-User-Sub only when the request proves it transited
+// proxyd (legacy HMAC X-User-Sig, or a valid authd ES256 transit bearer when
+// ks != nil); otherwise it strips the identity headers so a request reaching
+// onbod directly cannot forge a user. The bearer is a transit proof only — the
+// proxyd-stamped end-user X-User-Sub flows through untouched (never overwritten
+// with the bearer's service:proxyd subject). Both proofs unconfigured (no
+// secret, nil ks → local dev) passes through, matching StripUnsigned with nil
+// inputs.
+func stripUnsignedGuard(secret string, ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(obs.ExtractRequest(r))
+			if r.Header.Get("X-User-Sub") == "" {
+				next(w, r)
+				return
+			}
+			if secret != "" && auth.VerifyUserSig(secret, r) {
+				next(w, r)
+				return
+			}
+			if ks != nil && verifyProxydBearer(r, ks) {
+				next(w, r)
+				return
+			}
+			if secret == "" && ks == nil {
+				next(w, r) // local dev: no proof configured, trust the header
+				return
+			}
+			slog.Warn("onbod: unproven identity stripped",
+				"path", r.URL.Path, "attempted_sub", r.Header.Get("X-User-Sub"))
+			for _, h := range []string{"X-User-Sub", "X-User-Name", "X-User-Groups", "X-User-Sig"} {
+				r.Header.Del(h)
+			}
+			next(w, r)
 		}
 	}
 }

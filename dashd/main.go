@@ -126,13 +126,29 @@ func main() {
 
 	appDir := os.Getenv("HOST_APP_DIR")
 
-	// proxyd signs X-User-Sig with PROXYD_HMAC_SECRET; dashd verifies it so a
-	// request reaching dashd while bypassing proxyd cannot forge an operator
-	// identity via a raw X-User-Sub. Unset (local dev) → guard is a no-op and
-	// dashd stays open, matching proxyd/webd behavior.
+	// guard admits a request that PROVES it transited proxyd, then trusts the
+	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. Two proofs:
+	//   • legacy HMAC X-User-Sig (PROXYD_HMAC_SECRET) — pre-cutover proxyd, and
+	//   • an authd-minted ES256 bearer (the service:proxyd token proxyd now
+	//     attaches) verified against authd's JWKS (ks).
+	// dashd's authz reads X-User-Sub/-Groups directly, so — unlike webd's MCP
+	// gate — the bearer must NOT become the identity (it carries service:proxyd,
+	// not the user); we verify it as a transit proof and leave the stamped
+	// end-user headers untouched. Neither proof configured (no secret, no
+	// AUTHD_URL) → guard is open (local dev), matching webd/proxyd.
 	hmacSecret := os.Getenv("PROXYD_HMAC_SECRET")
-	if hmacSecret == "" {
-		slog.Warn("PROXYD_HMAC_SECRET unset in dashd — signed-identity verification disabled, dashd open (local dev)")
+	var ks *auth.KeySet
+	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var kerr error
+		if ks, kerr = auth.FetchKeys(ctx, authdURL); kerr != nil {
+			slog.Error("fetch authd keys", "err", kerr)
+			os.Exit(1)
+		}
+	}
+	if hmacSecret == "" && ks == nil {
+		slog.Warn("PROXYD_HMAC_SECRET + AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
 	}
 
 	// routd OWNS acl/groups/routes/route_tokens/secrets in the split topology
@@ -167,7 +183,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret, ks: ks}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -197,8 +213,9 @@ type dash struct {
 	// Falls back to dbRW when unset (single-DB / monolith / tests).
 	dbPath     string
 	groupsDir  string
-	appDir     string // HOST_APP_DIR; used to enumerate stock skills
-	hmacSecret string // PROXYD_HMAC_SECRET; "" → guard open (local dev / tests)
+	appDir     string        // HOST_APP_DIR; used to enumerate stock skills
+	hmacSecret string        // PROXYD_HMAC_SECRET; legacy HMAC X-User-Sig proof
+	ks         *auth.KeySet  // authd JWKS; verifies proxyd's ES256 transit bearer (nil → no bearer path)
 }
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
@@ -232,15 +249,53 @@ func (d *dash) invitesDB() *sql.DB {
 	return d.db
 }
 
-// guard verifies proxyd's signed X-User-Sig before letting a handler see the
-// identity headers. An empty hmacSecret (local dev / tests) passes through
-// unchecked, matching proxyd/webd. A set secret rejects forged/unsigned
-// X-User-Sub (auth.RequireSigned redirects to /auth/login on failure).
+// guard proves a request transited proxyd before letting a handler trust the
+// proxyd-stamped X-User-Sub/-Groups identity. Either proof passes: a legacy
+// HMAC X-User-Sig (pre-cutover proxyd) OR an authd-minted ES256 bearer (the
+// service:proxyd token current proxyd attaches), verified against authd's JWKS.
+// The bearer is a TRANSIT proof only — dashd's authz reads X-User-Sub/-Groups
+// directly, so we deliberately do NOT stamp the bearer's own subject over them
+// (it is service:proxyd, not the user); the proxyd-stamped end-user headers
+// flow through untouched. No proof configured (no hmacSecret, nil ks → local
+// dev / tests) passes through open. Failure redirects to /auth/login, matching
+// auth.RequireSigned.
 func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
-	if d.hmacSecret == "" {
+	if d.hmacSecret == "" && d.ks == nil {
 		return next
 	}
-	return auth.RequireSigned(d.hmacSecret)(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(obs.ExtractRequest(r))
+		if d.hmacSecret != "" && auth.VerifyUserSig(d.hmacSecret, r) {
+			next(w, r)
+			return
+		}
+		if d.ks != nil && verifyProxydBearer(r, d.ks) {
+			next(w, r)
+			return
+		}
+		slog.Warn("dashd: identity proof failed",
+			"path", r.URL.Path,
+			"attempted_sub", r.Header.Get("X-User-Sub"),
+			"remote", r.Header.Get("X-Forwarded-For"))
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+	}
+}
+
+// proxydTransitSub is the JWT subject of the service token proxyd attaches to
+// every request it forwards (spec 5/1). The bearer is a TRANSIT proof: it must
+// be proxyd's own token, not just any valid authd token — otherwise any holder
+// of a valid authd token reaching dashd directly could forge X-User-* and be
+// treated as that end-user. VerifyHTTP only checks signature + claim validity,
+// so the gate must additionally pin sub to proxyd.
+const proxydTransitSub = "service:proxyd"
+
+// verifyProxydBearer reports whether r carries a valid authd ES256 bearer minted
+// FOR proxyd (sub == service:proxyd, typ == service). Signature/expiry/issuer
+// are checked by VerifyHTTP; this adds the subject pin that makes the bearer a
+// genuine "came through proxyd" proof.
+func verifyProxydBearer(r *http.Request, ks *auth.KeySet) bool {
+	sub, err := auth.VerifyHTTP(r, ks)
+	return err == nil && sub.Typ == "service" && sub.Sub == proxydTransitSub
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {

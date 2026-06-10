@@ -166,7 +166,9 @@ var daemonKeys = map[string][]string{
 		// monolith onbod (no AUTHD_SERVICE_KEY) falls back to CHANNEL_SECRET.
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
-	"dashd": {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET"},
+	// AUTHD_URL (no AUTHD_SERVICE_KEY): dashd only VERIFIES proxyd's ES256
+	// transit bearer against authd's JWKS — it presents no token of its own.
+	"dashd": {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
 	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
 	// for the X-User-* headers they forward (HMAC retire step 2): proxyd→backends,
 	// webd→proxyd /v1/routes. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
