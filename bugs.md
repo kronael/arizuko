@@ -5,6 +5,40 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — one dead jid degrades a whole channel's delivery (2026-06-10, outbox head-of-line)
+
+`chanreg/httpchan.go`: the retry `outbox` is **per-channel (per-adapter), not
+per-jid** (`h.outbox`, cap `maxOutbox`). `DrainOutbox` (:456) **`return`s on the
+first send error** (:471) → a permanently-unreachable jid (deleted telegram
+group, bot kicked) at the head blocks the entire channel drain; its message
+requeues, retries pile up, and `enqueue` (:492) then **drops messages for ALL
+groups on that channel** ("outbox full, dropping message"). No permanent-vs-
+transient split — a gone group (permanent 4xx) is retried forever like a
+transient 5xx. Live symptom: marinade `telegram:group/5012430759` flooded the
+log ×35/6h (group likely dead). Simplest fix: (a) DrainOutbox CONTINUES past a
+failed message instead of `return` (no head-of-line block); (b) per-message
+attempt counter → drop after N (~5) so a dead jid self-evicts; optionally (c)
+treat permanent platform errors (group gone) as immediate-drop + mark the chat
+dead. (a)+(b) is the minimal correct fix.
+
+## OPEN — web-ingress setup docs unverified (2026-06-10)
+
+The route-token web-ingress (`/chat/`, `/hook/`) + slink chat-widget + a
+strengths-style upload-form setup flow needs a docs-clarity pass: confirm
+`specs/5/W-webhook-routes.md`, `ROUTING.md`, and `template/web/pub/` howto/
+concepts/ accurately tell a user how to mint a route token, scope it to a
+folder, and POST a form to it — and carry no `gated`/CHANNEL_SECRET-era
+staleness (HMAC retired → ES256 service tokens). Audit deferred (sub died on
+session limit); not yet done.
+
+## OPEN — krons whapd WhatsApp session invalidated (2026-06-10, needs operator phone)
+
+krons `whapd` crash-loops on `code 401 "session invalidated, delete auth dir and
+re-pair"` — the WhatsApp PLATFORM session, NOT HMAC/CHANNEL_SECRET (whapd boots
+fine on the new ES256 image). Pre-existing [[whapd_pairing_recovery]]: needs the
+`--pair <phone>` flow with the operator's phone (+420735544891). Cannot fix
+autonomously.
+
 ## OPEN — bearer-admitted callers fail downstream VerifyUserSig re-checks (2026-06-10, HMAC-retire blocker)
 
 The `auth/` middleware dual-accepts ES256 bearer ∥ HMAC, but several handlers
