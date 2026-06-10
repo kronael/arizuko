@@ -984,3 +984,41 @@ entrypoint = ["ttsd"]
 		t.Errorf("auto default should not appear when override set, got:\n%s", s)
 	}
 }
+
+// TestAppSrcMountRoutdAndRuned: routd's checkMigrationVersion reads
+// ant/skills/self/MIGRATION_VERSION from APP_SRC_DIR — without the source
+// mount it falls back to the host path (absent in-container), reads 0, and
+// /migrate is never enqueued. Both routd and runed get the :ro mount +
+// APP_SRC_DIR when HOST_APP_DIR is set, and neither when it's unset.
+func TestAppSrcMountRoutdAndRuned(t *testing.T) {
+	gen := func(envExtra string) string {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+		os.WriteFile(filepath.Join(dir, ".env"),
+			[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\n"+envExtra), 0o644)
+		out, err := Generate(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	out := gen("HOST_APP_DIR=/home/op/app/arizuko\n")
+	for _, name := range []string{"routd", "runed"} {
+		s := serviceBlock(out, name)
+		if !strings.Contains(s, "- /home/op/app/arizuko:/srv/app/arizuko:ro\n") {
+			t.Errorf("%s missing read-only source mount, got:\n%s", name, s)
+		}
+		if !strings.Contains(s, `APP_SRC_DIR: "/srv/app/arizuko"`) {
+			t.Errorf("%s missing APP_SRC_DIR, got:\n%s", name, s)
+		}
+	}
+
+	out = gen("")
+	for _, name := range []string{"routd", "runed"} {
+		s := serviceBlock(out, name)
+		if strings.Contains(s, "/srv/app/arizuko:ro") || strings.Contains(s, "APP_SRC_DIR") {
+			t.Errorf("%s must have no source mount without HOST_APP_DIR, got:\n%s", name, s)
+		}
+	}
+}

@@ -620,10 +620,24 @@ type svcDef struct {
 	flavor      string
 	entrypoint  string
 	dataDir     string
+	volumes     []string // extra volume specs after the data-dir mount
 	ports       []string
 	environment map[string]string
 	dependsOn   string
 	env         map[string]string // instance env, for router-name resolution
+}
+
+// appSrcVolume returns the read-only HOST_APP_DIR→containerSrcMount volume
+// spec, or "" when HOST_APP_DIR is unset (pure-REST tests run without a
+// source mount). Daemons that get this mount also need APP_SRC_DIR set to
+// containerSrcMount — routd reads ant/skills/self/MIGRATION_VERSION from it
+// (auto-migrate trigger), runed reads agent assets for spawns.
+func appSrcVolume(env map[string]string) string {
+	hostApp := envOr(env, "HOST_APP_DIR", "")
+	if hostApp == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s:ro", hostApp, containerSrcMount)
 }
 
 // yamlQuote emits a double-quoted YAML scalar with escapes for control
@@ -675,6 +689,9 @@ func writeSvc(def svcDef) string {
 	fmt.Fprintf(&b, "    entrypoint: ['%s']\n", def.entrypoint)
 	b.WriteString("    user: '1000:1000'\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s:%s\n", def.dataDir, containerDataMount)
+	for _, v := range def.volumes {
+		fmt.Fprintf(&b, "      - %s\n", v)
+	}
 	if len(def.ports) > 0 {
 		b.WriteString("    ports:\n")
 		for _, p := range def.ports {
@@ -729,7 +746,7 @@ func authdService(app, flavor, dataDir string, env map[string]string) string {
 // CLI reaches the router's /v1/channels here (arizuko status/send).
 func routdService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort))
-	return writeSvc(svcDef{
+	def := svcDef{
 		name:       "routd",
 		app:        app,
 		flavor:     flavor,
@@ -738,7 +755,15 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		ports:      []string{fmt.Sprintf("%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
 		env:        env,
-	})
+	}
+	// routd reads ant/skills/self/MIGRATION_VERSION via checkMigrationVersion
+	// to enqueue /migrate; without this mount it sees the host path and the
+	// auto-migrate trigger silently never fires.
+	if vol := appSrcVolume(env); vol != "" {
+		def.volumes = []string{vol}
+		def.environment = map[string]string{"APP_SRC_DIR": containerSrcMount}
+	}
+	return writeSvc(def)
 }
 
 // runedService emits the execution plane — the ONLY new daemon wired to the
@@ -759,8 +784,8 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "      - %s:%s\n", dataDir, containerDataMount)
 	b.WriteString("      - /var/run/docker.sock:/var/run/docker.sock\n")
 	runedEnv := map[string]string{"DATA_DIR": containerDataMount}
-	if hostApp := envOr(env, "HOST_APP_DIR", ""); hostApp != "" {
-		fmt.Fprintf(&b, "      - %s:%s:ro\n", hostApp, containerSrcMount)
+	if vol := appSrcVolume(env); vol != "" {
+		fmt.Fprintf(&b, "      - %s\n", vol)
 		runedEnv["APP_SRC_DIR"] = containerSrcMount
 	}
 	b.WriteString("    extra_hosts:\n")
