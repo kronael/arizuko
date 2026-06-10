@@ -5,6 +5,17 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — `soul` field name persists in code after SOUL.md→PERSONA.md rename (2026-06-10, low)
+
+The file + headings are now PERSONA.md / `# Persona`, but the code that loads
+it is still named `soul`: `ant/src/index.ts` (`soul?`, `ci.soul`,
+`containerInput.soul`), the Go struct field `container.Input.Soul`
+(deserialized from the JSON `soul` key) it maps to, and `ant/pkg/agent/loader.go`
+/`loader_test.go` (`Soul` field). It reads `PERSONA.md` but is still named
+"soul". Cross-language contract rename (Go struct field + JSON key + the TS
+that produces/consumes it) — DEFER; functionally correct today. Migration files
++ CHANGELOG keep "soul" as historical record (leave them).
+
 ## OPEN — chanlib dead monolith service-token path (2026-06-09, refine r3)
 
 `chanlib` still carries the pre-split fallback: `bearer()` / `SetServiceToken(nil)`

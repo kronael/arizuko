@@ -1,9 +1,14 @@
 ---
-status: shipped
+status: review
 shipped: 2026-05-18
 ---
 
 # Gateway-side reply-to-bot → verb=mention promotion
+
+> **Review (2026-06-10):** the thread-participation refinement shipped, but
+> needs a review pass on adapter-side `ReplyTo`/`Topic` wiring (discd/teled
+> don't yet set thread-root `ReplyTo` like slakd) and on over-trigger
+> behavior in busy threads.
 
 ## Problem
 

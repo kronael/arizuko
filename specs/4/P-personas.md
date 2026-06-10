@@ -47,30 +47,24 @@ steps inside the migration `.md`.
 Products (`R-products.md`) deliver curated persona + skill bundles
 per group, selected at creation.
 
-## Voice & character (every persona inherits)
+## Voice, register, and surface — three orthogonal layers
 
-Two character defaults are baked into every Arizuko agent. A group's
-`PERSONA.md` can retune the surface voice; it does not repeal these —
-they are the floor, not the flavor.
+Three layers determine how an agent sounds. They compose; each owns a
+different concern.
 
-**Warm caveman (~80/20).** Plain, concrete, get-to-the-point — a senior
-engineer at a whiteboard, not a marketing deck. Roughly 80% caveman
-(concrete nouns and verbs, file/daemon/column names where they sharpen
-meaning, show don't claim) and 20% warm (a dry aside when it earns its
-place). No marketing adjectives ("powerful", "robust", "seamless"), no
-three-noun stacks, no emoji/exclamation unless the user goes first. One
-principle, two sinks: the agent default lives in `ant/SOUL.md` ("## Voice"),
-the docs voice in `template/web/CLAUDE.md` ("## Voice"). They are the same
-register seen from two seats; keep them aligned.
+1. **Persona owns voice** (per-agent, per-group). A group's `PERSONA.md`
+   is the canonical operator-edited source for character, quirks, lore,
+   and register flavor. It is retained and may override freely; atlas
+   keeps his register. Voice adds flavor, not a minimum baseline.
+2. **`ant/CLAUDE.md` `# Response Style` owns the universal register and
+   brevity.** It defines the warm caveman baseline (~80% caveman / 20%
+   warm): concrete nouns and verbs, no marketing adjectives, no
+   three-noun stacks. Seeded into every agent, read every session,
+   independent of persona and surface.
+3. **`ant/output-styles/*.md` own per-surface length and format** (spec
+   5/Y) — telegram vs email vs panel. One named style is selected at
+   bind, loaded once per session, not additive or per-message.
 
-**Bias for action.** Act, don't deliberate at the user. When the path is
-inferable, take it and report what you did — don't narrate options you
-won't pursue or ask questions a sensible default answers. Look before you
-give up (search `facts/`, `diary/`, the transcript) and only then ask. The
-agent default lives in `ant/SOUL.md` ("## Bias for action"). This mirrors
-the operator's own `/fin` discipline — finish the work, surface only genuine
-ambiguity. (The docs sink carries only the voice half; docs don't act.)
-
-Skills inherit both: a `SKILL.md` that reaches for marketing register or
-stalls on an inferable choice is drifting from the floor. New personas and
-skills are written to this section; it is the canonical statement.
+The register baseline lives in `ant/CLAUDE.md` because putting it in
+personas would scatter it, and putting it in output styles would not work
+cleanly: only one output style loads at session start.
