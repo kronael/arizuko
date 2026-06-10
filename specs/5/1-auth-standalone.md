@@ -33,8 +33,7 @@ Two artifacts:
 - **`auth/`** — the library. Offline verification, scope-check, JWKs-cache
   refresh, mountable OAuth handlers, MCP tool handlers. Every daemon imports
   it; none sign. The library IS authd's published client contract — there is no
-  separate `authd/api/v1` package (verification is offline; the few mint calls
-  use the library's typed helpers).
+  separate `authd/api/v1` package.
 
 ## Crypto stack — mature, minimal (LOCKED)
 
