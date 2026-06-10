@@ -1,9 +1,8 @@
 package routd
 
-// Channel register/list gate under ES256 (HMAC→ES256 retire step 4): with a
-// Verifier wired, an adapter's service:<adapter> token is admitted and a
-// non-service token / no token is 401. The CHANNEL_SECRET path is covered by
-// the verify==nil tests in channels_test.go.
+// Channel register/list gate under ES256: with a Verifier wired, an adapter's
+// service:<adapter> token is admitted and a non-service token / no token is 401.
+// The open-when-no-verifier (local dev) path is covered in channels_test.go.
 
 import (
 	"crypto/ecdsa"
@@ -52,7 +51,7 @@ func newES256ChannelRoutd(t *testing.T, ks *auth.KeySet) http.Handler {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(testChanSecret), nil, nil)
+	srv.SetChannelRegistry(chanreg.New(), nil, nil)
 	return srv.Handler()
 }
 
@@ -136,7 +135,7 @@ func TestChannelRegisterES256OriginPinSurvivesRotation(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
-	srv.SetChannelRegistry(chanreg.New(testChanSecret), nil, nil)
+	srv.SetChannelRegistry(chanreg.New(), nil, nil)
 	h := srv.Handler()
 
 	body := map[string]any{

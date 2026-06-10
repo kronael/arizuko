@@ -29,8 +29,8 @@ func (s *Server) SetChannelRegistry(reg *chanreg.Registry,
 
 // mountChannels adds the channel-registration routes when a registry is wired.
 // Register/list are gated on the adapter's ES256 service:<adapter> token
-// (HMAC→ES256 retire step 4); deregister carries the adapter's own session
-// token. With no Verifier (local dev) the gate falls back to CHANNEL_SECRET.
+// (spec 5/1); deregister carries the adapter's own session token. With no
+// Verifier (local dev) the gate is open — no shared secret remains.
 func (s *Server) mountChannels(mux *http.ServeMux) {
 	if s.reg == nil {
 		return
@@ -44,8 +44,7 @@ func (s *Server) mountChannels(mux *http.ServeMux) {
 // adapter's service:<adapter>, verified via the Verifier's JWKS). The "service:"
 // sub prefix is authd's marker for typ=service principals (authd never mints it
 // for users), so the prefix check is the typ gate; a non-service sub or a verify
-// failure is 401. With no Verifier (local dev, s.verify==nil) it falls back to
-// the CHANNEL_SECRET constant-time compare.
+// failure is 401. With no Verifier (local dev, s.verify==nil) the gate is open.
 //
 // Trust note: the gate admits ANY seeded service principal, not one bound to
 // req.Name. The registration `name` is the CHANNEL_NAME (telegram, telegram-rhias),
@@ -53,11 +52,11 @@ func (s *Server) mountChannels(mux *http.ServeMux) {
 // variants share one principal across many names, so name↔sub can't be pinned.
 // The origin pin (handleChannelRegister) locks a name to its FIRST (originIP,
 // principal) pair, blocking later hijack; first-claim squatting by a valid
-// service principal is accepted, same as the prior CHANNEL_SECRET model (any
-// secret holder could register any name) — ES256 only narrows the caller set.
+// service principal is accepted — ES256 narrows the caller set to seeded
+// principals. With no Verifier (local dev, AUTHD_URL unset) the gate is open.
 func (s *Server) channelAuth(next http.HandlerFunc) http.HandlerFunc {
 	if s.verify == nil {
-		return chanlib.Auth(s.reg.Secret(), next) // ks==nil → CHANNEL_SECRET compare
+		return next // local dev: no JWKS to verify against
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		sub, _, _, err := s.verify.Verify(r)
@@ -91,7 +90,7 @@ func (s *Server) handleChannelRegister(w http.ResponseWriter, r *http.Request) {
 	// the bearer is a service token that rotates ~hourly, so pin on the verified
 	// service principal (stable per adapter), NOT the rotating token — pinning the
 	// raw JWT would reject every legitimate re-register after a refresh. Local dev
-	// (no Verifier) pins on the raw CHANNEL_SECRET, as before.
+	// (no Verifier) has no credential to pin → the empty Authorization, harmless.
 	originIP := clientIP(r)
 	pinID := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if s.verify != nil {

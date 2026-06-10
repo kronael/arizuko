@@ -45,7 +45,7 @@ func (s *stubCreator) Typing(string, bool)                      {}
 
 func testBskyServer(t *testing.T, secret string) *server {
 	t.Helper()
-	cfg := config{Name: "bluesky", ChannelSecret: secret}
+	cfg := config{Name: "bluesky"}
 	return newServer(cfg, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
@@ -82,38 +82,6 @@ func TestBskyHealthDisconnected(t *testing.T) {
 		t.Errorf("status = %v", resp["status"])
 	}
 }
-
-func TestBskyAuthRequired(t *testing.T) {
-	s := testBskyServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "bluesky:did:plc:123", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestBskyAuthWrongToken(t *testing.T) {
-	s := testBskyServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "bluesky:did:plc:123", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer wrongtoken")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestBskySend_MissingContent(t *testing.T) {
 	s := testBskyServer(t, "")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "bluesky:did:plc:123"})
@@ -204,7 +172,7 @@ func TestBskyFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	s := newServer(config{Name: "bluesky", ChannelSecret: "sec", Service: cdn.URL}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "bluesky", Service: cdn.URL}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -242,17 +210,6 @@ func TestBskyFileProxyMissingParts(t *testing.T) {
 		}
 	}
 }
-
-func TestBskyFileProxyNoAuth(t *testing.T) {
-	s := newServer(config{Name: "bluesky", ChannelSecret: "sec"}, &stubCreator{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
-	req := httptest.NewRequest("GET", "/files/did:plc:abc/bafkrei123", nil)
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestBskyFileProxyCDNError(t *testing.T) {
 	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)

@@ -1,14 +1,11 @@
 package main
 
 import (
-	"crypto/rand"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/kronael/arizuko/auth"
@@ -42,7 +39,7 @@ type server struct {
 func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet, svc *auth.TokenSource) *server {
 	s := &server{
 		cfg: cfg, st: st, hub: h, rc: rc,
-		proxyd:  newProxydClient(cfg.proxydURL, cfg.hmacSecret, svc),
+		proxyd:  newProxydClient(cfg.proxydURL, svc),
 		ks:      ks,
 		limiter: newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
 	}
@@ -82,9 +79,9 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /assets/{path...}", s.handleAssets)
 	mux.HandleFunc("OPTIONS /assets/{path...}", s.handleAssets)
 
-	mux.HandleFunc("POST /send", chanlib.Auth(s.cfg.channelSecret, s.handleSend))
-	mux.HandleFunc("POST /typing", chanlib.Auth(s.cfg.channelSecret, s.handleTyping))
-	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.cfg.channelSecret, s.handleRoundDone))
+	mux.HandleFunc("POST /send", chanlib.Auth(s.handleSend))
+	mux.HandleFunc("POST /typing", chanlib.Auth(s.handleTyping))
+	mux.HandleFunc("POST /v1/round_done", chanlib.Auth(s.handleRoundDone))
 	mux.HandleFunc("GET /health", s.handleHealth)
 	// webd hosts the chat widget + MCP forwarder; routes resource is
 	// forwarded to proxyd, no owned cold-tier resources. Doc lists the
@@ -152,20 +149,6 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /x/groups/{rest...}", s.requireUser(s.routeXGroups))
 
 	return chanlib.LogMiddleware(mux)
-}
-
-// loadHMACSecret returns the proxyd-shared secret; falls back to a random value
-// so sig-checks fail closed when the env var is unset.
-func loadHMACSecret() string {
-	if v := os.Getenv("PROXYD_HMAC_SECRET"); v != "" {
-		return v
-	}
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err == nil {
-		slog.Warn("PROXYD_HMAC_SECRET unset in webd — signed-header verification will fail until set on both")
-		return hex.EncodeToString(b[:])
-	}
-	return ""
 }
 
 func userGroups(r *http.Request) []string {
@@ -249,24 +232,39 @@ func (s *server) routeXGroups(w http.ResponseWriter, r *http.Request) {
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }
 func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
 
-// identified reports whether the stamped X-User-Sub on r is trustworthy.
-// On the bespoke /chat paths (which don't run requireUser) proxyd is the sole
-// ingress: it strips client identity headers, authenticates the user, then
-// re-stamps X-User-* and proves the channel with its own ES256 bearer. So a
-// valid authd-minted bearer (service:proxyd, or a user presenting their own
-// token) authenticates the stamp — the same role X-User-Sig played before the
-// HMAC→ES256 flip. With ks nil (local dev / pre-flip) fall back to the HMAC
-// VerifyUserSig so the legacy path is unchanged.
+// identified reports whether the stamped X-User-Sub on r is trustworthy. proxyd
+// is the sole ingress: it strips client identity headers, authenticates the
+// user, re-stamps X-User-* and proves the channel with its own service:proxyd
+// ES256 bearer. The stamp is trusted ONLY on that transit proof — auth.ProxydTransit
+// pins sub==service:proxyd so a caller reaching webd directly with a different
+// valid authd token cannot forge X-User-*. With ks nil (local dev, AUTHD_URL
+// unset) there is no proxyd to forge through and no JWKS to verify, so the
+// stamped header is trusted, matching every other daemon's no-verifier path.
 func (s *server) identified(r *http.Request) bool {
 	if r.Header.Get("X-User-Sub") == "" {
 		return false
 	}
-	if s.ks != nil {
-		if _, err := auth.VerifyHTTP(r, s.ks); err == nil {
-			return true
-		}
+	if s.ks == nil {
+		return true // local dev
 	}
-	return auth.VerifyUserSig(s.cfg.hmacSecret, r)
+	return auth.ProxydTransit(r, s.ks)
+}
+
+// chatTransit reports whether the X-Chat-Token / X-Folder headers were stamped
+// by proxyd (route-token → folder binding, spec 5/W). proxyd is the sole setter
+// — it strips any client-supplied X-Chat-* on ingress, resolves the token to a
+// folder from route_tokens, stamps both, and proves the request transited it
+// with its service:proxyd bearer. The caller then checks X-Folder matches the
+// requested folder. ks nil (local dev, no proxyd) trusts the header, matching
+// identified(). Replaces the X-Chat-Sig HMAC (HMAC retire step 5).
+func (s *server) chatTransit(r *http.Request) bool {
+	if r.Header.Get("X-Chat-Token") == "" || r.Header.Get("X-Folder") == "" {
+		return false
+	}
+	if s.ks == nil {
+		return true // local dev
+	}
+	return auth.ProxydTransit(r, s.ks)
 }
 
 func folderParam(r *http.Request) string {

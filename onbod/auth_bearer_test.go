@@ -10,15 +10,12 @@ import (
 	"github.com/kronael/arizuko/auth"
 )
 
-// onbod transit-proof gate (HMAC→ES256 retire step 3): stripUnsignedGuard keeps
-// the proxyd-stamped X-User-Sub only when the request proves it transited proxyd
-// — a legacy HMAC X-User-Sig OR a valid authd ES256 bearer (the service:proxyd
-// transit token). The bearer is a transit proof ONLY: onbod's /onboard reads
-// X-User-Sub as the OAuth'd end-user (matchGate's github:/google: checks), so
-// the bearer's own service:proxyd subject must NOT overwrite it. Unproven →
-// stripped. Both proofs unconfigured (local dev) → pass through.
-
-const onbodHMACSecret = "onbod-test-secret"
+// onbod transit-proof gate: stripUnsignedGuard keeps the proxyd-stamped
+// X-User-Sub only when the request proves it transited proxyd — a valid authd
+// ES256 service:proxyd transit bearer. The bearer is a transit proof ONLY:
+// onbod's /onboard reads X-User-Sub as the OAuth'd end-user (matchGate's
+// github:/google: checks), so the bearer's own service:proxyd subject must NOT
+// overwrite it. Unproven → stripped. No verifier (local dev) → pass through.
 
 // proxydBearer mints the service:proxyd transit token proxyd attaches + its KeySet.
 func proxydBearer(t *testing.T) (*auth.KeySet, string) {
@@ -41,7 +38,7 @@ func proxydBearer(t *testing.T) (*auth.KeySet, string) {
 // (matchGate's google:/github: checks would see service:proxyd).
 func TestOnbodGuard_ProxydBearer_KeepsEndUserSub(t *testing.T) {
 	ks, tok := proxydBearer(t)
-	g := stripUnsignedGuard(onbodHMACSecret, ks)
+	g := stripUnsignedGuard(ks)
 	var seenSub string
 	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
 
@@ -58,30 +55,12 @@ func TestOnbodGuard_ProxydBearer_KeepsEndUserSub(t *testing.T) {
 	}
 }
 
-// TestOnbodGuard_HMAC_StillWorks: the legacy HMAC X-User-Sig proof still keeps
-// the sub when a KeySet is present (bearer path is additive).
-func TestOnbodGuard_HMAC_StillWorks(t *testing.T) {
-	ks, _ := proxydBearer(t)
-	g := stripUnsignedGuard(onbodHMACSecret, ks)
-	var seenSub string
-	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
-
-	r := httptest.NewRequest("GET", "/onboard", nil)
-	r.Header.Set("X-User-Sub", "github:42")
-	r.Header.Set("X-User-Sig", auth.SignHMAC(onbodHMACSecret, auth.UserSigMessage("github:42", "", "")))
-	h(httptest.NewRecorder(), r)
-
-	if seenSub != "github:42" {
-		t.Fatalf("HMAC-signed sub stripped with ES256 KeySet present: got %q", seenSub)
-	}
-}
-
 // TestOnbodGuard_UnprovenSub_Stripped: an X-User-Sub with neither proof (a
 // request bypassing proxyd) is stripped — public flow then redirects to login.
 // A bogus bearer is no proof.
 func TestOnbodGuard_UnprovenSub_Stripped(t *testing.T) {
 	ks, _ := proxydBearer(t)
-	g := stripUnsignedGuard(onbodHMACSecret, ks)
+	g := stripUnsignedGuard(ks)
 	var seenSub string
 	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
 
@@ -106,7 +85,7 @@ func TestOnbodGuard_BogusBearer_Stripped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := stripUnsignedGuard(onbodHMACSecret, ks)
+	g := stripUnsignedGuard(ks)
 	var seenSub string
 	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
 
@@ -133,7 +112,7 @@ func TestOnbodGuard_NonProxydBearer_Stripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	ks := auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})
-	g := stripUnsignedGuard(onbodHMACSecret, ks)
+	g := stripUnsignedGuard(ks)
 	var seenSub string
 	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
 
@@ -150,7 +129,7 @@ func TestOnbodGuard_NonProxydBearer_Stripped(t *testing.T) {
 // TestOnbodGuard_NoProof_PassesThrough: both proofs unconfigured (local dev) →
 // the header passes through unchecked.
 func TestOnbodGuard_NoProof_PassesThrough(t *testing.T) {
-	g := stripUnsignedGuard("", nil)
+	g := stripUnsignedGuard(nil)
 	var seenSub string
 	h := g(func(w http.ResponseWriter, r *http.Request) { seenSub = r.Header.Get("X-User-Sub") })
 

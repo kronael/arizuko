@@ -230,7 +230,7 @@ func TestFetchUnseen_RouterFailure_NotMarkedSeen(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer failSrv.Close()
-	rc := chanlib.NewRouterClient(failSrv.URL, "")
+	rc := chanlib.NewRouterClient(failSrv.URL)
 
 	serverConn, clientConn := net.Pipe()
 	storeCalled := make(chan struct{}, 1)

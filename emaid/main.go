@@ -27,13 +27,12 @@ func main() {
 		slog.Warn("EMAIL_TRUSTED_AUTHSERV unset; every inbound classified as untrusted (fail-closed default per spec 10/17)")
 	}
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"email:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"email:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			db, err := openDB(cfg.DataDir)
 			if err != nil {
@@ -57,7 +56,6 @@ type config struct {
 	IMAPPort      string
 	SMTPPort      string
 	RouterURL     string
-	ChannelSecret string
 	ListenAddr    string
 	ListenURL     string
 	DataDir       string
@@ -75,7 +73,6 @@ func loadConfig() config {
 		IMAPPort:      chanlib.EnvOr("EMAIL_IMAP_PORT", "993"),
 		SMTPPort:      chanlib.EnvOr("EMAIL_SMTP_PORT", "587"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("EMAID_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9003"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://email:9003"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/emaid"),

@@ -21,5 +21,5 @@ func (s *server) handler() http.Handler {
 	// linkd is a stub adapter with no inbound plumbing; report "now" so
 	// /health never flips stale while auth is valid.
 	lastInbound := func() int64 { return time.Now().Unix() }
-	return chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"linkedin:"}, s.bot, s.isConnected, lastInbound)
+	return chanlib.NewAdapterMux(s.cfg.Name, []string{"linkedin:"}, s.bot, s.isConnected, lastInbound)
 }

@@ -18,36 +18,31 @@ import (
 // RunOpts configures Run. Start is called after registration; its handler serves
 // on ListenAddr, its cleanup func runs before the HTTP server closes.
 type RunOpts struct {
-	Name          string
-	RouterURL     string
-	ChannelSecret string
-	ListenAddr    string
-	ListenURL     string
-	Prefixes      []string
-	Caps          map[string]bool
-	Start         func(ctx context.Context, rc *RouterClient) (http.Handler, func(), error)
+	Name       string
+	RouterURL  string
+	ListenAddr string
+	ListenURL  string
+	Prefixes   []string
+	Caps       map[string]bool
+	Start      func(ctx context.Context, rc *RouterClient) (http.Handler, func(), error)
 }
 
 // Run is the shared main loop for channel adapter daemons.
 func Run(opts RunOpts) {
 	defer obs.Setup(opts.Name, os.Getenv("ARIZUKO_INSTANCE"))()
-	if opts.ChannelSecret == "" {
-		slog.Error("CHANNEL_SECRET not set; refusing to start unauthenticated adapter")
-		os.Exit(1)
-	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	rc := NewRouterClient(opts.RouterURL, opts.ChannelSecret)
+	rc := NewRouterClient(opts.RouterURL)
 	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
-	// service:<adapter> JWT and present it on routd's JWT-gated calls
-	// (/v1/messages, /v1/pane). Registration still uses CHANNEL_SECRET.
+	// service:<adapter> JWT and present it on EVERY routd call — registration,
+	// /v1/messages, /v1/pane (HMAC retire step 5; no CHANNEL_SECRET remains).
 	//
 	// AUTHD_URL + AUTHD_SERVICE_KEY are required — compose always emits them, and
-	// local-dev brings up authd through the same tooling. No registration-token
-	// fallback: routd's verifier rejects it, so a missing key must fail loudly,
-	// not silently 401 every outbound (cost a krons telegram outage 2026-06-07).
+	// local-dev brings up authd through the same tooling. No fallback: routd's
+	// verifier rejects an unsigned call, so a missing key must fail loudly, not
+	// silently 401 every outbound (cost a krons telegram outage 2026-06-07).
 	//
 	// The exchange principal is the DAEMON name (AUTHD_SERVICE_NAME, set by compose
 	// to the base daemon — e.g. teled), NOT opts.Name (the CHANNEL_NAME, e.g.

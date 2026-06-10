@@ -619,7 +619,7 @@ func TestRoutesListScopedToSubtree(t *testing.T) {
 }
 
 // TestScanMessagesToleratesNullText: a NULL in a nullable text column (legacy
-// gated data) must be COALESCEd to '' and the row READ — NOT abort the scan.
+// gated data) must be COALESCEd to ” and the row READ — NOT abort the scan.
 // The abort behavior was the split's hidden production-breaker: one NULL
 // reply_to_id/sender_name row killed routd's whole poll loop (cursor stuck, no
 // turns, no breaker). msgReadCols COALESCEs every nullable text column, matching

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
@@ -126,18 +126,20 @@ func main() {
 
 	appDir := os.Getenv("HOST_APP_DIR")
 
-	// guard admits a request that PROVES it transited proxyd, then trusts the
-	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. Two proofs:
-	//   • legacy HMAC X-User-Sig (PROXYD_HMAC_SECRET) — pre-cutover proxyd, and
-	//   • an authd-minted ES256 bearer (the service:proxyd token proxyd now
-	//     attaches) verified against authd's JWKS (ks).
-	// dashd's authz reads X-User-Sub/-Groups directly, so — unlike webd's MCP
-	// gate — the bearer must NOT become the identity (it carries service:proxyd,
-	// not the user); we verify it as a transit proof and leave the stamped
-	// end-user headers untouched. Neither proof configured (no secret, no
-	// AUTHD_URL) → guard is open (local dev), matching webd/proxyd.
-	hmacSecret := os.Getenv("PROXYD_HMAC_SECRET")
+	// guard admits a request that PROVES it transited proxyd (an authd-minted
+	// ES256 service:proxyd bearer, verified against authd's JWKS), then trusts the
+	// proxyd-stamped X-User-Sub/-Groups as the END-USER identity. dashd's authz
+	// reads X-User-Sub/-Groups directly, so — unlike webd's MCP gate — the bearer
+	// must NOT become the identity (it carries service:proxyd, not the user); we
+	// verify it as a transit proof and leave the stamped end-user headers
+	// untouched. No verifier (AUTHD_URL unset) → guard is open (local dev),
+	// matching webd/proxyd.
 	var ks *auth.KeySet
+	// svcSrc is dashd's service:dashd ES256 token source, presented on the only
+	// daemon-to-daemon call dashd makes: the operator WhatsApp re-pair proxy to
+	// whapd's /v1/pair/* (HMAC retire step 5; no CHANNEL_SECRET remains). nil →
+	// local dev (no AUTHD_URL); the pair call goes out unauthenticated.
+	var svcSrc func(context.Context) (string, error)
 	if authdURL := strings.TrimRight(os.Getenv("AUTHD_URL"), "/"); authdURL != "" {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -146,9 +148,18 @@ func main() {
 			slog.Error("fetch authd keys", "err", kerr)
 			os.Exit(1)
 		}
+		if svcKey := os.Getenv("AUTHD_SERVICE_KEY"); svcKey != "" {
+			name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "dashd")
+			ts, terr := auth.ServiceToken(authdURL, name, svcKey)
+			if terr != nil {
+				slog.Error("build dashd service token", "err", terr)
+				os.Exit(1)
+			}
+			svcSrc = ts.Token
+		}
 	}
-	if hmacSecret == "" && ks == nil {
-		slog.Warn("PROXYD_HMAC_SECRET + AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
+	if ks == nil {
+		slog.Warn("AUTHD_URL unset in dashd — identity verification disabled, dashd open (local dev)")
 	}
 
 	// routd OWNS acl/groups/routes/route_tokens/secrets in the split topology
@@ -183,7 +194,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, hmacSecret: hmacSecret, ks: ks}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc}
 	d.registerRoutes(mux)
 
 	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
@@ -211,11 +222,11 @@ type dash struct {
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
 	// Falls back to dbRW when unset (single-DB / monolith / tests).
-	dbPath     string
-	groupsDir  string
-	appDir     string        // HOST_APP_DIR; used to enumerate stock skills
-	hmacSecret string        // PROXYD_HMAC_SECRET; legacy HMAC X-User-Sig proof
-	ks         *auth.KeySet  // authd JWKS; verifies proxyd's ES256 transit bearer (nil → no bearer path)
+	dbPath    string
+	groupsDir string
+	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
+	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
+	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
 }
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
@@ -249,27 +260,20 @@ func (d *dash) invitesDB() *sql.DB {
 	return d.db
 }
 
-// guard proves a request transited proxyd before letting a handler trust the
-// proxyd-stamped X-User-Sub/-Groups identity. Either proof passes: a legacy
-// HMAC X-User-Sig (pre-cutover proxyd) OR an authd-minted ES256 bearer (the
-// service:proxyd token current proxyd attaches), verified against authd's JWKS.
-// The bearer is a TRANSIT proof only — dashd's authz reads X-User-Sub/-Groups
-// directly, so we deliberately do NOT stamp the bearer's own subject over them
-// (it is service:proxyd, not the user); the proxyd-stamped end-user headers
-// flow through untouched. No proof configured (no hmacSecret, nil ks → local
-// dev / tests) passes through open. Failure redirects to /auth/login, matching
-// auth.RequireSigned.
+// guard proves a request transited proxyd (auth.ProxydTransit: an authd-minted
+// service:proxyd ES256 bearer) before letting a handler trust the proxyd-stamped
+// X-User-Sub/-Groups identity. The bearer is a TRANSIT proof only — dashd's
+// authz reads X-User-Sub/-Groups directly, so we deliberately do NOT stamp the
+// bearer's own subject over them (it is service:proxyd, not the user); the
+// proxyd-stamped end-user headers flow through untouched. No verifier (nil ks →
+// local dev / tests) passes through open. Failure redirects to /auth/login.
 func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
-	if d.hmacSecret == "" && d.ks == nil {
+	if d.ks == nil {
 		return next
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(obs.ExtractRequest(r))
-		if d.hmacSecret != "" && auth.VerifyUserSig(d.hmacSecret, r) {
-			next(w, r)
-			return
-		}
-		if d.ks != nil && verifyProxydBearer(r, d.ks) {
+		if auth.ProxydTransit(r, d.ks) {
 			next(w, r)
 			return
 		}
@@ -279,23 +283,6 @@ func (d *dash) guard(next http.HandlerFunc) http.HandlerFunc {
 			"remote", r.Header.Get("X-Forwarded-For"))
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 	}
-}
-
-// proxydTransitSub is the JWT subject of the service token proxyd attaches to
-// every request it forwards (spec 5/1). The bearer is a TRANSIT proof: it must
-// be proxyd's own token, not just any valid authd token — otherwise any holder
-// of a valid authd token reaching dashd directly could forge X-User-* and be
-// treated as that end-user. VerifyHTTP only checks signature + claim validity,
-// so the gate must additionally pin sub to proxyd.
-const proxydTransitSub = "service:proxyd"
-
-// verifyProxydBearer reports whether r carries a valid authd ES256 bearer minted
-// FOR proxyd (sub == service:proxyd, typ == service). Signature/expiry/issuer
-// are checked by VerifyHTTP; this adds the subject pin that makes the bearer a
-// genuine "came through proxyd" proof.
-func verifyProxydBearer(r *http.Request, ks *auth.KeySet) bool {
-	sub, err := auth.VerifyHTTP(r, ks)
-	return err == nil && sub.Typ == "service" && sub.Sub == proxydTransitSub
 }
 
 func (d *dash) registerRoutes(mux *http.ServeMux) {
@@ -308,9 +295,9 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dash/assets/htmx.min.js", handleHtmxAsset)
 
 	// Everything below is operator UI / mutations — every handler reads the
-	// proxyd-signed X-User-Sub. guard verifies proxyd's X-User-Sig (no-op when
-	// PROXYD_HMAC_SECRET is unset for local dev) so a request bypassing proxyd
-	// cannot forge an operator identity.
+	// proxyd-stamped X-User-Sub. guard verifies proxyd's service:proxyd transit
+	// bearer (open when AUTHD_URL is unset for local dev) so a request bypassing
+	// proxyd cannot forge an operator identity.
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
 	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
@@ -815,7 +802,10 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bulk-fetch usage in one pass; fall through with empty map on error.
-	type usageKey struct{ tokens7d, cents7d, msgCount int; lastActive string }
+	type usageKey struct {
+		tokens7d, cents7d, msgCount int
+		lastActive                  string
+	}
 	usageMap := map[string]usageKey{}
 	if len(folders) > 0 {
 		s := store.New(d.db)

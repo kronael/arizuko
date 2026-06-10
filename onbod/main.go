@@ -134,14 +134,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	// stripUnsigned keeps X-User-Sub only when the request PROVES it transited
-	// proxyd — a legacy HMAC X-User-Sig OR a valid authd ES256 bearer (the
-	// service:proxyd transit token). The bearer is a transit proof ONLY: onbod's
-	// /onboard reads X-User-Sub as the OAuth'd end-user (matchGate's
-	// github:/google: checks), so we must NOT stamp the bearer's own
-	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a
-	// request bypassing proxyd cannot forge identity); the public flow then
-	// redirects to /auth/login. Both proofs absent (local dev) → pass through.
-	stripUnsigned := stripUnsignedGuard(os.Getenv("PROXYD_HMAC_SECRET"), ks)
+	// proxyd — a valid authd ES256 service:proxyd transit bearer. The bearer is a
+	// transit proof ONLY: onbod's /onboard reads X-User-Sub as the OAuth'd end-user
+	// (matchGate's github:/google: checks), so we must NOT stamp the bearer's own
+	// service:proxyd subject over it. An unproven X-User-Sub is stripped (a request
+	// bypassing proxyd cannot forge identity); the public flow then redirects to
+	// /auth/login. No verifier (local dev, AUTHD_URL unset) → pass through.
+	stripUnsigned := stripUnsignedGuard(ks)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -205,31 +204,15 @@ func main() {
 	}
 }
 
-// proxydTransitSub is the JWT subject of the service token proxyd attaches to
-// every forwarded request (spec 5/1). The transit bearer must be proxyd's OWN
-// token — VerifyHTTP only validates signature + claims, so without this pin any
-// holder of a valid authd token reaching onbod directly could forge X-User-Sub
-// and stall/forge onboarding as that end-user.
-const proxydTransitSub = "service:proxyd"
-
-// verifyProxydBearer reports whether r carries a valid authd ES256 bearer minted
-// FOR proxyd (sub == service:proxyd, typ == service) — the genuine "came through
-// proxyd" transit proof.
-func verifyProxydBearer(r *http.Request, ks *auth.KeySet) bool {
-	sub, err := auth.VerifyHTTP(r, ks)
-	return err == nil && sub.Typ == "service" && sub.Sub == proxydTransitSub
-}
-
 // stripUnsignedGuard is the lenient identity gate for onbod's public surface.
-// It keeps an inbound X-User-Sub only when the request proves it transited
-// proxyd (legacy HMAC X-User-Sig, or a valid authd ES256 transit bearer when
-// ks != nil); otherwise it strips the identity headers so a request reaching
-// onbod directly cannot forge a user. The bearer is a transit proof only — the
-// proxyd-stamped end-user X-User-Sub flows through untouched (never overwritten
-// with the bearer's service:proxyd subject). Both proofs unconfigured (no
-// secret, nil ks → local dev) passes through, matching StripUnsigned with nil
-// inputs.
-func stripUnsignedGuard(secret string, ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc {
+// It keeps an inbound X-User-Sub only when the request proves it transited proxyd
+// (auth.ProxydTransit: a valid authd ES256 service:proxyd bearer, ks != nil);
+// otherwise it strips the identity headers so a request reaching onbod directly
+// cannot forge a user. The bearer is a transit proof only — the proxyd-stamped
+// end-user X-User-Sub flows through untouched (never overwritten with the
+// bearer's service:proxyd subject). No verifier (nil ks → local dev) passes
+// through.
+func stripUnsignedGuard(ks *auth.KeySet) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			r = r.WithContext(obs.ExtractRequest(r))
@@ -237,16 +220,12 @@ func stripUnsignedGuard(secret string, ks *auth.KeySet) func(http.HandlerFunc) h
 				next(w, r)
 				return
 			}
-			if secret != "" && auth.VerifyUserSig(secret, r) {
-				next(w, r)
+			if ks == nil {
+				next(w, r) // local dev: no JWKS to verify against, trust the header
 				return
 			}
-			if ks != nil && verifyProxydBearer(r, ks) {
+			if auth.ProxydTransit(r, ks) {
 				next(w, r)
-				return
-			}
-			if secret == "" && ks == nil {
-				next(w, r) // local dev: no proof configured, trust the header
 				return
 			}
 			slog.Warn("onbod: unproven identity stripped",
@@ -284,7 +263,7 @@ func loadConfig() (config, error) {
 	}
 	// Split (spec 5/1) is the only topology: exchange AUTHD_SERVICE_KEY for a
 	// service:onbod JWT, presented on routd's JWT-gated /v1/outbound. Required —
-	// compose always emits it; no CHANNEL_SECRET fallback (routd rejects it).
+	// compose always emits it; an unsigned call to routd is rejected.
 	authdURL, key := os.Getenv("AUTHD_URL"), os.Getenv("AUTHD_SERVICE_KEY")
 	if authdURL == "" || key == "" {
 		return config{}, fmt.Errorf("onbod: AUTHD_URL + AUTHD_SERVICE_KEY required")

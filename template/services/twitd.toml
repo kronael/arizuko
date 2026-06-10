@@ -4,7 +4,6 @@ volumes = ["${DATA_DIR}/store/twitter-auth:/srv/data/store/twitter-auth"]
 
 [environment]
 ROUTER_URL = "http://routd:8080"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
 LISTEN_ADDR = ":8080"
 LISTEN_URL = "http://twitd:8080"

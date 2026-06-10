@@ -497,9 +497,9 @@ func TestProxydRootRedirectToPub(t *testing.T) {
 
 // stubProbe lets tests force the reachability result and count calls.
 type stubProbe struct {
-	mu     sync.Mutex
-	ok     bool
-	calls  int
+	mu    sync.Mutex
+	ok    bool
+	calls int
 }
 
 func (p *stubProbe) probe(string) bool {
@@ -644,8 +644,8 @@ func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
 	}
 
 	s := &server{
-		cfg:     config{authSecret: "testsecret"},
-		st:      st,
+		cfg:         config{authSecret: "testsecret"},
+		st:          st,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false
@@ -681,8 +681,8 @@ func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
 	}
 
 	s := &server{
-		cfg:     config{authSecret: "testsecret"},
-		st:      st,
+		cfg:         config{authSecret: "testsecret"},
+		st:          st,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false

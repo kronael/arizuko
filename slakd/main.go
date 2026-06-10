@@ -25,13 +25,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"slack:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"slack:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {
@@ -65,7 +64,6 @@ type config struct {
 	BotToken      string
 	SigningSecret string
 	RouterURL     string
-	ChannelSecret string
 	ListenAddr    string
 	ListenURL     string
 	AssistantName string
@@ -89,7 +87,6 @@ func loadConfig() config {
 		BotToken:       chanlib.MustEnv("SLACK_BOT_TOKEN"),
 		SigningSecret:  chanlib.MustEnv("SLACK_SIGNING_SECRET"),
 		RouterURL:      chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret:  chanlib.EnvOr("SLAKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:     chanlib.EnvOr("LISTEN_ADDR", ":8080"),
 		ListenURL:      chanlib.EnvOr("LISTEN_URL", "http://slakd:8080"),
 		AssistantName:  chanlib.EnvOr("ASSISTANT_NAME", ""),

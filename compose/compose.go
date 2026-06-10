@@ -109,7 +109,7 @@ var commonKeys = []string{
 var daemonKeys = map[string][]string{
 	// timed: scheduler. Federates the fire loop over routd (ROUTER_URL) with a
 	// service:timed token exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
-	"timed": {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
+	"timed": {"AUTHD_URL", "AUTHD_SERVICE_KEY", "ROUTER_URL"},
 	// authd: auth authority. auth.db only; no message DB, no docker, no crackbox.
 	// Serves JWKS; seeded with the service keys (AUTHD_SERVICE_KEYS, hashed at
 	// compare time inside authd) + OAuth provider config.
@@ -123,7 +123,7 @@ var daemonKeys = map[string][]string{
 	// routd: conversation state. routd.db + adapters (/v1/send) + calls runed.
 	// Verifies via authd JWKS. NO crackbox, NO docker socket.
 	"routd": {
-		"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
+		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 		// get_web_presence reports a folder's derived/aliased canonical host
@@ -149,45 +149,44 @@ var daemonKeys = map[string][]string{
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
 		"EGRESS_SUBNET", "EGRESS_NETWORK_PREFIX", "EGRESS_CRACKBOX",
 		"CRACKBOX_ADMIN_API", "CRACKBOX_PROXY_URL", "CRACKBOX_ADMIN_SECRET",
-		"HOST_CODEX_DIR", "CHANNEL_SECRET",
+		"HOST_CODEX_DIR",
 		// runed spawns the agent + injects folder secrets (decrypted with the
 		// key) into the container env — same role gated had in the monolith.
 		"SECRETS_KEY",
 	},
 	"onbod": {
-		"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL",
+		"AUTH_SECRET", "AUTH_BASE_URL",
 		"GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_ALLOWED_ORG",
 		"DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
 		"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ALLOWED_EMAILS",
 		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"ONBOARDING_PROTOTYPE", "ONBOARDING_GREETING",
 		"ONBOARD_POLL_INTERVAL", "ONBOD_LISTEN_ADDR",
-		// service:onbod token for routd /v1/outbound in the split (spec 5/1);
-		// monolith onbod (no AUTHD_SERVICE_KEY) falls back to CHANNEL_SECRET.
+		// service:onbod token for routd /v1/outbound (spec 5/1).
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
-	// AUTHD_URL (no AUTHD_SERVICE_KEY): dashd only VERIFIES proxyd's ES256
-	// transit bearer against authd's JWKS — it presents no token of its own.
-	"dashd": {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
+	// dashd VERIFIES proxyd's ES256 transit bearer against authd's JWKS (AUTHD_URL)
+	// AND presents its own service:dashd token on the whapd re-pair proxy
+	// (AUTHD_SERVICE_KEY).
+	"dashd": {"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
 	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
-	// for the X-User-* headers they forward (HMAC retire step 2): proxyd→backends,
-	// webd→proxyd /v1/routes. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
-	"webd":   {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
+	// for the X-User-* headers they forward: proxyd→backends, webd→proxyd
+	// /v1/routes + webd→routd register. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
+	"webd":   {"AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
-	// service:<adapter> messages:write JWT for routd's /v1/messages (spec 5/1).
-	// Monolith (no AUTHD_SERVICE_KEY in the env file) keeps the CHANNEL_SECRET
-	// registration-token path.
-	"teled":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
-	"discd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
-	"mastd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
-	"bskyd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
-	"reditd": {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
-	"slakd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
-	"linkd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
-	"emaid":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
-	"whapd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
-	"twitd":  {"CHANNEL_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
+	// service:<adapter> JWT presented on EVERY routd call — register, /v1/messages,
+	// /v1/pane (spec 5/1; no CHANNEL_SECRET remains).
+	"teled":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TELEGRAM_BOT_TOKEN"},
+	"discd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "DISCORD_BOT_TOKEN"},
+	"mastd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "MASTODON_ACCESS_TOKEN", "MASTODON_INSTANCE"},
+	"bskyd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"},
+	"reditd":   {"AUTHD_URL", "AUTHD_SERVICE_KEY", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USERNAME", "REDDIT_PASSWORD"},
+	"slakd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "SLAKD_USERS_CACHE_TTL"},
+	"linkd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_REFRESH_TOKEN"},
+	"emaid":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"},
+	"whapd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"twitd":    {"AUTHD_URL", "AUTHD_SERVICE_KEY", "TWITTER_USERNAME", "TWITTER_PASSWORD", "TWITTER_EMAIL", "TWITTER_2FA_SECRET", "TWITTER_POLL_INTERVAL"},
 	"crackbox": {"CRACKBOX_PROXY_ADDR", "CRACKBOX_ADMIN_ADDR", "CRACKBOX_ADMIN_SECRET", "CRACKBOX_STATE_PATH"},
 }
 
@@ -458,13 +457,15 @@ func Generate(dataDir string) (string, error) {
 	// reads its env file's AUTHD_* vars (no ROUTER_URL → direct-DB path).
 	wireServiceKey("timed")
 	// onbod posts the onboarding greeting to routd /v1/outbound with a
-	// service:onbod token (spec 5/1); monolith onbod falls back to CHANNEL_SECRET.
+	// service:onbod token (spec 5/1).
 	wireServiceKey("onbod")
-	// proxyd presents service:proxyd to backends, webd presents service:webd to
-	// proxyd's /v1/routes — both as the channel proof for the X-User-* identity
-	// they forward (HMAC retire step 2, replacing X-User-Sig).
+	// proxyd presents service:proxyd to backends; webd presents service:webd to
+	// proxyd's /v1/routes + routd register; dashd presents service:dashd on the
+	// whapd re-pair proxy — each the channel proof for the identity it forwards
+	// (ES256 service tokens; HMAC + X-User-Sig retired).
 	wireServiceKey("proxyd")
 	wireServiceKey("webd")
+	wireServiceKey("dashd")
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}

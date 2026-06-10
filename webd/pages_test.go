@@ -191,7 +191,7 @@ func TestXTopics_Partial(t *testing.T) {
 	})
 	_ = st.PutMessage(core.Message{
 		ID: "m-old", ChatJID: "web:main",
-		Content: strings.Repeat("x", 60),
+		Content:   strings.Repeat("x", 60),
 		Timestamp: time.Now().Add(-72 * time.Hour), Topic: "old",
 	})
 

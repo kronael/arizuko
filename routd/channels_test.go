@@ -24,7 +24,7 @@ func newChannelRoutd(t *testing.T) (*Server, *chanreg.Registry) {
 	}
 	t.Cleanup(func() { db.Close() })
 	srv := NewServer(db, nil, nil, nil, 0, "")
-	reg := chanreg.New(testChanSecret)
+	reg := chanreg.New()
 	srv.SetChannelRegistry(reg, nil, nil)
 	return srv, reg
 }
@@ -86,7 +86,7 @@ func chanReq(method, path, token string, body any) *http.Request {
 }
 
 // TestChannelRegisterListDeregister is the channel-surface round trip:
-// register an adapter (CHANNEL_SECRET-gated) → GET /v1/channels lists it in
+// register an adapter (open here — no Verifier) → GET /v1/channels lists it in
 // the shape `arizuko status` decodes → deregister with the session token
 // removes it.
 func TestChannelRegisterListDeregister(t *testing.T) {
@@ -154,23 +154,10 @@ func TestChannelRegisterListDeregister(t *testing.T) {
 	}
 }
 
-// TestChannelRegisterRejectsBadSecret confirms the CHANNEL_SECRET gate: a
-// wrong bearer is 401 and registers nothing.
-func TestChannelRegisterRejectsBadSecret(t *testing.T) {
-	srv, reg := newChannelRoutd(t)
-	h := srv.Handler()
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", "wrong-secret", map[string]any{
-		"name": "x", "url": "http://x:8080", "jid_prefixes": []string{"x:"},
-	}))
-	if rec.Code != 401 {
-		t.Fatalf("bad-secret status=%d want 401", rec.Code)
-	}
-	if reg.Get("x") != nil {
-		t.Fatal("rejected register still created an entry")
-	}
-}
+// Register rejection (an invalid/non-service ES256 token → 401) is covered with
+// an active Verifier in channels_es256_test.go. With no Verifier (local dev, as
+// newChannelRoutd here) the gate is open by design, so there is no rejection to
+// assert on this path.
 
 // TestChannelEndpointsUnmountedWithoutRegistry confirms a Server with no
 // registry (pure REST tests) doesn't expose the channel surface — the route

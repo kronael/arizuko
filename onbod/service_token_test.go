@@ -1,8 +1,8 @@
 package main
 
-// onbod posts the onboarding greeting to routd's JWT-gated /v1/outbound. In the
-// split it presents a service:onbod JWT exchanged from AUTHD_SERVICE_KEY (spec
-// 5/1); the monolith path falls back to CHANNEL_SECRET. These tests pin both.
+// onbod posts the onboarding greeting to routd's JWT-gated /v1/outbound. It
+// presents a service:onbod JWT exchanged from AUTHD_SERVICE_KEY (spec 5/1); a
+// client with no token source presents no bearer. These tests pin both.
 
 import (
 	"crypto/ecdsa"

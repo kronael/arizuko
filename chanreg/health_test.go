@@ -16,7 +16,7 @@ func TestCheckAll_HealthyAdapter(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := New("s")
+	r := New()
 	r.Register("tg", srv.URL, []string{"tg:"}, nil)
 
 	// Override the package-level health client so it hits our test server
@@ -42,7 +42,7 @@ func TestCheckAll_BadURL_DeregistersAfterMaxFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := New("s")
+	r := New()
 	r.Register("bad", srv.URL, []string{"bad:"}, nil)
 
 	old := healthClient
@@ -88,7 +88,7 @@ func TestCheckAll_FailThenRecover(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := New("s")
+	r := New()
 	r.Register("flaky", srv.URL, []string{"flaky:"}, nil)
 
 	old := healthClient
@@ -117,7 +117,7 @@ func TestCheckAll_FailThenRecover(t *testing.T) {
 }
 
 func TestCheckAll_UnreachableURL(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("dead", "http://127.0.0.1:1", []string{"dead:"}, nil)
 
 	// Use default client — connection to port 1 will fail
@@ -132,7 +132,7 @@ func TestCheckAll_UnreachableURL(t *testing.T) {
 }
 
 func TestCheckAll_EmptyRegistry(t *testing.T) {
-	r := New("s")
+	r := New()
 	// Should not panic on empty registry
 	r.checkAll()
 }

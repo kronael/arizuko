@@ -1,8 +1,7 @@
 package chanlib
 
-// Adapter-side Auth gate under ES256 (HMAC→ES256 retire step 4): routd presents
-// a service:routd token → admit; any other token / no token → 401; with no
-// keyset (local dev) → CHANNEL_SECRET constant-time compare.
+// Adapter-side Auth gate under ES256: routd presents a service:routd token →
+// admit; any other token / no token → 401; with no keyset (local dev) → open.
 
 import (
 	"crypto/ecdsa"
@@ -30,8 +29,8 @@ func signToken(t *testing.T, kid, sub, typ string) (token string, ks *auth.KeySe
 }
 
 // callGate drives authGate with the given bearer and reports the status code.
-func callGate(ks *auth.KeySet, secret, bearer string) int {
-	h := authGate(ks, secret, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+func callGate(ks *auth.KeySet, bearer string) int {
+	h := authGate(ks, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	r := httptest.NewRequest("POST", "/send", nil)
 	if bearer != "" {
 		r.Header.Set("Authorization", "Bearer "+bearer)
@@ -44,7 +43,7 @@ func callGate(ks *auth.KeySet, secret, bearer string) int {
 // TestAuthGateES256AdmitsRoutd: a valid service:routd token is admitted.
 func TestAuthGateES256AdmitsRoutd(t *testing.T) {
 	tok, ks := signToken(t, "k-routd", CallerRoutd, "service")
-	if got := callGate(ks, "channel-secret", tok); got != 200 {
+	if got := callGate(ks, tok); got != 200 {
 		t.Fatalf("service:routd token: status %d, want 200", got)
 	}
 }
@@ -62,7 +61,7 @@ func TestAuthGateES256RejectsOtherCaller(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tok, ks := signToken(t, "k1", c.sub, c.typ)
-			if got := callGate(ks, "channel-secret", tok); got != 401 {
+			if got := callGate(ks, tok); got != 401 {
 				t.Fatalf("%s: status %d, want 401", c.name, got)
 			}
 		})
@@ -73,29 +72,21 @@ func TestAuthGateES256RejectsOtherCaller(t *testing.T) {
 // both 401 under the ES256 gate (no fail-open).
 func TestAuthGateES256RejectsMissingAndGarbage(t *testing.T) {
 	_, ks := signToken(t, "k1", CallerRoutd, "service")
-	if got := callGate(ks, "channel-secret", ""); got != 401 {
+	if got := callGate(ks, ""); got != 401 {
 		t.Fatalf("no token: status %d, want 401", got)
 	}
-	if got := callGate(ks, "channel-secret", "not-a-jwt"); got != 401 {
+	if got := callGate(ks, "not-a-jwt"); got != 401 {
 		t.Fatalf("garbage token: status %d, want 401", got)
-	}
-	// The legacy CHANNEL_SECRET must NOT pass once ES256 is active.
-	if got := callGate(ks, "channel-secret", "channel-secret"); got != 401 {
-		t.Fatalf("CHANNEL_SECRET against ES256 gate: status %d, want 401", got)
 	}
 }
 
-// TestAuthGateSecretFallback: with no keyset (ks==nil, local dev) the gate is
-// the CHANNEL_SECRET constant-time compare.
-func TestAuthGateSecretFallback(t *testing.T) {
-	if got := callGate(nil, "the-secret", "the-secret"); got != 200 {
-		t.Fatalf("matching secret: status %d, want 200", got)
+// TestAuthGateNilKeysetOpen: with no keyset (ks==nil, local dev) the gate is
+// open — there is no shared secret to compare; any request passes.
+func TestAuthGateNilKeysetOpen(t *testing.T) {
+	if got := callGate(nil, "anything"); got != 200 {
+		t.Fatalf("nil keyset with bearer: status %d, want 200", got)
 	}
-	if got := callGate(nil, "the-secret", "wrong"); got != 401 {
-		t.Fatalf("wrong secret: status %d, want 401", got)
-	}
-	// ks==nil AND empty secret → open (single-process tests).
-	if got := callGate(nil, "", ""); got != 200 {
-		t.Fatalf("open gate: status %d, want 200", got)
+	if got := callGate(nil, ""); got != 200 {
+		t.Fatalf("nil keyset no bearer: status %d, want 200", got)
 	}
 }

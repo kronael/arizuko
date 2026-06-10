@@ -14,9 +14,9 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
-// Spec 8/15. Operator-only re-pair surface — dashd renders the page,
-// proxies POST to whapd /v1/pair/start using CHANNEL_SECRET, writes an
-// audit row to messages.
+// Spec 8/15. Operator-only re-pair surface — dashd renders the page, proxies
+// POST to whapd /v1/pair/start presenting its service:dashd ES256 token (whapd
+// verifies it; HMAC retire step 5), writes an audit row to messages.
 
 const whapdDefaultURL = "http://whapd:8080"
 
@@ -27,8 +27,21 @@ func (d *dash) whapdURL() string {
 	return whapdDefaultURL
 }
 
-func (d *dash) channelSecret() string {
-	return os.Getenv("CHANNEL_SECRET")
+// pairAuth sets the service:dashd bearer on a whapd pair request. nil svc (local
+// dev, no AUTHD_URL) → no header. A token-exchange error is logged and the call
+// goes out unauthenticated, surfacing as whapd's 401 rather than a silent skip.
+func (d *dash) pairAuth(req *http.Request) {
+	if d.svc == nil {
+		return
+	}
+	tok, err := d.svc(req.Context())
+	if err != nil {
+		slog.Warn("whapd pair: service token unavailable", "err", err)
+		return
+	}
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 }
 
 type pairStatus struct {
@@ -116,9 +129,7 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 	req, _ := http.NewRequestWithContext(r.Context(), "POST",
 		d.whapdURL()+"/v1/pair/start", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	if s := d.channelSecret(); s != "" {
-		req.Header.Set("Authorization", "Bearer "+s)
-	}
+	d.pairAuth(req)
 	c := &http.Client{Timeout: 15 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
@@ -145,9 +156,7 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) fetchPairStatus() pairStatus {
 	req, _ := http.NewRequest("GET", d.whapdURL()+"/v1/pair/status", nil)
-	if s := d.channelSecret(); s != "" {
-		req.Header.Set("Authorization", "Bearer "+s)
-	}
+	d.pairAuth(req)
 	c := &http.Client{Timeout: 5 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {

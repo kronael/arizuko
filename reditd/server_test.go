@@ -48,7 +48,7 @@ func (s *stubSender) Delete(r chanlib.DeleteRequest) error {
 
 func testReditServer(t *testing.T, secret string) *server {
 	t.Helper()
-	cfg := config{Name: "reddit", ChannelSecret: secret}
+	cfg := config{Name: "reddit"}
 	s := newServer(cfg, &stubSender{}, chanlib.NewURLCache(100), func() bool { return true }, func() int64 { return time.Now().Unix() })
 	s.safeFetch = nil
 	return s
@@ -87,38 +87,6 @@ func TestReditHealthDisconnected(t *testing.T) {
 		t.Errorf("status = %v", resp["status"])
 	}
 }
-
-func TestReditAuthRequired(t *testing.T) {
-	s := testReditServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "reddit:alice", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestReditAuthWrongToken(t *testing.T) {
-	s := testReditServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "reddit:alice", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer wrongtoken")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestReditSend_MissingContent(t *testing.T) {
 	s := testReditServer(t, "")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "reddit:alice"})
@@ -274,20 +242,6 @@ func TestReditFileProxyNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
-
-func TestReditFileProxyAuthRequired(t *testing.T) {
-	fc := chanlib.NewURLCache(100)
-	fc.Put("https://example.com/img.jpg")
-	s := newServer(config{Name: "reddit", ChannelSecret: "secret123"}, &stubSender{}, fc, func() bool { return true }, func() int64 { return time.Now().Unix() })
-
-	req := httptest.NewRequest("GET", "/files/someid", nil)
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestReditPost(t *testing.T) {
 	stub := &stubSender{postID: "t3_abc"}
 	s := newServer(config{Name: "reddit"}, stub, chanlib.NewURLCache(100), func() bool { return true }, func() int64 { return time.Now().Unix() })

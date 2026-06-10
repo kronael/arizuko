@@ -84,8 +84,8 @@ func get(t *testing.T, mux *http.ServeMux, r *http.Request) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-// 1. alice's /dash/groups shows corp/eng AND corp/eng/sre (subtree inclusion),
-//    NOT corp/sales (cross-tenant exclusion).
+//  1. alice's /dash/groups shows corp/eng AND corp/eng/sre (subtree inclusion),
+//     NOT corp/sales (cross-tenant exclusion).
 func TestIso_Groups_AliceSeesSubtreeNotSales(t *testing.T) {
 	mux, _ := isoEnv(t)
 	code, body := get(t, mux, as(httptest.NewRequest("GET", "/dash/groups/", nil), "alice@x", folderEng))
@@ -175,8 +175,8 @@ func TestIso_Memory_AlicePickerScoped(t *testing.T) {
 	mustNotContain(t, body, `value="`+folderSales+`"`, "alice's picker MUST NOT list corp/sales")
 }
 
-// 3. Per-folder GETs into corp/sales are 403 for alice (settings/grants/tokens/
-//    tools/task-detail).
+//  3. Per-folder GETs into corp/sales are 403 for alice (settings/grants/tokens/
+//     tools/task-detail).
 func TestIso_PerFolderGET_AliceForbiddenOnSales(t *testing.T) {
 	mux, inst := isoEnv(t)
 	seedTask(t, inst, "task-sales", folderSales)
@@ -204,8 +204,8 @@ func TestIso_PerFolderGET_AliceForbiddenOnSales(t *testing.T) {
 	}
 }
 
-// 4. Instance-wide sections (invites, channels) are 403 for non-operators, and
-//    the invites nav link is hidden.
+//  4. Instance-wide sections (invites, channels) are 403 for non-operators, and
+//     the invites nav link is hidden.
 func TestIso_InstanceWide_AliceForbidden(t *testing.T) {
 	mux, _ := isoEnv(t)
 	for _, path := range []string{"/dash/invites/", "/dash/channels/whatsapp/pair"} {
@@ -220,8 +220,8 @@ func TestIso_InstanceWide_AliceForbidden(t *testing.T) {
 	mustContain(t, body, `href="/dash/groups/"`, "scoped links stay in nav")
 }
 
-// 5. Operator keeps the full view — all folders + invites + channels (no
-//    feature drop).
+//  5. Operator keeps the full view — all folders + invites + channels (no
+//     feature drop).
 func TestIso_Operator_FullView(t *testing.T) {
 	mux, inst := isoEnv(t)
 	for _, rt := range []core.Route{
@@ -302,11 +302,11 @@ func TestIso_Bob_SeesSalesNotEng(t *testing.T) {
 	}
 }
 
-// 7. Portal dot-counts (countVisible* on authz.go) MUST scope to the caller.
-//    A non-operator's group/errored-chat/failed-task counts include only their
-//    own subtree; a bug in the per-row visible() filter leaks other tenants'
-//    totals onto the landing page (alice would see "3 errored" when 2 are
-//    sales'). Operator gets the raw COUNT(*).
+//  7. Portal dot-counts (countVisible* on authz.go) MUST scope to the caller.
+//     A non-operator's group/errored-chat/failed-task counts include only their
+//     own subtree; a bug in the per-row visible() filter leaks other tenants'
+//     totals onto the landing page (alice would see "3 errored" when 2 are
+//     sales'). Operator gets the raw COUNT(*).
 func TestIso_PortalCounts_Scoped(t *testing.T) {
 	_, inst := isoEnv(t)
 	d := &dash{db: inst.DB, dbRW: inst.DB}
@@ -370,10 +370,10 @@ func TestIso_VisiblePredicate(t *testing.T) {
 		folder string
 		want   bool
 	}{
-		{folderEng, true},   // exact
-		{folderSre, true},   // subtree
-		{folderSales, false},// sibling tenant
-		{"corp", false},     // parent is NOT visible from a child grant
+		{folderEng, true},       // exact
+		{folderSre, true},       // subtree
+		{folderSales, false},    // sibling tenant
+		{"corp", false},         // parent is NOT visible from a child grant
 		{"corp/england", false}, // prefix-but-not-subtree (no false positive)
 		{"", false},
 	}

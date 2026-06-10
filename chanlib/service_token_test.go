@@ -94,7 +94,7 @@ func TestServiceTokenSendMessage(t *testing.T) {
 	var gotID string
 	routd := routdLike(t, ks, &gotID)
 
-	rc := NewRouterClient(routd.URL, "channel-secret")
+	rc := NewRouterClient(routd.URL)
 	src, err := auth.ServiceToken(authd.URL, "teled", "boot-teled")
 	if err != nil {
 		t.Fatalf("service token source: %v", err)
@@ -124,7 +124,7 @@ func TestServiceTokenRejectedWithoutScope(t *testing.T) {
 	var gotID string
 	routd := routdLike(t, ks, &gotID)
 
-	rc := NewRouterClient(routd.URL, "channel-secret")
+	rc := NewRouterClient(routd.URL)
 	src, _ := auth.ServiceToken(authd.URL, "teled", "boot-teled")
 	rc.SetServiceToken(src.Token)
 
@@ -140,9 +140,9 @@ func TestServiceTokenRejectedWithoutScope(t *testing.T) {
 	}
 }
 
-// TestServiceTokenAbsentRejected: against a JWT-gated routd, the monolith
-// registration token (not a JWT) is rejected (401) — proving the gate is real
-// and a non-JWT bearer does not slip through.
+// TestServiceTokenAbsentRejected: against a JWT-gated routd, a client with NO
+// service-token source presents no bearer → routd 401s. Proves the gate is real
+// and that the deleted registration-token fallback does not slip a caller through.
 func TestServiceTokenAbsentRejected(t *testing.T) {
 	key, err := auth.NewSigningKey("kid-chanlib3")
 	if err != nil {
@@ -156,43 +156,14 @@ func TestServiceTokenAbsentRejected(t *testing.T) {
 	var gotID string
 	routd := routdLike(t, ks, &gotID)
 
-	// No service-token source: SendMessage rides the registration token, which is
-	// not a valid JWT → routd 401s. (Monolith routd is open; here routd is gated.)
-	rc := NewRouterClient(routd.URL, "channel-secret")
-	rc.SetToken("registration-token-not-a-jwt")
+	// No service-token source → bearer() returns "" → no Authorization header →
+	// the gated routd 401s. (A local-dev routd with no JWKS would be open.)
+	rc := NewRouterClient(routd.URL)
 	err = rc.SendMessage(InboundMsg{ID: "in-3", ChatJID: "telegram:1", Content: "hi"})
 	if err == nil {
-		t.Fatal("non-JWT bearer against a gated routd must fail")
+		t.Fatal("unauthenticated send against a gated routd must fail")
 	}
 	if !strings.Contains(err.Error(), "status 401") {
 		t.Fatalf("err = %v, want status 401", err)
-	}
-}
-
-// TestMonolithPathUsesRegistrationToken: with NO service-token source, the
-// registration token rides /v1/messages unchanged (monolith / local-dev). The
-// bearer the server sees is exactly the registration token.
-func TestMonolithPathUsesRegistrationToken(t *testing.T) {
-	var sawBearer string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawBearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		WriteJSON(w, map[string]any{"ok": true})
-	}))
-	t.Cleanup(srv.Close)
-
-	rc := NewRouterClient(srv.URL, "channel-secret")
-	rc.SetToken("reg-token")
-	if rc.svcToken != nil {
-		t.Fatal("no service-token source should be wired on the monolith path")
-	}
-	if err := rc.SendMessage(InboundMsg{ID: "in-4", ChatJID: "telegram:1", Content: "hi"}); err != nil {
-		t.Fatalf("SendMessage monolith: %v", err)
-	}
-	if sawBearer != "reg-token" {
-		t.Fatalf("monolith bearer = %q, want reg-token", sawBearer)
-	}
-	// Token() also returns the registration token on the monolith path.
-	if rc.Token() != "reg-token" {
-		t.Fatalf("Token() = %q, want reg-token", rc.Token())
 	}
 }

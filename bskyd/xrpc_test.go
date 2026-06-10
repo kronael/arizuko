@@ -396,7 +396,7 @@ func TestDefaultReply_FullRuntimePath(t *testing.T) {
 
 	mr := newBskyRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	n := notification{
@@ -447,7 +447,7 @@ func TestDefaultReply_FullRuntimePath(t *testing.T) {
 func TestHandleNotification_DedupID(t *testing.T) {
 	mr := newBskyRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	bc := &bskyClient{}
@@ -557,7 +557,7 @@ func TestFetchNotifications_Dispatches(t *testing.T) {
 	// fake router
 	mr := newBskyRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	if err := bc.fetchNotifications(rc); err != nil {
@@ -617,7 +617,7 @@ func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
 	mr := newBskyRouterMock()
 	mr.fail = true
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	if err := bc.fetchNotifications(rc); err != nil {
@@ -631,7 +631,7 @@ func TestFetchNotifications_NoSeenOnDeliverFailure(t *testing.T) {
 func TestHandleNotification_WithImages(t *testing.T) {
 	mr := newBskyRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	bc := &bskyClient{cfg: config{ListenURL: "http://bskyd:9005"}}
@@ -680,7 +680,7 @@ func TestPoll_CancelsOnContext(t *testing.T) {
 
 	mr := newBskyRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	ctx, cancel := context.WithCancel(context.Background())

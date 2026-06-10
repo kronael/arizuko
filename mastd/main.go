@@ -20,13 +20,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"mastodon:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"mastodon:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			mc, err := newMastoClient(cfg)
 			if err != nil {
@@ -44,7 +43,6 @@ type config struct {
 	InstanceURL   string
 	AccessToken   string
 	RouterURL     string
-	ChannelSecret string
 	ListenAddr    string
 	ListenURL     string
 	MaxFileBytes  int64
@@ -57,7 +55,6 @@ func loadConfig() config {
 		InstanceURL:   chanlib.MustEnv("MASTODON_INSTANCE_URL"),
 		AccessToken:   chanlib.MustEnv("MASTODON_ACCESS_TOKEN"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("MASTD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9004"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://mastd:9004"),
 		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),

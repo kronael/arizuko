@@ -33,18 +33,18 @@ func newServer(cfg config, b *bot, isConnected func() bool, lastInboundAt func()
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt)
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"slack:"}, s.bot, s.isConnected, s.lastInboundAt)
 	// Events webhook is signature-verified, not chanlib.Auth-gated; file proxy adds Bearer xoxb upstream.
 	mux.HandleFunc("POST /slack/events", s.handleEvents)
-	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, chanlib.FileProxyHandler(chanlib.FileProxyOpts{
+	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve: s.files.Get,
 		Decorate: func(req *http.Request) {
 			req.Header.Set("Authorization", "Bearer "+s.cfg.BotToken)
 		},
 		MaxBytes: s.cfg.MediaMaxBytes,
 	})))
-	mux.HandleFunc("POST /v1/pane/prompts", chanlib.Auth(s.cfg.ChannelSecret, s.handlePanePrompts))
-	mux.HandleFunc("POST /v1/pane/title", chanlib.Auth(s.cfg.ChannelSecret, s.handlePaneTitle))
+	mux.HandleFunc("POST /v1/pane/prompts", chanlib.Auth(s.handlePanePrompts))
+	mux.HandleFunc("POST /v1/pane/title", chanlib.Auth(s.handlePaneTitle))
 	return mux
 }
 

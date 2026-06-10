@@ -99,11 +99,11 @@ func TestFixForwardedFor_EmptyPeer(t *testing.T) {
 	}
 }
 
-// setUserHeaders stamps sub/name/groups on a cloned request and (HMAC retire
-// step 2) NO LONGER signs X-User-Sig — the bearer is the channel proof. With no
-// service token (svc nil) it forwards the identity unsigned.
+// setUserHeaders stamps sub/name/groups on a cloned request and never signs
+// X-User-Sig — the service bearer is the channel proof. With no service token
+// (svc nil) it forwards the identity unsigned.
 func TestSetUserHeaders(t *testing.T) {
-	s := &server{cfg: config{hmacSecret: "test-secret"}}
+	s := &server{cfg: config{}}
 	r := httptest.NewRequest("GET", "/", nil)
 	r2 := s.setUserHeaders(r, "user:bob", "Bob", []string{"grp1", "grp2"})
 
@@ -127,7 +127,7 @@ func TestSetUserHeaders(t *testing.T) {
 
 // setUserHeaders strips any stale inbound X-User-Sig (it is never trusted).
 func TestSetUserHeaders_StripsStaleSig(t *testing.T) {
-	s := &server{cfg: config{hmacSecret: "test-secret"}}
+	s := &server{cfg: config{}}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("X-User-Sig", "stale")
 	r2 := s.setUserHeaders(r, "sub", "name", nil)
@@ -138,9 +138,9 @@ func TestSetUserHeaders_StripsStaleSig(t *testing.T) {
 
 // With no service token, setUserHeaders must clear the caller's inbound bearer
 // so the request is forwarded truly UNSIGNED — never re-derivable from the
-// caller's own token by a backend behind RequireSignedOrBearer.
+// caller's own token by a backend's transit gate.
 func TestSetUserHeaders_ClearsInboundBearer_NoService(t *testing.T) {
-	s := &server{cfg: config{hmacSecret: "h"}} // svc nil
+	s := &server{cfg: config{}} // svc nil
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("Authorization", "Bearer user-token")
 	r2 := s.setUserHeaders(r, "github:42", "Bob", []string{"**"})
@@ -175,16 +175,15 @@ func fakeServiceAuthd(t *testing.T) (*httptest.Server, *auth.KeySet) {
 	return ts, auth.NewKeySet(map[string]*ecdsa.PublicKey{key.Kid: &key.Priv.PublicKey})
 }
 
-// HMAC retire step 2: with a service-token source wired, setUserHeaders attaches
-// a verifiable service:proxyd bearer (the channel proof) and NO X-User-Sig.
-// channelTrusted then admits the stamped identity on that proof.
+// With a service-token source wired, setUserHeaders attaches a verifiable
+// service:proxyd bearer (the channel proof backends verify) and NO X-User-Sig.
 func TestSetUserHeaders_AttachesServiceBearer(t *testing.T) {
 	authd, ks := fakeServiceAuthd(t)
 	src, err := auth.ServiceToken(authd.URL, "proxyd", "boot-proxyd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server{cfg: config{hmacSecret: "h"}, svc: src, ks: ks}
+	s := &server{cfg: config{}, svc: src, ks: ks}
 	r := httptest.NewRequest("GET", "/", nil)
 	r2 := s.setUserHeaders(r, "github:42", "Bob", []string{"**"})
 
@@ -199,31 +198,48 @@ func TestSetUserHeaders_AttachesServiceBearer(t *testing.T) {
 	if err != nil || sub.Sub != "service:proxyd" {
 		t.Fatalf("service bearer must verify as service:proxyd: sub=%q err=%v", sub.Sub, err)
 	}
-	// The downstream /v1/routes gate trusts the stamped identity on this proof,
-	// NOT the bearer's service:proxyd sub.
-	if !channelTrusted(r2, "h", ks) {
-		t.Fatal("channelTrusted rejected a bearer-proven stamped identity")
-	}
 }
 
-// channelTrusted rejects a stamped X-User-Sub with neither a valid bearer nor an
-// HMAC sig, and falls back to HMAC when ks is nil.
+// channelTrusted gates proxyd's /v1/routes resource (webd→proxyd): it admits a
+// stamped X-User-Sub ONLY with a valid service:webd bearer, rejects any other
+// bearer (the sub pin), and is open when ks is nil (local dev).
 func TestChannelTrusted(t *testing.T) {
-	_, ks := fakeServiceAuthd(t)
+	key, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ks := auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &key.Priv.PublicKey})
+
+	// Forged X-User-Sub, no bearer → rejected.
 	r := httptest.NewRequest("GET", "/", nil)
-	r.Header.Set("X-User-Sub", "github:hacker") // forged, no proof
-	if channelTrusted(r, "h", ks) {
+	r.Header.Set("X-User-Sub", "github:hacker")
+	if channelTrusted(r, ks) {
 		t.Error("admitted a forged X-User-Sub with no channel proof")
 	}
-	// nil ks → HMAC fallback: a valid X-User-Sig is required.
-	groups := `["**"]`
+
+	// Valid service:webd bearer → admitted.
+	webdTok, _ := key.Sign(auth.TokenClaims{Sub: callerWebd, Typ: "service"}, time.Minute)
 	r2 := httptest.NewRequest("GET", "/", nil)
 	r2.Header.Set("X-User-Sub", "github:42")
-	r2.Header.Set("X-User-Name", "bob")
-	r2.Header.Set("X-User-Groups", groups)
-	r2.Header.Set("X-User-Sig", auth.SignHMAC("h", auth.UserSigMessage("github:42", "bob", groups)))
-	if !channelTrusted(r2, "h", nil) {
-		t.Error("HMAC fallback rejected a validly-signed identity with nil ks")
+	r2.Header.Set("Authorization", "Bearer "+webdTok)
+	if !channelTrusted(r2, ks) {
+		t.Error("rejected a stamped identity proven by a valid service:webd bearer")
+	}
+
+	// Valid but NON-webd bearer (same trusted key) → rejected by the sub pin.
+	userTok, _ := key.Sign(auth.TokenClaims{Sub: "user:github:mallory", Typ: "user"}, time.Minute)
+	r3 := httptest.NewRequest("GET", "/", nil)
+	r3.Header.Set("X-User-Sub", "github:victim")
+	r3.Header.Set("Authorization", "Bearer "+userTok)
+	if channelTrusted(r3, ks) {
+		t.Error("admitted a forged identity under a non-webd bearer (sub pin missing)")
+	}
+
+	// nil ks (local dev) → open: a present X-User-Sub is trusted.
+	r4 := httptest.NewRequest("GET", "/", nil)
+	r4.Header.Set("X-User-Sub", "github:dev")
+	if !channelTrusted(r4, nil) {
+		t.Error("nil ks must trust a present X-User-Sub (local dev)")
 	}
 }
 
@@ -372,7 +388,7 @@ func es256KeySet(t *testing.T) (*auth.SigningKey, *auth.KeySet) {
 // injected — the bearer (or, when wired, proxyd's service token) is the proof.
 func TestTryAuth_ES256Bearer(t *testing.T) {
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs256secret", hmacSecret: "hmac", authdURL: "http://authd"}, ks: ks}
+	s := &server{cfg: config{authSecret: "hs256secret", authdURL: "http://authd"}, ks: ks}
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user", Scope: []string{"messages:send"}}, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -445,7 +461,7 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", hmacSecret: "h", authdURL: "http://authd"}, st: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, ks: ks}
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user"}, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -487,7 +503,7 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", hmacSecret: "h", authdURL: "http://authd"}, st: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, ks: ks}
 	// ES256 token carries NO groups claim — proxyd must source them from the DB.
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:999", Typ: "user"}, time.Hour)
 	if err != nil {

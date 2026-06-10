@@ -38,20 +38,3 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		t.Errorf("cache ttl = %v", cfg.CacheTTL)
 	}
 }
-
-func TestLoadConfig_SlakdChannelSecretOverridesGeneric(t *testing.T) {
-	os.Setenv("SLACK_BOT_TOKEN", "xoxb-test")
-	os.Setenv("SLACK_SIGNING_SECRET", "shh")
-	os.Setenv("ROUTER_URL", "http://gated:8080")
-	os.Setenv("CHANNEL_SECRET", "generic")
-	os.Setenv("SLAKD_CHANNEL_SECRET", "slack-specific")
-	defer func() {
-		for _, k := range []string{"SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "ROUTER_URL", "CHANNEL_SECRET", "SLAKD_CHANNEL_SECRET"} {
-			os.Unsetenv(k)
-		}
-	}()
-	cfg := loadConfig()
-	if cfg.ChannelSecret != "slack-specific" {
-		t.Errorf("expected SLAKD_CHANNEL_SECRET to win, got %q", cfg.ChannelSecret)
-	}
-}

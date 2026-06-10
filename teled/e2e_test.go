@@ -35,7 +35,7 @@ func TestE2EInboundFlow(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
 	err := rc.SendMessage(chanlib.InboundMsg{
@@ -58,10 +58,13 @@ func TestE2EInboundFlow(t *testing.T) {
 }
 
 func TestE2ERegistrationAndDeregistration(t *testing.T) {
-	mr := newMockRouter("secret")
+	// Open router (local-dev / nil-verifier path): exercises the register → send →
+	// deregister flow end to end. The service-token gate is covered in
+	// chanlib/service_token_test.go.
+	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "secret")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	token, err := rc.Register("telegram", "http://telegram:9001",
 		[]string{"telegram:"}, map[string]bool{"send_text": true})
 	if err != nil {
@@ -104,7 +107,7 @@ func TestE2EMultipleMessages(t *testing.T) {
 	mr := newMockRouter("")
 	defer mr.close()
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 	for i := 0; i < 5; i++ {
 		rc.SendMessage(chanlib.InboundMsg{ChatJID: "telegram:123", Content: "msg"})

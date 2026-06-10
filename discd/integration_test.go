@@ -34,7 +34,7 @@ func TestOnMessage_SkipsSelfAuthor(t *testing.T) {
 	addChannel(t, s, "ch-1", discordgo.ChannelTypeGuildText)
 	b := &bot{
 		session: s,
-		rc:      chanlib.NewRouterClient(router.URL, "secret"),
+		rc:      chanlib.NewRouterClient(router.URL),
 		cfg:     config{AssistantName: "sloth"},
 		files:   chanlib.NewURLCache(0),
 	}
@@ -460,7 +460,7 @@ func TestTyping_Off_NoSend(t *testing.T) {
 func TestOnMessage_Inbound(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -501,7 +501,7 @@ func TestOnMessage_Inbound(t *testing.T) {
 func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -531,7 +531,7 @@ func TestOnMessage_ThreadChannelTopic(t *testing.T) {
 func TestOnMessage_ThreadInGuild_UsesParentJID(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -566,7 +566,7 @@ func TestOnMessage_ThreadInGuild_UsesParentJID(t *testing.T) {
 func TestOnMessage_BotIgnored(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	srv := newServer(config{Name: "discord"}, nil, func() bool { return true }, func() int64 { return time.Now().Unix() })
@@ -593,7 +593,7 @@ func TestOnMessage_NilAuthor(t *testing.T) {
 func TestOnMessage_Attachment(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -629,7 +629,7 @@ func TestOnMessage_Attachment(t *testing.T) {
 func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)
@@ -651,7 +651,7 @@ func TestOnMessage_EmptyContentAndNoAttachments_Skipped(t *testing.T) {
 func TestOnReactionAdd_LikeAndDislike(t *testing.T) {
 	mr := newDiscdRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	sess := newTestSession(t)

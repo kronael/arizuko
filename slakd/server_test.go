@@ -28,7 +28,6 @@ func newTestServer(t *testing.T, secret string) (*server, *bot) {
 		Name:          "slack",
 		BotToken:      "xoxb-test",
 		SigningSecret: secret,
-		ChannelSecret: "chsec",
 		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
@@ -107,20 +106,6 @@ func TestEvents_NoHeaders(t *testing.T) {
 		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
-
-// File proxy returns 401 without ChannelSecret bearer — observed-failure
-// anchor: url_private upstream-auth requires Bearer xoxb.
-func TestFileProxy_AuthRequired(t *testing.T) {
-	s, _ := newTestServer(t, "shh")
-	s.files.Put("https://files.slack.com/x")
-	req := httptest.NewRequest("GET", "/files/anything", nil)
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
 func TestFileProxy_NotFound(t *testing.T) {
 	s, _ := newTestServer(t, "shh")
 	req := httptest.NewRequest("GET", "/files/missing", nil)

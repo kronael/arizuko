@@ -24,13 +24,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"linkedin:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"linkedin:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			lc, err := newLinkClient(cfg)
 			if err != nil {
@@ -44,37 +43,35 @@ func main() {
 }
 
 type config struct {
-	Name          string
-	ClientID      string
-	ClientSecret  string
-	AccessToken   string
-	RefreshToken  string
-	RouterURL     string
-	ChannelSecret string
-	ListenAddr    string
-	ListenURL     string
-	DataDir       string
-	APIBase       string
-	OAuthBase     string
-	PollInterval  string
-	AutoPublish   bool
+	Name         string
+	ClientID     string
+	ClientSecret string
+	AccessToken  string
+	RefreshToken string
+	RouterURL    string
+	ListenAddr   string
+	ListenURL    string
+	DataDir      string
+	APIBase      string
+	OAuthBase    string
+	PollInterval string
+	AutoPublish  bool
 }
 
 func loadConfig() config {
 	return config{
-		Name:          chanlib.EnvOr("CHANNEL_NAME", "linkedin"),
-		ClientID:      chanlib.MustEnv("LINKEDIN_CLIENT_ID"),
-		ClientSecret:  chanlib.MustEnv("LINKEDIN_CLIENT_SECRET"),
-		AccessToken:   chanlib.EnvOr("LINKEDIN_ACCESS_TOKEN", ""),
-		RefreshToken:  chanlib.EnvOr("LINKEDIN_REFRESH_TOKEN", ""),
-		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("LINKD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
-		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9010"),
-		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://linkd:9010"),
-		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/app/home"),
-		APIBase:       chanlib.EnvOr("LINKEDIN_API_BASE", "https://api.linkedin.com"),
-		OAuthBase:     chanlib.EnvOr("LINKEDIN_OAUTH_BASE", "https://www.linkedin.com"),
-		PollInterval:  chanlib.EnvOr("LINKEDIN_POLL_INTERVAL", "300s"),
-		AutoPublish:   chanlib.EnvOr("LINKEDIN_AUTO_PUBLISH", "false") == "true",
+		Name:         chanlib.EnvOr("CHANNEL_NAME", "linkedin"),
+		ClientID:     chanlib.MustEnv("LINKEDIN_CLIENT_ID"),
+		ClientSecret: chanlib.MustEnv("LINKEDIN_CLIENT_SECRET"),
+		AccessToken:  chanlib.EnvOr("LINKEDIN_ACCESS_TOKEN", ""),
+		RefreshToken: chanlib.EnvOr("LINKEDIN_REFRESH_TOKEN", ""),
+		RouterURL:    chanlib.MustEnv("ROUTER_URL"),
+		ListenAddr:   chanlib.EnvOr("LISTEN_ADDR", ":9010"),
+		ListenURL:    chanlib.EnvOr("LISTEN_URL", "http://linkd:9010"),
+		DataDir:      chanlib.EnvOr("DATA_DIR", "/srv/app/home"),
+		APIBase:      chanlib.EnvOr("LINKEDIN_API_BASE", "https://api.linkedin.com"),
+		OAuthBase:    chanlib.EnvOr("LINKEDIN_OAUTH_BASE", "https://www.linkedin.com"),
+		PollInterval: chanlib.EnvOr("LINKEDIN_POLL_INTERVAL", "300s"),
+		AutoPublish:  chanlib.EnvOr("LINKEDIN_AUTO_PUBLISH", "false") == "true",
 	}
 }

@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,30 +13,23 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-const testHMACSecret = "test-secret"
-
-// signUserHeaders fills in X-User-Sig for the caller-supplied identity
-// headers so webd's requireUser gate accepts them.
+// signUserHeaders supplies the proxyd-stamped identity headers webd's
+// requireUser gate trusts. The test servers run with a nil KeySet (no AUTHD_URL,
+// local-dev path), so identified() trusts the stamped X-User-Sub directly — no
+// transit bearer needed. Named for the pre-ES256 era; it now just sets headers.
 func signUserHeaders(h map[string]string) map[string]string {
 	if h == nil {
 		h = map[string]string{}
 	}
-	msg := "user:" + h["X-User-Sub"] + "|" + h["X-User-Name"] + "|" + h["X-User-Groups"]
-	mac := hmac.New(sha256.New, []byte(testHMACSecret))
-	mac.Write([]byte(msg))
-	h["X-User-Sig"] = hex.EncodeToString(mac.Sum(nil))
 	return h
 }
 
-// signChatHeaders fills in X-Chat-Sig for an anonymous route-token caller.
+// signChatHeaders supplies the proxyd-stamped route-token headers webd's
+// chatTransit gate trusts (nil KeySet → trusted directly).
 func signChatHeaders(token, folder string) map[string]string {
-	msg := "chat:" + token + "|" + folder
-	mac := hmac.New(sha256.New, []byte(testHMACSecret))
-	mac.Write([]byte(msg))
 	return map[string]string{
 		"X-Chat-Token": token,
 		"X-Folder":     folder,
-		"X-Chat-Sig":   hex.EncodeToString(mac.Sum(nil)),
 	}
 }
 
@@ -88,10 +78,10 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	mr := newMockRouter()
 	t.Cleanup(mr.close)
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
-	cfg := config{assistantName: "assistant", hmacSecret: testHMACSecret}
+	cfg := config{assistantName: "assistant"}
 	return newServer(cfg, st, newHub(), rc, nil, nil), mr, st
 }
 

@@ -36,8 +36,8 @@ func newServer(cfg config, b chanlib.BotHandler, isConnected func() bool, lastIn
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"telegram:"}, s.bot, s.isConnected, s.lastInboundAt)
-	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, s.handleFile))
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"telegram:"}, s.bot, s.isConnected, s.lastInboundAt)
+	mux.HandleFunc("GET /files/", chanlib.Auth(s.handleFile))
 	return mux
 }
 

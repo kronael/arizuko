@@ -60,7 +60,6 @@ func TestDash_WhatsappPairStart_AdminProxiesAndAudits(t *testing.T) {
 	}))
 	t.Cleanup(mockWhapd.Close)
 	t.Setenv("WHAPD_URL", mockWhapd.URL)
-	t.Setenv("CHANNEL_SECRET", "test-secret")
 
 	srv, inst, _ := newRWDashServer(t)
 	s := inst.Store

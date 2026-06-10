@@ -13,20 +13,20 @@ import (
 )
 
 type mockBot struct {
-	sendReq    SendRequest
-	sendID     string
-	sendErr    error
-	fileJID    string
-	fileName   string
-	fileID     string
-	fileErr    error
-	voiceJID   string
-	voicePath  string
-	voiceCap   string
-	voiceErr   error
-	voiceID    string
-	typJID     string
-	typOn      bool
+	sendReq   SendRequest
+	sendID    string
+	sendErr   error
+	fileJID   string
+	fileName  string
+	fileID    string
+	fileErr   error
+	voiceJID  string
+	voicePath string
+	voiceCap  string
+	voiceErr  error
+	voiceID   string
+	typJID    string
+	typOn     bool
 	NoSocial
 }
 
@@ -54,17 +54,17 @@ func (m *mockBot) Typing(jid string, on bool) {
 }
 
 func mux(bot *mockBot) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot,
+	return NewAdapterMux("test", []string{"test:"}, bot,
 		func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
 func muxConn(bot *mockBot, connected func() bool) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected,
+	return NewAdapterMux("test", []string{"test:"}, bot, connected,
 		func() int64 { return time.Now().Unix() })
 }
 
 func muxFull(bot *mockBot, connected func() bool, lastInbound func() int64) http.Handler {
-	return NewAdapterMux("test", "secret", []string{"test:"}, bot, connected, lastInbound)
+	return NewAdapterMux("test", []string{"test:"}, bot, connected, lastInbound)
 }
 
 func TestHandlerSend(t *testing.T) {
@@ -139,17 +139,6 @@ func TestHandlerSendError(t *testing.T) {
 	}
 }
 
-func TestHandlerSendAuth(t *testing.T) {
-	bot := &mockBot{}
-	h := mux(bot)
-	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "hi"})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
-}
 
 func TestHandlerSendFile(t *testing.T) {
 	bot := &mockBot{fileID: "file-1"}
@@ -366,7 +355,7 @@ func TestHandlerPanicsOnNilIsConnected(t *testing.T) {
 			t.Fatal("expected panic when isConnected is nil")
 		}
 	}()
-	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{}, nil,
+	NewAdapterMux("test", []string{"test:"}, &mockBot{}, nil,
 		func() int64 { return 0 })
 }
 
@@ -376,7 +365,7 @@ func TestHandlerPanicsOnNilLastInboundAt(t *testing.T) {
 			t.Fatal("expected panic when lastInboundAt is nil")
 		}
 	}()
-	NewAdapterMux("test", "secret", []string{"test:"}, &mockBot{},
+	NewAdapterMux("test", []string{"test:"}, &mockBot{},
 		func() bool { return true }, nil)
 }
 
@@ -423,7 +412,7 @@ func TestHandlerPostUnsupportedStructured(t *testing.T) {
 	b := &mockBotPost{err: Unsupported("post", "test", "use send instead")}
 	h := mux(&mockBot{}) // need a fresh mux pointing at b
 	_ = h
-	mux2 := NewAdapterMux("test", "secret", []string{"test:"}, b,
+	mux2 := NewAdapterMux("test", []string{"test:"}, b,
 		func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
@@ -444,7 +433,7 @@ func TestHandlerPostUnsupportedStructured(t *testing.T) {
 // produces the legacy {"ok":false,"error":"unsupported"} body.
 func TestHandlerPostUnsupportedPlain(t *testing.T) {
 	b := &mockBotPost{err: ErrUnsupported}
-	mux2 := NewAdapterMux("test", "secret", []string{"test:"}, b,
+	mux2 := NewAdapterMux("test", []string{"test:"}, b,
 		func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "x"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
@@ -479,6 +468,6 @@ type mockBotPost struct {
 	err error
 }
 
-func (m *mockBotPost) Send(SendRequest) (string, error)    { return "", nil }
-func (m *mockBotPost) Typing(string, bool)                 {}
-func (m *mockBotPost) Post(PostRequest) (string, error)    { return "", m.err }
+func (m *mockBotPost) Send(SendRequest) (string, error) { return "", nil }
+func (m *mockBotPost) Typing(string, bool)              {}
+func (m *mockBotPost) Post(PostRequest) (string, error) { return "", m.err }

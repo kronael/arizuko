@@ -59,7 +59,7 @@ func NewInstance(t *testing.T) *Inst {
 		Store:     store.New(db),
 		Tmp:       tmp,
 		JWTSecret: secret,
-		ChanReg:   chanreg.New(string(secret)),
+		ChanReg:   chanreg.New(),
 	}
 	t.Cleanup(func() { db.Close() })
 	return inst
@@ -115,9 +115,9 @@ func NewFakeChannel(name string, prefixes ...string) *FakeChannel {
 	return &FakeChannel{ChannelName: name, Prefixes: prefixes}
 }
 
-func (f *FakeChannel) Name() string                   { return f.ChannelName }
+func (f *FakeChannel) Name() string                    { return f.ChannelName }
 func (f *FakeChannel) Connect(_ context.Context) error { return nil }
-func (f *FakeChannel) Disconnect() error              { return nil }
+func (f *FakeChannel) Disconnect() error               { return nil }
 
 func (f *FakeChannel) Owns(jid string) bool {
 	for _, p := range f.Prefixes {

@@ -50,7 +50,7 @@ func TestThreadMsgID_NotANumber(t *testing.T) {
 func TestHandleReaction_Dispatches(t *testing.T) {
 	mr := newTeledRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()
@@ -100,7 +100,7 @@ func TestHandleReaction_SkipsExistingEmoji(t *testing.T) {
 	// An emoji present in both old and new reactions is not a new addition.
 	mr := newTeledRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()
@@ -129,7 +129,7 @@ func TestHandleReaction_SkipsExistingEmoji(t *testing.T) {
 func TestHandleReaction_SkipsNonEmojiType(t *testing.T) {
 	mr := newTeledRouterMock()
 	defer mr.close()
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("tok")
 
 	m := newTGMock()

@@ -23,8 +23,8 @@ func newServer(cfg config, mc chanlib.BotHandler, fr fileResolver, isConnected f
 }
 
 func (s *server) handler() http.Handler {
-	mux := chanlib.NewAdapterMux(s.cfg.Name, s.cfg.ChannelSecret, []string{"mastodon:"}, s.mc, s.isConnected, s.lastInboundAt)
-	mux.HandleFunc("GET /files/", chanlib.Auth(s.cfg.ChannelSecret, chanlib.FileProxyHandler(chanlib.FileProxyOpts{
+	mux := chanlib.NewAdapterMux(s.cfg.Name, []string{"mastodon:"}, s.mc, s.isConnected, s.lastInboundAt)
+	mux.HandleFunc("GET /files/", chanlib.Auth(chanlib.FileProxyHandler(chanlib.FileProxyOpts{
 		Resolve:  s.files.FileURL,
 		MaxBytes: s.cfg.MaxFileBytes,
 	})))

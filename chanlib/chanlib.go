@@ -75,13 +75,14 @@ type InboundMsg struct {
 }
 
 type RouterClient struct {
-	url, secret, token string
-	client             *http.Client
+	url, token string
+	client     *http.Client
 
-	// svcToken is the adapter's service:<daemon> JWT source (auth.TokenSource.Token)
-	// in the split: routd's /v1/messages + /v1/pane are JWT-gated, not
-	// CHANNEL_SECRET-gated. nil → monolith path (the registration token rides
-	// those calls, as before). Registration itself always uses CHANNEL_SECRET.
+	// svcToken is the adapter's service:<daemon> ES256 JWT source
+	// (auth.TokenSource.Token). It is the credential for EVERY authenticated routd
+	// call — registration, /v1/messages, /v1/pane — replacing CHANNEL_SECRET (HMAC
+	// retire step 5). nil → local dev (no AUTHD_URL); calls go out with no bearer
+	// and routd's no-JWKS gate is open.
 	svcToken func(context.Context) (string, error)
 
 	// Saved for transparent re-register on 401 (router dropped channel while adapter was down).
@@ -92,35 +93,34 @@ type RouterClient struct {
 	regMu       sync.Mutex
 }
 
-func NewRouterClient(url, secret string) *RouterClient {
-	return &RouterClient{url: url, secret: secret, client: &http.Client{Timeout: 10 * time.Second}}
+func NewRouterClient(url string) *RouterClient {
+	return &RouterClient{url: url, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
 // SetServiceToken installs the adapter's service-token source (spec 5/1). Once
-// set, JWT-gated routd calls (/v1/messages, /v1/pane) present this token instead
-// of the registration token. Pass nil (or never call) for the monolith path.
+// set, every authenticated routd call presents this token. Pass nil (or never
+// call) for the local-dev path (no bearer; routd's no-JWKS gate is open).
 func (r *RouterClient) SetServiceToken(src func(context.Context) (string, error)) {
 	r.regMu.Lock()
 	r.svcToken = src
 	r.regMu.Unlock()
 }
 
-// bearer returns the credential for JWT-gated routd calls: the service token
-// when a source is wired (split), else the registration token (monolith). A
-// service-token exchange error falls back to the registration token so a
-// transient authd blip degrades to the monolith behavior rather than dropping
-// the message.
+// bearer returns the credential for authenticated routd calls: the service token
+// when a source is wired, else "" (local dev, no AUTHD_URL → routd's no-JWKS gate
+// is open). A service-token exchange error returns "" so the call surfaces a 401
+// rather than silently presenting a stale/empty secret.
 func (r *RouterClient) bearer() string {
 	r.regMu.Lock()
 	src := r.svcToken
 	r.regMu.Unlock()
 	if src == nil {
-		return r.getToken()
+		return ""
 	}
 	tok, err := src(context.Background())
 	if err != nil {
-		slog.Error("service-token exchange failed; using registration token", "err", err)
-		return r.getToken()
+		slog.Error("service-token exchange failed", "err", err)
+		return ""
 	}
 	return tok
 }
@@ -152,7 +152,7 @@ func (r *RouterClient) Register(name, url string, prefixes []string, caps map[st
 	}
 	err := r.Post("/v1/channels/register", map[string]any{
 		"name": name, "url": url, "jid_prefixes": prefixes, "capabilities": caps,
-	}, r.secret, &resp)
+	}, r.bearer(), &resp)
 	if err != nil {
 		slog.Error("channel registration failed", "name", name, "err", err)
 		return "", err

@@ -114,7 +114,6 @@ func TestDash_RouteCreate_DenyNonAdmin(t *testing.T) {
 	}
 }
 
-
 // TestDash_GroupDelete: admin deletes a group via POST-alias.
 func TestDash_GroupDelete(t *testing.T) {
 	srv, inst, groupsDir := newRWDashServer(t)

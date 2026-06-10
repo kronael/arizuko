@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 )
 
@@ -21,8 +20,8 @@ func TestSplitFolderSuffix(t *testing.T) {
 		{"atlas/messages", "atlas", "messages"},
 		{"atlas/typing", "atlas", "typing"},
 		{"atlas/content/topics", "atlas/content", "topics"},
-		{"/topics", "/topics", ""},      // empty folder rejected
-		{"/messages", "/messages", ""},  // empty folder rejected
+		{"/topics", "/topics", ""},     // empty folder rejected
+		{"/messages", "/messages", ""}, // empty folder rejected
 		{"unknown", "unknown", ""},
 		{"main/unknown", "main/unknown", ""},
 	}
@@ -146,29 +145,10 @@ func TestRouteAPIGroups_EmptyFolderRejected(t *testing.T) {
 	}
 }
 
-// requireUser rejects unsigned headers (forged identity attempt).
-func TestRequireUser_RejectsForged(t *testing.T) {
-	s, _, _ := newTestServer(t)
-	srv := httptest.NewServer(s.handler())
-	defer srv.Close()
-
-	cli := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	req, _ := http.NewRequest("GET", srv.URL+"/api/groups", nil)
-	// Headers without a valid sig.
-	req.Header.Set("X-User-Sub", "user:evil")
-	req.Header.Set("X-User-Groups", `["**"]`)
-	req.Header.Set("X-User-Sig", "wrongsig")
-	resp, err := cli.Do(req)
-	if err != nil {
-		t.Fatalf("do: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("status = %d, want 303 redirect", resp.StatusCode)
-	}
-}
+// Forged-identity rejection (a request that bypassed proxyd, no transit bearer)
+// is covered with a KeySet-configured server in auth_bearer_test.go
+// (TestWebdRequireUser_NoChannelProof_Rejected / _NonProxydBearer_Rejected). With
+// a nil KeySet (newTestServer, local-dev) the stamped header is trusted by design.
 
 // folderParam strips leading slash from path value (as set by routeAPIGroups).
 func TestFolderParam(t *testing.T) {
@@ -200,37 +180,6 @@ func TestStaticFiles(t *testing.T) {
 	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "css") &&
 		!strings.Contains(ct, "text") {
 		t.Errorf("content-type = %q", ct)
-	}
-}
-
-// hmacVerify: empty secret or empty sig fails; good sig passes.
-func TestHMACVerify(t *testing.T) {
-	if auth.VerifyHMAC("", "msg", "sig") {
-		t.Error("empty secret should fail")
-	}
-	if auth.VerifyHMAC("sec", "msg", "") {
-		t.Error("empty sig should fail")
-	}
-	if !auth.VerifyHMAC(testHMACSecret, "x",
-		computeSig(t, testHMACSecret, "x")) {
-		t.Error("valid sig should pass")
-	}
-}
-
-// verifyChatSig: token+folder+correct sig passes.
-func TestVerifyChatSig(t *testing.T) {
-	req := httptest.NewRequest("GET", "/chat/stream", nil)
-	h := signChatHeaders("mytok", "main")
-	for k, v := range h {
-		req.Header.Set(k, v)
-	}
-	if !auth.VerifyChatSig(testHMACSecret, req) {
-		t.Error("signed chat should verify")
-	}
-	// Missing folder → fail.
-	req.Header.Del("X-Folder")
-	if auth.VerifyChatSig(testHMACSecret, req) {
-		t.Error("missing folder should fail")
 	}
 }
 

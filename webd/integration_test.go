@@ -38,10 +38,10 @@ func newIntegServer(t *testing.T) *integInst {
 	mr := newMockRouter()
 	t.Cleanup(mr.close)
 
-	rc := chanlib.NewRouterClient(mr.srv.URL, "")
+	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
-	cfg := config{assistantName: "assistant", hmacSecret: testHMACSecret}
+	cfg := config{assistantName: "assistant"}
 	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc, nil, nil), mr: mr, st: st}
 }
 

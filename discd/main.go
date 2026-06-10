@@ -20,13 +20,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"discord:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"discord:"},
+		Caps:       caps,
 		Start: func(_ context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {
@@ -48,10 +47,10 @@ func main() {
 }
 
 type config struct {
-	Name, DiscordToken, RouterURL, ChannelSecret string
-	ListenAddr, ListenURL, AssistantName         string
-	MediaMaxBytes                                int64
-	UserMode                                     bool // true when authenticating as a user account, not a bot
+	Name, DiscordToken, RouterURL        string
+	ListenAddr, ListenURL, AssistantName string
+	MediaMaxBytes                        int64
+	UserMode                             bool // true when authenticating as a user account, not a bot
 }
 
 func loadConfig() config {
@@ -70,7 +69,6 @@ func loadConfig() config {
 		Name:          chanlib.EnvOr("CHANNEL_NAME", "discord"),
 		DiscordToken:  token,
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("DISCD_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9002"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://discord:9002"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),

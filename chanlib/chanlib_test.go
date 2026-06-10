@@ -61,78 +61,9 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
-func TestAuthValidToken(t *testing.T) {
-	var called bool
-	h := Auth("s3cret", func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer s3cret")
-	w := httptest.NewRecorder()
-	h(w, req)
-
-	if !called {
-		t.Fatal("handler not called")
-	}
-	if w.Code != 200 {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-}
-
-func TestAuthInvalidToken(t *testing.T) {
-	var called bool
-	h := Auth("s3cret", func(w http.ResponseWriter, r *http.Request) {
-		called = true
-	})
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	w := httptest.NewRecorder()
-	h(w, req)
-
-	if called {
-		t.Fatal("handler should not be called")
-	}
-	if w.Code != 401 {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestAuthEmptySecretPassesAll(t *testing.T) {
-	var called bool
-	h := Auth("", func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(200)
-	})
-
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h(w, req)
-
-	if !called {
-		t.Fatal("handler not called with empty secret")
-	}
-}
-
-func TestAuthMissingHeader(t *testing.T) {
-	var called bool
-	h := Auth("s3cret", func(w http.ResponseWriter, r *http.Request) {
-		called = true
-	})
-
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h(w, req)
-
-	if called {
-		t.Fatal("handler should not be called without header")
-	}
-	if w.Code != 401 {
-		t.Fatalf("status = %d, want 401", w.Code)
-	}
-}
+// The Auth gate's behavior (ES256 service:routd pin; open with nil keyset) is
+// covered in auth_test.go via authGate. The legacy CHANNEL_SECRET compare is
+// retired, so the secret-gate tests that lived here are gone with it.
 
 func TestWriteJSON(t *testing.T) {
 	w := httptest.NewRecorder()
@@ -188,7 +119,7 @@ func TestPostSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	var out struct{ Value int }
 	err := rc.Post("/test", map[string]string{"k": "v"}, "tok", &out)
 	if err != nil {
@@ -208,7 +139,7 @@ func TestPostNoAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "")
+	rc := NewRouterClient(srv.URL)
 	var out struct{ OK bool }
 	err := rc.Post("/test", nil, "", &out)
 	if err != nil {
@@ -222,7 +153,7 @@ func TestPostNon200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	var out struct{}
 	err := rc.Post("/fail", nil, "tok", &out)
 	if err == nil {
@@ -234,7 +165,7 @@ func TestPostNon200(t *testing.T) {
 }
 
 func TestPostConnectionError(t *testing.T) {
-	rc := NewRouterClient("http://127.0.0.1:1", "s")
+	rc := NewRouterClient("http://127.0.0.1:1")
 	var out struct{}
 	err := rc.Post("/fail", nil, "tok", &out)
 	if err == nil {
@@ -251,7 +182,7 @@ func TestRegisterSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "secret")
+	rc := NewRouterClient(srv.URL)
 	tok, err := rc.Register("tg", "http://tg:9001", []string{"tg:"}, map[string]bool{"send_text": true})
 	if err != nil {
 		t.Fatalf("register: %v", err)
@@ -267,7 +198,7 @@ func TestRegisterRejected(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	_, err := rc.Register("tg", "http://tg:9001", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for rejected register")
@@ -285,7 +216,7 @@ func TestSendMessageSuccessFirstTry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
 	if err != nil {
@@ -308,7 +239,7 @@ func TestSendMessageRetrySuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1", Content: "hi"})
 	if err != nil {
@@ -325,7 +256,7 @@ func TestSendMessageBothFail(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	rc.SetToken("tok")
 	err := rc.SendMessage(InboundMsg{ID: "1"})
 	if err == nil {
@@ -363,7 +294,7 @@ func TestSendMessage_401_TriggersReregisterAndRetries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	if _, err := rc.Register("tg", srv.URL, []string{"telegram:"}, nil); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -396,7 +327,7 @@ func TestSendMessage_ConcurrentReregister_NoRace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rc := NewRouterClient(srv.URL, "s")
+	rc := NewRouterClient(srv.URL)
 	if _, err := rc.Register("tg", srv.URL, []string{"telegram:"}, nil); err != nil {
 		t.Fatalf("register: %v", err)
 	}

@@ -323,7 +323,6 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		Name:          "slack",
 		BotToken:      "xoxb-test",
 		SigningSecret: "shh",
-		ChannelSecret: "chsec",
 		ListenURL:     "http://slakd:8080",
 		CacheTTL:      time.Minute,
 	}
@@ -332,8 +331,10 @@ func setupBot(t *testing.T, mock *slackMock) (*bot, *routerMock) {
 		t.Fatal(err)
 	}
 	b.store = st
-	rc := chanlib.NewRouterClient(rm.srv.URL, "chsec")
-	rc.SetToken("tok")
+	rc := chanlib.NewRouterClient(rm.srv.URL)
+	// Side calls to routd (/v1/pane, /v1/messages) present the adapter's
+	// service:<adapter> token. "tok" stands in for that ES256 JWT here.
+	rc.SetServiceToken(func(context.Context) (string, error) { return "tok", nil })
 	b.rc = rc
 	b.botUserID.Store("Ubot")
 	b.teamID.Store("T012")
@@ -885,7 +886,6 @@ func TestEvents_URLVerification_FullChain(t *testing.T) {
 		Name:          "slack",
 		BotToken:      "xoxb-test",
 		SigningSecret: "shh",
-		ChannelSecret: "chsec",
 	}
 	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
 	s.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
@@ -1248,7 +1248,7 @@ func TestHealth_StaleReturns503(t *testing.T) {
 	b.connected.Store(true)
 	b.lastInboundAt.Store(time.Now().Add(-30 * time.Minute).Unix())
 
-	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh", ChannelSecret: "chsec"}
+	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh"}
 	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -1271,7 +1271,7 @@ func TestHealth_FreshReturns200(t *testing.T) {
 	b.connected.Store(true)
 	b.lastInboundAt.Store(time.Now().Unix())
 
-	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh", ChannelSecret: "chsec"}
+	cfg := config{Name: "slack", BotToken: "xoxb-test", SigningSecret: "shh"}
 	s := newServer(cfg, b, b.isConnected, b.LastInboundAt)
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()

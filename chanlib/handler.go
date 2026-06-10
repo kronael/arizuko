@@ -251,7 +251,7 @@ func (NoVoiceSender) SendVoice(_, _, _, _ string) (string, error) {
 // NewAdapterMux wires up the standard adapter HTTP surface.
 // isConnected: platform link is up (websocket/polling/IMAP IDLE); /health → 503 when false.
 // lastInboundAt: unix seconds of last successful inbound delivery; /health → stale when old.
-func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64) *http.ServeMux {
+func NewAdapterMux(name string, prefixes []string, bot BotHandler, isConnected func() bool, lastInboundAt func() int64) *http.ServeMux {
 	if isConnected == nil {
 		panic("chanlib.NewAdapterMux: isConnected must not be nil")
 	}
@@ -259,23 +259,23 @@ func NewAdapterMux(name, secret string, prefixes []string, bot BotHandler, isCon
 		panic("chanlib.NewAdapterMux: lastInboundAt must not be nil")
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /send", Auth(secret, handleSend(bot)))
-	mux.HandleFunc("POST /send-file", Auth(secret, handleSendFile(bot)))
-	mux.HandleFunc("POST /send-voice", Auth(secret, handleSendVoice(bot)))
-	mux.HandleFunc("POST /typing", Auth(secret, handleTyping(bot)))
-	mux.HandleFunc("POST /post", Auth(secret, handlePost(bot)))
-	mux.HandleFunc("POST /like", Auth(secret, handleLike(bot)))
-	mux.HandleFunc("POST /delete", Auth(secret, handleDelete(bot)))
-	mux.HandleFunc("POST /forward", Auth(secret, handleForward(bot)))
-	mux.HandleFunc("POST /quote", Auth(secret, handleQuote(bot)))
-	mux.HandleFunc("POST /repost", Auth(secret, handleRepost(bot)))
-	mux.HandleFunc("POST /dislike", Auth(secret, handleDislike(bot)))
-	mux.HandleFunc("POST /edit", Auth(secret, handleEdit(bot)))
-	mux.HandleFunc("POST /pin", Auth(secret, handlePin(bot)))
-	mux.HandleFunc("POST /unpin", Auth(secret, handleUnpin(bot)))
+	mux.HandleFunc("POST /send", Auth(handleSend(bot)))
+	mux.HandleFunc("POST /send-file", Auth(handleSendFile(bot)))
+	mux.HandleFunc("POST /send-voice", Auth(handleSendVoice(bot)))
+	mux.HandleFunc("POST /typing", Auth(handleTyping(bot)))
+	mux.HandleFunc("POST /post", Auth(handlePost(bot)))
+	mux.HandleFunc("POST /like", Auth(handleLike(bot)))
+	mux.HandleFunc("POST /delete", Auth(handleDelete(bot)))
+	mux.HandleFunc("POST /forward", Auth(handleForward(bot)))
+	mux.HandleFunc("POST /quote", Auth(handleQuote(bot)))
+	mux.HandleFunc("POST /repost", Auth(handleRepost(bot)))
+	mux.HandleFunc("POST /dislike", Auth(handleDislike(bot)))
+	mux.HandleFunc("POST /edit", Auth(handleEdit(bot)))
+	mux.HandleFunc("POST /pin", Auth(handlePin(bot)))
+	mux.HandleFunc("POST /unpin", Auth(handleUnpin(bot)))
 	mux.HandleFunc("GET /health", handleHealth(name, prefixes, isConnected, lastInboundAt))
 	if hp, ok := bot.(HistoryProvider); ok {
-		mux.HandleFunc("GET /v1/history", Auth(secret, handleHistory(hp)))
+		mux.HandleFunc("GET /v1/history", Auth(handleHistory(hp)))
 	}
 	return mux
 }

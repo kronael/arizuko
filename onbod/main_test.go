@@ -1858,7 +1858,7 @@ func TestAdmitFromQueueDailyLimitPersists(t *testing.T) {
 func TestAdmitFromQueuePriorDayBacklogCounts(t *testing.T) {
 	db := migratedDB(t)
 	// Two entries queued yesterday, limit 1/day. First admit takes one.
-	yesterday := time.Now().Add(-24*time.Hour).Format("2006-01-02")
+	yesterday := time.Now().Add(-24 * time.Hour).Format("2006-01-02")
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
 		VALUES ('t:1', 'queued', '*', ?, 'u:1', '2026-01-01')`, yesterday+"T01:00:00Z")
 	db.Exec(`INSERT INTO onboarding (jid, status, gate, queued_at, user_sub, created)
@@ -2001,7 +2001,6 @@ func TestCSRFRejectedWhenFormMissing(t *testing.T) {
 		t.Errorf("want 403 when csrf form value absent, got %d", w.Code)
 	}
 }
-
 
 // TestHandleDashboard_ConsumesAtUserSubBind: the post-OAuth dashboard
 // visit is where the token gets cleared and user_sub gets bound. After

@@ -11,12 +11,18 @@ import (
 	"github.com/kronael/arizuko/chanlib"
 )
 
+// staticBearer wraps a fixed token as a bearer getter (test helper; the
+// production egress getter is the rotating service:routd source).
+func staticBearer(tok string) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) { return tok, nil }
+}
+
 func TestHTTPChannelOwns(t *testing.T) {
 	e := &Entry{
 		Name:        "telegram",
 		JIDPrefixes: []string{"tg:", "telegram:"},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if !ch.Owns("tg:123") {
 		t.Error("expected to own tg:123")
@@ -49,7 +55,7 @@ func TestHTTPChannelSend(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if _, err := ch.Send("tg:123", "hello", "", "", ""); err != nil {
 		t.Fatal(err)
@@ -106,7 +112,7 @@ func TestHTTPChannelSendNoCapErrors(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	// send_text not declared — must return error so caller knows the send was skipped
 	_, err := ch.Send("tg:123", "hello", "", "", "")
@@ -122,7 +128,7 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	_, err := ch.Send("tg:123", "hello", "", "", "")
 	if err == nil {
@@ -153,7 +159,7 @@ func TestHTTPChannelTypingPostsBody(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"typing": true},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if err := ch.Typing("tg:123", true); err != nil {
 		t.Fatal(err)
@@ -184,7 +190,7 @@ func TestHTTPChannelTypingNoCap(t *testing.T) {
 			Name: "tg", URL: srv.URL, JIDPrefixes: []string{"tg:"},
 			Capabilities: caps,
 		}
-		ch := NewHTTPChannel(e, StaticBearer("secret"))
+		ch := NewHTTPChannel(e, staticBearer("secret"))
 		if err := ch.Typing("tg:123", true); err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +218,7 @@ func TestHTTPChannelTypingSwallowsFailures(t *testing.T) {
 				Name: "tg", URL: tt.url, JIDPrefixes: []string{"tg:"},
 				Capabilities: map[string]bool{"typing": true},
 			}
-			ch := NewHTTPChannel(e, StaticBearer("secret"))
+			ch := NewHTTPChannel(e, staticBearer("secret"))
 			if err := ch.Typing("tg:123", true); err != nil {
 				t.Fatal(err)
 			}
@@ -230,7 +236,7 @@ func TestHTTPChannelHealthCheck(t *testing.T) {
 	defer srv.Close()
 
 	e := &Entry{Name: "tg", URL: srv.URL}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if err := ch.HealthCheck(); err != nil {
 		t.Fatal(err)
@@ -239,7 +245,7 @@ func TestHTTPChannelHealthCheck(t *testing.T) {
 
 func TestHTTPChannelName(t *testing.T) {
 	e := &Entry{Name: "telegram"}
-	ch := NewHTTPChannel(e, StaticBearer("s"))
+	ch := NewHTTPChannel(e, staticBearer("s"))
 	if ch.Name() != "telegram" {
 		t.Errorf("name = %q", ch.Name())
 	}
@@ -259,7 +265,7 @@ func TestHTTPChannelDrainOutbox(t *testing.T) {
 		JIDPrefixes:  []string{"tg:"},
 		Capabilities: map[string]bool{"send_text": true},
 	}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	// manually enqueue
 	ch.enqueue(outMsg{JID: "tg:1", Content: "a"})
@@ -285,7 +291,7 @@ func TestHTTPChannelPost501JSON(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	var ue *chanlib.UnsupportedError
 	if !errors.As(err, &ue) {
@@ -307,7 +313,7 @@ func TestHTTPChannelPost501Plain(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 	_, err := ch.Post(context.Background(), "x:1", "hi", nil)
 	if !errors.Is(err, ErrUnsupported) {
 		t.Errorf("want ErrUnsupported, got %v", err)

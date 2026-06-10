@@ -314,7 +314,7 @@ func TestDownloadFile_OversizeErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "out.bin")
-	if err := downloadFile(context.Background(), srv.URL, dest, "", 10); err == nil {
+	if err := downloadFile(context.Background(), srv.URL, dest, nil, 10); err == nil {
 		t.Fatal("downloadFile accepted oversize body; would silently truncate")
 	}
 	if _, statErr := os.Stat(dest); statErr == nil {
@@ -328,7 +328,7 @@ func TestDownloadFile_AtLimitSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "ok.bin")
-	if err := downloadFile(context.Background(), srv.URL, dest, "", 10); err != nil {
+	if err := downloadFile(context.Background(), srv.URL, dest, nil, 10); err != nil {
 		t.Fatalf("body exactly at limit should succeed: %v", err)
 	}
 	if data, _ := os.ReadFile(dest); len(data) != 10 {

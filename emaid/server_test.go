@@ -21,7 +21,7 @@ import (
 func testServer(t *testing.T, secret string) (*server, *sql.DB) {
 	t.Helper()
 	db := newTestDB(t)
-	cfg := config{Name: "email", ChannelSecret: secret, DataDir: t.TempDir()}
+	cfg := config{Name: "email", DataDir: t.TempDir()}
 	return newServer(cfg, db, newAttRegistry(), func() bool { return true }, func() int64 { return time.Now().Unix() }), db
 }
 
@@ -71,23 +71,6 @@ func TestHandleHealthDisconnected(t *testing.T) {
 		t.Errorf("status = %v", resp["status"])
 	}
 }
-
-func TestAuthRequired(t *testing.T) {
-	s, _ := testServer(t, "mysecret")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "email:tid", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	// no Authorization header
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestHandleTyping(t *testing.T) {
 	s, _ := testServer(t, "")
 	body, _ := json.Marshal(map[string]any{"chat_jid": "email:tid", "on": true})
@@ -132,9 +115,9 @@ func TestFileProxy(t *testing.T) {
 
 	db := newTestDB(t)
 	s := &server{
-		cfg:     config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
-		db:      db,
-		reg:     reg,
+		cfg: config{Name: "email", IMAPHost: "fake", IMAPPort: "993", Account: "user", Password: "pass"},
+		db:  db,
+		reg: reg,
 		dialTLS: func(_ string, _ *imapclient.Options) (*imapclient.Client, error) {
 			return imapclient.New(clientConn, nil), nil
 		},
@@ -175,21 +158,6 @@ func TestFileProxyBadPath(t *testing.T) {
 	s.handler().ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestFileProxyAuthRequired(t *testing.T) {
-	reg := newAttRegistry()
-	reg.put("1-0", attMeta{Mime: "text/plain", Filename: "file.txt", Size: 4, Part: []int{1}})
-
-	db := newTestDB(t)
-	s := newServer(config{Name: "email", ChannelSecret: "secret123", DataDir: t.TempDir()}, db, reg, func() bool { return true }, func() int64 { return time.Now().Unix() })
-
-	req := httptest.NewRequest("GET", "/files/1/0", nil)
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
 	}
 }
 

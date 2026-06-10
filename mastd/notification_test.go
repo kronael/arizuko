@@ -57,7 +57,7 @@ func testMastoClient(t *testing.T) *mastoClient {
 func testRouter(t *testing.T) (*chanlib.RouterClient, *routerMock) {
 	t.Helper()
 	m := newRouterMock()
-	rc := chanlib.NewRouterClient(m.srv.URL, "")
+	rc := chanlib.NewRouterClient(m.srv.URL)
 	rc.SetToken("tok")
 	return rc, m
 }

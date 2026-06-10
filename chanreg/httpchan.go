@@ -54,8 +54,8 @@ const maxOutbox = 1000
 type HTTPChannel struct {
 	entry *Entry
 	// bearer yields the credential presented to the adapter on every call: routd's
-	// service:routd ES256 JWT in the split (HMAC→ES256 retire step 4), or a static
-	// CHANNEL_SECRET in local dev. Never nil — NewHTTPChannel installs a getter.
+	// service:routd ES256 JWT (spec 5/1), or nothing in local dev (no AUTHD_URL).
+	// Never nil — NewHTTPChannel installs a getter.
 	bearer func(context.Context) (string, error)
 	client *http.Client
 
@@ -64,22 +64,21 @@ type HTTPChannel struct {
 }
 
 type outMsg struct {
-	JID        string
-	Content    string
-	ReplyTo    string
-	ThreadID   string
-	TurnID     string
-	IsFile     bool
-	Path       string
-	Name       string
-	Caption    string
+	JID         string
+	Content     string
+	ReplyTo     string
+	ThreadID    string
+	TurnID      string
+	IsFile      bool
+	Path        string
+	Name        string
+	Caption     string
 	FileReplyTo string
 }
 
 // NewHTTPChannel builds the routd-side egress client for an adapter. bearer
-// yields the credential presented on every call (service:routd token in the
-// split, CHANNEL_SECRET in local dev). A nil bearer means "no auth header"
-// (empty-secret single-process tests).
+// yields the service:routd token presented on every call. A nil bearer means
+// "no auth header" (local dev with no AUTHD_URL, or single-process tests).
 func NewHTTPChannel(e *Entry, bearer func(context.Context) (string, error)) *HTTPChannel {
 	if bearer == nil {
 		bearer = func(context.Context) (string, error) { return "", nil }
@@ -89,12 +88,6 @@ func NewHTTPChannel(e *Entry, bearer func(context.Context) (string, error)) *HTT
 		bearer: bearer,
 		client: &http.Client{Timeout: 30 * time.Second},
 	}
-}
-
-// StaticBearer wraps a fixed secret as a bearer getter (CHANNEL_SECRET local-dev
-// path). An empty secret yields no Authorization header.
-func StaticBearer(secret string) func(context.Context) (string, error) {
-	return func(context.Context) (string, error) { return secret, nil }
 }
 
 // authHeader sets Authorization from the bearer getter when it yields a token.

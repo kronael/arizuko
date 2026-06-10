@@ -65,7 +65,6 @@ type Config struct {
 	HostCodexDir string
 
 	APIPort              int
-	ChannelSecret        string
 	OnboardingEnabled    bool
 	OnboardingPlatforms  []string
 	SendDisabledChannels []string
@@ -182,7 +181,6 @@ func LoadConfig() (*Config, error) {
 		HostCodexDir:    envOr("HOST_CODEX_DIR", ""),
 
 		APIPort:              envInt("API_PORT", DefaultAPIPort),
-		ChannelSecret:        envOr("CHANNEL_SECRET", ""),
 		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",
 		OnboardingPlatforms:  parseCSV(envOr("ONBOARDING_PLATFORMS", "")),
 		SendDisabledChannels: parseCSV(envOr("SEND_DISABLED_CHANNELS", "")),
@@ -222,10 +220,6 @@ func LoadConfig() (*Config, error) {
 	// (the only daemon that uses egress isolation), not here — other
 	// daemons call LoadConfig too and must not fail when egress is on.
 
-	dev := os.Getenv("ARIZUKO_DEV") == "true" || os.Getenv("ARIZUKO_DEV") == "1"
-	if !dev && c.ChannelSecret == "" {
-		return nil, fmt.Errorf("CHANNEL_SECRET is empty: channel authentication disabled (set ARIZUKO_DEV=true to override)")
-	}
 	// ASSISTANT_NAME and data dir basename end up in container_name and
 	// YAML scalars unquoted — reject anything that would break them.
 	if strings.ContainsAny(c.Name, " \t\r\n:'\"\\/") {

@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +77,7 @@ func registerAdapter(t *testing.T, reg *chanreg.Registry, name, url string, pref
 // prefix receives the Send (ForJID resolution, no inbound source).
 func TestDelivererSendsToResolvedAdapter(t *testing.T) {
 	a := newFakeAdapter(t, "pid-1")
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil) // nil lookupSource → ForJID only
 
@@ -101,7 +102,7 @@ func TestDelivererSendsToResolvedAdapter(t *testing.T) {
 func TestDelivererResolutionOrder(t *testing.T) {
 	first := newFakeAdapter(t, "from-first")
 	source := newFakeAdapter(t, "from-source")
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	// Both own the same prefix. "aaa" sorts first so a naive ForJID scan could
 	// pick it; the source override must steer to "zzz".
 	registerAdapter(t, reg, "aaa", first.srv.URL, "slack:T1/")
@@ -119,7 +120,7 @@ func TestDelivererResolutionOrder(t *testing.T) {
 
 // TestDelivererNoChannel: an unowned jid yields an error (no adapter).
 func TestDelivererNoChannel(t *testing.T) {
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	d := newChanDeliverer(reg, nil, nil)
 	if _, err := d.Send("telegram:42", "hi", "", "", "k"); err == nil {
 		t.Fatal("send to unowned jid returned nil error")
@@ -130,7 +131,7 @@ func TestDelivererNoChannel(t *testing.T) {
 // is a silent no-op success — the adapter is never hit.
 func TestDelivererDisabledChannel(t *testing.T) {
 	a := newFakeAdapter(t, "pid")
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, []string{"slack"}, nil)
 
@@ -150,7 +151,7 @@ func TestDelivererDisabledChannel(t *testing.T) {
 // I'll allow, just messaging".)
 func TestDelivererDisabledAllowsReactions(t *testing.T) {
 	a := newFakeAdapter(t, "pid-1")
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	registerAdapter(t, reg, "discd", a.srv.URL, "discord:")
 	d := newChanDeliverer(reg, []string{"discord"}, nil)
 
@@ -178,11 +179,11 @@ func TestDelivererDisabledAllowsReactions(t *testing.T) {
 // resolve reuses it (so the retry outbox survives) instead of building fresh.
 func TestDelivererReusesLiveChannel(t *testing.T) {
 	a := newFakeAdapter(t, "pid")
-	reg := chanreg.New("")
+	reg := chanreg.New()
 	registerAdapter(t, reg, "slakd", a.srv.URL, "slack:T1/")
 	d := newChanDeliverer(reg, nil, nil)
 
-	live := chanreg.NewHTTPChannel(reg.Get("slakd"), chanreg.StaticBearer(""))
+	live := chanreg.NewHTTPChannel(reg.Get("slakd"), func(context.Context) (string, error) { return "", nil })
 	d.setLive("slakd", live)
 	if got := d.resolve("slack:T1/C/U"); got != live {
 		t.Fatal("resolve did not return the cached live channel")
@@ -205,7 +206,7 @@ func TestServerWiresDelivererViaRegistry(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	reg := chanreg.New(testChanSecret)
+	reg := chanreg.New()
 	deliver, onRegister, onDeregister := NewChannelDeliverer(reg, nil, db.LatestSource)
 	srv := NewServer(db, nil, deliver, nil, 0, "")
 	srv.SetChannelRegistry(reg, onRegister, onDeregister)

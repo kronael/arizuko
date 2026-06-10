@@ -17,7 +17,7 @@ import (
 func TestHTTPChannelVerbNoCapUnsupported(t *testing.T) {
 	e := &Entry{Name: "x", URL: "http://should-not-be-called", JIDPrefixes: []string{"x:"},
 		Capabilities: map[string]bool{}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 	ctx := context.Background()
 
 	checks := map[string]error{
@@ -55,7 +55,7 @@ func TestHTTPChannelVerbNon200IsError(t *testing.T) {
 
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"},
 		Capabilities: map[string]bool{"delete": true}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	err := ch.Delete(context.Background(), "x:1", "missing")
 	if err == nil {
@@ -76,7 +76,7 @@ func TestHTTPChannelVerb501IsUnsupported(t *testing.T) {
 
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"},
 		Capabilities: map[string]bool{"delete": true}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if err := ch.Delete(context.Background(), "x:1", "m1"); !errors.Is(err, chanlib.ErrUnsupported) {
 		t.Errorf("501 must map to Unsupported, got %v", err)
@@ -92,7 +92,7 @@ func TestHTTPChannelLikeMissingTarget(t *testing.T) {
 	defer srv.Close()
 
 	e := &Entry{Name: "x", URL: srv.URL, JIDPrefixes: []string{"x:"}}
-	ch := NewHTTPChannel(e, StaticBearer("secret"))
+	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	if err := ch.Like(context.Background(), "x:1", "gone", "👍"); err == nil {
 		t.Fatal("like on missing target must error")

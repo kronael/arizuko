@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestResolveAllowlist: a folder inherits the instance base (folder='') seeded by
+// TestResolveAllowlist: a folder inherits the instance base (folder=”) seeded by
 // the migration plus every ancestor's network_rules, de-duped + sorted.
 func TestResolveAllowlist(t *testing.T) {
 	db, err := OpenMem()

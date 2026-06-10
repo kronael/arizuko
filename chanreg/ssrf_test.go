@@ -66,7 +66,7 @@ func TestValidateAdapterURL_AllowPublicOverride(t *testing.T) {
 // Register must reject a bad URL before claiming the name (no token, no entry).
 func TestRegisterRejectsPublicURL(t *testing.T) {
 	t.Setenv("CHANNEL_REGISTER_ALLOW_PUBLIC", "")
-	r := New("s")
+	r := New()
 	if _, err := r.Register("rogue", "http://8.8.8.8:9001", []string{"x:"}, nil); err == nil {
 		t.Fatal("Register must reject a public adapter URL")
 	}

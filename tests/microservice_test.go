@@ -237,7 +237,7 @@ func TestOneShotTaskNullsNextRun(t *testing.T) {
 	past := now.Add(-time.Minute)
 	s.CreateTask(core.Task{
 		ID: "oneshot-1", Owner: "main", ChatJID: "tg:700",
-		Prompt: "run once",
+		Prompt:  "run once",
 		NextRun: &past, Status: "active", Created: now,
 	})
 

@@ -25,8 +25,6 @@ type config struct {
 	listenURL      string
 	routerURL      string
 	proxydURL      string
-	channelSecret  string
-	hmacSecret     string
 	storeDir       string
 	assistantName  string
 	authdURL       string // soak: dual-accept ES256 bearers alongside HMAC; unset → HMAC-only
@@ -45,8 +43,6 @@ func loadConfig() config {
 		listenURL:      chanlib.EnvOr("WEBD_URL", "http://webd:8080"),
 		routerURL:      chanlib.EnvOr("ROUTER_URL", "http://routd:8080"),
 		proxydURL:      chanlib.EnvOr("PROXYD_URL", "http://proxyd:8080"),
-		channelSecret:  chanlib.EnvOr("CHANNEL_SECRET", ""),
-		hmacSecret:     loadHMACSecret(),
 		storeDir:       coreCfg.StoreDir,
 		assistantName:  chanlib.EnvOr("ASSISTANT_NAME", "assistant"),
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
@@ -97,11 +93,12 @@ func main() {
 		}
 	}
 
-	// HMAC retire step 2: webd presents a service:webd ES256 bearer to proxyd's
-	// /v1/routes resource (channel proof for the X-User-* headers it forwards),
-	// replacing the X-User-Sig HMAC. Exchanged from AUTHD_SERVICE_KEY at
-	// AUTHD_URL (same pattern as timed/onbod). Unset (local dev) → svc nil →
-	// the proxyd client falls back to HMAC signing.
+	// webd presents a service:webd ES256 bearer for both faces: to proxyd's
+	// /v1/routes resource (channel proof for the X-User-* it forwards) AND to
+	// routd's register + side calls (the service token IS the register credential
+	// — HMAC retire step 5). Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL (same
+	// pattern as the channel adapters). Unset (local dev) → svc nil → no bearer;
+	// proxyd/routd's no-JWKS gates are open.
 	var svc *auth.TokenSource
 	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
 		name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "webd")
@@ -114,7 +111,10 @@ func main() {
 
 	hub := newHub()
 
-	rc := chanlib.NewRouterClient(cfg.routerURL, cfg.channelSecret)
+	rc := chanlib.NewRouterClient(cfg.routerURL)
+	if svc != nil {
+		rc.SetServiceToken(svc.Token)
+	}
 	_, err = rc.Register("web", cfg.listenURL,
 		[]string{"web:"}, map[string]bool{"send_text": true, "typing": true},
 	)

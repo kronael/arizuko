@@ -37,11 +37,11 @@ func (b *stubBot) Typing(_ string, on bool) { b.typings = append(b.typings, on) 
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	return newServer(config{Name: "telegram", ChannelSecret: secret}, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
+	return newServer(config{Name: "telegram"}, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
 func testHandler(secret string) (http.Handler, *server) {
-	s := newServer(config{Name: "telegram", ChannelSecret: secret}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "telegram"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	return s.handler(), s
 }
 
@@ -61,19 +61,6 @@ func TestServerSend(t *testing.T) {
 		t.Errorf("sent = %+v", sb.sent)
 	}
 }
-
-func TestServerSendBadAuth(t *testing.T) {
-	h, _ := stubHandler("secret")
-	body, _ := json.Marshal(map[string]string{"chat_jid": "telegram:123", "content": "hello"})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer wrong")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
 func TestServerSendMissing(t *testing.T) {
 	h, _ := stubHandler("")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "telegram:123"})
@@ -166,17 +153,6 @@ func TestServerFileEmptyID(t *testing.T) {
 		t.Errorf("status = %d, want 400 for empty file_id", w.Code)
 	}
 }
-
-func TestServerFileNoAuth(t *testing.T) {
-	h, _ := testHandler("secret")
-	req := httptest.NewRequest("GET", "/files/abc123", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401 for missing auth", w.Code)
-	}
-}
-
 func TestServerNoSecret(t *testing.T) {
 	h, sb := stubHandler("")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "telegram:123", "content": "hi"})

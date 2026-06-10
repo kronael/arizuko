@@ -106,8 +106,8 @@ func main() {
 	var onbod routd.OnbodClient
 	// svcSrc is the service:routd token source, reused for the adapter-egress
 	// Bearer (chanreg) too: routd→adapter calls (/send, /files, /v1/pane, …)
-	// present this ES256 token instead of CHANNEL_SECRET (HMAC→ES256 retire step
-	// 4). nil → chanreg falls back to the CHANNEL_SECRET static getter.
+	// present this ES256 token (spec 5/1; no CHANNEL_SECRET remains). nil → local
+	// dev (no AUTHD_URL); egress goes out unauthenticated.
 	var svcSrc func(context.Context) (string, error)
 	svcKey := os.Getenv("AUTHD_SERVICE_KEY")
 	if ts, err := auth.ServiceToken(authdURL, "routd", svcKey); err == nil {
@@ -131,8 +131,8 @@ func main() {
 	// owned jid prefixes; the Deliverer resolves them on the way out using the
 	// same order gated used (latest inbound source → registry prefix match).
 	// In-memory registry — adapters re-register on routd restart.
-	reg := chanreg.New(os.Getenv("CHANNEL_SECRET"))
-	reg.SetBearer(svcSrc) // service:routd egress token; nil → CHANNEL_SECRET fallback
+	reg := chanreg.New()
+	reg.SetBearer(svcSrc) // service:routd egress token; nil → local dev (no auth)
 	deliver, onRegister, onDeregister := routd.NewChannelDeliverer(
 		reg, parseCSV(os.Getenv("SEND_DISABLED_CHANNELS")), db.LatestSource)
 
@@ -174,7 +174,7 @@ func main() {
 			envOr("WHISPER_MODEL", "turbo"),
 			envOr("VOICE_TRANSCRIPTION_ENABLED", "false") == "true",
 			envOr("VIDEO_TRANSCRIPTION_ENABLED", "false") == "true",
-			os.Getenv("CHANNEL_SECRET"),
+			svcSrc, // service:routd token for the adapter /files download
 		),
 	})
 

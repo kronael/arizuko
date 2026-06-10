@@ -74,11 +74,13 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		return json.RawMessage(raw), nil
 	}
 	return resreg.Resource{
-		Name:      "routes",
-		MCPTools:  routesMCPTools(),
-		Authz:     func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Handler:   handler,
-		Store:     nil, // forwarder — proxyd writes the audit row
+		Name:     "routes",
+		MCPTools: routesMCPTools(),
+		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+			return "", nil, nil
+		},
+		Handler: handler,
+		Store:   nil, // forwarder — proxyd writes the audit row
 	}
 }
 
@@ -136,7 +138,7 @@ func routesMCPTools() []resreg.MCPTool {
 			Description: "List proxyd's runtime route table."},
 		{Name: "routes.get", Action: resreg.ActionGet,
 			Description: "Read one proxyd route by path.",
-			Args: []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
+			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
 		{Name: "routes.create", Action: resreg.ActionCreate,
 			Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
 			Args: []resreg.MCPArg{
@@ -159,7 +161,7 @@ func routesMCPTools() []resreg.MCPTool {
 			}},
 		{Name: "routes.delete", Action: resreg.ActionDelete,
 			Description: "Delete a proxyd route. Idempotent.",
-			Args: []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
+			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
 	}
 }
 
@@ -176,22 +178,19 @@ func isOperator(groups []string) bool {
 
 // proxydClient is webd's tiny outbound HTTP client to proxyd's /v1/routes
 // resource. It forwards the caller's identity in X-User-* headers; the channel
-// proof is webd's own service:webd ES256 bearer (HMAC retire step 2). With no
-// service token (local dev), it falls back to signing X-User-Sig with the
-// shared hmacSecret so proxyd's legacy HMAC gate still accepts it.
+// proof is webd's own service:webd ES256 bearer. With no service token (local
+// dev, AUTHD_URL unset) it sends no bearer — proxyd's no-JWKS gate is open.
 type proxydClient struct {
-	base       string
-	hmacSecret string
-	svc        *auth.TokenSource
-	hc         *http.Client
+	base string
+	svc  *auth.TokenSource
+	hc   *http.Client
 }
 
-func newProxydClient(base, hmacSecret string, svc *auth.TokenSource) *proxydClient {
+func newProxydClient(base string, svc *auth.TokenSource) *proxydClient {
 	return &proxydClient{
-		base:       strings.TrimRight(base, "/"),
-		hmacSecret: hmacSecret,
-		svc:        svc,
-		hc:         &http.Client{Timeout: 10 * time.Second},
+		base: strings.TrimRight(base, "/"),
+		svc:  svc,
+		hc:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -224,9 +223,6 @@ func (c *proxydClient) call(ctx context.Context, method, path string, body map[s
 			return nil, 0, fmt.Errorf("proxyd service token: %w", terr)
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
-	} else {
-		req.Header.Set("X-User-Sig",
-			auth.SignHMAC(c.hmacSecret, auth.UserSigMessage(sub, name, string(groupsJSON))))
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {

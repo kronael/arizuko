@@ -45,7 +45,7 @@ func TestAdapterPointsAtRoutd(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"),
-		[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
+		[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/teled.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["teled"]
@@ -83,7 +83,7 @@ TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
 func TestSplitScopesSecretsKey(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSECRETS_KEY=deadbeef\n"
+	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nSECRETS_KEY=deadbeef\n"
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
@@ -107,14 +107,14 @@ func TestServiceKeyWiredForAdaptersAndOnbod(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["slakd"]
 
 [environment]
 ROUTER_URL = "http://gated:8080"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
+AUTH_SECRET = "${AUTH_SECRET}"
 `), 0o644)
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestServiceKeyNotWiredForNonAdapters(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["ttsd"]
@@ -180,14 +180,14 @@ func TestGenerateWithChannel(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s3cr3t\nTELEGRAM_BOT_TOKEN=tok123\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s3cr3t\nTELEGRAM_BOT_TOKEN=tok123\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/telegram.toml"), []byte(`
 image = "arizuko-telegram:latest"
 
 [environment]
 ROUTER_URL = "http://gated:8080"
 TELEGRAM_TOKEN = "${TELEGRAM_BOT_TOKEN}"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
+AUTH_SECRET = "${AUTH_SECRET}"
 `), 0o644)
 
 	out, err := Generate(dir)
@@ -204,7 +204,7 @@ CHANNEL_SECRET = "${CHANNEL_SECRET}"
 		t.Error("TELEGRAM_BOT_TOKEN not interpolated")
 	}
 	if !strings.Contains(out, "s3cr3t") {
-		t.Error("CHANNEL_SECRET not interpolated")
+		t.Error("AUTH_SECRET not interpolated")
 	}
 	if !strings.Contains(out, "depends_on: [routd]") {
 		t.Error("adapter should depend on routd (the canonical router)")
@@ -276,7 +276,7 @@ func TestGenerateWebServices(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nCHANNEL_SECRET=sec\nAUTH_SECRET=jwt\nASSISTANT_NAME=bot\n"), 0o644)
+		"WEB_PORT=8095\nAUTH_SECRET=sec\nAUTH_SECRET=jwt\nASSISTANT_NAME=bot\n"), 0o644)
 
 	out, err := Generate(dir)
 	if err != nil {
@@ -424,7 +424,7 @@ func TestGenerateMultiAccountAdapter(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"CHANNEL_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\nAPI_PORT=8080\n"), 0o644)
+		"AUTH_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\nAPI_PORT=8080\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/teled-work.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["teled"]
@@ -500,7 +500,7 @@ func TestSplitDaemonsEmitted(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 
 	out, err := Generate(dir)
 	if err != nil {
@@ -541,7 +541,7 @@ func TestCutover_NoGatedDanglingAndRoutdIsRouter(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nAUTH_SECRET=j\n"+
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nAUTH_SECRET=j\n"+
 			"WEB_PORT=8095\nONBOARDING_ENABLED=true\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
 	// An adapter TOML still carrying the gated-era ROUTER_URL — the renderer
 	// must re-point it on generate.
@@ -587,7 +587,7 @@ func TestSplitTopology_DockerCrackboxOnlyRuned(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"+
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"+
 			"CRACKBOX_ADMIN_API=http://crackbox:3129\n"), 0o644)
 
 	out, err := Generate(dir)
@@ -628,7 +628,7 @@ func TestSplitWiring_AuthdURL(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\nAUTH_SECRET=j\n"+
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nAUTH_SECRET=j\n"+
 			"WEB_PORT=8095\nONBOARDING_ENABLED=true\n"), 0o644)
 
 	if _, err := Generate(dir); err != nil {
@@ -652,7 +652,7 @@ func TestSplitWiring_ServiceKeys(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
@@ -693,7 +693,7 @@ func TestTimedSplitWiring(t *testing.T) {
 	splitDir := t.TempDir()
 	os.MkdirAll(filepath.Join(splitDir, "services"), 0o755)
 	os.WriteFile(filepath.Join(splitDir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 	on, err := Generate(splitDir)
 	if err != nil {
 		t.Fatal(err)
@@ -718,7 +718,7 @@ func TestSplitWiring_KeysStableAcrossRegen(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 
 	if _, err := Generate(dir); err != nil {
 		t.Fatal(err)
@@ -747,7 +747,7 @@ func TestProxydRoutes_AllAdaptersDeclared(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
+		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["slakd"]
@@ -781,7 +781,7 @@ func TestProxydRoutes_GatedBy_Skipped_When_Env_Unset(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["slakd"]
@@ -808,7 +808,7 @@ func TestProxydRoutes_GatedBy_Included_When_Env_Set(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
+		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
 image = "arizuko:latest"
 entrypoint = ["slakd"]
@@ -838,7 +838,7 @@ func TestProxydRoutes_InviteForwardedToOnbod(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
+		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
 
 	out, err := Generate(dir)
 	if err != nil {
@@ -853,7 +853,7 @@ func TestProxydRoutes_InviteSkippedWhenOnboardingOff(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
 	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nCHANNEL_SECRET=s\n"), 0o644)
+		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
 
 	out, err := Generate(dir)
 	if err != nil {

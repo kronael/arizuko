@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -397,7 +396,7 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	okChat := auth.VerifyChatSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
+	okChat := s.chatTransit(r) && r.Header.Get("X-Folder") == folder
 	okUser := s.identified(r) && userAllowedFolder(userGroups(r), folder)
 	if !okChat && !okUser {
 		slog.Warn("chat stream forbidden", "folder", folder,

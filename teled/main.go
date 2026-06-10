@@ -30,13 +30,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ChannelSecret: cfg.ChannelSecret,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"telegram:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"telegram:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			b, err := newBot(cfg)
 			if err != nil {
@@ -54,10 +53,10 @@ func main() {
 }
 
 type config struct {
-	Name, TelegramToken, RouterURL, ChannelSecret string
-	ListenAddr, ListenURL, AssistantName          string
-	StateFile                                     string
-	MediaMaxBytes                                 int64
+	Name, TelegramToken, RouterURL       string
+	ListenAddr, ListenURL, AssistantName string
+	StateFile                            string
+	MediaMaxBytes                        int64
 }
 
 func loadConfig() config {
@@ -67,7 +66,6 @@ func loadConfig() config {
 		Name:          name,
 		TelegramToken: chanlib.MustEnv("TELEGRAM_BOT_TOKEN"),
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
-		ChannelSecret: chanlib.EnvOr("TELED_CHANNEL_SECRET", chanlib.EnvOr("CHANNEL_SECRET", "")),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9001"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://telegram:9001"),
 		AssistantName: chanlib.EnvOr("ASSISTANT_NAME", ""),

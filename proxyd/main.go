@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -36,7 +34,6 @@ type config struct {
 	viteAddr       string
 	pubRedirectURL string
 	authSecret     string
-	hmacSecret     string
 	authdURL       string // soak: dual-verify ES256 bearers + 302 /auth/* to authd
 	routesJSON     string
 	trustedProxies []*net.IPNet
@@ -50,19 +47,10 @@ func loadConfig() config {
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
-	hmacSecret := os.Getenv("PROXYD_HMAC_SECRET")
-	if hmacSecret == "" {
-		var b [32]byte
-		if _, err := rand.Read(b[:]); err == nil {
-			hmacSecret = hex.EncodeToString(b[:])
-			slog.Warn("PROXYD_HMAC_SECRET unset; generated ephemeral secret — webd will reject header signatures unless both share the same env value")
-		}
-	}
 	return config{
 		port:           port,
 		viteAddr:       chanlib.EnvOr("VITE_ADDR", "http://vited:8080"),
 		pubRedirectURL: strings.TrimRight(chanlib.EnvOr("PUB_REDIRECT_URL", ""), "/"),
-		hmacSecret:     hmacSecret,
 		authdURL:       strings.TrimRight(os.Getenv("AUTHD_URL"), "/"),
 		routesJSON:     os.Getenv("PROXYD_ROUTES_JSON"),
 		trustedProxies: parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")),
@@ -122,9 +110,9 @@ type server struct {
 	st          *store.Store
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
-	ks          *auth.KeySet // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
+	ks          *auth.KeySet      // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	svc         *auth.TokenSource // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
-	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
+	chatAnonDOS *rateLimiter      // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
 }
 
@@ -391,7 +379,7 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 	// Compose always sets AUTHD_URL, so new logins 302 to authd's ES256 OAuth.
 	// Existing HS256 sessions still verify via tryAuth's dual path.
 	mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
-	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret, s.ks))
+	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	mux.HandleFunc("/", s.route)
 	return logging(mux, aud)
@@ -647,8 +635,10 @@ func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request
 }
 
 // dispatchRouteToken resolves the URL's route token to a folder and
-// stamps X-Folder/X-Group-Name/X-Chat-Token/X-Chat-Sig before
-// forwarding. Spec 5/W. Auth is optional; valid JWT stamps user
+// stamps X-Folder/X-Group-Name/X-Chat-Token before forwarding (the
+// service:proxyd transit bearer proves the stamp to webd — proxyd is
+// the sole setter and strips any inbound X-Chat-*). Spec 5/W. Auth is
+// optional; a valid JWT stamps user
 // identity. Anon callers pass through an IP-keyed DoS shield (not
 // metering — cost-cap governance handles spend per spec 5/34);
 // authenticated callers skip the throttle entirely.
@@ -681,8 +671,6 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 			r.Header.Set("X-Folder", folder)
 			r.Header.Set("X-Group-Name", groupfolder.NameOf(folder))
 			r.Header.Set("X-Chat-Token", token)
-			r.Header.Set("X-Chat-Sig",
-				auth.SignHMAC(s.cfg.hmacSecret, auth.ChatSigMessage(token, folder)))
 		}
 	}
 	rp.ServeHTTP(w, r)
@@ -766,13 +754,12 @@ func davAllow(method, rest string) bool {
 }
 
 // setUserHeaders stamps the verified caller's identity onto the forwarded
-// request and proves the channel to backends. Identity travels in X-User-*;
-// the proof is proxyd's own ES256 service token (Authorization: Bearer
-// service:proxyd) — backends verify it via auth.RequireSignedOrBearer /
-// StripUnsignedOrBearer and trust the stamped headers. The legacy HMAC
-// X-User-Sig is gone (HMAC retire step 2). With no service token (local dev,
-// AUTHD_URL/key unset) the headers go unsigned: backends behind StripUnsigned*
-// then drop the unsigned identity, exactly as an unsigned request always was.
+// request and proves the channel to backends. Identity travels in X-User-*; the
+// proof is proxyd's own ES256 service token (Authorization: Bearer
+// service:proxyd), which backends verify (auth.ProxydTransit) before trusting
+// the stamped headers. With no service token (local dev, AUTHD_URL/key unset)
+// the headers go unsigned: backends with no JWKS configured pass them through as
+// local-dev, exactly as an unsigned request always was.
 func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
@@ -813,11 +800,11 @@ func (s *server) groupsForSub(sub string) []string {
 // tryAuth returns an identity-stamped request if the caller has a valid
 // Bearer JWT or refresh-token cookie; otherwise nil.
 //
-// Bearer verify is dual during the HMAC→ES256 soak: HS256 (auth.VerifyJWT)
-// first, then ES256 (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is
-// set. Either success stamps the same X-User-* headers (X-User-Sig still
-// injected → backends unchanged). With AUTHD_URL unset, ks is nil and this is
-// HS256-only, exactly as before the soak.
+// Bearer verify is dual: HS256 (auth.VerifyJWT, legacy cookie/session) first,
+// then ES256 (auth.VerifyHTTP) against authd's JWKs when AUTHD_URL is set. Either
+// success stamps the same X-User-* headers; setUserHeaders attaches proxyd's own
+// service:proxyd bearer as the backend transit proof. With AUTHD_URL unset, ks is
+// nil and this is HS256-only.
 func (s *server) tryAuth(r *http.Request) *http.Request {
 	if hdr := r.Header.Get("Authorization"); strings.HasPrefix(hdr, "Bearer ") {
 		if c, err := auth.VerifyJWT([]byte(s.cfg.authSecret), strings.TrimPrefix(hdr, "Bearer ")); err == nil {

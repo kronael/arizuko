@@ -181,7 +181,7 @@ func TestCapImplReport_ConsistentIsEmpty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func newMuxWith(bot BotHandler) *http.ServeMux {
-	return NewAdapterMux("t", "sec", []string{"t:"}, bot,
+	return NewAdapterMux("t", []string{"t:"}, bot,
 		func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
@@ -492,7 +492,7 @@ func TestProxyFile_Non200Upstream(t *testing.T) {
 func TestHandlerHealthEmailThreshold(t *testing.T) {
 	// email: stale after 10min. 6min old → NOT stale.
 	last := time.Now().Add(-6 * time.Minute).Unix()
-	h := NewAdapterMux("email", "sec", []string{"email:"}, &mockBot{},
+	h := NewAdapterMux("email", []string{"email:"}, &mockBot{},
 		func() bool { return true }, func() int64 { return last })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -507,7 +507,7 @@ func TestHandlerHealthEmailThreshold(t *testing.T) {
 func TestHandlerHealthDefaultThreshold(t *testing.T) {
 	// default: stale after 5min. 6min old → stale.
 	last := time.Now().Add(-6 * time.Minute).Unix()
-	h := NewAdapterMux("telegram", "sec", []string{"telegram:"}, &mockBot{},
+	h := NewAdapterMux("telegram", []string{"telegram:"}, &mockBot{},
 		func() bool { return true }, func() int64 { return last })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -527,7 +527,7 @@ func TestHandlerHealthDefaultThreshold(t *testing.T) {
 // can mark the container unhealthy — the 2026-06-05 outage regression guard.
 func TestHandlerHealthStrictStaleReturns503(t *testing.T) {
 	last := time.Now().Add(-6 * time.Minute).Unix()
-	h := NewAdapterMux("slack", "sec", []string{"slack:"}, &mockBot{},
+	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},
 		func() bool { return true }, func() int64 { return last })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
@@ -548,7 +548,7 @@ func TestHandlerHealthStrictStaleReturns503(t *testing.T) {
 // A fresh strict-stale adapter still returns 200 — the happy path must not regress.
 func TestHandlerHealthStrictFreshReturns200(t *testing.T) {
 	last := time.Now().Unix()
-	h := NewAdapterMux("slack", "sec", []string{"slack:"}, &mockBot{},
+	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},
 		func() bool { return true }, func() int64 { return last })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()

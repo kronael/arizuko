@@ -12,7 +12,7 @@ func TestJidFolder(t *testing.T) {
 		want string
 	}{
 		{"web:solo", "solo"},
-		{"web:acme/eng", "acme/eng"},                       // multi-segment folder
+		{"web:acme/eng", "acme/eng"},                         // multi-segment folder
 		{"web:acme/eng/submissions", "acme/eng/submissions"}, // whole rest; suffix needs explicit owner_folder
 		{"web:", ""},
 		{"hook:solo/gh-webhook", "solo"},

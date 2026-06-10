@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,9 +17,9 @@ type stubBot struct {
 	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 	chanlib.NoSocial
-	mu       sync.Mutex
-	lastReq  chanlib.SendRequest
-	returnID string
+	mu        sync.Mutex
+	lastReq   chanlib.SendRequest
+	returnID  string
 	returnErr error
 }
 
@@ -50,18 +49,6 @@ func TestHealth(t *testing.T) {
 		t.Errorf("jid_prefixes = %v", resp["jid_prefixes"])
 	}
 }
-
-func TestSendAuthRequired(t *testing.T) {
-	s := newServer(config{Name: "linkedin", ChannelSecret: "s"}, &stubBot{}, func() bool { return true })
-	body, _ := json.Marshal(map[string]string{"chat_jid": "linkedin:x", "content": "hi"})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
 func TestIsPostURN(t *testing.T) {
 	yes := []string{
 		"urn:li:activity:123",
@@ -138,10 +125,10 @@ func TestRefreshAccessTokenError(t *testing.T) {
 	}))
 	defer srv.Close()
 	lc := &linkClient{
-		cfg:  config{OAuthBase: srv.URL, ClientID: "c", ClientSecret: "s"},
-		http: srv.Client(),
-		refresh: "x",
-		seen: map[string]bool{},
+		cfg:       config{OAuthBase: srv.URL, ClientID: "c", ClientSecret: "s"},
+		http:      srv.Client(),
+		refresh:   "x",
+		seen:      map[string]bool{},
 		stateFile: t.TempDir() + "/s.json",
 	}
 	if err := lc.refreshAccessToken(); err == nil {
@@ -270,7 +257,7 @@ func TestDeliverComment(t *testing.T) {
 		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer router.Close()
-	rc := chanlib.NewRouterClient(router.URL, "s")
+	rc := chanlib.NewRouterClient(router.URL)
 	rc.SetToken("t")
 
 	lc := &linkClient{
@@ -313,7 +300,7 @@ func TestDeliverComment_RouterFailure_NotSeen(t *testing.T) {
 		w.Write([]byte(`{"ok":false,"error":"down"}`))
 	}))
 	defer down.Close()
-	rc := chanlib.NewRouterClient(down.URL, "s")
+	rc := chanlib.NewRouterClient(down.URL)
 	rc.SetToken("t")
 
 	lc := &linkClient{meURN: "urn:li:person:me", seen: map[string]bool{}}
@@ -330,7 +317,7 @@ func TestDeliverComment_RouterFailure_NotSeen(t *testing.T) {
 		w.Write([]byte(`{"ok":true}`))
 	}))
 	defer up.Close()
-	rc2 := chanlib.NewRouterClient(up.URL, "s")
+	rc2 := chanlib.NewRouterClient(up.URL)
 	rc2.SetToken("t")
 	lc.deliverComment(rc2, "urn:li:activity:1", c)
 	if !lc.seen["urn:li:activity:1|c1"] {

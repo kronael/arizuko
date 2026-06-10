@@ -3,9 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,14 +14,6 @@ import (
 
 	"github.com/kronael/arizuko/core"
 )
-
-// computeSig is a tiny helper mirroring hmac hex-encoding for test payloads.
-func computeSig(t *testing.T, secret, msg string) string {
-	t.Helper()
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(msg))
-	return hex.EncodeToString(mac.Sum(nil))
-}
 
 // subscribe wires a channel that receives publishes for folder/topic.
 func TestHub_SubscribePublishReceive(t *testing.T) {

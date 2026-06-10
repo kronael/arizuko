@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kronael/arizuko/auth"
 	_ "modernc.org/sqlite"
 )
 
@@ -473,15 +472,19 @@ func TestMemoryWritePersona(t *testing.T) {
 	}
 }
 
-// --- signed-identity gate: when PROXYD_HMAC_SECRET is set, dashd VERIFIES
-// proxyd's X-User-Sig. A raw/forged X-User-Sub with no valid sig (a request
+// --- transit-proof gate: when a Verifier (ks) is set, dashd VERIFIES proxyd's
+// service:proxyd transit bearer. A raw/forged X-User-Sub with no proof (a request
 // that bypassed proxyd) must be REJECTED — it can no longer impersonate an
 // operator. This is the proof the defense-in-depth gap is closed. ---
 
+// With a verifier configured (ks non-nil), a forged X-User-Sub carrying NO
+// transit bearer (a request that bypassed proxyd) is REJECTED — it can no longer
+// impersonate an operator. This is the proof the defense-in-depth gap is closed.
 func TestDashRejectsUnsignedXUserSub(t *testing.T) {
+	ks, _ := proxydBearerKS(t)
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: "test-proxyd-secret"}
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -492,38 +495,32 @@ func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 		req.Header.Set("X-Auth-Provider", "forged")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
-		// RequireSigned redirects unverified callers to /auth/login (303).
+		// guard redirects unproven callers to /auth/login (303).
 		if w.Code == 200 {
 			t.Errorf("%s: status = 200 — forged X-User-Sub was trusted (impersonation gap open)", p)
 		}
 	}
 }
 
-// signLikeProxyd sets the X-User-* headers and the matching HMAC X-User-Sig
-// exactly as proxyd does (auth.SignHMAC over auth.UserSigMessage), so a request
-// passes dashd's guard.
-func signLikeProxyd(r *http.Request, secret, sub, name, groupsJSON string) {
-	r.Header.Set("X-User-Sub", sub)
-	r.Header.Set("X-User-Name", name)
-	r.Header.Set("X-User-Groups", groupsJSON)
-	r.Header.Set("X-User-Sig", auth.SignHMAC(secret, auth.UserSigMessage(sub, name, groupsJSON)))
-}
-
-// A validly-signed request passes the guard and reaches the handler (200).
-func TestDashAcceptsSignedXUserSub(t *testing.T) {
-	const secret = "test-proxyd-secret"
+// A request proving it transited proxyd (valid service:proxyd bearer) carrying
+// the stamped end-user identity passes the guard and reaches the handler (200).
+func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
+	ks, tok := proxydBearerKS(t)
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: secret}
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
 	req := httptest.NewRequest("GET", "/dash/status/", nil)
-	signLikeProxyd(req, secret, "op@example.com", "Op", "[]")
+	req.Header.Set("X-User-Sub", "op@example.com")
+	req.Header.Set("X-User-Name", "Op")
+	req.Header.Set("X-User-Groups", "[]")
+	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != 200 {
-		t.Errorf("signed request: status = %d, want 200 (body=%q)", w.Code, w.Body.String())
+		t.Errorf("transit-proven request: status = %d, want 200 (body=%q)", w.Code, w.Body.String())
 	}
 }
 
@@ -532,7 +529,7 @@ func TestDashAcceptsSignedXUserSub(t *testing.T) {
 func TestDashHealthExemptFromGuard(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), hmacSecret: "test-proxyd-secret"}
+	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 

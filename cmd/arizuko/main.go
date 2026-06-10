@@ -63,27 +63,27 @@ func main() {
 	}
 
 	cmds := map[string]func([]string){
-		"run":      cmdRun,
-		"generate": cmdGenerate,
-		"create":   cmdCreate,
-		"group":    cmdGroup,
-		"gate":     cmdGate,
-		"invite":   cmdInvite,
-		"identity": cmdIdentity,
-		"chat":     cmdChat,
-		"send":     cmdSend,
-		"status":   cmdStatus,
-		"pair":     cmdPair,
-		"network":     cmdNetwork,
-		"route":       cmdRoute,
-		"secret":      cmdSecret,
-		"user-secret": cmdUserSecret,
-		"budget":      cmdBudget,
-		"token":       cmdToken,
-		"apply":       cmdApply,  // spec 5/36
-		"plan":        cmdPlan,   // spec 5/36
-		"get":         cmdGet,    // spec 5/36
-		"export":      cmdExport, // spec 5/36
+		"run":           cmdRun,
+		"generate":      cmdGenerate,
+		"create":        cmdCreate,
+		"group":         cmdGroup,
+		"gate":          cmdGate,
+		"invite":        cmdInvite,
+		"identity":      cmdIdentity,
+		"chat":          cmdChat,
+		"send":          cmdSend,
+		"status":        cmdStatus,
+		"pair":          cmdPair,
+		"network":       cmdNetwork,
+		"route":         cmdRoute,
+		"secret":        cmdSecret,
+		"user-secret":   cmdUserSecret,
+		"budget":        cmdBudget,
+		"token":         cmdToken,
+		"apply":         cmdApply,  // spec 5/36
+		"plan":          cmdPlan,   // spec 5/36
+		"get":           cmdGet,    // spec 5/36
+		"export":        cmdExport, // spec 5/36
 		"migrate-split": cmdMigrateSplit,
 	}
 	fn, ok := cmds[os.Args[1]]
@@ -254,19 +254,22 @@ func cmdCreate(args []string) {
 
 	envFile := filepath.Join(dataDir, ".env")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		secret := make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
+		// AUTH_SECRET signs the web stack's HS256 session/refresh cookies (proxyd,
+		// webd). Generate one so a fresh instance's login flow works out of the box;
+		// the ES256 service tokens are provisioned per-daemon by compose generation.
+		authSecret := make([]byte, 32)
+		if _, err := rand.Read(authSecret); err != nil {
 			die("Failed: crypto/rand: %v", err)
 		}
-		// SECRETS_KEY is required by gated (secrets encrypted at rest); generate
-		// one so a fresh instance starts. Rotate by comma-prepending a new key.
+		// SECRETS_KEY is required for folder secrets encrypted at rest; generate one
+		// so a fresh instance starts. Rotate by comma-prepending a new key.
 		secretsKey := make([]byte, 32)
 		if _, err := rand.Read(secretsKey); err != nil {
 			die("Failed: crypto/rand: %v", err)
 		}
-		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nCHANNEL_SECRET=%s\nSECRETS_KEY=%s\n",
-			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(secret), hex.EncodeToString(secretsKey))
-		// 0600: .env holds CHANNEL_SECRET plus operator-populated OAuth
+		content := fmt.Sprintf("ASSISTANT_NAME=%s\nCONTAINER_IMAGE=%s\nAPI_PORT=%d\nAUTH_SECRET=%s\nSECRETS_KEY=%s\n",
+			name, core.DefaultImage, core.DefaultAPIPort, hex.EncodeToString(authSecret), hex.EncodeToString(secretsKey))
+		// 0600: .env holds AUTH_SECRET plus operator-populated OAuth
 		// secrets and tokens — not world-readable.
 		if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
 			die("Failed: write .env: %v", err)

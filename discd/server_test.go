@@ -59,7 +59,7 @@ func (sb *stubBot) Typing(_ string, on bool) {
 
 func stubHandler(secret string) (http.Handler, *stubBot) {
 	sb := &stubBot{}
-	cfg := config{Name: "discord", ChannelSecret: secret}
+	cfg := config{Name: "discord"}
 	return newServer(cfg, sb, func() bool { return true }, func() int64 { return time.Now().Unix() }).handler(), sb
 }
 
@@ -131,19 +131,6 @@ func TestServerSend(t *testing.T) {
 		t.Errorf("sent = %+v", sb.sent)
 	}
 }
-
-func TestServerSendBadAuth(t *testing.T) {
-	h, _ := stubHandler("secret")
-	body, _ := json.Marshal(map[string]string{"chat_jid": "discord:123", "content": "hello"})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer wrong")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 401 {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
 func TestServerSendMissing(t *testing.T) {
 	h, _ := stubHandler("")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "discord:123"})
@@ -247,7 +234,7 @@ func TestServerFileProxy(t *testing.T) {
 	}))
 	defer cdn.Close()
 
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	srv := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	id := srv.files.Put(cdn.URL + "/image.png")
 	h := srv.handler()
 
@@ -267,25 +254,13 @@ func TestServerFileProxy(t *testing.T) {
 }
 
 func TestServerFileProxyNotFound(t *testing.T) {
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	srv := newServer(config{Name: "discord"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	h := srv.handler()
 	req := httptest.NewRequest("GET", "/files/missing", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != 404 {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
-func TestServerFileProxyAuth(t *testing.T) {
-	srv := newServer(config{Name: "discord", ChannelSecret: "secret"}, &stubBot{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
-	srv.files.Put("http://example.com/img.jpg")
-	h := srv.handler()
-	req := httptest.NewRequest("GET", "/files/abc", nil)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != 401 {
 		t.Errorf("status = %d", w.Code)
 	}
 }

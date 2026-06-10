@@ -28,8 +28,9 @@ type Entry struct {
 
 	// Origin pin: first caller to claim Name becomes the owner. Subsequent
 	// Register calls for the same Name must present the same origin IP +
-	// secret hash, otherwise the request is rejected. Blocks hijack of an
-	// adapter's session token by a second CHANNEL_SECRET holder.
+	// principal hash (the verified service:<adapter> sub — spec 5/1), otherwise
+	// the request is rejected. Blocks hijack of an adapter's session token by a
+	// different service principal.
 	OriginIP   string
 	SecretHash [32]byte
 }
@@ -49,25 +50,22 @@ type Registry struct {
 	mu      sync.RWMutex
 	entries map[string]*Entry // keyed by name
 	byToken map[string]*Entry // keyed by session token
-	secret  string
 
 	// bearer is the credential routd presents to adapters on egress: its
-	// service:routd ES256 token source (HMAC→ES256 retire step 4). nil → the
-	// CHANNEL_SECRET static fallback (local dev). Origin-pin registration still
-	// uses `secret`; this only feeds outbound HTTPChannel auth.
+	// service:routd ES256 token source (spec 5/1). nil → local dev (no
+	// AUTHD_URL); egress goes out with no Authorization header.
 	bearer func(context.Context) (string, error)
 }
 
-func New(secret string) *Registry {
+func New() *Registry {
 	return &Registry{
 		entries: make(map[string]*Entry),
 		byToken: make(map[string]*Entry),
-		secret:  secret,
 	}
 }
 
 // SetBearer installs routd's service-token source for adapter egress. Call once
-// at boot; nil leaves the CHANNEL_SECRET fallback active.
+// at boot; nil → local dev (egress unauthenticated).
 func (r *Registry) SetBearer(src func(context.Context) (string, error)) {
 	r.mu.Lock()
 	r.bearer = src
@@ -75,15 +73,11 @@ func (r *Registry) SetBearer(src func(context.Context) (string, error)) {
 }
 
 // Bearer returns the egress credential getter for adapter HTTPChannels: the
-// service:routd token source when wired, else a static CHANNEL_SECRET getter.
+// service:routd token source when wired, else nil (local dev → no auth header).
 func (r *Registry) Bearer() func(context.Context) (string, error) {
 	r.mu.RLock()
-	src := r.bearer
-	r.mu.RUnlock()
-	if src != nil {
-		return src
-	}
-	return StaticBearer(r.secret)
+	defer r.mu.RUnlock()
+	return r.bearer
 }
 
 // Register validates the URL and claims name. Tests and internal callers
@@ -198,8 +192,6 @@ func (r *Registry) All() map[string]*Entry {
 	}
 	return cp
 }
-
-func (r *Registry) Secret() string { return r.secret }
 
 // Resolve looks up the adapter pinned by name, falling back to ForJID when
 // name is empty or the named adapter is gone. Returns nil if no match.

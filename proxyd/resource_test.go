@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
@@ -15,11 +17,29 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-const testHMAC = "test-hmac-secret"
+// webdBearerKS mints the service:webd token webd presents to proxyd's /v1/routes
+// resource (the channel proof for the X-User-* it forwards) plus the KeySet that
+// verifies it. The signing key is shared so a test can mint a NON-webd token
+// under the same trusted key and assert the sub pin still rejects it.
+func webdBearerKS(t *testing.T) (ks *auth.KeySet, key *auth.SigningKey, webdTok string) {
+	t.Helper()
+	k, err := auth.NewSigningKey("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := k.Sign(auth.TokenClaims{Sub: callerWebd, Typ: "service"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return auth.NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey}), k, tok
+}
 
 // testResourceMux builds a stdlib mux with the routes resource mounted at
-// /v1/routes, backed by an in-memory store. callerBuild lets a test swap
-// in a custom caller; nil uses the operator-grade builder.
+// /v1/routes, backed by an in-memory store. callerBuild lets a test swap in a
+// custom caller; nil uses the ES256 service:webd-gated builder + attaches the
+// matching bearer via testWebdTok so doJSON/signOperator requests are admitted.
+var testWebdTok string
+
 func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http.ServeMux, *routesResource, *store.Store) {
 	t.Helper()
 	st, err := store.OpenMem()
@@ -37,23 +57,23 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	}
 	rr := newRoutesResource(st, nil)
 	if callerBuild == nil {
-		callerBuild = callerFromHTTP(testHMAC, nil)
+		ks, _, tok := webdBearerKS(t)
+		testWebdTok = tok
+		callerBuild = callerFromHTTP(ks)
 	}
 	mux := http.NewServeMux()
 	resreg.RegisterREST(mux, routesResourceDecl(rr), callerBuild)
 	return mux, rr, st
 }
 
-// signOperator stamps the request with operator identity (the `**`
-// group marker, today's operator gate). Matches what proxyd injects on
-// the authenticated REST surface.
+// signOperator stamps the request with operator identity (the `**` group
+// marker, today's operator gate) AND the service:webd transit bearer — matching
+// what webd presents when forwarding an operator to proxyd's REST surface.
 func signOperator(req *http.Request) {
-	groups := `["**"]`
 	req.Header.Set("X-User-Sub", "op@example")
 	req.Header.Set("X-User-Name", "op")
-	req.Header.Set("X-User-Groups", groups)
-	req.Header.Set("X-User-Sig",
-		auth.SignHMAC(testHMAC, auth.UserSigMessage("op@example", "op", groups)))
+	req.Header.Set("X-User-Groups", `["**"]`)
+	req.Header.Set("Authorization", "Bearer "+testWebdTok)
 }
 
 func doJSON(t *testing.T, mux http.Handler, method, path string, body any) *httptest.ResponseRecorder {
@@ -211,15 +231,15 @@ func TestRoutesResource_Unauthorized(t *testing.T) {
 	}
 }
 
+// A stamped non-operator identity (proven by webd's bearer) is admitted by the
+// channel gate but DENIED by the routes ACL (no operator `**` row) → 403.
 func TestRoutesResource_NonOperatorForbidden(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	groups := `["atlas/support"]`
 	req := httptest.NewRequest("GET", "/v1/routes", nil)
 	req.Header.Set("X-User-Sub", "user@example")
 	req.Header.Set("X-User-Name", "user")
-	req.Header.Set("X-User-Groups", groups)
-	req.Header.Set("X-User-Sig",
-		auth.SignHMAC(testHMAC, auth.UserSigMessage("user@example", "user", groups)))
+	req.Header.Set("X-User-Groups", `["atlas/support"]`)
+	req.Header.Set("Authorization", "Bearer "+testWebdTok) // valid channel proof
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
@@ -227,45 +247,42 @@ func TestRoutesResource_NonOperatorForbidden(t *testing.T) {
 	}
 }
 
-// Trust boundary: callerFromHTTP MUST reject a request whose X-User-Groups
-// were flipped to operator (`**`) after signing. The sig binds sub+name+groups
-// (auth.UserSigMessage), so the stale sig no longer matches the forged groups
-// → 401, never an operator-grade admit. A regression here lets anyone who can
-// set request headers escalate to operator on the routes resource.
-func TestRoutesResource_TamperedGroupsRejected(t *testing.T) {
+// Trust boundary: a request with operator X-User-Groups but NO transit bearer
+// (it never traversed webd) is rejected — channelTrusted requires the bearer, so
+// header presence alone never admits. A regression lets anyone who can set
+// request headers escalate to operator on the routes resource.
+func TestRoutesResource_NoBearerRejected(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	// Validly sign as a NON-operator, then forge groups to operator post-sign.
-	nonOp := `["atlas/support"]`
 	req := httptest.NewRequest("POST", "/v1/routes", strings.NewReader(`{"path":"/x/","backend":"http://x:8080","auth":"user"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Sub", "user@example")
-	req.Header.Set("X-User-Name", "user")
-	req.Header.Set("X-User-Sig",
-		auth.SignHMAC(testHMAC, auth.UserSigMessage("user@example", "user", nonOp)))
-	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim, sig covers nonOp
+	req.Header.Set("X-User-Sub", "op@example")
+	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim, no bearer
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("tampered operator groups status = %d, want 401 (escalation gap)", w.Code)
+		t.Errorf("no-bearer operator groups status = %d, want 401 (escalation gap)", w.Code)
 	}
 }
 
-// Trust boundary: a request with operator groups and a sig signed under the
-// WRONG secret (the request never traversed proxyd) is rejected. Proves the
-// HMAC secret — not mere header presence — is the gate.
-func TestRoutesResource_WrongSecretSigRejected(t *testing.T) {
-	mux, _, _ := testResourceMux(t, nil)
-	groups := `["**"]`
+// Trust boundary: a VALID authd bearer whose subject is NOT service:webd (signed
+// by the SAME trusted key, e.g. a user's own token) is not a transit proof — the
+// sub pin in channelTrusted rejects it, else any authd-token holder reaching
+// proxyd directly could forge operator X-User-* on the routes resource.
+func TestRoutesResource_NonWebdBearerRejected(t *testing.T) {
+	ks, key, _ := webdBearerKS(t)
+	userTok, err := key.Sign(auth.TokenClaims{Sub: "user:github:mallory", Typ: "user"}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, _, _ := testResourceMux(t, callerFromHTTP(ks))
 	req := httptest.NewRequest("GET", "/v1/routes", nil)
 	req.Header.Set("X-User-Sub", "op@example")
-	req.Header.Set("X-User-Name", "op")
-	req.Header.Set("X-User-Groups", groups)
-	req.Header.Set("X-User-Sig",
-		auth.SignHMAC("attacker-secret", auth.UserSigMessage("op@example", "op", groups)))
+	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim
+	req.Header.Set("Authorization", "Bearer "+userTok)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("wrong-secret sig status = %d, want 401", w.Code)
+		t.Errorf("non-webd bearer status = %d, want 401 (any authd token forges operator!)", w.Code)
 	}
 }
 

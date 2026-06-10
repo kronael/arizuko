@@ -51,7 +51,7 @@ func (s *stubFiles) FileURL(id string) (string, bool) {
 
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
-	cfg := config{Name: "mastodon", ChannelSecret: secret}
+	cfg := config{Name: "mastodon"}
 	return newServer(cfg, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
@@ -133,38 +133,6 @@ func TestMastHealthDisconnected(t *testing.T) {
 		t.Errorf("status = %v", resp["status"])
 	}
 }
-
-func TestMastAuthRequired(t *testing.T) {
-	s := testMastServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "mastodon:123", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
-func TestMastAuthWrongToken(t *testing.T) {
-	s := testMastServer(t, "secret123")
-	body, _ := json.Marshal(map[string]string{
-		"chat_jid": "mastodon:123", "content": "hello",
-	})
-	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer wrongtoken")
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestMastSend_MissingFields(t *testing.T) {
 	s := testMastServer(t, "")
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:123"})
@@ -252,7 +220,7 @@ func TestMastFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att123": cdn.URL + "/media/att123.jpg"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -283,20 +251,6 @@ func TestMastFileProxyNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
-
-func TestMastFileProxyNoAuth(t *testing.T) {
-	fr := &stubFiles{urls: map[string]string{"att1": "http://cdn/x"}}
-	s := newServer(config{Name: "mastodon", ChannelSecret: "sec"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
-
-	req := httptest.NewRequest("GET", "/files/att1", nil)
-	w := httptest.NewRecorder()
-	s.handler().ServeHTTP(w, req)
-
-	if w.Code != 401 {
-		t.Errorf("status = %d, want 401", w.Code)
-	}
-}
-
 func TestMastFileProxyEmptyID(t *testing.T) {
 	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
 

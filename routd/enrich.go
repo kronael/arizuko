@@ -24,22 +24,25 @@ import (
 // transcription both fire under VoiceEnabled && WhisperURL != "". VideoEnabled
 // mirrors the env field but the enrich path doesn't read it.
 type mediaConfig struct {
-	Enabled       bool
-	MaxBytes      int64
-	WhisperURL    string
-	WhisperModel  string
-	VoiceEnabled  bool
-	VideoEnabled  bool
-	ChannelSecret string
+	Enabled      bool
+	MaxBytes     int64
+	WhisperURL   string
+	WhisperModel string
+	VoiceEnabled bool
+	VideoEnabled bool
+	// Bearer yields routd's service:routd ES256 token, presented on the
+	// adapter /files download (the adapter gates it via chanlib.Auth). nil →
+	// local dev (no AUTHD_URL); the download goes out unauthenticated.
+	Bearer func(context.Context) (string, error)
 }
 
 // MediaConfig builds the inbound enrichment config for the cmd layer (the
 // struct is unexported; the cmd reads the env and passes it to LoopConfig).
 func MediaConfig(enabled bool, maxBytes int64, whisperURL, whisperModel string,
-	voiceEnabled, videoEnabled bool, channelSecret string) mediaConfig {
+	voiceEnabled, videoEnabled bool, bearer func(context.Context) (string, error)) mediaConfig {
 	return mediaConfig{
 		Enabled: enabled, MaxBytes: maxBytes, WhisperURL: whisperURL, WhisperModel: whisperModel,
-		VoiceEnabled: voiceEnabled, VideoEnabled: videoEnabled, ChannelSecret: channelSecret,
+		VoiceEnabled: voiceEnabled, VideoEnabled: videoEnabled, Bearer: bearer,
 	}
 }
 
@@ -98,7 +101,7 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 				continue
 			}
 		} else {
-			if err := downloadFile(ctx, att.URL, dest, l.media.ChannelSecret, l.media.MaxBytes); err != nil {
+			if err := downloadFile(ctx, att.URL, dest, l.media.Bearer, l.media.MaxBytes); err != nil {
 				slog.Warn("enrich: download failed", "url", att.URL, "err", err)
 				continue
 			}
@@ -140,13 +143,19 @@ func (l *Loop) enrichAttachments(ctx context.Context, msg *core.Message, folder 
 	}
 }
 
-func downloadFile(ctx context.Context, url, dest, secret string, maxBytes int64) error {
+func downloadFile(ctx context.Context, url, dest string, bearer func(context.Context) (string, error), maxBytes int64) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
-	if secret != "" {
-		req.Header.Set("Authorization", "Bearer "+secret)
+	if bearer != nil {
+		tok, terr := bearer(ctx)
+		if terr != nil {
+			return fmt.Errorf("service token: %w", terr)
+		}
+		if tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 )
 
 func TestRegisterAndGet(t *testing.T) {
-	r := New("secret123")
+	r := New()
 
 	token, err := r.Register("telegram", "http://tg:9001",
 		[]string{"tg:"}, map[string]bool{"send_text": true})
@@ -35,7 +35,7 @@ func TestRegisterAndGet(t *testing.T) {
 }
 
 func TestByToken(t *testing.T) {
-	r := New("s")
+	r := New()
 	token, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
 
 	e := r.ByToken(token)
@@ -50,7 +50,7 @@ func TestByToken(t *testing.T) {
 }
 
 func TestDeregister(t *testing.T) {
-	r := New("s")
+	r := New()
 	token, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
 
 	r.Deregister("tg")
@@ -64,7 +64,7 @@ func TestDeregister(t *testing.T) {
 }
 
 func TestReRegister(t *testing.T) {
-	r := New("s")
+	r := New()
 	token1, _ := r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
 	token2, _ := r.Register("tg", "http://tg:9002", []string{"tg:"}, nil)
 
@@ -81,7 +81,7 @@ func TestReRegister(t *testing.T) {
 }
 
 func TestHealthFails(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
 
 	if f := r.RecordHealthFail("tg"); f != 1 {
@@ -99,7 +99,7 @@ func TestHealthFails(t *testing.T) {
 }
 
 func TestAll(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("tg", "http://tg:9001", []string{"tg:"}, nil)
 	r.Register("discord", "http://discord:9002", []string{"discord:"}, nil)
 
@@ -110,14 +110,14 @@ func TestAll(t *testing.T) {
 }
 
 func TestHealthFailNonexistent(t *testing.T) {
-	r := New("s")
+	r := New()
 	if f := r.RecordHealthFail("nope"); f != 0 {
 		t.Errorf("fails = %d for nonexistent", f)
 	}
 }
 
 func TestForJIDSingleAdapter(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	e := r.ForJID("telegram:123")
@@ -127,7 +127,7 @@ func TestForJIDSingleAdapter(t *testing.T) {
 }
 
 func TestForJIDNoMatch(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	if e := r.ForJID("whatsapp:456"); e != nil {
@@ -142,7 +142,7 @@ func TestForJIDNoMatch(t *testing.T) {
 // — callers needing exact routing must resolve by name (latest source from the
 // messages table). This test only asserts that *some* owning adapter is returned.
 func TestForJIDOverlappingPrefixes(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
@@ -156,7 +156,7 @@ func TestForJIDOverlappingPrefixes(t *testing.T) {
 }
 
 func TestForJIDMultiplePrefixes(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("multi", "http://m:9001", []string{"a:", "b:", "c:"}, nil)
 
 	for _, jid := range []string{"a:1", "b:2", "c:3"} {
@@ -170,7 +170,7 @@ func TestForJIDMultiplePrefixes(t *testing.T) {
 }
 
 func TestResolveByName(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 	r.Register("telegram-REDACTED", "http://REDACTED:9001", []string{"telegram:"}, nil)
 
@@ -181,7 +181,7 @@ func TestResolveByName(t *testing.T) {
 }
 
 func TestResolveMissingNameFallsBack(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	e := r.Resolve("nonexistent", "telegram:123")
@@ -191,7 +191,7 @@ func TestResolveMissingNameFallsBack(t *testing.T) {
 }
 
 func TestResolveEmptyName(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 
 	e := r.Resolve("", "telegram:123")
@@ -204,7 +204,7 @@ func TestResolveEmptyName(t *testing.T) {
 // two adapters own the same telegram: prefix, distinguished only by name.
 // Resolve must pin by name (source-based routing), never first-by-prefix.
 func TestResolveMultiAccountPrecedence(t *testing.T) {
-	r := New("s")
+	r := New()
 	r.Register("telegram", "http://tg:9001", []string{"telegram:"}, nil)
 	r.Register("telegram-rhias", "http://rhias:9001", []string{"telegram:"}, nil)
 
