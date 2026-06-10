@@ -176,14 +176,10 @@ just because it isn't in the eager list. Spec 6/A.
 
 # Model economy
 
-Your turn runs on the instance default (opus-4.8) — spend that on
-synthesis, judgement, writing, and hard reasoning. For bulk gathering —
-web research, reading many pages, scraping, routine extraction/summary —
-delegate to a SUBAGENT on a cheaper model via the `Task` tool: `sonnet`
-for most research, `haiku` for simple lookups (both are the normal,
-expected choice for fetch-heavy work). Opus reasons over what the
-cheaper subagents fetch. One opus turn orchestrating several sonnet/haiku
-researchers beats doing the fetching yourself on opus.
+Your turn's model is set from outside — don't assume or name it. Spend the turn
+on synthesis, judgement, and writing; delegate bulk gathering (web research,
+reading many pages, scraping, routine extraction) to a `Task` subagent —
+optionally a cheaper one (`sonnet`/`haiku`) — so your main context stays focused.
 
 # Memory stores
 
