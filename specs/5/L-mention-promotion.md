@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 shipped: 2026-05-18
 ---
 
@@ -121,10 +121,10 @@ they keep the engagement/mention path; no over-triggering.
 `teled` forum topics) should follow the same rule when their thread model
 is wired.
 
-## Refinement — thread _participation_, not just thread _root_ (draft)
+## Refinement — thread _participation_, not just thread _root_ (shipped)
 
-> status of this section: **draft** (the rest of the spec is shipped).
-> Requested 2026-06-09 after the atlas/Slack channel debugging.
+> status of this section: **shipped** 2026-06-10. Requested 2026-06-09
+> after the atlas/Slack channel debugging.
 
 The shipped rule promotes a thread reply only when the thread _root_ is
 bot-authored (`ReplyTo` = root → `IsBotMessageByID`). That misses the
@@ -138,42 +138,48 @@ Refined intent (operator words): _a reply is a mention if it replies to
 a bot message OR lands in a thread the bot **started or participated
 in**; otherwise the normal engagement/attention window applies._
 
-So extend the ONE promotion site with a second, broader test:
+The ONE promotion site (routd `handleMessages`, before `PutMessage`) gains a
+second test — keyed on **`(chat_jid, topic)`, not `(topic, folder)`**:
 
-```
-if msg.Verb != "mention" && msg.ReplyToID != "" {
-    if store.IsBotMessageByID(msg.ReplyToID) ||           // reply to a bot msg (shipped)
-       store.ThreadHasBotMessage(msg.Topic, folder) {     // bot participated in this thread (new)
-        msg.Verb = "mention"
-    }
+```go
+if verb != "untrusted" && m.ReplyTo != "" &&
+    (s.replyTargetIsBot(m.ReplyTo) ||                    // reply to a bot msg (shipped)
+     s.threadHasBotMessage(m.ChatJID, m.Topic)) {        // bot participated in this thread (new)
+    verb = "mention"
 }
 ```
 
-- **`ThreadHasBotMessage(topic, folder)`** — does this thread/topic
-  already contain a bot message from this folder? (`SELECT 1 FROM
-messages WHERE topic=? AND routed_to=? AND is_bot_message=1 LIMIT 1`).
-  The topic is the thread key (`Message.Topic`, set from the platform
-  thread anchor — `5/F`). "Started" is the `is_bot_message` root;
-  "participated" is _any_ bot row in the thread — this query covers both,
-  so it subsumes the shipped root-only rule for threaded messages.
-- Threads the bot never spoke in stay on the engagement/attention path
-  (`5/G`) — no over-triggering in busy channels the bot merely observes.
-- Bounded + cheap: indexed by `(topic, routed_to)`; one `LIMIT 1` per
-  inbound that has a topic. DMs (no topic) fall through to the
-  reply-to-bot rule unchanged.
+- **`threadHasBotMessage(chatJID, topic)`** — has the bot already posted in
+  this thread? (`SELECT 1 FROM messages WHERE chat_jid=? AND topic=? AND
+is_bot_message=1 LIMIT 1`). "Started" is the bot root; "participated" is
+  _any_ bot row in the thread — this subsumes the shipped root-only rule.
+- **Why `chat_jid`, not `routed_to`/`folder`** (correction to the draft): in
+  the split, the owning folder is **unresolved at ingest** — route resolution
+  runs after the row is stored (see `server.go` "engagement is NOT committed at
+  ingress"). The chat is the precise thread container anyway (one folder serves
+  many chats), and `m.ChatJID` is present on the inbound. Topic-inheritance
+  (`m.Topic` from `TopicByID(ReplyTo)`) is resolved BEFORE the promotion so the
+  check sees the thread topic.
+- **Empty topic → false.** The chat's main timeline is not a thread; promoting
+  there would re-fire on every root message in a channel the bot once spoke in.
+  DMs / no-topic replies fall through to the reply-to-bot rule unchanged.
+- Lives in `routd/server.go` as `threadHasBotMessage`, a sibling of the existing
+  raw-SQL `replyTargetIsBot` — routd holds its own DB handle, not a
+  `store.Store`, so the query is routd-local (consistent with `replyTargetIsBot`,
+  not `store/messages.go`).
+- Threads the bot never spoke in stay on the engagement/attention path (`5/G`)
+  — no over-triggering in busy channels the bot merely observes.
 
-This is still **one renderer at one ring** (routd ingest, before
-PutMessage): participation is a property of the stored thread, not new
-adapter state. No adapter change beyond the already-required
-`ReplyTo`/`Topic` wiring.
+This is still **one renderer at one ring** (routd ingest, before `PutMessage`):
+participation is a property of the stored thread, not new adapter state. No
+adapter change beyond the already-required `ReplyTo`/`Topic` wiring.
 
-### Code surface (refinement)
+### Code surface (refinement, shipped)
 
-| File                | Change                                                                           |
-| ------------------- | -------------------------------------------------------------------------------- | --- | -------------------------------- |
-| `store/messages.go` | new `ThreadHasBotMessage(topic, folder) bool`                                    |
-| `routd` ingest      | add the second `                                                                 |     | ` term at the existing promotion |
-| Tests               | thread w/ prior bot msg → promote; bot-silent thread → no promote; DM unaffected |
+| File                   | Change                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `routd/server.go`      | new `threadHasBotMessage(chatJID, topic) bool`; promotion gains the OR term; topic-inheritance moved before promotion |
+| `routd/parity_test.go` | `TestThreadParticipationPromotion`: participated-thread → mention; silent-thread → message; no-topic → message        |
 
 ## Migration
 

@@ -311,6 +311,52 @@ func TestNoEngagementOnMentionIngress(t *testing.T) {
 	}
 }
 
+// TestThreadParticipationPromotion: a reply landing in a thread the bot has
+// already spoken in is promoted to verb=mention even when the reply target is a
+// human message — so the agent re-attends a thread it joined instead of going
+// silent once its 5/G window closes (spec 5/L). A thread the bot never spoke in
+// is not promoted; a no-topic reply to a topic-less message is not promoted.
+func TestThreadParticipationPromotion(t *testing.T) {
+	db, srv, _ := newTestRoutd(t)
+	h := srv.Handler()
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Match: "platform=slack", Target: "demo"}})
+	now := time.Now().UTC()
+	// Bot participated in thread "th1" of chat C1; the thread root is a HUMAN msg
+	// (so promotion can only come from participation, not reply-to-bot). "dm-human"
+	// is a topic-less message in the same chat.
+	_ = db.PutMessage(core.Message{ID: "bot-1", ChatJID: "slack:T/C1/U", Sender: "bot",
+		Content: "answer", Timestamp: now, BotMsg: true, Topic: "th1", RoutedTo: "demo"})
+	_ = db.PutMessage(core.Message{ID: "human-root", ChatJID: "slack:T/C1/U", Sender: "u1",
+		Content: "question", Timestamp: now, Topic: "th1"})
+	_ = db.PutMessage(core.Message{ID: "dm-human", ChatJID: "slack:T/C1/U", Sender: "u1",
+		Content: "ping", Timestamp: now})
+
+	storedVerb := func(id string) string {
+		var v string
+		db.db.QueryRow("SELECT verb FROM messages WHERE id=?", id).Scan(&v)
+		return v
+	}
+
+	cases := []struct {
+		name, id, chat, topic, replyTo, want string
+	}{
+		{"participated-thread", "m1", "slack:T/C1/U", "th1", "human-root", "mention"},
+		{"silent-thread", "m2", "slack:T/C2/U", "untouched", "human-root", "message"},
+		{"no-topic-reply", "m3", "slack:T/C1/U", "", "dm-human", "message"},
+	}
+	for _, c := range cases {
+		in := apiv1.Message{ID: c.id, ChatJID: c.chat, Sender: "u1", Content: "x",
+			Verb: "message", ReplyTo: c.replyTo, Topic: c.topic}
+		if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
+			t.Fatalf("%s: ingest=%d", c.name, rec.Code)
+		}
+		if v := storedVerb(c.id); v != c.want {
+			t.Errorf("%s: verb=%q want %q", c.name, v, c.want)
+		}
+	}
+}
+
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 // TestGroupBySenderConsecutiveRuns: an interleaved A,B,A backlog splits into

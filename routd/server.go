@@ -419,24 +419,27 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if m.Timestamp > 0 {
 		ts = time.Unix(m.Timestamp, 0).UTC()
 	}
-	// reply-to-bot → mention promotion: an inbound replying to a bot row is
-	// promoted to verb=mention so routing sees a uniform trigger.
 	verb := m.Verb
 	if verb == "" {
 		verb = "message"
 	}
-	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
-	// 10/17) must NOT escalate to a mention by replying to a bot message — that
-	// would let a spoofed inbound drive an agent turn. gated guarded this; the
-	// split had dropped it.
-	if verb != "untrusted" && m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo) {
-		verb = "mention"
-	}
 	// Reaction topic-inheritance: a reaction/reply with no topic of its own
 	// inherits the parent message's topic so it routes to the parent's thread, not
-	// the main topic.
+	// the main topic. Resolved BEFORE promotion so the thread-participation check
+	// below sees the inherited topic.
 	if m.Topic == "" && m.ReplyTo != "" {
 		m.Topic = s.db.TopicByID(m.ReplyTo)
+	}
+	// Mention promotion: an inbound that replies to a bot row, OR lands in a
+	// thread the bot started/participated in (spec 5/L), is promoted to
+	// verb=mention so routing sees a uniform trigger and the agent re-attends the
+	// thread instead of going silent after its 5/G engagement window closes.
+	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
+	// 10/17) must NOT escalate to a mention this way — that would let a spoofed
+	// inbound drive an agent turn. gated guarded this; the split had dropped it.
+	if verb != "untrusted" && m.ReplyTo != "" &&
+		(s.replyTargetIsBot(m.ReplyTo) || s.threadHasBotMessage(m.ChatJID, m.Topic)) {
+		verb = "mention"
 	}
 	row := buildMessageRow(m, ts, verb)
 	// Engagement is NOT committed at ingress: the owning folder isn't known until
@@ -457,6 +460,27 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 func (s *Server) replyTargetIsBot(id string) bool {
 	var bot int
 	s.db.db.QueryRow("SELECT is_bot_message FROM messages WHERE id=? OR platform_id=?", id, id).Scan(&bot)
+	return bot == 1
+}
+
+// threadHasBotMessage reports whether the bot has already posted in this thread
+// — a (chat_jid, topic) pair. Drives the reply-into-a-bot-thread → mention
+// promotion (spec 5/L): a reply landing in a thread the bot started OR
+// participated in is a mention even when the thread root is human-authored, so
+// the agent re-attends instead of going silent once its 5/G window closes.
+// Empty topic → false: the chat's main timeline is not a thread, and promoting
+// there would re-fire on every root message in a channel the bot once spoke in.
+// Keyed on chat_jid (not folder): the owning folder is unresolved at ingest and
+// the chat is the precise thread container anyway.
+func (s *Server) threadHasBotMessage(chatJID, topic string) bool {
+	if topic == "" {
+		return false
+	}
+	var bot int
+	s.db.db.QueryRow(
+		"SELECT 1 FROM messages WHERE chat_jid=? AND topic=? AND is_bot_message=1 LIMIT 1",
+		chatJID, topic,
+	).Scan(&bot)
 	return bot == 1
 }
 
