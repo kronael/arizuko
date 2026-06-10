@@ -37,7 +37,7 @@ func testResourceMux(t *testing.T, callerBuild resreg.CallerFromHTTPFunc) (*http
 	}
 	rr := newRoutesResource(st, nil)
 	if callerBuild == nil {
-		callerBuild = callerFromHTTP(testHMAC)
+		callerBuild = callerFromHTTP(testHMAC, nil)
 	}
 	mux := http.NewServeMux()
 	resreg.RegisterREST(mux, routesResourceDecl(rr), callerBuild)

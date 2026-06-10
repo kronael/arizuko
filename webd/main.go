@@ -97,6 +97,21 @@ func main() {
 		}
 	}
 
+	// HMAC retire step 2: webd presents a service:webd ES256 bearer to proxyd's
+	// /v1/routes resource (channel proof for the X-User-* headers it forwards),
+	// replacing the X-User-Sig HMAC. Exchanged from AUTHD_SERVICE_KEY at
+	// AUTHD_URL (same pattern as timed/onbod). Unset (local dev) → svc nil →
+	// the proxyd client falls back to HMAC signing.
+	var svc *auth.TokenSource
+	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
+		name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "webd")
+		var serr error
+		if svc, serr = auth.ServiceToken(cfg.authdURL, name, serviceKey); serr != nil {
+			slog.Error("build webd service token", "err", serr)
+			os.Exit(1)
+		}
+	}
+
 	hub := newHub()
 
 	rc := chanlib.NewRouterClient(cfg.routerURL, cfg.channelSecret)
@@ -116,7 +131,7 @@ func main() {
 	}
 	slog.Info("webd starting", "addr", cfg.listenAddr)
 
-	srv := &http.Server{Handler: newServer(cfg, st, hub, rc, ks).handler()}
+	srv := &http.Server{Handler: newServer(cfg, st, hub, rc, ks, svc).handler()}
 	go srv.Serve(ln)
 
 	<-ctx.Done()

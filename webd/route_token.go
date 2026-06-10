@@ -168,7 +168,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sender, senderName := "", ""
-	if auth.VerifyUserSig(s.cfg.hmacSecret, r) {
+	if s.identified(r) {
 		sender = userSub(r)
 		senderName = userName(r)
 	}
@@ -398,7 +398,7 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	okChat := auth.VerifyChatSig(s.cfg.hmacSecret, r) && r.Header.Get("X-Folder") == folder
-	okUser := auth.VerifyUserSig(s.cfg.hmacSecret, r) && userAllowedFolder(userGroups(r), folder)
+	okUser := s.identified(r) && userAllowedFolder(userGroups(r), folder)
 	if !okChat && !okUser {
 		slog.Warn("chat stream forbidden", "folder", folder,
 			"sub", r.Header.Get("X-User-Sub"),

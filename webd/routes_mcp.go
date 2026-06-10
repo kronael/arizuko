@@ -174,19 +174,23 @@ func isOperator(groups []string) bool {
 	return false
 }
 
-// proxydClient is webd's tiny outbound HTTP client to proxyd. Signs
-// identity headers with the shared hmacSecret so proxyd's resreg gate
-// accepts the request.
+// proxydClient is webd's tiny outbound HTTP client to proxyd's /v1/routes
+// resource. It forwards the caller's identity in X-User-* headers; the channel
+// proof is webd's own service:webd ES256 bearer (HMAC retire step 2). With no
+// service token (local dev), it falls back to signing X-User-Sig with the
+// shared hmacSecret so proxyd's legacy HMAC gate still accepts it.
 type proxydClient struct {
 	base       string
 	hmacSecret string
+	svc        *auth.TokenSource
 	hc         *http.Client
 }
 
-func newProxydClient(base, hmacSecret string) *proxydClient {
+func newProxydClient(base, hmacSecret string, svc *auth.TokenSource) *proxydClient {
 	return &proxydClient{
 		base:       strings.TrimRight(base, "/"),
 		hmacSecret: hmacSecret,
+		svc:        svc,
 		hc:         &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -214,8 +218,16 @@ func (c *proxydClient) call(ctx context.Context, method, path string, body map[s
 	req.Header.Set("X-User-Sub", sub)
 	req.Header.Set("X-User-Name", name)
 	req.Header.Set("X-User-Groups", string(groupsJSON))
-	req.Header.Set("X-User-Sig",
-		auth.SignHMAC(c.hmacSecret, auth.UserSigMessage(sub, name, string(groupsJSON))))
+	if c.svc != nil {
+		tok, terr := c.svc.Token(ctx)
+		if terr != nil {
+			return nil, 0, fmt.Errorf("proxyd service token: %w", terr)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+	} else {
+		req.Header.Set("X-User-Sig",
+			auth.SignHMAC(c.hmacSecret, auth.UserSigMessage(sub, name, string(groupsJSON))))
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, 0, err

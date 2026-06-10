@@ -123,6 +123,7 @@ type server struct {
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	ks          *auth.KeySet // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
+	svc         *auth.TokenSource // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
 	chatAnonDOS *rateLimiter // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
 }
@@ -220,7 +221,7 @@ func (p *pubRedirect) reachable() bool {
 	return p.ok
 }
 
-func newServer(cfg config, st *store.Store, ks *auth.KeySet) *server {
+func newServer(cfg config, st *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
 	return &server{
@@ -229,6 +230,7 @@ func newServer(cfg config, st *store.Store, ks *auth.KeySet) *server {
 		rr:          rr,
 		viteProxy:   proxy(cfg.viteAddr),
 		ks:          ks,
+		svc:         svc,
 		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
 		pubRedir:    newPubRedirect(cfg.pubRedirectURL),
 	}
@@ -389,7 +391,7 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 	// Compose always sets AUTHD_URL, so new logins 302 to authd's ES256 OAuth.
 	// Existing HS256 sessions still verify via tryAuth's dual path.
 	mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
-	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret))
+	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.cfg.hmacSecret, s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	mux.HandleFunc("/", s.route)
 	return logging(mux, aud)
@@ -763,6 +765,14 @@ func davAllow(method, rest string) bool {
 	return true
 }
 
+// setUserHeaders stamps the verified caller's identity onto the forwarded
+// request and proves the channel to backends. Identity travels in X-User-*;
+// the proof is proxyd's own ES256 service token (Authorization: Bearer
+// service:proxyd) — backends verify it via auth.RequireSignedOrBearer /
+// StripUnsignedOrBearer and trust the stamped headers. The legacy HMAC
+// X-User-Sig is gone (HMAC retire step 2). With no service token (local dev,
+// AUTHD_URL/key unset) the headers go unsigned: backends behind StripUnsigned*
+// then drop the unsigned identity, exactly as an unsigned request always was.
 func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []string) *http.Request {
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("X-User-Sub", sub)
@@ -772,9 +782,19 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 		groupsJSON = string(b)
 	}
 	r2.Header.Set("X-User-Groups", groupsJSON)
-	if s.cfg.hmacSecret != "" {
-		r2.Header.Set("X-User-Sig",
-			auth.SignHMAC(s.cfg.hmacSecret, auth.UserSigMessage(sub, name, groupsJSON)))
+	r2.Header.Del("X-User-Sig")
+	// Clear the caller's inbound Authorization unconditionally: identity now
+	// rides X-User-*, and proxyd's own service token is the channel proof. If we
+	// left the caller's bearer in place, a backend behind RequireSignedOrBearer
+	// would re-derive identity FROM that bearer (clobbering the stamped sub) —
+	// and on the no-service-token path it must truly forward unsigned.
+	r2.Header.Del("Authorization")
+	if s.svc != nil {
+		if tok, err := s.svc.Token(r2.Context()); err == nil {
+			r2.Header.Set("Authorization", "Bearer "+tok)
+		} else {
+			slog.Warn("proxyd service token unavailable; forwarding unsigned identity", "err", err)
+		}
 	}
 	return r2
 }
@@ -905,7 +925,23 @@ func main() {
 		}
 	}
 
-	s := newServer(cfg, st, ks)
+	// HMAC retire step 2: proxyd presents its own service:proxyd ES256 token to
+	// backends (Authorization: Bearer) as the channel proof for the X-User-*
+	// headers it stamps — replacing the X-User-Sig HMAC. Exchanged lazily from
+	// AUTHD_SERVICE_KEY at AUTHD_URL (same pattern as timed/onbod). Unset (local
+	// dev) → svc nil, identity forwarded unsigned exactly as an anon request.
+	var svc *auth.TokenSource
+	if serviceKey := os.Getenv("AUTHD_SERVICE_KEY"); cfg.authdURL != "" && serviceKey != "" {
+		name := chanlib.EnvOr("AUTHD_SERVICE_NAME", "proxyd")
+		if svc, err = auth.ServiceToken(cfg.authdURL, name, serviceKey); err != nil {
+			slog.Error("build proxyd service token", "err", err)
+			os.Exit(1)
+		}
+	} else {
+		slog.Warn("AUTHD_URL/AUTHD_SERVICE_KEY unset; proxyd forwards identity unsigned (local dev)")
+	}
+
+	s := newServer(cfg, st, ks, svc)
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 

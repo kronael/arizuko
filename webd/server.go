@@ -34,26 +34,40 @@ type server struct {
 	hub         *hub
 	rc          *chanlib.RouterClient
 	proxyd      *proxydClient
+	ks          *auth.KeySet // ES256 JWKs; nil → HMAC-only (local dev)
 	requireUser func(http.HandlerFunc) http.HandlerFunc
 	limiter     *rateLimiter
 }
 
-func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet) *server {
-	// Soak (spec 5/1 § cutover): accept HMAC X-User-Sig OR an authd ES256
-	// bearer. ks is nil unless AUTHD_URL is set → identical to
-	// RequireSigned(hmacSecret) in the live HMAC-only deployment. Post-flip the
-	// bearer carries only its narrow arz/folder claim, so X-User-Groups is
-	// resolved from the full DB grant set (st.UserScopes) keyed on the bare sub
-	// — operators keep `**`, multi-folder users keep every folder.
-	var grants auth.Grants
-	if st != nil {
-		grants = st.UserScopes
-	}
-	return &server{
+func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet, svc *auth.TokenSource) *server {
+	s := &server{
 		cfg: cfg, st: st, hub: h, rc: rc,
-		proxyd:      newProxydClient(cfg.proxydURL, cfg.hmacSecret),
-		requireUser: auth.RequireSignedOrBearer(cfg.hmacSecret, ks, grants),
-		limiter:     newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
+		proxyd:  newProxydClient(cfg.proxydURL, cfg.hmacSecret, svc),
+		ks:      ks,
+		limiter: newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),
+	}
+	s.requireUser = s.requireIdentified
+	return s
+}
+
+// requireIdentified gates a handler on a trustworthy proxyd-stamped identity.
+// Post-flip (HMAC retire step 2) proxyd no longer signs X-User-Sig; it proves
+// the channel with its own service:proxyd ES256 bearer and stamps the verified
+// user into X-User-*. So identity is the STAMPED header, authenticated by the
+// bearer — NOT the bearer's own sub (which is service:proxyd, not the user).
+// auth.RequireSignedOrBearer can't be used here: it treats the bearer AS the
+// identity and would clobber X-User-Sub with service:proxyd. With ks nil (local
+// dev / pre-flip) identified() falls back to the HMAC sig, so legacy behaviour
+// is unchanged.
+func (s *server) requireIdentified(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.identified(r) {
+			slog.Warn("webd: identity verify failed",
+				"path", r.URL.Path, "attempted_sub", r.Header.Get("X-User-Sub"))
+			http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+			return
+		}
+		next(w, r)
 	}
 }
 
@@ -234,6 +248,26 @@ func (s *server) routeXGroups(w http.ResponseWriter, r *http.Request) {
 
 func userSub(r *http.Request) string  { return r.Header.Get("X-User-Sub") }
 func userName(r *http.Request) string { return r.Header.Get("X-User-Name") }
+
+// identified reports whether the stamped X-User-Sub on r is trustworthy.
+// On the bespoke /chat paths (which don't run requireUser) proxyd is the sole
+// ingress: it strips client identity headers, authenticates the user, then
+// re-stamps X-User-* and proves the channel with its own ES256 bearer. So a
+// valid authd-minted bearer (service:proxyd, or a user presenting their own
+// token) authenticates the stamp — the same role X-User-Sig played before the
+// HMAC→ES256 flip. With ks nil (local dev / pre-flip) fall back to the HMAC
+// VerifyUserSig so the legacy path is unchanged.
+func (s *server) identified(r *http.Request) bool {
+	if r.Header.Get("X-User-Sub") == "" {
+		return false
+	}
+	if s.ks != nil {
+		if _, err := auth.VerifyHTTP(r, s.ks); err == nil {
+			return true
+		}
+	}
+	return auth.VerifyUserSig(s.cfg.hmacSecret, r)
+}
 
 func folderParam(r *http.Request) string {
 	return strings.TrimPrefix(r.PathValue("folder"), "/")

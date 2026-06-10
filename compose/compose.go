@@ -166,9 +166,12 @@ var daemonKeys = map[string][]string{
 		// monolith onbod (no AUTHD_SERVICE_KEY) falls back to CHANNEL_SECRET.
 		"AUTHD_URL", "AUTHD_SERVICE_KEY",
 	},
-	"dashd":    {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET"},
-	"webd":     {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL"},
-	"proxyd":   {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
+	"dashd": {"AUTH_SECRET", "DASH_PORT", "CHANNEL_SECRET", "WHAPD_URL", "PROXYD_HMAC_SECRET"},
+	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
+	// for the X-User-* headers they forward (HMAC retire step 2): proxyd→backends,
+	// webd→proxyd /v1/routes. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.
+	"webd":   {"CHANNEL_SECRET", "AUTH_SECRET", "AUTH_BASE_URL", "ROUTER_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	"proxyd": {"AUTH_SECRET", "AUTH_BASE_URL", "PROXYD_HMAC_SECRET", "AUTHD_URL", "AUTHD_SERVICE_KEY", "HOSTING_DOMAIN", "WEB_VHOST_ALIASES"},
 	// Channel adapters: AUTHD_URL + AUTHD_SERVICE_KEY let each exchange a
 	// service:<adapter> messages:write JWT for routd's /v1/messages (spec 5/1).
 	// Monolith (no AUTHD_SERVICE_KEY in the env file) keeps the CHANNEL_SECRET
@@ -455,6 +458,11 @@ func Generate(dataDir string) (string, error) {
 	// onbod posts the onboarding greeting to routd /v1/outbound with a
 	// service:onbod token (spec 5/1); monolith onbod falls back to CHANNEL_SECRET.
 	wireServiceKey("onbod")
+	// proxyd presents service:proxyd to backends, webd presents service:webd to
+	// proxyd's /v1/routes — both as the channel proof for the X-User-* identity
+	// they forward (HMAC retire step 2, replacing X-User-Sig).
+	wireServiceKey("proxyd")
+	wireServiceKey("webd")
 	if _, ok := env["AUTHD_URL"]; !ok {
 		env["AUTHD_URL"] = "http://authd:8080"
 	}

@@ -343,15 +343,33 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 	}
 }
 
-// callerFromHTTP builds a resreg.Caller from proxyd's signed identity
-// headers. Operator detection (the `**` marker in X-User-Groups) is
-// recorded into Claims["operator"]="1" so ACL row predicates can
-// match `predicate="operator=1"`. Until the ACL is seeded with
-// operator rows for the routes resource, this is the bridge — see
-// spec 4/9 §"Operator implicit".
-func callerFromHTTP(hmacSecret string) resreg.CallerFromHTTPFunc {
+// channelTrusted reports whether r's stamped X-User-* headers can be trusted:
+// a present X-User-Sub plus EITHER a valid authd ES256 bearer (the channel
+// proof, ks non-nil) OR — local dev / pre-flip — a valid HMAC X-User-Sig.
+func channelTrusted(r *http.Request, hmacSecret string, ks *auth.KeySet) bool {
+	if r.Header.Get("X-User-Sub") == "" {
+		return false
+	}
+	if ks != nil {
+		if _, err := auth.VerifyHTTP(r, ks); err == nil {
+			return true
+		}
+	}
+	return auth.VerifyUserSig(hmacSecret, r)
+}
+
+// callerFromHTTP builds a resreg.Caller from the caller's identity headers.
+// The channel is proven by an authd-minted ES256 bearer (e.g. service:webd —
+// HMAC retire step 2); on that proof the stamped X-User-* headers are trusted.
+// With ks nil (local dev) it falls back to the legacy HMAC X-User-Sig. Either
+// way the IDENTITY is the stamped X-User-Sub, never the bearer's own sub.
+// Operator detection (the `**` marker in X-User-Groups) is recorded into
+// Claims["operator"]="1" so ACL row predicates can match `predicate=operator=1`.
+// Until the ACL is seeded with operator rows for the routes resource, this is
+// the bridge — see spec 4/9 §"Operator implicit".
+func callerFromHTTP(hmacSecret string, ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 	return func(r *http.Request) (resreg.Caller, error) {
-		if !auth.VerifyUserSig(hmacSecret, r) {
+		if !channelTrusted(r, hmacSecret, ks) {
 			return resreg.Caller{}, fmt.Errorf("missing or invalid identity")
 		}
 		sub := r.Header.Get("X-User-Sub")

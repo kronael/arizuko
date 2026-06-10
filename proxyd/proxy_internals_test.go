@@ -99,7 +99,9 @@ func TestFixForwardedFor_EmptyPeer(t *testing.T) {
 	}
 }
 
-// setUserHeaders stamps sub/name/groups/sig on a cloned request.
+// setUserHeaders stamps sub/name/groups on a cloned request and (HMAC retire
+// step 2) NO LONGER signs X-User-Sig — the bearer is the channel proof. With no
+// service token (svc nil) it forwards the identity unsigned.
 func TestSetUserHeaders(t *testing.T) {
 	s := &server{cfg: config{hmacSecret: "test-secret"}}
 	r := httptest.NewRequest("GET", "/", nil)
@@ -114,8 +116,8 @@ func TestSetUserHeaders(t *testing.T) {
 	if groups := r2.Header.Get("X-User-Groups"); !strings.Contains(groups, "grp1") {
 		t.Errorf("X-User-Groups = %q", groups)
 	}
-	if sig := r2.Header.Get("X-User-Sig"); sig == "" {
-		t.Error("X-User-Sig not set")
+	if sig := r2.Header.Get("X-User-Sig"); sig != "" {
+		t.Errorf("X-User-Sig must not be set post-flip: got %q", sig)
 	}
 	// Original request must not be mutated.
 	if r.Header.Get("X-User-Sub") != "" {
@@ -123,13 +125,105 @@ func TestSetUserHeaders(t *testing.T) {
 	}
 }
 
-// setUserHeaders with empty hmacSecret omits X-User-Sig.
-func TestSetUserHeaders_NoSecret(t *testing.T) {
-	s := &server{cfg: config{hmacSecret: ""}}
+// setUserHeaders strips any stale inbound X-User-Sig (it is never trusted).
+func TestSetUserHeaders_StripsStaleSig(t *testing.T) {
+	s := &server{cfg: config{hmacSecret: "test-secret"}}
 	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-User-Sig", "stale")
 	r2 := s.setUserHeaders(r, "sub", "name", nil)
 	if r2.Header.Get("X-User-Sig") != "" {
-		t.Error("X-User-Sig should be empty when hmacSecret is unset")
+		t.Errorf("stale X-User-Sig not stripped: got %q", r2.Header.Get("X-User-Sig"))
+	}
+}
+
+// With no service token, setUserHeaders must clear the caller's inbound bearer
+// so the request is forwarded truly UNSIGNED — never re-derivable from the
+// caller's own token by a backend behind RequireSignedOrBearer.
+func TestSetUserHeaders_ClearsInboundBearer_NoService(t *testing.T) {
+	s := &server{cfg: config{hmacSecret: "h"}} // svc nil
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer user-token")
+	r2 := s.setUserHeaders(r, "github:42", "Bob", []string{"**"})
+	if got := r2.Header.Get("Authorization"); got != "" {
+		t.Errorf("inbound bearer not cleared with no service token: got %q", got)
+	}
+}
+
+// fakeServiceAuthd serves /v1/service-token minting a service:<daemon> JWT and
+// returns the KeySet that verifies it.
+func fakeServiceAuthd(t *testing.T) (*httptest.Server, *auth.KeySet) {
+	t.Helper()
+	key, err := auth.NewSigningKey("kid-proxyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/service-token", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Daemon string `json:"daemon"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		tok, err := key.Sign(auth.TokenClaims{Sub: "service:" + req.Daemon, Typ: "service"}, time.Hour)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": tok})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts, auth.NewKeySet(map[string]*ecdsa.PublicKey{key.Kid: &key.Priv.PublicKey})
+}
+
+// HMAC retire step 2: with a service-token source wired, setUserHeaders attaches
+// a verifiable service:proxyd bearer (the channel proof) and NO X-User-Sig.
+// channelTrusted then admits the stamped identity on that proof.
+func TestSetUserHeaders_AttachesServiceBearer(t *testing.T) {
+	authd, ks := fakeServiceAuthd(t)
+	src, err := auth.ServiceToken(authd.URL, "proxyd", "boot-proxyd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{cfg: config{hmacSecret: "h"}, svc: src, ks: ks}
+	r := httptest.NewRequest("GET", "/", nil)
+	r2 := s.setUserHeaders(r, "github:42", "Bob", []string{"**"})
+
+	if r2.Header.Get("X-User-Sig") != "" {
+		t.Error("X-User-Sig must not be set when presenting a service bearer")
+	}
+	bearer := strings.TrimPrefix(r2.Header.Get("Authorization"), "Bearer ")
+	if bearer == "" {
+		t.Fatal("no service bearer attached")
+	}
+	sub, err := auth.VerifyToken(bearer, ks)
+	if err != nil || sub.Sub != "service:proxyd" {
+		t.Fatalf("service bearer must verify as service:proxyd: sub=%q err=%v", sub.Sub, err)
+	}
+	// The downstream /v1/routes gate trusts the stamped identity on this proof,
+	// NOT the bearer's service:proxyd sub.
+	if !channelTrusted(r2, "h", ks) {
+		t.Fatal("channelTrusted rejected a bearer-proven stamped identity")
+	}
+}
+
+// channelTrusted rejects a stamped X-User-Sub with neither a valid bearer nor an
+// HMAC sig, and falls back to HMAC when ks is nil.
+func TestChannelTrusted(t *testing.T) {
+	_, ks := fakeServiceAuthd(t)
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-User-Sub", "github:hacker") // forged, no proof
+	if channelTrusted(r, "h", ks) {
+		t.Error("admitted a forged X-User-Sub with no channel proof")
+	}
+	// nil ks → HMAC fallback: a valid X-User-Sig is required.
+	groups := `["**"]`
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.Header.Set("X-User-Sub", "github:42")
+	r2.Header.Set("X-User-Name", "bob")
+	r2.Header.Set("X-User-Groups", groups)
+	r2.Header.Set("X-User-Sig", auth.SignHMAC("h", auth.UserSigMessage("github:42", "bob", groups)))
+	if !channelTrusted(r2, "h", nil) {
+		t.Error("HMAC fallback rejected a validly-signed identity with nil ks")
 	}
 }
 
@@ -273,8 +367,9 @@ func es256KeySet(t *testing.T) (*auth.SigningKey, *auth.KeySet) {
 	return k, auth.NewKeySet(map[string]*ecdsa.PublicKey{k.Kid: &k.Priv.PublicKey})
 }
 
-// Soak step 1: an ES256 bearer minted by authd's key is accepted alongside
-// HS256, stamping the same X-User-* headers (X-User-Sig still present).
+// An ES256 bearer minted by authd's key is accepted alongside HS256, stamping
+// the same X-User-* headers. Post-flip (HMAC retire step 2) NO X-User-Sig is
+// injected — the bearer (or, when wired, proxyd's service token) is the proof.
 func TestTryAuth_ES256Bearer(t *testing.T) {
 	k, ks := es256KeySet(t)
 	s := &server{cfg: config{authSecret: "hs256secret", hmacSecret: "hmac", authdURL: "http://authd"}, ks: ks}
@@ -291,8 +386,8 @@ func TestTryAuth_ES256Bearer(t *testing.T) {
 	if got := r2.Header.Get("X-User-Sub"); got != "user:google:123" {
 		t.Errorf("X-User-Sub = %q", got)
 	}
-	if r2.Header.Get("X-User-Sig") == "" {
-		t.Error("X-User-Sig must still be injected for backends during soak")
+	if r2.Header.Get("X-User-Sig") != "" {
+		t.Error("X-User-Sig must NOT be injected post-flip")
 	}
 }
 
@@ -417,8 +512,8 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 	if !found {
 		t.Errorf("X-User-Groups = %q; want operator ** for ES256 sub user:google:999", groups)
 	}
-	if r2.Header.Get("X-User-Sig") == "" {
-		t.Error("X-User-Sig must be injected so backends trust the operator groups")
+	if r2.Header.Get("X-User-Sig") != "" {
+		t.Error("X-User-Sig must NOT be injected post-flip; the bearer is the channel proof")
 	}
 }
 
