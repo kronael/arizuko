@@ -26,13 +26,13 @@
             <li><a href="onboarding.html">Onboarding</a></li>
             <li><a href="autoviv.html">Autoviv</a></li>
             <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
             <li><a href="grants.html">Grants</a></li>
             <li><a href="scopes.html">Scopes</a></li>
-            <li><a href="auth.html">Auth</a></li>
-            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="secrets.html">Secrets</a></li>
             <li><a href="skills.html">Skills</a></li>
             <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="web-native-agents.html">Web-native agents</a></li>
             <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="voice.html">Voice</a></li>
@@ -52,27 +52,11 @@
 
     <h1>route tokens</h1>
 
-    <p class="lede">Auth proves a logged-in human. But a public chat box on a website, or a webhook from GitHub, has no one to log in. A route token is the no-login counterpart: a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
+    <p class="lede">So far every caller authenticated &mdash; logged in, minted a sub, passed a grant. But the web surfaces just ahead serve people who never log in: a public chat box on a website, a webhook from GitHub. A route token is the no-login counterpart that lets them in &mdash; a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
 
     <h2>one table, two URLs</h2>
 
-    <p>All tokens live in the <code>route_tokens</code> table. Four columns:</p>
-
-    <pre><code>token_hash    sha256 of the raw token; lookup key
-jid           web:&lt;folder&gt;[/&lt;suffix&gt;]  |  hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]
-owner_folder  the folder that minted the row; bounds revocation
-created_at    when it was minted</code></pre>
-
-    <p>Each URL is bound to its JID prefix kind; mechanics shared:</p>
-
-    <table>
-      <tr><th>URL</th><th>Token JID</th><th>Methods</th><th>What happens</th></tr>
-      <tr><td><code>/chat/&lt;token&gt;/</code></td><td><code>web:</code> only</td><td>GET, POST</td><td>GET serves the chat widget. POST appends a message; SSE streams the reply for browsers, plain response for non-browser callers.</td></tr>
-      <tr><td><code>/chat/&lt;token&gt;/mcp</code></td><td><code>web:</code> only</td><td>GET, POST</td><td>Per-token MCP surface (<code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>).</td></tr>
-      <tr><td><code>/hook/&lt;token&gt;</code></td><td><code>hook:</code> only</td><td>GET, POST</td><td>Same widget on GET, same POST behavior, same SSE as <code>/chat/&lt;token&gt;/</code>. Different URL, different JID prefix kind.</td></tr>
-    </table>
-
-    <p>The two URLs share their handler internals &mdash; same widget, same POST path, same SSE &mdash; but the binding is enforced at token lookup: a <code>hook:</code> token presented at <code>/chat/&lt;token&gt;/</code> returns 404, and a <code>web:</code> token at <code>/hook/&lt;token&gt;</code> returns 404. Each issuance verb picks its URL: <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. One URL per kind keeps each surface single-purpose.</p>
+    <p>All tokens live in the <code>route_tokens</code> table &mdash; the raw token is hashed to a lookup key, mapped to a JID, owned by the folder that minted it. Two URLs read that table, one per JID prefix: <code>web:</code> tokens answer at <code>/chat/&lt;token&gt;/</code>, <code>hook:</code> tokens at <code>/hook/&lt;token&gt;</code>. Both serve the same chat widget on GET and append a message on POST, streaming the reply over SSE to browsers and a plain response to everyone else. The binding is enforced at lookup: a <code>hook:</code> token at <code>/chat/&hellip;</code> returns 404, and vice-versa, so each surface stays single-purpose. Full column list, payload shapes, and the per-token MCP surface: <a href="../reference/tokens.html">reference / tokens</a>.</p>
 
     <h2>what the JID encodes</h2>
 
@@ -87,29 +71,17 @@ created_at    when it was minted</code></pre>
     <p>Two sources mint tokens, one writer inserts the row.</p>
 
     <ul>
-      <li><strong>An agent over MCP.</strong> A turn calls <code>issue_chat_link</code> or <code>issue_webhook</code> on its group's MCP socket. The agent gets the URL back once and hands it to a human to paste.</li>
-      <li><strong>An operator over REST or CLI.</strong> <code>arizuko token issue &lt;folder&gt; chat</code> mints a chat token for a folder. The same command with <code>hook &lt;source&gt;</code> mints a webhook. The REST equivalent is <code>POST /v1/route_tokens/chat</code> or <code>/v1/route_tokens/hook</code>, OAuth-gated through proxyd. dashd surfaces a button on the folder page.</li>
+      <li><strong>An agent over MCP.</strong> A turn calls <code>issue_chat_link</code> or <code>issue_webhook</code> on its group's MCP socket, gets the URL back once, and hands it to a human to paste.</li>
+      <li><strong>An operator over REST or CLI.</strong> <code>arizuko token issue</code> (or the OAuth-gated REST route, or a dashd button) mints the same token for a folder. Exact signatures: <a href="../reference/tokens.html">reference / tokens</a>.</li>
     </ul>
 
-    <p>Both paths hit the same <code>insertRouteToken</code> writer. Same row shape, same audit trail.</p>
-
-    <p>The raw token is returned exactly once at issue time. Only the sha256 is stored. Losing the token means reissuing &mdash; there is no recovery.</p>
+    <p>Both paths hit the same <code>insertRouteToken</code> writer &mdash; same row shape, same audit trail. The raw token is returned exactly once; only its sha256 is stored, so losing it means reissuing.</p>
 
     <p>Folders do not get a chat token automatically when they are created. A folder gets a token when someone calls <code>issue_chat_link</code> for it. This keeps unused folders from accumulating live URLs.</p>
 
     <h2>who can mint for which folder</h2>
 
-    <p>Resolved by the unified <a href="../concepts/grants.html">grants</a> tier. Lower tier = broader mint reach.</p>
-
-    <table>
-      <tr><th>Tier</th><th>Can mint for</th></tr>
-      <tr><td>0</td><td>any folder</td></tr>
-      <tr><td>1</td><td>self and any descendant</td></tr>
-      <tr><td>2</td><td>self only</td></tr>
-      <tr><td>3+</td><td>no mint</td></tr>
-    </table>
-
-    <p>Tier 1 at <code>acme</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child. In that case the row's <code>owner_folder</code> stays at <code>acme</code> &mdash; the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
+    <p>Resolved by the unified <a href="../concepts/grants.html">grants</a> tier: lower tier means broader mint reach (tier 0 any folder, tier 1 self and descendants, tier 2 self only, the per-tier table in <a href="../reference/tokens.html">reference / tokens</a>). Tier 1 at <code>acme</code> can mint <code>hook:acme/eng/github</code> on behalf of the <code>acme/eng</code> child &mdash; and the row's <code>owner_folder</code> stays at <code>acme</code>, the issuer, not the JID target. Revocation follows <code>owner_folder</code>, so <code>acme</code> retains control of the tokens it minted.</p>
 
     <h2>revocation</h2>
 
@@ -119,11 +91,7 @@ created_at    when it was minted</code></pre>
 
     <p>Whoever holds the URL can POST to it. There is no second factor, no signing on the body, no per-caller identity at this surface. webd does not verify <code>X-Hub-Signature</code> or any other upstream HMAC &mdash; that belongs to a skill on the agent side, not the platform. Rotation is by reissue: mint a new token, swap the URL at the source, delete the old row.</p>
 
-    <p>webd applies a per-token rate limit in memory. The ceiling is chosen by JID prefix &mdash; <code>web:</code> sits at a lower bucket sized for humans, <code>hook:</code> at a higher bucket for machine bursts. Body size is capped at 1 MiB.</p>
-
-    <h2>name</h2>
-
-    <p>Previously called <em>slink</em>; renamed to <em>route tokens</em> for clarity once webhooks joined the same primitive.</p>
+    <p>webd rate-limits per token in memory, the ceiling chosen by JID prefix (<code>web:</code> low for humans, <code>hook:</code> higher for machine bursts), and caps the body at 1 MiB.</p>
 
     <h2>go deeper</h2>
 
@@ -137,12 +105,12 @@ created_at    when it was minted</code></pre>
     </ul>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="auth.html">&larr; Auth</a>
-        <a rel="next" href="secrets.html">Secrets &rarr;</a>
+        <a rel="prev" href="tasks.html">&larr; Tasks</a>
+        <a rel="next" href="web-native-agents.html">Web-native agents &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

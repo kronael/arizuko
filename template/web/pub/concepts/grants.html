@@ -26,13 +26,13 @@
             <li><a href="onboarding.html">Onboarding</a></li>
             <li><a href="autoviv.html">Autoviv</a></li>
             <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
             <li><a href="grants.html">Grants</a></li>
             <li><a href="scopes.html">Scopes</a></li>
-            <li><a href="auth.html">Auth</a></li>
-            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="secrets.html">Secrets</a></li>
             <li><a href="skills.html">Skills</a></li>
             <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="web-native-agents.html">Web-native agents</a></li>
             <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="voice.html">Voice</a></li>
@@ -52,36 +52,22 @@
 
     <h1>grants</h1>
 
-    <p class="lede">A persona decides how an agent <em>sounds</em>; a grant decides what it&rsquo;s <em>allowed to do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> for the rules and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
+    <p class="lede">Auth minted the principal; a grant decides what that principal may <em>do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> for the rules and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
 
     <h2>the four words</h2>
     <p>Four words name everything in that question. Get these right and the rest is rows.</p>
     <ul>
-      <li><strong>Principal</strong> &mdash; who is asking. A human (<code>google:114alice</code>), a folder's agent container (<code>folder:atlas/eng</code>), a channel-side identity (<code>discord:user/811&hellip;</code>), or a named role (<code>role:operator</code>).</li>
-      <li><strong>Action</strong> &mdash; what they want to do. <code>interact</code> (send a message), <code>admin</code> (manage the folder), <code>mcp:&lt;tool&gt;</code> (call one MCP tool), or <code>*</code> (everything).</li>
-      <li><strong>Scope</strong> &mdash; where. A folder path like <code>atlas/eng</code>, or a glob like <code>atlas/**</code>.</li>
+      <li><strong>Principal</strong> &mdash; who is asking: a human (<code>google:114alice</code>), a folder's agent (<code>folder:atlas/eng</code>), a channel-side id, or a named role.</li>
+      <li><strong>Action</strong> &mdash; what they want: <code>interact</code>, <code>admin</code>, <code>mcp:&lt;tool&gt;</code>, or <code>*</code>.</li>
+      <li><strong>Scope</strong> &mdash; where: a folder path like <code>atlas/eng</code>, or a glob like <code>atlas/**</code>.</li>
       <li><strong>Effect</strong> &mdash; <code>allow</code> (default) or <code>deny</code>. Deny wins.</li>
     </ul>
 
     <h2>the action lattice</h2>
-    <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>. If you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside that folder &mdash; you do not list them one by one. The implication is:</p>
-    <pre><code>*  &supe;  admin  &supe;  interact
-*  &supe;  admin  &supe;  mcp:&lt;tool&gt;</code></pre>
-    <p>One matching <code>deny</code> stops the check. If any matching row says <code>deny</code>, the request is rejected even when other rows would allow it. The check lives in <code>auth.Authorize</code> (<code>auth/authorize.go</code>); it tries explicit rules first, then falls back to tier defaults derived in <code>grants.DeriveRules</code> for <code>mcp:*</code> actions only.</p>
+    <p>Actions imply each other. If you have <code>*</code>, you have <code>admin</code>; if you have <code>admin</code>, you have <code>interact</code> and every <code>mcp:&lt;tool&gt;</code>. So a single <code>admin</code> row on a folder covers every tool call inside it &mdash; you do not list them one by one. One matching <code>deny</code> stops the check, even when other rows would allow it. The full principal shapes, action set, and tier defaults are tabulated in <a href="../reference/grants.html">reference / grants</a>; here we stay with the four words and some real rows.</p>
 
-    <h2>principal shapes</h2>
-    <table>
-      <tr><th>Kind</th><th>Example</th><th>Meaning</th></tr>
-      <tr><td>OAuth sub</td><td><code>google:114alice</code></td><td>A canonical human, minted by auth (see <a href="../concepts/auth.html">auth</a>).</td></tr>
-      <tr><td>Folder agent</td><td><code>folder:atlas/eng</code></td><td>The agent container running at this folder.</td></tr>
-      <tr><td>Platform identity</td><td><code>discord:user/811&hellip;</code></td><td>A user known on a channel, not yet OAuth-claimed.</td></tr>
-      <tr><td>Room identity</td><td><code>discord:837&hellip;/1504&hellip;</code></td><td>A channel room itself &mdash; lets everyone in the room share a grant.</td></tr>
-      <tr><td>Role</td><td><code>role:operator</code></td><td>A named bag of members. Filled by <code>acl_membership</code>.</td></tr>
-      <tr><td>Wildcards</td><td><code>**</code>, <code>google:*</code>, <code>folder:**</code></td><td>Globs split on <code>:</code> and <code>/</code>.</td></tr>
-    </table>
-
-    <h2>four rows, four real patterns</h2>
-    <p>Each row below is something you would actually insert. All four together describe a working multi-channel instance.</p>
+    <h2>three rows, three real patterns</h2>
+    <p>Each row below is something you would actually insert.</p>
 
     <p><strong>1. Alice can talk in her own folder.</strong></p>
     <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
@@ -95,15 +81,7 @@
     <pre><code>INSERT INTO acl (principal, action, scope, effect, granted_at) VALUES
   ('discord:user/badguy', '*', '**', 'deny', now());</code></pre>
 
-    <p><strong>4. Everyone in a Discord room may chat with one folder's agent.</strong> The principal is the <em>room</em>, not the users in it. New people who join the room pick up the grant for free.</p>
-    <pre><code>INSERT INTO acl (principal, action, scope, granted_at) VALUES
-  ('discord:837.../channel/1504...', 'interact', 'main/lab', now());</code></pre>
-
-    <p>The same rows from the operator CLI:</p>
-    <pre><code>arizuko grants add google:114alice interact alice
-arizuko grants add google:114alice admin eng/**
-arizuko grants add discord:user/badguy '*' '**' --deny
-arizuko grants add discord:837.../channel/1504... interact main/lab</code></pre>
+    <p>The same shape grants a whole channel at once: make the <em>room</em> the principal (<code>discord:837&hellip;/channel/1504&hellip;</code> with <code>interact</code> on <code>main/lab</code>) and everyone who joins the room picks up the grant for free. Each row has a one-line <code>arizuko grants add &hellip;</code> CLI equivalent &mdash; full syntax in <a href="../reference/grants.html">reference / grants</a>.</p>
 
     <h2>roles &mdash; one indirection, many members</h2>
     <p>When the same permission set should apply to several people, you do not copy the row. You make a role, grant the role, and add members. Two tables, two operations.</p>
@@ -123,14 +101,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <p>That edge <em>is</em> the claim. The next Discord message from her expands to include the canonical sub; any grants on <code>google:114alice</code> apply automatically. No <code>acl</code> row gets rewritten, no migration runs &mdash; the channel-side id keeps working as before.</p>
 
     <h2>where the check runs</h2>
-    <p>Every gate funnels through <code>auth.Authorize(principal, action, scope, claims, params)</code> &mdash; the same call for an agent and a human. A message wanting into a folder hits it once; a tool call leaving that folder hits it again. The MCP path and the REST path share the one function, so an agent and an operator see the same answer for the same request. One call, one answer.</p>
-    <pre><code>Authorize(
-  principal: "folder:atlas/eng",
-  action:    "mcp:send",
-  scope:     "atlas/eng",
-  claims:    {tier: "2", world: "atlas"},
-  params:    {jid: "telegram:group/-1234"},
-)</code></pre>
+    <p>Every gate funnels through one <code>auth.Authorize(principal, action, scope, claims, params)</code> call &mdash; the same for an agent and a human. A message wanting into a folder hits it once; a tool call leaving that folder hits it again. The MCP path and the REST path share the one function, so an agent and an operator see the same answer for the same request. The full call signature and the spawn-time tier composition live in <a href="../reference/grants.html">reference / grants</a>.</p>
 
     <h2>don't do this</h2>
     <ul>
@@ -144,12 +115,12 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
     <p>Canonical spec with the full schema and evaluation algorithm: <a href="https://github.com/kronael/arizuko/blob/main/specs/4/9-acl-unified.md">specs/4/9-acl-unified.md</a>. Rule-syntax reference: <a href="../reference/grants.html">reference / grants</a>. For where principals come from in the first place, see <a href="../concepts/auth.html">auth</a>.</p>
 
       <nav class="docs-pager" aria-label="Pager">
-        <a rel="prev" href="personas.html">&larr; Personas</a>
+        <a rel="prev" href="auth.html">&larr; Auth</a>
         <a rel="next" href="scopes.html">Scopes &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

@@ -235,13 +235,13 @@ unchanged (three-pane, pager, foot); sequence, size, and tone change.
   6. `concepts/onboarding.html` — how a group is admitted
   7. `concepts/autoviv.html` — how sub-groups/agents auto-create
   8. `concepts/personas.html` — giving an agent its voice
-  9. `concepts/grants.html` — what an agent or user may do
-  10. `concepts/scopes.html` — the capability vocabulary
-  11. `concepts/auth.html` — proving who is calling
-  12. `concepts/tokens.html` — the tokens that carry it
-  13. `concepts/secrets.html` — folder/user-scoped credentials
-  14. `concepts/skills.html` — extending what an agent can do
-  15. `concepts/tasks.html` — scheduled + autonomous work
+  9. `concepts/auth.html` — proving who is calling (mint the principal)
+  10. `concepts/grants.html` — what that principal may do
+  11. `concepts/scopes.html` — the capability vocabulary
+  12. `concepts/secrets.html` — folder/user-scoped credentials
+  13. `concepts/skills.html` — extending what an agent can do
+  14. `concepts/tasks.html` — scheduled + autonomous work
+  15. `concepts/tokens.html` — no-login tokens for the web surfaces ahead
   16. `concepts/web-native-agents.html` — the web surfaces
   17. `concepts/webdav.html` — file workspace over the web
   18. `concepts/voice.html` — voice in/out

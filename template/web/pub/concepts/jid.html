@@ -26,13 +26,13 @@
             <li><a href="onboarding.html">Onboarding</a></li>
             <li><a href="autoviv.html">Autoviv</a></li>
             <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
             <li><a href="grants.html">Grants</a></li>
             <li><a href="scopes.html">Scopes</a></li>
-            <li><a href="auth.html">Auth</a></li>
-            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="secrets.html">Secrets</a></li>
             <li><a href="skills.html">Skills</a></li>
             <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="web-native-agents.html">Web-native agents</a></li>
             <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="voice.html">Voice</a></li>
@@ -51,7 +51,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; addressing</p>
 <h1>jid</h1>
 
-    <p class="lede">The tour ends where it began &mdash; routing. Telegram chats, web chats, voice notes, webhooks: every adapter you&rsquo;ve met names its chats and senders the same way, and this is that name. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>, so a single routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else. One address shape lets routes and grants ignore each platform&rsquo;s quirks.</p>
+    <p class="lede">The Slack pane was the last adapter; the tour ends one layer beneath all of them, where it began &mdash; routing. The JID is the cross-cutting addressing substrate every adapter shares. Telegram chats, web chats, voice notes, webhooks: every adapter you&rsquo;ve met names its chats and senders the same way, and this is that name. Every address has the shape <code>&lt;platform&gt;:&lt;rest&gt;</code>, so a single routing rule like <code>chat_jid=telegram:group/*</code> matches every Telegram group and nothing else. One address shape lets routes and grants ignore each platform&rsquo;s quirks.</p>
 
     <h2>the shape</h2>
     <p>Each platform names things differently. Telegram chat IDs are signed integers, where a negative number means group. WhatsApp suffixes a server name like <code>@g.us</code> for groups and <code>@s.whatsapp.net</code> for DMs. Reddit uses prefixes like <code>t1_</code>, <code>t2_</code>, <code>t3_</code> for comments, users, and submissions. Each platform has its own odd IDs.</p>
@@ -90,7 +90,7 @@ match='sender=telegram:user/[0-9]*'  # any numeric telegram user</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-09">2026-06-09</time>
       </div>
     </main>
 

@@ -26,13 +26,13 @@
             <li><a href="onboarding.html">Onboarding</a></li>
             <li><a href="autoviv.html">Autoviv</a></li>
             <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
             <li><a href="grants.html">Grants</a></li>
             <li><a href="scopes.html">Scopes</a></li>
-            <li><a href="auth.html">Auth</a></li>
-            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="secrets.html">Secrets</a></li>
             <li><a href="skills.html">Skills</a></li>
             <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="web-native-agents.html">Web-native agents</a></li>
             <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="voice.html">Voice</a></li>
@@ -69,31 +69,11 @@
       <li><strong>One-shot</strong> &mdash; empty <code>cron</code>. The row fires once at <code>next_run</code>, then flips to <code>status='completed'</code> and stops being polled. The row stays in the table for audit; nothing deletes it.</li>
     </ul>
 
-    <h2>anatomy of a task</h2>
-    <p>A task carries who owns it, where it fires, what it says, when it runs, and how it sees the folder around it.</p>
-    <ul>
-      <li><code>Owner</code> &mdash; the folder that owns the task. Used by ACL: an agent can only see and edit tasks whose owner it&rsquo;s authorized for.</li>
-      <li><code>ChatJID</code> &mdash; the chat address the synthetic message will land on. This is what the route table sees, so the same routing rules apply as for a real inbound on that JID.</li>
-      <li><code>Prompt</code> &mdash; the body. Plain text, exactly what the agent receives as message content.</li>
-      <li><code>Cron</code> &mdash; cron expression, interval ms, or empty (see above).</li>
-      <li><code>NextRun</code> &mdash; the next fire time. Always present except on completed one-shots.</li>
-      <li><code>Status</code> &mdash; <code>active</code> (polled), <code>paused</code> (skipped by the claim query), or <code>completed</code> (one-shot already fired).</li>
-      <li><code>ContextMode</code> &mdash; either <code>group</code> (default) or <code>isolated</code>.</li>
-      <li><code>Created</code> &mdash; insertion timestamp, useful for audit and dedup.</li>
-    </ul>
-    <p>Context mode decides what session the agent runs under. With <code>group</code> the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which <code>routd</code> treats as its own conversation. Useful for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context.</p>
+    <h2>context mode</h2>
+    <p>One column on the row decides what session the agent runs under. With <code>group</code> (the default) the synthetic message hits the folder&rsquo;s main session like any other turn &mdash; the task sees the folder&rsquo;s prior chat history and shares state with it. With <code>isolated</code> the sender becomes <code>timed-isolated:&lt;task-id&gt;</code>, which <code>routd</code> treats as its own conversation &mdash; handy for a recurring health check that shouldn&rsquo;t pollute the human chat&rsquo;s context. The full <code>scheduled_tasks</code> column list is in <a href="../reference/schema.html">reference / schema</a>.</p>
 
     <h2>managing tasks</h2>
-    <p>Five MCP tools, exposed to agents whose tier permits scheduling:</p>
-    <ul>
-      <li><code>schedule_task</code> &mdash; create a task. Dedupes on prompt + chat + schedule, so re-running the same call returns the existing task ID rather than stacking duplicates.</li>
-      <li><code>list_tasks</code> &mdash; return every task visible to the calling folder. Plain dump of rows.</li>
-      <li><code>pause_task</code> &mdash; flip <code>status</code> to <code>paused</code>. The row is preserved; <code>timed</code>&rsquo;s claim query ignores it until it&rsquo;s resumed.</li>
-      <li><code>resume_task</code> &mdash; flip <code>status</code> back to <code>active</code>. No effect on already-active or cancelled tasks.</li>
-      <li><code>cancel_task</code> &mdash; permanently delete the row. Not reversible. Use <code>pause_task</code> if the suspension is temporary.</li>
-    </ul>
-    <p>A companion tool, <code>inspect_tasks</code>, joins <code>scheduled_tasks</code> with <code>task_run_logs</code> so the agent can see when each task last fired and whether it succeeded.</p>
-    <p>There is no dedicated <code>arizuko task</code> CLI subcommand today. Operators reach the same rows through the agent (via <code>arizuko chat</code>) or directly with <code>sqlite3</code> on <code>store/messages.db</code>.</p>
+    <p>Agents whose tier permits scheduling get MCP tools to create (<code>schedule_task</code>, which dedupes on prompt + chat + schedule so a repeated call returns the existing ID), list, pause, resume, and cancel tasks, plus <code>inspect_tasks</code> &mdash; which joins <code>task_run_logs</code> to show when each last fired and whether it succeeded. Full signatures: <a href="../reference/mcp.html">reference / mcp</a>. There is no <code>arizuko task</code> CLI subcommand today; operators reach the rows through the agent (<code>arizuko chat</code>) or <code>sqlite3</code> directly.</p>
 
     <h2>failure model</h2>
     <p>If the synthetic message insert itself fails, <code>timed</code> logs an error row to <code>task_run_logs</code> and flips the task back to <code>active</code> without advancing <code>next_run</code>. The next tick will try again.</p>
@@ -105,11 +85,11 @@
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="skills.html">&larr; Skills</a>
-        <a rel="next" href="web-native-agents.html">Web-native agents &rarr;</a>
+        <a rel="next" href="tokens.html">Tokens &rarr;</a>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tasks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-09">2026-06-09</time>
       </div>
     </main>
 

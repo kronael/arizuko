@@ -26,13 +26,13 @@
             <li><a href="onboarding.html">Onboarding</a></li>
             <li><a href="autoviv.html">Autoviv</a></li>
             <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
             <li><a href="grants.html">Grants</a></li>
             <li><a href="scopes.html">Scopes</a></li>
-            <li><a href="auth.html">Auth</a></li>
-            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="secrets.html">Secrets</a></li>
             <li><a href="skills.html">Skills</a></li>
             <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
             <li><a href="web-native-agents.html">Web-native agents</a></li>
             <li><a href="webdav.html">WebDAV</a></li>
             <li><a href="voice.html">Voice</a></li>
@@ -68,8 +68,7 @@
     <p>Lower <code>seq</code> goes first. The empty <code>match</code> at <code>seq=9999</code> matches every message, so it acts as the fallback.</p>
 
     <h2>how a rule matches</h2>
-    <p>The <code>match</code> column is a space-separated list of <code>key=value</code> tests, all of which must pass. So <code>platform=discord room=dm/*</code> matches a Discord message whose chat is a DM, and nothing else.</p>
-    <p>The value on the right uses Go <code>path.Match</code> globs. <code>*</code> matches any run of characters but stops at <code>/</code> &mdash; which is why <code>discord:dm/*</code> covers every DM yet never crosses into <code>discord:guild/123/channel/456</code>. <code>?</code> matches one character and <code>[abc]</code> matches a class.</p>
+    <p>The <code>match</code> column is a space-separated list of <code>key=value</code> tests, all of which must pass. So <code>platform=discord room=dm/*</code> matches a Discord message whose chat is a DM, and nothing else. The right-hand side is a glob that stops at <code>/</code> &mdash; which is why <code>discord:dm/*</code> covers every DM yet never crosses into <code>discord:guild/123/channel/456</code> (full glob grammar in <a href="../reference/jid.html">reference / jid</a>).</p>
     <p>Five keys are available: <code>platform</code> (e.g. <code>telegram</code>), <code>room</code> (the part after <code>platform:</code>), <code>chat_jid</code> (the whole address), <code>sender</code> (who sent it), and <code>verb</code> (the action, e.g. <code>post</code>, <code>like</code>). Omit a key and that field is unconstrained.</p>
 
     <h2>per-user folders</h2>
