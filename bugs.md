@@ -5,6 +5,23 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — auto-migrate is dead in the split: routd has no source mount (2026-06-10, HIGH)
+
+`routd.checkMigrationVersion` (`routd/loop.go:403`) reads the upstream
+`MIGRATION_VERSION` from `appSrcDir/ant/skills/self/MIGRATION_VERSION` and
+enqueues `/migrate` for root groups behind it. But `appSrcDir = APP_SRC_DIR ||
+HOST_APP_DIR`, and on the deployed instances routd has **APP_SRC_DIR unset** and
+**no repo-source volume mounted** (`docker inspect arizuko_routd_<inst>` shows
+only `/srv/data/.../home`; `HOST_APP_DIR=/home/onvos/app/arizuko` is a HOST path,
+invalid inside the container). So the read finds nothing → the migrate NEVER
+fires → existing groups are stuck at old skill versions (sloth `main` is at 147
+while upstream is 160; bumping MIGRATION_VERSION delivers nothing to live
+groups, only fresh ones via the image). Fix: in `compose/compose.go`, mount the
+repo source into routd (`HOST_APP_DIR -> /srv/app/arizuko`, the `containerSrcMount`)
+and set `APP_SRC_DIR=/srv/app/arizuko` in routd's env — the same source runed
+already mounts for the agent. Until then, skill/CLAUDE.md updates reach existing
+agents only via a manual per-group `/migrate`.
+
 ## OPEN — one dead jid degrades a whole channel's delivery (2026-06-10, outbox head-of-line)
 
 `chanreg/httpchan.go`: the retry `outbox` is **per-channel (per-adapter), not
