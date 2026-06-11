@@ -780,6 +780,28 @@ func TestSubmitTurnResultSkippedWhenAlreadyReplied(t *testing.T) {
 	}
 }
 
+// TestSubmitTurnResultSilentForIsolated: an isolated cron turn (compact-memories)
+// never delivers its result prose to chat even when the agent left a closing
+// line ("Silent cron compaction complete — wrote …"). Output is the file + audit.
+func TestSubmitTurnResultSilentForIsolated(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "timed-isolated:compact-memories", "")
+	h := srv.Handler()
+
+	doJSON(t, h, "POST", "/v1/turns/t1/result", "",
+		apiv1.TurnResult{TurnID: "t1", Status: "success", Result: "Silent cron compaction complete — wrote ~/episodes/x.md"})
+
+	if len(dl.sends) != 0 {
+		t.Fatalf("isolated cron leaked to chat: sends=%+v", dl.sends)
+	}
+}
+
 // TestSubmitTurnResultPureThinkDropsSilently: a result that is only a <think>
 // block strips to empty in appendAndDeliver (clean=="") → no reply sent, no bot
 // row persisted, and the turn still completes successfully (200). Guards the

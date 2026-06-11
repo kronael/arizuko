@@ -644,8 +644,12 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		// that never left routd (krons no-reply outage 2026-06-08). Same
 		// strip-think/format/deliver path as an explicit reply; skipped when the
 		// agent already delivered a row (no double-send), and BEFORE marking the
-		// turn done so the callback isn't yet closed.
-		if req.Result != "" && !s.db.TurnHasBotReply(turnID) {
+		// turn done so the callback isn't yet closed. Isolated cron turns
+		// (compact-memories etc.) are silent by design — their output is the
+		// file write + audit log, never a chat message — so never deliver their
+		// result prose regardless of what the agent left outside <think>.
+		isolated := strings.HasPrefix(tc.Trigger, "timed-isolated:")
+		if req.Result != "" && !isolated && !s.db.TurnHasBotReply(turnID) {
 			if _, _, row := s.appendAndDeliver(turnID, tc.ChatJID, req.Result, "", true); row != nil {
 				_ = s.db.PutMessage(*row)
 			}
