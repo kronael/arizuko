@@ -14,6 +14,21 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+- **Replies thread, sends don't** — `reply` lands in a thread off the message
+  it answers (Discord starts one if needed; Slack threads on the trigger),
+  keeping channels clean; `send` is the deliberate top-level/other-channel post.
+  Per-group `thread_replies` preference (default on for group chats, off in DMs).
+- **Agents address people by name** — in-content platform mentions (`<@id>`)
+  resolve to display names; the bot's own mention renders as the assistant name.
+  (Slack needs the bot token's `users:read` scope for non-bot names.)
+- **Less channel noise** — the redundant per-turn "Replied with …" meta-summary
+  no longer double-posts (MCP reply rows now carry their turn id), and isolated
+  cron compaction (`compact-memories`) stays truly silent instead of posting
+  "Silent cron compaction complete".
+- **Shared per-world workspace** — every agent container now mounts
+  `/var/lib/share` (the world's `groups/<world>/share/`, writable) for
+  cross-group file handoff; `share_mount{readonly=true}` grant downgrades to RO.
+
 ---
 
 ## [v0.51.0] — 2026-06-09

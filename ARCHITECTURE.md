@@ -789,17 +789,17 @@ Platform mounts follow FHS canonical locations; per-group web slots
 live under `~` in the agent's home. Full spec:
 `specs/5/V-web-vhosts.md`.
 
-| Container         | Host                           | Mode                    |
-| ----------------- | ------------------------------ | ----------------------- |
-| `/opt/arizuko`    | `<repo>`                       | RO                      |
-| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, tier 0-2 |
-| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                      |
-| `/var/lib/share`  | `<data>/groups/<world>/share/` | RO/RW per grant         |
-| `/var/lib/groups` | `<data>/groups/`               | RW, tier 0 only         |
-| `/mnt/<name>`     | operator extras                | varies                  |
-| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)         |
-| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW (per-group slot)     |
-| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW (per-group slot)     |
+| Container         | Host                           | Mode                     |
+| ----------------- | ------------------------------ | ------------------------ |
+| `/opt/arizuko`    | `<repo>`                       | RO                       |
+| `/var/lib/www`    | `<data>/web/pub/`              | RO whole tree, tier 0-2  |
+| `/run/ipc`        | `<data>/ipc/<folder>/`         | RW                       |
+| `/var/lib/share`  | `<data>/groups/<world>/share/` | RW always (RO via grant) |
+| `/var/lib/groups` | `<data>/groups/`               | RW, tier 0 only          |
+| `/mnt/<name>`     | operator extras                | varies                   |
+| `/home/node/`     | `<data>/groups/<folder>/`      | RW (group home)          |
+| `~/public_html`   | `<data>/web/pub/<folder>/`     | RW (per-group slot)      |
+| `~/private_html`  | `<data>/web/priv/<folder>/`    | RW (per-group slot)      |
 
 The `~/public_html` and `~/private_html` slots are bind-mount VIEWS
 into the canonical web tree — writes appear simultaneously at the

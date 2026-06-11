@@ -277,7 +277,12 @@ its own Claude session, reply chain, and message history.
 
 1. **Platform-native threads**: channel adapters map native thread IDs
    to `Message.Topic`. Telegram's `MessageThreadID`, Discord's thread
-   channel ID, etc.
+   channel ID, etc. Outbound is symmetric: the agent's `reply` lands in a
+   thread off the message it answers — Discord starts one if none exists,
+   Slack roots `thread_ts` on the trigger — so the agent's own reply seeds
+   the topic that subsequent in-thread messages inherit. `send` stays
+   top-level. Per-group `thread_replies` toggles it (default on for group
+   chats, off in DMs).
 
 2. **Web channel**: web messages carry a topic slug directly. The JID
    format is `web:<folder>`, and topics arrive pre-set.
