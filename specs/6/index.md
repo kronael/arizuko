@@ -2,71 +2,37 @@
 status: active
 ---
 
-# specs/6 — products
+# specs/6 — operator cockpit
 
-Launching products built on arizuko: persona templates, packaging,
-and the publish surface that lets operators deploy a configured agent
-out of the box.
+Every daemon serves its own dashboard from its own `/dash/<daemon>/`
+HTMX namespace, rendering its own source and reading/writing only
+through its own `/v1` surface — it observes AND controls every aspect
+of itself. A lean `dashd` hub probes and links them, AWS-Console style.
+One renderer per daemon, one hub.
 
-## Infrastructure
+[`1-cockpit-index.md`](1-cockpit-index.md) is the anchor: architecture,
+the `/v1`-only read-path, routing, auth, theme, non-goals, and the
+per-daemon spec template. Every other spec points back to it and adds
+only its own page list + show/control matrix.
 
-| Spec                                             | Status      | Hook                                                                                    |
-| ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
-| [P-product-templates.md](P-product-templates.md) | draft       | Template authoring conventions: persona, skills, seed files per product.                |
-| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
-| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                              |
-| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.               |
-| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.         |
-| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.        |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.           |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases. |
-| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.  |
+## Specs
 
-Platform/API surface moved to [specs/6/](../6/) — products consume the
-control API; the API design ships before the products that depend on it.
+| Spec                                                                                 | Status | Covers                                                         |
+| ------------------------------------------------------------------------------------ | ------ | -------------------------------------------------------------- |
+| [1-cockpit-index.md](1-cockpit-index.md)                                             | draft  | architecture, `/v1` read-path, routing, auth, theme, non-goals |
+| [2-dashd-hub.md](2-dashd-hub.md)                                                     | draft  | dashd hub + retained cross-cutting operator pages              |
+| [3-routd-dashboard.md](3-routd-dashboard.md)                                         | draft  | queue, circuit breaker, channel-registry health, errored chats |
+| [4-runed-dashboard.md](4-runed-dashboard.md)                                         | draft  | active runs, history, capacity, broker tokens, kill run        |
+| [5-authd-dashboard.md](5-authd-dashboard.md)                                         | draft  | keys, tokens, OAuth providers, identity links                  |
+| [6-proxyd-dashboard.md](6-proxyd-dashboard.md)                                       | draft  | live route table, denials, auth transit                        |
+| [7-onbod-dashboard.md](7-onbod-dashboard.md)                                         | draft  | admission queue, gates, invites                                |
+| [8-timed-dashboard.md](8-timed-dashboard.md)                                         | draft  | scheduled tasks, next ticks, recent runs                       |
+| [9-crackbox-dashboard.md](9-crackbox-dashboard.md)                                   | draft  | egress policy, blocked attempts, registrations                 |
+| [10-webd-davd-ttsd-dashboard.md](10-webd-davd-ttsd-dashboard.md)                     | draft  | thin web/file/voice surfaces, combined                         |
+| [11-adapter-contract.md](11-adapter-contract.md)                                     | draft  | shared adapter dashboard grammar + health model                |
+| [12-whapd-teled-slakd-dashboard.md](12-whapd-teled-slakd-dashboard.md)               | draft  | session chat adapters                                          |
+| [13-mastd-bskyd-reditd-linkd-dashboard.md](13-mastd-bskyd-reditd-linkd-dashboard.md) | draft  | stream/poll social adapters                                    |
+| [14-discd-emaid-twitd-dashboard.md](14-discd-emaid-twitd-dashboard.md)               | draft  | mixed gateway adapters                                         |
 
-## Product catalog
-
-Each product ships as `ant/examples/<name>/` and installs via
-`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
-
-Developer capabilities are embedded in each product that needs them
-(oracle + bash grants, scoped per deployment) — not a separate product.
-
-| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
-| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
-| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
-| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
-| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
-| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
-| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
-| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
-| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
-
-## Arizuko features required per product
-
-| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
-| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
-| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
-| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
-| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
-| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
-
-## Products in spec only (not yet in ant/examples/)
-
-Specced in this directory but no template folder shipped yet:
-
-| Spec                                           | Value prop                                                        |
-| ---------------------------------------------- | ----------------------------------------------------------------- |
-| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
-| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
-| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |
+Supersedes `specs/10/18-daemon-dashboards.md`; reconciles the shipped
+`3/d`, `4/Q`, `4/V` (see `1-cockpit-index.md` "Reconciliation").

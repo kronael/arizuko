@@ -78,7 +78,7 @@ Affects audit, replay, fork cost, repo size.
 
 ### Q2. Product manifest — does it declare ingestion?
 
-`PRODUCT.md` today (`specs/6/P-product-templates.md`) declares
+`PRODUCT.md` today (`specs/16/P-product-templates.md`) declares
 `name`, `tagline`, `skills`, `[[env]]` hints. Phase 8 introduces
 `agents.toml` as the platform-level composer. Does it extend to
 ingestion?
@@ -179,12 +179,12 @@ later, not as amendments here.
 
 - Does NOT propose a mechanism. No `[[ingestion]]` syntax is being
   ratified; the examples above are illustrations, not decisions.
-- Does NOT extend `specs/6/3-file-event-stream.md`. That spec is
+- Does NOT extend `specs/16/3-file-event-stream.md`. That spec is
   narrowly scoped to in-container `filewd`; this is the platform-level
   surface around it.
 - Does NOT touch the messages-table schema. Hot tier shape is
   `specs/8/2-data-model.md`.
-- Does NOT replace `specs/6/8-company-brain.md`. That spec frames
+- Does NOT replace `specs/16/8-company-brain.md`. That spec frames
   the retrieval-layer gap; this spec is the platform-side surface
   independent of company-brain positioning.
 - Does NOT presume `agents.toml` exists yet. The composer is drafted
@@ -198,7 +198,7 @@ later, not as amendments here.
 - Original prompt: `.diary/20260525.md` (evening).
 - Adjacent platform specs: `specs/5/5-uniform-mcp-rest.md`,
   `specs/8/2-data-model.md`, `specs/8/3-git-as-truth.md`.
-- File-event-stream (in-container, narrow): `specs/6/3-file-event-stream.md`.
-- Retrieval-layer gap framing: `specs/6/8-company-brain.md`.
+- File-event-stream (in-container, narrow): `specs/16/3-file-event-stream.md`.
+- Retrieval-layer gap framing: `specs/16/8-company-brain.md`.
 - Ingestion failure mode behind Q3: `.diary/20260525.md ## 11:30`
   (578 silent cron successes, 35+ missing rollups).

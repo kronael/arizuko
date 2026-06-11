@@ -1,7 +1,14 @@
 ---
-status: draft
+status: superseded
+superseded_by: 6/1-cockpit-index
 depends: [5/5-uniform-mcp-rest, 5/35-proxyd-standalone]
 ---
+
+> **Superseded by [`specs/6/1-cockpit-index.md`](../6/1-cockpit-index.md)**
+> and the phase-6 cockpit spec set. The routing/auth/theme/hub model
+> below carries over almost verbatim; phase 6 adds the `/v1`-only
+> read-path (this draft left dashd's direct-DB pages in place) and the
+> per-daemon spec breakdown. Kept for history.
 
 # Per-daemon dashboards + central index
 

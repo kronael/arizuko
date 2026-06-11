@@ -129,7 +129,7 @@ Products in `ant/examples/` (shipped):
 Public pages at `/pub/products/<name>/` when the web layer is running.
 
 **Company brain** is a positioning product, not a seeded template
-([specs/6/8-company-brain.md](8-company-brain.md)): arizuko is the action
+([specs/16/8-company-brain.md](8-company-brain.md)): arizuko is the action
 layer (Turn + State + Routing) over a retrieval backend, the genuine
 integration gap. It ships as framing + a setup recipe, not an
 `ant/examples/` folder, until connector skills land.

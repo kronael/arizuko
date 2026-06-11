@@ -8,9 +8,11 @@ multi-account), routing (route table, topics, engagement, mentions,
 webhooks), tenancy (org-chart, invites, user-spawned agents,
 genericized daemons), and runtime (pipeline, middleware, modality).
 
-**Phase 6** launches products on top of those capabilities: persona
-templates, packaging, and the publish surface that lets operators
-deploy a configured agent as a named product.
+**Phase 6** is the operator cockpit: every daemon serves its own
+dashboard (HTMX, its own `/dash/<daemon>/` namespace, source served
+by the daemon itself) that observes AND controls all its aspects via
+its `/v1` surface; a lean dashd hub probes and links them, AWS-console
+style. Products move to phase 16.
 
 **Phase 7** layers enterprise hardening: encryption at rest, audit
 stream, per-daemon secrets, SSO/SAML, tool-level secret broker,
@@ -37,7 +39,7 @@ The combination is the platform thesis arizuko ships toward.
 | [3/](3/)   | permissions, cleanup, gaps                                        | shipped  |
 | [4/](4/)   | dashboards, memory, web layer — core architecture                 | shipped  |
 | [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime     | active   |
-| [6/](6/)   | products — persona templates, publishing surface                  | active   |
+| [6/](6/)   | operator cockpit — per-daemon dashboards + global hub             | active   |
 | [7/](7/)   | enterprise hardening — encryption, audit, SSO, secret broker      | active   |
 | [8/](8/)   | platform program — MCP+REST unification, data model, git-as-truth | drafting |
 | [9/](9/)   | self-healing — Aeon mechanism incorporation                       | active   |
@@ -47,3 +49,4 @@ The combination is the platform thesis arizuko ships toward.
 | [13/](13/) | future features — pinned, CLI, dynamic channels                   | planned  |
 | [14/](14/) | later — committed direction, not scheduled                        | planned  |
 | [15/](15/) | multiplayer — shared sessions, durable streams, presence          | drafting |
+| [16/](16/) | products — persona templates, publishing surface                  | active   |

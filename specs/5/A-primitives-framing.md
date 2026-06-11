@@ -9,7 +9,7 @@ depends:
     P-runed,
     X-session-workflows,
     ../4/9-acl-unified,
-    ../6/9-positioning,
+    ../16/9-positioning,
   ]
 ---
 
@@ -448,7 +448,7 @@ for the `5/D` rewrite to pick up):
 - **Products pages.** Each product opens by naming the recomposition —
   which folder contents + routing make it that product — and links to
   `concepts/primitives.html`. Keeps "a product is the same pipeline,
-  different folder" visible (`6/9`, `6/R-products`).
+  different folder" visible (`16/9`, `16/R-products`).
 - **README lead.** Product-first + the six-step trace + the four-layer
   table; shorten the current sprawl.
 - **Reference pages unchanged in shape** (`5/D` ownership rule):

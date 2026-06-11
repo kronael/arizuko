@@ -303,7 +303,7 @@ No proxy changes. No CA. No TLS termination. No
 
 ## Cross-references
 
-- [`specs/6/product-slack-team.md`](../6/product-slack-team.md) — per-user
+- [`specs/16/product-slack-team.md`](../16/product-slack-team.md) — per-user
   GitHub token flow, the canonical v1 user.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — `Caller`
   shape consumed here.

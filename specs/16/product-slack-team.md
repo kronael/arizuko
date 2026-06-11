@@ -32,7 +32,7 @@ Verified by reading the source before writing this spec:
 ## File set to ship
 
 Drop these into `ant/examples/slack-team/`. Mirrors the existing
-`support` template structure (`specs/6/P-product-templates.md`).
+`support` template structure (`specs/16/P-product-templates.md`).
 
 ```
 ant/examples/slack-team/

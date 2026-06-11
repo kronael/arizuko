@@ -136,7 +136,7 @@ The new `ant.sock` is the inverse — the MCP-server ant exposes _to_
 no code change required there.
 
 `/home/agent/.claude` defaults to tmpfs (ephemeral sessions). The
-portability spec (`../6/7-ant-portability.md`) wires it to a per-folder bind when
+portability spec (`../16/7-ant-portability.md`) wires it to a per-folder bind when
 `--include-sessions` is requested at export time.
 
 ## Container.Runner contract — what stays the same
@@ -222,7 +222,7 @@ vs the current TS image: ~600 MB (Node + Bun + node_modules + claude
   `claude` binary's potential glibc dependence. Re-evaluate once
   Anthropic publishes static binaries.
 - `CLAUDE_PROJECTS_DIR` per-folder binding — described here but
-  enabled by the portability spec (`../6/7-ant-portability.md`), not this one.
+  enabled by the portability spec (`../16/7-ant-portability.md`), not this one.
 
 ## Open questions
 
@@ -258,7 +258,7 @@ vs the current TS image: ~600 MB (Node + Bun + node_modules + claude
   spec packages and deploys.
 - [b-ant-standalone.md](b-ant-standalone.md) — the folder layout
   the image consumes via `/workspace`.
-- [../6/7-ant-portability.md](../6/7-ant-portability.md) — wires
+- [../16/7-ant-portability.md](../16/7-ant-portability.md) — wires
   `CLAUDE_PROJECTS_DIR` to a per-folder bind when sessions ship
   with the agent.
 - [../11/](../11/) — `mcp-fw` / standalone hardening; the MCP socket

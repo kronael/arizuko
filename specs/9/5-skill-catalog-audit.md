@@ -79,7 +79,7 @@ table.
 ### `/github-pr-summary` — IMPORT (HIGH PRIORITY)
 
 **Aeon**: reads a PR diff + comments, writes a summary.
-**Fit**: synergy with `specs/6/1-git-channel.md` (git-as-channel).
+**Fit**: synergy with `specs/16/1-git-channel.md` (git-as-channel).
 The PR thread is a folder; the summary skill is a folder operation.
 **Effort**: small once `7/1` lands; medium otherwise.
 **Decision**: import + cross-ref into 7/1. Maps onto `git:` channel

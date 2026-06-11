@@ -208,6 +208,6 @@ N days per new provider thereafter.
   broker that reads the rows this spec writes.
 - [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md) — auth
   capability library; surrogate flows are a sibling of identity OAuth.
-- [`specs/6/product-slack-team.md`](../6/product-slack-team.md) — the
+- [`specs/16/product-slack-team.md`](../16/product-slack-team.md) — the
   product that benefits first: "Alice asks @bot about her PRs" goes
   from PAT-paste to "Connect GitHub" button.
