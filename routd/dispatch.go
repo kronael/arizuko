@@ -101,7 +101,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// hadOutput=true so processGroupMessages advances the cursor past it.
 	if msg := l.budgetGate(folder, callerSubOfMsg(last.Sender)); msg != "" {
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, msg, "", topic, "budget-"+turnID)
+			_, _ = l.deliver.Send(chatJID, msg, "", topic, "", "budget-"+turnID)
 		}
 		return true, false, nil
 	}
@@ -148,6 +148,9 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		// report no-output/not-steered so the loop advances past it.
 		return false, false, nil
 	}
+	// Record the trigger message id so a threaded reply can root a new
+	// platform thread on it (replyThreadRoot).
+	_ = l.db.SetTurnTriggerMsg(turnID, last.ID)
 	_ = l.db.SetLastReply(chatJID, topic, last.ID, folder)
 
 	// Stand up the per-turn agent MCP socket in-process; stop() removes it when
@@ -237,7 +240,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		_ = l.db.MarkMessagesErrored(ids)
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "fail-"+turnID)
+			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "", "fail-"+turnID)
 		}
 		_ = l.db.SetTurnState(turnID, "done")
 		// The breaker rides only on the run that trips it (runed reports

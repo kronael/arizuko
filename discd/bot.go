@@ -178,7 +178,7 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 	if content == "" {
 		return
 	}
-	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
+	content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User, m.Mentions)
 
 	topic := ""
 	ch, err := b.session.State.Channel(m.ChannelID)
@@ -309,16 +309,32 @@ func chanID(jid string) string {
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	chID := chanID(req.ChatJID)
-	if req.ThreadID != "" {
+	replyTo := req.ReplyTo
+	switch {
+	case req.ThreadID != "":
 		chID = req.ThreadID
+	case req.ThreadRoot != "" && !strings.HasPrefix(req.ChatJID, "discord:dm/"):
+		// Reply into a thread rooted on the trigger message: start one (or
+		// reuse the existing one) and post there. The root lives in the
+		// parent channel, so a reply-reference to it can't follow into the
+		// thread — drop it (the thread itself already anchors the root).
+		if thID, err := b.threadFrom(chID, req.ThreadRoot, req.Content); err == nil {
+			chID = thID
+			if replyTo == req.ThreadRoot {
+				replyTo = ""
+			}
+		} else {
+			slog.Warn("discord thread start failed; sending inline",
+				"chat_jid", req.ChatJID, "root", req.ThreadRoot, "err", err)
+		}
 	}
 	var firstID string
 	for i, c := range chanlib.Chunk(req.Content, 2000) {
 		var msg *discordgo.Message
 		var err error
 		for attempt := 0; attempt < 3; attempt++ {
-			if req.ReplyTo != "" && i == 0 {
-				msg, err = b.session.ChannelMessageSendReply(chID, c, &discordgo.MessageReference{MessageID: req.ReplyTo})
+			if replyTo != "" && i == 0 {
+				msg, err = b.session.ChannelMessageSendReply(chID, c, &discordgo.MessageReference{MessageID: replyTo})
 			} else {
 				msg, err = b.session.ChannelMessageSend(chID, c)
 			}
@@ -342,6 +358,38 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", firstID, "source", "discord")
 	return firstID, nil
+}
+
+// threadFrom starts a public thread on rootID in channel chID and returns the
+// thread channel id. A root that already has a thread reuses it — Discord
+// assigns a message-rooted thread the SAME id as its root message.
+func (b *bot) threadFrom(chID, rootID, content string) (string, error) {
+	th, err := b.session.MessageThreadStartComplex(chID, rootID, &discordgo.ThreadStart{
+		Name:                threadName(content),
+		AutoArchiveDuration: 1440,
+	})
+	if err != nil {
+		var rest *discordgo.RESTError
+		if errors.As(err, &rest) && rest.Message != nil &&
+			rest.Message.Code == discordgo.ErrCodeThreadAlreadyCreatedForThisMessage {
+			return rootID, nil
+		}
+		return "", err
+	}
+	return th.ID, nil
+}
+
+// threadName derives a new thread's title from the reply's first line,
+// clamped to Discord's 100-char limit.
+func threadName(content string) string {
+	name, _, _ := strings.Cut(strings.TrimSpace(content), "\n")
+	if name == "" {
+		return "thread"
+	}
+	if r := []rune(name); len(r) > 100 {
+		return string(r[:100])
+	}
+	return name
 }
 
 // SendVoice attaches the synthesized audio as a Discord file. Discord
@@ -554,7 +602,7 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 		if content == "" && len(atts) == 0 {
 			continue
 		}
-		content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User)
+		content = replaceMentions(content, b.cfg.AssistantName, b.session.State.User, m.Mentions)
 		var replyTo string
 		if m.MessageReference != nil {
 			replyTo = m.MessageReference.MessageID
@@ -615,12 +663,23 @@ func (b *bot) isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func replaceMentions(content, assistantName string, user *discordgo.User) string {
-	if assistantName == "" || user == nil {
-		return content
+// replaceMentions rewrites raw mention tokens to readable names: the bot's
+// own mention becomes @AssistantName, every other mentioned user becomes
+// @Username (resolved from the message's Mentions list, which Discord
+// populates for every in-content mention). Unresolved tokens stay verbatim.
+func replaceMentions(content, assistantName string, self *discordgo.User, mentions []*discordgo.User) string {
+	if self != nil && assistantName != "" {
+		at := "@" + assistantName
+		content = strings.ReplaceAll(content, "<@"+self.ID+">", at)
+		content = strings.ReplaceAll(content, "<@!"+self.ID+">", at)
 	}
-	at := "@" + assistantName
-	content = strings.ReplaceAll(content, "<@"+user.ID+">", at)
-	content = strings.ReplaceAll(content, "<@!"+user.ID+">", at)
+	for _, u := range mentions {
+		if u == nil || u.Username == "" {
+			continue
+		}
+		at := "@" + u.Username
+		content = strings.ReplaceAll(content, "<@"+u.ID+">", at)
+		content = strings.ReplaceAll(content, "<@!"+u.ID+">", at)
+	}
 	return content
 }

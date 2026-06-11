@@ -14,6 +14,7 @@ import (
 // recDeliverer records every egress call and optionally fails Send.
 type recDeliverer struct {
 	sends    []sentMsg
+	docs     []sentMsg
 	voices   []sentVoice
 	reacts   int
 	posts    int
@@ -31,15 +32,15 @@ type recDeliverer struct {
 }
 
 type sentMsg struct {
-	jid, text, replyTo, threadID, idem string
+	jid, text, replyTo, threadID, threadRoot, idem string
 }
 
 type sentVoice struct {
 	jid, audioPath, caption, threadID string
 }
 
-func (d *recDeliverer) Send(jid, text, replyTo, threadID, idem string) (string, error) {
-	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, idem})
+func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
+	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem})
 	if d.failSend {
 		return "", errSend
 	}
@@ -54,7 +55,8 @@ func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *recDeliverer) Typing(_ string, _ bool) error   { return nil }
-func (d *recDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
+func (d *recDeliverer) Document(jid, _, _, _, replyTo, threadID, idem string) (string, error) {
+	d.docs = append(d.docs, sentMsg{jid: jid, replyTo: replyTo, threadID: threadID, idem: idem})
 	return d.pid, nil
 }
 func (d *recDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {

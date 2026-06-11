@@ -1030,7 +1030,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolOK()
 		})
 
-	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message threaded to the conversation you're answering (quote/reply UI on the platform; on Slack it lands in the thread, not the channel root). Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message that is NOT a reply.",
+	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),

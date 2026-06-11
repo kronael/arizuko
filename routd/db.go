@@ -182,6 +182,25 @@ func (d *DB) SetGroupOpen(folder string, open bool) error {
 	return err
 }
 
+// SetThreadReplies sets the group's thread_replies preference: whether a
+// reply roots a new platform thread on its trigger message.
+func (d *DB) SetThreadReplies(folder string, on bool) error {
+	_, err := d.db.Exec("UPDATE groups SET thread_replies=? WHERE folder=?", b2i(on), folder)
+	return err
+}
+
+// ThreadReplies reads the group's thread_replies preference; an unset column
+// (NULL / unknown group) yields dflt (the caller passes the chat's multi-user
+// flag: group chats thread by default, DMs don't).
+func (d *DB) ThreadReplies(folder string, dflt bool) bool {
+	var v sql.NullInt64
+	d.db.QueryRow("SELECT thread_replies FROM groups WHERE folder=?", folder).Scan(&v)
+	if !v.Valid {
+		return dflt
+	}
+	return v.Int64 == 1
+}
+
 // SetGroupObserveWindow overrides the group's observe-window (messages, chars).
 // A negative value clears the column (NULL) so the cfg default wins.
 func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
@@ -482,6 +501,13 @@ func (d *DB) SetChatIsGroup(chatJID string, isGroup bool) error {
 	return err
 }
 
+// ChatIsGroup reads the multi-party flag for a chat; unknown chats are false.
+func (d *DB) ChatIsGroup(chatJID string) bool {
+	var v sql.NullInt64
+	d.db.QueryRow("SELECT is_group FROM chats WHERE jid=?", chatJID).Scan(&v)
+	return v.Valid && v.Int64 == 1
+}
+
 // StickyState returns the @group / #topic navigation pins for a chat.
 func (d *DB) StickyState(chatJID string) (group, topic string) {
 	var g, t sql.NullString
@@ -699,28 +725,40 @@ func (d *DB) PutTurnContext(turnID, folder, topic, chatJID, trigger, returnTo st
 
 // TurnContext is a turn's bound run-start context.
 type TurnContext struct {
-	TurnID      string
-	Folder      string
-	Topic       string
-	ChatJID     string
-	Trigger     string
-	ReturnTo    string
-	State       string
-	RunReturned bool
+	TurnID       string
+	Folder       string
+	Topic        string
+	ChatJID      string
+	Trigger      string
+	TriggerMsgID string
+	ReturnTo     string
+	State        string
+	RunReturned  bool
 }
 
 // GetTurnContext recovers a turn's context by turn_id.
 func (d *DB) GetTurnContext(turnID string) (TurnContext, bool) {
 	var tc TurnContext
+	var trigMsg sql.NullString
 	var runReturned int
-	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned
+	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, trigger_msg_id, return_to, state, run_returned
 		FROM turn_context WHERE turn_id=?`, turnID).Scan(
-		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &tc.ReturnTo, &tc.State, &runReturned)
+		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &trigMsg, &tc.ReturnTo, &tc.State, &runReturned)
 	if err != nil {
 		return TurnContext{}, false
 	}
+	tc.TriggerMsgID = trigMsg.String
 	tc.RunReturned = runReturned == 1
 	return tc, true
+}
+
+// SetTurnTriggerMsg records the trigger message's platform id for a turn
+// (turn_context.trigger_msg_id) — the message a threaded reply roots a new
+// platform thread on. Set at dispatch right after PutTurnContext (the
+// SetTurnRunID pattern).
+func (d *DB) SetTurnTriggerMsg(turnID, msgID string) error {
+	_, err := d.db.Exec("UPDATE turn_context SET trigger_msg_id=? WHERE turn_id=?", msgID, turnID)
+	return err
 }
 
 // SetTurnState flips a turn's lifecycle state (running|done|expired).

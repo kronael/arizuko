@@ -68,6 +68,7 @@ type outMsg struct {
 	Content     string
 	ReplyTo     string
 	ThreadID    string
+	ThreadRoot  string
 	TurnID      string
 	IsFile      bool
 	Path        string
@@ -110,11 +111,11 @@ func (h *HTTPChannel) Connect(_ context.Context) error { return nil }
 
 func (h *HTTPChannel) Owns(jid string) bool { return h.entry.Owns(jid) }
 
-func (h *HTTPChannel) Send(jid, text, replyTo, threadID, turnID string) (string, error) {
-	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, turnID)
+func (h *HTTPChannel) Send(jid, text, replyTo, threadID, threadRoot, turnID string) (string, error) {
+	return h.SendCtx(context.Background(), jid, text, replyTo, threadID, threadRoot, turnID)
 }
 
-func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, turnID string) (string, error) {
+func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID, threadRoot, turnID string) (string, error) {
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
@@ -124,6 +125,9 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	}
 	if threadID != "" {
 		body["thread_id"] = threadID
+	}
+	if threadRoot != "" {
+		body["thread_root"] = threadRoot
 	}
 	if turnID != "" {
 		body["turn_id"] = turnID
@@ -142,7 +146,7 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 		}
 		err = fmt.Errorf("status %d", httpResp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, TurnID: turnID})
+	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID})
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
@@ -464,7 +468,7 @@ func (h *HTTPChannel) DrainOutbox() {
 		if m.IsFile {
 			_, err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
 		} else {
-			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.TurnID)
+			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.ThreadRoot, m.TurnID)
 		}
 		if err != nil {
 			slog.Warn("outbox drain failed", "channel", h.entry.Name, "jid", m.JID, "err", err)

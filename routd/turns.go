@@ -215,8 +215,12 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		return 200, apiv1.SendResult{Status: core.MessageStatusSent}, nil
 	}
 
-	if threaded && replyToID == "" {
-		replyToID = s.db.LastReplyID(jid, tc.Topic)
+	threadRoot := ""
+	if threaded {
+		if replyToID == "" {
+			replyToID = s.db.LastReplyID(jid, tc.Topic)
+		}
+		threadRoot = s.replyThreadRoot(tc, jid)
 	}
 	row := s.outboundRow(tc, jid, clean, replyToID)
 	_ = s.db.SetLastReply(jid, tc.Topic, row.ID, tc.Folder)
@@ -226,8 +230,25 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		// the chat that triggered the turn, not the origin JID the reply returns to.
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
-	s.deliverRow(tc, jid, &row)
+	s.deliverRow(tc, jid, &row, threadRoot)
 	return 200, apiv1.SendResult{MessageID: row.ID, PlatformID: row.PlatformID, Status: row.Status}, &row
+}
+
+// replyThreadRoot resolves the trigger message id a REPLY should root a new
+// platform thread on, or "" when it must not start one: the turn is already in
+// a thread (topic set), the delivery is redirected off the trigger chat
+// (delegation — the trigger id is not a platform id there), no trigger id is
+// recorded, or the group's thread_replies preference resolves off. The
+// preference defaults to the chat's multi-user flag: group chats thread, DMs
+// stay inline. send (threaded=false) never calls this — it posts top-level.
+func (s *Server) replyThreadRoot(tc TurnContext, jid string) string {
+	if tc.Topic != "" || tc.TriggerMsgID == "" || jid != tc.ChatJID {
+		return ""
+	}
+	if !s.db.ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid)) {
+		return ""
+	}
+	return tc.TriggerMsgID
 }
 
 // outboundRow builds a fresh pending bot row for the turn's folder/topic.
@@ -247,14 +268,16 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 // renderer, many sinks").
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
-	s.deliverRow(tc, jid, &row)
+	s.deliverRow(tc, jid, &row, "")
 	_ = s.db.PutMessage(row)
 }
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
-// A SEND_DISABLED_GROUPS folder skips the send entirely but still lands the row
-// status=sent so the poll loop never retries it.
-func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message) {
+// threadRoot is non-empty only for a REPLY that should start a new platform
+// thread on the trigger message (replyThreadRoot). A SEND_DISABLED_GROUPS
+// folder skips the send entirely but still lands the row status=sent so the
+// poll loop never retries it.
+func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threadRoot string) {
 	if s.mutedGroup(tc.Folder) {
 		row.Status = core.MessageStatusSent
 		return
@@ -262,7 +285,7 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message) {
 	if s.deliver == nil {
 		return
 	}
-	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, tc.Topic, row.ID); err == nil {
+	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, tc.Topic, threadRoot, row.ID); err == nil {
 		row.PlatformID = pid
 		row.Status = core.MessageStatusSent
 	}
@@ -293,7 +316,7 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 			Content: req.Caption, Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 			Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending}
 		if s.deliver != nil {
-			if pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, msgID); err == nil {
+			if pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, tc.Topic, msgID); err == nil {
 				row.PlatformID = pid
 				row.Status = core.MessageStatusSent
 			}

@@ -57,7 +57,7 @@ func TestHTTPChannelSend(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	if _, err := ch.Send("tg:123", "hello", "", "", ""); err != nil {
+	if _, err := ch.Send("tg:123", "hello", "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got["chat_jid"] != "tg:123" || got["content"] != "hello" {
@@ -81,7 +81,7 @@ func TestHTTPChannelDynamicBearer(t *testing.T) {
 	token := "service-routd-jwt-1"
 	getter := func(context.Context) (string, error) { return token, nil }
 	ch := NewHTTPChannel(e, getter)
-	if _, err := ch.Send("tg:1", "hi", "", "", ""); err != nil {
+	if _, err := ch.Send("tg:1", "hi", "", "", "", ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if gotAuth != "Bearer service-routd-jwt-1" {
@@ -89,7 +89,7 @@ func TestHTTPChannelDynamicBearer(t *testing.T) {
 	}
 	// A rotated token rides the next call — the getter is consulted per request.
 	token = "service-routd-jwt-2"
-	if _, err := ch.Send("tg:1", "hi again", "", "", ""); err != nil {
+	if _, err := ch.Send("tg:1", "hi again", "", "", "", ""); err != nil {
 		t.Fatalf("send 2: %v", err)
 	}
 	if gotAuth != "Bearer service-routd-jwt-2" {
@@ -97,7 +97,7 @@ func TestHTTPChannelDynamicBearer(t *testing.T) {
 	}
 	// Getter error → no Authorization header (adapter would 401).
 	ch = NewHTTPChannel(e, func(context.Context) (string, error) { return "", errors.New("authd down") })
-	if _, err := ch.Send("tg:1", "x", "", "", ""); err != nil {
+	if _, err := ch.Send("tg:1", "x", "", "", "", ""); err != nil {
 		t.Fatalf("send with failing getter: %v", err)
 	}
 	if gotAuth != "" {
@@ -115,7 +115,7 @@ func TestHTTPChannelSendNoCapErrors(t *testing.T) {
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
 	// send_text not declared — must return error so caller knows the send was skipped
-	_, err := ch.Send("tg:123", "hello", "", "", "")
+	_, err := ch.Send("tg:123", "hello", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for missing send_text capability, got nil")
 	}
@@ -130,7 +130,7 @@ func TestHTTPChannelSendQueuesOnError(t *testing.T) {
 	}
 	ch := NewHTTPChannel(e, staticBearer("secret"))
 
-	_, err := ch.Send("tg:123", "hello", "", "", "")
+	_, err := ch.Send("tg:123", "hello", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for unreachable")
 	}

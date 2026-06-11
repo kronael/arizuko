@@ -343,7 +343,7 @@ func (l *Loop) maybeRetryOutbound(now time.Time) {
 			_ = l.db.MarkStatus(m.ID, core.MessageStatusFailed)
 			continue
 		}
-		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, m.ID)
+		pid, derr := l.deliver.Send(m.ChatJID, m.Content, m.ReplyToID, m.Topic, "", m.ID)
 		if derr == nil {
 			_ = l.db.MarkBotPlatformID(m.ID, pid)
 		}

@@ -45,13 +45,13 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
 		SendMessage: func(jid, text string) (string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, "")
+			return s.mcpDeliver(t.turnID, jid, text, "", false)
 		},
 		SendReply: func(jid, text, replyTo string) (string, error) {
-			return s.mcpDeliver(t.turnID, jid, text, replyTo)
+			return s.mcpDeliver(t.turnID, jid, text, replyTo, true)
 		},
 		SendDocument: func(jid, path, filename, caption, replyTo, threadID string) (string, error) {
-			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo)
+			return s.mcpAppendDoc(t.turnID, jid, path, filename, caption, replyTo, threadID)
 		},
 		SendVoice: func(jid, text, voice, folder, threadID string) (string, error) {
 			return s.mcpSendVoice(t.turnID, jid, text, voice, folder, threadID)
@@ -239,17 +239,21 @@ func ensureGroupGitRepo(groupDir string) {
 // The ipc tool layer's recordOutbound persists the bot row + threads
 // (SetLastReply) + bumps engagement, so this must NOT do any of that or the row
 // double-persists. Returns the platform id. returnTarget redirects delegated
-// turns to the origin.
-func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
+// turns to the origin. threaded marks the REPLY verb: it may root a new
+// platform thread on the trigger message (replyThreadRoot); send never does.
+func (s *Server) mcpDeliver(turnID, jid, text, replyTo string, threaded bool) (string, error) {
 	if s.deliver == nil {
 		return "", nil
 	}
-	topic := ""
+	topic, threadRoot := "", ""
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		jid = returnTarget(tc, jid)
 		topic = tc.Topic
+		if threaded {
+			threadRoot = s.replyThreadRoot(tc, jid)
+		}
 	}
-	pid, err := s.deliver.Send(jid, text, replyTo, topic, "mcp-"+randHex(8))
+	pid, err := s.deliver.Send(jid, text, replyTo, topic, threadRoot, "mcp-"+randHex(8))
 	if err != nil {
 		slog.Warn("mcp deliver failed", "turn_id", turnID, "jid", jid, "err", err)
 	}
@@ -258,15 +262,19 @@ func (s *Server) mcpDeliver(turnID, jid, text, replyTo string) (string, error) {
 
 // mcpAppendDoc is the in-process send_file: deliver-only (the ipc tool layer's
 // recordOutbound persists the row, keyed on the returned platform id so a later
-// human reply re-promotes).
-func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo string) (string, error) {
+// human reply re-promotes). An empty threadID falls back to the turn's topic so
+// files land in the active thread like text replies (mirrors mcpSendVoice).
+func (s *Server) mcpAppendDoc(turnID, jid, path, name, caption, replyTo, threadID string) (string, error) {
 	if s.deliver == nil {
 		return "", nil
 	}
 	if tc, ok := s.db.GetTurnContext(turnID); ok {
 		jid = returnTarget(tc, jid)
+		if threadID == "" {
+			threadID = tc.Topic
+		}
 	}
-	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, "mcp-"+randHex(8))
+	pid, err := s.deliver.Document(jid, path, name, caption, replyTo, threadID, "mcp-"+randHex(8))
 	if err != nil {
 		slog.Warn("mcp deliver document failed", "turn_id", turnID, "jid", jid, "err", err)
 	}

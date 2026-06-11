@@ -7,6 +7,7 @@ package main
 // integration_test.go (same package).
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -147,5 +148,60 @@ func TestAttachmentsFor_FallsBackFilenameWhenEmpty(t *testing.T) {
 	}
 	if len(atts) != 1 || atts[0].Filename != "attachment" {
 		t.Errorf("filename fallback wrong: %+v", atts)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// demangleMentions
+// ---------------------------------------------------------------------------
+
+// In-content mention tokens are rewritten to readable names before inbound
+// delivery so the agent never echoes raw ids ("@U0B70FBE7CG here's...").
+func TestDemangleMentions(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock) // users.info mock resolves every id to "alice"
+
+	cases := []struct{ name, in, want string }{
+		{"bare user", "<@U0B70FBE7CG> here's the data", "@alice here's the data"},
+		{"labeled user", "hi <@U123|bob>", "hi @bob"},
+		{"labeled channel", "see <#C123|general> please", "see #general please"},
+		{"bare channel stays", "bare <#C123> stays", "bare <#C123> stays"},
+		{"two users", "<@U1> and <@U2>", "@alice and @alice"},
+		{"no tokens", "no mentions here", "no mentions here"},
+	}
+	for _, c := range cases {
+		if got := b.demangleMentions(c.in); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The inbound path delivers DEMANGLED content to routd.
+func TestInbound_MentionDemangled(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "<@U0B70FBE7CG> here's what the data shows",
+	    "ts": "1700000444.000100"
+	  }
+	}`)
+	w := httptest.NewRecorder()
+	b.handleEvent(body, w)
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("got %d msgs", len(msgs))
+	}
+	if msgs[0].Content != "@alice here's what the data shows" {
+		t.Errorf("content = %q", msgs[0].Content)
 	}
 }

@@ -19,6 +19,11 @@ type SendRequest struct {
 	Content  string `json:"content"`
 	ReplyTo  string `json:"reply_to"`
 	ThreadID string `json:"thread_id"`
+	// ThreadRoot is the platform id of the message to root a NEW thread on
+	// when no thread exists yet (ThreadID empty). Slack posts with
+	// thread_ts=ThreadRoot; Discord starts a thread from that message and
+	// posts into it. Adapters without threading ignore it.
+	ThreadRoot string `json:"thread_root"`
 }
 
 // BotHandler is the interface adapters implement for outbound messaging.

@@ -664,8 +664,49 @@ func TestOutbound_Send(t *testing.T) {
 	if p["text"] != "hello" {
 		t.Errorf("text = %q", p["text"])
 	}
-	if p["thread_ts"] != "1700000222.000100" {
-		t.Errorf("thread_ts = %q (must be set from ReplyTo)", p["thread_ts"])
+	// ReplyTo alone must NOT thread: it is often a prior bot row, and rooting
+	// there buries the reply in a thread the user never started. Threading is
+	// driven by ThreadID/ThreadRoot only.
+	if p["thread_ts"] != "" {
+		t.Errorf("thread_ts = %q (ReplyTo must not set thread_ts)", p["thread_ts"])
+	}
+}
+
+// A reply carrying ThreadRoot (the trigger message's ts) roots a new thread on
+// the user's message; an existing thread (ThreadID) wins over the root; a
+// plain send stays top-level.
+func TestOutbound_SendThreading(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	cases := []struct {
+		name   string
+		req    chanlib.SendRequest
+		thread string
+	}{
+		{"root on trigger", chanlib.SendRequest{
+			ChatJID: "slack:T012/channel/C0HJK", Content: "re",
+			ReplyTo: "1700000111.000100", ThreadRoot: "1700000111.000100",
+		}, "1700000111.000100"},
+		{"existing thread wins", chanlib.SendRequest{
+			ChatJID: "slack:T012/channel/C0HJK", Content: "re",
+			ThreadID: "1700000333.000100", ThreadRoot: "1700000111.000100",
+		}, "1700000333.000100"},
+		{"send stays top-level", chanlib.SendRequest{
+			ChatJID: "slack:T012/channel/C0HJK", Content: "announce",
+		}, ""},
+	}
+	for i, c := range cases {
+		if _, err := b.Send(c.req); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		mock.mu.Lock()
+		p := mock.posted[i]
+		mock.mu.Unlock()
+		if p["thread_ts"] != c.thread {
+			t.Errorf("%s: thread_ts = %q, want %q", c.name, p["thread_ts"], c.thread)
+		}
 	}
 }
 

@@ -33,7 +33,7 @@ func (l *Loop) steer(chatJID string, last core.Message, folder string) bool {
 // changed, …) via the Deliverer. No-op without a Deliverer (pure REST tests).
 func (l *Loop) ack(chatJID, text string) {
 	if l.deliver != nil {
-		_, _ = l.deliver.Send(chatJID, text, "", "", "ack-"+core.MsgID(""))
+		_, _ = l.deliver.Send(chatJID, text, "", "", "", "ack-"+core.MsgID(""))
 	}
 }
 

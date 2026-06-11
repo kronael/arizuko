@@ -153,7 +153,11 @@ type Task struct {
 type Channel interface {
 	Name() string
 	Connect(ctx context.Context) error
-	Send(jid, text, replyTo, threadID, turnID string) (string, error)
+	// Send delivers text. threadID posts into an existing thread; threadRoot
+	// asks the adapter to root a NEW thread on that message id when threadID
+	// is empty (Slack thread_ts, Discord start-thread-from-message). Adapters
+	// without threading accept-and-ignore both.
+	Send(jid, text, replyTo, threadID, threadRoot, turnID string) (string, error)
 	SendFile(jid, path, name, caption, replyTo, threadID string) (string, error)
 	// SendVoice delivers a synthesized voice message. Adapters that don't
 	// support a native voice/PTT primitive return chanlib.ErrUnsupported.

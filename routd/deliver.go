@@ -109,7 +109,7 @@ func (d *chanDeliverer) disabled(jid string) bool {
 	return false
 }
 
-func (d *chanDeliverer) Send(jid, text, replyToID, threadID, idempotencyKey string) (string, error) {
+func (d *chanDeliverer) Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -117,10 +117,10 @@ func (d *chanDeliverer) Send(jid, text, replyToID, threadID, idempotencyKey stri
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.Send(jid, text, replyToID, threadID, idempotencyKey)
+	return ch.Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey)
 }
 
-func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, idempotencyKey string) (string, error) {
+func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (string, error) {
 	if d.disabled(jid) {
 		return "", nil
 	}
@@ -128,7 +128,7 @@ func (d *chanDeliverer) Document(jid, path, name, caption, replyToID, idempotenc
 	if ch == nil {
 		return "", fmt.Errorf("no channel for jid %s", jid)
 	}
-	return ch.SendFile(jid, path, name, caption, replyToID, "")
+	return ch.SendFile(jid, path, name, caption, replyToID, threadID)
 }
 
 func (d *chanDeliverer) SendVoice(jid, audioPath, caption, threadID string) (string, error) {

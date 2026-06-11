@@ -264,7 +264,7 @@ type fakeDeliverer struct {
 	sends      int
 }
 
-func (d *fakeDeliverer) Send(_, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
 	d.sends++
 	return d.platformID, nil
 }
@@ -274,7 +274,7 @@ func (d *fakeDeliverer) Delete(_, _ string) error        { return nil }
 func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
 func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Typing(_ string, _ bool) error   { return nil }
-func (d *fakeDeliverer) Document(_, _, _, _, _, _ string) (string, error) {
+func (d *fakeDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {

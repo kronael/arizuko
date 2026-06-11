@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -481,7 +482,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 		b.recordPane(cmp.Or(teamID, b.TeamID()), m.User, root, m.Channel)
 	}
 
-	content, atts := b.attachmentsFor(m.Text, m.Files)
+	content, atts := b.attachmentsFor(b.demangleMentions(m.Text), m.Files)
 	if content == "" && len(atts) == 0 {
 		return
 	}
@@ -818,6 +819,32 @@ func chatNameFrom(c *slackConvInfo) string {
 	return "#" + c.Name
 }
 
+// slackMentionRe matches raw in-content mention tokens: <@U123>, <@U123|name>,
+// <#C123|name>. U/W are user ids, C/G channel ids.
+var slackMentionRe = regexp.MustCompile(`<([@#])([UWCG][A-Z0-9]+)(?:\|([^>]*))?>`)
+
+// demangleMentions rewrites raw Slack mention tokens to readable names before
+// inbound delivery, so the agent never echoes ids like "@U0B70FBE7CG": user
+// tokens become @name (inline label, else users.info via userName, which
+// falls back to the id), channel tokens become #name (label-only — an
+// unlabeled channel token stays verbatim).
+func (b *bot) demangleMentions(text string) string {
+	return slackMentionRe.ReplaceAllStringFunc(text, func(tok string) string {
+		m := slackMentionRe.FindStringSubmatch(tok)
+		kind, id, label := m[1], m[2], m[3]
+		if kind == "#" {
+			if label == "" {
+				return tok
+			}
+			return "#" + label
+		}
+		if label != "" {
+			return "@" + label
+		}
+		return "@" + b.userName(id)
+	})
+}
+
 // ===== Outbound BotHandler =====
 
 func (b *bot) Send(req chanlib.SendRequest) (string, error) {
@@ -828,7 +855,11 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	body := url.Values{}
 	body.Set("channel", parts.ID)
 	body.Set("text", req.Content)
-	if threadTS := cmp.Or(req.ThreadID, req.ReplyTo); threadTS != "" {
+	// Thread on the existing thread (ThreadID) or root a new one on the
+	// trigger message (ThreadRoot). ReplyTo deliberately does NOT imply
+	// thread_ts: it is often a prior bot row, and rooting there buries the
+	// reply in a thread the user never started.
+	if threadTS := cmp.Or(req.ThreadID, req.ThreadRoot); threadTS != "" {
 		body.Set("thread_ts", threadTS)
 	}
 	var resp struct {
@@ -988,7 +1019,7 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	if caption != "" {
 		complete.Set("initial_comment", caption)
 	}
-	if threadTS := cmp.Or(replyTo, threadID); threadTS != "" {
+	if threadTS := cmp.Or(threadID, replyTo); threadTS != "" {
 		complete.Set("thread_ts", threadTS)
 	}
 	var done struct {
@@ -1227,7 +1258,7 @@ func (b *bot) Forward(chanlib.ForwardRequest) (string, error) {
 
 func (b *bot) Quote(chanlib.QuoteRequest) (string, error) {
 	return "", chanlib.Unsupported("quote", "slack",
-		"Slack has no quote primitive. Use `send(jid=<chat>, content=\"<your take>\", reply_to=<source_ts>)` to thread under the source.")
+		"Slack has no quote primitive. Use `send(jid=<chat>, content=\"> <quoted text>\\n<your take>\")` to quote manually.")
 }
 
 func (b *bot) Repost(chanlib.RepostRequest) (string, error) {

@@ -26,8 +26,10 @@ import (
 type Deliverer interface {
 	// Send delivers text to jid threaded under replyToID/threadID, using
 	// idempotencyKey (the bot row's stable message_id) so the adapter
-	// dedups platform-side. Returns the platform-native id.
-	Send(jid, text, replyToID, threadID, idempotencyKey string) (platformID string, err error)
+	// dedups platform-side. threadRoot, when set and threadID empty, asks
+	// the adapter to root a NEW thread on that message id (Slack thread_ts,
+	// Discord start-thread-from-message). Returns the platform-native id.
+	Send(jid, text, replyToID, threadID, threadRoot, idempotencyKey string) (platformID string, err error)
 	// React/Edit/Delete/Pin/Unpin mutate an existing platform message.
 	React(jid, platformID, reaction string) error
 	Edit(jid, platformID, content string) error
@@ -37,9 +39,10 @@ type Deliverer interface {
 	// Typing toggles the platform "typing…" presence while the agent works the
 	// turn (best-effort; web / no-presence channels are no-ops).
 	Typing(jid string, on bool) error
-	// Document delivers a file at path. The file lives on the shared group
-	// volume both routd and the adapter mount.
-	Document(jid, path, name, caption, replyToID, idempotencyKey string) (platformID string, err error)
+	// Document delivers a file at path, threaded under replyToID/threadID.
+	// The file lives on the shared group volume both routd and the adapter
+	// mount.
+	Document(jid, path, name, caption, replyToID, threadID, idempotencyKey string) (platformID string, err error)
 	// SendVoice delivers a synthesized audio file (Opus/Ogg) as a voice note,
 	// threaded under threadID. routd synthesizes via TTS first (tts.go), then
 	// hands the cached audio path here for the owning adapter to upload.
@@ -497,7 +500,7 @@ func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, "no_channel", "no deliverer configured")
 		return
 	}
-	if _, err := s.deliver.Send(req.JID, req.Text, "", "", ""); err != nil {
+	if _, err := s.deliver.Send(req.JID, req.Text, "", "", "", ""); err != nil {
 		writeErr(w, 502, "delivery_failed", err.Error())
 		return
 	}
