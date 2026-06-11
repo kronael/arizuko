@@ -232,6 +232,12 @@ type StoreFns struct {
 	// in-thread replies instead of posting to the channel root.
 	CurrentTopic func(folder string) string
 
+	// CurrentTurnID returns the active turn's id for `folder`, or "" if none.
+	// recordOutbound stamps it on the bot row so TurnHasBotReply sees the
+	// reply — otherwise recordTurnResult re-delivers the agent's prose result
+	// as a duplicate (e.g. "Replied with …") on top of the real reply.
+	CurrentTurnID func(folder string) string
+
 	// LogExternalCost records one cost_log row for a non-Anthropic LLM call
 	// (oracle/codex/openai). Spec 5/34.
 	LogExternalCost func(folder, provider, model string, inputTok, outputTok, costCents int) error
@@ -626,6 +632,10 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			_ = db.BumpEngagement(jid, topic, folder, time.Now().Add(gated.EngagementTTL))
 		}
 	}
+	turnID := ""
+	if db.CurrentTurnID != nil {
+		turnID = db.CurrentTurnID(folder)
+	}
 	if db.PutMessage != nil {
 		db.PutMessage(core.Message{
 			ID:        core.MsgID("mcp"),
@@ -635,6 +645,7 @@ func recordOutbound(gated GatedFns, db StoreFns, jid, text, platformID, folder s
 			Timestamp: time.Now(),
 			FromMe:    true,
 			BotMsg:    true,
+			TurnID:    turnID,
 			// Store the sent message's own platform id in platform_id (the
 			// contract in store IsBotMessageByID): a later human reply to this
 			// message carries this id in reply_to, and the reply-to-bot →

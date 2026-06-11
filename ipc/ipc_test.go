@@ -183,6 +183,21 @@ func TestSendReply(t *testing.T) {
 	}
 }
 
+// recordOutbound stamps the active turn's id on the bot row so
+// TurnHasBotReply sees the MCP reply — otherwise recordTurnResult re-delivers
+// the agent's prose result as a duplicate on top of the real reply.
+func TestRecordOutboundStampsTurnID(t *testing.T) {
+	var got core.Message
+	db := StoreFns{
+		PutMessage:    func(m core.Message) { got = m },
+		CurrentTurnID: func(string) string { return "turn-xyz" },
+	}
+	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo")
+	if got.TurnID != "turn-xyz" {
+		t.Fatalf("recordOutbound did not stamp turn_id: got %q", got.TurnID)
+	}
+}
+
 func TestRefreshGroups(t *testing.T) {
 	groups := map[string]core.Group{
 		"world/a": {Folder: "world/a"},

@@ -523,18 +523,18 @@ func buildMounts(
 		RO:        true,
 	})
 
+	// Every container gets the world's shared dir at /var/lib/share (writable):
+	// a per-world scratch/handoff space all its groups see. Root groups
+	// (world == "") share the instance-wide groups/share. A `share_mount`
+	// grant with readonly=true downgrades it to RO for that folder.
 	world := worldOf(in.Folder, root)
-	shareRw := grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "false"})
-	shareRo := !shareRw && grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "true"})
-	if shareRw || shareRo {
-		share := filepath.Join(cfg.GroupsDir, world, "share")
-		os.MkdirAll(share, 0o755)
-		m = append(m, volumeMount{
-			Host:      hp(cfg, share),
-			Container: "/var/lib/share",
-			RO:        !shareRw,
-		})
-	}
+	share := filepath.Join(cfg.GroupsDir, world, "share")
+	os.MkdirAll(share, 0o755)
+	m = append(m, volumeMount{
+		Host:      hp(cfg, share),
+		Container: "/var/lib/share",
+		RO:        grants.CheckAction(in.Grants, "share_mount", map[string]string{"readonly": "true"}),
+	})
 
 	claudeDir := filepath.Join(groupDir, ".claude")
 	os.MkdirAll(claudeDir, 0o755)

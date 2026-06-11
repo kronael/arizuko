@@ -559,6 +559,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
+		CurrentTurnID:        func(_ string) string { return t.turnID },
 		// MCP connectors: the discovered catalog + the per-call secret resolver.
 		// ResolveConnectorSecrets reads folder/user secrets, decrypts via
 		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so
