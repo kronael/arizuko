@@ -2634,3 +2634,333 @@ after close). Logged for completeness; the `first`-guard makes it low.
 - **Fix:** gate `handleResult` through the same `callbackClosed` check the other twins use (after confirming it doesn't break the legitimate first-and-only submit_turn-after-return ordering — the comment at turns.go:574 says trailing frames stay valid until run returns, so the gate must allow the first record before run_returned and reject only post-return NEW records).
 - **Status:** open
 - **Fix:**
+
+### HIGH — proxyd stamps a service token as a logged-in user (no Typ check) (2026-06-11, Group B)
+
+`proxyd/main.go:813-816` `tryAuth`: when `AUTHD_URL` is set, ANY ES256 bearer that
+`auth.VerifyHTTP` validates is accepted and stamped into `X-User-*` via
+`setUserHeaders`, with no check that `sub.Typ == "user"`. `auth.Subject.Typ`
+(`auth/es256.go:121`) distinguishes `"user"`/`"service"`/`"downscoped"`, but
+`tryAuth` ignores it. So a `service:<daemon>` token (the kind every adapter/routd/
+runed holds via AUTHD_SERVICE_KEY) presented as a Bearer to proxyd's `requireAuth`
+surface enters `/priv/*` + any non-public proxied route as an authenticated
+END USER, behind proxyd's own `service:proxyd` transit proof — backends then
+trust the stamped `X-User-Sub` as a human caller.
+
+- **Severity:** high
+- **Scope:** identity/trust — proxyd authn ingress (who-are-you)
+- **Affected:** all split instances (proxyd + AUTHD_URL set)
+- **Source:** `proxyd/main.go:808-818` (no Typ gate); `auth/es256.go:119-130` (Typ field exists)
+- **Why (bug-class):** unverified-privilege-class — proxyd's user gate must admit only end-user identity; a service principal re-stamped as a user is a privilege confusion / potential cross-surface reach. Sibling of the "never trust X-User-Sub without a sig check" rule: here the sig is valid but the SUBJECT KIND is wrong.
+- **Fix:** in `tryAuth`, after `VerifyHTTP` succeeds, reject (return nil) when `sub.Typ != "user"` (and `!= "downscoped"` if browser-safe downscoped tokens must pass) before calling `setUserHeaders`.
+- **Status:** open
+- **Fix:**
+
+### HIGH — refresh successor can survive family revocation (insert races revoke) (2026-06-11, Group B)
+
+`authd/server.go:301-330`: the redeem winner `markRefreshUsed` (CAS on `used_at`)
+and the successor INSERT `rotateRefresh` (`store.go:138-155`) are SEPARATE
+statements with no enclosing transaction. `revokeFamily` (`store.go:203-208`)
+flips `revoked_at` only on rows that EXIST at that instant. If a concurrent
+`revokeFamily` (logout, or a losing-race redeem at `server.go:306`) runs in the
+window between `markRefreshUsed` (`server.go:301`) and `rotateRefresh`
+(`server.go:330`), the freshly-inserted successor row escapes revocation → a
+LIVE refresh token + access token survive after the family was supposedly
+revoked. `rotateRefresh` does not check `revoked_at IS NULL` on the family before
+inserting.
+
+- **Severity:** high
+- **Scope:** identity/trust — authd refresh-token family revocation
+- **Affected:** all split instances issuing ES256 refresh tokens
+- **Source:** `authd/server.go:301` (mark used) → `:330` (insert successor); `authd/store.go:138-155` (rotateRefresh, no family-revoked check), `:203-208` (revokeFamily, existing-rows-only)
+- **Why (bug-class):** token-reuse / failed revocation — logout-racing-refresh or double-redeem yields a session that outlives revocation. DISTINCT from the existing "authd refresh consumes the token BEFORE the grants snapshot" entry (that is the spend-before-snapshot ordering; this is the revoke-vs-insert atomicity gap).
+- **Fix:** wrap claim + revoke-detection + successor-insert in one tx (BEGIN IMMEDIATE); make `rotateRefresh` refuse to insert when the family has any `revoked_at IS NOT NULL` row (or include a `WHERE NOT EXISTS(revoked sibling)` guard); on a lost race revoke the family inside the same tx.
+- **Status:** open
+- **Fix:**
+
+### NOTE — Group B: aud-enforcement + spend-before-snapshot already logged; observe_group parent-chain is by-design
+
+Codex Group B also flagged: (a) `aud` not enforced after `VerifyHTTP` across
+authd/proxyd/middleware — ALREADY covered by the open "bearer path does not
+enforce `aud`" entry (extend that, don't dup). (b) refresh spends the token
+before the grants re-snapshot — ALREADY covered by the dormant "authd refresh
+consumes the token BEFORE the grants snapshot" entry. (c) `observe_group`
+tier-2 parent-chain allowance (`auth/policy.go:121-128`) — VERIFIED by-design
+(comment lines 115-117: tier-2 escalation path may observe its parent), NOT a
+bug. (d) suffixed multi-account service principal — VERIFIED non-bug: compose
+always sets `AUTHD_SERVICE_NAME=<base daemon>` (compose_test confirms
+`AUTHD_SERVICE_NAME=slakd` regardless of CHANNEL_NAME), so no `<adapter>-<label>`
+service principal is ever exchanged; multi-account is CHANNEL_NAME source
+routing, not a suffixed principal.
+
+### HIGH — onbod route add/delete authz ignores action + deny (any allow scope grants route control) (2026-06-11, Group C)
+
+`onbod/main.go:1234-1237` `userFolders` selects every `effect='allow'` ACL
+scope for the principal set with NO `action` filter and NO deny (`effect='deny'`)
+handling. `handleDeleteRoute` (`:1284`) and `handleAddRoute` then authorize route
+mutation via `auth.MatchGroups(folders, target)` against that raw allow-list. So
+a user holding ANY allow ACL on a folder (e.g. `interact`, not `admin`) can
+add/delete that folder's routes from `/onboard`, and an explicit `deny` row is
+silently ignored.
+
+- **Severity:** high
+- **Scope:** tenancy/authz — onbod route mutation surface
+- **Affected:** any instance exposing /onboard route management to non-admin users
+- **Source:** `onbod/main.go:1234-1237` (userFolders, no action filter, no deny), `:1284` (handleDeleteRoute MatchGroups), handleAddRoute counterpart
+- **Why (bug-class):** authz under-restriction / deny-not-applied — route control is an admin action; the gate must require effective `admin` on the TARGET with deny-wins, not "any allow scope". Routing is the reachability primitive — wrong routes = cross-folder message delivery.
+- **Fix:** authorize route mutation through real `auth.Authorize(..., "admin", target, ...)` (deny-aware), or at minimum filter `userFolders` to `action='admin'` AND subtract `effect='deny'` rows before MatchGroups.
+- **Status:** open
+- **Fix:**
+
+### HIGH — subgroup invite burned before group exists; bound to browser cookie not consuming sub (2026-06-11, Group C)
+
+For a SUBGROUP invite (target ends `/`), `onbod/main.go:986` consumes it
+immediately (`ConsumeInviteNoGrant`) but the only continuation state is the
+`pending_target` browser cookie (`:1024-1030`, MaxAge 600s). `handleCreateWorld`
+(`:664`,`:728`) then grants admin to whatever `userSub` is logged into the
+browser carrying that cookie — it never rebinds to the sub the invite was
+consumed for. Two failures: (a) **hijack** — if account B logs into the same
+browser within 10 min, B's create-world reads the cookie and receives the
+subgroup + admin ACL; (b) **silent lockout** — if the cookie is lost/expires
+before create-world, the single-use invite is burned with no group and no grant.
+The NON-subgroup path (`:1000-1019`) has the careful consume-rollback the FIXED
+"invite consume lost cross-DB atomicity" entry added; the SUBGROUP path has no
+equivalent.
+
+- **Severity:** high
+- **Scope:** tenancy — onbod subgroup invite redemption lifecycle
+- **Affected:** any instance issuing subgroup (trailing-slash) invites
+- **Source:** `onbod/main.go:986` (consume), `:1024-1030` (cookie), `:664`/`:728` (create-world grants to browser sub)
+- **Why (bug-class):** invite-burned-without-grant + cross-user transfer — the same atomicity class as the FIXED non-subgroup entry, but here the deferred create-world breaks the "consume binds to the redeeming sub" invariant via a browser cookie.
+- **Fix:** persist a server-side pending-redemption row keyed by (token, consuming userSub); finalize/consume ONLY on successful world creation by THAT sub; make it resumable so a lost cookie doesn't burn the invite. At minimum bind the continuation to the consuming sub, not the browser.
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — onbod admitFromQueue day-window uses LOCAL time stamped as UTC (2026-06-11, Group C)
+
+`onbod/main.go:865-866`: `admitted_at` rows are written in UTC
+(`time.Now().UTC()` at `:811`), but `todayStart`/`tomorrowStart` are derived from
+`time.Now().Format("2006-01-02")` (LOCAL date) with a literal `Z` appended —
+claiming UTC while holding a local date. On a non-UTC host the daily-cap window
+covers the wrong UTC day. The comment at `:863` claims the day-range avoids
+timezone drift; the code introduces it. This is a NEW TZ bug inside the daily-cap
+FIX (migration 0071), distinct from the already-resolved cross-day-bypass.
+
+- **Severity:** medium
+- **Scope:** tenancy — onbod gate daily-cap counting
+- **Affected:** instances on non-UTC hosts, around the local/UTC day boundary
+- **Source:** `onbod/main.go:810-811` (UTC stamp) vs `:864-866` (local-date window + literal Z)
+- **Why (bug-class):** TZ-drift miscount — over-admits or stalls a gate near the boundary; same family as the resolved `timed` non-UTC next_run bug (5f879893).
+- **Fix:** `nowUTC := time.Now().UTC()`; derive `now`, `todayStart`, `tomorrowStart` all from `nowUTC` (`nowUTC.Format("2006-01-02")+"T00:00:00Z"`).
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — create_world commits an unreachable folder when the user has no linked JID (2026-06-11, Group C)
+
+`onbod/main.go:664` `handleCreateWorld` calls `createWorldTx(db, folder, ...,
+membershipJIDs(db, userSub))` and never rejects an empty JID list.
+`createWorldTx` (`:707`) inserts the group row + admin ACL unconditionally but
+the per-JID route loop (`:731-734`) runs zero times when `jids` is empty. Result:
+a committed group + admin grant with NO routes → the folder is unreachable from
+any chat until a separate later JID-link flow runs.
+
+- **Severity:** medium
+- **Scope:** tenancy — group creation reachability
+- **Affected:** users who accept an invite before linking any chat account
+- **Source:** `onbod/main.go:664` (no empty-jids guard), `:731-734` (route loop skipped when empty)
+- **Why (bug-class):** unreachable-orphan group — sibling of the existing "register_group manual path makes unreachable orphans" gated-parity entry (group row + grant but no route).
+- **Fix:** reject create-world when `membershipJIDs(...)` is empty (tell the user to link a chat first), OR persist a deferred route-claim that auto-attaches the first JID linked afterward.
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — folder secret resolution: tenant folder named "root" collides with global catch-all (2026-06-11, Group C)
+
+`store/secrets.go:355-368` `folderAncestors` always appends the literal
+`rootFolder` ("root") as the global secret catch-all scope, and `:359`
+short-circuits a folder literally named `root` to that same scope.
+`FolderSecretsResolved` (`:373`) walks ancestors + "root" with deepest-wins. So a
+tenant workspace named `root` shares its folder-scoped secrets with the GLOBAL
+fallback chain inherited by every other folder, and global secrets are
+indistinguishable from that tenant's own.
+
+- **Severity:** medium (narrow: needs a folder literally named `root`)
+- **Scope:** storage — folder-secret scope sentinel
+- **Affected:** any deployment that creates a folder named `root`
+- **Source:** `store/secrets.go:355-368` (rootFolder sentinel == valid folder name), `:373-` (resolution chain)
+- **Why (bug-class):** sentinel/data-domain collision — the global fallback scope must be a value OUTSIDE the folder grammar; "root" is a valid folder, so cross-folder secret leak.
+- **Fix:** reserve `root` as an invalid folder segment at group-creation validation, OR switch the global sentinel to an impossible value (e.g. `""` or `"**"`-style) outside the folder grammar.
+- **Status:** open
+- **Fix:**
+
+### NOTE — Group C: tier-1 "world admin" over siblings is by-design
+
+Codex flagged tier-1 `acme/team1` managing grants/invites/ACL on sibling
+`acme/team2` (`auth/policy.go:130-145` via `isInWorld`) as a cross-folder leak.
+VERIFIED by-design: `Resolve` makes a one-slash folder tier 1 = world admin, and
+the comment ("can only manage grants in own world") states the intent. The
+"world" is a deliberate authz scope (spec 4/9). Not logging as a bug; if the
+operator wants strict own-subtree-only for tier-1, that's a design change, not a
+fix. (Codex's secondary sub-claim — the MCP gate authz being against caller
+folder not target scope — would warrant a separate look IF world-admin is ever
+narrowed.)
+
+### HIGH — slakd ACKs Slack 200 before delivering to routd; transient failure loses inbound (2026-06-11, Group D)
+
+`slakd/bot.go:391-394`: the Events API handler writes `200 OK` (`:393`) BEFORE
+`b.dispatch` → `rc.SendMessage` posts the inbound to routd (`/v1/messages`). The
+comment ("ack first; Slack retries on non-2xx, which we don't want") makes this
+deliberate, but there is NO local durable retry queue — so any transient
+routd/auth/network failure during dispatch permanently loses the message
+(`rc.SendMessage` error is only logged). Same for reactions, joins, pane-open.
+
+- **Severity:** high
+- **Scope:** adapters — slakd inbound durability
+- **Affected:** marinade (Slack), any Slack instance during a routd blip
+- **Source:** `slakd/bot.go:391-394` (ACK before dispatch); `rc.SendMessage` error sites in dispatch
+- **Why (bug-class):** silent inbound loss — likely the root of the CC4 "adapter 502 cluster" on marinade. The adapter→routd hop has no durability and the platform won't replay after a 2xx.
+- **Fix:** keep a small durable local queue (or in-memory retry with backoff) for failed `rc.SendMessage`, OR defer the 2xx until after successful delivery for verbs that aren't expensive to reprocess. Slack's 3s ACK budget means the durable-queue option is safer than blocking the ACK.
+- **Status:** open
+- **Fix:**
+
+### HIGH — outbound retry has no adapter-visible dedup key → double-send on retry (2026-06-11, Group D)
+
+`chanreg/httpchan.go:129` puts `turn_id` into the `/send` body, but the
+adapter-side decode struct `chanlib.SendRequest` (`chanlib/handler.go:17-22`) has
+ONLY `chat_jid`/`content`/`reply_to`/`thread_id` — no `turn_id`, no stable
+message_id field. So adapters never receive a dedup key. On a retry (the outbox
+re-`Send` at `httpchan.go:467`, or chanlib/retry retrying a POST), the adapter
+posts a SECOND platform message. The `loop.go:329` comment claims "the adapter
+dedups on the row's stable message_id, so a redelivered row never creates a
+second platform message" — but no such id is in the wire contract.
+
+- **Severity:** high
+- **Scope:** adapters — outbound at-least-once dedup contract
+- **Affected:** all adapters; triggers when a send 5xx/times-out-but-actually-delivered then retries
+- **Source:** `chanreg/httpchan.go:121-130` (turn_id sent) vs `chanlib/handler.go:17-22` (SendRequest can't decode it); retry at `httpchan.go:467`; the false guarantee at `routd/loop.go:329`
+- **Why (bug-class):** double-send on retry — the at-least-once outbound path needs a per-message idempotency key the adapter honors; the claimed guarantee is unimplemented.
+- **Fix:** add `turn_id` (or a stable per-message id) to `chanlib.SendRequest` and have each adapter dedup on it (skip if already sent), OR have routd send a stable `message_id` and adapters cache recent ids. Then the loop.go comment becomes true.
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — document/file replies always drop the thread (no thread param in Document path) (2026-06-11, Group D)
+
+`routd/deliver.go:131`: `chanDeliverer.Document` calls
+`ch.SendFile(jid, path, name, caption, replyToID, "")` with a HARDCODED empty
+threadID. The `Deliverer.Document` interface (`routd/server.go:42`) has no
+thread/topic parameter at all, even though `handleDocument` (`routd/turns.go:296`)
+knows `tc.Topic`. So an agent file/document reply from a threaded turn lands at
+the channel ROOT, not in the thread (Slack/Telegram/Discord).
+
+- **Severity:** medium
+- **Scope:** adapters — outbound file threading
+- **Affected:** any threaded turn that delivers a document/file
+- **Source:** `routd/deliver.go:123-131` (empty threadID), `routd/server.go:42` (interface lacks thread), `routd/turns.go:296` (Topic known but not passed)
+- **Why (bug-class):** thread leak — same family as the FIXED "Explicit MCP reply posts to channel root inside a thread" (ipc.go), but the file/document path was never threaded.
+- **Fix:** add a threadID parameter to `Deliverer.Document` (and `handleDocument` passes `tc.Topic`), forwarding it to `SendFile`'s existing threadID arg.
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — slakd pane_open synthetic inbound rejected by routd empty-content gate (2026-06-11, Group D)
+
+`slakd/bot.go:667-678` emits a synthetic `assistant_thread_started` inbound with
+`Verb="pane_open"` and NO `Content` (comment: "Content empty"). routd ingress
+(`routd/server.go:387-389`) rejects any POST with `m.Content == ""` as `400
+missing_field`. So every Slack assistant-pane open is silently dropped and never
+enters routing.
+
+- **Severity:** medium
+- **Scope:** adapters — slakd pane_open verb vs routd ingress contract
+- **Affected:** Slack instances using the assistant pane
+- **Source:** `slakd/bot.go:667-678` (empty-content pane_open) vs `routd/server.go:387-389` (non-empty content gate)
+- **Why (bug-class):** ingress contract mismatch — a non-message verb carries no content but the gate assumes every inbound is a message. The synthetic-inbound and the ingress validator drifted.
+- **Fix:** relax the content gate to require content only for message-bearing verbs (allow empty content when `verb` is a control verb like pane_open), OR have slakd send sentinel content for pane_open.
+- **Status:** open
+- **Fix:**
+
+### LOW — emaid /health stays "ok" when poll-mode fetch errors after connect (2026-06-11, Group D)
+
+`emaid/imap.go` poll loop: `poll()` stores `connected=true` after IMAP
+login/select, then `return p.fetchUnseen(c, rc)`. If `fetchUnseen` errors, the
+`connected` atomic is NOT cleared — only a hard connect failure clears it. So in
+poll-mode (IDLE-less servers) a fetch/search failure leaves `GET /health`
+reporting `200 {"status":"ok"}` until the stale timer expires.
+
+- **Severity:** low
+- **Scope:** adapters — emaid health honesty in poll fallback
+- **Affected:** emaid against IMAP servers without IDLE, on fetch errors
+- **Source:** `emaid/imap.go` poll() (`connected.Store(true)` before fetchUnseen; no clear on fetch error)
+- **Why (bug-class):** /health lies after platform-side trouble — same family as the FIXED teled /health-lies (atomic flag not set false). emaid's poll fallback has the residual.
+- **Fix:** clear `connected` (Store(false)) on any post-connect poll error before returning it from poll().
+- **Status:** open
+- **Fix:**
+
+### NOTE — Group D: outbox starvation already logged; broad Discord-thread + inbound-durability class flagged
+
+Codex Group D also flagged: (a) single adapter-wide outbox cap → one hot/failing
+JID drops cross-JID sends — ALREADY covered by the open "one dead jid degrades a
+whole channel's delivery" head-of-line entry (the per-jid sharding fix subsumes
+it). (b) discd + mastd log-and-drop inbound on `rc.SendMessage` failure (no
+durable retry) — same inbound-loss class as the slakd HIGH above; applies to all
+websocket/stream adapters (ephemeral events, no platform replay). (c) Discord
+THREAD normalization gaps: thread reactions keep `chat_jid=thread_channel`
+instead of `parent_jid + topic=thread_id` (`discd/bot.go` reaction path vs the
+message path), and outbound mutations (Like/Delete/Quote/Edit/Pin) + SendFile use
+`chanID(req.ChatJID)` / drop reply_to, so they target the parent channel and
+mis-thread — a cohesive "Discord thread identity not normalized end-to-end"
+cluster worth one focused pass on discd if Discord threads are in active use
+(sloth). (d) voice send (`SendVoiceCtx`) returns on error without enqueueing to
+the outbox, unlike text/file — transient failure drops voice (low). Logged
+compactly rather than as separate entries; verify discd thread behavior live
+before fixing.
+
+### HIGH — dashd route PATCH authorizes the submitted target, not the existing row owner (cross-folder hijack) (2026-06-11, Group E)
+
+`dashd/routes_admin.go:193-196` `handleRouteUpdate` resolves `folder` from the
+SUBMITTED `body.Target` and gates `requireAdmin` on THAT folder, then
+`UpdateRouteRow(id, ...)` overwrites the row by id. `handleRouteDelete`
+(`:246-258`) does it correctly: it SELECTs the existing row's target first and
+gates admin on the CURRENT owner. So a caller with admin on folder B can guess a
+sequential route ID owned by folder A, PATCH it with `body.Target=B` → passes
+`requireAdmin(B)` → A's route is overwritten (hijacked or effectively deleted).
+
+- **Severity:** high
+- **Scope:** web surface — dashd route admin authz (cross-folder containment)
+- **Affected:** any instance exposing /dash/routes to multiple folder admins
+- **Source:** `dashd/routes_admin.go:193-196` (gates on submitted target) vs `:246-258` (DELETE gates on existing row — the correct pattern)
+- **Why (bug-class):** cross-folder access — directly violates CLAUDE.md "a handler that resolves a jid/folder/run_id param MUST bind it to the caller's folder". A param-resolved authz must bind to the EXISTING resource owner, not a caller-supplied value.
+- **Fix:** in handleRouteUpdate, `SELECT target FROM routes WHERE id` first; require admin on the CURRENT owner's folder (and, when the target changes, ALSO on the destination folder) — mirror handleRouteDelete.
+- **Status:** open
+- **Fix:**
+
+### HIGH — dashd /dash/me/secrets writes the plaintext secret value into the audit log (2026-06-11, Group E)
+
+`dashd/me_secrets.go:157-159` (create) and `:215-217` (update) set
+`ParamsSummary["value"] = body.Value` on a `CategorySecret` audit event. The
+secret value is the thing the secrets store exists to protect; copying it into
+`audit_log` (SQLite-canonical forensic store, and fanned out to any configured
+OTLP collector via `obs/`) leaks every user secret in cleartext to whoever can
+read audit storage or the collector.
+
+- **Severity:** high
+- **Scope:** web surface / secrets — dashd audit boundary
+- **Affected:** any instance where users set secrets via /dash/me/secrets (especially with OTEL_EXPORTER_OTLP_ENDPOINT set → secret leaves the host)
+- **Source:** `dashd/me_secrets.go:157-159` (create), `:215-217` (update)
+- **Why (bug-class):** secret material crossing the audit boundary — `audit_log` and OTLP are observability/forensics surfaces, never a secret sink. Sibling concern to "secrets stay in the secrets store".
+- **Fix:** never put `body.Value` in `ParamsSummary`; emit only key + scope (and optionally `len(body.Value)` or a non-reversible hash). Both call sites.
+- **Status:** open
+- **Fix:**
+
+### NOTE — Group E: webd /round_done key + /api/groups leak
+
+Codex Group E also flagged: (a) `webd/channel.go:58 handleRoundDone` builds
+`jid := "web:" + req.Folder` and the SSE subscriber keys on the chat JID folder
+→ claimed routed-submission UI hang. VERIFIED LIKELY-FIXED: routd's publisher
+sends the CHAT folder, not the group folder (`routd/turns.go:639`
+`publishRoundDone(strings.TrimPrefix(tc.ChatJID,"web:"), turnID)` → `RoundDone`
+→ webd rebuilds `web:`+chatFolder = the correct chat JID), per the 1a6c7c8 fix.
+So webd's reconstruction matches. The REAL residual SSE gap is the OutcomeError
+path NOT calling publishRoundDone at all — logged in the Group A finding
+"errored run never publishes round_done". (b) `GET /api/groups` returns
+`AllGroups()` to any signed-in user unfiltered by grant — ALREADY covered by the
+open 10-sub-hunt entry "webd /api/groups + /x/groups + dashd read handlers leak
+all folder names". davd/vited/ttsd: no new confirmed bug surfaced.
