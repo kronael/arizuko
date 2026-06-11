@@ -177,6 +177,17 @@ func TestDemangleMentions(t *testing.T) {
 	}
 }
 
+// The bot's own mention resolves to @AssistantName without users.info (which
+// needs the users:read scope the token may lack), matching discd's self-mention
+// rewrite. Other ids still go through userName.
+func TestDemangleMentions_BotSelf(t *testing.T) {
+	b := &bot{cfg: config{AssistantName: "atlas"}}
+	b.botUserID.Store("UBOT")
+	if got := b.demangleMentions("<@UBOT> ping"); got != "@atlas ping" {
+		t.Errorf("self mention: got %q, want %q", got, "@atlas ping")
+	}
+}
+
 // The inbound path delivers DEMANGLED content to routd.
 func TestInbound_MentionDemangled(t *testing.T) {
 	mock := newSlackMock()

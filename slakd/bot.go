@@ -824,10 +824,11 @@ func chatNameFrom(c *slackConvInfo) string {
 var slackMentionRe = regexp.MustCompile(`<([@#])([UWCG][A-Z0-9]+)(?:\|([^>]*))?>`)
 
 // demangleMentions rewrites raw Slack mention tokens to readable names before
-// inbound delivery, so the agent never echoes ids like "@U0B70FBE7CG": user
+// inbound delivery, so the agent never echoes ids like "@U0B70FBE7CG": the
+// bot's own mention becomes @AssistantName (no users:read needed), other user
 // tokens become @name (inline label, else users.info via userName, which
-// falls back to the id), channel tokens become #name (label-only — an
-// unlabeled channel token stays verbatim).
+// falls back to the id when the token lacks users:read), channel tokens become
+// #name (label-only — an unlabeled channel token stays verbatim).
 func (b *bot) demangleMentions(text string) string {
 	return slackMentionRe.ReplaceAllStringFunc(text, func(tok string) string {
 		m := slackMentionRe.FindStringSubmatch(tok)
@@ -840,6 +841,9 @@ func (b *bot) demangleMentions(text string) string {
 		}
 		if label != "" {
 			return "@" + label
+		}
+		if name := b.cfg.AssistantName; name != "" && id == b.BotUserID() {
+			return "@" + name
 		}
 		return "@" + b.userName(id)
 	})
