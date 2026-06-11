@@ -121,10 +121,10 @@ overview reads.
 ## Auth
 
 Per `6/1`: proxyd `auth: "user"` transit on `/dash/timed/`, daemon-side
-`auth/middleware.go` `RequireSigned` + `auth/dashauth.go` operator gate,
-CSRF on writes. Onward calls to routd reuse timed's `service:timed`
-bearer; routd's `tasks:read`/`tasks:write` scope gate applies
-([`routd/server.go:752`](../../routd/server.go) `authed`). Caveat,
+`auth.ProxydTransit` verify (then trust the stamped `X-User-*`) +
+`auth/dashauth.go` operator gate, CSRF on writes. Onward calls to routd
+reuse timed's `service:timed` bearer; routd's `tasks:read`/`tasks:write`
+scope gate applies on its authz'd `/v1/tasks/*` handlers. Caveat,
 accepted: routd audit rows for dashboard writes attribute to
 `service:timed`, not the operator — the operator decision is recorded
 at timed's dash gate. Forwarding operator identity end-to-end is future
@@ -149,8 +149,9 @@ no run-log retention management; no second fire path.
 ## Acceptance
 
 - `/dash/timed/` shows last-tick time/outcome and per-status counts
-  matching `SELECT status, COUNT(*)` on routd.db; timed itself opened
-  no DB (split mode).
+  matching `SELECT status, COUNT(*)` on routd.db; timed opened no DB
+  for task data — all task rows arrive via routd `/v1/tasks*`; only
+  loop health is timed-local (in-memory).
 - An `active` task with past `next_run` older than 2 ticks renders the
   lag warning; a row stuck in `firing` renders the stuck flag.
 - Pause from the dashboard → row `status='paused'`, task skipped by the

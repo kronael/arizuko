@@ -11,8 +11,8 @@ small surfaces, one spec. Where a surface is read-only it is read-only
 
 ## Purpose
 
-Cockpit coverage for the web edge: webd's chat-link tokens, web routes
-and SSE presence; davd's file-share liveness; ttsd's backend health.
+Cockpit coverage for the web edge: webd's registration health and SSE
+presence; davd's file-share liveness; ttsd's backend health.
 
 ---
 
@@ -20,11 +20,16 @@ and SSE presence; davd's file-share liveness; ttsd's backend health.
 
 ### Pages
 
-| Page                | Content                                      |
-| ------------------- | -------------------------------------------- |
-| `/dash/webd/`       | overview: router registration, SSE hub usage |
-| `/dash/webd/tokens` | route tokens (public chat links)             |
-| `/dash/webd/routes` | `web_routes` access rules                    |
+| Page          | Content                                      |
+| ------------- | -------------------------------------------- |
+| `/dash/webd/` | overview: router registration, SSE hub usage |
+
+Route tokens and `web_routes` are **routd-owned** tables: routd serves
+`GET /v1/route_tokens?owner_folder=` / `DELETE /v1/route_tokens/{jid}`
+([`routd/tokens_http.go`](../../routd/tokens_http.go)) and
+`/v1/web_routes` ([`routd/web_routes_http.go`](../../routd/web_routes_http.go)),
+and they render on routd's routes page ([`6/3`](3-routd-dashboard.md)).
+webd's dash does not host them.
 
 ### Show
 
@@ -34,40 +39,19 @@ and SSE presence; davd's file-share liveness; ttsd's backend health.
   (`maxHubKeys=10000`, `maxSubsPerKey=256`,
   [`webd/hub.go:11-12`](../../webd/hub.go)). Hub state is memory-only —
   exactly the live-state argument of `6/1`.
-- **Tokens** — `route_tokens` rows
-  (`store/migrations/0059-route-tokens.sql`): `jid`, kind
-  (`RouteTokenKind`, [`store/route_tokens.go:55`](../../store/route_tokens.go)),
-  `owner_folder`, `created_at`. Hash-stored; the raw token is never
-  recoverable or displayed — the page shows that a link exists, not the
-  link.
-- **Routes** — `web_routes` rows
-  (`store/migrations/0045-web-routes.sql`): `path_prefix`, `access`
-  (`public|auth|deny|redirect`), `redirect_to`, `folder`.
 
 ### Control
 
-| Affordance                | Verb                                                                                                                                        | Danger                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| revoke token              | `DELETE /v1/route-tokens/{jid}` (to add; store verb exists: `RevokeRouteToken`, [`store/route_tokens.go:150`](../../store/route_tokens.go)) | `.btn-danger` — a live public chat link dies immediately                     |
-| add/edit/delete web route | `/v1/web-routes` CRUD (planned in [`webd/README.md`](../../webd/README.md) §Surface; not shipped)                                           | `.btn-danger` on delete and on `access=deny` (can lock a folder's pages out) |
-
-- The routes page ships **read-only** until `/v1/web-routes` lands —
-  the binding is declared now so the page grows verbs without a
-  redesign.
-- **No token minting** from the dashboard: creation stays with
-  `/me/chats/new` and the agent tools — one creation flow, the
-  dashboard observes and revokes.
+**None.** Token revocation and web-route edits live on routd's routes
+page (`6/3`); webd holds no mutable runtime state of its own. No token
+minting anywhere in the cockpit: creation stays with `/me/chats/new`
+and the agent tools — one creation flow.
 
 ### Required `/v1` work (webd)
 
-- `GET /v1/route-tokens?folder=` — list (wraps `ListRouteTokens`,
-  [`store/route_tokens.go:124`](../../store/route_tokens.go))
-- `DELETE /v1/route-tokens/{jid}` — revoke (wraps `RevokeRouteToken`)
 - `GET /v1/hub/status` — snapshot of hub keys + per-key subscriber
   counts + caps. Exposed (not just in-process) so MCP/REST/HTML stay
   one handler set (`specs/5/5`).
-- `/v1/web-routes` CRUD — already owed by `specs/5/5` (restated, not
-  new scope).
 
 ---
 
@@ -140,19 +124,15 @@ last_error_at}` (to add; today `/health` returns only
 ## Auth
 
 Per `6/1` for webd and ttsd: proxyd `auth: "user"` transit +
-daemon-side `RequireSigned` + `auth/dashauth.go` operator gate, CSRF on
-writes. webd already verifies proxyd-signed headers
-(`PROXYD_HMAC_SECRET`); ttsd adds the same middleware with the dash
-mount (its TTS endpoints stay unauthenticated behind proxyd as today).
-davd: nothing to gate (no namespace).
+daemon-side `auth.ProxydTransit` verify of the `service:proxyd` bearer
+(then trust the stamped `X-User-*`) + `auth/dashauth.go` operator gate,
+CSRF on writes. Both mount it with the dash handlers (ttsd's TTS
+endpoints stay unauthenticated behind proxyd as today). davd: nothing
+to gate (no namespace).
 
 ## HTMX fragments
 
 - `GET /dash/webd/x/overview` — registration + hub strip (poll 10s)
-- `GET /dash/webd/x/tokens?folder=` — token table body
-- `GET /dash/webd/x/routes` — web-routes table body
-- `POST /dash/webd/x/tokens/{jid}/revoke` — revoke form, returns
-  refreshed table
 - `GET /dash/ttsd/x/status` — probe strip (poll 15s)
 - `GET /dash/ttsd/x/voices` — voice list (load once)
 
@@ -168,11 +148,8 @@ operator page; use the agent); no SSE live-tail of hub events.
 
 - `/dash/webd/` shows hub key/subscriber counts that move when a
   `/chat/<token>/sse` stream opens and closes.
-- Revoking a token from the dashboard 404s the corresponding
-  `/chat/<token>/` page immediately; the raw token is never rendered.
-- The web-routes page lists `web_routes` rows read via webd's own
-  handlers (no new DB path) and carries no write forms until
-  `/v1/web-routes` ships.
+- No `/dash/webd/tokens` or `/dash/webd/routes` page exists; route
+  tokens and web routes render on routd's routes page (`6/3`).
 - Hub tile for davd: green when dufs serves `GET /` 200, `err` when
   the container is down — with no `/dash/davd/` route registered.
 - `/dash/ttsd/` shows backend URL, latency, and last error; killing

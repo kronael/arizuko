@@ -134,9 +134,10 @@ dashboard-only API (`6/1`).
 
 ## 6. Auth
 
-Per `6/1` exactly: proxyd transit gate (`auth:"user"`) +
-`RequireSigned` + `auth/dashauth.go` operator gate + same-origin CSRF
-on the kill/stop writes. No per-page exceptions. The `/v1` additions
+Per `6/1` exactly: proxyd transit gate (`auth:"user"`) → daemon-side
+`auth.ProxydTransit` verify of the `service:proxyd` bearer, then trust
+the stamped `X-User-*` → `auth/dashauth.go` operator gate + same-origin
+CSRF on the kill/stop writes. No per-page exceptions. The `/v1` additions
 above keep runed's existing bearer+scope gate (`authz`,
 [`runed/server.go:50`](../../runed/server.go)) — the dashboard is a
 third face on the same handlers, not a bypass.

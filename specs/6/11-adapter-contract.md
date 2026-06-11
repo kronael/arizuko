@@ -123,29 +123,32 @@ Shared additions, implemented once in chanlib (TS adapters mirror):
 - dashboard mount — chanlib serves `/dash/<adapter>/` + partials from
   the same mux, behind the dash gate.
 
-These verbs are adapter-local REST for operators; adapters serve no
-MCP surface, so no MCP face is added (the platform's MCP face is
-routd's — `specs/5/5` uniformity applies to resource daemons, not
-adapter control verbs).
+These verbs ARE the adapter's daemon-local `/v1` face — there is no
+dashboard API separate from `/v1`. Adapters serve no MCP surface, so
+no MCP face is added (the platform's MCP face is routd's).
 
 ## Auth
 
 Per [`6/1`](1-cockpit-index.md): proxyd `auth: "user"` transit +
-daemon-side `RequireSigned` + `auth/dashauth.go` operator gate, CSRF
-on writes. Each adapter ships its own `[[proxyd_route]]` for
-`/dash/<adapter>/` in `template/services/<adapter>.toml`.
+daemon-side `auth.ProxydTransit` verify of the `service:proxyd` bearer
+(then trust the stamped `X-User-*`) + `auth/dashauth.go` operator
+gate, CSRF on writes. Each adapter ships its own `[[proxyd_route]]`
+for `/dash/<adapter>/` in `template/services/<adapter>.toml`.
 
 Two callers, one function: the existing `/v1` verb routes keep
 `chanlib.Auth` (session-token bearer, called by routd); the dashboard
 buttons post to dash-gated partial routes that invoke the **same
 function** in-process. One implementation per control, two auth faces.
 
-**TS adapters (whapd, twitd)** re-implement the gate: verify the
-proxyd-signed `X-User-Sub`/`X-User-Groups`/`X-User-Sig` headers +
-operator check + same-origin CSRF, equivalent to `auth/dashauth.go`.
-Theme: the hub.css content is vendored from `theme/` into the TS
-images at build time — one source in `theme/`, copied by the image
-build, never hand-edited downstream.
+**TS adapters (whapd, twitd)** have no operator dash gate today —
+their existing adapter API verifies only routd SERVICE tokens
+(`whapd/src/auth.ts`, `twitd/src/auth.ts`). The gate is **new work**:
+re-implement the `auth.ProxydTransit` check in TS (verify the
+`service:proxyd` bearer, then trust the stamped
+`X-User-Sub`/`X-User-Groups`) + operator check + same-origin CSRF,
+equivalent to `auth/dashauth.go`. Theme: the hub.css content is
+vendored from `theme/` into the TS images at build time — one source
+in `theme/`, copied by the image build, never hand-edited downstream.
 
 ## HTMX fragments
 

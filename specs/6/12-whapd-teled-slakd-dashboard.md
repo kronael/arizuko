@@ -42,8 +42,10 @@ Control:
 - No `reconnect` / `auth/refresh` — Baileys reconnection is internal;
   the only meaningful recovery actions are re-pair and reset.
 
-TS: whapd implements the gate + vendored theme per `6/11` "TS
-adapters".
+TS: the dash gate is **new work** for whapd — today `whapd/src/auth.ts`
+verifies only routd service tokens. Re-implement the
+`auth.ProxydTransit` check + CSRF in TS and vendor hub.css from
+`theme/` at image build, per `6/11` "TS adapters".
 
 ## teled deltas
 
@@ -80,7 +82,8 @@ Control:
 
 - **Refresh auth** — contract `POST /v1/auth/refresh`: run `authTest`
   now, flip `connected`, reset the watchdog fail counter on success.
-  New verb wrapping the existing probe.
+  The verb does not exist today (to-build, Required `/v1` work below);
+  it will wrap the in-process `authTest` probe.
 - No `reconnect`: Events API is push; slakd holds no connection to
   re-establish. No session reset: token lives in env.
 

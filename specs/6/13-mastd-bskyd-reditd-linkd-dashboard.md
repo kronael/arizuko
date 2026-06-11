@@ -47,9 +47,11 @@ refresh-auth already covers it).
 
 Show:
 
-- Cursor table (extra section): per-source cursors from `cursors.json`
-  — `inbox` + one `sr:<subreddit>` row each, with the configured
-  subreddit list (env-fixed; changing it is a restart, not a control).
+- Cursor table (extra section): per-source cursor state surfaced via
+  reditd's `/v1/status` (Required work below — never a direct
+  `cursors.json` read from a dash handler, `6/1` read-path) — `inbox`
+  - one `sr:<subreddit>` row each, with the configured subreddit list
+    (env-fixed; changing it is a restart, not a control).
 - Last successful poll time vs the 15m `pollStaleAfter` window (this
   IS `isConnected()` for reditd — render the same computation, don't
   re-derive).
@@ -87,7 +89,7 @@ Beyond the shared chanlib work in `6/11`:
 | `POST /v1/auth/refresh`              | reditd               | `refreshToken`                              |
 | `POST /v1/reconnect`                 | linkd                | immediate `pollOnce`                        |
 | `POST /v1/auth/refresh`              | linkd                | `refreshAccessToken`                        |
-| cursors + subreddits in `/v1/status` | reditd               | `cursors.json` map + configured sources     |
+| cursors + subreddits in `/v1/status` | reditd               | in-memory cursor map + configured sources   |
 | token expiry in `/v1/status`         | reditd, linkd, bskyd | in-memory `expiresAt` / session             |
 
 ## Auth / HTMX / non-goals
@@ -105,7 +107,8 @@ posts; operators read routd).
 - Contract acceptance (`6/11`) passes for all four.
 - mastd: reconnect from the page redials the stream within one backoff
   cycle; status returns to `ok` on the next inbound.
-- reditd: cursor table matches `cursors.json` on disk; reconnect
+- reditd: cursor table matches the cursor state `/v1/status` reports
+  (the dash handler never opens `cursors.json`); reconnect
   causes a poll visible as an updated last-poll time; a 429 in
   progress shows the Retry-After countdown.
 - bskyd/linkd: auth-refresh updates token expiry on the page; a

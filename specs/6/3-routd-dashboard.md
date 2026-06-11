@@ -94,7 +94,8 @@ redelivers every 30s and fails rows after 24h
 **routes** — `GET /v1/routes` rows (seq, match, target, observe
 windows — `apiv1.Route`,
 [`routd/api/v1/types.go:206`](../../routd/api/v1/types.go)),
-`GET /v1/web_routes`, `GET /v1/route_tokens` (never the raw token).
+`GET /v1/web_routes`, `GET /v1/route_tokens?owner_folder=` (never the
+raw token).
 
 **cost** — per-folder today-spend vs cap (`SpendTodayFolder` /
 `FolderCap`, [`routd/db.go:925`](../../routd/db.go),
@@ -162,9 +163,10 @@ dashboard (`6/1`: no dashboard-only API).
 
 ## 6. Auth
 
-Per `6/1` exactly: proxyd transit gate (`auth:"user"`) +
-`RequireSigned` + `auth/dashauth.go` operator gate + same-origin CSRF
-on writes. No per-page exceptions — all pages operator-only.
+Per `6/1` exactly: proxyd transit gate (`auth:"user"`) → daemon-side
+`auth.ProxydTransit` verify of the `service:proxyd` bearer, then trust
+the stamped `X-User-*` → `auth/dashauth.go` operator gate + same-origin
+CSRF on writes. No per-page exceptions — all pages operator-only.
 
 ## 7. HTMX fragments
 

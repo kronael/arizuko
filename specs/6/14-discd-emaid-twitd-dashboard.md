@@ -43,9 +43,10 @@ Show:
 - SMTP is per-message dial (no persistent link); last outbound comes
   from the contract's shared `lastOutboundAt`, which doubles as the
   SMTP health signal.
-- Thread store: row counts of `email_threads` / `email_msg_ids` from
-  `emaid.db` (emaid owns this DB; reading it in-process is the
-  owning-daemon read path, not a cross-daemon DB reach).
+- Thread store: row counts of `email_threads` / `email_msg_ids`,
+  surfaced via emaid's `/v1/status` (Required work below) — the dash
+  handler renders `/v1/status`, never reads `emaid.db` directly
+  (`6/1` read-path: `/v1`-only, no exceptions).
 - Stale threshold: 10m (`chanlib.staleThresholds["email"]`).
 
 Control: **reconnect** — contract `POST /v1/reconnect`: close the
@@ -57,25 +58,33 @@ reset.
 
 Show:
 
-- Cookie session state: cookies file present + mtime, login validity
-  (last `isLoggedIn` result), poll interval, per-source cursors from
-  `cursors.json` (mentions; dms/likes/retweets/followers as present).
+- Cookie session state: cookies present + mtime, login validity (last
+  `isLoggedIn` result), poll interval, per-source cursors (mentions;
+  dms/likes/retweets/followers as present) — all surfaced via twitd's
+  `/v1/status` (Required work below); the dash handler never reads
+  `cookies.json` / `cursors.json` directly (`6/1` read-path).
 - Health note: twitd serves its own `/health` (TS); 5m staleness is a
   **503** like whapd.
 
 Control:
 
+None of twitd's control verbs exist today — all three are to-build
+(Required `/v1` work below):
+
 - **Refresh auth** — contract `POST /v1/auth/refresh`: re-run the
-  existing login flow (validate cookies → password login from
-  `TWITTER_USERNAME`/`TWITTER_PASSWORD`/`TWITTER_EMAIL`/2FA → persist
-  cookies). New verb wrapping the boot-time flow.
+  in-process boot-time login flow (validate cookies → password login
+  from `TWITTER_USERNAME`/`TWITTER_PASSWORD`/`TWITTER_EMAIL`/2FA →
+  persist cookies).
 - **Reset session** — contract `session-reset`: delete `cookies.json`
   (cursors untouched), forcing a fresh password login on the next
-  refresh/restart. `.btn-danger`, confirm. New verb.
-- **Reconnect** — immediate out-of-cycle `pollMentions`. New verb.
+  refresh/restart. `.btn-danger`, confirm.
+- **Reconnect** — immediate out-of-cycle `pollMentions`.
 
-TS: twitd implements the gate + vendored theme per `6/11` "TS
-adapters".
+TS: the dash gate is **new work** for twitd — today `twitd/src/auth.ts`
+
+- `twitd/src/server.ts` verify only routd service tokens. Re-implement
+  the `auth.ProxydTransit` check + CSRF in TS and vendor hub.css from
+  `theme/` at image build, per `6/11` "TS adapters".
 
 ## Required `/v1` work
 
@@ -111,6 +120,6 @@ fetch stays an agent path); no cursor editing (same replay rule as
 - emaid: page shows the active mode; reconnect from poll-fallback
   mode re-attempts IDLE; a send updates last-outbound.
 - twitd: auth-refresh after expired cookies restores `ok`;
-  session-reset removes `cookies.json`, page shows `disconnected`
-  with login invalid until refresh succeeds; cursors only ever
-  advance.
+  session-reset deletes the persisted cookies and `/v1/status` (hence
+  the page) shows `disconnected` with login invalid until refresh
+  succeeds; cursors only ever advance.

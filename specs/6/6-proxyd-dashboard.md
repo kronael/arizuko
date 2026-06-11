@@ -121,9 +121,11 @@ Per `6/1`: proxyd carries its own `/dash/proxyd/` route (`auth:
 on writes. Note the existing `/v1/routes` REST face is reachable only
 via webd's transit (caller pinned to `service:webd`,
 `channelTrusted`, `proxyd/resource.go:357`) — the dash pages do NOT
-go through that gate; they call `routesResource.handle` and the new
-ring/probe helpers **in-process** (`6/1` read-path), leaving the
-webd pin untouched.
+go through that gate; they invoke the **same** registered `/v1/routes`
+resource handler (`routesResource.handle`) and the new ring/probe
+helpers in-process — same validation, same semantics, one handler with
+two faces (`6/1` read-path), not a parallel non-`/v1` path — leaving
+the webd pin untouched.
 
 ## HTMX fragments
 
@@ -146,7 +148,8 @@ hand-wired surfaces (`/pub/`, `/dav/` policy, vhost derivation — code
 
 ## Acceptance
 
-- `/dash/proxyd/` route registered in `template/services/proxyd.toml`;
+- `/dash/proxyd/` route registered in `compose.go`'s default route
+  list (proxyd is a core daemon, no service TOML — `6/1` Routing);
   hub tile probes `GET /health` (`proxyd/main.go:494`).
 - Routes page matches `GET /v1/routes` exactly (same handler, third
   face — spec 5/5); creating a route from the page makes the next

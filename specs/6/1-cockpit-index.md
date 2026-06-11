@@ -52,7 +52,8 @@ Consequences:
   helpers — same struct the REST/MCP faces already serve.
 - The hub tiles probe `GET /health` only.
 - Cross-cutting `dashd` pages (`6/2`) call the **owning daemon's `/v1`**
-  over HTTP (service-token auth, `auth.ProxydTransit`), never the DB.
+  over HTTP, presenting dashd's own authd-minted service bearer (the
+  owning daemon verifies it as a service principal), never the DB.
 - If a dashboard needs a datum no `/v1` endpoint exposes: first extend
   the existing `/v1/<resource>`; failing that, add a minimal
   daemon-owned read endpoint (`/v1/<thing>/status`). Each per-daemon
@@ -70,11 +71,13 @@ proxyd carries one route per daemon dashboard, registered statically
 /dash/<daemon>/   -> <daemon>:8080/dash/
 ```
 
-Routes ship as `[[proxyd_route]]` entries in each daemon's
-`template/services/<daemon>.toml` (the channel-adapter pattern — no
-edit to `proxyd/main.go` or `compose.go`). A daemon that ships no
-`/dash/` simply has no route and no hub tile; the route entry IS the
-registration.
+Adapter dashboards register via a `[[proxyd_route]]` entry in the
+adapter's `template/services/<daemon>.toml` (the channel-adapter
+pattern — no edit to `proxyd/main.go`). Core daemons that ship no
+service TOML (routd, runed, authd, proxyd, onbod, timed, dashd)
+register their `/dash/<daemon>/` route in `compose.go`'s default route
+list instead. Either way: a daemon with no route gets no hub tile; the
+route entry IS the registration, and there is no autodiscovery.
 
 ## Auth: two gates, shared helper
 
@@ -82,13 +85,17 @@ Identical to today's `/dash/` gate, applied uniformly
 (`specs/1-auth-standalone.md`, CLAUDE.md "Auth is a uniform
 middleware"):
 
-1. **proxyd transit gate** on `/dash/<daemon>/` — `auth: "user"`;
-   proxyd stamps signed `X-User-Sub` / `X-User-Groups` / `X-User-Sig`.
-2. **Daemon-side gate** — `auth/middleware.go` `RequireSigned` verifies
-   the signature, then a shared `auth/dashauth.go` helper (promoted
-   from `dashd/authz.go`'s `requireAdmin`) runs the one operator/scope
-   decision. CSRF for writes lives in the same helper (same-origin
-   check).
+1. **proxyd transit gate** on `/dash/<daemon>/` — `auth: "user"`. proxyd
+   authenticates the operator, strips any client-supplied identity
+   headers, re-stamps `X-User-Sub` / `X-User-Groups`, and attaches an
+   authd-minted `service:proxyd` ES256 bearer as transit proof.
+2. **Daemon-side gate** — the daemon verifies the `service:proxyd`
+   bearer with `auth.ProxydTransit(r, ks)` (`auth/middleware.go`) and
+   only then trusts the stamped `X-User-*`; a shared `auth/dashauth.go`
+   helper (promoted from `dashd/authz.go`'s `requireAdmin`) then runs
+   the one operator/scope decision over `X-User-Groups`. CSRF for
+   writes lives in the same helper (same-origin check). `ks==nil`
+   (`AUTHD_URL` unset, local-dev) falls open.
 
 Policy: all daemon dashboards are **operator-only** by default. If a
 page later becomes non-operator, scope it per page inside the daemon —
@@ -210,7 +217,8 @@ beyond "use theme" — point back to this spec.
 - [`dashd/authz.go`](../../dashd/authz.go) — `requireAdmin`, promoted to
   `auth/dashauth.go`.
 - [`theme/theme.go`](../../theme/theme.go) — `Head()` / `Page()`.
-- [`auth/middleware.go`](../../auth/middleware.go) — `RequireSigned`.
+- [`auth/middleware.go`](../../auth/middleware.go) — `ProxydTransit`
+  (service-bearer transit proof; gate the daemon-side dash check on it).
 - [`chanreg/health.go`](../../chanreg/health.go) — adapter health.
 - [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — the
   HTML page is a third face on the same `/v1` handler set.
