@@ -189,7 +189,7 @@ func TestSendReply(t *testing.T) {
 func TestRecordOutboundStampsTurnID(t *testing.T) {
 	var got core.Message
 	db := StoreFns{
-		PutMessage:    func(m core.Message) { got = m },
+		PutMessage:    func(m core.Message) error { got = m; return nil },
 		CurrentTurnID: func(string) string { return "turn-xyz" },
 	}
 	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo")
