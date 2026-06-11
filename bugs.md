@@ -2506,3 +2506,131 @@ Sibling of the group-add fix: `cmdGroup` `rm` case calls `s.DeleteGroup` (audite
 on messages.db, but groups live in routd.db post-split → targets the wrong DB and
 would fail audit on routd.db (no audit_log table). Fix: route rm through the
 routd.db-preferring handle + an audit-free DeleteGroupRow, matching the add fix.
+
+## SWEEP 2026-06-11 — codex interconnectedness bug-hunt (turn/run lifecycle, identity/trust, tenancy, adapters, web)
+
+Read-only codex oracle sweep across the 5 daemon seams. Each finding below
+verified by re-reading the cited `file:line` against HEAD. Triage-only — NOT
+fixed. Severity per `/bugs` convention.
+
+### HIGH — armCancel single-shot kill can miss a container still starting up (2026-06-11, Group A)
+
+`runed/docker.go:182` `armCancel` fires exactly ONE `d.Kill(containerName)` on
+`ctx.Done()` and then returns — in contrast to `armRunTTL` (`docker.go:164-171`)
+which retries `Kill` in a poll loop until the run returns. If routd drops the
+`POST /v1/runs` request (network blip / client disconnect) DURING container
+startup — before `docker run` has made the named container killable — the single
+kill is a no-op and is never retried. routd treats the transport error as
+non-terminal (`dispatch.go:78-82`: `return hadAny, derr`, state stays `running`,
+re-fed next poll) so the orphaned first container runs to completion AND the
+turn is re-dispatched into a second container.
+
+- **Severity:** high
+- **Scope:** turn/run lifecycle — routd↔runed cancel contract
+- **Affected:** any instance under network jitter mid-spawn
+- **Source:** `runed/docker.go:182-196` (single Kill) vs `docker.go:164-171` (retry loop); `routd/dispatch.go:78-82`
+- **Why (bug-class):** double-execution — the same class as the prior "runed ignores ctx" HIGH (fd4a55e4 fixed the TTL case + added armCancel, but armCancel's kill is not retry-until-killable). The container-startup window is the residual gap.
+- **Fix:** make armCancel reap retry-until-return like armRunTTL (poll `Kill` until `done`), or unify both watchers into one loop keyed on the same `done` channel.
+- **Status:** open
+- **Fix:**
+
+### HIGH — recoverPending re-enqueues a turn whose container is still live (2026-06-11, Group A)
+
+On boot `routd/loop.go:387 recoverPending` re-enqueues EVERY `running` turn
+(`RunningTurns` → `Enqueue(tc.ChatJID)`). The only re-dispatch guard is in
+`runTurn`: `PutTurnContext` returns `live=false` ONLY when the turn already
+flipped to `done` (`dispatch.go:145-150`). If routd restarts mid-turn while
+runed + the container are STILL alive, the turn_context is still `running`
+(not done) → `live=true` → routd re-dispatches → runed steers a second batch
+into (or spawns alongside) the live container. `steerInto` (`docker.go:204`)
+never checks `turn_id`, so the same prompt batch is injected into the live
+agent a second time.
+
+- **Severity:** high
+- **Scope:** crash recovery — routd restart vs live runed/container
+- **Affected:** any instance where routd restarts (redeploy) while a turn is in flight
+- **Source:** `routd/loop.go:387-396`; `routd/dispatch.go:145-150`; `runed/docker.go:204-214`
+- **Why (bug-class):** double-execution on restart — the user's message executed twice. routd recovery assumes a `running` row means a dead run; post-split that is false (runed/container outlive a routd restart).
+- **Fix:** before re-enqueueing, reconcile each `running` turn's `run_id` against live runed state (`GET /v1/runs/{id}` or runed inspect); skip turns whose run is still live. OR have runed reject a second request carrying a NEW turn_id for a folder whose current run's turn_id differs (don't steer a foreign turn).
+- **Status:** open
+- **Fix:**
+
+### HIGH — runed live-run ownership is in-memory only; lost on runed restart (2026-06-11, Group A)
+
+`runed/manager.go:37` keeps live-run ownership solely in the in-memory `active`
+map; `NewManager` rebuilds nothing from DB/containers, `Run` (`manager.go:111`)
+consults only `active` for the folder-already-running decision, and `StopFolder`
+(`manager.go:364`) resolves only via `ActiveRunID` (the map). After a runed
+restart with a container still alive: the running container is invisible to
+admission → routd recovery (finding above) gets it admitted as a fresh run for
+the same folder (second container), and `DELETE /v1/runs` / `/stop` cannot find
+the first one to kill it.
+
+- **Severity:** high
+- **Scope:** runed admission durability (spec 5/P "DB-stateless executor")
+- **Affected:** any instance where runed restarts independently of routd
+- **Source:** `runed/manager.go:37` (active map), `:111` (Run admit), `:364` (StopFolder); `routd/loop.go:387`
+- **Why (bug-class):** state-leak / double-execution — runed's admission+stop decisions must survive its own restart from durable state (`spawns`). Sibling of the existing "runed manager.go holds in-memory runtime state" entry, but the concrete failure here is the restart-blindness double-spawn + un-killable orphan, not just spec drift.
+- **Fix:** rebuild `active` from `spawns` rows (state='running') + `docker ps` reconciliation at `NewManager`/boot, OR consult the durable `spawns` table on every admit/stop instead of the map. (Subsumed by the existing in-memory-state refactor entry; this is its live-impact justification.)
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — recordTurnResult swallows PutMessage failure then marks turn done (2026-06-11, Group A)
+
+`routd/turns.go:625-628`: `recordTurnResult` delivers the agent's prose result
+via `appendAndDeliver(...)` (called DIRECTLY, not through `s.idem`, so it does
+NOT persist the row itself) and then `_ = s.db.PutMessage(*row)` — error ignored.
+It then unconditionally `SetTurnState(turnID,"done")` (`:637`) and publishes
+round_done (`:639`). If `PutMessage` fails, the delivered reply is lost from
+routd history + last-reply state, and (for the failed-send case) the outbound
+retry loop (`loop.go:336 PendingOutbound`) has no row to retry — so a result
+delivered but unpersisted silently vanishes.
+
+- **Severity:** medium
+- **Scope:** turn completion durability — submit_turn result path
+- **Affected:** all instances (only triggers on a DB write failure on the result path)
+- **Source:** `routd/turns.go:625-628`, `:637`, `:639`; retry loop `routd/loop.go:336`
+- **Why (bug-class):** silently-dropped reply — the same contract the 91937baf fix restored (submit_turn result must reach the user AND be durable/retriable). The delivery was fixed; the persistence error-handling was not.
+- **Fix:** route the result row through the same atomic append+persist discipline the normal `s.idem` callback uses, and fail the turn record (return err) if the row cannot be persisted, so the turn stays retriable rather than marked done.
+- **Status:** open
+- **Fix:**
+
+### MEDIUM — errored run never publishes round_done; round_done hardcodes "success" (2026-06-11, Group A)
+
+Two halves of one broken invariant ("every terminal turn emits one accurate
+round_done"). (a) The `OutcomeError` branch (`routd/dispatch.go:228-249`) marks
+the turn done + sends a failure notice but NEVER calls `publishRoundDone` → a
+web/SSE waiter (`?wait=` slink form, dashd) on a crashed/errored run hangs until
+its own timeout. (b) `publishRoundDone` (`routd/loop.go:263-268`) hardcodes
+`RoundDone(folder, turnID, "success", "")`, ignoring `req.Status`/`req.TimedOut`/
+`req.Error` from the submit_turn path — so even when round_done DOES fire, a
+timed-out or errored turn is reported to the UI as success.
+
+- **Severity:** medium
+- **Scope:** SSE round_done lifecycle (spec 5/J) — web waiter completion signal
+- **Affected:** web-chat / slink form / dashd live views on errored or timed-out turns
+- **Source:** `routd/dispatch.go:228-249` (no publish on error); `routd/loop.go:263-268` (hardcoded "success")
+- **Why (bug-class):** SSE round_done mismatch — same family as the prior round_done-keying bug (UI hangs / wrong status). Two terminal paths (runed OutcomeError vs submit_turn) feed one consumer; only one emits, and it lies about status.
+- **Fix:** centralize terminal signaling: emit round_done on BOTH the OutcomeError path and the submit_turn path, threading the actual terminal status + error string through `publishRoundDone(folder, turnID, status, errStr)`.
+- **Status:** open
+- **Fix:**
+
+### LOW — handleResult does not gate on callbackClosed (2026-06-11, Group A)
+
+`routd/turns.go:586 handleResult` (the REST `/v1/turns/{id}/result` twin of the
+submit_turn MCP method) checks only that the turn CONTEXT exists; unlike
+`appendAndDeliver` (`turns.go:200`) it does not check `callbackClosed(tc)`. A
+late/retried `/result` arriving after `run_returned` is accepted and can append
++ deliver. Mitigated (not a double-delivery) because `recordTurnResult`'s `first`
+guard (`db.RecordTurnResult`) dedups the terminal record — only the FIRST record
+delivers prose. So the practical exposure is narrow (a genuinely-new result body
+after close). Logged for completeness; the `first`-guard makes it low.
+
+- **Severity:** low
+- **Scope:** turn callback surface — REST /result vs MCP submit_turn parity
+- **Affected:** edge: a delayed /result after dispatch return
+- **Source:** `routd/turns.go:586-595` vs `turns.go:200-202` (callbackClosed gate)
+- **Why (bug-class):** callback-after-close — the surface should be uniformly closed past `run_returned`; /result is the one twin that isn't gated. Idempotency masks most of it.
+- **Fix:** gate `handleResult` through the same `callbackClosed` check the other twins use (after confirming it doesn't break the legitimate first-and-only submit_turn-after-return ordering — the comment at turns.go:574 says trailing frames stay valid until run returns, so the gate must allow the first record before run_returned and reject only post-return NEW records).
+- **Status:** open
+- **Fix:**
