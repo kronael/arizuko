@@ -74,6 +74,21 @@ and the routing differ. Ownership is what makes deep customization
 possible — the thing you need at this stage of AI, against opaque SaaS
 agents you can only tune through a text box (`6/9`).
 
+The deeper wedge is _how_ you shape it: through language, not config.
+You mold the system by talking to LLMs that edit the files that ARE the
+system — persona, memory, skills, routing, even an operational fix. The
+agent is both what runs and how you author; there is no separate config
+console, because the conversation is the console. What keeps that safe is
+the daemon structure: each primitive lives in its own compartment (`routd`
+routes, `runed` executes, `authd` authorizes) with hard boundaries —
+folder scoping, the authz gate, ephemeral per-turn containers — so
+LLM-driven shaping stays bounded to what the grants allow. You reshape a
+system in natural language without it becoming a black box you can't
+audit: every change lands as files you diff and `git revert`.
+Compartmentalized daemons make the molding safe; ownership makes it
+permanent. (This is the evolved lead — primitives and ownership are the
+two halves it rests on, not competing angles.)
+
 The primitives are invariant across topologies. The former monolith
 (`gated`, now removed) and the split (`authd` + `routd` + `runed`, specs
 `5/E`/`5/P`, the only topology) reorganised the _daemons_; the primitives
@@ -329,18 +344,24 @@ story):
 Lead arizuko with the four-layer story; the surfaces (README,
 `index.html`, the pitch) reuse this wording.
 
-**Headline.** _Ship ownable agents as real products — each a folder
-that reacts to events through one fixed pipeline._
+**Headline (evolved lead).** _Shape an agent system in plain language —
+the LLM edits the files that are the system, compartmentalized daemons
+keep it bounded, and you own every change._
 
-**Elevator (3 sentences).** arizuko is an event→reaction engine:
-something happens, it's routed to a folder-agent, checked for
-permission, run for one bounded turn, and persisted in two durable
-stores — the shared DB and the agent's folder. Those same primitives
-assemble into real products: a Slack team agent, a personal reality
-agent, a company brain. The wedge is ownership — an agent is a folder
-of files you diff, review, fork, and `git revert` on your own host,
-which is what makes deep customization possible against opaque SaaS
-agents.
+**Headline (product-first alternative, prior lead).** _Ship ownable
+agents as real products — each a folder that reacts to events through
+one fixed pipeline._
+
+**Elevator (3 sentences).** arizuko is an event→reaction engine you
+shape through LLMs: something happens, it's routed to a folder-agent,
+checked for permission, run for one bounded turn, and persisted in two
+durable stores — the shared DB and the agent's folder. You author and
+operate it by talking to an agent that edits those files (persona,
+skills, routing), and the daemon compartments (`routd`/`runed`/`authd`,
+each owning one primitive) keep that molding inside the grants — no
+black box, no breakout. The wedge is that ownership and language meet:
+deep customization is changing files you diff, fork, and `git revert` on
+your own host, not tuning an opaque SaaS agent through a text box.
 
 **One-pager reveal order** (use-cases first; primitives explain why the
 surface stays small, they don't open):
