@@ -41,8 +41,10 @@ function pubFallback() {
           serveIndex('', ''); // p already carries the /pub prefix; files at cwd+p
           return next();
         }
-        const abs = join(process.cwd(), p);
-        if (existsSync(abs)) return next();
+        // Non-pub/priv path: resolve ONLY under pub/ — never serve a /web ROOT
+        // file (vite.config, *.ts source, research dumps, node_modules). Those
+        // stay unreachable even if vited is hit directly, bypassing proxyd's
+        // /pub rewrite. pub/ and priv/ are the only served trees.
         const pubAbs = join(process.cwd(), 'pub', p);
         if (!existsSync(pubAbs)) return next();
         if (statSync(pubAbs).isDirectory() && !p.endsWith('/')) {
