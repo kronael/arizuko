@@ -771,6 +771,29 @@ func TestSeedSkills_MergeBaseMirrorsUpstream(t *testing.T) {
 	}
 }
 
+// S8: the migrate bootstrap skill is platform-owned — a stale on-disk copy
+// (e.g. the pre-split version reading the removed /workspace mount) must be
+// force-overwritten on spawn, or migration deadlocks. Operator edits to it
+// are NOT preserved (unlike stock skills).
+func TestSeedMigrateSkill_OverwritesStale(t *testing.T) {
+	claudeDir := t.TempDir()
+	appDir := t.TempDir()
+	migSrc := filepath.Join(appDir, "ant", "skills", "migrate")
+	os.MkdirAll(migSrc, 0o755)
+	os.WriteFile(filepath.Join(migSrc, "SKILL.md"), []byte("theirs = /opt/arizuko/ant"), 0o644)
+
+	// Group carries the pre-split migrate skill referencing /workspace.
+	liveMig := filepath.Join(claudeDir, "skills", "migrate", "SKILL.md")
+	os.MkdirAll(filepath.Dir(liveMig), 0o755)
+	os.WriteFile(liveMig, []byte("theirs = /workspace/self/ant"), 0o644)
+
+	seedMigrateSkill(&core.Config{HostAppDir: appDir}, claudeDir)
+
+	if data, _ := os.ReadFile(liveMig); string(data) != "theirs = /opt/arizuko/ant" {
+		t.Errorf("stale migrate skill not refreshed: %q", data)
+	}
+}
+
 // S7: re-enabling a previously .disabled skill must start from a fresh
 // merge-base (the stale base must be removed when seedSkills sees
 // .disabled).

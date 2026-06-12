@@ -723,11 +723,26 @@ func seedOutputStyles(cfg *core.Config, claudeDir string) {
 	cpDirOverwrite(src, dst)
 }
 
+// seedMigrateSkill force-refreshes the platform's self-update bootstrap skill on
+// every spawn. migrate is the ONLY thing that syncs skills, so a stale copy can
+// never update itself — it deadlocks every future migration. Cost 11 days of
+// frozen skills on the live split: groups kept the pre-split migrate skill that
+// reads the removed /workspace mount ("/migrate blocked: /workspace not mounted")
+// while seedSkills' cpDirFresh refused to overwrite it. Unlike stock skills
+// (operator-editable, 3-way merged), migrate is platform-owned — always
+// overwritten, like output-styles. MIGRATION_VERSION lives under self/, untouched.
+func seedMigrateSkill(cfg *core.Config, claudeDir string) {
+	src := filepath.Join(cfg.EffectiveAppSrcDir(), "ant", "skills", "migrate")
+	dst := filepath.Join(claudeDir, "skills", "migrate")
+	cpDirOverwrite(src, dst)
+}
+
 func seedSettings(
 	claudeDir string, cfg *core.Config,
 	in Input, root bool,
 ) {
 	seedOutputStyles(cfg, claudeDir)
+	seedMigrateSkill(cfg, claudeDir)
 	fp := filepath.Join(claudeDir, "settings.json")
 	var settings map[string]any
 	if data, err := os.ReadFile(fp); err == nil {
