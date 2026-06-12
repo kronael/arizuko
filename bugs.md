@@ -5,37 +5,29 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
-## OPEN — routd circuit breaker trips on Discord JID after a SUCCESSFUL turn (2026-06-12, MEDIUM)
+## FIXED 2026-06-12 (commit c9ea7ae5) — routd breaker tripped on Discord JID after a SUCCESSFUL turn
 
-Cross-instance log eval (2026-06-12) found `routd` opening the per-JID circuit
-breaker (`breaker open ... failures=3`) on `discord:*` JIDs **9ms after the turn
-exits 0/success** — sloth 9 trips/3d, marinade 7/24h across 3 channels. Each
-self-resets, masking an ongoing Discord-delivery fault on BOTH instances. The
-underlying per-dispatch delivery error that increments the breaker is **not
-separately logged**, so the cause is undiagnosed. Not the `gateway always-true
-!out.HadOutput guard` class (that's a different breaker site). Fix-path: add
-per-dispatch failure logging at the breaker-increment site in `routd` so the
-next trip captures the real delivery error (a send after a successful turn
-result), then root-cause. Real, live, two instances.
+Root cause: the queue breaker counted `(false,nil)` — a successful turn with NO
+output (silent/observe/already-current) — as a failure. Those no-ops advance the
+cursor and never re-feed, so they were pure false-positives; 3 silent discord
+turns tripped the breaker. Fix: breaker counts only real errors (`err != nil`);
+a clean return resets it. Each increment now logs the failure count. Test:
+`TestCircuitBreaker_SilentNoOpDoesNotTrip`.
 
-## OPEN — marinade slakd inbound stream stale >15h, unhealthy but won't self-restart (2026-06-12, LOW)
+## NOT-A-BUG 2026-06-12 — slakd "inbound stream stale, won't self-restart"
 
-Log eval: marinade slakd `WARN "slack inbound quiet; token healthy, not
-restarting" stale_seconds=56401` — inbound events stopped >15h while the token
-still validates; container shows `(unhealthy)` but the adapter deliberately
-won't restart on a healthy token. Net: marinade silently stops receiving Slack
-messages with no recovery. Fix-path: decide whether a long inbound-stale window
-(token healthy) should force a reconnect/restart rather than only logging.
+slakd uses the Slack **Events API** (HTTP push to `/slack/events`), which has NO
+persistent socket (`slakd/bot.go:244,270`). Inbound silence just means no
+messages were sent; the token validating proves connectivity. The "quiet; not
+restarting" path is by design — the silence-only exit was removed because it
+caused chronic flap. Forcing a restart on quiet would reintroduce that bug.
 
-## OPEN — slakd `like` fails `invalid_name`, surfaces a 502 to the agent (2026-06-12, LOW)
+## FIXED 2026-06-12 (commit 92fca878) — slakd `like invalid_name` returned 502 to the agent
 
-Log eval: marinade `slakd ERROR "like failed" slack_err="invalid_name"` (bad
-emoji name) — and the adapter returned a **502 to the agent** instead of a
-proper "bad emoji" error. Two bugs: (1) the emoji name sent is invalid; (2)
-the agent-facing error is wrong (502 transport error, not a validation
-message). Distinct from the `slakd reaction sentiment always "like"
-(slakd/bot.go:455)` entry (inverse direction). Fix-path: map slack
-`invalid_name` to a clear agent-visible validation error, not a 502.
+A bad emoji name (`invalid_name`) reached the agent as a 502 transport error.
+Added `chanlib.ErrInvalidRequest` → 400; slakd maps slack caller-input errors
+(`invalid_name`, `bad_timestamp`, `message_not_found`, …) to it so the agent
+learns its input was wrong. Test: `TestWriteBotResult_StatusByErrorClass`.
 
 ## OPEN — vited parse5 HTML parse errors, non-fatal (2026-06-12, LOW/cosmetic)
 
@@ -54,37 +46,37 @@ one direct `208.84.100.197` on krons probing `/.env*`, `/api/credentials.json`,
 200 on any secret path**. proxyd auth gate rejected every probe
 (`reason=no_valid_credential`); secrets tables empty on all instances anyway.
 NO breach — internet background noise correctly deflected. Logged for
-awareness, not an incident. Worth: proxyd does not log the real client IP
-behind the `10.0.5.1` hop — adding `X-Forwarded-For` capture would aid future
-abuse triage.
+awareness, not an incident. UPDATE 2026-06-12 (commit ff9a71dc): proxyd now logs
+the real client IP (X-Forwarded-For first hop) on auth-deny, not just the
+`10.0.5.1` edge hop — future abuse triage sees the source.
 
-## NOTE — krons host OOM kills, swap 98.5%, non-arizuko process (2026-06-12, infra not arizuko)
+## NOTE — krons host OOM kills = a Claude Code process, not arizuko (2026-06-12, infra)
 
-Log eval: krons `kernel: Out of memory: Killed process 1421640 (2.1.175)
-anon-rss:18932684kB ... global_oom`, 8+ OOM-kills 16:01–16:12, `swap_memory
-percent:98.5`. The killed process `2.1.175` in `session-1878.scope` is a
-host/user-session process, **NOT an arizuko container** — host memory pressure
-from something else. Per the disk/mem-monitoring stance (infra concern, not
-in-process arizuko), this is a host-layer issue. Confirm what `2.1.175` is
-before attributing anything to arizuko. Likely the real reason krons "ran like
-crazy" then went down. Not an arizuko code bug.
+Log eval: krons `kernel: Out of memory: Killed process (2.1.175) anon-rss up to
+~19GB ... global_oom`, 8+ OOM-kills 16:01–16:16, swap 98.5%. CONFIRMED: comm
+`2.1.175` == `claude --version` (Claude Code CLI), uid 1001 = onvos, in a user
+login session (`session-1878.scope`) — a Claude Code process ballooned to ~19GB
+and the kernel OOM-killed it repeatedly (`claude invoked oom-killer`). NOT
+arizuko, not vited. Likely the real reason krons thrashed then was stopped. No
+arizuko code bug; a host-memory note for awareness.
 
-## OPEN — auto-migrate is dead in the split: routd has no source mount (2026-06-10, HIGH)
+## FIXED 2026-06-12 (commit 409e3a58) — auto-migrate dead in the split (DEEPER cause than the routd mount)
 
-`routd.checkMigrationVersion` (`routd/loop.go:403`) reads the upstream
-`MIGRATION_VERSION` from `appSrcDir/ant/skills/self/MIGRATION_VERSION` and
-enqueues `/migrate` for root groups behind it. But `appSrcDir = APP_SRC_DIR ||
-HOST_APP_DIR`, and on the deployed instances routd has **APP_SRC_DIR unset** and
-**no repo-source volume mounted** (`docker inspect arizuko_routd_<inst>` shows
-only `/srv/data/.../home`; `HOST_APP_DIR=/home/onvos/app/arizuko` is a HOST path,
-invalid inside the container). So the read finds nothing → the migrate NEVER
-fires → existing groups are stuck at old skill versions (sloth `main` is at 147
-while upstream is 160; bumping MIGRATION_VERSION delivers nothing to live
-groups, only fresh ones via the image). Fix: in `compose/compose.go`, mount the
-repo source into routd (`HOST_APP_DIR -> /srv/app/arizuko`, the `containerSrcMount`)
-and set `APP_SRC_DIR=/srv/app/arizuko` in routd's env — the same source runed
-already mounts for the agent. Until then, skill/CLAUDE.md updates reach existing
-agents only via a manual per-group `/migrate`.
+Two layers. (1) The routd source mount (commit ec24075f) is now deployed on all
+3 instances — routd reads upstream MIGRATION_VERSION (160) and enqueues
+`/migrate` correctly (verified: marinade routd `auto-migrate: version behind
+agent:155 latest:160` → dispatch). So detection works. (2) The REAL blocker: the
+agent's `/migrate` skill is the platform self-update BOOTSTRAP, but `seedSkills`
+used `cpDirFresh` (preserves operator edits → never overwrites existing files).
+Groups carrying the **pre-split migrate skill** (which reads the removed
+`/workspace` mount) could never update it — only migrate updates skills, and it
+bailed "`/workspace` not mounted (11th consecutive day)". Deadlock; widespread on
+sloth+marinade (marinade `atlas` frozen at 155). Fix: `seedMigrateSkill`
+force-overwrites the migrate skill on every spawn (like output-styles); it's
+platform-owned, not operator-editable. `MIGRATION_VERSION` (under self/) stays
+the group's progress marker, untouched. Test:
+`TestSeedMigrateSkill_OverwritesStale`. Deployed+verified on krons; marinade
+`atlas` unfreezes on its next redeploy (SECRETS_KEY confirmed set, safe).
 
 ## OPEN — one dead jid degrades a whole channel's delivery (2026-06-10, outbox head-of-line)
 

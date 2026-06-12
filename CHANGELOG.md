@@ -28,6 +28,20 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Shared per-world workspace** — every agent container now mounts
   `/var/lib/share` (the world's `groups/<world>/share/`, writable) for
   cross-group file handoff; `share_mount{readonly=true}` grant downgrades to RO.
+- **Skill migrations unstick** — the agent's `/migrate` self-updater is now
+  refreshed on every spawn, so groups carrying the pre-split version (which
+  looked for a mount that no longer exists) can finally pull new skills instead
+  of silently freezing.
+- **Quiet agents don't trip the breaker** — a turn where the agent chooses not
+  to reply no longer counts as a failure, so busy channels (Discord especially)
+  stop hitting spurious "too many failures" circuit-breaks.
+- **Clearer tool errors** — a bad emoji on a Slack reaction now returns a plain
+  "invalid" (400) the agent can correct, not a confusing 502.
+- **Lighter web server** — vited only watches the files it actually serves and
+  reaps cleanly on restart, cutting idle CPU on busy instances (~21%→~5% where a
+  large published tree lived under the web root).
+- **Better abuse logs** — the web proxy records the real client IP (not just the
+  edge hop) when it rejects an unauthenticated request.
 
 ---
 
