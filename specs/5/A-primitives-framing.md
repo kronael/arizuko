@@ -373,8 +373,9 @@ surface stays small, they don't open):
 5. The four-layer decomposition (the table above).
 6. Ownership / customization proof — folder tree, files, `git diff`,
    self-hosted, one-tar backup.
-7. Honest constraints — Linux + Docker + SQLite, `gated`-centric today
-   with the split rolling out, the uniform MCP+REST surface converging.
+7. Honest constraints — Linux + Docker + SQLite, the split
+   (`authd`+`routd`+`runed`) is the shipped topology, the uniform
+   MCP+REST surface still converging.
 
 **The trace** — the one diagram that makes the model legible. One
 concrete event, the six primitives in a fixed column, the reply out:
@@ -442,8 +443,9 @@ review + a CTO audit flagged them):
   the enforced opening (`5/X`) as a session-boundary rule on Turn +
   State; do not imply a separate workflow substrate.
 - **The four-layer story is a description, not a claim of clean code.**
-  The monolith bundles all components; the split is partial. Don't
-  imply four daemons cleanly own four planes today.
+  The split shipped (`gated` removed), but the daemons don't cleanly
+  own four planes: State spans `routd`+`runed`, Agent lives in `routd`.
+  Don't imply a one-daemon-per-layer mapping.
 
 ## Docs-rewrite implications
 
