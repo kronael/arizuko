@@ -106,6 +106,12 @@ type UnpinRequest struct {
 // ErrUnsupported marks a social action not implemented on this platform (maps to 501).
 var ErrUnsupported = errors.New("unsupported")
 
+// ErrInvalidRequest marks a caller-input error — a bad emoji name, a missing
+// target, a malformed id (maps to 400). Wrap it so the agent learns its input
+// was wrong instead of seeing a 502 "upstream failed" (a Slack `invalid_name`
+// reaction reached the agent as a transport error before this).
+var ErrInvalidRequest = errors.New("invalid request")
+
 // UnsupportedError is the structured form. The HTTP layer encodes Tool/Platform/Hint
 // so the agent receives a concrete alternative. Is(ErrUnsupported) returns true so
 // errors.Is checks keep working across the stack.
@@ -465,6 +471,10 @@ func writeBotResult(w http.ResponseWriter, id string, err error) {
 	}
 	if errors.Is(err, ErrUnsupported) {
 		WriteErr(w, 501, "unsupported")
+		return
+	}
+	if errors.Is(err, ErrInvalidRequest) {
+		WriteErr(w, 400, err.Error())
 		return
 	}
 	WriteErr(w, 502, err.Error())

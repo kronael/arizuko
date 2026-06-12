@@ -1111,9 +1111,24 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 	}
 	if !resp.OK && resp.Error != "already_reacted" {
 		slog.Error("like failed", "channel", parts.ID, "ts", req.TargetID, "slack_err", resp.Error)
+		// Caller-input errors (bad emoji, bad target) → 400 so the agent learns
+		// its input was wrong, not a 502 transport failure.
+		if slackClientErrors[resp.Error] {
+			return fmt.Errorf("%w: slack rejected emoji %q (%s)", chanlib.ErrInvalidRequest, emoji, resp.Error)
+		}
 		return fmt.Errorf("slack like: %s", resp.Error)
 	}
 	return nil
+}
+
+// slackClientErrors are reactions.add failures caused by bad caller input (vs a
+// token/transport fault) — they map to a 400 the agent can correct.
+var slackClientErrors = map[string]bool{
+	"invalid_name":      true,
+	"bad_timestamp":     true,
+	"message_not_found": true,
+	"no_item_specified": true,
+	"not_reactable":     true,
 }
 
 func (b *bot) Dislike(req chanlib.DislikeRequest) error {

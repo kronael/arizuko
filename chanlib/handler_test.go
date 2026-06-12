@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -138,7 +139,6 @@ func TestHandlerSendError(t *testing.T) {
 		t.Fatalf("status = %d, want 502", w.Code)
 	}
 }
-
 
 func TestHandlerSendFile(t *testing.T) {
 	bot := &mockBot{fileID: "file-1"}
@@ -471,3 +471,28 @@ type mockBotPost struct {
 func (m *mockBotPost) Send(SendRequest) (string, error) { return "", nil }
 func (m *mockBotPost) Typing(string, bool)              {}
 func (m *mockBotPost) Post(PostRequest) (string, error) { return "", m.err }
+
+// writeBotResult maps error classes to HTTP status: a caller-input error
+// (ErrInvalidRequest, e.g. slack invalid_name) must reach the agent as 400,
+// not a 502 transport failure.
+func TestWriteBotResult_StatusByErrorClass(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"ok", nil, 200},
+		{"unsupported", ErrUnsupported, 501},
+		{"invalid", fmt.Errorf("%w: bad emoji", ErrInvalidRequest), 400},
+		{"upstream", errors.New("boom"), 502},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			writeBotResult(w, "", c.err)
+			if w.Code != c.want {
+				t.Errorf("status = %d, want %d", w.Code, c.want)
+			}
+		})
+	}
+}
