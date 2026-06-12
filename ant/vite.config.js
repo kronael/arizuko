@@ -41,13 +41,14 @@ function pubFallback() {
           serveIndex('', ''); // p already carries the /pub prefix; files at cwd+p
           return next();
         }
-        // Non-pub/priv path: resolve ONLY under pub/ — never serve a /web ROOT
-        // file (vite.config, *.ts source, research dumps, node_modules). Those
-        // stay unreachable even if vited is hit directly, bypassing proxyd's
-        // /pub rewrite. pub/ and priv/ are the only served trees.
+        // Non-pub/priv path: ALWAYS rewrite under pub/ so vite resolves it to
+        // /web/pub/<p> and 404s if absent — never serving a /web ROOT file
+        // (vite.config, *.ts source, research dumps, node_modules). A bare
+        // `next()` here would let vite's static handler serve the root file, so
+        // every branch must leave req.url prefixed with /pub. Internal files
+        // stay unreachable even if vited is hit directly (bypassing proxyd).
         const pubAbs = join(process.cwd(), 'pub', p);
-        if (!existsSync(pubAbs)) return next();
-        if (statSync(pubAbs).isDirectory() && !p.endsWith('/')) {
+        if (existsSync(pubAbs) && statSync(pubAbs).isDirectory() && !p.endsWith('/')) {
           res.statusCode = 301;
           res.setHeader('Location', p + '/' + qs);
           res.end();
