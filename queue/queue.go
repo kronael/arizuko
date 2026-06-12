@@ -285,22 +285,24 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 	slog.Debug("starting container for group", "groupJid", groupJid, "activeCount", q.activeCount)
 	q.mu.Unlock()
 
-	var success bool
 	var err error
 	if fn != nil {
-		success, err = fn(groupJid)
+		_, err = fn(groupJid)
 	}
 
 	q.mu.Lock()
 	s := q.getGroup(groupJid)
 	notifyFn := q.notifyError
 	if err != nil {
+		// Only a real processing error counts toward the breaker. A clean return
+		// (err==nil) is success even with no output: silent no-ops (observe,
+		// already-current cursor, agent chose not to reply) advance the cursor
+		// and never re-feed, so they are progress, not failure. Counting
+		// no-output as failure false-tripped the breaker after silent turns —
+		// discord channel chatter on sloth+marinade, 9ms after a 0-exit run.
 		s.consecutiveFailures++
-		slog.Error("error processing messages for group", "groupJid", groupJid, "err", err)
-	} else if success {
-		s.consecutiveFailures = 0
-	} else {
-		s.consecutiveFailures++
+		slog.Error("error processing messages for group",
+			"groupJid", groupJid, "failures", s.consecutiveFailures, "err", err)
 		if s.consecutiveFailures >= circuitBreakerThreshold {
 			slog.Error("circuit breaker open - too many consecutive failures",
 				"groupJid", groupJid, "failures", s.consecutiveFailures)
@@ -308,6 +310,8 @@ func (q *GroupQueue) runForGroup(groupJid string) {
 				go notifyFn(groupJid, fmt.Errorf("too many failures, send another message to retry"))
 			}
 		}
+	} else {
+		s.consecutiveFailures = 0
 	}
 
 	s.active = false

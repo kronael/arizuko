@@ -59,7 +59,7 @@ func TestEnqueueMessageCheck_CircuitBreakerBlocksThenReset(t *testing.T) {
 	var calls atomic.Int32
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		calls.Add(1)
-		return false, nil // fail every call
+		return false, fmt.Errorf("fail") // a real error every call
 	})
 
 	// Trip the circuit breaker: 3 failures.

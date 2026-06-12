@@ -111,10 +111,10 @@ func TestCircuitBreaker(t *testing.T) {
 	var calls atomic.Int32
 	q.SetProcessMessagesFn(func(jid string) (bool, error) {
 		calls.Add(1)
-		return false, nil // failure
+		return false, fmt.Errorf("boom") // a real processing error
 	})
 
-	// 3 failures to trip breaker
+	// 3 errors to trip breaker
 	for i := 0; i < 3; i++ {
 		q.EnqueueMessageCheck("g1")
 		time.Sleep(50 * time.Millisecond)
@@ -137,6 +137,28 @@ func TestCircuitBreaker(t *testing.T) {
 	// After reset + another failure, should be 1
 	if failures >= circuitBreakerThreshold {
 		t.Fatal("circuit breaker should have been reset")
+	}
+}
+
+// A clean return with no output (silent turn / observe / already-current) is
+// NOT a failure — it must never trip the breaker. Counting no-output as failure
+// false-tripped discord channels after silent turns.
+func TestCircuitBreaker_SilentNoOpDoesNotTrip(t *testing.T) {
+	q := New(5, t.TempDir())
+	q.SetProcessMessagesFn(func(jid string) (bool, error) {
+		return false, nil // success with no output (silent no-op)
+	})
+
+	for i := 0; i < circuitBreakerThreshold+2; i++ {
+		q.EnqueueMessageCheck("g1")
+		time.Sleep(40 * time.Millisecond)
+	}
+
+	q.mu.Lock()
+	failures := q.groups["g1"].consecutiveFailures
+	q.mu.Unlock()
+	if failures != 0 {
+		t.Fatalf("silent no-op tripped breaker: %d failures, want 0", failures)
 	}
 }
 
