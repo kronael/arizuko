@@ -420,6 +420,13 @@ func (l *Loop) checkMigrationVersion() {
 		}
 		slog.Info("auto-migrate: version behind, triggering /migrate",
 			"group", folder, "agent", agent, "latest", latest)
+		// Clear the session before /migrate: a group stuck on a stale migrate
+		// skill accumulated turns of "/migrate blocked" baggage and will recall
+		// that conclusion instead of reading the just-refreshed skill (cost the
+		// marinade/atlas 11-day freeze — the skill file was current but the agent
+		// re-ran `ls /workspace` from session memory). A clean spawn reads the
+		// current skill and actually runs the merge.
+		_ = l.db.DeleteSession(folder, "")
 		prompt := fmt.Sprintf("/migrate\n\nSystem update: skills v%d → v%d.", agent, latest)
 		if err := l.db.PutMessage(core.Message{
 			ID:        core.MsgID("auto-migrate-" + folder),
