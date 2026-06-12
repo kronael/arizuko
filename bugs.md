@@ -5,6 +5,70 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN — routd circuit breaker trips on Discord JID after a SUCCESSFUL turn (2026-06-12, MEDIUM)
+
+Cross-instance log eval (2026-06-12) found `routd` opening the per-JID circuit
+breaker (`breaker open ... failures=3`) on `discord:*` JIDs **9ms after the turn
+exits 0/success** — sloth 9 trips/3d, marinade 7/24h across 3 channels. Each
+self-resets, masking an ongoing Discord-delivery fault on BOTH instances. The
+underlying per-dispatch delivery error that increments the breaker is **not
+separately logged**, so the cause is undiagnosed. Not the `gateway always-true
+!out.HadOutput guard` class (that's a different breaker site). Fix-path: add
+per-dispatch failure logging at the breaker-increment site in `routd` so the
+next trip captures the real delivery error (a send after a successful turn
+result), then root-cause. Real, live, two instances.
+
+## OPEN — marinade slakd inbound stream stale >15h, unhealthy but won't self-restart (2026-06-12, LOW)
+
+Log eval: marinade slakd `WARN "slack inbound quiet; token healthy, not
+restarting" stale_seconds=56401` — inbound events stopped >15h while the token
+still validates; container shows `(unhealthy)` but the adapter deliberately
+won't restart on a healthy token. Net: marinade silently stops receiving Slack
+messages with no recovery. Fix-path: decide whether a long inbound-stale window
+(token healthy) should force a reconnect/restart rather than only logging.
+
+## OPEN — slakd `like` fails `invalid_name`, surfaces a 502 to the agent (2026-06-12, LOW)
+
+Log eval: marinade `slakd ERROR "like failed" slack_err="invalid_name"` (bad
+emoji name) — and the adapter returned a **502 to the agent** instead of a
+proper "bad emoji" error. Two bugs: (1) the emoji name sent is invalid; (2)
+the agent-facing error is wrong (502 transport error, not a validation
+message). Distinct from the `slakd reaction sentiment always "like"
+(slakd/bot.go:455)` entry (inverse direction). Fix-path: map slack
+`invalid_name` to a clear agent-visible validation error, not a 502.
+
+## OPEN — vited parse5 HTML parse errors, non-fatal (2026-06-12, LOW/cosmetic)
+
+Log eval: marinade vited emits `parse5 invalid-first-character-of-tag-name`
+×30/24h while staying healthy — some served HTML under `web/pub` (or priv) has
+malformed tags. Cosmetic; no serving failure. Fix-path: find the offending
+page(s) and clean the markup.
+
+## NOTE — coordinated secret-scanning campaign on all 3 instances, fully deflected (2026-06-12, awareness only)
+
+Log eval: edge-proxy hop `10.0.5.1` (real client IP not logged by proxyd) +
+one direct `208.84.100.197` on krons probing `/.env*`, `/api/credentials.json`,
+`/api/secrets.json`, `/auth/service_key.json`, `/actuator/heapdump`,
+`/wp-admin/install.php`, `/xmlrpc.php`, WP webshells. krons ~1194 reqs, sloth
+~296 (43 auth-denied), marinade 735 (36 auth-denied) — **all 302/303/404, zero
+200 on any secret path**. proxyd auth gate rejected every probe
+(`reason=no_valid_credential`); secrets tables empty on all instances anyway.
+NO breach — internet background noise correctly deflected. Logged for
+awareness, not an incident. Worth: proxyd does not log the real client IP
+behind the `10.0.5.1` hop — adding `X-Forwarded-For` capture would aid future
+abuse triage.
+
+## NOTE — krons host OOM kills, swap 98.5%, non-arizuko process (2026-06-12, infra not arizuko)
+
+Log eval: krons `kernel: Out of memory: Killed process 1421640 (2.1.175)
+anon-rss:18932684kB ... global_oom`, 8+ OOM-kills 16:01–16:12, `swap_memory
+percent:98.5`. The killed process `2.1.175` in `session-1878.scope` is a
+host/user-session process, **NOT an arizuko container** — host memory pressure
+from something else. Per the disk/mem-monitoring stance (infra concern, not
+in-process arizuko), this is a host-layer issue. Confirm what `2.1.175` is
+before attributing anything to arizuko. Likely the real reason krons "ran like
+crazy" then went down. Not an arizuko code bug.
+
 ## OPEN — auto-migrate is dead in the split: routd has no source mount (2026-06-10, HIGH)
 
 `routd.checkMigrationVersion` (`routd/loop.go:403`) reads the upstream
