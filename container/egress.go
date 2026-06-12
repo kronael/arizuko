@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/kronael/arizuko/crackbox/pkg/client"
 )
+
+// egressRegisterAttempts bounds the crackbox-register retry on spawn — ~3s total
+// (0.5+1+1.5s backoff) covers a crackbox-still-starting race without stalling.
+const egressRegisterAttempts = 4
 
 // EgressConfig holds crackbox isolation settings. Zero value disables it.
 // Each folder gets its own internal Docker network; crackbox attaches to each
@@ -99,8 +104,23 @@ func registerEgress(cfg EgressConfig, id string) (network, ip string, _ error) {
 	if err != nil {
 		return "", "", fmt.Errorf("resolve allowlist: %w", err)
 	}
-	if err := client.New(cfg.AdminURL, cfg.AdminSecret).Register(ip, id, allowlist); err != nil {
-		return "", "", fmt.Errorf("crackbox register: %w", err)
+	// crackbox can still be starting when a spawn races it (connection refused on
+	// :3129 at agent startup — cost failed turns on rhias + coach). Retry with a
+	// short backoff instead of failing the whole spawn on a transient.
+	c := client.New(cfg.AdminURL, cfg.AdminSecret)
+	var rerr error
+	for attempt := 1; attempt <= egressRegisterAttempts; attempt++ {
+		if rerr = c.Register(ip, id, allowlist); rerr == nil {
+			break
+		}
+		if attempt < egressRegisterAttempts {
+			slog.Warn("crackbox register failed, retrying",
+				"id", id, "attempt", attempt, "err", rerr)
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+	}
+	if rerr != nil {
+		return "", "", fmt.Errorf("crackbox register (after %d attempts): %w", egressRegisterAttempts, rerr)
 	}
 	slog.Info("egress registered",
 		"id", id, "network", netName, "ip", ip, "rules", len(allowlist))
