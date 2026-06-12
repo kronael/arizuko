@@ -29,6 +29,67 @@ Added `chanlib.ErrInvalidRequest` → 400; slakd maps slack caller-input errors
 (`invalid_name`, `bad_timestamp`, `message_not_found`, …) to it so the agent
 learns its input was wrong. Test: `TestWriteBotResult_StatusByErrorClass`.
 
+## TRIAGE — group issues.md sweep across all 3 instances (2026-06-12)
+
+Collected 14 per-group `issues.md` (krons/sloth/marinade). Deduped to the distinct
+PLATFORM bugs below (recurrence count in parens); agent-behaviour items are listed
+separately at the end as skill candidates, not code bugs.
+
+**P1 — recurring, breaks user-facing flows:**
+
+- **Root/tier-0 folder containment is too strict (×4: mayai, coach, main/main).** A
+  root group (`ARIZUKO_IS_ROOT=1`) still gets "forbidden … not in subtree" on `send`/
+  `delegate_group` to other subtrees, and `send` to its own folder jid returns "no
+  channel for jid <folder>". Breaks the `/migrate` announce fan-out + cross-group ops;
+  worked around via `inject_message`/`schedule_task`. Fix-path: root bypasses the
+  subtree gate (`routd/server.go:346` authorizeJID + the REST twin), and a folder with
+  no channel should resolve a deliverable route or give a clear error, not block.
+- **Telegram GROUP sends → 502 while user sends succeed (×3: atlas ×2 groups, main/main).**
+  `group/…` outbound rejected ("no channel for jid group/…" on sloth; 502 on marinade);
+  `user/…` fine. Fix-path: teled group-send path + route resolution for `group/` jids.
+- **seedSkills / `.merge-base` missing on existing groups (×2: coach, sloth main).**
+  coach `/migrate` found no `~/.claude/.merge-base/` + 28 stock skills missing — seedSkills
+  runs only on group CREATE, so groups that predate a skill never get it (broader than the
+  migrate-skill bootstrap fixed in 409e3a58). Fix-path: decide whether seedSkills (not just
+  the migrate skill) should reconcile missing stock skills on spawn.
+- **Discord thread replies land at channel root (×6: sloth main + main/main, May–Jun).**
+  discd HAS thread support (`discd/bot.go:314` topic→ThreadID); the recent reply→thread
+  work likely fixes it but every report predates the sloth redeploy. ACTION: verify live
+  post-deploy. Genuine gap remains: no `create_thread` tool (operator wants replies to
+  START a thread in #trading); reply/send can only post to root or banner-reply.
+- **Slack `like`/`send` → 502 on specific channels (×4: atlas ×3, atlas/search).** The
+  `invalid_name`→502 subset is FIXED (→400, commit 92fca878); broader 502s may be missing
+  `reactions:write`/`chat:write` scope or adapter faults. Fix-path: confirm bot-token
+  scopes; map other slack API errors to the right status like invalid_name.
+- **`/chat` (slink) POST → 502 "router unavailable" (×2: atlas strengths, 05-13/06-10).**
+  GET widget loads 200, POST submission fails — webd/router `/chat` turn+SSE path down.
+  Fix-path: confirm webd `/chat` handler health; the strengths form can't accept input.
+
+**P2 — single reports / platform limits:**
+
+- **`network_allow` is per-host only; `*`/globs rejected (sloth).** "host must be a bare
+  hostname" — needs `*.example.com` / full-wildcard support in the egress allowlist.
+- **crackbox `connection refused :3129` at agent startup (×2: rhias, coach).** egress
+  register races crackbox readiness (or it's down). Fix-path: retry/backoff on register, or
+  gate spawn on crackbox health.
+- **Discord typing 👀 leaks to channel root while replying in a thread (sloth).**
+- **Mid-thread message delivered with NO thread history → agent misreads (sloth incident).**
+  Suggest delivering thread-starter + recent thread messages on first delivery into a
+  thread (like `<reply-to>` body inclusion).
+- **Episode compaction not generating `~/episodes/` files (main/trading).** cron active
+  since 05-19 but dir empty → weekly compaction starves.
+- **TEMPLATES overlay "atlas" referenced but `/opt/arizuko/template/atlas` missing (atlas).**
+- **Doc/naming: tier-0 folder documented as `root` but sloth root group is `main`.**
+- Platform limit (note only): Telegram Bot API doesn't deliver bot→bot group messages
+  (DeeperDexBot digest sees no content) — not fixable adapter-side.
+
+**Agent-behaviour / skill candidates (NOT code bugs):** Slack `**bold**`→`*bold*` mrkdwn
+(×3 — candidate for slakd-side CommonMark→mrkdwn auto-conversion); resolve skill skips
+`/recall-memories` on context loss; oracle prints cost to chat; memory-vs-diary confusion;
+subagents don't inherit visual standards; URLs as plain text not markdown links; weak
+date-verification in research. Already fixed: silent-cron chat (6f4f20c0), slakd
+`invalid_name`→400 (this session), `/workspace` migrate deadlock (this session).
+
 ## OPEN — vited parse5 HTML parse errors, non-fatal (2026-06-12, LOW/cosmetic)
 
 Log eval: marinade vited emits `parse5 invalid-first-character-of-tag-name`
