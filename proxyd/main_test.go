@@ -1577,3 +1577,17 @@ func TestProxyd_TOMLRoute_PreservesHeaders(t *testing.T) {
 		t.Errorf("backend Host = %q, want %q (Host rewrite default ON)", seenHost, upURL.Host)
 	}
 }
+
+// clientIP prefers the left-most X-Forwarded-For hop (real client) over the
+// edge-proxy peer, so abuse triage sees the source not the hop.
+func TestClientIP(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.5.1:54321"
+	if got := clientIP(r); got != "10.0.5.1" {
+		t.Errorf("no XFF: got %q, want 10.0.5.1", got)
+	}
+	r.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.5.1")
+	if got := clientIP(r); got != "203.0.113.7" {
+		t.Errorf("with XFF: got %q, want 203.0.113.7", got)
+	}
+}

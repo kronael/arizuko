@@ -385,15 +385,26 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 	return logging(mux, aud)
 }
 
+// clientIP is the real client address: the left-most X-Forwarded-For hop when
+// present (the edge proxy sets it), else the direct peer. Without it the
+// auth-denied log recorded only the edge-proxy hop (10.0.5.1), hiding the real
+// source of a credential-scanning campaign across all three instances.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if left := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0]); left != "" {
+			return left
+		}
+	}
+	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return peer
+}
+
 func logging(next http.Handler, aud *audit.Audit) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &chanlib.StatusWriter{ResponseWriter: w, Code: 200}
 		next.ServeHTTP(sw, r)
-		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			peer = strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
-		}
+		peer := clientIP(r)
 		slog.Info("request",
 			"method", r.Method, "path", r.URL.Path,
 			"status", sw.Code, "dur", time.Since(start).String(),
@@ -860,9 +871,8 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			next(w, a)
 			return
 		}
-		peer, _, _ := net.SplitHostPort(r.RemoteAddr)
 		slog.Warn("auth denied", "reason", "no_valid_credential",
-			"path", r.URL.Path, "remote", peer)
+			"path", r.URL.Path, "remote", clientIP(r))
 		if rt := r.URL.Path; rt != "" && rt != "/" && strings.HasPrefix(rt, "/") &&
 			!strings.HasPrefix(rt, "/auth/") {
 			if r.URL.RawQuery != "" {
