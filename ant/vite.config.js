@@ -1,6 +1,23 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Watch ONLY the served trees (pub/, priv/). vite cwd is /web; everything else
+// there (node_modules — 214 dirs on krons — plus operator junk) is never served
+// over HMR, so polling it is pure wasted CPU. Scoping the watcher took krons
+// vited from ~21% CPU to idle while clean instances were already <1%.
+const webRoot = process.cwd();
+const skipSeg = new Set(['.git', 'node_modules', '.vite', '.cache']);
+function unwatched(p) {
+  if (p === webRoot) return false;
+  const rel = p.startsWith(webRoot + '/') ? p.slice(webRoot.length + 1) : p;
+  const segs = rel.split('/');
+  // Only pub/ and priv/ are served; never descend VCS/dep dirs even inside them
+  // (a krons agent published a 16k-file tree + a .git repo under pub/ — polling
+  // it burned CPU).
+  if (segs[0] !== 'pub' && segs[0] !== 'priv') return true;
+  return segs.some((s) => skipSeg.has(s));
+}
+
 function pubFallback() {
   return {
     name: 'pub-fallback',
@@ -71,13 +88,12 @@ export default {
   server: {
     allowedHosts: true,
     // Polling is required: agents in OTHER containers write web/pub via a bind
-    // mount and inotify doesn't cross it. But polling the WHOLE cwd is the cost —
-    // krons /web carries node_modules (214 dirs) so vited burned ~21% CPU idle
-    // vs <1% on clean instances. Ignore non-served trees + halve the rate.
+    // mount and inotify doesn't cross it. Scope it to served trees (unwatched)
+    // and halve the rate so a junk-filled /web doesn't burn CPU.
     watch: {
       usePolling: true,
-      interval: 1000,
-      ignored: ['**/node_modules/**', '**/.git/**', '**/.vite/**', '**/tmp/**'],
+      interval: 2000,
+      ignored: unwatched,
     },
     // Defense-in-depth: vited is internal-only (proxyd rewrites all paths to
     // /pub) but pin fs serving and never serve secrets even if reached directly.
