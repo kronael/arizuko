@@ -70,7 +70,18 @@ export default {
   appType: 'mpa',
   server: {
     allowedHosts: true,
-    watch: { usePolling: true, interval: 500 },
+    // Polling is required: agents in OTHER containers write web/pub via a bind
+    // mount and inotify doesn't cross it. But polling the WHOLE cwd is the cost —
+    // krons /web carries node_modules (214 dirs) so vited burned ~21% CPU idle
+    // vs <1% on clean instances. Ignore non-served trees + halve the rate.
+    watch: {
+      usePolling: true,
+      interval: 1000,
+      ignored: ['**/node_modules/**', '**/.git/**', '**/.vite/**', '**/tmp/**'],
+    },
+    // Defense-in-depth: vited is internal-only (proxyd rewrites all paths to
+    // /pub) but pin fs serving and never serve secrets even if reached directly.
+    fs: { strict: true, deny: ['**/.env', '**/.env.*', '**/*.db', '**/.git/**'] },
     hmr: { clientPort: 443, protocol: 'wss' },
   },
   plugins: [pubFallback(), trailingSlash()],
