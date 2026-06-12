@@ -2073,9 +2073,14 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("network_allow not configured")
 			}
 			target := req.GetString("folder", "")
-			host := req.GetString("host", "")
+			// Accept *.example.com — crackbox already suffix-matches a bare domain
+			// to all its subdomains, so normalize the glob to the apex and store
+			// that. Bare * (allow-all) stays rejected: opening all egress is an
+			// operator decision, not an agent grant.
+			host := strings.TrimPrefix(req.GetString("host", ""), "*.")
 			if !validHostname(host) {
-				return toolErr("host must be a bare hostname, e.g. example.com (no scheme or path)")
+				return toolErr("host must be a bare domain (example.com) or subdomain glob " +
+					"(*.example.com); no scheme/port/path. A bare domain already covers its subdomains.")
 			}
 			if err := authzStructural("network_allow", auth.AuthzTarget{TargetFolder: target}); err != nil {
 				return toolErr(err.Error())
@@ -2098,7 +2103,9 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr("network_deny not configured")
 			}
 			target := req.GetString("folder", "")
-			host := req.GetString("host", "")
+			// Normalize the *.example.com glob the same way network_allow stores it,
+			// so a rule added as *.example.com can be removed by the same syntax.
+			host := strings.TrimPrefix(req.GetString("host", ""), "*.")
 			if host == "" {
 				return toolErr("host required")
 			}

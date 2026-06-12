@@ -95,6 +95,22 @@ func TestServeMCP_NetworkAllowList(t *testing.T) {
 	if got := rules["world/a"]; len(got) != 0 {
 		t.Fatalf("invalid host must not persist; rules = %v", got)
 	}
+
+	// *.glob is accepted and normalized to the apex (crackbox suffix-matches it).
+	if _, errText := callTool(t, sock, "network_allow", map[string]any{
+		"folder": "world/a", "host": "*.api.example.com",
+	}); errText != "" {
+		t.Fatalf("network_allow (*.glob): %s", errText)
+	}
+	if got := rules["world/a"]; len(got) != 1 || got[0] != "api.example.com" {
+		t.Fatalf("*.glob stored as %v, want [api.example.com]", got)
+	}
+	// Bare * (allow-all egress) stays rejected — operator decision, not an agent grant.
+	if _, errText := callTool(t, sock, "network_allow", map[string]any{
+		"folder": "world/a", "host": "*",
+	}); errText == "" {
+		t.Fatal("expected bare * to be rejected")
+	}
 }
 
 // A tier-2 caller (folder world/a/b) must not manage egress — for its own
