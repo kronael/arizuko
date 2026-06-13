@@ -80,7 +80,8 @@ system — persona, memory, skills, routing, even an operational fix. The
 agent is both what runs and how you author; there is no separate config
 console, because the conversation is the console. What keeps that safe is
 the daemon structure: each primitive lives in its own compartment (`routd`
-routes, `runed` executes, `authd` authorizes) with hard boundaries —
+routes and runs the authz gate, `runed` executes, `authd` issues identity)
+with hard boundaries —
 folder scoping, the authz gate, ephemeral per-turn containers — so
 LLM-driven shaping stays bounded to what the grants allow. You reshape a
 system in natural language without it becoming a black box you can't
@@ -221,8 +222,8 @@ triggered by different Events.
 
 Two durable stores, **by design** — not a cache layer:
 
-- **Shared relational DB** (`messages.db`): events, routes, grants,
-  ACL, sessions — `store.Store` over SQLite WAL (`store/store.go:19`).
+- **Relational state** (`routd.db`, plus per-plane `auth.db`/`runed.db`/`onbod.db`):
+  events, routes, grants, ACL, sessions — `store.Store` over SQLite WAL (`store/store.go:19`).
 - **Per-agent folder on disk**: `PERSONA.md`, `skills/`, `MEMORY.md`,
   `.diary/` — the agent-as-data substrate (`README.md:28`,
   `README.md:52`). The folder is NOT a cache; containers are stateless
@@ -230,9 +231,10 @@ Two durable stores, **by design** — not a cache layer:
 
 A tar of one instance dir is a complete backup (`README.md:88`).
 
-Honest note: the split adds **per-plane DBs** — `routd.db` and
-`runed.db` (specs `5/E`, `5/P`). State the monolith reality as
-canonical; note the split exists.
+Honest note: state is split across **per-plane DBs** — `routd.db`
+(events, routes, grants, ACL, sessions), `auth.db` (identity, tokens),
+`runed.db` (run state), `onbod.db` (admissions) — specs `5/E`, `5/P`.
+The split is the only topology (`gated` removed).
 
 ### Identity (the coordinate system)
 
@@ -317,7 +319,7 @@ planes separate):
 | Event         | `store` (messages), `chanlib`/`chanreg`               | `gated` → `routd` + adapters |
 | Routing       | `router`                                              | `gated` → `routd`            |
 | Agent         | `groupfolder`, `store` (groups)                       | `gated` → `routd`            |
-| Authorization | `auth`, `grants`                                      | `gated` → `authd`            |
+| Authorization | `auth`, `grants`                                      | `gated` → `routd`            |
 | Turn          | `ipc` (MCP bridge), `runed` (container)               | `gated` → `runed`            |
 | State         | `store` (DB) + the folder on disk                     | `gated` → `routd`/`runed`    |
 | Identity      | `types/identity`, `auth/identity`, `store/identities` | `gated` → `authd`            |

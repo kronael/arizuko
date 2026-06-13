@@ -1,7 +1,7 @@
 package main
 
-// HTTP GrantsFetcher: authd is not the grants authority (gated is — spec 5/1
-// § Login-time scope snapshot). At session issuance / issuer-mint / refresh,
+// HTTP GrantsFetcher: authd is not the grants authority (routd is — it owns
+// the acl tables + runs the gate; spec 5/1 § Login-time scope snapshot). At session issuance / issuer-mint / refresh,
 // authd fetches the target's scope ceiling over one HTTP call:
 //
 //   GET <GRANTS_URL>/v1/users/{bareSub}/scopes   Authorization: Bearer <service:authd>

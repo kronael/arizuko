@@ -51,10 +51,10 @@
       </p>
       <p>
         What keeps that safe is the daemon structure. Each part runs in its own
-        compartment &mdash; <code>routd</code> routes, <code>runed</code> runs
-        the agent, <code>authd</code> authorizes &mdash; behind hard walls:
-        folder scoping, a permission gate on every action, a fresh container per
-        turn. So shaping by language stays inside the permissions you set; it
+        compartment &mdash; <code>routd</code> routes and authorizes,
+        <code>runed</code> runs the agent, <code>authd</code> issues identity and
+        tokens &mdash; behind hard walls: folder scoping, a permission gate on
+        every action, a fresh container per turn. So shaping by language stays inside the permissions you set; it
         never becomes a black box you can&rsquo;t audit.
       </p>
       <p>
@@ -285,7 +285,7 @@
           endpoint (POST JSON, fires the agent). No extra config.
         </li>
         <li>
-          <strong>Everything meets at <code>messages.db</code>.</strong>
+          <strong>Everything meets in <code>routd.db</code>.</strong>
           Routes match on <code>key=glob</code>. ACL is one row:
           <code>(principal, action, scope, params)</code>. Siblings see each
           other&rsquo;s observed messages unless the group is closed. Channels
@@ -353,7 +353,8 @@
       </table>
       <p>
         One <code>tar</code> of <code>/srv/data/arizuko_&lt;name&gt;/</code>
-        backs up the entire instance: <code>messages.db</code> (WAL), group
+        backs up the entire instance: the daemon DBs (<code>routd.db</code>,
+        <code>runed.db</code>, <code>auth.db</code> &mdash; all WAL), group
         folders, per-user memory, secrets, agent files.
       </p>
 
