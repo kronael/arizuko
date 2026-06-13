@@ -257,3 +257,20 @@ func TestTTLCache(t *testing.T) {
 		t.Error("expected TTL eviction")
 	}
 }
+
+func TestToMrkdwn(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"**bold** text", "*bold* text"},
+		{"__also bold__", "*also bold*"},
+		{"see [the docs](https://x.com/y)", "see <https://x.com/y|the docs>"},
+		{"plain *italic* stays", "plain *italic* stays"},
+		{"code `**not bold**` kept", "code `**not bold**` kept"},
+		{"```\n**fenced** kept\n```", "```\n**fenced** kept\n```"},
+		{"no markup here", "no markup here"},
+	}
+	for _, c := range cases {
+		if got := toMrkdwn(c.in); got != c.want {
+			t.Errorf("toMrkdwn(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

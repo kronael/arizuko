@@ -823,6 +823,35 @@ func chatNameFrom(c *slackConvInfo) string {
 // <#C123|name>. U/W are user ids, C/G channel ids.
 var slackMentionRe = regexp.MustCompile(`<([@#])([UWCG][A-Z0-9]+)(?:\|([^>]*))?>`)
 
+// Slack uses mrkdwn, not CommonMark: bold is *one* asterisk and links are
+// <url|text>. Agents emit CommonMark out of habit (`**bold**`, `[t](url)`),
+// which Slack renders literally. Convert the common cases; leave code spans
+// verbatim (converting inside them would mangle code) and leave single-`*`
+// italics alone (ambiguous with mrkdwn bold).
+var (
+	mdCodeSpanRe = regexp.MustCompile("(?s)```.*?```|`[^`]*`")
+	mdBoldRe     = regexp.MustCompile(`\*\*([^*]+)\*\*|__([^_]+)__`)
+	mdLinkRe     = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
+)
+
+func toMrkdwn(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range mdCodeSpanRe.FindAllStringIndex(s, -1) {
+		b.WriteString(convertMrkdwn(s[last:loc[0]]))
+		b.WriteString(s[loc[0]:loc[1]]) // code span verbatim
+		last = loc[1]
+	}
+	b.WriteString(convertMrkdwn(s[last:]))
+	return b.String()
+}
+
+func convertMrkdwn(s string) string {
+	s = mdBoldRe.ReplaceAllString(s, "*$1$2*")
+	s = mdLinkRe.ReplaceAllString(s, "<$2|$1>")
+	return s
+}
+
 // demangleMentions rewrites raw Slack mention tokens to readable names before
 // inbound delivery, so the agent never echoes ids like "@U0B70FBE7CG": the
 // bot's own mention becomes @AssistantName (no users:read needed), other user
@@ -858,7 +887,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	body := url.Values{}
 	body.Set("channel", parts.ID)
-	body.Set("text", req.Content)
+	body.Set("text", toMrkdwn(req.Content))
 	// Thread on the existing thread (ThreadID) or root a new one on the
 	// trigger message (ThreadRoot). ReplyTo deliberately does NOT imply
 	// thread_ts: it is often a prior bot row, and rooting there buries the
