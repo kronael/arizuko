@@ -1,5 +1,5 @@
 ---
-status: ready
+status: shipped
 depends:
   [
     5-uniform-mcp-rest,
@@ -449,8 +449,17 @@ review + a CTO audit flagged them):
 
 ## Docs-rewrite implications
 
-What changes when this framing lands (do NOT edit these here — listed
-for the `5/D` rewrite to pick up):
+**Landed 2026-06-13.** The evolved "shape through LLMs" lead is now the
+primary lead on `index.html` and `README.md` (product/ownership become the
+two halves it rests on, not competing leads); `concepts/workflows.html` is
+created and slotted after `tasks` in the curriculum; the product pages name
+their recomposition and link `concepts/primitives.html`. `concepts/primitives.html`
+
+- the four-layer/no-special-cases tables already shipped earlier (v0.49.0).
+  The site-wide `gated`→split daemon-name purge across `components/`/`reference/`/
+  `howto/` is tracked separately (`bugs.md`).
+
+What changed when this framing landed (the original to-do, kept for record):
 
 - **`index.html` lead.** Open use-cases-first per the grand-message
   reveal order: hero → three product tiles → one traced example → the

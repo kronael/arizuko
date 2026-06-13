@@ -1,7 +1,7 @@
 # arizuko
 
 <p align="center">
-  Ship ownable AI agents as real products. Each agent is a folder — persona, memory, skills, ACL — that reacts to events through one fixed pipeline, self-hosted on your box.
+  Shape an agent system in plain language — an LLM edits the files that are the system (persona, memory, skills, routing), compartmentalized daemons keep that shaping bounded to your permissions, and you own every change as files you diff and <code>git revert</code>. Self-hosted on your box; what you ship is products you own — a Slack team agent, a personal life agent, a company brain.
 </p>
 
 <p align="center">

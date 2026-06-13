@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko — ship AI agents you own, self-hosted</title>
+    <title>arizuko — shape AI agents in plain language, self-hosted, you own them</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -44,16 +44,31 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Ship AI agents you own &mdash; a Slack team agent, a personal life
-        agent, a company brain. Each is a folder of files on your own server:
-        persona, memory, skills, permissions. The same fixed pipeline runs all
-        of them; only the folder and the routing change.
+        Shape an agent system by talking to it. You say what you want; an LLM
+        edits the files that <em>are</em> the system &mdash; persona, memory,
+        skills, routing, even an operational fix. The conversation is the
+        console; there&rsquo;s no separate config screen.
       </p>
       <p>
-        Not a chatbot you rent &mdash; a product you own. The config is files
-        you can diff, review in a PR, and roll back with
-        <code>git revert</code>. That ownership is what lets you shape an agent
-        to exactly your work, instead of tuning a black box through a text box.
+        What keeps that safe is the daemon structure. Each part runs in its own
+        compartment &mdash; <code>routd</code> routes, <code>runed</code> runs
+        the agent, <code>authd</code> authorizes &mdash; behind hard walls:
+        folder scoping, a permission gate on every action, a fresh container per
+        turn. So shaping by language stays inside the permissions you set; it
+        never becomes a black box you can&rsquo;t audit.
+      </p>
+      <p>
+        And every change lands as files you own. The config is text you can
+        diff, review in a PR, and roll back with <code>git revert</code>, on
+        your own server. Language makes it easy to shape; the compartments keep
+        it bounded; ownership makes it permanent.
+      </p>
+      <p>
+        What you build this way is products you own &mdash; a Slack team agent,
+        a personal life agent, a company brain. Each is a folder of files:
+        persona, memory, skills, permissions. The same fixed pipeline runs all
+        of them; only the folder and the routing change. Not a chatbot you rent,
+        and not an opaque SaaS agent you tune through a text box.
       </p>
 
       <h2>see it</h2>
@@ -105,7 +120,7 @@
         <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
         <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
         <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
-        <tr><td>Daemons</td><td>running processes</td><td><code>gated</code>, <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
+        <tr><td>Daemons</td><td>running processes</td><td><code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
         <tr><td>Products</td><td>agents you install</td><td>Slack team agent, reality agent, company brain</td></tr>
       </table>
       <p>
@@ -159,7 +174,7 @@
         A folder is an agent: <code>PERSONA.md</code>, <code>skills/</code>,
         memory files, and an ACL row. When a message arrives, arizuko starts
         a Docker container for that folder. The container connects to
-        <code>gated</code> over MCP on a unix socket. Every tool call goes
+        <code>routd</code> over MCP on a unix socket. Every tool call goes
         through that socket; the host controls what the agent can reach. Every
         platform operation is an MCP tool and a REST endpoint &mdash; no
         separate agent API. All state is in SQLite WAL; the container is
@@ -306,7 +321,8 @@
 
       <h2>start small, grow into it</h2>
       <p>
-        A minimal deploy is <code>gated</code> and one channel adapter. Add
+        A minimal deploy is the three core daemons (<code>authd</code>,
+        <code>routd</code>, <code>runed</code>) and one channel adapter. Add
         components as you need them &mdash; each is a standalone binary with its
         own TOML block. There&rsquo;s no managed control plane; every piece is
         replaceable.
@@ -315,7 +331,7 @@
         <tr><th>Setup</th><th>What runs</th><th>Best for</th></tr>
         <tr>
           <td>Minimal</td>
-          <td><code>gated</code> + one adapter</td>
+          <td><code>authd</code>+<code>routd</code>+<code>runed</code> + one adapter</td>
           <td>First deployment, one team</td>
         </tr>
         <tr>
@@ -369,9 +385,9 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
         <li><a href="products/">products</a> &mdash; ready-made setups:
           Slack team agent, support bot, content pipeline, PM board, and more.</li>
         <li><a href="components/">components</a> &mdash; one page per daemon:
-          <code>gated</code>, <code>webd</code>, <code>proxyd</code>,
-          <code>dashd</code>, <code>onbod</code>, <code>timed</code>, plus the
-          channel adapters.</li>
+          <code>routd</code>, <code>runed</code>, <code>authd</code>,
+          <code>webd</code>, <code>proxyd</code>, <code>dashd</code>,
+          <code>onbod</code>, <code>timed</code>, plus the channel adapters.</li>
         <li><a href="concepts/primitives.html">concepts</a> &mdash; start with
           the <a href="concepts/primitives.html">six primitives</a> (the whole
           system on one page), then a page each for routing, grants, auth,

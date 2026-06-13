@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; workflows</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html" aria-current="page">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; workflows</p>
+      <h1>workflows</h1>
+
+      <p class="lede">An arizuko agent chats well and fails at anything
+        multi-step. It improvises every turn from the scrollback, never writes
+        a plan down, forgets to read its own skills, and starts each session
+        cold. A workflow is the fix &mdash; not a new engine, just one rule:
+        keep the conversation free, but make the <em>opening</em> strict.</p>
+
+      <h2>Why multi-step jobs thrash</h2>
+      <p>Watch a travel-concierge agent plan a week-long trip over chat and the
+        pattern is always the same:</p>
+      <ul>
+        <li><strong>The plan lives in the transcript.</strong> There&rsquo;s no
+          single file holding the itinerary, so every turn re-derives it from
+          scrollback. The same stop gets added, questioned, removed, and
+          re-added across an hour. There&rsquo;s nothing to converge <em>on</em>.</li>
+        <li><strong>Nothing forces an opening.</strong> The agent <em>could</em>
+          run its triage step, but it&rsquo;s a soft nudge the model skips at
+          will. A plain &ldquo;hello&rdquo; can sit unanswered while the agent
+          jumps straight into free-association.</li>
+        <li><strong>Context isn&rsquo;t loaded at decision time.</strong> The
+          agent claims &ldquo;I don&rsquo;t have the history&rdquo; mid-session
+          even though the context is right there &mdash; because nothing makes
+          it load memory and <code>facts/</code> before acting.</li>
+        <li><strong>It doesn&rsquo;t consult its own skills.</strong> A rule
+          already written in a skill gets re-taught live, four times, because
+          nothing makes the agent read its skills at the start of the job.</li>
+      </ul>
+      <p>None of these are capability gaps &mdash; the memory, the skills, the
+        plan file are all available. What&rsquo;s missing is a <em>gate</em>
+        that runs a fixed opening before the agent is allowed to free-associate.</p>
+
+      <h2>Free chat, strict opening</h2>
+      <p>The discipline lives at the edges of a session, not in the middle.
+        Think of a waiter who knows you and chats happily &mdash; but every time
+        you sit down he still runs the same script: greet, recall your table,
+        take the order, read it back, then act.</p>
+      <table>
+        <thead>
+          <tr><th>Boundary</th><th>What runs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>New session</strong> (cold, idle-expired, or
+            <code>/new</code>)</td><td>the full opening: load persona, memory,
+            and facts; read the open plan for this topic; confirm the goal
+            &mdash; <em>before</em> any free reply</td></tr>
+          <tr><td><strong>Continuation</strong> (same session)</td><td>free
+            conversation, with the plan edited in place as work proceeds</td></tr>
+          <tr><td><strong>New topic</strong> (a fork)</td><td>inherits the
+            parent&rsquo;s context, plus a scoped opening for the new thread</td></tr>
+        </tbody>
+      </table>
+      <p>Inside a session, conversation is the default. The strictness is only at
+        the seams &mdash; sitting down, and starting a new thread.</p>
+
+      <h2>The plan-of-record</h2>
+      <p>The one durable artifact that fixes the thrash is a plain file. Any
+        multi-step job gets one <code>~/plans/&lt;topic&gt;.md</code>, written
+        first and edited in place. The opening reads it; the work updates it;
+        &ldquo;done&rdquo; means <em>the plan file is updated</em>, not a chat
+        closer. It&rsquo;s a markdown file the agent owns &mdash; no schema, no
+        database row, diffable like everything else
+        (<a href="primitives.html">agent-as-data</a>).</p>
+
+      <h2>Write the opening in CLAUDE.md</h2>
+      <p>What the opening <em>says</em> is yours to author. Each group has a
+        <code>CLAUDE.md</code> &mdash; its operating manual &mdash; and a
+        <code>## Session opening</code> section there is the contract. Keep it
+        short and concrete:</p>
+      <pre><code>## Session opening
+
+Before replying to anything multi-step:
+1. Load context — read MEMORY.md, the relevant facts/, and the diary.
+2. Open the plan — read ~/plans/&lt;topic&gt;.md, or create it if missing.
+3. Scan skills/ for one that fits the job, and apply its rules.
+4. Confirm the goal and name the deliverable, then act.
+
+"Done" means the plan file is updated — not a message that says done.</code></pre>
+      <p>Two more things make the opening worth running: keep the persona
+        coherent (one identity, a focused <code>facts/</code> &mdash; an agent
+        carrying three personas has nothing clean to load), and treat the plan
+        file as the source of truth for the whole job.</p>
+
+      <h2>Not a new primitive</h2>
+      <p>A workflow isn&rsquo;t a seventh part of the system. It&rsquo;s
+        <a href="primitives.html">Turn + State</a> and the session lifecycle
+        recombined: the session boundary already starts each run fresh; the
+        discipline just makes that boundary run a fixed opening and keep a plan
+        file. No state machine, no DAG runtime &mdash; the backbone is the
+        session lifecycle arizuko already runs, and the intelligence is the
+        agent.</p>
+
+      <div class="callout"><strong>What&rsquo;s yours vs the platform&rsquo;s:</strong>
+        today the opening is a convention you author in <code>CLAUDE.md</code>
+        and the agent follows &mdash; the plan file and the opening section work
+        right now. Making the platform <em>enforce</em> the opening as a
+        non-skippable directive at the session boundary is on the roadmap
+        (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/X-session-workflows.md">spec&nbsp;5/X</a>),
+        not shipped. Write the opening now; the enforcement hardens later.</div>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="tasks.html">&larr; Tasks</a>
+        <a rel="next" href="tokens.html">Tokens &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/workflows.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
