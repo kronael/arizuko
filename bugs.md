@@ -37,40 +37,48 @@ separately at the end as skill candidates, not code bugs.
 
 **P1 — recurring, breaks user-facing flows:**
 
-- **Root/tier-0 folder containment is too strict (×4: mayai, coach, main/main).** A
-  root group (`ARIZUKO_IS_ROOT=1`) still gets "forbidden … not in subtree" on `send`/
-  `delegate_group` to other subtrees, and `send` to its own folder jid returns "no
-  channel for jid <folder>". Breaks the `/migrate` announce fan-out + cross-group ops;
-  worked around via `inject_message`/`schedule_task`. Fix-path: root bypasses the
-  subtree gate (`routd/server.go:346` authorizeJID + the REST twin), and a folder with
-  no channel should resolve a deliverable route or give a clear error, not block.
-- **Telegram GROUP sends → 502 while user sends succeed (×3: atlas ×2 groups, main/main).**
-  `group/…` outbound rejected ("no channel for jid group/…" on sloth; 502 on marinade);
-  `user/…` fine. Fix-path: teled group-send path + route resolution for `group/` jids.
+- **NEEDS DECISION — tier-0 world cross-send (×4: mayai, coach, main/main).** `Tier =
+  min(slashes,3)`, so EVERY top-level folder is tier-0 — `main` AND `coach` are both roots.
+  `authorizeOutbound` confines each to its own subtree, so a migrate-announce from `coach`
+  can't reach `main`'s channels. This is **world isolation working as designed**, not a
+  simple bug: a naive "tier-0 bypasses containment" would let any world send into any other
+  (multi-tenant break). The right model is operator (`**` grant) bypass, OR per-world announce
+  (each root announces only to its own channels) + the `inject_message` fallback (already
+  works). "no channel for jid <folder>" is correct — a bare folder isn't a chat target.
+  DECISION NEEDED: designate an instance-operator that bypasses, or keep isolation + fix the
+  migrate-announce skill to skip unreachable worlds gracefully. NOT auto-fixed (security).
+- **Telegram GROUP sends → 502 (×3) — DIAGNOSED: operator state, partly FIXED.** Live logs:
+  the groups were DELETED / bot kicked ("chat not found", "the group chat was deleted") —
+  `parseChatID` re-negates group IDs correctly, no code bug. The 502 amplification IS fixed:
+  outbox head-of-line (dead jid self-evicts) + permanent-error surfacing (teled maps the
+  deleted-group 400/403 → clear agent error, not a 502). Remaining: dead groups are operator
+  state. ("no channel for jid group/…" is the separate world-containment item below.)
 - **seedSkills / `.merge-base` missing on existing groups (×2: coach, sloth main).**
   coach `/migrate` found no `~/.claude/.merge-base/` + 28 stock skills missing — seedSkills
   runs only on group CREATE, so groups that predate a skill never get it (broader than the
   migrate-skill bootstrap fixed in 409e3a58). Fix-path: decide whether seedSkills (not just
   the migrate skill) should reconcile missing stock skills on spawn.
-- **Discord thread replies land at channel root (×6: sloth main + main/main, May–Jun).**
-  discd HAS thread support (`discd/bot.go:314` topic→ThreadID); the recent reply→thread
-  work likely fixes it but every report predates the sloth redeploy. ACTION: verify live
-  post-deploy. Genuine gap remains: no `create_thread` tool (operator wants replies to
-  START a thread in #trading); reply/send can only post to root or banner-reply.
-- **Slack `like`/`send` → 502 on specific channels (×4: atlas ×3, atlas/search).** The
-  `invalid_name`→502 subset is FIXED (→400, commit 92fca878); broader 502s may be missing
-  `reactions:write`/`chat:write` scope or adapter faults. Fix-path: confirm bot-token
-  scopes; map other slack API errors to the right status like invalid_name.
-- **`/chat` (slink) POST → 502 "router unavailable" (×2: atlas strengths, 05-13/06-10).**
-  GET widget loads 200, POST submission fails — webd/router `/chat` turn+SSE path down.
-  Fix-path: confirm webd `/chat` handler health; the strengths form can't accept input.
+- **Discord thread replies / create_thread (×6) — ALREADY IMPLEMENTED.** The full chain
+  exists: `replyThreadRoot` (routd/turns.go:244) → `threadRoot` → discd `Send` →
+  `threadFrom` (`MessageThreadStartComplex`). `reply` in a Discord group (thread_replies
+  defaults on) STARTS a thread on the trigger message. No new tool needed (would
+  reimplement). Reports predate the reply→thread deploy. ACTION: operator uses `reply`.
+- **Slack `like`/`send` → 502 (×4) — FIXED.** `invalid_name`→400 (92fca878); send now maps
+  permanent slack errors (channel_not_found/is_archived/not_in_channel) → 400, and chanreg
+  surfaces 4xx to the agent instead of a retried 502. Token-scope faults (reactions:write)
+  remain operator config.
+- **FIXED 2026-06-13 — `/chat` POST → 502 "router unavailable" (atlas strengths).** Root
+  cause (live-repro'd, token y5Cx…9xM): webd was MISSING from authd `serviceGrants` → its
+  service token had no `messages:write` → routd `/v1/messages` returned 403, mislabeled 502.
+  Added `service:webd: {messages:write}`. Re-POST after deploy → HTTP 200 `{status:pending}`.
 
 **P2 — single reports / platform limits:**
 
-- **`network_allow` is per-host only; `*`/globs rejected (sloth).** "host must be a bare
-  hostname" — needs `*.example.com` / full-wildcard support in the egress allowlist.
-- **crackbox `connection refused :3129` at agent startup (×2: rhias, coach).** egress
-  register races crackbox readiness (or it's down). Fix-path: retry/backoff on register, or
+- **FIXED — `network_allow` rejected globs (sloth).** Now accepts `*.example.com`
+  (normalized to apex, which crackbox suffix-matches); bare `*` stays rejected (operator
+  decision). Commit c1df654b.
+- **FIXED — crackbox `connection refused :3129` at agent startup (×2: rhias, coach).** egress
+  register now retries 4× with backoff (commit 896e96b0). Original fix-path:
   gate spawn on crackbox health.
 - **Discord typing 👀 leaks to channel root while replying in a thread (sloth).**
 - **Mid-thread message delivered with NO thread history → agent misreads (sloth incident).**
