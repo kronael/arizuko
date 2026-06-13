@@ -35,7 +35,7 @@ func isoEnv(t *testing.T) (*http.ServeMux, *testutils.Inst) {
 	t.Helper()
 	_, inst, _ := newRWDashServer(t)
 	mux := http.NewServeMux()
-	(&dash{db: inst.DB, dbRW: inst.DB, dbPath: "memory", groupsDir: inst.Tmp}).registerRoutes(mux)
+	(&dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB, dbPath: "memory", groupsDir: inst.Tmp}).registerRoutes(mux)
 
 	now := time.Now()
 	for _, f := range []string{"corp", folderEng, folderSre, folderSales} {
@@ -309,7 +309,7 @@ func TestIso_Bob_SeesSalesNotEng(t *testing.T) {
 //     sales'). Operator gets the raw COUNT(*).
 func TestIso_PortalCounts_Scoped(t *testing.T) {
 	_, inst := isoEnv(t)
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	// Errored chats: one per tenant + a JID with no resolvable folder.
 	for _, m := range []struct{ id, jid string }{

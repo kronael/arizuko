@@ -25,7 +25,7 @@ func newDashServer(t *testing.T) (*httptest.Server, *testutils.Inst, string) {
 	if err := os.MkdirAll(groupsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbPath: "memory", groupsDir: groupsDir}
+	d := &dash{db: inst.DB, dbRoutd: inst.DB, dbOnbod: inst.DB, dbPath: "memory", groupsDir: groupsDir}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	srv := httptest.NewServer(mux)

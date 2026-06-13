@@ -473,46 +473,23 @@ func cmdGroup(args []string) {
 var errEmptyGrant = fmt.Errorf("sub and pattern must be non-empty")
 
 // mustOpenACL opens the *Store holding acl + acl_membership for the grant write
-// path. DUAL-PATH (mirrors mustOpenOnbod): in the split routd OWNS them in
-// routd.db (spec 5/5), so when that file exists the CLI writes there directly —
-// same FS-access discipline as it wrote messages.db before, no token plumbing.
-// Monolith (no routd.db) → messages.db via store.Open, so `arizuko grant` works
-// on both topologies.
+// path. routd OWNS them in routd.db (spec 5/5); the CLI mounts the data dir and
+// writes there directly — same FS-access discipline, no token plumbing.
 func mustOpenACL(dataDir string) *store.Store {
-	storeDir := filepath.Join(dataDir, "store")
-	if _, err := os.Stat(filepath.Join(storeDir, "routd.db")); err == nil {
-		s, oerr := store.OpenRoutd(storeDir)
-		if oerr != nil {
-			die("Failed: open routd.db: %v", oerr)
-		}
-		return s
-	}
-	s, err := store.Open(storeDir)
+	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
 	if err != nil {
-		die("Failed: open db: %v", err)
+		die("Failed: open routd.db: %v", err)
 	}
 	return s
 }
 
 // mustOpenOnbod opens the *Store holding onbod's OWNED tables (invites +
-// onboarding_gates) for the invite/gate write path. DUAL-PATH: in the split
-// onbod OWNS them in onbod.db (spec 5/5), so when that file exists the CLI
-// writes there directly — same FS-access discipline as it wrote messages.db
-// before, no token plumbing. Monolith (no onbod.db) → messages.db via
-// store.Open. Mirrors mustOpenACL but stays dual so the CLI works pre- and
-// post-cutover.
+// onboarding_gates) for the invite/gate write path. onbod OWNS them in onbod.db
+// (spec 5/5); the CLI writes there directly — same FS-access discipline.
 func mustOpenOnbod(dataDir string) *store.Store {
-	storeDir := filepath.Join(dataDir, "store")
-	if _, err := os.Stat(filepath.Join(storeDir, "onbod.db")); err == nil {
-		s, oerr := store.OpenOnbod(storeDir)
-		if oerr != nil {
-			die("Failed: open onbod.db: %v", oerr)
-		}
-		return s
-	}
-	s, err := store.Open(storeDir)
+	s, err := store.OpenOnbod(filepath.Join(dataDir, "store"))
 	if err != nil {
-		die("Failed: open db: %v", err)
+		die("Failed: open onbod.db: %v", err)
 	}
 	return s
 }

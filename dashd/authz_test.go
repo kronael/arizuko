@@ -73,7 +73,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	r := httptest.NewRequest("POST", "/dash/groups/mygroup/delete", nil)
 	r.Host = "example.com"
@@ -91,7 +91,7 @@ func TestRequireAdmin_Admitted(t *testing.T) {
 func TestRequireAdmin_Denied(t *testing.T) {
 	inst := testutils.NewInstance(t)
 	// stranger has no admin grant
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	r := httptest.NewRequest("POST", "/dash/groups/mygroup/delete", nil)
 	r.Host = "example.com"
@@ -113,7 +113,7 @@ func TestRequireAdmin_OperatorGrant(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "example.com"
@@ -133,7 +133,7 @@ func TestRequireAdmin_GroupHeader(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "example.com"
@@ -166,7 +166,7 @@ func TestRequireAdmin_CrossOriginRejected(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRW: inst.DB}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB}
 
 	r := httptest.NewRequest("POST", "/", nil)
 	r.Host = "dash.example.com"

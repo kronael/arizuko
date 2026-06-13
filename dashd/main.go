@@ -165,8 +165,6 @@ func main() {
 	// routd OWNS acl/groups/routes/route_tokens/secrets in the split topology
 	// (spec 5/5); dashd mounts the data dir, so it points its admin SQL straight
 	// at routd.db (no token plumbing — same FS-access discipline as messages.db).
-	// Best-effort: an absent routd.db (gated topology / fresh instance) leaves
-	// dbRoutd nil → adminDB()/secretsDB() fall back to messages.db.
 	var dbRoutd *sql.DB
 	if routdPath := filepath.Join(filepath.Dir(dsn), "routd.db"); routdPath != dsn {
 		if s, err := sql.Open("sqlite", routdPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
@@ -179,8 +177,6 @@ func main() {
 
 	// onbod OWNS invites/onboarding_gates in the split topology (spec 5/5); the
 	// invites admin page writes there directly (same FS-access discipline).
-	// Best-effort: an absent onbod.db (gated topology / onboarding off) leaves
-	// dbOnbod nil → invitesDB() falls back to messages.db.
 	var dbOnbod *sql.DB
 	if onbodPath := filepath.Join(filepath.Dir(dsn), "onbod.db"); onbodPath != dsn {
 		if _, statErr := os.Stat(onbodPath); statErr == nil {
@@ -218,10 +214,8 @@ type dash struct {
 	dbRW    *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
 	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/secrets
 	// in the split topology (spec 5/5); dashd reads+writes those tables here.
-	// Falls back to dbRW when unset (single-DB / tests).
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
-	// Falls back to dbRW when unset (single-DB / monolith / tests).
 	dbPath    string
 	groupsDir string
 	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
@@ -231,34 +225,17 @@ type dash struct {
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
 // read+write. routd OWNS those tables in the split topology, so dashd points its
-// admin SQL at routd.db (dbRoutd). Falls back to dbRW, then to db (read-only
-// single-DB fixtures wire only db).
-func (d *dash) adminDB() *sql.DB {
-	if d.dbRoutd != nil {
-		return d.dbRoutd
-	}
-	if d.dbRW != nil {
-		return d.dbRW
-	}
-	return d.db
-}
+// admin SQL straight at routd.db (dbRoutd).
+func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
 
 // secretsDB returns the handle the /dash/me/secrets paths read+write — the same
-// routd.db handle, since routd also OWNS the secrets table. Falls back to dbRW.
+// routd.db handle, since routd also OWNS the secrets table.
 func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
 
 // invitesDB returns the handle the invites admin page reads+writes. onbod OWNS
-// invites in the split topology, so dashd points its invite SQL at onbod.db
-// (dbOnbod). Falls back to dbRW, then to db (monolith / single-DB fixtures).
-func (d *dash) invitesDB() *sql.DB {
-	if d.dbOnbod != nil {
-		return d.dbOnbod
-	}
-	if d.dbRW != nil {
-		return d.dbRW
-	}
-	return d.db
-}
+// invites in the split topology, so dashd points its invite SQL straight at
+// onbod.db (dbOnbod).
+func (d *dash) invitesDB() *sql.DB { return d.dbOnbod }
 
 // guard proves a request transited proxyd (auth.ProxydTransit: an authd-minted
 // service:proxyd ES256 bearer) before letting a handler trust the proxyd-stamped

@@ -59,7 +59,7 @@ func TestTasksPartialRows(t *testing.T) {
 		 VALUES('t2', 'g2', 'c', 'p', 'paused', '2026-01-02')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -84,7 +84,7 @@ func TestTasksPartialXSS(t *testing.T) {
 		 VALUES('<script>', '</td>', '', '', 'x', 'active', '<b>')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/tasks/x/list", nil))
@@ -107,7 +107,7 @@ func TestActivityFullPage(t *testing.T) {
 		 VALUES('m1', 'c1', 's1', 'hi there', '2026-01-01T00:00:00Z', 'tel', 'say')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/", nil))
@@ -139,7 +139,7 @@ func TestActivityPartialRows(t *testing.T) {
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source) VALUES('m2','c','s','short','2026-01-02','disc')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/activity/x/recent", nil))
@@ -164,7 +164,7 @@ func TestActivityPartialXSS(t *testing.T) {
 		`INSERT INTO messages(id, chat_jid, sender, content, timestamp, source, verb) VALUES('m1','<c>','<s>','<b>evil</b>','t','<src>','<v>')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/activity/x/recent", nil)
@@ -199,7 +199,7 @@ func TestGroupsWithRoutes(t *testing.T) {
 		`INSERT INTO routes(seq, match, target) VALUES(2, 'disc:*', 'root/child')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -223,7 +223,7 @@ func TestGroupsRoutesEmpty(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES('g1', '')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/groups/", nil))
@@ -240,7 +240,7 @@ func TestWriteGroupRoutesQueryError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	w := httptest.NewRecorder()
 	d.writeGroupRoutes(w, "g1") // must not panic; renders inline error banner
 	body := w.Body.String()
@@ -265,7 +265,7 @@ func TestHandleMemoryDropdown(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES('beta', '')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/", nil))
@@ -300,7 +300,7 @@ func TestHandleMemorySelectedGroup(t *testing.T) {
 		`INSERT INTO groups(folder, added_at) VALUES(?, '')`, folder); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, groupsDir: groups}
+	d := &dash{db: db, dbRoutd: db, groupsDir: groups}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/memory/?group="+folder, nil))
@@ -484,7 +484,7 @@ func TestDashRejectsUnsignedXUserSub(t *testing.T) {
 	ks, _ := proxydBearerKS(t)
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -508,7 +508,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 	ks, tok := proxydBearerKS(t)
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir(), ks: ks}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -529,7 +529,7 @@ func TestDashAcceptsTransitProvenXUserSub(t *testing.T) {
 func TestDashHealthExemptFromGuard(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -550,7 +550,7 @@ func TestPortalAllDotsOk(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO channels(name, url) VALUES('tel','http://t/')`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := httptest.NewRequest("GET", "/dash/", nil)
@@ -575,7 +575,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
@@ -590,7 +590,7 @@ func TestPortalFailedTasksDot(t *testing.T) {
 func TestPortalRejectsNonRoot(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	// path "/dash/bogus" matches "/dash/" prefix route, handler should 404

@@ -42,7 +42,7 @@ func meSecretsTestDB(t *testing.T) *dash {
 		t.Fatalf("schema: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &dash{db: db, dbRW: db}
+	return &dash{db: db, dbRW: db, dbRoutd: db}
 }
 
 func newMux(d *dash) *http.ServeMux {

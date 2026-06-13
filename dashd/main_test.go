@@ -58,7 +58,7 @@ func testDB(t *testing.T) *sql.DB {
 func TestDashHealth(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -78,7 +78,7 @@ func TestDashHealth(t *testing.T) {
 func TestDashPortal(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -96,7 +96,7 @@ func TestDashPortal(t *testing.T) {
 func TestDashStatus(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:"}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:"}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -111,7 +111,7 @@ func TestDashStatus(t *testing.T) {
 func TestDashTasks(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -161,7 +161,7 @@ func TestRenderMemorySectionValid(t *testing.T) {
 func TestDashNoAuthGate(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -222,7 +222,7 @@ func TestHandleStatusDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE channels`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, dbPath: ":memory:"}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:"}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -320,7 +320,7 @@ func TestRenderMemorySectionAbsolutePath(t *testing.T) {
 func TestHandleMemoryURLEncodedTraversal(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -403,7 +403,7 @@ func TestHandlePortalDBError(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -429,7 +429,7 @@ func TestTasksPartialDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE scheduled_tasks`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -452,7 +452,7 @@ func TestActivityPartialDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE messages`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -475,7 +475,7 @@ func TestHandleGroupsDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db}
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -499,7 +499,7 @@ func TestHandleMemoryDBError(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE groups`); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: db, groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -526,7 +526,7 @@ func TestHandleMemoryDBError(t *testing.T) {
 func TestDashIgnoresAuthHeader(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
-	d := &dash{db: db, dbPath: ":memory:", groupsDir: t.TempDir()}
+	d := &dash{db: db, dbRoutd: db, dbPath: ":memory:", groupsDir: t.TempDir()}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
@@ -599,7 +599,7 @@ func setupMemoryTest(t *testing.T) (*dash, string, *http.ServeMux) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d := &dash{db: inst.DB, dbRW: inst.DB, groupsDir: groups}
+	d := &dash{db: inst.DB, dbRW: inst.DB, dbRoutd: inst.DB, groupsDir: groups}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	return d, folder, mux
