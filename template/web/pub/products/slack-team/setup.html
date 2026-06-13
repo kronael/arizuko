@@ -70,7 +70,7 @@ $EDITOR .env</code></pre>
       <p>The Slack-team product needs at least these keys set:</p>
       <pre><code># Identity + secrets
 ASSISTANT_NAME=acme              # agent display name
-CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and gated
+CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and routd
 AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
 WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
 
@@ -292,7 +292,7 @@ entrypoint = ["slakd"]
 volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
 
 [environment]
-ROUTER_URL = "http://gated:8080"
+ROUTER_URL = "http://routd:8080"
 SLACK_BOT_TOKEN = "xoxb-beta-workspace-token"
 SLACK_SIGNING_SECRET = "beta-signing-secret"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"

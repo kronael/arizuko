@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -58,7 +58,10 @@
     <tr><th>name</th><th>role</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name"><a href="../components/gated.html">gated</a></td><td>gateway daemon &mdash; HTTP API, MCP host, message loop, owns the SQLite schema</td></tr>
+    <tr><td class="name">routd</td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns <code>routd.db</code> and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
+    <tr><td class="name">runed</td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns <code>runed.db</code></td></tr>
+    <tr><td class="name">authd</td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns <code>auth.db</code>. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
+    <tr><td class="name"><a href="../components/gated.html">gated <span class="dim">(removed)</span></a></td><td>former monolith &mdash; split into routd + runed + authd and deleted in v0.50.0</td></tr>
     <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
     <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
     <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>static origin &mdash; Vite server behind proxyd for the <code>/pub/</code> docs tree and group web pages</td></tr>
@@ -100,7 +103,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-04">2026-06-04</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -60,7 +60,7 @@
     <h2>Why it exists</h2>
     <p>arizuko speaks one TTS protocol &mdash; OpenAI&rsquo;s. ttsd pins that contract at the daemon boundary so the gateway and the <code>send_voice</code> MCP tool never see the choice of backend. Default is the bundled Kokoro-FastAPI container; flip <code>TTS_BACKEND_URL</code> to Piper, Coqui, OpenAI cloud, or anything else that speaks <code>/v1/audio/speech</code>, and no caller code changes.</p>
 
-    <p>It also normalises the health signal. Kokoro&rsquo;s readiness probe and OpenAI&rsquo;s 401 on an unauthenticated <code>HEAD</code> would each need a custom check in gated; ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape matching every other arizuko adapter.</p>
+    <p>It also normalises the health signal. Kokoro&rsquo;s readiness probe and OpenAI&rsquo;s 401 on an unauthenticated <code>HEAD</code> would each need a custom check in routd; ttsd hides that and reports one <code>{status:"ok"|"disconnected"}</code> shape matching every other arizuko adapter.</p>
 
     <h2>The loop</h2>
     <p>One request, one upstream call. ttsd runs an <code>httputil.NewSingleHostReverseProxy</code> against <code>TTS_BACKEND_URL</code>:</p>
@@ -72,14 +72,14 @@
       <li>On dial error, return <code>502 tts backend unreachable</code>.</li>
     </ol>
 
-    <p>The <code>/health</code> handler probes the backend&rsquo;s <code>/health</code> with a 3-second timeout, falling back to a <code>HEAD /</code> for backends that don&rsquo;t expose one. Used by gated to gate <code>send_voice</code>: when the probe returns 503, the tool returns <code>chanlib.ErrUnsupported</code> and the agent falls back to a plain text reply.</p>
+    <p>The <code>/health</code> handler probes the backend&rsquo;s <code>/health</code> with a 3-second timeout, falling back to a <code>HEAD /</code> for backends that don&rsquo;t expose one. Used by routd to gate <code>send_voice</code>: when the probe returns 503, the tool returns <code>chanlib.ErrUnsupported</code> and the agent falls back to a plain text reply.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
       <pre><code>agent
    |  send_voice(chat_jid, text, voice)
    v
- gated  ---&gt;  POST TTS_BASE_URL/v1/audio/speech
+ routd  ---&gt;  POST TTS_BASE_URL/v1/audio/speech
    |
    v
  ttsd  ---&gt;  POST TTS_BACKEND_URL/v1/audio/speech
@@ -88,10 +88,10 @@
  kokoro / piper / openai cloud
    |
    v  audio bytes (ogg, mp3, &hellip;)
- gated caches at &lt;data_dir&gt;/tts/&lt;hash&gt;.ogg, hands to adapter</code></pre>
+ routd caches at &lt;data_dir&gt;/tts/&lt;hash&gt;.ogg, hands to adapter</code></pre>
     </div>
 
-    <p>Inputs: HTTP from gated (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
+    <p>Inputs: HTTP from routd (or any other OpenAI-shaped TTS caller). Outputs: audio bytes from the upstream backend. Hard deps: a reachable backend at <code>TTS_BACKEND_URL</code>.</p>
 
     <p>Concepts: <a href="../concepts/voice.html">concepts/voice</a> covers the full voice-in / voice-out flow including transcription, voice selection, caching, and per-platform delivery.</p>
 
@@ -126,7 +126,7 @@ curl -s -X POST localhost:8880/v1/audio/speech \
       <li><a href="../concepts/voice.html">concepts/voice</a> &mdash; transcription, voice selection, caching, platform delivery.</li>
       <li><code>ttsd/README.md</code> &mdash; endpoint contract and backend options.</li>
       <li><code>specs/5/T-voice-synthesis.md</code> &mdash; canonical voice spec.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the caller that hashes, caches, and dispatches the audio.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; routd, the caller that hashes, caches, and dispatches the audio.</li>
     </ul>
 
 
@@ -136,7 +136,7 @@ curl -s -X POST localhost:8880/v1/audio/speech \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/ttsd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

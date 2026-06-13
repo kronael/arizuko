@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, mastd is the connector that plugs Mastodon into arizuko, so the agent can read mentions and DMs and reply as posts.</p>
 
-    <p>mastd is the Mastodon channel adapter. It opens the user streaming API on a configured Mastodon instance, filters notifications to mentions and DMs, and posts inbound to gated. Outbound goes through the Mastodon REST API. JID prefix is <code>mastodon:</code>; per-account JIDs are <code>mastodon:&lt;account_id&gt;</code>.</p>
+    <p>mastd is the Mastodon channel adapter. It opens the user streaming API on a configured Mastodon instance, filters notifications to mentions and DMs, and posts inbound to routd. Outbound goes through the Mastodon REST API. JID prefix is <code>mastodon:</code>; per-account JIDs are <code>mastodon:&lt;account_id&gt;</code>.</p>
 
     <h2>Why it exists</h2>
     <p>Mastodon is the fediverse foothold: one adapter speaks ActivityPub against any Mastodon instance the operator has an account on. Streaming is the only practical way to get low-latency notifications &mdash; polling the public API hits rate limits before the bot becomes useful.</p>
@@ -66,7 +66,7 @@
       mastd     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to mastd)
         v
       mastd     (REST: /api/v1/statuses, /favourite, /reblog, ...)
@@ -80,9 +80,9 @@
     <p><code>send_file</code> is not implemented; the adapter returns <code>NoFileSender</code> until the <code>POST /api/v2/media</code> flow lands. <code>send</code> posts publicly today &mdash; DM semantics require an <code>acct</code> handle plus <code>Toot.Visibility = "direct"</code>, which the current JID format does not carry.</p>
 
     <h2>Standalone usage</h2>
-    <p>mastd is a plain Go binary. It needs a reachable gated and an access token from a Mastodon application registered on the target instance.</p>
+    <p>mastd is a plain Go binary. It needs a reachable routd and an access token from a Mastodon application registered on the target instance.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export MASTODON_INSTANCE_URL=https://mastodon.social
@@ -106,7 +106,7 @@ export MASTODON_ACCESS_TOKEN=...
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/mastd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, bskyd is the connector that plugs Bluesky into arizuko, so the agent can read mentions and reply as posts.</p>
 
-    <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to gated, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
+    <p>bskyd is the Bluesky channel adapter. It polls Bluesky notifications via the AT Protocol xrpc API for mentions and replies, posts inbound to routd, and writes outbound as <code>app.bsky.feed.*</code> records on the user&rsquo;s PDS (personal data server). JID prefix is <code>bluesky:</code>; per-user JIDs are <code>bluesky:&lt;did&gt;</code>.</p>
 
     <h2>Why it exists</h2>
     <p>Bluesky is the AT Protocol social network. There is no streaming API for one account &mdash; the firehose is network-wide and too noisy &mdash; so bskyd polls <code>listNotifications</code> and refreshes its auth session on a loop. Posting means signing record creates against the PDS, which is what bskyd does for the agent.</p>
@@ -66,7 +66,7 @@
       bskyd     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to bskyd)
         v
       bskyd     (com.atproto.repo.createRecord on app.bsky.feed.*)
@@ -82,9 +82,9 @@
     <p>Inbound is public-feed only. DMs would need <code>chat.bsky.convo</code> proxied through <code>did:web:api.bsky.chat</code>, and no inbound DM polling is wired today.</p>
 
     <h2>Standalone usage</h2>
-    <p>bskyd is a plain Go binary. It needs a reachable gated, a Bluesky handle, and an app password (not your main password).</p>
+    <p>bskyd is a plain Go binary. It needs a reachable routd, a Bluesky handle, and an app password (not your main password).</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export BLUESKY_IDENTIFIER=you.bsky.social
@@ -108,7 +108,7 @@ export DATA_DIR=/srv/data/arizuko_demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/bskyd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

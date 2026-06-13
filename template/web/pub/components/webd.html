@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,12 +53,12 @@
     <h2>What it is</h2>
     <p>In plain terms, webd is what puts the agent in a web browser. It serves the chat box on a web page and streams each reply back as the agent writes it.</p>
 
-    <p>webd is the web channel adapter. It registers with gated as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
+    <p>webd is the web channel adapter. It registers with routd as channel <code>web</code> (JID prefix <code>web:</code>) and pushes per-turn agent output to browsers over Server-Sent Events (a one-way live stream from server to browser). It serves three URLs: the public chat widget at <code>/chat/&lt;token&gt;/</code>, the webhook ingest at <code>/hook/&lt;token&gt;</code>, and the authed operator panel at <code>/panel/&lt;folder&gt;</code>. Tokens come from the <a href="../components/tokens.html">route_tokens</a> table; legacy <code>/slink/*</code> URLs 301-redirect to <code>/chat/*</code>.</p>
 
-    <p>From gated&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
+    <p>From routd&rsquo;s point of view it is a normal channel adapter, same protocol as <code>teled</code> or <code>slakd</code>. From a browser&rsquo;s point of view it is an HTTP server with one open SSE stream per active chat.</p>
 
     <h2>Why it exists</h2>
-    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to gated. Splitting that into its own adapter keeps gated free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
+    <p>Telegram and Discord come with their own clients. The web does not. To talk to an arizuko group from a browser, something has to host HTML, accept a POST, push agent output to the page, and look like one more channel to routd. Splitting that into its own adapter keeps routd free of HTML and puts every web client (built-in widget, JS SDK, third-party MCP client) on one code path.</p>
 
     <p>Without webd there is no browser chat, no slink widget, no operator MCP-over-HTTP. The dashboard would still work because dashd is a separate daemon, but end users could only reach the agent through a platform adapter.</p>
 
@@ -73,21 +73,21 @@
       proxyd          (auth for /api/*, /mcp ; strips identity on /chat/*)
         |
         v
-      webd  --POST /v1/messages--&gt;  gated     (CHANNEL_SECRET signed)
+      webd  --POST /v1/messages--&gt;  routd     (CHANNEL_SECRET signed)
         ^                            |
         |                            v
         +--POST /send----------  arizuko-ant container
-            (gated calls webd back; webd fans to SSE subscribers)</code></pre>
+            (routd calls webd back; webd fans to SSE subscribers)</code></pre>
     </div>
 
-    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from gated (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by <code>CHANNEL_SECRET</code>; signed identity headers forwarded from proxyd under <code>PROXYD_HMAC_SECRET</code>. Outputs: HTML pages and SSE frames to the browser, signed POSTs to gated&rsquo;s <code>/v1/messages</code>.</p>
+    <p>Inputs: HTTP from browsers and MCP clients; HTTP callbacks from routd (<code>/send</code>, <code>/typing</code>, <code>/v1/round_done</code>) authenticated by <code>CHANNEL_SECRET</code>; signed identity headers forwarded from proxyd under <code>PROXYD_HMAC_SECRET</code>. Outputs: HTML pages and SSE frames to the browser, signed POSTs to routd&rsquo;s <code>/v1/messages</code>.</p>
 
-    <p>Hard deps: a reachable gated at <code>$ROUTER_URL</code>, and the same SQLite file gated owns (webd&rsquo;s <code>/api/*</code> chat reads still hit the DB directly today; they migrate to <code>/v1/messages</code> when that ships).</p>
+    <p>Hard deps: a reachable routd at <code>$ROUTER_URL</code>, and routd&rsquo;s <code>routd.db</code> (webd&rsquo;s <code>/api/*</code> chat reads still hit that DB directly today; they migrate to <code>/v1/messages</code> when that ships).</p>
 
     <h2>Standalone usage</h2>
-    <p>Yes, as a process &mdash; but useless without gated. webd does not store messages; it forwards them. Run it on its own only when pointing at a running gated.</p>
+    <p>Yes, as a process &mdash; but useless without routd. webd does not store messages; it forwards them. Run it on its own only when pointing at a running routd.</p>
 
-    <pre><code># with gated already up on the same data dir
+    <pre><code># with routd already up on the same data dir
 cd /srv/data/myinstance
 WEBD_LISTEN=:9001 \
 WEBD_URL=http://localhost:9001 \
@@ -101,9 +101,9 @@ WEB_HOST=localhost:9001 \
     <h2>Key env vars</h2>
     <ul>
       <li><code>WEBD_LISTEN</code> &mdash; HTTP listen address (default <code>:8080</code>).</li>
-      <li><code>WEBD_URL</code> &mdash; URL gated should call back on (default <code>http://webd:8080</code>).</li>
-      <li><code>ROUTER_URL</code> &mdash; where gated is reachable (default <code>http://gated:8080</code>).</li>
-      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with gated for <code>/v1/*</code> + <code>/send</code> + <code>/typing</code>.</li>
+      <li><code>WEBD_URL</code> &mdash; URL routd should call back on (default <code>http://webd:8080</code>).</li>
+      <li><code>ROUTER_URL</code> &mdash; where routd is reachable (default <code>http://routd:8080</code>).</li>
+      <li><code>CHANNEL_SECRET</code> &mdash; HMAC shared with routd for <code>/v1/*</code> + <code>/send</code> + <code>/typing</code>.</li>
       <li><code>PROXYD_HMAC_SECRET</code> &mdash; verifies identity headers forwarded by proxyd for <code>/api/*</code>, <code>/x/*</code>, <code>/mcp</code>.</li>
       <li><code>WEB_HOST</code>, <code>ASSISTANT_NAME</code> &mdash; rendered into the chat widget and issued URLs.</li>
     </ul>
@@ -114,7 +114,7 @@ WEB_HOST=localhost:9001 \
     <ul>
       <li><code>webd/README.md</code> &mdash; full HTTP surface, token contract, planned <code>/v1/*</code> routes.</li>
       <li><a href="../components/tokens.html">components/route tokens</a> &mdash; the public chat + webhook URLs webd hosts.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the backend webd talks to.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how routd dispatches to the agent.</li>
       <li><code>specs/5/J-sse.md</code> &mdash; SSE streams and the chat-MCP transport.</li>
     </ul>
 

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -66,7 +66,7 @@
       linkd     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to linkd)
         v
       linkd     (REST: /v2/ugcPosts | /v2/socialActions/{urn}/...)
@@ -80,9 +80,9 @@
     <p>The <code>edit</code> hint exists because UGC edit requires the versioned <code>/rest/posts</code> PARTIAL_UPDATE flow, which is not wired. <code>send_file</code> needs the <code>/assets registerUpload</code> + binary PUT dance; same story.</p>
 
     <h2>Standalone usage</h2>
-    <p>linkd is a plain Go binary. It needs a reachable gated and a LinkedIn application with member-social scopes. linkd refreshes the access token automatically on 401 via the refresh token.</p>
+    <p>linkd is a plain Go binary. It needs a reachable routd and a LinkedIn application with member-social scopes. linkd refreshes the access token automatically on 401 via the refresh token.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export LINKEDIN_CLIENT_ID=...
@@ -110,7 +110,7 @@ export LINKEDIN_AUTO_PUBLISH=false
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/linkd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

@@ -31,7 +31,7 @@ stays SQLite-canonical; OTLP is observability only.
 One call per daemon at the top of `main()`:
 
 ```go
-defer obs.Setup("gated", cfg.Name)()   // daemon name, instance name
+defer obs.Setup("routd", cfg.Name)()   // daemon name, instance name
 ```
 
 That's the whole requirement. The three correlation helpers are already wired

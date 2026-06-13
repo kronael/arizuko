@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -77,10 +77,10 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
         |
       webd       (hash token, look up row, append inbound at row.jid)
         |
-      gated      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
+      routd      (route + spawn the agent; SSE replies only for /chat/)</code></pre>
     </div>
 
-    <p>Issuance is handled in gated &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; gated never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
+    <p>Issuance is handled in routd &mdash; both the MCP tools (<code>issue_chat_link</code>, <code>issue_webhook</code>) and the REST endpoints (<code>POST /v1/route_tokens/chat</code>, <code>POST /v1/route_tokens/hook</code>) call one internal <code>insertRouteToken</code> writer. webd never writes the table; routd never reads the <code>/chat/</code> or <code>/hook/</code> URLs.</p>
 
     <h2>Mint authorization</h2>
     <p>The <a href="../concepts/grants.html">grants</a> tier of the caller bounds which folders they can mint for. Tier 0 through 2 mint for their own folder and its descendants; tier 3 and above cannot mint at all (<code>authorizeMint</code> in <code>ipc/ipc.go</code>). The row's <code>owner_folder</code> records the issuer's folder, not the JID target &mdash; revocation requires admin on <code>owner_folder</code>.</p>
@@ -94,7 +94,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
     <p>No automatic reissue on schedule. No back-channel reply on <code>/hook/</code> &mdash; agents that want to acknowledge a webhook reply on a different channel (Slack, email).</p>
 
     <h2>Standalone usage</h2>
-    <p>The table and writer live in gated; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the gated <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
+    <p>The table and writer live in routd; the URL handlers live in webd. Neither runs standalone &mdash; both need the shared SQLite file and the routd <code>/v1/messages</code> endpoint to deliver inbounds. The unit of standalone use is webd itself; see <a href="../components/webd.html">components/webd</a>.</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -113,7 +113,7 @@ POST /hook/&lt;token&gt;             &rarr; one inbound at the JID; 204; no repl
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

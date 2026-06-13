@@ -283,7 +283,7 @@ arizuko invite krons list --issued-by cli</code></pre>
     <p class="src">Source: <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L538"><code>cmd/arizuko/main.go:538</code></a></p>
 
     <h2 id="gate" class="group-h2">Gates (rate limits)</h2>
-    <p>Per-spec daily limits enforced inside <code>gated</code>. Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L402"><code>main.go:402</code></a>.</p>
+    <p>Per-spec daily limits enforced inside <code>onbod</code> (the admission daemon). Dispatcher at <a href="https://github.com/kronael/arizuko/blob/main/cmd/arizuko/main.go#L402"><code>main.go:402</code></a>.</p>
 
     <h3 id="gate-list"><span class="sig">arizuko gate &lt;instance&gt; list</span></h3>
     <p>List gates as <code>GATE | LIMIT/DAY | ENABLED</code>. Prints <code>no gates</code> if empty.</p>
@@ -459,7 +459,7 @@ arizuko secret krons set main OPENAI_API_KEY --value sk-xxxxxxxx</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/cli.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

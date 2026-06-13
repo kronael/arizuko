@@ -28,8 +28,8 @@ successful login for an ES256 access + refresh token. Spec: `specs/5/1`.
 
 `signing_keys`, `refresh_tokens`, `auth_users`, `oauth_identities` —
 created by authd's own migrations in `authd/migrations/`. authd owns
-`auth.db` and runs its own migrations; it MUST NOT touch gated's
-`messages.db` (CLAUDE.md DB-ownership rule).
+`auth.db` and runs its own migrations; it MUST NOT touch another
+daemon's DB — e.g. routd's `routd.db` (CLAUDE.md DB-ownership rule).
 
 ## Entry points
 
@@ -46,16 +46,17 @@ created by authd's own migrations in `authd/migrations/`. authd owns
 
 - `auth` (signing/verify primitives), `core`, `store`, `audit`, `obs`, `resreg`
 - Direct SQLite via `modernc.org/sqlite` (owns `auth.db`)
-- `gated` (optional, via `GRANTS_URL`) — authd is not the grants
-  authority; it fetches the login-time scope ceiling from gated.
+- `routd` (optional, via `GRANTS_URL`) — authd is not the grants
+  authority; it fetches the login-time scope ceiling from routd (the
+  ACL owner).
 
 ## Configuration
 
 - `DATABASE` / `DATA_DIR` — `auth.db` DSN (DATA_DIR resolves `<dir>/store/auth.db`,
-  alongside routd.db/runed.db/messages.db so one `store/` chown covers all DBs)
+  alongside routd.db/runed.db/onbod.db so one `store/` chown covers all DBs)
 - `AUTHD_SERVICE_KEY` — authd's own bootstrap secret (self-mint identity)
 - `AUTHD_SERVICE_KEYS` — `principal=secret,...` map for daemon exchange
-- `GRANTS_URL` — gated grants fetcher; unset → sessions are empty-scope
+- `GRANTS_URL` — routd grants fetcher (`http://routd:8080`); unset → sessions are empty-scope
 - `LISTEN_ADDR`, OAuth provider vars (`GITHUB_*`, `GOOGLE_*`, `DISCORD_*`, `AUTH_BASE_URL`)
 
 ## Health signal

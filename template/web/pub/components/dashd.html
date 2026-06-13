@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -60,7 +60,7 @@
     <h2>Why it exists</h2>
     <p>Without dashd, operators inspect an arizuko instance through <code>sqlite3 messages.db</code>, <code>journalctl -u arizuko_&lt;inst&gt;</code>, and the <code>arizuko</code> CLI. That works for an engineer, but it asks a lot of anyone else, and it never gives a one-screen answer to &ldquo;what is this instance doing right now&rdquo;.</p>
 
-    <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by gated, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/5-uniform-mcp-rest.md</code> is to move those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs, leaving dashd a pure client.</p>
+    <p>dashd owns no tables of its own. It reads from tables other daemons own &mdash; <code>groups</code>, <code>routes</code>, <code>scheduled_tasks</code>, <code>messages</code>, <code>sessions</code>, <code>channels</code>, <code>auth_users</code>, written by routd, authd, timed, and onbod &mdash; and renders them. The plan in <code>specs/5/5-uniform-mcp-rest.md</code> is to move those direct reads onto the sibling daemons&rsquo; <code>/v1/*</code> APIs, leaving dashd a pure client.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -123,16 +123,16 @@ export INSTANCE_NAME=demo
     <p>Today every page queries SQLite directly. The plan is to swap each read for a call to the sibling daemon that owns the table:</p>
 
     <ul>
-      <li><code>/dash/groups/</code> &rarr; <code>gated/v1/groups</code> + <code>gated/v1/routes</code>.</li>
+      <li><code>/dash/groups/</code> &rarr; <code>routd/v1/groups</code> + <code>routd/v1/routes</code>.</li>
       <li><code>/dash/tasks/</code> &rarr; <code>timed/v1/tasks</code> (with a form POST for create).</li>
-      <li><code>/dash/activity/</code> &rarr; <code>gated/v1/messages?limit=50&amp;order=desc</code>.</li>
+      <li><code>/dash/activity/</code> &rarr; <code>routd/v1/messages?limit=50&amp;order=desc</code>.</li>
       <li><code>/dash/profile/</code> &rarr; <code>onbod/v1/users/{sub}</code>.</li>
     </ul>
 
     <p>After the migration dashd holds an operator session token (issued by proxyd at OAuth login), forwards it as <code>Authorization: Bearer ...</code> on every <code>/v1/*</code> call, and stops touching <code>messages.db</code> at all.</p>
 
     <h2>What dashd does not do</h2>
-    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to gated, timed, proxyd, and <a href="../components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
+    <p>dashd does not send messages, schedule tasks, mint tokens, or admit users &mdash; those belong to routd, timed, proxyd, and <a href="../components/onbod.html">onbod</a>. Writes are scoped to the surfaces listed above: memory editor and TIER 1 admin. Everything else is a view.</p>
 
     <h2>Go deeper</h2>
     <ul>
@@ -149,7 +149,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-05">2026-06-05</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

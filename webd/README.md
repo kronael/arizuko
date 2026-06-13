@@ -37,7 +37,7 @@ off the shared DB. Once federation lands those reads migrate to
 Shipped today (see `server.go`):
 
 - `POST /send`, `POST /typing`, `POST /v1/round_done` — channel adapter
-  inbound from gated, signed via `CHANNEL_SECRET` (`channel.go`).
+  inbound from routd, signed via `CHANNEL_SECRET` (`channel.go`).
 - `GET /api/groups`, `GET /api/groups/{folder}/topics`,
   `GET /api/groups/{folder}/messages` — chat UI JSON reads
   (`api.go`).
@@ -102,7 +102,7 @@ delivered messages.
 
 - `main.go`, `server.go` — wiring + routes
 - `hub.go` — SSE fan-out keyed on `folder/topic`
-- `channel.go` — gated→webd callbacks (`/send`, `/v1/round_done`)
+- `channel.go` — routd→webd callbacks (`/send`, `/v1/round_done`)
 - `route_token.go` — `route_tokens` lookup + `/chat/<token>` post/history/stream
 - `chat_mcp.go` — chat-MCP transport at `POST /chat/<token>/mcp`
   (3 tools: send_message, get_round, get_round_status — mirroring

@@ -60,7 +60,7 @@
       </div>
       <div class="tablecard">
         <h3><a href="schema.html">SQLite schema</a></h3>
-        <p>Every live table in <code>messages.db</code> &mdash; identity and the unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per-table: columns, indexes, writer call sites, reader summary, migration history. <code>gated</code> owns migrations; this tracks the shape readers can rely on.</p>
+        <p>Every live table across the split daemons&rsquo; databases (<code>routd.db</code>, <code>runed.db</code>, <code>auth.db</code>, <code>onbod.db</code>) &mdash; identity and the unified <code>acl</code>, messages, groups, onboarding, secrets, egress, scheduling. Per-table: columns, indexes, writer call sites, reader summary, migration history. Each daemon owns and migrates its own tables; this tracks the shape readers can rely on.</p>
       </div>
       <div class="tablecard">
         <h3><a href="openapi.html">OpenAPI</a></h3>

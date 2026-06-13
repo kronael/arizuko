@@ -52,8 +52,8 @@
       </thead>
       <tbody>
         <tr>
-          <td><code>gated</code></td>
-          <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://gated:8080/openapi.json</code> intra-container</td>
+          <td><code>routd</code></td>
+          <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://routd:8080/openapi.json</code> intra-container</td>
           <td>groups, acl, acl_membership, routes, web_routes, scheduled_tasks, secrets, network_rules</td>
         </tr>
         <tr>
@@ -74,12 +74,12 @@
         <tr>
           <td><code>dashd</code></td>
           <td><code>http://dashd:8080/openapi.json</code></td>
-          <td><span class="dim">none &mdash; HTMX operator UI; cold-tier CRUD lives in gated</span></td>
+          <td><span class="dim">none &mdash; HTMX operator UI; cold-tier CRUD lives in routd</span></td>
         </tr>
         <tr>
           <td><code>timed</code></td>
           <td><code>http://timed:8080/openapi.json</code></td>
-          <td><span class="dim">none &mdash; reads <code>scheduled_tasks</code>; gated owns the table</span></td>
+          <td><span class="dim">none &mdash; reads <code>scheduled_tasks</code>; routd owns the table</span></td>
         </tr>
       </tbody>
     </table>
@@ -88,7 +88,7 @@
 
     <h2>How it works</h2>
 
-    <p>Each cold-tier resource is one Go struct with <code>db:</code>, <code>json:</code>, and <code>yaml:</code> tags &mdash; see <a href="../components/gated.html">gated</a> for the registry. <code>resreg.OpenAPI(daemon, baseURL, resources)</code> walks the registered resources and emits:</p>
+    <p>Each cold-tier resource is one Go struct with <code>db:</code>, <code>json:</code>, and <code>yaml:</code> tags &mdash; the registry lives in routd. <code>resreg.OpenAPI(daemon, baseURL, resources)</code> walks the registered resources and emits:</p>
 
     <ul>
       <li>One <code>components.schemas.&lt;Name&gt;</code> per <code>RowType</code>. Property name from the <code>json:</code> tag; type inferred from the Go kind (<code>string</code>, <code>integer</code>, <code>boolean</code>, array, object). <code>omitempty</code> removes the field from <code>required</code>.</li>
@@ -126,7 +126,7 @@ curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</cod
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/openapi.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

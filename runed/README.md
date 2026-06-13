@@ -24,7 +24,7 @@ in-process `ServeMCP`. Spec: `specs/5/P`.
 
 ## Tables owned
 
-`runed.db` (separate from gated's `messages.db`): `spawns`, `session_log`,
+`runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
 `spawn_logs`, `mcp_tokens` — runtime execution state with no home in
 routd. Migrations in `runed/migrations/`. These are runtime tables, not
 manifest-addressable config, so `/openapi.json` exposes zero resource

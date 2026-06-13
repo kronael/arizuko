@@ -51,7 +51,7 @@ existing TS runtime in `src/` still drives `arizuko-ant:latest`.
 The shipping in-container agent runs `@anthropic-ai/claude-agent-sdk`
 0.3.153 (`package.json`). MCP servers are declared in
 `src/mcp-servers.ts` with a per-server `alwaysLoad` flag: the `arizuko`
-core server (socat to gated — `send` / `reply` / `inspect_*` /
+core server (socat to routd's MCP socket — `send` / `reply` / `inspect_*` /
 `send_file`, needed every turn) is `alwaysLoad: true` so its tools stay
 eager; connector servers omit the flag so their tools load only when
 the model finds them via the SDK's Tool Search Tool. A large connector

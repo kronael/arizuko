@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,10 +53,10 @@
     <h2>What it is</h2>
     <p>In plain terms, teled is the connector that plugs Telegram into arizuko, so the agent can read and reply in Telegram chats and groups.</p>
 
-    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to gated, and serves outbound calls back to the Bot API. JID prefix is <code>telegram:</code>; per-chat JIDs look like <code>telegram:&lt;chat_id&gt;</code>.</p>
+    <p>teled is the Telegram channel adapter. It long-polls the Telegram Bot API for updates, posts inbound messages and reactions to routd, and serves outbound calls back to the Bot API. JID prefix is <code>telegram:</code>; per-chat JIDs look like <code>telegram:&lt;chat_id&gt;</code>.</p>
 
     <h2>Why it exists</h2>
-    <p>Telegram is the workhorse personal channel for arizuko deployments &mdash; it is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy, and the reaction translation that gated does not do itself.</p>
+    <p>Telegram is the workhorse personal channel for arizuko deployments &mdash; it is free, has a stable bot API, and supports voice notes and file uploads up to 50&nbsp;MB without partner approval. teled gives arizuko the long-poll loop, the file proxy, and the reaction translation that routd does not do itself.</p>
 
     <h2>How it fits</h2>
     <div class="callout">
@@ -66,7 +66,7 @@
       teled     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to teled)
         v
       teled     (sendMessage / sendPhoto / setMessageReaction / ...)
@@ -82,9 +82,9 @@
     <p>Telegram bot-token file URLs are short-lived, so teled proxies them via <code>GET /files/&lt;file_id&gt;</code> for the agent.</p>
 
     <h2>Standalone usage</h2>
-    <p>teled is a plain Go binary. It needs a reachable gated, a bot token from <code>@BotFather</code>, and a writable data dir for the poll offset.</p>
+    <p>teled is a plain Go binary. It needs a reachable routd, a bot token from <code>@BotFather</code>, and a writable data dir for the poll offset.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export TELEGRAM_BOT_TOKEN=123456:ABC-...
@@ -112,7 +112,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/teled.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

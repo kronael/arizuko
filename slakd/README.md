@@ -6,7 +6,7 @@ Slack channel adapter (bot-token, single-workspace, HTTP Events API).
 
 Bridges Slack workspace events to the router. Receives via Events API
 webhook (proxyd → `/slack/events`); sends via Web API. Mirrors `discd`
-in shape — registers with `gated` via `chanlib.RouterClient`, exposes
+in shape — registers with `routd` via `chanlib.RouterClient`, exposes
 `/send`, `/like`, `/delete`, `/edit`, `/health`, `/files/`.
 
 ## Responsibilities
@@ -89,7 +89,7 @@ MCP-driven control (per outbound, one-shot):
   maps that to `chanlib.ErrUnsupported`).
 - `POST /v1/pane/title {jid, title}` — same shape; one-shot title.
 
-Both endpoints are reached by gated via `chanreg.HTTPChannel`'s
+Both endpoints are reached by routd via `chanreg.HTTPChannel`'s
 `SetSuggestions` / `SetName` (implementing the optional
 `core.Suggester` and `core.Namer` capabilities). Today slakd is the
 only adapter that implements them.
@@ -101,7 +101,7 @@ pane lifecycle handlers degrade silently to type-only logging.
 
 ## Dependencies
 
-- `chanlib`, `store` (pane_sessions table only — `gated` owns the
+- `chanlib`, `store` (pane_sessions table only — `routd` owns the
   schema and runs migrations)
 
 ## Configuration
@@ -109,7 +109,7 @@ pane lifecycle handlers degrade silently to type-only logging.
 ```
 SLACK_BOT_TOKEN=xoxb-...      required (Bot User OAuth Token)
 SLACK_SIGNING_SECRET=...      required (Slack App → Basic Information)
-ROUTER_URL=http://gated:8080  required
+ROUTER_URL=http://routd:8080  required
 CHANNEL_SECRET=...            (or SLAKD_CHANNEL_SECRET) for chanlib.Auth
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
@@ -122,7 +122,7 @@ SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures (while stale) befor
 ```
 
 `SLAKD_CHANNEL_SECRET` takes precedence over `CHANNEL_SECRET` on the
-adapter side. Must equal `CHANNEL_SECRET` until gated gains per-adapter
+adapter side. Must equal `CHANNEL_SECRET` until routd gains per-adapter
 registration auth (not yet implemented; a different value will cause 401).
 
 ## Operator runbook (per-workspace install)

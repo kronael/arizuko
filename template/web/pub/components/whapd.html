@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, whapd is the connector that plugs WhatsApp into arizuko, so the agent can read and reply in WhatsApp chats and groups.</p>
 
-    <p>whapd is the WhatsApp channel adapter. It speaks WhatsApp Web through the Baileys socket library (TypeScript / Node, the only non-Go adapter in the core), posts inbound to gated, and sends outbound through the same socket. JID prefix is <code>whatsapp:</code>; per-conversation JIDs are <code>whatsapp:&lt;jid&gt;</code> where <code>jid</code> is the Baileys-native form (phone-number@s.whatsapp.net or group-id@g.us).</p>
+    <p>whapd is the WhatsApp channel adapter. It speaks WhatsApp Web through the Baileys socket library (TypeScript / Node, the only non-Go adapter in the core), posts inbound to routd, and sends outbound through the same socket. JID prefix is <code>whatsapp:</code>; per-conversation JIDs are <code>whatsapp:&lt;jid&gt;</code> where <code>jid</code> is the Baileys-native form (phone-number@s.whatsapp.net or group-id@g.us).</p>
 
     <h2>Why it exists</h2>
     <p>WhatsApp has no usable consumer API. The official Cloud API is partner-gated and quota-limited; everyone else uses a WhatsApp Web client. Baileys has no Go port, so whapd lives in TypeScript. Pairing credentials persist in <code>$WHATSAPP_AUTH_DIR/creds.json</code> with an atomic <code>.bak</code> rotation; a fresh install requires pairing.</p>
@@ -66,7 +66,7 @@
       whapd     (LISTEN_ADDR=:8080, Node runtime)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to whapd)
         v
       whapd     (sock.sendMessage / reactMessage / delete)
@@ -89,7 +89,7 @@
     <p>Lose <code>creds.json</code> and the device is unlinked &mdash; re-pair. whapd backs up to <code>creds.json.bak</code> on every save and recovers from it on a crash. The outbound queue is persisted to disk and auto-resumes on reconnect.</p>
 
     <h2>Standalone usage</h2>
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export WHATSAPP_AUTH_DIR=/srv/data/store/whatsapp-auth
@@ -110,7 +110,7 @@ node dist/main.js</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/whapd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

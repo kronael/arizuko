@@ -39,7 +39,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; SQLite schema</p>
 <h1>schema</h1>
 
-    <p class="lede">Every SQLite table in arizuko's shared <code>messages.db</code>. Schema lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); <code>gated</code> applies them at boot, every other daemon connects read/write but never migrates. State described here is the cumulative result of migrations 0001 through 0071 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility; 0058&ndash;0071 added the engagement column, route tokens, the group model + container config, the CLI / IPC / config audit tables, group watchers, platform IDs, the 0065 orphan-table drops, the unified <code>audit_log</code>, <code>config_meta</code>, FK constraints on web routes and route tokens, full-text search over messages, and the onboarding <code>admitted_at</code> column.</p>
+    <p class="lede">Every SQLite table in arizuko. Tables now live across the split daemons' own DBs &mdash; <code>routd.db</code>, <code>runed.db</code>, <code>auth.db</code>, <code>onbod.db</code> &mdash; and each daemon owns and migrates its own tables. The shared schema library lives in <a href="https://github.com/kronael/arizuko/tree/main/store/migrations"><code>store/migrations/</code></a> (embedded via <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a>); no single daemon applies every migration. State described here is the cumulative result of migrations 0001 through 0071 &mdash; the 0049&ndash;0057 run added cost-log, proxyd-routes, unified ACL, topic lineage, pane sessions, and group visibility; 0058&ndash;0071 added the engagement column, route tokens, the group model + container config, the CLI / IPC / config audit tables, group watchers, platform IDs, the 0065 orphan-table drops, the unified <code>audit_log</code>, <code>config_meta</code>, FK constraints on web routes and route tokens, full-text search over messages, and the onboarding <code>admitted_at</code> column.</p>
 
     <p>35 live tables, grouped by concern, plus the <code>messages_fts</code> virtual table.</p>
 
@@ -95,7 +95,7 @@
       </table>
       <p class="meta"><strong>PK:</strong> <code>(principal, action, scope, params, predicate, effect)</code>. <strong>Indexes:</strong> <code>acl_by_principal_action</code>, <code>acl_by_scope</code>.</p>
       <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddACLRow</code>, <code>RemoveACLRow</code>); cmd/arizuko grant; dashd ACL editor; migration 0053 (back-fill).</p>
-      <p class="meta"><strong>Readers:</strong> many — proxyd, webd, dashd, onbod, gated (every folder-scoped HTTP route via <code>auth.Authorize</code>); MCP <code>list_acl</code>.</p>
+      <p class="meta"><strong>Readers:</strong> many — proxyd, webd, dashd, onbod, routd (every folder-scoped HTTP route via <code>auth.Authorize</code>); MCP <code>list_acl</code>.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0053-acl-cutover.sql">0053</a> back-filled from <code>user_groups</code> + <code>grant_rules</code> then dropped those tables.</p>
     </div>
 
@@ -111,7 +111,7 @@
       </table>
       <p class="meta"><strong>PK:</strong> <code>(child, parent)</code>. <strong>Indexes:</strong> <code>acl_membership_by_child</code>.</p>
       <p class="meta"><strong>Writers:</strong> <code>store/acl.go</code> (<code>AddMembership</code>, <code>RemoveMembership</code>); <code>arizuko grant &lt;sub&gt; **</code>; OAuth callback for JID claims; migration 0053 (back-fill of pre-0053 <code>user_groups('**')</code> rows and <code>user_jids</code> bindings).</p>
-      <p class="meta"><strong>Readers:</strong> gated, proxyd, webd, dashd, onbod (via <code>auth.Authorize</code> walking <code>Ancestors(sub)</code>).</p>
+      <p class="meta"><strong>Readers:</strong> routd, proxyd, webd, dashd, onbod (via <code>auth.Authorize</code> walking <code>Ancestors(sub)</code>).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0052-acl-unified.sql">0052</a>.</p>
     </div>
 
@@ -167,7 +167,7 @@
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_messages_chat_ts</code> on <code>(chat_jid, timestamp)</code>; <code>idx_messages_turn_id</code> on <code>turn_id WHERE turn_id IS NOT NULL</code>; <code>idx_messages_status</code> on <code>status WHERE status != 'sent'</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L19"><code>store/messages.go:19</code></a> (PutMessage), <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L132"><code>timed/main.go:132</code></a> (scheduled-task inject); UPDATEs in <code>store/messages.go</code> (status, content, errored, delivered).</p>
-      <p class="meta"><strong>Readers:</strong> many — gated, dashd, webd, davd, vited, router, ipc.</p>
+      <p class="meta"><strong>Readers:</strong> many — routd, dashd, webd, davd, vited, router, ipc.</p>
       <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L12">0001</a>, 0003 (reply_to_id), 0005 (source, group_folder), 0008 (topic), 0015 (routed_to), 0017 (verb), 0019 (attachments), 0023 (rebuild; drop <code>group_folder</code>), 0030 (errored), 0038 (turn_id), 0039 (status), 0042/0043 (typed JIDs), 0046 (chat_name).</p>
     </div>
 
@@ -198,7 +198,7 @@
       </table>
       <p class="meta"><strong>PK:</strong> <code>(group_folder, topic)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <code>store/sessions.go</code> &mdash; <code>SetSession</code> (UPSERT session_id), <code>EnsureTopicLineage</code> (seed lineage on first turn), <code>ForkTopic</code> (explicit branch), <code>UpdateObservedCursor</code>, <code>DeleteSession</code>.</p>
-      <p class="meta"><strong>Readers:</strong> gated.</p>
+      <p class="meta"><strong>Readers:</strong> routd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L40">0001</a>; rebuilt <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql">0008</a> with topic column + composite PK; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0055-topic-lineage.sql">0055</a> add <code>parent_topic</code>, <code>forked_at</code>, <code>observed_cursor</code> (spec 7/F).</p>
     </div>
 
@@ -252,7 +252,7 @@
         <tr><td><code>created_at</code></td><td>TEXT NOT NULL</td><td>RFC3339</td></tr>
       </table>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L54"><code>store/sessions.go:54</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> gated.</p>
+      <p class="meta"><strong>Readers:</strong> routd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L56">0001</a>.</p>
     </div>
 
@@ -309,7 +309,7 @@
         <tr><td><code>observe_window_chars</code></td><td>INTEGER</td><td>NULL</td><td></td><td>per-group cap on ambient chars per turn (NULL = fall back to <a href="env.html#OBSERVE_WINDOW_CHARS"><code>OBSERVE_WINDOW_CHARS</code></a>).</td></tr>
       </table>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L30"><code>store/groups.go:30</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L50"><code>:50</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L250"><code>:250</code></a> (<code>SetGroupOpen</code>), <code>SetGroupObserveWindow</code>.</p>
-      <p class="meta"><strong>Readers:</strong> many — gated, dashd, webd, davd, onbod, timed, every MCP tool that scopes to a folder.</p>
+      <p class="meta"><strong>Readers:</strong> many — routd, dashd, webd, davd, onbod, timed, every MCP tool that scopes to a folder.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0020-groups-refactor.sql#L22">0020</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0041-drop-groups-state.sql">0041</a> dropped <code>state</code>, <code>spawn_ttl_days</code>, <code>archive_closed_days</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0044-product.sql">0044</a> added <code>product</code>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0057-group-visibility.sql">0057</a> added <code>open</code>, <code>observe_window_messages</code>, <code>observe_window_chars</code> (spec 7/F).</p>
     </div>
 
@@ -325,7 +325,7 @@
         <tr><td><code>is_group</code></td><td>INTEGER</td><td>NOT NULL</td><td>0</td><td>1 = group chat; gates user-secret overlay (0033)</td></tr>
       </table>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L84"><code>store/groups.go:84</code></a> (upsert cursor), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L209"><code>:209</code></a> (is_group), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L237"><code>:237</code></a> (sticky_group), <a href="https://github.com/kronael/arizuko/blob/main/store/groups.go#L252"><code>:252</code></a> (sticky_topic).</p>
-      <p class="meta"><strong>Readers:</strong> gated (routing, cursor, single-user check).</p>
+      <p class="meta"><strong>Readers:</strong> routd (routing, cursor, single-user check).</p>
       <p class="meta"><strong>Migrations:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L3">0001</a>, 0002 (channel-prefix normalize), 0016 (sticky_group/sticky_topic), 0020 (added agent_cursor), 0023 (rebuild: dropped name/channel/is_group/last_message_time/errored), 0030 (DROP errored), 0033 (re-add is_group), 0042 (typed JIDs in PK).</p>
     </div>
 
@@ -343,7 +343,7 @@
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_routes_seq</code> on <code>seq</code> (post-0022 rebuild).</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L38"><code>store/routes.go:38</code></a> (AddRoute), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L55"><code>:55</code></a> (DELETE on folder tear-down), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L62"><code>:62</code></a> (replace set), <a href="https://github.com/kronael/arizuko/blob/main/store/routes.go#L72"><code>:72</code></a> (DELETE by id), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L974"><code>onbod/main.go:974</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L1039"><code>:1039</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> gated (ResolveRoute), dashd, ipc (route MCP tools).</p>
+      <p class="meta"><strong>Readers:</strong> routd (ResolveRoute), dashd, ipc (route MCP tools).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L106">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0008-topic-sessions.sql#L20">0008</a> ensure-exists + unique index; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0012-fix-prefix-route-seq.sql">0012</a> fix prefix seq; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0022-routes-match.sql">0022</a> rebuild (drop jid/type, add match); 0042/0043 rewrite predicates to typed JIDs; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0054-route-target-fragment.sql">0054</a> drop <code>impulse_config</code>, encode mode in <code>target</code> fragment, add <code>observe_window_*</code>.</p>
     </div>
 
@@ -357,8 +357,8 @@
         <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
-      <p class="meta"><strong>Writers:</strong> gated (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
-      <p class="meta"><strong>Readers:</strong> webd (hash + lookup on every <code>/chat/*</code> and <code>/hook/*</code> request); gated (list, revoke).</p>
+      <p class="meta"><strong>Writers:</strong> routd (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
+      <p class="meta"><strong>Readers:</strong> webd (hash + lookup on every <code>/chat/*</code> and <code>/hook/*</code> request); routd (list, revoke).</p>
     </div>
 
     <div class="tablecard">
@@ -396,7 +396,7 @@
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_onboarding_token</code> on <code>token</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/onboarding.go"><code>store/onboarding.go</code></a> (queue mgmt), <a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L235"><code>onbod/main.go:235</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L251"><code>:251</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L321"><code>:321</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L571"><code>:571</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L580"><code>:580</code></a>/<a href="https://github.com/kronael/arizuko/blob/main/onbod/main.go#L659"><code>:659</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> onbod, dashd (operator queue), gated (admission check).</p>
+      <p class="meta"><strong>Readers:</strong> onbod (queue + admission check), dashd (operator queue).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0009-onboarding.sql">0009</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0021-onboarding-simplify.sql">0021</a> collapsed flow; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0023-drop-dead-columns.sql#L67">0023</a> dropped sender/world_name/channel; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0024-onboarding-auth.sql">0024</a> added token/user_sub; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0027-onboarding-gates.sql">0027</a> added gate/queued_at; 0042 rewrote rows to typed JID.</p>
     </div>
 
@@ -438,7 +438,7 @@
 
     <div class="tablecard">
       <h3><code>secrets</code></h3>
-      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; gated refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">7/Y</a>).</p>
+      <p>Folder- and user-scoped secret values. Encrypted at rest (AES-256-GCM, <code>v2:</code>-prefixed) under the <a href="env.html#SECRETS_KEY"><code>SECRETS_KEY</code></a> keyring; routd owns this table and refuses to start without the key (spec <a href="https://github.com/kronael/arizuko/blob/main/specs/7/Y-secret-broker.md">7/Y</a>).</p>
       <table>
         <tr><th>column</th><th>type</th><th>meaning</th></tr>
         <tr><td><code>scope_kind</code></td><td>TEXT NOT NULL</td><td>'folder' or 'user'</td></tr>
@@ -450,7 +450,7 @@
       <p class="meta"><strong>PK:</strong> <code>(scope_kind, scope_id, key)</code>.</p>
       <p class="meta"><strong>Indexes:</strong> partial <code>idx_secrets_folder</code> on <code>scope_id WHERE scope_kind='folder'</code>; partial <code>idx_secrets_user</code> on <code>scope_id WHERE scope_kind='user'</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L55"><code>store/secrets.go:55</code></a> (upsert), <a href="https://github.com/kronael/arizuko/blob/main/store/secrets.go#L119"><code>:119</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L133"><code>dashd/me_secrets.go:133</code></a> (user-scope INSERT), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L174"><code>:174</code></a> (UPDATE), <a href="https://github.com/kronael/arizuko/blob/main/dashd/me_secrets.go#L209"><code>:209</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> gated (<code>FolderSecretsResolved</code>, <code>UserSecrets</code> at spawn), dashd.</p>
+      <p class="meta"><strong>Readers:</strong> routd (<code>FolderSecretsResolved</code>, <code>UserSecrets</code> at spawn), dashd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0034-secrets.sql">0034</a> (originally <code>enc_value BLOB</code>); <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0047-secrets-plaintext.sql">0047</a> renamed to <code>value</code>.</p>
     </div>
 
@@ -490,7 +490,7 @@
       <p class="meta"><strong>PK:</strong> <code>(folder, target)</code>. <strong>Indexes:</strong> <code>idx_network_rules_folder</code> on <code>folder</code>.</p>
       <p class="meta"><strong>Seed rows:</strong> <code>('', 'anthropic.com')</code>, <code>('', 'api.anthropic.com')</code> at migration time.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/network.go#L18"><code>store/network.go:18</code></a> (INSERT OR IGNORE), <a href="https://github.com/kronael/arizuko/blob/main/store/network.go#L27"><code>:27</code></a> (DELETE).</p>
-      <p class="meta"><strong>Readers:</strong> gated, dashd, cmd/arizuko (<code>arizuko network</code>).</p>
+      <p class="meta"><strong>Readers:</strong> routd, dashd, cmd/arizuko (<code>arizuko network</code>).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0037-network-rules.sql">0037</a>.</p>
     </div>
 
@@ -513,7 +513,7 @@
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_tasks_next</code> on <code>(status, next_run)</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L27"><code>store/tasks.go:27</code></a> (INSERT), <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L81"><code>:81</code></a> (UPDATE), <a href="https://github.com/kronael/arizuko/blob/main/store/tasks.go#L86"><code>:86</code></a> (DELETE), <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L96"><code>timed/main.go:96</code></a> (status transitions during fire).</p>
-      <p class="meta"><strong>Readers:</strong> timed, gated, ipc (task MCP tools), dashd.</p>
+      <p class="meta"><strong>Readers:</strong> timed, routd, ipc (task MCP tools), dashd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L66">0001</a>; <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0011-task-run-logs.sql#L11">0011</a> added <code>context_mode</code>; 0043 rewrote <code>chat_jid</code> to typed shape.</p>
     </div>
 
@@ -547,7 +547,7 @@
         <tr><td><code>value</code></td><td>TEXT NOT NULL</td><td></td></tr>
       </table>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/sessions.go#L45"><code>store/sessions.go:45</code></a>.</p>
-      <p class="meta"><strong>Readers:</strong> gated.</p>
+      <p class="meta"><strong>Readers:</strong> routd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0001-initial-schema.sql#L78">0001</a>.</p>
     </div>
 
@@ -558,8 +558,8 @@
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>version</code></td><td>INTEGER NOT NULL</td><td>0</td><td>monotonic config version</td></tr>
       </table>
-      <p class="meta"><strong>Writers:</strong> gated (YAML apply, inside the config transaction).</p>
-      <p class="meta"><strong>Readers:</strong> gated (CAS on apply).</p>
+      <p class="meta"><strong>Writers:</strong> routd (YAML apply, inside the config transaction).</p>
+      <p class="meta"><strong>Readers:</strong> routd (CAS on apply).</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0067-config-meta.sql">0067</a>.</p>
     </div>
 
@@ -610,7 +610,7 @@
         <tr><td><code>preserve_headers</code></td><td>TEXT NOT NULL</td><td>'[]'</td><td>JSON array</td></tr>
         <tr><td><code>strip_prefix</code></td><td>INTEGER NOT NULL</td><td>0</td><td>0/1</td></tr>
       </table>
-      <p class="meta"><strong>Writers:</strong> proxyd (seed + runtime mutation), gated (config apply).</p>
+      <p class="meta"><strong>Writers:</strong> proxyd (seed + runtime mutation), routd (config apply).</p>
       <p class="meta"><strong>Readers:</strong> proxyd.</p>
       <p class="meta"><strong>Migrations:</strong> created <a href="https://github.com/kronael/arizuko/blob/main/store/migrations/0050-proxyd-routes.sql">0050</a>.</p>
     </div>
@@ -685,7 +685,7 @@
     </ul>
 
     <h2>10. Audit of writers</h2>
-    <p>Schema owner: <code>gated</code> (the <code>//go:embed migrations/*.sql</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a> runs at boot). Every other daemon opens the same DB read/write but never applies migrations. Per-table writer mapping above lists the canonical INSERT/UPDATE/DELETE call sites; multiple readers per table is the norm and noted as "many" where widespread.</p>
+    <p>There is no single schema owner: each split daemon (<code>routd</code>, <code>runed</code>, <code>authd</code>, <code>onbod</code>) migrates its own DB. The <code>//go:embed migrations/*.sql</code> in <a href="https://github.com/kronael/arizuko/blob/main/store/store.go#L13"><code>store/store.go:13</code></a> is the shared schema library each daemon draws from for the tables it owns. Per-table writer mapping above lists the canonical INSERT/UPDATE/DELETE call sites; multiple readers per table is the norm and noted as "many" where widespread.</p>
 
       <nav class="docs-pager" aria-label="Pager">
         <a rel="prev" href="mcp.html">&larr; MCP tools</a>
@@ -693,7 +693,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-08">2026-06-08</time>
       </div>
     </main>
 

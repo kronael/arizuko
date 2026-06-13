@@ -6,9 +6,11 @@ SQL migration runner for embedded `.sql` files.
 
 Tiny shared helper used by daemons that own a SQLite schema and want
 to apply pending `NNNN-*.sql` migrations from an `embed.FS` at
-startup. Today `store/` is the only consumer (gated's `messages.db`),
-but the function is designed to be called by any future daemon that
-owns its own DB without dragging in a migrations framework.
+startup. Consumers are the split daemons that each own a DB — `routd`
+(`routd.db`), `runed` (`runed.db`), `authd` (`auth.db`), `onbod`
+(`onbod.db`) — plus the shared `store/` schema library. Any future
+daemon that owns its own DB can call it without dragging in a
+migrations framework.
 
 Separate from `store/` because the runner has zero knowledge of any
 specific schema — it just applies numbered files and records what it

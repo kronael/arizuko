@@ -5,9 +5,9 @@
 ## Purpose
 
 Builds the compose file from `.env` (profile + feature flags) plus any
-TOML service files in `<dataDir>/services/`. Emits built-ins (gated,
-timed, webd/proxyd/vited, dashd, davd, onbod) conditional on profile
-and flags; appends operator-supplied adapter TOMLs.
+TOML service files in `<dataDir>/services/`. Emits built-ins (authd,
+routd, runed, timed, webd/proxyd/vited, dashd, davd, onbod) conditional
+on profile and flags; appends operator-supplied adapter TOMLs.
 
 Multi-account adapters (`specs/5/R-multi-account.md`) drop in as
 `<adapter>-<label>.toml` (e.g. `teled-work.toml`); they reuse the base

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -52,14 +52,14 @@
 
 <h2>What they are</h2>
 <p>In plain terms, a channel adapter is a translator between one chat app and arizuko. Each app &mdash; Telegram, Slack, WhatsApp &mdash; has its own way of talking; the adapter turns that into the one format arizuko understands, and turns arizuko&rsquo;s replies back into something the app can post.</p>
-<p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>gated</code> on the right.</p>
+<p>A channel adapter is a small daemon that speaks one upstream platform&rsquo;s protocol on one side and arizuko&rsquo;s HTTP contract on the other. Telegram on the left, <code>routd</code> on the right.</p>
 
-<p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>gated</code> at <code>/v1/messages</code>. Outbound: <code>gated</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
+<p>Inbound: the adapter receives a message from the platform, signs the request with <code>CHANNEL_SECRET</code>, and POSTs it to <code>routd</code> at <code>/v1/messages</code>. Outbound: <code>routd</code> calls the adapter back at <code>POST /send</code> with the agent&rsquo;s reply, and the adapter pushes it to the platform.</p>
 
 <p>One adapter per platform. One container per adapter. Each runs on <code>LISTEN_ADDR=:8080</code> inside its container; Docker networking keeps the ports collision-free.</p>
 
 <h2>Why they exist</h2>
-<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>gated</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>gated</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>gated</code> doesn&rsquo;t change.</p>
+<p>Every platform has its own protocol &mdash; Telegram long-polls, Discord holds a websocket, Mastodon streams, email speaks IMAP. Putting any of that into <code>routd</code> would bind the message loop to one platform&rsquo;s quirks. The adapter absorbs the quirks so <code>routd</code> only ever sees a signed <code>POST /v1/messages</code>. Add a platform by adding an adapter; <code>routd</code> doesn&rsquo;t change.</p>
 
 <h2>The shared shape</h2>
 <p>Every adapter binds to the same Go interface in <code>core/types.go</code>:</p>
@@ -75,7 +75,7 @@
 
 <ul>
   <li><code>GET /health</code> &mdash; 200 when connected to the platform, 503 when the link is down (QR unscanned, stream dropped, token expired).</li>
-  <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>gated</code> hands the adapter an outbound row to deliver.</li>
+  <li><code>POST /send</code>, <code>/send-file</code>, <code>/send-voice</code>, <code>/typing</code> &mdash; <code>routd</code> hands the adapter an outbound row to deliver.</li>
   <li><code>POST /post</code>, <code>/like</code>, <code>/dislike</code>, <code>/forward</code>, <code>/quote</code>, <code>/repost</code>, <code>/edit</code>, <code>/delete</code>, <code>/pin</code>, <code>/unpin</code> &mdash; the <code>Socializer</code> verbs, one route each.</li>
   <li><code>GET /v1/history</code> &mdash; mounted only when the adapter implements <code>HistoryFetcher</code>.</li>
 </ul>
@@ -88,7 +88,7 @@
   &lt;channel adapter&gt;   (LISTEN_ADDR=:8080, own container)
     |  POST /v1/messages    (signed by CHANNEL_SECRET)
     v
-  gated
+  routd
     |  POST /send            (callback to adapter)
     v
   &lt;channel adapter&gt;
@@ -97,7 +97,7 @@
   platform</code></pre>
 </div>
 
-<p>The trust contract is symmetric: <code>gated</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
+<p>The trust contract is symmetric: <code>routd</code> verifies inbound HMACs, the adapter verifies outbound HMACs. Neither trusts a request without a valid <code>CHANNEL_SECRET</code> signature. See <a href="../concepts/auth.html">auth</a>.</p>
 
 <h2>The adapters</h2>
 <table>
@@ -120,7 +120,7 @@
 
 <p>An adapter without a platform verb returns <code>chanlib.ErrUnsupported</code> rather than failing quietly. The agent reads that response and picks another action instead of dropping the call.</p>
 
-<p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>gated</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
+<p>Per-platform quirks stay inside the adapter. Slack threads, Discord ActionRows, WhatsApp QR pairing, IMAP folder watching &mdash; none of it leaks into <code>routd</code>. The DB sees a uniform <code>messages</code> row no matter where the message came from.</p>
 
 <p>Output rendering follows the same one-renderer rule. The agent picks a Claude Code output style per channel: <code>slack</code> emits Slack mrkdwn (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>); other channels use CommonMark. The runner selects the style when it spawns the container (<code>container/runner.go</code>) so the adapter receives text already shaped for the channel.</p>
 
@@ -143,8 +143,7 @@
 <ul>
   <li><code>core/types.go</code> &mdash; <code>Channel</code>, <code>Socializer</code>, <code>Suggester</code>, <code>Namer</code>, <code>HistoryFetcher</code> interfaces.</li>
   <li><code>chanlib/</code> and <code>chanreg/</code> &mdash; shared HTTP plumbing every adapter mounts.</li>
-  <li><a href="../components/gated.html">components/gated</a> &mdash; the other end of every adapter&rsquo;s HTTP calls.</li>
-  <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an inbound message picks its group and reply channel.</li>
+  <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; routd, the other end of every adapter&rsquo;s HTTP calls, and how an inbound message picks its group and reply channel.</li>
 </ul>
 
 
@@ -154,7 +153,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/channels.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, discd is the connector that plugs Discord into arizuko, so the agent can read and reply in Discord channels and DMs.</p>
 
-    <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to gated, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
+    <p>discd is the Discord channel adapter. It opens a Discord gateway websocket (via <code>discordgo</code>), posts inbound messages and reactions to routd, and sends outbound via the Discord REST API. JID prefix is <code>discord:</code>; messages are keyed by <code>discord:&lt;channel_id&gt;</code> for direct/guild chats and <code>discord:&lt;guild&gt;/&lt;channel&gt;</code> for the routing layer.</p>
 
     <h2>Why it exists</h2>
     <p>Discord is the canonical community channel for arizuko deployments &mdash; guild channels for team chat, threads for tasks, DMs for one-on-one. Talking to the Discord gateway directly is what lets discd surface reactions as <code>like</code> / <code>dislike</code> events and keep the websocket alive across rolling restarts.</p>
@@ -66,7 +66,7 @@
       discd     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to discd)
         v
       discd     (REST: channels/.../messages, reactions, ...)
@@ -82,9 +82,9 @@
     <p>Attachments use direct Discord CDN URLs cached via the shared <code>chanlib.URLCache</code>.</p>
 
     <h2>Standalone usage</h2>
-    <p>discd is a plain Go binary. It needs a reachable gated and a Discord bot or user token.</p>
+    <p>discd is a plain Go binary. It needs a reachable routd and a Discord bot or user token.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export DISCORD_BOT_TOKEN=...
@@ -110,7 +110,7 @@ export ASSISTANT_NAME=arizuko
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/discd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

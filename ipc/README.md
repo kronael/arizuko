@@ -1,8 +1,9 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `gated` process; per `specs/5/5-uniform-mcp-rest.md`
-this is the **MCP host** issuer in the platform-token model.
+subsystem inside the `routd` process (`routd.ServeTurnMCP`); per
+`specs/5/5-uniform-mcp-rest.md` this is the **MCP host** issuer in the
+platform-token model.
 
 ## Purpose
 
@@ -34,14 +35,14 @@ in-process against the local store.
 
 ## Tool federation (today vs planned)
 
-**Today (shipped):** every tool runs in-process inside gated. Tools
-calling tables gated owns (groups, routes, sessions, channels,
+**Today (shipped):** every tool runs in-process inside routd. Tools
+calling tables routd owns (groups, routes, sessions, channels,
 messages, grants) hit `store.*` directly. Tools touching
-foreign-owned tables (`schedule_task` → `scheduled_tasks` in timed,
-invite ops → `invites` in onbod) **also** hit the shared SQLite
-directly — that's the cross-boundary leak `specs/6/7` closes.
+foreign-owned tables (invite ops → `invites` in onbod) **also** hit
+the shared SQLite directly — that's the cross-boundary leak
+`specs/6/7` closes.
 
-**Planned (per spec Phase 4):** when a tool touches gated-owned tables
+**Planned (per spec Phase 4):** when a tool touches routd-owned tables
 it stays an in-process Go call. When it touches a foreign daemon's
 tables it becomes an HTTP forward to that daemon's `/v1/*` with the
 agent's capability token:
@@ -65,7 +66,7 @@ Resource ownership map (drives which tools forward):
 
 | Tool family                                       | Backing tables                                               | After Phase 4    |
 | ------------------------------------------------- | ------------------------------------------------------------ | ---------------- |
-| social verbs, `*_routes`, `*_grants`, `inspect_*` | groups, routes, sessions, channels, messages, grants (gated) | local in-process |
+| social verbs, `*_routes`, `*_grants`, `inspect_*` | groups, routes, sessions, channels, messages, grants (routd) | local in-process |
 | `schedule_task`, task ops, `inspect_tasks`        | scheduled_tasks, task_run_logs (timed)                       | HTTP → timed     |
 | invite/admission ops                              | invites, admissions, auth_users (onbod)                      | HTTP → onbod     |
 
@@ -109,7 +110,7 @@ post-fetch `JIDRoutedToFolder` per row.
   (1000 = ant image's `node` user in prod; ≤0 disables the check for
   tests). `callerSub` is the agent's auth subject, stamped into audit
   rows as the actor.
-- `GatedFns` — callbacks into gated (enqueue, register channel, run container, social verbs)
+- `GatedFns` — callbacks into the host daemon, routd (enqueue, register channel, run container, social verbs). The type name is historical; routd wires it via `buildGatedFns`.
 - `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)
 - `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types
 
@@ -130,5 +131,5 @@ post-fetch `JIDRoutedToFolder` per row.
 - `specs/5/5-uniform-mcp-rest.md` — MCP host's role as token issuer +
   HTTP-federation pattern for foreign-domain tools
 - `../auth/README.md` — `Mint`/`VerifyHTTP`/`HasScope`/`MatchesFolder` contract
-- `../gated/README.md` — host process; gated-owned tables stay local
+- `../routd/README.md` — host process; routd-owned tables stay local
 - `SECURITY.md` — root threat model

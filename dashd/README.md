@@ -13,9 +13,10 @@ invites, grants, model selector, and skill toggles — all gated by
 
 ## Tables owned
 
-None. Schema and migrations live in gated. dashd holds read+write
-connections to the shared DB and writes to `routes`, `groups`, `invites`,
-`acl`, and `secrets` via the `store` package; it never migrates.
+None. Schema and migrations live in the owning daemons — `routes`,
+`groups`, `acl`, `secrets` in routd's `routd.db`; `invites` in onbod's
+`onbod.db`. dashd (FS-mounted) holds read+write connections and writes
+those tables directly via the `store` package; it never migrates.
 
 ## Surface
 
@@ -131,5 +132,5 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 
 Per-group scoping of read pages (`/dash/status/`, `/dash/activity/`,
 `/dash/memory/`) so a non-admin sees only folders they hold a grant on;
-migration of direct DB reads to `gated/v1/*` once that surface lands
+migration of direct DB reads to `routd/v1/*` once that surface lands
 (`specs/5/5-uniform-mcp-rest.md`).

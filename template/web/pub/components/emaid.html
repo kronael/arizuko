@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, emaid is the connector that plugs email into arizuko, so the agent can read incoming mail and send replies in the same thread.</p>
 
-    <p>emaid is the email channel adapter. It polls IMAP for inbound messages, sends outbound via SMTP, and keeps a local SQLite table mapping email threads (<code>Message-ID</code> + <code>References</code>) to their <code>chat_jid</code> so replies preserve the conversation. From gated&rsquo;s point of view it is a normal channel adapter; the JID prefix is <code>email:</code>.</p>
+    <p>emaid is the email channel adapter. It polls IMAP for inbound messages, sends outbound via SMTP, and keeps a local SQLite table mapping email threads (<code>Message-ID</code> + <code>References</code>) to their <code>chat_jid</code> so replies preserve the conversation. From routd&rsquo;s point of view it is a normal channel adapter; the JID prefix is <code>email:</code>.</p>
 
     <p>Each inbound message is verified against DMARC results in the upstream MTA&rsquo;s <code>Authentication-Results</code> header before it reaches the agent. Verified mail rides <code>verb=message</code>; the rest rides <code>verb=untrusted</code> so route rules can quarantine it.</p>
 
@@ -67,8 +67,8 @@
       <li>Poll IMAP <code>INBOX</code> for messages newer than the last seen UID.</li>
       <li>Parse <code>Authentication-Results</code>. DMARC pass on the configured authserv-id (plus optional <code>From</code>-domain allowlist) &rarr; <code>verb=message</code>. Anything else &rarr; <code>verb=untrusted</code>, optional <code>[UNVERIFIED]</code> subject prefix. <code>EMAIL_STRICT_AUTH=1</code> drops untrusted mail outright.</li>
       <li>Look up the thread row by <code>Message-ID</code> or <code>References</code>. Hit &rarr; reuse the existing <code>chat_jid</code>. Miss &rarr; mint a new one.</li>
-      <li>POST <code>/v1/messages</code> to gated, signed with <code>CHANNEL_SECRET</code>.</li>
-      <li>On outbound, gated calls back to <code>POST /send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
+      <li>POST <code>/v1/messages</code> to routd, signed with <code>CHANNEL_SECRET</code>.</li>
+      <li>On outbound, routd calls back to <code>POST /send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
     </ol>
 
     <h2>How it fits</h2>
@@ -79,7 +79,7 @@
       emaid     (parse Authentication-Results, classify verb)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to emaid)
         v
       emaid     (SMTP submit; In-Reply-To = thread root)
@@ -88,7 +88,7 @@
       mail server &rarr; recipient</code></pre>
     </div>
 
-    <p>Inputs: IMAP traffic on the configured mailbox; HTTP callbacks from gated. Outputs: SMTP submissions; signed POSTs to gated. Hard deps: a reachable gated, an IMAP+SMTP account, and a trusted upstream MTA whose authserv-id is set in <code>EMAIL_TRUSTED_AUTHSERV</code>.</p>
+    <p>Inputs: IMAP traffic on the configured mailbox; HTTP callbacks from routd. Outputs: SMTP submissions; signed POSTs to routd. Hard deps: a reachable routd, an IMAP+SMTP account, and a trusted upstream MTA whose authserv-id is set in <code>EMAIL_TRUSTED_AUTHSERV</code>.</p>
 
     <h2>Sender authentication</h2>
     <p>Library: <code>emersion/go-msgauth/authres</code>. emaid does not run its own DMARC validator; it trusts the MTA that delivered the mail. The operator pins which MTA via <code>EMAIL_TRUSTED_AUTHSERV</code> (fail-closed default &mdash; unset value rejects every message). Three classification levers:</p>
@@ -103,9 +103,9 @@
     <p>The gateway will not promote an untrusted reply-to-bot to <code>verb=mention</code> (mention-promotion spec). Operators route <code>verb=untrusted</code> to a quarantine sub-group.</p>
 
     <h2>Standalone usage</h2>
-    <p>emaid is a plain Go binary. It needs a reachable gated, an IMAP+SMTP account, and a writable directory for its thread store.</p>
+    <p>emaid is a plain Go binary. It needs a reachable routd, an IMAP+SMTP account, and a writable directory for its thread store.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export DATA_DIR=/srv/data/arizuko_demo
@@ -135,7 +135,7 @@ export EMAIL_TRUSTED_AUTHSERV=mx.example.com
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/emaid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -55,12 +55,12 @@
 
     <p>timed is the scheduler daemon. One Go binary that ticks every 60 seconds, claims due rows from the <code>scheduled_tasks</code> table, and inserts each task&rsquo;s prompt into <code>messages</code> as if a user had just typed it.</p>
 
-    <p>Once the message lands in the table, gated picks it up through the normal poll loop and routes it to the task&rsquo;s folder. The agent has no idea the prompt came from a clock.</p>
+    <p>Once the message lands in the table, routd picks it up through the normal poll loop and routes it to the task&rsquo;s folder. The agent has no idea the prompt came from a clock.</p>
 
     <h2>Why it exists</h2>
-    <p>Cron, recurring runs, and one-shot reminders all collapse to one need: drop a prompt into a folder at a future time. Keeping that loop inside gated would mix two clocks &mdash; one for inbound polling, one for scheduling &mdash; and tie cron behavior to gateway restarts.</p>
+    <p>Cron, recurring runs, and one-shot reminders all collapse to one need: drop a prompt into a folder at a future time. Keeping that loop inside routd would mix two clocks &mdash; one for inbound polling, one for scheduling &mdash; and tie cron behavior to gateway restarts.</p>
 
-    <p>A separate daemon writing to the same DB means gated stays a pure router. Without timed, no task ever fires. Cron tools (<code>schedule_task</code>, <code>pause_task</code>, &hellip;) still write rows, but nothing claims them.</p>
+    <p>A separate daemon writing to the same DB means routd stays a pure router. Without timed, no task ever fires. Cron tools (<code>schedule_task</code>, <code>pause_task</code>, &hellip;) still write rows, but nothing claims them.</p>
 
     <h2>The loop</h2>
     <p>Each 60-second tick:</p>
@@ -84,17 +84,17 @@
  messages  (one row per fire, sender='timed')
    |
    v
- gated  ---&gt;  routes by chat_jid  ---&gt;  agent run</code></pre>
+ routd  ---&gt;  routes by chat_jid  ---&gt;  agent run</code></pre>
     </div>
 
-    <p>Inputs: <code>scheduled_tasks</code> rows written by MCP tools through gated. Outputs: synthetic <code>messages</code> rows and audit rows in <code>task_run_logs</code>.</p>
+    <p>Inputs: <code>scheduled_tasks</code> rows written by MCP tools through routd. Outputs: synthetic <code>messages</code> rows and audit rows in <code>task_run_logs</code>.</p>
 
-    <p>Hard deps: read/write access to the same <code>messages.db</code> gated uses. No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
+    <p>Hard deps: read/write access to routd&rsquo;s <code>routd.db</code> (which holds <code>scheduled_tasks</code>). No HTTP API today beyond <code>/health</code>; the <code>/v1/tasks</code> surface is planned (see <code>timed/README.md</code>).</p>
 
     <p>Concepts: <a href="../concepts/tasks.html">concepts/tasks</a> covers the row anatomy, context modes, and the five MCP tools agents use to manage tasks.</p>
 
     <h2>Standalone usage</h2>
-    <p>Yes. timed is a plain Go binary that needs an SQLite file with the <code>scheduled_tasks</code> and <code>task_run_logs</code> tables already migrated &mdash; gated owns the schema, so spin up gated first (or copy its DB).</p>
+    <p>Yes. timed is a plain Go binary that needs an SQLite file with the <code>scheduled_tasks</code> and <code>task_run_logs</code> tables already migrated &mdash; routd owns + migrates <code>routd.db</code>, so spin up routd first (or copy its DB).</p>
 
     <pre><code># build
 make build              # produces ./timed
@@ -121,7 +121,7 @@ DATABASE=/path/to/messages.db ./timed</code></pre>
       <li><a href="../concepts/tasks.html">concepts/tasks</a> &mdash; row anatomy, triggers, MCP tools, failure model.</li>
       <li><code>timed/README.md</code> &mdash; tables owned, planned <code>/v1/tasks</code> surface, token contract.</li>
       <li><code>specs/4/8-scheduler-service.md</code> &mdash; original design.</li>
-      <li><a href="../components/gated.html">components/gated</a> &mdash; the router that picks up every synthetic message.</li>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how routd picks up every synthetic message.</li>
     </ul>
 
 
@@ -131,7 +131,7 @@ DATABASE=/path/to/messages.db ./timed</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/timed.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-30">2026-05-30</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
       </div>
     </main>
 

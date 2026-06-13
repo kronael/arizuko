@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -53,7 +53,7 @@
     <h2>What it is</h2>
     <p>In plain terms, slakd is the connector that plugs Slack into arizuko, so the agent can read and reply in Slack channels, DMs, and threads.</p>
 
-    <p>slakd is the Slack channel adapter. It receives Slack workspace events over the HTTP Events API (proxyd forwards <code>/slack/events</code> to slakd) and posts outbound via the Slack Web API. From gated&rsquo;s point of view it is a normal channel adapter with JID prefix <code>slack:</code> and per-message JIDs of the form <code>slack:&lt;workspace&gt;/&lt;kind&gt;/&lt;id&gt;</code> where <code>kind</code> is <code>channel</code>, <code>dm</code>, or <code>group</code>.</p>
+    <p>slakd is the Slack channel adapter. It receives Slack workspace events over the HTTP Events API (proxyd forwards <code>/slack/events</code> to slakd) and posts outbound via the Slack Web API. From routd&rsquo;s point of view it is a normal channel adapter with JID prefix <code>slack:</code> and per-message JIDs of the form <code>slack:&lt;workspace&gt;/&lt;kind&gt;/&lt;id&gt;</code> where <code>kind</code> is <code>channel</code>, <code>dm</code>, or <code>group</code>.</p>
 
     <h2>Why it exists</h2>
     <p>Slack is where many teams already work, and it&rsquo;s the only platform arizuko targets that ships an &ldquo;Agents &amp; AI Apps&rdquo; assistant pane &mdash; a sidebar with suggested prompts and a conversation title. Talking to Slack directly, rather than through a SaaS gateway, is what lets slakd drive that pane and verify the same <code>CHANNEL_SECRET</code> signature as every other adapter.</p>
@@ -69,7 +69,7 @@
       slakd     (LISTEN_ADDR=:8080)
         |  POST /v1/messages    (signed by CHANNEL_SECRET)
         v
-      gated
+      routd
         |  POST /send           (callback to slakd)
         v
       slakd     (chat.postMessage / files.* / reactions.add)
@@ -88,9 +88,9 @@
     <p>Output rendering switches the agent into the <code>slack</code> Claude Code output style (<code>*bold*</code>, <code>_italic_</code>, <code>&lt;url|text&gt;</code>) since v0.40.7 so the bot speaks Slack mrkdwn instead of CommonMark.</p>
 
     <h2>Standalone usage</h2>
-    <p>slakd is a plain Go binary. It needs a reachable gated, a Slack app with a bot token, and a public URL that forwards <code>/slack/events</code> to it.</p>
+    <p>slakd is a plain Go binary. It needs a reachable routd, a Slack app with a bot token, and a public URL that forwards <code>/slack/events</code> to it.</p>
 
-    <pre><code>export ROUTER_URL=http://gated:8080
+    <pre><code>export ROUTER_URL=http://routd:8080
 export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
 export LISTEN_ADDR=:8080
 export SLACK_BOT_TOKEN=xoxb-...
@@ -117,7 +117,7 @@ export DB_PATH=/srv/app/home/store/messages.db
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/slakd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 

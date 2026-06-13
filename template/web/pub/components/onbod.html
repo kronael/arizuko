@@ -26,7 +26,7 @@
             <li><a href="davd.html">davd</a></li>
             <li><a href="discd.html">discd</a></li>
             <li><a href="emaid.html">emaid</a></li>
-            <li><a href="gated.html">gated</a></li>
+            <li><a href="gated.html">gated <span class="dim">(removed)</span></a></li>
             <li><a href="linkd.html">linkd</a></li>
             <li><a href="mastd.html">mastd</a></li>
             <li><a href="onbod.html">onbod</a></li>
@@ -55,7 +55,7 @@
 
     <p>onbod is the onboarding daemon. It admits a new user &mdash; via invite token, an OAuth bind (signing in with an existing account like Google), or a wait in the admission queue &mdash; then builds that user&rsquo;s group folder by calling <code>container.SetupGroup</code>, the one function that creates a group.</p>
 
-    <p>It owns three tables: <code>invites</code>, <code>onboarding</code>, and <code>auth_users</code>. gated runs the schema migrations; onbod is the only daemon that writes those rows.</p>
+    <p>onbod owns <code>invites</code> and <code>onboarding</code> in its own <code>onbod.db</code> and migrates them itself. The <code>auth_users</code> identity rows live in authd.</p>
 
     <h2>Why it exists</h2>
     <p>Two problems would have no good answer without onbod. First, a new user reaching the bot has nothing &mdash; no record in <code>auth_users</code>, no folder, no skills, no settings, no default tasks. Something has to put them through identity confirmation, decide whether to admit them, and bring them online.</p>
@@ -70,9 +70,9 @@
         |
         v   inbound message
         |
-      gated   no auth_users row → writes awaiting_message
+      routd   no auth_users row → writes awaiting_message
         |
-      onbod   poll loop sends auth link via gated outbound API
+      onbod   poll loop sends auth link via routd outbound API
         |     /onboard landing → OAuth (GitHub/Google/Discord)
         |     gate match → onboarding queue (per-gate daily limit)
         |     admitFromQueue (~60s) → approved
@@ -86,11 +86,11 @@
     <p>onbod is also a JWT issuer. At invite redemption it calls <code>auth.Mint</code> with the same HS256 key every other daemon verifies against, issuing a short-TTL token scoped to <code>users:read</code> on the user&rsquo;s own <code>sub</code>. The token bootstraps the user into dashd before they get a full session from proxyd&rsquo;s OAuth flow.</p>
 
     <h2>Standalone usage</h2>
-    <p>onbod runs as a daemon against the shared SQLite store and the gated outbound API. It will not run without <code>ROUTER_URL</code> pointing at a reachable gated &mdash; the poll loop sends auth links through gated, not directly to platforms.</p>
+    <p>onbod runs as a daemon against the shared SQLite store and the routd outbound API. It will not run without <code>ROUTER_URL</code> pointing at a reachable routd &mdash; the poll loop sends auth links through routd, not directly to platforms.</p>
 
     <pre><code>export DATA_DIR=/srv/data/arizuko_demo
 export ONBOD_LISTEN_ADDR=:8080
-export ROUTER_URL=http://gated:8080
+export ROUTER_URL=http://routd:8080
 export AUTH_SECRET=$(openssl rand -hex 32)
 export CHANNEL_SECRET=$(openssl rand -hex 32)
 export AUTH_BASE_URL=https://example.com
@@ -133,7 +133,7 @@ export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/onbod.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-01">2026-06-01</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
       </div>
     </main>
 
