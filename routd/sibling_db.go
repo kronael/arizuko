@@ -193,6 +193,10 @@ func (d *DB) DeleteTask(id string) error { return d.taskStore().RemoveTask(id) }
 // GET /v1/tasks/due (timed's read half).
 func (d *DB) DueTasks(now time.Time) ([]core.Task, error) { return d.taskStore().DueTasks(now) }
 
+// RecoverFiringTasks re-arms tasks stranded in 'firing' by a crash mid-fire.
+// Called once at routd startup (crash recovery).
+func (d *DB) RecoverFiringTasks() (int64, error) { return d.taskStore().RecoverFiringTasks() }
+
 // RecordTaskRun appends one task_run_logs row, backing POST /v1/tasks/runlog
 // (timed's write half).
 func (d *DB) RecordTaskRun(l store.TaskRunLog) error { return d.taskStore().RecordTaskRun(l) }

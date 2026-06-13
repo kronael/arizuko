@@ -115,3 +115,39 @@ func TestDueTasks_ClaimsOnce(t *testing.T) {
 		t.Fatalf("second claim: want none, got %v (double-fire)", second)
 	}
 }
+
+// A task stranded in 'firing' by a mid-fire crash is re-armed by startup
+// recovery; an 'active' task is left untouched.
+func TestRecoverFiringTasks(t *testing.T) {
+	s, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	past := time.Now().Add(-time.Hour)
+	if err := s.PutTaskRow(core.Task{
+		ID: "stuck", Owner: "a", ChatJID: "a", Prompt: "/ping",
+		NextRun: &past, Status: core.TaskActive, Created: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Claim it → 'firing', then simulate a crash before reschedule.
+	if _, err := s.DueTasks(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// Stuck: the next poll claims nothing (it's 'firing').
+	if due, _ := s.DueTasks(time.Now()); len(due) != 0 {
+		t.Fatalf("expected stuck task, got %v", due)
+	}
+	// Startup recovery re-arms it.
+	n, err := s.RecoverFiringTasks()
+	if err != nil || n != 1 {
+		t.Fatalf("RecoverFiringTasks = %d, %v; want 1, nil", n, err)
+	}
+	// Now it fires again.
+	due, err := s.DueTasks(time.Now())
+	if err != nil || len(due) != 1 || due[0].ID != "stuck" {
+		t.Fatalf("after recovery: want [stuck], got %v (err %v)", due, err)
+	}
+}

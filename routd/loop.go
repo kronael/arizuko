@@ -273,6 +273,11 @@ func (l *Loop) publishRoundDone(folder, turnID string) {
 func (l *Loop) Run(ctx context.Context) {
 	l.sweepOrphanSocks()
 	l.recoverPending()
+	if n, err := l.db.RecoverFiringTasks(); err != nil {
+		slog.Warn("recover firing tasks", "err", err)
+	} else if n > 0 {
+		slog.Info("re-armed scheduled tasks stranded in 'firing'", "count", n)
+	}
 	l.checkMigrationVersion()
 	if l.proactive.Enabled {
 		l.nextScanAt = time.Now().Add(l.proactive.ScanInterval)
