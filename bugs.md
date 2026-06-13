@@ -5,18 +5,35 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
-## OPEN 2026-06-13 (docs, low) — web docs still name the removed `gated` daemon site-wide
+## FIXED 2026-06-13 (docs sweep) — web + repo docs named the removed `gated` daemon as current
 
 `gated` (monolith) was deleted 2026-06-07; the split (`authd`+`routd`+`runed`) is
-the only topology. The landing + concepts/primitives were corrected during the
-spec 5/A reframe (2026-06-13), but ~25 non-legacy pages still cite `gated` as a
-live daemon: `components/` (gated.html page itself, channels/webd/timed/slakd/…),
-`reference/` (env/cli/mcp/schema/grants/openapi), `howto/` (webhooks/discord/
-talking-to-agents), `security/index.html`, `products/slack-team/setup.html`,
-`changelog`. Fix path: a docs-audit pass mapping each `gated` mention to its split
-owner (route/dispatch → routd, spawn → runed, authz → authd) + retire or redirect
-`components/gated.html`. Separate concern from the value-prop reframe; do as a
-`/docs-audit` sweep. List: `grep -rl gated template/web/pub --include='*.html' | grep -v legacy`.
+the only topology. Swept every non-legacy `gated`-as-current-daemon mention across
+`template/web/pub/**` (landing, components/* incl. tombstoning `components/gated.html`
++ index, reference/{cli,env,mcp,schema,openapi,index}, security, products/slack-team)
+and the repo docs (per-package READMEs: authd/compose/dashd/db_utils/ipc/runed/slakd/
+webd/obs/ant; root docs were already clean). Mapping: route/dispatch/MCP-host/secrets/
+ACL → routd; container spawn + docker socket + crackbox/egress → runed; tokens/identity
+→ authd; admission → onbod. `components/gated.html` converted to a tombstone pointing at
+the three split daemons. Verified: 0 broken relative links (2723 checked); remaining
+`gated` tokens are all adjectives ("gated by"/"auth-gated"), the `gated.sock` socket
+filename (keeps its historical name in source), the `GatedFns` Go symbol, the tombstone
+page, or dated CHANGELOG/changelog historical entries. NOTE residual (separate concern,
+NOT fixed here): several pages still name `messages.db` as the DB file (dashd.html,
+timed.html env, slakd.html DB_PATH, reference/schema lede already fixed) — DB-naming
+drift, distinct from the gated-daemon class; fix in a follow-up if desired.
+
+## OPEN 2026-06-13 (infra, low) — Helm chart still deploys the removed `gated` monolith
+
+`deploy/helm/arizuko/` ships `templates/gated.yaml` (and `values.yaml` describes a
+`gated` monolith with the docker socket) — there are NO `routd.yaml`/`runed.yaml`/
+`authd.yaml` templates. The split is the only topology since v0.50.0, so the chart
+is stale: a `helm install` would deploy a daemon that no longer exists in the image.
+`deploy/helm/arizuko/README.md` accurately describes this stale chart, so the README
+was LEFT AS-IS during the gated docs sweep — fixing the prose without porting the
+chart would create doc/code drift. Fix path: split `gated.yaml` into routd/runed/authd
+templates (route+MCP host → routd, container spawn+docker-socket → runed, authz →
+authd), update `values.yaml` + chart README together. Code change, not a doc edit.
 
 ## FIXED 2026-06-12 (commit c9ea7ae5) — routd breaker tripped on Discord JID after a SUCCESSFUL turn
 
