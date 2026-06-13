@@ -224,3 +224,22 @@ func TestFireSplitEnqueueErrorRestoresActive(t *testing.T) {
 		t.Errorf("reschedules = %+v want one active (restored)", reschedules)
 	}
 }
+
+// A sub-folder task id carries a slash (main/trading-mem-0); reschedule must
+// PathEscape it so routd's {id} segment wildcard matches (a raw slash 404s and
+// silently strands the task in 'firing').
+func TestRescheduleEscapesSlashedID(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotPath = req.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	r := &router{base: srv.URL, http: srv.Client(), tz: "UTC"}
+	if err := r.reschedule(context.Background(), "main/trading-mem-0", "", "active"); err != nil {
+		t.Fatalf("reschedule: %v", err)
+	}
+	if want := "/v1/tasks/main%2Ftrading-mem-0/reschedule"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+}

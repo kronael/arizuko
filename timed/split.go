@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -169,7 +170,11 @@ func (r *router) runlog(ctx context.Context, taskID, status, errText string, dur
 
 func (r *router) reschedule(ctx context.Context, taskID, nextRun, status string) error {
 	body := map[string]string{"next_run": nextRun, "status": status}
-	return r.call(ctx, "POST", "/v1/tasks/"+taskID+"/reschedule", body, nil)
+	// PathEscape the id: sub-folder task ids carry a slash (main/trading-mem-0),
+	// and a raw slash breaks the {id} path-segment wildcard → 404 → the reschedule
+	// silently fails → the task is stranded in 'firing' and stops firing
+	// (stalled every sub-folder group's compaction crons). %2F matches the segment.
+	return r.call(ctx, "POST", "/v1/tasks/"+url.PathEscape(taskID)+"/reschedule", body, nil)
 }
 
 // call performs one authenticated round-trip: the live service token in the
