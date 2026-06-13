@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,10 @@ type bot struct {
 	typing        *chanlib.TypingRefresher
 	files         *chanlib.URLCache
 	lastInboundAt atomic.Int64
+	// activeThread maps a parent-channel jid → the thread id its live
+	// conversation is in, so the typing indicator shows in the thread where the
+	// reply lands, not leaking to the channel root. Set/cleared on each inbound.
+	activeThread sync.Map
 }
 
 func (b *bot) LastInboundAt() int64 { return b.lastInboundAt.Load() }
@@ -91,20 +96,20 @@ func buildUserIdentify(token string) (json.RawMessage, error) {
 		// Capabilities.default; matches official client). = 22525.
 		"capabilities": 22525,
 		"properties": map[string]any{
-			"os":                        "Mac OS X",
-			"browser":                   "Chrome",
-			"device":                    "",
-			"system_locale":             "en-US",
-			"browser_user_agent":        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-			"browser_version":           "136.0.0.0",
-			"os_version":                "10.15.7",
-			"referrer":                  "",
-			"referring_domain":          "",
-			"referrer_current":          "",
-			"referring_domain_current":  "",
-			"release_channel":           "stable",
-			"client_build_number":       397755,
-			"client_event_source":       nil,
+			"os":                       "Mac OS X",
+			"browser":                  "Chrome",
+			"device":                   "",
+			"system_locale":            "en-US",
+			"browser_user_agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+			"browser_version":          "136.0.0.0",
+			"os_version":               "10.15.7",
+			"referrer":                 "",
+			"referring_domain":         "",
+			"referrer_current":         "",
+			"referring_domain_current": "",
+			"release_channel":          "stable",
+			"client_build_number":      397755,
+			"client_event_source":      nil,
 		},
 		"presence": map[string]any{
 			"status":     "online",
@@ -198,6 +203,13 @@ func (b *bot) onMessage(_ *discordgo.Session, m *discordgo.MessageCreate) {
 				jid = chatJID(m.GuildID, ch.ParentID)
 			}
 		}
+	}
+	// Track where this chat's live conversation sits so typing shows in the
+	// thread (topic), not the parent channel root.
+	if topic != "" {
+		b.activeThread.Store(jid, topic)
+	} else {
+		b.activeThread.Delete(jid)
 	}
 	chatName := b.channelName(m.ChannelID)
 	// Anything other than a 1:1 DM is multi-user (guild text, threads,
@@ -623,7 +635,11 @@ func (b *bot) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryResponse,
 }
 
 func (b *bot) sendTyping(jid string) bool {
-	if err := b.session.ChannelTyping(chanID(jid)); err != nil {
+	ch := chanID(jid)
+	if th, ok := b.activeThread.Load(jid); ok {
+		ch = th.(string) // type in the live thread, not the channel root
+	}
+	if err := b.session.ChannelTyping(ch); err != nil {
 		slog.Warn("discord typing failed", "jid", jid, "err", err)
 		return false
 	}
