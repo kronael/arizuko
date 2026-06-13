@@ -26,3 +26,13 @@ func TestServiceAdapterGrants(t *testing.T) {
 		}
 	}
 }
+
+// webd is web ingress (route-token /chat + /hook), not a channel adapter, but it
+// posts inbound to /v1/messages the same way — so it needs messages:write too.
+// Missing it made every strengths-form submission 403 → "router unavailable" 502.
+func TestServiceWebdGrant(t *testing.T) {
+	g, ok := serviceGrants["service:webd"]
+	if !ok || !slices.Contains(g, "messages:write") {
+		t.Errorf("service:webd missing messages:write grant, got %v (ok=%v)", g, ok)
+	}
+}

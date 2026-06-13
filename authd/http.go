@@ -54,6 +54,11 @@ var serviceGrants = map[string][]string{
 	"service:emaid":  {"messages:write"},
 	"service:twitd":  {"messages:write"},
 	"service:linkd":  {"messages:write"},
+	// webd is web ingress, not a channel adapter, but it posts the same way:
+	// route-token /chat + /hook submissions land in routd's /v1/messages. Without
+	// this entry every form/widget submission 403s ("router unavailable" 502 to
+	// the user) — the strengths form was dead because webd had no scope.
+	"service:webd": {"messages:write"},
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
