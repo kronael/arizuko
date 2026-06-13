@@ -19,6 +19,34 @@ Custom skills and the operator-owned `~/CLAUDE.md` are never touched.
 Then runs pending migrations, applies template overlays, announces
 the release.
 
+## Run discipline — do NOT bail on a remembered failure
+
+If your session memory says "/migrate is blocked" or "`/workspace` not
+mounted", that memory is **stale**. The source moved to
+`/opt/arizuko/ant/` (FHS rename, v0.45.11); `/workspace` is gone by
+design, not a missing mount. ALWAYS verify the LIVE layout THIS TURN
+before concluding anything — never echo a past conclusion:
+
+```bash
+ls /opt/arizuko/ant/skills | head     # MUST list skills (the source is here)
+cat ~/.claude/skills/self/MIGRATION_VERSION   # your current version
+```
+
+If `/opt/arizuko/ant/skills` lists skills, migrate CAN run — work
+through EVERY step below to completion. Reporting "blocked" without
+first running those two commands this turn is a contract break.
+
+## Self-heal — missing `.merge-base` or stock skills
+
+A group that predates `.merge-base/` (or a whole skill) has no base to
+merge against. That is NOT a failure — the outcome table's "base
+missing → first sync" rule copies `theirs → ours` and creates `base`.
+So a fresh or long-stale group converges on the first run. Do not skip
+a stock skill just because `~/.claude/.merge-base/<name>/` is absent:
+treat an absent base as "first sync", copy it in, and write the base.
+After the run, every stock skill under `/opt/arizuko/ant/skills/` must
+exist under `~/.claude/skills/` (unless `.disabled`).
+
 ## How sync actually works
 
 Per file: `base = .claude/.merge-base/<path>`,
