@@ -140,11 +140,18 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
 	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID}
+	return h.sendOrQueue(ctx, m)
+}
+
+// sendOrQueue is the direct-send policy: try once, enqueue a transient failure
+// for DrainOutbox to retry, surface a permanent (4xx) error to the agent
+// without enqueuing (never retried).
+func (h *HTTPChannel) sendOrQueue(ctx context.Context, m outMsg) (string, error) {
 	id, err := h.trySend(ctx, m)
 	if err != nil && !errors.Is(err, errPermanent) {
-		h.enqueue(m) // transient failure enters the outbox; DrainOutbox owns the retry cap
+		h.enqueue(m)
 	}
-	return id, err // permanent (4xx) errors surface to the agent, never retried
+	return id, err
 }
 
 // trySend performs ONE delivery attempt for m without touching the outbox, so
@@ -211,11 +218,7 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
 	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID}
-	id, err := h.trySend(ctx, m)
-	if err != nil && !errors.Is(err, errPermanent) {
-		h.enqueue(m)
-	}
-	return id, err
+	return h.sendOrQueue(ctx, m)
 }
 
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
