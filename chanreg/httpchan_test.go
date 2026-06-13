@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/chanlib"
@@ -278,6 +280,50 @@ func TestHTTPChannelDrainOutbox(t *testing.T) {
 	}
 	if ch.QueueLen() != 0 {
 		t.Errorf("queue len = %d after drain", ch.QueueLen())
+	}
+}
+
+// A dead jid (server error at the head) must NOT block other messages in the
+// batch (head-of-line), and must self-evict after maxSendAttempts.
+func TestHTTPChannelDrainOutbox_DeadJIDDoesNotBlock(t *testing.T) {
+	var liveCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "tg:dead") {
+			w.WriteHeader(500)
+			return
+		}
+		liveCalls++
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+
+	e := &Entry{
+		Name:         "tg",
+		URL:          srv.URL,
+		JIDPrefixes:  []string{"tg:"},
+		Capabilities: map[string]bool{"send_text": true},
+	}
+	ch := NewHTTPChannel(e, staticBearer("secret"))
+
+	ch.enqueue(outMsg{JID: "tg:dead", Content: "x"}) // head, permanently failing
+	ch.enqueue(outMsg{JID: "tg:live", Content: "y"})
+
+	ch.DrainOutbox()
+	if liveCalls != 1 {
+		t.Errorf("live calls = %d, want 1 — dead jid blocked the batch (head-of-line)", liveCalls)
+	}
+	if ch.QueueLen() != 1 {
+		t.Errorf("queue len = %d, want 1 — dead jid should be requeued, live drained", ch.QueueLen())
+	}
+
+	// The dead jid self-evicts after maxSendAttempts more drains.
+	for i := 0; i < maxSendAttempts; i++ {
+		ch.DrainOutbox()
+	}
+	if ch.QueueLen() != 0 {
+		t.Errorf("queue len = %d — dead jid should have self-evicted after %d attempts",
+			ch.QueueLen(), maxSendAttempts)
 	}
 }
 

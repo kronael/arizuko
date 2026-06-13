@@ -51,6 +51,11 @@ func decodeUnsupported(body io.Reader, fallbackTool, fallbackPlatform string) er
 
 const maxOutbox = 1000
 
+// maxSendAttempts bounds outbox retries per message so a permanently-dead jid
+// (group deleted, bot kicked) self-evicts instead of requeuing forever and
+// filling the outbox → dropping messages for ALL groups on the channel.
+const maxSendAttempts = 5
+
 type HTTPChannel struct {
 	entry *Entry
 	// bearer yields the credential presented to the adapter on every call: routd's
@@ -75,6 +80,7 @@ type outMsg struct {
 	Name        string
 	Caption     string
 	FileReplyTo string
+	Attempts    int
 }
 
 // NewHTTPChannel builds the routd-side egress client for an adapter. bearer
@@ -119,21 +125,54 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	if !h.entry.HasCap("send_text") {
 		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	body := map[string]string{"chat_jid": jid, "content": text}
-	if replyTo != "" {
-		body["reply_to"] = replyTo
+	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID}
+	id, err := h.trySend(ctx, m)
+	if err != nil {
+		h.enqueue(m) // first failure enters the outbox; DrainOutbox owns the retry cap
 	}
-	if threadID != "" {
-		body["thread_id"] = threadID
+	return id, err
+}
+
+// trySend performs ONE delivery attempt for m without touching the outbox, so
+// the direct-send path and DrainOutbox each own their own enqueue/retry policy
+// (the direct path enqueues on failure; the drain re-enqueues with a bounded
+// attempt counter so a dead jid self-evicts).
+func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
+	if m.IsFile {
+		if !h.entry.HasCap("send_file") {
+			return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
+		}
+		resp, err := h.uploadMultipart(ctx, "/send-file", m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var r struct {
+					ID string `json:"id"`
+				}
+				json.NewDecoder(resp.Body).Decode(&r)
+				return r.ID, nil
+			}
+			err = fmt.Errorf("status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 	}
-	if threadRoot != "" {
-		body["thread_root"] = threadRoot
+	if !h.entry.HasCap("send_text") {
+		return "", fmt.Errorf("channel %s: send_text not supported", h.entry.Name)
 	}
-	if turnID != "" {
-		body["turn_id"] = turnID
+	body := map[string]string{"chat_jid": m.JID, "content": m.Content}
+	if m.ReplyTo != "" {
+		body["reply_to"] = m.ReplyTo
+	}
+	if m.ThreadID != "" {
+		body["thread_id"] = m.ThreadID
+	}
+	if m.ThreadRoot != "" {
+		body["thread_root"] = m.ThreadRoot
+	}
+	if m.TurnID != "" {
+		body["turn_id"] = m.TurnID
 	}
 	b, _ := json.Marshal(body)
-
 	httpResp, err := h.post(ctx, "/send", b)
 	if err == nil {
 		defer httpResp.Body.Close()
@@ -146,7 +185,6 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 		}
 		err = fmt.Errorf("status %d", httpResp.StatusCode)
 	}
-	h.enqueue(outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID})
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
 
@@ -158,20 +196,12 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 	if !h.entry.HasCap("send_file") {
 		return "", fmt.Errorf("channel %s: send_file not supported", h.entry.Name)
 	}
-	resp, err := h.uploadMultipart(ctx, "/send-file", jid, path, name, caption, replyTo, threadID)
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			var r struct {
-				ID string `json:"id"`
-			}
-			json.NewDecoder(resp.Body).Decode(&r)
-			return r.ID, nil
-		}
-		err = fmt.Errorf("status %d", resp.StatusCode)
+	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID}
+	id, err := h.trySend(ctx, m)
+	if err != nil {
+		h.enqueue(m)
 	}
-	h.enqueue(outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID})
-	return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
+	return id, err
 }
 
 func (h *HTTPChannel) SendVoice(jid, audioPath, caption, threadID string) (string, error) {
@@ -464,15 +494,20 @@ func (h *HTTPChannel) DrainOutbox() {
 	h.mu.Unlock()
 
 	for _, m := range q {
-		var err error
-		if m.IsFile {
-			_, err = h.SendFile(m.JID, m.Path, m.Name, m.Caption, m.FileReplyTo, m.ThreadID)
-		} else {
-			_, err = h.Send(m.JID, m.Content, m.ReplyTo, m.ThreadID, m.ThreadRoot, m.TurnID)
-		}
-		if err != nil {
-			slog.Warn("outbox drain failed", "channel", h.entry.Name, "jid", m.JID, "err", err)
-			return
+		// trySend does NOT re-enqueue (unlike Send), so the drain owns the retry
+		// policy. CONTINUE past a failure — never let one dead jid block the rest
+		// of the batch (head-of-line). Re-queue with a bounded attempt counter so a
+		// permanently-dead jid (group deleted, bot kicked) self-evicts.
+		if _, err := h.trySend(context.Background(), m); err != nil {
+			m.Attempts++
+			if m.Attempts < maxSendAttempts {
+				h.enqueue(m)
+				slog.Warn("outbox drain failed, requeued",
+					"channel", h.entry.Name, "jid", m.JID, "attempt", m.Attempts, "err", err)
+			} else {
+				slog.Warn("outbox drain failed, dropping after max attempts",
+					"channel", h.entry.Name, "jid", m.JID, "attempts", m.Attempts, "err", err)
+			}
 		}
 	}
 }
