@@ -126,40 +126,38 @@ func TestAuthorizeBasicTools(t *testing.T) {
 }
 
 func TestAuthorizeOutboundSubtree(t *testing.T) {
-	// Subtree containment is the only rule. No tier bypass — every
-	// agent is confined to JIDs that route to its folder or descendants.
-	rhias := Resolve("rhias")
-	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
-		t.Errorf("rhias send to rhias should allow: %v", err)
+	// Tier 0 (root, any top-level folder) has all privileges — it sends across
+	// any world (user direction 2026-06-13: migrate-announce + operator ops).
+	// Tier ≥ 1 (sub-folders / tenant worlds) stay confined to their subtree.
+	root := Resolve("rhias") // top-level → tier 0
+	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
+		t.Errorf("root send to own folder should allow: %v", err)
 	}
-	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: "rhias/content"}); err != nil {
-		t.Errorf("rhias send to rhias/content should allow: %v", err)
+	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "happy/content"}); err != nil {
+		t.Errorf("root send cross-world should now allow: %v", err)
 	}
-	// Cross-world deny.
-	happy := Resolve("happy")
-	if err := AuthorizeStructural(happy, "send", AuthzTarget{TargetFolder: "rhias/content"}); err == nil {
-		t.Error("happy send to rhias/content must deny")
+	// Unrouted JID: denied for every caller, root included (no destination).
+	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: ""}); err == nil {
+		t.Error("send to unrouted JID must deny even for root")
 	}
-	// Unrouted JID: denied for every caller (no one notionally owns it).
-	if err := AuthorizeStructural(rhias, "send", AuthzTarget{TargetFolder: ""}); err == nil {
-		t.Error("send to unrouted JID must deny")
+	// Tier ≥ 1 is still confined to its own subtree.
+	sub := Resolve("rhias/content") // tier 1
+	if err := AuthorizeStructural(sub, "send", AuthzTarget{TargetFolder: "rhias/content"}); err != nil {
+		t.Errorf("sub send within own folder should allow: %v", err)
 	}
-	// Even root cannot direct-send cross-world; delegate_group is the
-	// inter-world mechanism.
-	root := Resolve("root")
-	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "happy"}); err == nil {
-		t.Error("root direct-send cross-world must deny (use delegate_group)")
+	if err := AuthorizeStructural(sub, "send", AuthzTarget{TargetFolder: "happy"}); err == nil {
+		t.Error("sub send cross-world must deny")
 	}
-	// Other outbound verbs follow same rule.
+	// Other outbound verbs follow the same rule.
 	for _, tool := range []string{"send_file", "reply", "post", "like", "dislike",
 		"delete", "edit", "forward", "quote", "repost",
 		"pin_message", "unpin_message", "unpin_all",
 		"pane_set_prompts", "pane_set_title"} {
-		if err := AuthorizeStructural(happy, tool, AuthzTarget{TargetFolder: "rhias"}); err == nil {
-			t.Errorf("%s cross-world must deny", tool)
+		if err := AuthorizeStructural(sub, tool, AuthzTarget{TargetFolder: "happy"}); err == nil {
+			t.Errorf("%s cross-world from tier-1 must deny", tool)
 		}
-		if err := AuthorizeStructural(rhias, tool, AuthzTarget{TargetFolder: "rhias/x"}); err != nil {
-			t.Errorf("%s within subtree must allow: %v", tool, err)
+		if err := AuthorizeStructural(root, tool, AuthzTarget{TargetFolder: "happy"}); err != nil {
+			t.Errorf("%s from root should allow cross-world: %v", tool, err)
 		}
 	}
 }

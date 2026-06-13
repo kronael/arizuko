@@ -176,6 +176,13 @@ func authorizeOutbound(id Identity, tool string, target AuthzTarget) error {
 	if target.TargetFolder == "" {
 		return fmt.Errorf("forbidden: chat has no route in this instance (%s)", tool)
 	}
+	// Root (tier 0) has all privileges — it sends across any world, so the
+	// migrate-announce fan-out and operator cross-group ops aren't blocked by
+	// world-containment. Operator trust is the instance owner's (user direction
+	// 2026-06-13); multi-tenant worlds live one level down (tier ≥ 1).
+	if id.Tier == 0 {
+		return nil
+	}
 	if target.TargetFolder == id.Folder ||
 		strings.HasPrefix(target.TargetFolder, id.Folder+"/") {
 		return nil
