@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>runed &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="authd.html">authd</a></li>
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="routd.html">routd</a></li>
+            <li><a href="runed.html" aria-current="page">runed</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; runed</p>
+      <h1>runed</h1>
+
+    <h2>What it is</h2>
+    <p>In plain terms, runed is the thing that runs the agent. When a turn needs to happen, runed starts one fresh Docker container, lets the agent work inside it, then throws the container away.</p>
+
+    <p>runed is the execution plane: a pure container-spawner. It serves the work queue, starts one Docker container per spawn, enforces the run timeout, and brokers a downscoped capability token for that single spawn. It is the <strong>only</strong> daemon wired to the Docker socket. It never appends a message (<a href="routd.html">routd</a> is the sole appender) and never signs a token (<a href="authd.html">authd</a> is the sole signer).</p>
+
+    <p>runed owns <code>runed.db</code> and migrates it itself &mdash; the runtime tables (<code>spawns</code>, <code>session_log</code>, <code>spawn_logs</code>, <code>mcp_tokens</code>) that have no home in routd.</p>
+
+    <h2>Why it exists</h2>
+    <p>A turn is one ephemeral container run. (See the <a href="../concepts/primitives.html">Turn primitive</a>.) Something has to own the Docker socket, and only one thing should: the socket is the keys to the host, so concentrating it in one small daemon keeps the blast radius small. runed is that daemon.</p>
+
+    <p>Spawning a container is more than <code>docker run</code>. runed has to apply the egress allowlist so the agent can only reach approved hosts, enforce <code>RUNED_RUN_TIMEOUT</code> so a runaway turn can&rsquo;t burn forever, steer a live run with <code>SIGUSR1</code>, and tear the container down cleanly (stop, then kill, then <code>rm -f</code>). It also brokers a per-spawn token from authd that is downscoped to exactly that turn&rsquo;s folder &mdash; so a container that escapes still can&rsquo;t act outside its grant.</p>
+
+    <p>Without runed, routd would have to hold the Docker socket itself, mixing the routing plane with host-level container control. Keeping them apart means the daemon that talks to the network (routd) is not the daemon that can start processes on the host (runed).</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>routd
+        |  POST /v1/runs   (scope runs:run)
+        v
+      runed   broker downscoped per-spawn token  &lt;-- authd
+        |     docker run --rm  (egress allowlist, ipc dir mounted)
+        v
+      arizuko-ant container   runs one turn, then exits
+        |     agent tools  --&gt;  routd /v1/turns/{turn_id}/*
+        |                       (MCP socket hosted in routd, not runed)
+        +-- timeout / SIGUSR1 steer / stop->kill->rm -f --&gt; runed</code></pre>
+    </div>
+
+    <p>Inputs: <code>POST /v1/runs</code> from routd (the routd&harr;runed contract); a <code>service:runed</code> token from authd it uses as the parent when brokering each spawn token. Outputs: a running container; status and kill over <code>/v1/runs/{run_id}</code>; spawn and session rows in <code>runed.db</code>.</p>
+
+    <p>Hard deps: the Docker socket on the host; <a href="authd.html">authd</a> as the token broker and JWKS source; <a href="routd.html">routd</a>, which hosts the per-turn MCP socket and receives the agent&rsquo;s tool calls. The agent runs inside <a href="crackbox.html">crackbox</a> &mdash; the containment boundary whose egress allowlist runed enforces.</p>
+
+    <h2>Timeouts and shutdown</h2>
+    <p><code>RUNED_RUN_TIMEOUT</code> (default 20m) is the run ceiling, and it bounds two things at once: the container hard-kill, and the in-container agent query timeout (<code>ARIZUKO_QUERY_TIMEOUT_MS</code> = <code>RUNED_RUN_TIMEOUT &minus; 30s</code>). The 30-second gap lets the agent abort and deliver a graceful summary before runed kills the container under it. On graceful shutdown runed detaches in-flight runs, so containers outlive the daemon and a restart doesn&rsquo;t murder a turn mid-sentence.</p>
+
+    <h2>Standalone usage</h2>
+    <p>runed runs as a daemon, but it cannot do its job without a Docker socket to spawn into and an authd to broker tokens from. It also expects routd to host the MCP socket the container talks to. Run it only alongside those.</p>
+
+    <pre><code>cd /srv/data/myinstance
+export DATA_DIR=/srv/data/myinstance
+export LISTEN_ADDR=:8080
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
+export RUNED_RUN_TIMEOUT=20m
+export CONTAINER_IMAGE=arizuko-ant:latest
+# the host docker socket must be reachable
+./runed</code></pre>
+
+    <p>With <code>AUTHD_URL</code> unset the verifier runs open and the broker hands out a static token &mdash; local-dev only. <code>GET /health</code> returns 200 once the process is up; the red flag is spawns stuck in <code>state=queued</code>, which means the broker or Docker is unavailable.</p>
+
+    <h2>What runed does not do</h2>
+    <p>runed does not route messages, does not append to the message log, and does not sign tokens. It takes a run request, produces a container, enforces its limits, and reports the result &mdash; the execution plane, nothing else.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../concepts/primitives.html">concepts/primitives</a> &mdash; the Turn primitive: one ephemeral container run per event.</li>
+      <li><a href="crackbox.html">components/crackbox</a> &mdash; the box the agent runs in, whose egress allowlist runed enforces.</li>
+      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; the wiring vars; container spawn vars under <a href="../reference/env.html#container">container</a>.</li>
+      <li><a href="routd.html">components/routd</a> &mdash; sends the run, hosts the MCP socket the container calls back on.</li>
+      <li><code>runed/README.md</code> &mdash; the run contract, timeout math, file map.</li>
+      <li><code>specs/5/P</code> &mdash; the execution plane split.</li>
+    </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="routd.html">&larr; routd</a>
+        <a rel="next" href="slakd.html">slakd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/runed.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>routd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="authd.html">authd</a></li>
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="routd.html" aria-current="page">routd</a></li>
+            <li><a href="runed.html">runed</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; routd</p>
+      <h1>routd</h1>
+
+    <h2>What it is</h2>
+    <p>In plain terms, routd is the switchboard. A message comes in from any channel, routd decides which group folder it belongs to, checks the sender is allowed, runs the turn, and sends the reply back out.</p>
+
+    <p>routd is the routing plane: the conversation state machine. It is the <strong>sole appender</strong> of messages &mdash; no other daemon writes to the message log. It resolves the route table (topic, sticky, and reply rules) to a target folder, runs the orchestration loop that claims each turn and dispatches it to <a href="runed.html">runed</a>, and delivers the agent&rsquo;s replies back to the channel adapter that the message came from.</p>
+
+    <p>routd owns <code>routd.db</code> and migrates it itself. It opens no sibling daemon&rsquo;s database &mdash; cross-daemon data (authd identity, runed session logs) arrives over HTTP, never by reaching into another file.</p>
+
+    <h2>Why it exists</h2>
+    <p>An inbound message is just text plus a sender. Three things have to happen before the agent ever sees it, and all three are routd&rsquo;s job.</p>
+
+    <p>First, <strong>routing</strong>: a Telegram DM, a Slack thread, and a web chat all have to land in the right group folder. The route table holds the rules &mdash; a topic-kind rule, a sticky thread that stays glued to one folder, a reply that follows its parent. Without routd resolving those rules, every message is an orphan with no folder to run in.</p>
+
+    <p>Second, <strong>authorization</strong>: routd is the grant authority. It owns the <code>acl</code> and <code>acl_membership</code> tables and runs the per-action authz gate (<code>auth.AuthorizeWith</code>) on every folder-scoped request &mdash; MCP and REST alike. The question it answers is not &ldquo;who are you&rdquo; (that is authd&rsquo;s job) but &ldquo;may you do <em>this</em> to <em>these</em> params.&rdquo; A handler that resolves a <code>jid</code> or <code>folder</code> binds it to the caller&rsquo;s folder here, so a request can never reach across folders.</p>
+
+    <p>Third, <strong>the MCP host</strong>: the agent talks to arizuko over an MCP socket, and routd hosts that socket <em>in-process</em> (<code>ServeTurnMCP</code>). It derives the folder&rsquo;s grant rules, wires the socket to its own DB and the channel deliverer, and forwards the agent&rsquo;s conversation tools (<code>reply</code>, <code>send</code>, <code>like</code>, &hellip;) back through <code>/v1/turns/{turn_id}/*</code>. runed only mounts the ipc dir and sets <code>Input.ExternalMCP=true</code>; it runs no MCP server of its own.</p>
+
+    <p>Put differently: routd is where routing, authorization, and the MCP host all live, because all three need the same thing &mdash; the message log and the folder a turn belongs to. Splitting them across daemons would mean three copies of that state drifting apart.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>channel adapter (teled / slakd / webd / &hellip;)
+        |  POST /v1/messages   (CHANNEL_SECRET signed)
+        v
+      routd   resolve routes  -> target folder
+        |     authz gate       (auth.AuthorizeWith on acl / acl_membership)
+        |     append message   (sole appender -> routd.db)
+        |
+        +--POST /v1/runs--&gt;  runed   (spawns the container)
+        |                      |
+        |     agent MCP socket | ServeTurnMCP in-process; runed mounts ipc dir
+        |   &lt;-reply/send/like-&gt; |  /v1/turns/{turn_id}/*
+        v
+      channel deliverer (chanreg)  -> back out to the adapter</code></pre>
+    </div>
+
+    <p>Inputs: signed inbound from channel adapters (<code>POST /v1/messages</code>, <code>CHANNEL_SECRET</code>); the agent&rsquo;s conversation-tool calls over the in-process MCP socket; due-task claims from <a href="timed.html">timed</a>. Outputs: dispatch calls to runed (<code>POST /v1/runs</code>); delivered replies through the <code>chanreg</code> deliverer to whichever adapter owns the JID prefix.</p>
+
+    <p>Hard deps: <a href="runed.html">runed</a> reachable at <code>$RUNED_URL</code> to execute turns; <a href="authd.html">authd</a>&rsquo;s JWKS to verify tokens offline (routd verifies, never signs). Channel adapters register their egress URL and owned JID prefixes via <code>POST /v1/channels/register</code>.</p>
+
+    <h2>Routing and re-arming</h2>
+    <p>On startup routd re-arms scheduled tasks left in <code>firing</code> by an earlier crash, so a restart mid-turn doesn&rsquo;t strand a cron task. The route table and its read/write surface (<code>/v1/routes</code>, <code>/v1/web_routes</code>, <code>/v1/route_tokens/*</code>) are how an operator points a channel, a thread, or a public <code>/chat/&lt;token&gt;/</code> URL at a folder.</p>
+
+    <h2>Standalone usage</h2>
+    <p>routd runs as a daemon against its own <code>routd.db</code>, but it is useless on its own &mdash; it has nothing to route until a channel adapter registers, and nothing to run until runed answers. Run it pointing at a reachable runed and authd.</p>
+
+    <pre><code>cd /srv/data/myinstance
+export DATA_DIR=/srv/data/myinstance
+export LISTEN_ADDR=:8080
+export RUNED_URL=http://runed:8080
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
+export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export WEB_HOST=localhost:8080
+./routd</code></pre>
+
+    <p>With <code>AUTHD_URL</code> unset the token verifier runs open &mdash; local-dev only, never production. <code>GET /health</code> returns 200 once the process is up; the red flag is turns stuck unclaimed in the loop, or runed unreachable on dispatch.</p>
+
+    <h2>What routd does not do</h2>
+    <p>routd does not spawn containers (runed does), does not sign tokens (authd does), and does not host HTML or SSE (webd does). It routes, authorizes, appends, and delivers &mdash; the conversation plane, nothing else.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../concepts/routing.html">concepts/routing</a> &mdash; how an event resolves to a folder, topic and sticky rules.</li>
+      <li><a href="../concepts/grants.html">concepts/grants</a> &mdash; the authorization model routd enforces.</li>
+      <li><a href="../reference/schema.html#acl">reference/schema &mdash; acl</a> &mdash; the <code>acl</code> / <code>acl_membership</code> tables routd owns, plus the rest of <code>routd.db</code>.</li>
+      <li><a href="../reference/env.html#routd">reference/env &mdash; routd</a> &mdash; routd&rsquo;s config (and the <a href="../reference/env.html#split">split</a> wiring vars).</li>
+      <li><code>routd/README.md</code> &mdash; full HTTP surface, tables owned, file map.</li>
+      <li><code>specs/5/E</code> &mdash; the routing plane split.</li>
+    </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="reditd.html">&larr; reditd</a>
+        <a rel="next" href="runed.html">runed &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/routd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

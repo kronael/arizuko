@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>authd &middot; component</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="docs-layout">
+    <nav class="docs-nav" aria-label="Components">
+      <ul>
+        <li><a class="nav-section" href="../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="./">Components</a>
+          <ul class="nav-children">
+            <li><a href="authd.html" aria-current="page">authd</a></li>
+            <li><a href="bskyd.html">bskyd</a></li>
+            <li><a href="channels.html">channel adapters</a></li>
+            <li><a href="crackbox.html">crackbox</a></li>
+            <li><a href="dashd.html">dashd</a></li>
+            <li><a href="davd.html">davd</a></li>
+            <li><a href="discd.html">discd</a></li>
+            <li><a href="emaid.html">emaid</a></li>
+            <li><a href="linkd.html">linkd</a></li>
+            <li><a href="mastd.html">mastd</a></li>
+            <li><a href="onbod.html">onbod</a></li>
+            <li><a href="proxyd.html">proxyd</a></li>
+            <li><a href="reditd.html">reditd</a></li>
+            <li><a href="routd.html">routd</a></li>
+            <li><a href="runed.html">runed</a></li>
+            <li><a href="slakd.html">slakd</a></li>
+            <li><a href="teled.html">teled</a></li>
+            <li><a href="timed.html">timed</a></li>
+            <li><a href="tokens.html">route tokens</a></li>
+            <li><a href="ttsd.html">ttsd</a></li>
+            <li><a href="twitd.html">twitd</a></li>
+            <li><a href="webd.html">webd</a></li>
+            <li><a href="whapd.html">whapd</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">components</a> &rsaquo; authd</p>
+      <h1>authd</h1>
+
+    <h2>What it is</h2>
+    <p>In plain terms, authd is the ID office. It checks who you are &mdash; through GitHub, Google, Discord, or Telegram &mdash; and hands back a signed token that proves it. Every other daemon trusts that token.</p>
+
+    <p>authd is the auth plane: the sole platform-token signer and JWKS publisher. It holds the active ES256 (P-256) signing key in memory, mints every access and refresh token, and acts as the OAuth provider. Backends never sign &mdash; they fetch authd&rsquo;s public JWKS and verify tokens locally through the <code>auth/</code> library. authd owns <code>auth.db</code> and migrates it itself.</p>
+
+    <p>One line to keep straight: <strong>authd authenticates, <a href="routd.html">routd</a> authorizes.</strong> authd answers &ldquo;who are you, and what is the ceiling of what you could be allowed&rdquo;; it does <em>not</em> decide whether a given action on a given folder is permitted. That gate lives in routd, the ACL owner.</p>
+
+    <h2>Why it exists</h2>
+    <p>If every daemon signed its own tokens, every daemon would hold a signing key, and a leak anywhere would be a leak everywhere. Concentrating the key in one daemon means there is exactly one secret to protect and one place to rotate it. authd is that daemon.</p>
+
+    <p>It does the login dance: a user signs in with GitHub, Google, Discord, or the Telegram widget, and authd exchanges that successful login for a short-lived ES256 access token plus a refresh token. The access token&rsquo;s scope is bounded by a snapshot of the subject&rsquo;s grants &mdash; which authd fetches from routd at mint time, because routd owns the ACL. Refresh tokens rotate with reuse detection: replay a spent token and the whole family is revoked.</p>
+
+    <p>It also bootstraps the daemons themselves. At boot authd self-mints <code>service:authd</code>, and it exchanges each daemon&rsquo;s service key for a <code>service:&lt;name&gt;</code> token &mdash; so routd, runed, webd, and proxyd all carry an identity authd can verify. Key rotation keeps one active key (enforced by a partial-unique index) while still serving recently-retired keys until their window closes; <code>RevokeAllNow</code> is the emergency cut.</p>
+
+    <h2>How it fits</h2>
+    <div class="callout">
+      <pre><code>browser login (GitHub / Google / Discord / Telegram)
+        |  GET /auth/*
+        v
+      authd   snapshot grants  &lt;-- routd (GRANTS_URL, the ACL owner)
+        |     mint ES256 access + refresh token
+        v
+      user / daemon holds a token
+
+      every backend (routd / runed / webd / proxyd / dashd / onbod)
+        |  GET /v1/keys  (public JWKS, fetched once, cached)
+        v
+      auth.VerifyToken   verifies offline, no call back to authd per request</code></pre>
+    </div>
+
+    <p>Inputs: OAuth callbacks on <code>/auth/*</code>; mint and downscope requests on <code>POST /v1/tokens</code>; daemon service-key exchange on <code>POST /v1/service-token</code>; refresh rotation on <code>POST /v1/refresh</code>; the grants ceiling fetched from routd. Outputs: ES256 tokens; the public JWKS at <code>GET /v1/keys</code> that every backend reads to verify offline.</p>
+
+    <p>Hard deps: its own <code>auth.db</code> (direct SQLite, no sibling DB). Soft dep: routd via <code>GRANTS_URL</code> for the login-time scope ceiling &mdash; unset, sessions come back empty-scope. authd is <em>not</em> the grants authority; it reads the ceiling, it does not set it.</p>
+
+    <h2>Verify offline, mint in one place</h2>
+    <p>The split is deliberate: minting is centralized (one key, one daemon), verification is distributed (every backend, no round-trip). A request carrying a token never calls back to authd &mdash; the backend already has the JWKS and checks the signature locally. authd can be momentarily down and existing tokens still verify; only new logins and refreshes block.</p>
+
+    <h2>Standalone usage</h2>
+    <p>authd is the most standalone of the split daemons &mdash; it owns its DB and its signing key, and it needs no other daemon to mint and verify tokens. The one soft tie is <code>GRANTS_URL</code>: without routd, it still issues tokens, but their scope ceiling is empty.</p>
+
+    <pre><code>cd /srv/data/myinstance
+export DATA_DIR=/srv/data/myinstance        # resolves &lt;dir&gt;/store/auth.db
+export LISTEN_ADDR=:8080
+export AUTHD_SERVICE_KEY=$(grep ^AUTHD_SERVICE_KEY .env | cut -d= -f2)
+export AUTHD_SERVICE_KEYS='routd=...,runed=...,webd=...,proxyd=...'
+export GRANTS_URL=http://routd:8080
+# OAuth provider config, mount /auth/* only when present:
+export GITHUB_CLIENT_ID=... GITHUB_CLIENT_SECRET=...
+export AUTH_BASE_URL=https://example.com
+./authd</code></pre>
+
+    <p>The <code>/auth/*</code> routes mount only when provider config is present. <code>GET /health</code> returns 200 once the signer is live with at least one serving key.</p>
+
+    <h2>What authd does not do</h2>
+    <p>authd does not authorize. It mints and verifies, runs the OAuth dance, and rotates keys &mdash; but it never decides whether a caller may touch a particular folder. That decision is routd&rsquo;s, every time.</p>
+
+    <h2>Go deeper</h2>
+    <ul>
+      <li><a href="../concepts/auth.html">concepts/auth</a> &mdash; the authentication model: providers, tokens, the JWKS verify path.</li>
+      <li><a href="../concepts/scopes.html">concepts/scopes</a> &mdash; what a scope is and how the grants ceiling bounds a token.</li>
+      <li><a href="../reference/env.html#split">reference/env &mdash; split daemons</a> &mdash; <code>AUTHD_URL</code>, <code>AUTHD_SERVICE_KEY(S)</code>, <code>GRANTS_URL</code> and the rest of the wiring.</li>
+      <li><a href="routd.html">components/routd</a> &mdash; the authorization authority authd defers to.</li>
+      <li><code>authd/README.md</code> &mdash; mint surface, key rotation, file map.</li>
+      <li><code>specs/5/1</code> &mdash; the auth plane split.</li>
+    </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; components</a>
+        <a rel="next" href="bskyd.html">bskyd &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/authd.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+      </div>
+    </main>
+
+    <aside class="docs-toc" aria-label="On this page"></aside>
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>

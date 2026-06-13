@@ -19,6 +19,7 @@
         <li><a class="nav-section" href="../howto/">How-to</a></li>
         <li><a class="nav-section" href="./">Components</a>
           <ul class="nav-children">
+            <li><a href="authd.html">authd</a></li>
             <li><a href="bskyd.html">bskyd</a></li>
             <li><a href="channels.html">channel adapters</a></li>
             <li><a href="crackbox.html">crackbox</a></li>
@@ -31,6 +32,8 @@
             <li><a href="onbod.html">onbod</a></li>
             <li><a href="proxyd.html">proxyd</a></li>
             <li><a href="reditd.html">reditd</a></li>
+            <li><a href="routd.html">routd</a></li>
+            <li><a href="runed.html">runed</a></li>
             <li><a href="slakd.html">slakd</a></li>
             <li><a href="teled.html">teled</a></li>
             <li><a href="timed.html">timed</a></li>
@@ -57,9 +60,9 @@
     <tr><th>name</th><th>role</th></tr>
   </thead>
   <tbody>
-    <tr><td class="name">routd</td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns <code>routd.db</code> and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
-    <tr><td class="name">runed</td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns <code>runed.db</code></td></tr>
-    <tr><td class="name">authd</td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns <code>auth.db</code>. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
+    <tr><td class="name"><a href="../components/routd.html">routd</a></td><td>routing plane &mdash; message loop, resolves event&rarr;group, hosts the agent MCP socket, owns <code>routd.db</code> and the grant/ACL authority. See <a href="../concepts/routing.html">concepts/routing</a></td></tr>
+    <tr><td class="name"><a href="../components/runed.html">runed</a></td><td>execution plane &mdash; spawns and tears down the per-turn agent container; the only daemon wired to the Docker socket; owns <code>runed.db</code></td></tr>
+    <tr><td class="name"><a href="../components/authd.html">authd</a></td><td>auth plane &mdash; mints and verifies tokens, OAuth provider routes, owns <code>auth.db</code>. See <a href="../concepts/auth.html">concepts/auth</a></td></tr>
     <tr><td class="name"><a href="../components/webd.html">webd</a></td><td>web channel &mdash; SSE hub, the <a href="../components/tokens.html">route-token</a> URLs, MCP endpoint</td></tr>
     <tr><td class="name"><a href="../components/proxyd.html">proxyd</a></td><td>auth-gated reverse proxy &mdash; verifies JWTs, signs identity headers for backends</td></tr>
     <tr><td class="name"><a href="../components/vited.html">vited</a></td><td>static origin &mdash; Vite server behind proxyd for the <code>/pub/</code> docs tree and group web pages</td></tr>
