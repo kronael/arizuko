@@ -327,6 +327,39 @@ func TestHTTPChannelDrainOutbox_DeadJIDDoesNotBlock(t *testing.T) {
 	}
 }
 
+// A 4xx (permanent) adapter response is surfaced to the caller and NOT enqueued
+// for retry; a 5xx (transient) is enqueued.
+func TestHTTPChannelSend_PermanentNotEnqueued(t *testing.T) {
+	var status int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	e := &Entry{
+		Name:         "tg",
+		URL:          srv.URL,
+		JIDPrefixes:  []string{"tg:"},
+		Capabilities: map[string]bool{"send_text": true},
+	}
+	ch := NewHTTPChannel(e, staticBearer("secret"))
+
+	status = 400 // permanent
+	if _, err := ch.Send("tg:1", "x", "", "", "", ""); err == nil {
+		t.Fatal("expected error on 400")
+	}
+	if ch.QueueLen() != 0 {
+		t.Errorf("permanent 400 was enqueued: queue len = %d, want 0", ch.QueueLen())
+	}
+
+	status = 500 // transient
+	if _, err := ch.Send("tg:2", "y", "", "", "", ""); err == nil {
+		t.Fatal("expected error on 500")
+	}
+	if ch.QueueLen() != 1 {
+		t.Errorf("transient 500 not enqueued: queue len = %d, want 1", ch.QueueLen())
+	}
+}
+
 // TestHTTPChannelPost501JSON: 501 with structured body decodes into
 // *chanlib.UnsupportedError carrying hint.
 func TestHTTPChannelPost501JSON(t *testing.T) {

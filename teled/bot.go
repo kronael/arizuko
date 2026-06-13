@@ -356,6 +356,13 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 				sent, err = b.api.Send(pm)
 			}
 			if err != nil {
+				var tgErr *tgbotapi.Error
+				if errors.As(err, &tgErr) && (tgErr.Code == 400 || tgErr.Code == 403) {
+					// Permanent after the plain-text retry: chat gone, bot
+					// kicked/blocked, no rights. Retrying won't help — surface a
+					// clear error to the agent (→400), not a 502, and don't enqueue.
+					return "", fmt.Errorf("%w: telegram %s", chanlib.ErrInvalidRequest, tgErr.Message)
+				}
 				return "", fmt.Errorf("telegram send: %w", err)
 			}
 		}

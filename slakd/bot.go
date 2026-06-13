@@ -875,6 +875,11 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 		return "", fmt.Errorf("slack send: %w", err)
 	}
 	if !resp.OK {
+		if slackSendClientErrors[resp.Error] {
+			// Permanent caller-side error (channel gone, archived, bot not in
+			// channel) → clear agent error (400), not a 502 the agent retries.
+			return "", fmt.Errorf("%w: slack %s", chanlib.ErrInvalidRequest, resp.Error)
+		}
 		return "", fmt.Errorf("slack send: %s", resp.Error)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "message_id", resp.TS, "source", "slack")
@@ -1119,6 +1124,16 @@ func (b *bot) Like(req chanlib.LikeRequest) error {
 		return fmt.Errorf("slack like: %s", resp.Error)
 	}
 	return nil
+}
+
+// slackSendClientErrors are chat.postMessage failures the agent can't fix by
+// retrying (channel gone/archived, bot not in channel) → 400, not a 502.
+var slackSendClientErrors = map[string]bool{
+	"channel_not_found": true,
+	"is_archived":       true,
+	"not_in_channel":    true,
+	"msg_too_long":      true,
+	"restricted_action": true,
 }
 
 // slackClientErrors are reactions.add failures caused by bad caller input (vs a

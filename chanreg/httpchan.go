@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -55,6 +56,19 @@ const maxOutbox = 1000
 // (group deleted, bot kicked) self-evicts instead of requeuing forever and
 // filling the outbox → dropping messages for ALL groups on the channel.
 const maxSendAttempts = 5
+
+// errPermanent marks a 4xx adapter response — a permanent failure (bad request,
+// chat gone, bad emoji) the caller can't fix by retrying. It is surfaced to the
+// agent and never enqueued; a transient 5xx/network error is retried instead.
+var errPermanent = errors.New("permanent")
+
+// classifyStatus wraps a non-200 adapter status: 4xx → errPermanent, else plain.
+func classifyStatus(status int) error {
+	if status >= 400 && status < 500 {
+		return fmt.Errorf("%w: status %d", errPermanent, status)
+	}
+	return fmt.Errorf("status %d", status)
+}
 
 type HTTPChannel struct {
 	entry *Entry
@@ -127,10 +141,10 @@ func (h *HTTPChannel) SendCtx(ctx context.Context, jid, text, replyTo, threadID,
 	}
 	m := outMsg{JID: jid, Content: text, ReplyTo: replyTo, ThreadID: threadID, ThreadRoot: threadRoot, TurnID: turnID}
 	id, err := h.trySend(ctx, m)
-	if err != nil {
-		h.enqueue(m) // first failure enters the outbox; DrainOutbox owns the retry cap
+	if err != nil && !errors.Is(err, errPermanent) {
+		h.enqueue(m) // transient failure enters the outbox; DrainOutbox owns the retry cap
 	}
-	return id, err
+	return id, err // permanent (4xx) errors surface to the agent, never retried
 }
 
 // trySend performs ONE delivery attempt for m without touching the outbox, so
@@ -152,7 +166,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 				json.NewDecoder(resp.Body).Decode(&r)
 				return r.ID, nil
 			}
-			err = fmt.Errorf("status %d", resp.StatusCode)
+			err = classifyStatus(resp.StatusCode)
 		}
 		return "", fmt.Errorf("channel %s send-file: %w", h.entry.Name, err)
 	}
@@ -183,7 +197,7 @@ func (h *HTTPChannel) trySend(ctx context.Context, m outMsg) (string, error) {
 			json.NewDecoder(httpResp.Body).Decode(&resp)
 			return resp.ID, nil
 		}
-		err = fmt.Errorf("status %d", httpResp.StatusCode)
+		err = classifyStatus(httpResp.StatusCode)
 	}
 	return "", fmt.Errorf("channel %s send: %w", h.entry.Name, err)
 }
@@ -198,7 +212,7 @@ func (h *HTTPChannel) SendFileCtx(ctx context.Context, jid, path, name, caption,
 	}
 	m := outMsg{JID: jid, IsFile: true, Path: path, Name: name, Caption: caption, FileReplyTo: replyTo, ThreadID: threadID}
 	id, err := h.trySend(ctx, m)
-	if err != nil {
+	if err != nil && !errors.Is(err, errPermanent) {
 		h.enqueue(m)
 	}
 	return id, err
@@ -499,6 +513,11 @@ func (h *HTTPChannel) DrainOutbox() {
 		// of the batch (head-of-line). Re-queue with a bounded attempt counter so a
 		// permanently-dead jid (group deleted, bot kicked) self-evicts.
 		if _, err := h.trySend(context.Background(), m); err != nil {
+			if errors.Is(err, errPermanent) {
+				slog.Warn("outbox drain: permanent error, dropping",
+					"channel", h.entry.Name, "jid", m.JID, "err", err)
+				continue
+			}
 			m.Attempts++
 			if m.Attempts < maxSendAttempts {
 				h.enqueue(m)
