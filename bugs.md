@@ -139,21 +139,18 @@ the group's progress marker, untouched. Test:
 `TestSeedMigrateSkill_OverwritesStale`. Deployed+verified on krons; marinade
 `atlas` unfreezes on its next redeploy (SECRETS_KEY confirmed set, safe).
 
-## OPEN — one dead jid degrades a whole channel's delivery (2026-06-10, outbox head-of-line)
+## FIXED 2026-06-12 — one dead jid degrades a whole channel's delivery (outbox head-of-line)
 
-`chanreg/httpchan.go`: the retry `outbox` is **per-channel (per-adapter), not
-per-jid** (`h.outbox`, cap `maxOutbox`). `DrainOutbox` (:456) **`return`s on the
-first send error** (:471) → a permanently-unreachable jid (deleted telegram
-group, bot kicked) at the head blocks the entire channel drain; its message
-requeues, retries pile up, and `enqueue` (:492) then **drops messages for ALL
-groups on that channel** ("outbox full, dropping message"). No permanent-vs-
-transient split — a gone group (permanent 4xx) is retried forever like a
-transient 5xx. Live symptom: marinade `telegram:group/5012430759` flooded the
-log ×35/6h (group likely dead). Simplest fix: (a) DrainOutbox CONTINUES past a
-failed message instead of `return` (no head-of-line block); (b) per-message
-attempt counter → drop after N (~5) so a dead jid self-evicts; optionally (c)
-treat permanent platform errors (group gone) as immediate-drop + mark the chat
-dead. (a)+(b) is the minimal correct fix.
+`DrainOutbox` returned on the first send error (head-of-line: dropped every
+message behind a dead jid) and `SendCtx` re-enqueued failures with no cap → a
+deleted telegram group (`group/5012430759` "group chat was deleted", live on
+marinade/sloth) refilled the outbox until it dropped messages for ALL groups.
+Fix (a)+(b): split the raw send into `trySend` (no enqueue) so DrainOutbox owns
+the retry policy — it CONTINUES past failures and re-queues with a bounded
+attempt counter (`maxSendAttempts=5`) so a dead jid self-evicts. Test:
+`TestHTTPChannelDrainOutbox_DeadJIDDoesNotBlock`. (The underlying deleted/kicked
+groups are operator state; surfacing the platform error to the agent rather than
+a 502 stays open — see the slakd `invalid_name`→400 pattern.)
 
 ## OPEN — web-ingress setup docs unverified (2026-06-10)
 
