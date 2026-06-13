@@ -5,6 +5,43 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN 2026-06-13 (split, HIGH — needs runtime verify) — vestigial messages.db reads in webd/proxyd/dashd
+
+A post-split dead-code audit found three daemons still reading tables from
+`messages.db` whose canonical home moved to `routd.db` in the split. These are
+NOT mechanical dead code — if the read is genuinely against the wrong DB, the
+screen/feature is silently broken on split instances; if those tables actually
+still live in messages.db (a second live web/proxy-plane DB), then messages.db
+is not dead and the architecture needs documenting. SETTLE table ownership of
+`proxyd_routes`/`web_routes`/`auth_users`/`auth_sessions`/`route_tokens` first.
+- **dashd** `d.db`/`d.dbRW` reads: `messages` (main.go:669, authz.go:160/165,
+  channels.go:190), `sessions` (main.go:532), `cost_log`+`messages` (main.go:811),
+  `auth_users` (profile.go:33/71). Activity/Status/errored-chats/profile screens
+  may render blank on split. Verify against live krons /dash before fixing.
+- **webd** `store.Open(messages.db)` (main.go:59): `PutMessage` double-write vs
+  routd's HTTP write (route_token.go:268/276, mcp.go:100, channel.go:41) AND
+  reads turn frames/history/topics back from its own messages.db (turn.go, me.go,
+  partials.go, api.go) that routd populates in routd.db → web-chat read-back may
+  be stale. Verify a live web chat.
+- **proxyd** `UserScopes(sub)` acl read against messages.db (main.go:808/849,
+  store.Open at :904) — acl lives in routd.db now. proxyd legitimately needs its
+  store for proxyd_routes/web_routes/route_tokens/auth_*, but the acl read looks
+  wrong-DB. Verify.
+Fix path: once ownership is settled, route each read at routd.db (or the owning
+plane DB) and drop the messages.db handle where it's purely vestigial. Found by
+the 2026-06-13 split dead-code audit; the safe removals (timed/dashd-fallback/CLI)
+already shipped (commit 0094bd35).
+
+## OPEN 2026-06-13 (refactor, low) — ipc.GatedFns monolith-era naming
+
+`ipc.GatedFns` struct + the `gated` parameter name throughout `ipc/ipc.go`
+(~120 refs, + `routd/mcp.go buildGatedFns`, `container/runner.go`) are named
+after the deleted monolith. Fully load-bearing (the capability struct routd/runed
+pass into the MCP bridge), just misnamed. Rename to `AgentFns`/`HostFns` + param
+`host`. Cosmetic; its own pass. `reference/mcp.html:265` shows
+`gated.FetchPlatformHistory` — a real current code symbol, so it stays accurate
+until this rename lands.
+
 ## FIXED 2026-06-13 (docs sweep) — web + repo docs named the removed `gated` daemon as current
 
 `gated` (monolith) was deleted 2026-06-07; the split (`authd`+`routd`+`runed`) is
