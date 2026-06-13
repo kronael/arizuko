@@ -5,6 +5,19 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN 2026-06-13 (docs, low) — web docs still name the removed `gated` daemon site-wide
+
+`gated` (monolith) was deleted 2026-06-07; the split (`authd`+`routd`+`runed`) is
+the only topology. The landing + concepts/primitives were corrected during the
+spec 5/A reframe (2026-06-13), but ~25 non-legacy pages still cite `gated` as a
+live daemon: `components/` (gated.html page itself, channels/webd/timed/slakd/…),
+`reference/` (env/cli/mcp/schema/grants/openapi), `howto/` (webhooks/discord/
+talking-to-agents), `security/index.html`, `products/slack-team/setup.html`,
+`changelog`. Fix path: a docs-audit pass mapping each `gated` mention to its split
+owner (route/dispatch → routd, spawn → runed, authz → authd) + retire or redirect
+`components/gated.html`. Separate concern from the value-prop reframe; do as a
+`/docs-audit` sweep. List: `grep -rl gated template/web/pub --include='*.html' | grep -v legacy`.
+
 ## FIXED 2026-06-12 (commit c9ea7ae5) — routd breaker tripped on Discord JID after a SUCCESSFUL turn
 
 Root cause: the queue breaker counted `(false,nil)` — a successful turn with NO
