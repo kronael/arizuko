@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arizuko &middot; scaling</title>
+  <link rel="stylesheet" href="../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Concepts">
+      <ul>
+        <li><a class="nav-section" href="./">Concepts</a>
+          <ul class="nav-children">
+            <li><a href="./">Start here</a></li>
+            <li><a href="primitives.html">Primitives</a></li>
+            <li><a href="built.html">How it&rsquo;s built</a></li>
+            <li><a href="scaling.html" aria-current="page">Scaling</a></li>
+            <li><a href="ant.html">The ant</a></li>
+            <li><a href="routing.html">Routing</a></li>
+            <li><a href="engagement.html">Engagement</a></li>
+            <li><a href="topics.html">Topics</a></li>
+            <li><a href="onboarding.html">Onboarding</a></li>
+            <li><a href="autoviv.html">Autoviv</a></li>
+            <li><a href="personas.html">Personas</a></li>
+            <li><a href="auth.html">Auth</a></li>
+            <li><a href="grants.html">Grants</a></li>
+            <li><a href="scopes.html">Scopes</a></li>
+            <li><a href="secrets.html">Secrets</a></li>
+            <li><a href="skills.html">Skills</a></li>
+            <li><a href="tasks.html">Tasks</a></li>
+            <li><a href="workflows.html">Workflows</a></li>
+            <li><a href="tokens.html">Tokens</a></li>
+            <li><a href="web-native-agents.html">Web-native agents</a></li>
+            <li><a href="webdav.html">WebDAV</a></li>
+            <li><a href="voice.html">Voice</a></li>
+            <li><a href="slack-pane.html">Slack pane</a></li>
+            <li><a href="jid.html">Addressing (JID)</a></li>
+          </ul>
+        </li>
+        <li><a class="nav-section" href="../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../components/">Components</a></li>
+        <li><a class="nav-section" href="../products/">Products</a></li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">concepts</a> &rsaquo; scaling</p>
+      <h1>Scaling</h1>
+
+      <p class="lede">The same code runs <code>solo/inbox</code> and <code>corp/eng/sre/oncall</code>. Arizuko is multi-tenant by primitive: adding users is adding rows and folders, not deploying new infrastructure. The typical growth path is solo&hairsp;&rarr;&hairsp;dogfood&hairsp;&rarr;&hairsp;team&hairsp;&rarr;&hairsp;internet.</p>
+
+      <h2>Multi-tenant by primitive</h2>
+      <p>Every primitive &mdash; <a href="grants.html">grants</a>, <a href="routing.html">routes</a>, <a href="secrets.html">secrets</a>, <a href="tasks.html">scheduled work</a> &mdash; stores its state in SQLite rows. Adding a tenant means inserting rows into those tables and creating a folder under <code>groups/</code>. The daemon graph stays fixed: one <code>routd</code>, one <code>authd</code>, one adapter per platform, N containers (one per active group). Ten users or ten thousand users, the architecture is the same.</p>
+      <p>Folder hierarchies have no fixed depth. <code>solo/inbox</code> is a tier-1 folder (one slash). <code>corp/eng/sre/oncall</code> is tier-3 (three slashes). The tier number sets default <a href="grants.html">grant</a> permissions &mdash; deeper folders get tighter defaults &mdash; but the code path is identical. A solo user's chat and a support team's shared inbox run through the same <code>routd</code>, same <code>runed</code>, same container image.</p>
+
+      <h2>The growth arc</h2>
+      <p>Most deployments follow four stages. Each is a configuration change, not a rebuild.</p>
+
+      <table>
+        <thead><tr><th>Stage</th><th>Shape</th><th>What changes</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Solo</strong></td>
+            <td>One folder, one channel, one user</td>
+            <td>Nothing &mdash; this is <code>arizuko create</code></td>
+          </tr>
+          <tr>
+            <td><strong>Dogfood</strong></td>
+            <td>A handful of folders, trusted users</td>
+            <td>Add folders, issue invites, enable adapters</td>
+          </tr>
+          <tr>
+            <td><strong>Team</strong></td>
+            <td>A hierarchy under one world, shared admin</td>
+            <td>Folder tree, <a href="grants.html">ACL rows</a>, channel onboarding</td>
+          </tr>
+          <tr>
+            <td><strong>Internet</strong></td>
+            <td>Public-facing, untrusted callers</td>
+            <td><a href="tokens.html">Route tokens</a>, <a href="onboarding.html">admission queue</a>, egress sandbox</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>The jump from solo to dogfood is a Slack bot token and a few invites. The jump from team to internet is a route token and tighter egress rules. No redeploy, no new containers, no schema migration.</p>
+
+      <h2>Where isolation comes from</h2>
+      <p>Tenants share a single SQLite WAL file, a single set of daemons, a single container image. Isolation comes from three things:</p>
+      <ul>
+        <li><strong>Folder containment.</strong> A group's agent runs in a container whose home is <code>groups/&lt;folder&gt;/</code>. It cannot see sibling folders' files. <a href="scopes.html">Scopes</a> explains the rules.</li>
+        <li><strong>Grant resolution.</strong> Every MCP call checks <code>(caller, action, target)</code> against the ACL. A tier-2 agent can <code>send</code> but not <code>register_group</code>. <a href="grants.html">Grants</a> explains the DSL.</li>
+        <li><strong>Egress sandbox.</strong> Public-facing agents run through <code>crackbox</code>, which limits outbound network to an allowlist. Sensitive deployments sandbox all tiers.</li>
+      </ul>
+      <p>Cross-tenant read is structurally impossible: the container mount, the grant gate, and the egress proxy all bind to the folder. A bug in one group's skill doesn't leak into another group's context.</p>
+
+      <h2>Capacity, not tenancy</h2>
+      <p>Scaling arizuko is a capacity question, not an architecture one. A single SQLite can handle thousands of groups; a single host can run hundreds of concurrent containers. When you hit the host ceiling, the answer is a second instance (a separate data directory, a separate systemd unit), not a rewrite. Each instance is fully independent &mdash; no shared state, no cross-instance routing.</p>
+      <p>This is intentional. The operational model is "many small instances" rather than "one distributed cluster." A support team runs one instance; a product team runs another; they share nothing but the binary. Operational blast radius stays small.</p>
+
+      <div class="callout"><strong>No managed control plane.</strong> There is no central service that coordinates instances, no billing layer that gates usage, no SaaS dashboard that aggregates metrics. Each instance is a standalone unit you run on your own host. That's the feature, not an oversight.</div>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="built.html">&larr; How it&rsquo;s built</a>
+        <a rel="next" href="ant.html">The ant &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/scaling.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-14">2026-06-14</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
