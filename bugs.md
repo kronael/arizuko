@@ -5,32 +5,93 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
-## OPEN 2026-06-13 (split, HIGH — needs runtime verify) — vestigial messages.db reads in webd/proxyd/dashd
+## PARTIALLY FIXED 2026-06-14 (split) — vestigial messages.db reads in webd/proxyd/dashd
 
-A post-split dead-code audit found three daemons still reading tables from
-`messages.db` whose canonical home moved to `routd.db` in the split. These are
-NOT mechanical dead code — if the read is genuinely against the wrong DB, the
-screen/feature is silently broken on split instances; if those tables actually
-still live in messages.db (a second live web/proxy-plane DB), then messages.db
-is not dead and the architecture needs documenting. SETTLE table ownership of
-`proxyd_routes`/`web_routes`/`auth_users`/`auth_sessions`/`route_tokens` first.
-- **dashd** `d.db`/`d.dbRW` reads: `messages` (main.go:669, authz.go:160/165,
-  channels.go:190), `sessions` (main.go:532), `cost_log`+`messages` (main.go:811),
-  `auth_users` (profile.go:33/71). Activity/Status/errored-chats/profile screens
-  may render blank on split. Verify against live krons /dash before fixing.
-- **webd** `store.Open(messages.db)` (main.go:59): `PutMessage` double-write vs
-  routd's HTTP write (route_token.go:268/276, mcp.go:100, channel.go:41) AND
-  reads turn frames/history/topics back from its own messages.db (turn.go, me.go,
-  partials.go, api.go) that routd populates in routd.db → web-chat read-back may
-  be stale. Verify a live web chat.
-- **proxyd** `UserScopes(sub)` acl read against messages.db (main.go:808/849,
-  store.Open at :904) — acl lives in routd.db now. proxyd legitimately needs its
-  store for proxyd_routes/web_routes/route_tokens/auth_*, but the acl read looks
-  wrong-DB. Verify.
-Fix path: once ownership is settled, route each read at routd.db (or the owning
-plane DB) and drop the messages.db handle where it's purely vestigial. Found by
-the 2026-06-13 split dead-code audit; the safe removals (timed/dashd-fallback/CLI)
-already shipped (commit 0094bd35).
+Ownership SETTLED against migrations + live krons DBs (read-only). Two
+migration sets create overlapping tables: `store/migrations/` → `messages.db`
+(the frozen monolith schema, EVERY table) and the per-daemon sets
+(`routd/migrations/`→`routd.db`, `authd/`→`auth.db`, `onbod/`→`onbod.db`,
+`runed/`→`runed.db`). On a split instance routd writes routd.db and never
+touches messages.db, which is FROZEN at cutover.
+
+**Live evidence (krons, 2026-06-14):** messages.db `messages` newest =
+`2026-06-10T20:42` (cutover); routd.db `messages` newest = `2026-06-14T08:55`
+(live, growing wal). Errored-chat count: messages.db=7 (stale) vs routd.db=2
+(live). web_routes max created_at: messages.db `2026-06-01` vs routd.db
+`2026-06-08`. So messages.db is dead for everything routd owns.
+
+**Ownership map (table → owning DB, with live row counts):**
+- routd.db: `messages` (18886), `sessions` (13), `cost_log` (145), `acl` (1),
+  `acl_membership` (1), `secrets` (0), `auth_users` (0), `web_routes` (52),
+  `route_tokens` (1), + chats/turn_context/routes/groups/tasks/pane. routd owns
+  ALL of these — created by routd/migrations 0001+0007+0008+0011, written live.
+- onbod.db: `invites` (0), `onboarding` (14), `onboarding_gates` (0).
+- auth.db: identity/`refresh_tokens`/`signing_keys` (authd). `auth_users` row
+  count 0 there too (feature unused); routd.db is the canonical auth_users home
+  per routd/migrations/0011 — authd has its own copy but dashd/proxyd read the
+  routd one (UserScopes/CreateAuthUser write routd.db).
+- messages.db ONLY (no routd.db twin): `proxyd_routes` (10), `auth_sessions`
+  (0). These have NO home in any split DB — they live ONLY in the frozen
+  messages.db. proxyd legitimately reads `proxyd_routes` from its `store.Open`
+  handle; that is NOT a bug. `auth_sessions` (HMAC refresh-cookie sessions) is
+  also messages.db-only — pre-ES256; dead-but-correct as long as proxyd keeps
+  the messages.db handle for proxyd_routes.
+
+**FIXED (commit [split] dashd, 2026-06-14)** — REAL BUGS, mechanically safe
+(dashd is FS-mounted + already had the routd.db handle as `adminDB()`):
+- `countVisibleErroredChats` (authz.go) — was counting stale messages.db.
+- `handleStatus` sessions count (main.go).
+- `writeActivityRows` messages feed (main.go) — Activity screen showed
+  cutover-frozen rows.
+- `handleProfile`/`linkedSubs` auth_users (profile.go).
+All four now read `adminDB()` (routd.db); tests Activity/ErroredCount/Profile
+`_ReadsRoutdDB` prove the read reflects routd.db not the messages.db twin.
+Inert until dashd redeploys (ships next build) — the live krons /dash still
+shows stale numbers until then.
+
+**STILL OPEN — RISKY (fix needs a redeploy to verify, or schema mismatch):**
+- **dashd `GroupUsageBulk`** (main.go ~788, groups page usage column): left on
+  `d.db` ON PURPOSE. `store.GroupUsageBulk` queries the OLD cost_log schema
+  (`input_tok`/`output_tok`/`cents`/`ts`); routd.db's cost_log uses
+  `input_tokens`/`output_tokens`/`cost_cents`/`recorded_at`. Swapping the handle
+  would error `no such column: input_tok` → cost half silently empties (worse
+  than stale). Fix needs a routd-schema-aware bulk reader (mirror routd's
+  SpendTodayFolder cols), then point at adminDB(). The `messages` count half
+  works against both; only the cost half is schema-locked.
+- **dashd `auditPairStart`** (channels.go:190): WRITE of a breadcrumb `messages`
+  row to messages.db. Harmless (a dead-letter audit note, never meant to reach an
+  agent), but it lands in the frozen DB. Low; decide drop vs route to routd.db.
+- **webd** `store.Open(messages.db)` (main.go:59) — the most entangled. Inbound
+  ingest is correct (`rc.SendMessage` HTTP→routd→routd.db, route_token.go:280),
+  but webd ALSO `s.st.PutMessage` to its OWN messages.db (vestigial double-write:
+  route_token.go:268/349, channel.go:41, mcp.go:100) AND reads turn
+  frames/history/topics/turn_results/route_tokens BACK from messages.db
+  (turn.go, me.go, api.go, route_token.go:124/416) — where routd's live rows
+  never land. So web-chat read-back + thread history are stale, and a route token
+  minted via dashd (now → routd.db) is NOT found by `LookupRouteToken` (reads
+  messages.db, 1 frozen row). REAL BUG. Fix is NOT a one-line handle swap: routd
+  is the SOLE messages appender, so webd must STOP PutMessage-ing and instead
+  read its display data from routd over HTTP (or open a routd.db READ handle for
+  the read-backs + drop the writes). Behavior-changing; needs a live web-chat
+  end-to-end check after redeploy. Tracks with the web-ingress docs item below.
+- **proxyd** `UserScopes`/`AuthSession`/`AuthUserBySub`/`CanonicalSub`/
+  `LookupRouteToken` all run off the single `store.Open(messages.db)` handle
+  (main.go:904). `acl` (UserScopes → X-User-Groups), `auth_users`, `route_tokens`
+  live in routd.db now → on split, proxyd authorizes off a FROZEN acl table
+  (1 stale row) → a grant added post-cutover via dashd is INVISIBLE to proxyd's
+  scope stamping. REAL BUG (security-relevant: scopes resolve stale). But proxyd
+  ALSO legitimately needs messages.db for `proxyd_routes` + `auth_sessions`
+  (messages.db-only). Fix: open a SECOND routd.db handle for acl/auth_users/
+  route_tokens reads; keep the messages.db handle ONLY for proxyd_routes +
+  auth_sessions. Two-plane handle split; needs a redeploy + a live proxyd auth
+  check to confirm scopes resolve against routd.db. NOT guess-fixed.
+
+Fix discipline for the open items: route each read at its owning DB (routd.db
+for acl/messages/sessions/cost_log/auth_users/route_tokens/web_routes; keep
+messages.db only for proxyd_routes/auth_sessions), match the existing split
+handle pattern (dashd's dbRoutd/adminDB), and verify the behaving feature live
+after redeploy. The safe removals (timed/dashd-fallback/CLI) shipped earlier
+(commit 0094bd35); the dashd reads shipped 2026-06-14.
 
 ## OPEN 2026-06-13 (refactor, low) — ipc.GatedFns monolith-era naming
 
