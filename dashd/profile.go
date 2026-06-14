@@ -30,7 +30,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var name string
-	_ = d.db.QueryRow(
+	_ = d.adminDB().QueryRow(
 		`SELECT name FROM auth_users WHERE sub = ?`, sub).Scan(&name)
 	fmt.Fprint(w, `<p class="dim">Your canonical identity and linked providers.</p>`)
 	identity := `<table>` + htmlDetail("Canonical sub", `<code>`+esc(sub)+`</code>`)
@@ -68,7 +68,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) linkedSubs(canonical string) ([]string, error) {
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT sub FROM auth_users WHERE linked_to_sub = ? ORDER BY sub`,
 		canonical)
 	if err != nil {

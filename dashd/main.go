@@ -212,8 +212,10 @@ func main() {
 type dash struct {
 	db      *sql.DB
 	dbRW    *sql.DB // alias of db for write paths; nil in some tests (read-only paths)
-	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/secrets
-	// in the split topology (spec 5/5); dashd reads+writes those tables here.
+	dbRoutd *sql.DB // routd.db handle. routd OWNS acl/groups/routes/route_tokens/
+	// secrets AND the live messages/sessions/cost_log/auth_users tables in the
+	// split topology (spec 5/5); dashd reads+writes those tables here. The legacy
+	// messages.db twin (db/dbRW) is frozen at cutover — read it for nothing routd owns.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
 	dbPath    string
@@ -506,7 +508,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var sessionCount int
 	// Sessions count is instance-wide infra; only shown in full to operators.
 	if operator {
-		if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
+		if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
 			slog.Warn("status: sessions scan", "err", err)
 		}
 	}
@@ -643,7 +645,7 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 	if !operator {
 		limit = 1000
 	}
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT timestamp, source, chat_jid, sender, verb, substr(content,1,80)
 		 FROM messages ORDER BY timestamp DESC LIMIT ?`, limit)
 	if err != nil {

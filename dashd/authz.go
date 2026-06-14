@@ -157,12 +157,12 @@ func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
 func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
 	if operator {
 		var n int
-		if err := d.db.QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`).Scan(&n); err != nil {
+		if err := d.adminDB().QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`).Scan(&n); err != nil {
 			slog.Warn("scope: errored count", "err", err)
 		}
 		return n
 	}
-	rows, err := d.db.Query(`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`)
+	rows, err := d.adminDB().Query(`SELECT DISTINCT chat_jid FROM messages WHERE errored=1 LIMIT 1000`)
 	if err != nil {
 		slog.Warn("scope: errored list", "err", err)
 		return 0

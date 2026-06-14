@@ -23,7 +23,9 @@ func profileTestDB(t *testing.T) *dash {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &dash{db: db}
+	// auth_users is routd-owned (routd/migrations/0011); dashd reads it via
+	// adminDB() (routd.db). Wire dbRoutd so the profile read resolves.
+	return &dash{db: db, dbRoutd: db}
 }
 
 func seedAuthUser(t *testing.T, d *dash, sub, name, linked string) {
@@ -32,7 +34,7 @@ func seedAuthUser(t *testing.T, d *dash, sub, name, linked string) {
 	if linked != "" {
 		ltp = linked
 	}
-	_, err := d.db.Exec(
+	_, err := d.adminDB().Exec(
 		`INSERT INTO auth_users (sub, username, hash, name, created_at, linked_to_sub)
 		 VALUES (?, ?, '', ?, '2026-05-01T00:00:00Z', ?)`,
 		sub, sub, name, ltp)

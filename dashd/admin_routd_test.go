@@ -46,6 +46,14 @@ CREATE TABLE task_run_logs (
   task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
   run_at TEXT NOT NULL, duration_ms INTEGER, status TEXT NOT NULL,
   result TEXT, error TEXT);
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY, chat_jid TEXT, sender TEXT, content TEXT,
+  timestamp TEXT, source TEXT NOT NULL DEFAULT '', verb TEXT,
+  errored INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE sessions (group_folder TEXT, topic TEXT, session_id TEXT);
+CREATE TABLE auth_users (
+  id INTEGER PRIMARY KEY, sub TEXT UNIQUE NOT NULL, username TEXT UNIQUE NOT NULL,
+  hash TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, linked_to_sub TEXT);
 `
 
 // splitAdminDash wires a dash with DISTINCT messages.db (db/dbRW) and routd.db
@@ -347,5 +355,84 @@ func TestRouteTokenRevoke_TargetsRoutdDB(t *testing.T) {
 	}
 	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='web:team'`); n != 0 {
 		t.Errorf("routd.db route_token rows after revoke = %d, want 0", n)
+	}
+}
+
+// TestActivity_ReadsRoutdDB: the activity feed renders a messages row seeded into
+// routd.db (where routd is the sole live appender), not the stale messages.db twin.
+func TestActivity_ReadsRoutdDB(t *testing.T) {
+	d, msg, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, verb)
+		 VALUES ('m-live', 'web:team', 'u', 'live body', '2026-06-14T00:00:00Z', 'web', 'message')`); err != nil {
+		t.Fatal(err)
+	}
+	// A divergent row in the dead messages.db must NOT surface.
+	if _, err := msg.Exec(
+		`INSERT INTO messages (id, chat_jid, sender, content, timestamp, source, verb)
+		 VALUES ('m-stale', 'web:team', 'u', 'stale body', '2026-06-14T00:00:01Z', 'web', 'message')`); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("GET", "/dash/activity/x/recent", "", "alice@x"))
+	if w.Code != 200 {
+		t.Fatalf("GET activity = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "live body") {
+		t.Errorf("activity missing routd.db row: %s", body)
+	}
+	if strings.Contains(body, "stale body") {
+		t.Errorf("activity rendered a stale messages.db row (must read routd.db only)")
+	}
+}
+
+// TestErroredCount_ReadsRoutdDB: the status banner's errored-chat count comes from
+// routd.db's messages.errored flags, not the frozen messages.db twin.
+func TestErroredCount_ReadsRoutdDB(t *testing.T) {
+	d, msg, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO messages (id, chat_jid, content, timestamp, errored)
+		 VALUES ('e-live', 'web:liveerr', 'x', '2026-06-14T00:00:00Z', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	// Two distinct errored chats in the dead messages.db must not be counted.
+	if _, err := msg.Exec(
+		`INSERT INTO messages (id, chat_jid, content, timestamp, errored) VALUES
+		 ('e-a', 'web:stalea', 'x', '2026-06-10T00:00:00Z', 1),
+		 ('e-b', 'web:staleb', 'x', '2026-06-10T00:00:01Z', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if n := d.countVisibleErroredChats(nil, true); n != 1 {
+		t.Errorf("errored chats = %d, want 1 (routd.db only, not the stale messages.db twin)", n)
+	}
+}
+
+// TestProfile_ReadsRoutdDB: the profile name resolves from auth_users in routd.db
+// (routd owns auth_users post-split per routd/migrations/0011), not messages.db.
+func TestProfile_ReadsRoutdDB(t *testing.T) {
+	d, msg, routd := splitAdminDash(t, "alice@x")
+	if _, err := routd.Exec(
+		`INSERT INTO auth_users (sub, username, hash, name, created_at)
+		 VALUES ('google:bob', 'bob', '', 'Bob Live', '')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := msg.Exec(
+		`INSERT INTO auth_users (sub, username, hash, name, created_at)
+		 VALUES ('google:bob', 'bob', '', 'Bob Stale', '')`); err != nil {
+		t.Fatal(err)
+	}
+	mux := newMux(d)
+	w := httptest.NewRecorder()
+	r := adminReq("GET", "/dash/profile/", "", "alice@x")
+	r.Header.Set("X-User-Sub", "google:bob")
+	mux.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "Bob Live") {
+		t.Errorf("profile missing routd.db name: %s", body)
+	}
+	if strings.Contains(body, "Bob Stale") {
+		t.Errorf("profile rendered a stale messages.db name (must read routd.db)")
 	}
 }
