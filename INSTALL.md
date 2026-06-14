@@ -167,23 +167,41 @@ WEB_HOST=myhost.example.com
 
 Add credentials for your chosen adapter(s):
 
-| Adapter              | Env vars                                     | How to get                           |
-| -------------------- | -------------------------------------------- | ------------------------------------ |
-| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                         | @BotFather → /newbot                 |
-| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                          | discord.com/developers → Bot → Token |
-| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`    | api.slack.com → App → OAuth          |
-| **mastd** (Mastodon) | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE` | Settings → Development → New app     |
-| **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`     | Settings → App passwords             |
-| **emaid** (Email)    | `IMAP_*`, `SMTP_*`                           | Your email provider                  |
-| **whapd** (WhatsApp) | (none — pairs via QR)                        | `./arizuko pair <name> whapd`        |
+| Adapter              | Env vars                                                                | How to get                           |
+| -------------------- | ----------------------------------------------------------------------- | ------------------------------------ |
+| **teled** (Telegram) | `TELEGRAM_BOT_TOKEN`                                                    | @BotFather → /newbot                 |
+| **discd** (Discord)  | `DISCORD_BOT_TOKEN`                                                     | discord.com/developers → Bot → Token |
+| **slakd** (Slack)    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                               | api.slack.com → App → OAuth          |
+| **mastd** (Mastodon) | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                            | Settings → Development → New app     |
+| **bskyd** (Bluesky)  | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                | Settings → App passwords             |
+| **emaid** (Email)    | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD` | Your email provider                  |
+| **whapd** (WhatsApp) | (none — pairs via QR)                                                   | `./arizuko pair <name> whapd`        |
 
 **Telegram is simplest** — just needs one token from @BotFather.
+
+## Enable adapter
+
+Copy the service TOML for your chosen adapter into the instance's `services/` directory:
+
+```bash
+# Telegram example
+cp template/services/teled.toml /srv/data/arizuko_<name>/services/
+
+# Discord example
+cp template/services/discd.toml /srv/data/arizuko_<name>/services/
+
+# Slack example
+cp template/services/slakd.toml /srv/data/arizuko_<name>/services/
+```
+
+Without this step, no adapter will start. Each adapter needs its TOML in `services/`.
 
 ## Register first group
 
 ```bash
 # Telegram example (get chat ID by adding @userinfobot to your group)
-./arizuko group <name> add tg:-123456789 main
+# Format: telegram:group/<positive_id> (drop the leading minus)
+./arizuko group <name> add telegram:group/123456789 main
 
 # Discord example
 ./arizuko group <name> add discord:<guild_id>/<channel_id> main
@@ -280,6 +298,7 @@ git clone https://github.com/kronael/arizuko && cd arizuko
 make build && sudo make images
 ./arizuko create mybot
 # Edit /srv/data/arizuko_mybot/.env (set TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, ASSISTANT_NAME)
-./arizuko group mybot add tg:-123456789 main
+cp template/services/teled.toml /srv/data/arizuko_mybot/services/
+./arizuko group mybot add telegram:group/123456789 main
 ./arizuko run mybot
 ```

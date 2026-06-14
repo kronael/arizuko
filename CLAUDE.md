@@ -376,19 +376,19 @@ WEB_HOST=                   # public hostname (e.g. myhost.example.com)
 
 Channel adapter tokens — add whichever you're deploying:
 
-| adapter | env vars needed                                                                      |
-| ------- | ------------------------------------------------------------------------------------ |
-| teled   | `TELEGRAM_BOT_TOKEN`                                                                 |
-| discd   | `DISCORD_BOT_TOKEN`                                                                  |
-| slakd   | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                            |
-| mastd   | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                                         |
-| bskyd   | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                             |
-| emaid   | `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` |
-| whapd   | (none — pairs via QR or `arizuko pair <inst> whapd`)                                 |
+| adapter | env vars needed                                                         |
+| ------- | ----------------------------------------------------------------------- |
+| teled   | `TELEGRAM_BOT_TOKEN`                                                    |
+| discd   | `DISCORD_BOT_TOKEN`                                                     |
+| slakd   | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                               |
+| mastd   | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                            |
+| bskyd   | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                |
+| emaid   | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD` |
+| whapd   | (none — pairs via QR or `arizuko pair <inst> whapd`)                    |
 
 ```bash
-# 3. Register first group (example: Telegram chat -123456789)
-./arizuko group <name> add tg:-123456789 main
+# 3. Register first group (example: Telegram group 123456789)
+./arizuko group <name> add telegram:group/123456789 main
 
 # 4. Run
 ./arizuko run <name>        # generates docker-compose.yml + docker compose up
