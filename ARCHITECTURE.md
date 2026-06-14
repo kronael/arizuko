@@ -149,10 +149,10 @@ fallthrough in `ROUTING.md` "HTTP Routing (proxyd)"):
 - `/chat/<token>/` (GET widget + POST) and `/hook/<token>` (POST only)
   — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md));
   unified `route_tokens` table, supersedes `groups.slink_token`.
-- `/dash/*` — auth-gated, proxied to dashd
-- `/dav/*` — auth-gated, proxied to dufs via TOML route (bespoke
+- `/dash/*` — authenticated, proxied to dashd
+- `/dav/*` — authenticated, proxied to dufs via TOML route (bespoke
   group-scoping + `davAllow` write-block; strips `/dav` prefix)
-- `/*` — DB-backed `web_routes` longest-prefix, else auth-gated to vited
+- `/*` — DB-backed `web_routes` longest-prefix, else authenticated to vited
 
 **Auth** in `requireAuth`: `Authorization: Bearer <jwt>` → `refresh_token`
 cookie → redirect to `/auth/login`. `authd` is the OAuth provider and
@@ -224,16 +224,16 @@ both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 
 ## The three planes
 
-The router/executor/auth split is the only topology — the former
-`gated` monolith (and its `gateway`/`api` packages) is removed. Each
-plane is a standalone daemon owning its own DB:
+The router/executor/auth split is the only topology. Each plane is a
+standalone daemon owning its own DB:
 
 - **`routd`** — conversation/routing plane. Sole appender of messages,
-  token **verifier** (not signer). Owns `routd.db`, resolves routing
-  rules, runs the orchestration loop, and dispatches each turn to
-  `runed` (`POST /v1/runs`). Hosts the per-turn agent MCP socket
-  in-process (`ipc.ServeMCP`) and builds the agent prompt. No docker
-  socket, no crackbox. Spec
+  token **verifier** (not signer). Owns `routd.db` (messages, routes,
+  chats, sessions, acl, secrets, tasks, network_rules, pane_sessions),
+  resolves routing rules, runs the orchestration loop, and dispatches
+  each turn to `runed` (`POST /v1/runs`). Hosts the per-turn agent MCP
+  socket in-process (`ipc.ServeMCP`) and builds the agent prompt. No
+  docker socket, no crackbox. Spec
   [`specs/5/E-routd.md`](specs/5/E-routd.md).
 - **`runed`** — execution plane. The only daemon wired to the docker
   socket, crackbox, and the per-folder agent networks. Owns the work
@@ -245,7 +245,9 @@ plane is a standalone daemon owning its own DB:
 - **`authd`** — auth authority. The sole ES256 token minter; serves
   JWKS so every daemon verifies offline via the `auth/` library. Acts
   as the OAuth provider and mints `service:<daemon>` tokens from each
-  daemon's `AUTHD_SERVICE_KEY`. Owns `auth.db`. Spec
+  daemon's `AUTHD_SERVICE_KEY`. Owns `auth.db` (`signing_keys`,
+  `auth_users`, `oauth_identities`, `refresh_tokens`, `identities`,
+  `identity_claims`, `identity_codes`). Spec
   [`specs/5/1-auth-standalone.md`](specs/5/1-auth-standalone.md).
 
 `auth/` ships as a Go library (offline JWT verify, OAuth helpers, ACL,
@@ -299,9 +301,8 @@ Durable rules the package layout obeys.
   Libraries own no DB, no API, no migrations — a library that writes
   rows takes the caller's `*sql.Tx` (`audit/` is the model). Cross-daemon
   data access goes through the receiving daemon's `api/v1/` (REST for
-  sync, MCP for agents) — never direct SQL across daemons. The shared
-  `store/` package and its `messages.db` are legacy monolith artifacts;
-  in the split each daemon owns its own DB and runs its own migrations.
+  sync, MCP for agents) — never direct SQL across daemons. The `store/`
+  package is a shared schema library; each daemon runs its own migrations.
 
 - **No backward compatibility.** Cutovers are one-shot: a migration
   ships in one release, old paths delete in that same release. No dual
@@ -368,49 +369,58 @@ each daemon re-sequences its own `migrations/` from `0001`.
 - **`routd.db`** (`routd/migrations/`): `chats`, `messages`,
   `messages_fts`, `groups`, `routes`, `route_tokens`, `sessions`,
   `system_messages`, `scheduled_tasks`, `task_run_logs`, `channels`,
-  `acl`, `acl_membership`, `chat_reply_state`, `email_threads`,
-  `secrets`, `identities`, `identity_claims`, `turn_results`,
-  `network_rules`, `web_routes`, `config_meta`, `router_state`, plus
-  the per-user cost-cap column on `auth_users`.
+  `acl`, `acl_membership`, `chat_reply_state`, `secrets`,
+  `secret_use_log`, `turn_context`, `turn_results`, `cost_log`,
+  `network_rules`, `web_routes`, `group_watchers`, `idempotency_keys`,
+  `pane_sessions`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
-  `spawn_logs`, `mcp_tokens` — runtime execution state.
-- **`authd.db`** (`authd/migrations/`): `signing_keys`,
-  `refresh_tokens`, `auth_users` (full identity record),
-  `oauth_identities`.
+  `spawn_logs`, `mcp_tokens`.
+- **`authd.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
+  `oauth_identities`, `refresh_tokens`, `identities`, `identity_claims`,
+  `identity_codes`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
   `invites`.
 
-| Table              | Key columns                                                                                                                                    |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group                                                                                   |
-| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed                                          |
-| `groups`           | folder (PK), name, container_config, parent, model (`slink_token` column dropped in migration 0059)                                            |
-| `route_tokens`     | token_hash (PK), jid, owner_folder, created_at — shipped v0.41.0 ([specs/5/W-webhook-routes.md](specs/5/W-webhook-routes.md))                  |
-| `routes`           | id (PK), seq, match, target (`<folder>[#<mode>]`), observe_window_messages, observe_window_chars                                               |
-| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (spec 7/F)                                                     |
-| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error                                                                              |
-| `system_messages`  | id, group_id, origin, event, body                                                                                                              |
-| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode                                                                         |
-| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, error                                                                                           |
-| `router_state`     | key (PK), value                                                                                                                                |
-| `channels`         | name (PK), url, jid_prefixes, capabilities                                                                                                     |
-| `auth_users`       | sub (unique), username (unique), hash, name                                                                                                    |
-| `auth_sessions`    | token_hash (PK), user_sub, expires_at                                                                                                          |
-| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at                                                          |
-| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims                                                                    |
-| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder                                                                                 |
-| `email_threads`    | thread_id (PK), chat_jid, subject                                                                                                              |
-| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                                                 |
-| `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                                              |
-| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                                                            |
-| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted, v2: prefix, key=SHA-256(SECRETS_KEY)), created_at                              |
-| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                                                                  |
-| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                                                                |
-| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                                                         |
-| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist                                                                       |
-| `web_routes`       | path_prefix (PK), access (public/auth/deny/redirect), redirect_to, folder, created_at (FK → `groups.folder` ON DELETE CASCADE, migration 0068) |
-| `config_meta`      | key (PK), value — holds `config_version` for resreg manifest CAS (migration 0067)                                                              |
-| `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (migration 0070)                   |
+| Table              | Key columns                                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group (routd.db)                                                                 |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed, turn_id (routd.db)               |
+| `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (routd.db)                  |
+| `groups`           | folder (PK), name, container_config, parent, model, cost_cap_cents_per_day, open, observe_window (routd.db)                             |
+| `route_tokens`     | token_hash (PK), jid, owner_folder (FK → groups), created_at (routd.db)                                                                 |
+| `routes`           | id (PK), seq, match, target, observe_window_messages, observe_window_chars (routd.db)                                                   |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (routd.db)                                              |
+| `system_messages`  | id, folder, source, kind, body, created (routd.db)                                                                                      |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode (routd.db, migration 0009)                                       |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, result, error (routd.db, migration 0009)                                                 |
+| `channels`         | name (PK), url, jid_prefixes, capabilities (routd.db)                                                                                   |
+| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at (routd.db, migration 0007)                        |
+| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims (routd.db, migration 0007)                                  |
+| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder (routd.db)                                                               |
+| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted), created_at (routd.db, migration 0008)                                  |
+| `secret_use_log`   | ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms (routd.db, migration 0008)                                       |
+| `turn_context`     | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state (routd.db)                                             |
+| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at (routd.db)                                                                       |
+| `cost_log`         | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at (routd.db)                                          |
+| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist (routd.db, migration 0005)                                     |
+| `web_routes`       | path_prefix (PK), access, redirect_to, folder (FK → groups), created_at (routd.db)                                                      |
+| `group_watchers`   | observer + source (PK) (routd.db)                                                                                                       |
+| `idempotency_keys` | endpoint + key (PK), request_hash, status, response, created_at, expires_at (routd.db)                                                  |
+| `pane_sessions`    | team_id + user_id + thread_ts (PK), channel_id, context_jid, opened_at, last_status_at (routd.db, migration 0010)                       |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                             |
+| `spawns`           | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db) |
+| `spawn_logs`       | id (PK), run_id, ts, kind, line (runed.db)                                                                                              |
+| `mcp_tokens`       | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                           |
+| `auth_users`       | user_id (PK), name, created_at (authd.db)                                                                                               |
+| `oauth_identities` | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                         |
+| `refresh_tokens`   | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                      |
+| `signing_keys`     | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (authd.db)                                                                  |
+| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9) (authd.db, migration 0004)                                |
+| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge (authd.db, migration 0004)                                              |
+| `identity_codes`   | code (PK), identity_id, expires_at — short-lived link codes (authd.db, migration 0004)                                                  |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at (onbod.db)                                               |
+| `onboarding_gates` | gate (PK), limit_per_day, enabled (onbod.db)                                                                                            |
+| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod.db)                                          |
 
 `route_tokens.owner_folder` carries an FK → `groups.folder` ON DELETE
 CASCADE; `web_routes.folder` likewise. WAL mode, 5s busy timeout, FK
@@ -483,10 +493,9 @@ cursor advances (partial work preserved).
 
 MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
 routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
-at `ipc/<folder>/gated.sock` (the socket file keeps its historical
-name). Tools filtered by grants for the caller's group. Runtime auth via
-`auth.Authorize`. `list_acl(folder)` inspects the effective ACL rows for
-the caller's principal set.
+at `ipc/<folder>/arizuko.sock`. Tools filtered by grants for the
+caller's group. Runtime auth via `auth.Authorize`. `list_acl` inspects
+the effective ACL rows for the caller's principal set.
 
 socat bridges the host socket into the container; the agent configures
 the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
@@ -627,7 +636,7 @@ on every CONNECT/HTTP request. See `crackbox/README.md` and
 
 ## Onboarding (onbod/)
 
-Self-service token-based onboarding with optional gated admission. Turns
+Self-service token-based onboarding with optional admission gates. Turns
 inbound JIDs into provisioned groups via OAuth + `container.SetupGroup`.
 See `onbod/README.md`.
 
@@ -641,8 +650,8 @@ routd picks the message up via normal poll. See `timed/README.md`.
 ## Operator Dashboard (dashd/)
 
 HTMX portal over routd's data plus a TIER 1 write surface (routes
-editor, groups CRUD, per-user secrets) gated by admin auth. Spec:
-`specs/3/d-dashboards.md`. See `dashd/README.md`.
+editor, groups CRUD, per-user secrets) requiring authenticated access.
+Spec: `specs/3/d-dashboards.md`. See `dashd/README.md`.
 
 ## Diary (diary package)
 
