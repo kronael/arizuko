@@ -51,9 +51,21 @@ which surface gets a feature is accidental, not principled.
 
 ## The principle
 
-1. **One handler per resource action.** No duplicated logic between
-   `ipc/ipc.go` and any `/v1/*` HTTP handler.
-2. **Two faces, declared next to the resource.** A `Resource` declares
+1. **Two tiers, by design.**
+   - **Cold-tier (operator config):** `resreg/resources/*.go` — unified
+     REST+MCP from one handler. Resources: `acl`, `routes`, `groups`,
+     `secrets`, `scheduled_tasks`, `web_routes`, `proxyd_routes`,
+     `onboarding_gates`, `network_rules`, `route_tokens`.
+   - **Hot-tier (agent runtime):** `ipc/ipc.go` — MCP-only, no REST twin.
+     Tools: `reply`, `send`, `like`, `delete`, `post`, `diary`, `tasks`,
+     session control (`fork_topic`, `engage`, `disengage`, `reset_session`,
+     `inject_message`), inspect (`inspect_routing`, `inspect_tasks`,
+     `inspect_session`). These are agent-to-conversation primitives; an
+     operator REST mirror adds nothing (operators don't `reply` to chats).
+
+   This is the final architecture, not a pending migration.
+
+2. **Cold-tier: one handler per resource action.** A `Resource` declares
    its REST endpoints AND its MCP tools; one registration wires both.
 3. **`Caller` is surface-agnostic.** Builds on
    [`auth.Identity`](../../auth/README.md) (`Sub`, `Scope`; folder read
@@ -347,7 +359,7 @@ cross-daemon reaches into another's storage.
 | **webd**   | the `/chat`,`/hook` route-token surfaces + SSE hub (reads `web_routes` + `route_tokens` from routd; per-world hosts are proxyd-derived, not stored — `specs/5/V-web-vhosts.md`) | chat reads stay on existing `/api/*`; web-route CRUD via routd                                                                                                                                                   |
 | **onbod**  | invites, admissions, auth_users, onboarding_gates                                                                                                                               | `/v1/invites`, `/v1/users`, `/v1/onboarding_gates`                                                                                                                                                               |
 | **proxyd** | proxyd_routes (operator-composed enforcement point; delegates mint to authd)                                                                                                    | `/auth/*` (existing); login delegates to authd, which mints                                                                                                                                                      |
-| **dashd**  | nothing — aggregator UI calling the above                                                                                                                                       | HTML/HTMX over `/v1/*` of others                                                                                                                                                                                 |
+| **dashd**  | nothing — FS-mounted, reads routd.db directly for display; writes via HTTP to owners                                                                                            | HTML/HTMX over `/v1/*` of others (writes only)                                                                                                                                                                   |
 
 The first four rows are the products of the `gated` split
 ([`E-routd.md`](E-routd.md), [`P-runed.md`](P-runed.md)): `authd` signs
@@ -386,9 +398,13 @@ owns (tasks), execution is local; for resources another daemon owns
 ```
 agent → routd MCP socket: tools/call(pause_task, ...)
        → routd validates token scope (tasks:write)
-       → routd HTTP-PATCH timed/v1/tasks/{id} {status: paused}
-              with Authorization: Bearer <agent-token>
-       → timed verifies token, checks scope, executes, returns
+       → routd executes locally (scheduled_tasks in routd.db)
+       → routd returns result to agent as JSON-RPC
+
+agent → routd MCP socket: tools/call(create_invite, ...)
+       → routd validates token scope (invites:write)
+       → routd HTTP-POST onbod/v1/invites with Authorization: Bearer <agent-token>
+       → onbod verifies token, checks scope, executes, returns
        → routd returns result to agent as JSON-RPC
 ```
 
@@ -397,24 +413,16 @@ forwarder shape is `Resource{Store: nil}` — the adapter skips the
 tx/audit dance and the destination daemon writes the audit row.
 `webd/routes_mcp.go` is the canonical example.
 
-### Dashboard becomes an aggregator
+### Dashboard FS-mounted read pattern
 
-`dashd` holds an operator session token (minted by `authd` at login,
-which proxyd delegates to) and makes `/v1/*` calls to routd, timed,
-webd, onbod to render its pages. Adds write paths (forms posting to
-`POST/PATCH/DELETE` of the relevant daemon) wherever today's UI is
-read-only.
+`dashd` is FS-mounted (per CLAUDE.md write-discipline) and opens
+`routd.db` directly for read-only display queries. This is the
+intended pattern for daemons that share the data volume: read
+locally, write via HTTP to the table owner.
 
-| dashd page        | Old (direct DB)                        | New (federated API)                                                                   |
-| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `/dash/groups/`   | reads `groups`, `routes`               | `routd/v1/groups`, `routd/v1/routes`                                                  |
-| `/dash/tasks/`    | reads `scheduled_tasks`                | `timed/v1/tasks` (+ form → `POST timed/v1/tasks`)                                     |
-| `/dash/activity/` | reads `messages` LIMIT 50              | `routd/v1/messages?limit=50&order=desc`                                               |
-| `/dash/status/`   | reads `groups`, `sessions`, `channels` | `routd/v1/groups`, `routd/v1/sessions`, `routd/v1/channels`                           |
-| `/dash/memory/`   | direct fs read/write                   | new resource on whichever daemon owns the group fs (likely routd): `routd/v1/files/*` |
-| `/dash/profile/`  | reads `auth_users`                     | `onbod/v1/users/{sub}`                                                                |
-
-dashd never touches tables directly after this refactor.
+Write paths (forms posting to `POST/PATCH/DELETE`) go through the
+owning daemon's `/v1/*` surface — dashd never writes to tables
+it doesn't own.
 
 ## Scope vocabulary
 
@@ -453,7 +461,7 @@ land in `routd`, which inherits gated's schema authority.
 | `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                      |
 | `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                      |
 | `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/7/Y`](../7/Y-secret-broker.md)) | `secrets` (routd)                                     |
-| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (timed)                             |
+| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (routd)                             |
 | `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                    |
 | `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                      |
 | `egress_allowlist`  | operator | operator | agent (tier ≤1)  | agent (tier ≤1)                                                   | `network_allow`/`network_deny`/`network_list` (routd) |
@@ -601,7 +609,7 @@ conversation tables that were gated's.
 | `gates`           | list/get/put/delete/enable                                                                                | onbod                                             | `*` operator                                                    |
 | `network_rules`   | list/get/create/delete (MCP shipped as `network_allow`/`network_deny`/`network_list`; REST CRUD to mount) | routd                                             | folder-`admin` at scope                                         |
 | `cost_caps`       | list/get/set                                                                                              | routd                                             | `*` operator; self-read for own user                            |
-| `scheduled_tasks` | (already partial — finish symmetry)                                                                       | timed                                             | folder-`admin` at scope                                         |
+| `scheduled_tasks` | (already partial — finish symmetry)                                                                       | routd                                             | folder-`admin` at scope                                         |
 | `web_routes`      | (already MCP — add REST mirror)                                                                           | routd (served via webd read; see ownership table) | folder-`admin` at scope                                         |
 
 New action = one struct literal addition + one handler function. The
@@ -609,35 +617,6 @@ handler is the only behavior; everything else is registration. Authz
 delegates to `auth.Authorize`; for store-backed resources the adapter
 threads a `*sql.Tx` in `Execution` so the mutation + audit row commit
 as a unit.
-
-### CLI evolution — `cmd/arizuko/*.go`
-
-Today: `arizuko grant`, `arizuko invite`, `arizuko group add`, etc.
-call `store.*` directly. The CLI binary opens `messages.db` and
-writes rows. Bypasses every authorization concern and audit trail.
-
-Target: each command becomes a thin client of the local MCP socket
-(`/srv/data/arizuko_<inst>/ipc/root/socket`). The socket already
-exists for `arizuko chat`. **Lean: unix-socket-as-capability** —
-the socket is unix-domain, owned by the operator UID; presence on
-the socket proves operator capability. Implies an ACL row
-`(folder:operator_cli, '*', '**')` seeded at `arizuko create`. The
-OAuth path remains available for remote CLI use later (call `/v1/*`
-over HTTPS instead of MCP over the local socket).
-
-### dashd evolution
-
-Today: dashd is the operator web UI. Read paths query the shared DB
-directly; the few write paths (`/dash/me/secrets`) call
-`store.SetSecret` directly.
-
-Target: dashd is a pure aggregator — it owns no DB. After the `gated`
-split the tables live in `routd`/`runed`/`timed`/`onbod`, each behind
-its own DB, so dashd has nothing to read directly. Both its reads and
-its mutating handlers go through the owning daemon's `/v1/*`: reads via
-`GET /v1/<resource>`, writes via the `resreg` POST/PATCH/DELETE
-endpoints. dashd is an internal consumer of the same surface external
-callers use.
 
 ## Anti-patterns — what should NOT go via MCP
 
@@ -707,7 +686,7 @@ affordance over the same ACL rows.
 Each registers its own resources. The agent MCP socket terminates in
 `routd` (in-process, `ServeTurnMCP`); routd serves its own resources
 locally, and MCP calls to a resource another daemon owns forward over
-HTTP — `invites.*` to onbod, tasks to timed, and so on. Pattern (shipped
+HTTP — `invites.*` to onbod, etc. (Tasks are local to routd.) Pattern (shipped
 2026-05-25): the forwarder is a `Resource{Store: nil}` whose `Handler`
 does an HTTP call downstream; the adapter skips the tx/audit dance, and
 the destination daemon writes the audit row.
