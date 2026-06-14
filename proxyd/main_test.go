@@ -1592,3 +1592,300 @@ func TestClientIP(t *testing.T) {
 		t.Errorf("with XFF: got %q, want 203.0.113.7", got)
 	}
 }
+
+// --- WebDAV JWT auth flow (spec M-webdav.md) ----------------------------------
+
+// testMintJWTWithGroups produces an HS256 JWT that includes the groups claim.
+// This is for direct JWT→header flows; DB-backed group lookup uses groupsForSub.
+func testMintJWTWithGroups(secret []byte, sub string, groups []string) string {
+	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	groupsJSON, _ := json.Marshal(groups)
+	c := fmt.Sprintf(`{"sub":%q,"name":"test","groups":%s,"exp":%d,"iat":%d}`,
+		sub, groupsJSON, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
+	body := base64.RawURLEncoding.EncodeToString([]byte(c))
+	h := hmac.New(sha256.New, secret)
+	h.Write([]byte(hdr + "." + body))
+	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return hdr + "." + body + "." + sig
+}
+
+// testDavFullServer returns a server wired through server.route for /dav/*,
+// exercising the full requireAuth → davRoute flow. st may be nil for tests
+// that don't need DB-backed group lookup.
+func testDavFullServer(t *testing.T, st *store.Store, secret string) (*server, *httptest.Server) {
+	t.Helper()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Upstream-Path", r.URL.Path)
+		w.Header().Set("X-User-Sub", r.Header.Get("X-User-Sub"))
+		w.Header().Set("X-User-Groups", r.Header.Get("X-User-Groups"))
+		w.WriteHeader(200)
+		w.Write([]byte("dav:" + r.URL.Path))
+	}))
+	u, _ := url.Parse(up.URL)
+	davRoute := Route{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}
+	s := &server{
+		cfg:         config{authSecret: secret},
+		st:          st,
+		stRoutd:     st, // tests use single in-memory DB
+		viteProxy:   httputil.NewSingleHostReverseProxy(u),
+		chatAnonDOS: newRateLimiter(10, time.Minute),
+		rr:          newRoutesResource(nil, []Route{davRoute}),
+	}
+	return s, up
+}
+
+// /dav/* without credentials bounces to /auth/login (JWT required).
+func TestProxydDavAuthFlow_NoCredentials(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/mygroup/file.txt", nil)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 redirect to login", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/auth/login" {
+		t.Errorf("location = %q, want /auth/login", loc)
+	}
+}
+
+// /dav/* with valid JWT + matching group claim reaches the upstream.
+func TestProxydDavAuthFlow_ValidJWT(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"team-a"})
+	req := httptest.NewRequest("GET", "/dav/team-a/notes.md", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-User-Sub"); got != "user:alice" {
+		t.Errorf("X-User-Sub = %q, want user:alice", got)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/team-a/notes.md" {
+		t.Errorf("X-Upstream-Path = %q, want /team-a/notes.md (prefix stripped)", got)
+	}
+}
+
+// User in group A cannot access /dav/B/ — JWT is valid but group mismatch → 403.
+func TestProxydDavAuthFlow_CrossGroupDenied(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"group-a"})
+	req := httptest.NewRequest("GET", "/dav/group-b/secret.md", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (cross-group access denied)", w.Code)
+	}
+}
+
+// /dav/* with DB-backed group lookup via refresh_token cookie: groups come
+// from acl table via UserScopes, not from JWT claims.
+func TestProxydDavAuthFlow_DBGroupLookup(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	// Create user + grant via acl row.
+	if err := st.CreateAuthUser("local:bob", "bob", "", "Bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutACLRow(core.ACLRow{
+		Principal: "local:bob",
+		Action:    "*",
+		Scope:     "workspace-x",
+		Effect:    "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Create refresh session for cookie-based auth.
+	refreshTok := "dav-test-refresh"
+	if err := st.CreateAuthSession(
+		auth.HashToken(refreshTok), "local:bob", time.Now().Add(time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testDavFullServer(t, st, "testsecret")
+	defer up.Close()
+
+	// Use refresh_token cookie; groups come from DB via UserScopes.
+	req := httptest.NewRequest("GET", "/dav/workspace-x/file.txt", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshTok})
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (DB grant should allow)", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/workspace-x/file.txt" {
+		t.Errorf("X-Upstream-Path = %q, want /workspace-x/file.txt", got)
+	}
+}
+
+// DB grant for group A does not grant access to group B (via refresh cookie).
+func TestProxydDavAuthFlow_DBCrossGroupDenied(t *testing.T) {
+	st, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateAuthUser("local:carol", "carol", "", "Carol"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutACLRow(core.ACLRow{
+		Principal: "local:carol",
+		Action:    "*",
+		Scope:     "my-folder",
+		Effect:    "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	refreshTok := "carol-refresh"
+	if err := st.CreateAuthSession(
+		auth.HashToken(refreshTok), "local:carol", time.Now().Add(time.Hour),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	s, up := testDavFullServer(t, st, "testsecret")
+	defer up.Close()
+
+	req := httptest.NewRequest("GET", "/dav/other-folder/secret.txt", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: refreshTok})
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (no DB grant for other-folder)", w.Code)
+	}
+}
+
+// Write restriction: PUT on .env is blocked even with valid auth + correct group.
+func TestProxydDavAuthFlow_WriteBlockEnv(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	req := httptest.NewRequest("PUT", "/dav/proj/.env", strings.NewReader("SECRET=x"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (write to .env blocked)", w.Code)
+	}
+}
+
+// Write restriction: DELETE on .git/config is blocked.
+func TestProxydDavAuthFlow_WriteBlockGit(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	req := httptest.NewRequest("DELETE", "/dav/proj/.git/config", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (write to .git/** blocked)", w.Code)
+	}
+}
+
+// Write restriction: MOVE on *.pem is blocked.
+func TestProxydDavAuthFlow_WriteBlockPEM(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	req := httptest.NewRequest("MOVE", "/dav/proj/keys/server.pem", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Destination", "/dav/proj/keys/old.pem")
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (write to *.pem blocked)", w.Code)
+	}
+}
+
+// Write restriction: PUT to logs/** is blocked (read-only).
+func TestProxydDavAuthFlow_WriteBlockLogs(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	req := httptest.NewRequest("PUT", "/dav/proj/logs/app.log", strings.NewReader("data"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (logs/** is read-only)", w.Code)
+	}
+}
+
+// Ordinary writes outside sensitive paths succeed.
+func TestProxydDavAuthFlow_WriteAllowed(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	req := httptest.NewRequest("PUT", "/dav/proj/docs/readme.md", strings.NewReader("# Hello"))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (ordinary write allowed)", w.Code)
+	}
+}
+
+// Path rewrite integration: dufs backend receives /<group>/<rest>, not /dav/<group>/<rest>.
+func TestProxydDavAuthFlow_PathRewrite(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"workspace"})
+	req := httptest.NewRequest("GET", "/dav/workspace/deep/path/file.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.route(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("X-Upstream-Path"); got != "/workspace/deep/path/file.txt" {
+		t.Errorf("backend received path %q, want /workspace/deep/path/file.txt", got)
+	}
+}
+
+// Path traversal in /dav/* is rejected early.
+func TestProxydDavAuthFlow_TraversalRejected(t *testing.T) {
+	s, up := testDavFullServer(t, nil, "testsecret")
+	defer up.Close()
+
+	tok := testMintJWTWithGroups([]byte("testsecret"), "user:alice", []string{"proj"})
+	for _, path := range []string{"/dav/proj/../other/file", "/dav/proj/%2e%2e/other"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		s.route(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("path %q: status = %d, want 400 (traversal rejected)", path, w.Code)
+		}
+	}
+}
