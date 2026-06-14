@@ -106,7 +106,8 @@ type Loop struct {
 	// Chat-initiated onboarding (ported from gateway.pollOnce route-miss branch).
 	// onboardingEnabled false → a route miss never inserts an onboarding row.
 	// onboardingPlatforms restricts which jid platform prefixes may onboard
-	// (empty = all). routd OWNS the onboarding table in routd.db.
+	// (empty = all). onbod OWNS the onboarding table; routd federates the insert
+	// over HTTP (POST /v1/onboarding).
 	onboardingEnabled   bool
 	onboardingPlatforms []string
 
