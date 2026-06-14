@@ -56,7 +56,7 @@ Also noted: routd `@prefix: child group not found child=atlas/search/marinade`
 (repeated) — atlas is @-addressing a non-existent child (instance-name suffix
 confusion); separate, low.
 
-## PARTIALLY FIXED 2026-06-14 (split) — vestigial messages.db reads in webd/proxyd/dashd
+## FIXED 2026-06-14 (split) — vestigial messages.db reads in webd/proxyd/dashd
 
 Ownership SETTLED against migrations + live krons DBs (read-only). Two
 migration sets create overlapping tables: `store/migrations/` → `messages.db`
@@ -100,49 +100,16 @@ All four now read `adminDB()` (routd.db); tests Activity/ErroredCount/Profile
 Inert until dashd redeploys (ships next build) — the live krons /dash still
 shows stale numbers until then.
 
-**STILL OPEN — RISKY (fix needs a redeploy to verify, or schema mismatch):**
-- **dashd `GroupUsageBulk`** (main.go ~788, groups page usage column): left on
-  `d.db` ON PURPOSE. `store.GroupUsageBulk` queries the OLD cost_log schema
-  (`input_tok`/`output_tok`/`cents`/`ts`); routd.db's cost_log uses
-  `input_tokens`/`output_tokens`/`cost_cents`/`recorded_at`. Swapping the handle
-  would error `no such column: input_tok` → cost half silently empties (worse
-  than stale). Fix needs a routd-schema-aware bulk reader (mirror routd's
-  SpendTodayFolder cols), then point at adminDB(). The `messages` count half
-  works against both; only the cost half is schema-locked.
-- **dashd `auditPairStart`** (channels.go:190): WRITE of a breadcrumb `messages`
-  row to messages.db. Harmless (a dead-letter audit note, never meant to reach an
-  agent), but it lands in the frozen DB. Low; decide drop vs route to routd.db.
-- **webd** `store.Open(messages.db)` (main.go:59) — the most entangled. Inbound
-  ingest is correct (`rc.SendMessage` HTTP→routd→routd.db, route_token.go:280),
-  but webd ALSO `s.st.PutMessage` to its OWN messages.db (vestigial double-write:
-  route_token.go:268/349, channel.go:41, mcp.go:100) AND reads turn
-  frames/history/topics/turn_results/route_tokens BACK from messages.db
-  (turn.go, me.go, api.go, route_token.go:124/416) — where routd's live rows
-  never land. So web-chat read-back + thread history are stale, and a route token
-  minted via dashd (now → routd.db) is NOT found by `LookupRouteToken` (reads
-  messages.db, 1 frozen row). REAL BUG. Fix is NOT a one-line handle swap: routd
-  is the SOLE messages appender, so webd must STOP PutMessage-ing and instead
-  read its display data from routd over HTTP (or open a routd.db READ handle for
-  the read-backs + drop the writes). Behavior-changing; needs a live web-chat
-  end-to-end check after redeploy. Tracks with the web-ingress docs item below.
-- **proxyd** `UserScopes`/`AuthSession`/`AuthUserBySub`/`CanonicalSub`/
-  `LookupRouteToken` all run off the single `store.Open(messages.db)` handle
-  (main.go:904). `acl` (UserScopes → X-User-Groups), `auth_users`, `route_tokens`
-  live in routd.db now → on split, proxyd authorizes off a FROZEN acl table
-  (1 stale row) → a grant added post-cutover via dashd is INVISIBLE to proxyd's
-  scope stamping. REAL BUG (security-relevant: scopes resolve stale). But proxyd
-  ALSO legitimately needs messages.db for `proxyd_routes` + `auth_sessions`
-  (messages.db-only). Fix: open a SECOND routd.db handle for acl/auth_users/
-  route_tokens reads; keep the messages.db handle ONLY for proxyd_routes +
-  auth_sessions. Two-plane handle split; needs a redeploy + a live proxyd auth
-  check to confirm scopes resolve against routd.db. NOT guess-fixed.
+**FIXED 2026-06-14 (commits 4905d732, a4395bbd):**
+- **proxyd** — added `stRoutd` handle for acl/auth_users/route_tokens; kept
+  messages.db only for proxyd_routes + auth_sessions. Test: `TestGroupsForSub_ReadsFromRoutdNotMessages`.
+- **webd** — added `stRoutd` handle, removed vestigial `PutMessage` double-writes,
+  updated all reads to use routd.db. Fixed missing Topic field in rc.SendMessage.
 
-Fix discipline for the open items: route each read at its owning DB (routd.db
-for acl/messages/sessions/cost_log/auth_users/route_tokens/web_routes; keep
-messages.db only for proxyd_routes/auth_sessions), match the existing split
-handle pattern (dashd's dbRoutd/adminDB), and verify the behaving feature live
-after redeploy. The safe removals (timed/dashd-fallback/CLI) shipped earlier
-(commit 0094bd35); the dashd reads shipped 2026-06-14.
+**STILL OPEN (low priority):**
+- **dashd `GroupUsageBulk`** (main.go ~788): left on `d.db` ON PURPOSE — schema
+  mismatch (`input_tok` vs `input_tokens`). Needs a routd-schema-aware reader.
+- **dashd `auditPairStart`** (channels.go:190): dead-letter breadcrumb. Low.
 
 ## OPEN 2026-06-13 (refactor, low) — ipc.GatedFns monolith-era naming
 
@@ -395,19 +362,11 @@ Severity: low (dead, not wrong). Fix-path: drop the nil-source branch + `bearer(
 fallback once confirmed no local-dev tooling relies on it; this is a "remove
 dual-path" concern (behavior-change-adjacent), deliberately out of the zero-behavior
 refine sweep. Sibling of the #14 monolith-fallback removal.
-## OPEN — runed manager.go holds in-memory runtime state (2026-06-10, spec drift)
+## FIXED 2026-06-14 — runed manager.go DB-stateless refactor (commits dd87c87d, 1404f620)
 
-`runed/manager.go` keeps in-memory `active` / `failures` / `activeCount` / `waiting`
-maps for admission. Per `specs/5/P-runed.md` § Run state, runed must be a DB-stateless
-executor: `spawns` is the run-state source of truth, read per admission, nothing cached.
-Refactor: atomic spawns-table admission claim (`BEGIN IMMEDIATE`; if folder-not-running
-AND running-count<cap → INSERT running row, COMMIT; else return **busy** to routd —
-routd already re-feeds), deterministic steer (derive container name + IPC socket path
-from the folder/run_id on the spawns row, no stored closure), boot reconciliation (mark
-orphaned `state='running'` rows whose containers are gone as `killed`), and **drop runed's
-internal admission queue** — it duplicated routd's queue; routd owns all queueing. Breaker
-failure count becomes a persisted column/small table (e.g. `spawns.failures`), not a map.
-Severity: design-debt, not a live break (current maps work; the spec leads).
+`runed/manager.go` was keeping in-memory `active`/`failures`/`activeCount`/`waiting` maps.
+Now DB-stateless per `specs/5/P-runed.md`: spawns table + circuit_breaker table for failure
+count persistence. Restart recovery works — orphaned running rows marked killed on boot.
 
 ## OPEN — `spawn_logs` is an unused table (2026-06-10)
 
@@ -429,64 +388,38 @@ routing (cfb16465), typing indicator (441804ea), untrusted→mention guard (4a8f
 per-surface output style (9a969517), runed startup: docker preflight + orphan reap +
 codex-dir pre-seed (ea77aa6a).
 
-**STILL OPEN** — fix-paths verified against both trees, ranked:
+**FIXED 2026-06-14:**
+- **chat-initiated onboarding** — fixed 2026-06-08 (commit 58b577d6), federates to onbod.
+- **whapd media** — fixed (commit 1e90a76c), routes_http.go:17-26 folds flat fields.
+- **register_group orphans** — fixed, routd/mcp.go:202-218 does PutGroup + AddRoute + git.
+- **ingress JID-ownership** — fixed, chanreg.Registry.ByPrincipal + handleMessages reject.
 
-- **HIGH — chat-initiated onboarding is dead.** gated `gateway.go:660-667` (pollOnce) on a
-  route-miss, when `OnboardingEnabled` + `onboardingAllowed(jid, platforms)` + the
-  discord-guild⇒`verb==mention` gate, called `InsertOnboarding(chatJid)`. routd's route-miss
-  branch (`loop.go:447`) never does → `store.InsertOnboarding` has zero callers, onbod polls
-  an empty set, DM self-service onboarding broken on every instance. Fix: port the insert into
-  routd's route-miss branch (routd owns the onboarding table in routd.db — direct write);
-  plumb OnboardingEnabled+OnboardingPlatforms into LoopConfig.
-- **HIGH — whapd WhatsApp media 100% dropped.** gated `api/api.go:271-277` folded the flat
-  `attachment`/`attachment_mime`/`attachment_name` fields (whapd's only shape) into the
-  attachments array before persist. `routd/routes_http.go:16 buildMessageRow` dumps the raw
-  base64 into the column + ignores mime/name → `enrich.go:57` json.Unmarshal fails → attachment
-  silently dropped. Fix: fold the flat fields into m.Attachments before marshal. Add a
-  whapd-flat ingest test.
-- **HIGH — register_group manual path makes unreachable orphans.** gated `gateway.go:1975`
-  did PutGroup + AddRoute(room=JidRoom(jid)→folder, with rollback) + ensureGroupGitRepo. The
-  split's `routd/mcp.go:95 RegisterGroup` only PutGroup — ignores the jid, adds no route, no
-  git. An agent's `register_group(jid, folder, fromPrototype=false)` → group unreachable +
-  no per-group git. (The prototype path via spawn.go:69 is fine.) Fix: mirror
-  spawnFromPrototype's tail (route + git) in RegisterGroup.
-- **MED — ingress lost the adapter JID-ownership check.** gated rejected `!entry.Owns(req.ChatJID)`;
-  `routd/server.go:342` gates on the `messages:write` scope only → any adapter token can forge
-  inbound for any platform. Fix: reject when the registry entry doesn't own m.ChatJID's prefix.
-- **MED — chat link-code identity binding dropped.** gated `api/api.go:350` consumed a bare
-  `link-[0-9a-f]{12}` message via `tryConsumeLinkCode`→`ConsumeLinkCode`; routd handleMessages
-  has no such branch (`ConsumeLinkCode` never called). authd OAuth intent=link survives.
-  Decision: re-wire the chat-paste consume in routd, OR retire (delete dead mint+consume).
-- **LOW — agent-error diary breadcrumb.** gated `gateway.go:876 logAgentError` wrote
-  `diary.WriteRecovery` on agent error; split's OutcomeError branch doesn't (WriteRecovery dead).
-- **LOW — /v1/outbound explicit Channel override ignored.** gated honored `req.Channel`
-  (`api.go:197`); split's handleOutbound never passes it (timed/onbod→routd adapter override lost).
-- **LOW — breaker-open notice wording.** gated sent "⚠️ Agent error… Send another message to
-  retry"; split's `onCircuitBreakerOpen` sends nothing (generic notice still fires). Cosmetic.
+**STILL OPEN:**
+- **MED — chat link-code identity binding dropped.** `ConsumeLinkCode` never called.
+  Decision: re-wire in routd, OR retire dead mint+consume.
+- **LOW — agent-error diary breadcrumb.** WriteRecovery dead.
+- **LOW — /v1/outbound Channel override ignored.** timed/onbod→routd adapter override lost.
+- **LOW — breaker-open notice wording.** Cosmetic.
 
-## OPEN — round-2 disparities (2026-06-08 creative audit: concurrency / failure / MCP+REST)
+## MOSTLY FIXED — round-2 disparities (2026-06-08 creative audit: concurrency / failure / MCP+REST)
 
 The split made the turn's lifetime an HTTP-call return, not the container's exit — gated's
 in-process `runner.Run` made those identical. **FIXED**: routd now out-waits runed RunTTL
-(fd4a55e4, prevents the timeout-triggered double-execution). STILL OPEN:
+(fd4a55e4, prevents the timeout-triggered double-execution).
 
-- **HIGH — runed ignores the run context (`runed/docker.go:63` `Run(_ context.Context,…)`).**
-  A dropped routd→runed request (network blip mid-run, not just timeout) never cancels the
-  container → orphan until RunTTL + routd re-feeds the SAME turn → second container = the user's
-  message executed twice. fd4a55e4 fixes the timeout case; the blip case needs runed to honor
-  ctx (kill on ctx.Done) AND a routd re-feed guard (don't re-dispatch a turn whose run is
-  in-flight; gate on turn_context state). gated (in-process) couldn't double-execute.
-- **HIGH — invite consume lost cross-DB atomicity** (`onbod/main.go:946`). gated did
-  mark-used + acl-grant in ONE tx (`store/invites.go:149`); split marks used in onbod.db then
-  writes the grant to routd.db as a separate step — on grant failure it only logs + redirects as
-  success → invite burned, no grant, silent permanent lockout. Fix: on PutACLRow failure roll
-  back the consume (or make consume idempotent + retry the grant), never redirect-as-success.
-- **MED — per-turn MCP socket torn down on dispatchRun return** (`routd/dispatch.go:161`,
-  `turns.go:121` callbackClosed=RunReturned). A late reply/submit_turn from a still-running
-  container is dropped (MCP refused / REST 409). Subsumed by the ctx-honoring fix above.
-- **MED — MCP+REST uniformity ~44%** (audit). Real face-gaps (vs designed exceptions):
-  routd social actions post/forward/quote/repost/send_voice are MCP-only — the REST turn-face is
-  a subset of the same Deliverer (add `/v1/turns/{id}/{post,forward,quote,repost,voice}`); `acl`
+**FIXED 2026-06-14:**
+- **runed ignores ctx** — docker.go:182-196 `armCancel` kills on ctx.Done; dispatch.go:141-150
+  guards re-feed via PutTurnContext live check.
+- **invite consume atomicity** — onbod/main.go:1001-1018 calls `RestoreInvite` on PutACLRow
+  failure, preventing silent lockout.
+- **turn retry** — 5/40 shipped (commit 7f4dcf78), 3 attempts with 10s backoff, error notice
+  on final failure.
+
+**STILL OPEN:**
+- **MED — per-turn MCP socket torn down on dispatchRun return** (`routd/dispatch.go:161`).
+  Late reply from a still-running container is dropped. Subsumed by ctx-honoring.
+- **MED — MCP+REST uniformity** — descoped in 5-uniform-mcp-rest spec (commit 623b88a9).
+  Real face-gaps: routd social actions MCP-only. `acl`
   is MCP read-only (list_acl) but REST full-CRUD; onbod `invites` MCP create-only + dual handlers
   (no MCP list/revoke). Designed single-faced (document, don't fix): network_rules/fork/escalate/
   delegate/inject/reset (MCP-only agent caps), secrets-write/channels/authd/gates/onboarding/
