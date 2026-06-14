@@ -207,6 +207,8 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.ID = "fav-" + string(n.Status.ID) + "-" + string(acc.ID)
 		msg.Content = "❤️"
 		msg.Verb = "like"
+		msg.Reaction = "❤️"
+		msg.ReplyTo = string(n.Status.ID)
 		msg.IsGroup = n.Status.Visibility != "direct"
 	case "reblog":
 		if n.Status == nil {
@@ -215,6 +217,7 @@ func (mc *mastoClient) notificationToMsg(n *mastodon.Notification) (chanlib.Inbo
 		msg.ID = "reblog-" + string(n.Status.ID) + "-" + string(acc.ID)
 		msg.Content = string(n.Status.ID)
 		msg.Verb = "repost"
+		msg.ReplyTo = string(n.Status.ID)
 		msg.IsGroup = n.Status.Visibility != "direct"
 	case "follow":
 		msg.ID = "follow-" + string(acc.ID)

@@ -344,11 +344,12 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 	if content == "" {
 		return chanlib.InboundMsg{}, false
 	}
-	verb, topic := "message", ""
+	verb, topic, replyTo := "message", "", ""
 	switch t.Kind {
 	case "t1":
 		if d.ParentID != "" {
 			verb = "reply"
+			replyTo = d.ParentID
 			topic = d.ParentID
 			if strings.HasPrefix(d.ParentID, "t3_") {
 				topic = d.LinkID
@@ -361,6 +362,10 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 	for _, a := range atts {
 		content += fmt.Sprintf(" [Attachment: %s]", a.Filename)
 	}
+	chatName := ""
+	if d.Subreddit != "" {
+		chatName = "r/" + d.Subreddit
+	}
 	return chanlib.InboundMsg{
 		ID:          d.Name,
 		ChatJID:     jid,
@@ -370,10 +375,12 @@ func (rc *redditClient) thingToMsg(t thing, jid string) (chanlib.InboundMsg, boo
 		Timestamp:   int64(d.CreatedAt),
 		Topic:       topic,
 		Verb:        verb,
+		ReplyTo:     replyTo,
 		Attachments: atts,
 		// t4 is a private inbox message (DM); t1/t3 (comment/submission)
 		// always live inside a subreddit and are multi-actor.
-		IsGroup: t.Kind != "t4",
+		IsGroup:  t.Kind != "t4",
+		ChatName: chatName,
 	}, true
 }
 

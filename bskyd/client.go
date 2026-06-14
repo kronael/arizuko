@@ -281,8 +281,10 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		name = n.Author.Handle
 	}
 	topic := ""
+	replyTo := ""
 	if n.Record.Reply != nil {
 		topic = n.Record.Reply.Parent.URI
+		replyTo = topic
 	}
 	verb := "message"
 	if n.Reason == "reply" {
@@ -309,6 +311,7 @@ func (bc *bskyClient) handleNotification(n notification, rc *chanlib.RouterClien
 		Timestamp:   ts.Unix(),
 		Topic:       topic,
 		Verb:        verb,
+		ReplyTo:     replyTo,
 		Attachments: atts,
 		// All current bskyd inbound is feed-side (replies, mentions,
 		// likes on public posts). DM API isn't wired yet; when it is,
