@@ -1,8 +1,11 @@
 ---
-status: shipped
+status: shipped (untested)
 ---
 
 # Oracle — ask another model
+
+> **Note:** Skill exists but lacks tests. No automated verification of codex
+> subprocess invocation or graceful fallback on missing key.
 
 Experimental. One narrow question: how does Claude consult a second
 model when uncertain? Today's answer: an **oracle skill** in

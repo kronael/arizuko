@@ -1,12 +1,13 @@
 ---
-status: shipped
+status: partial
 depends: [I-tool-call-logging, ../7/F-audit-stream]
 ---
 
 # specs/5/O — Observability
 
-> **Status (2026-06-14):** Shipped. Three pillars: logs (slog + OTLP), traces
-> (per-turn spans), metrics (Prometheus `/metrics`). All configured via
+> **Status (2026-06-14):** Partial. Logs shipped (slog + OTLP export); traces
+> and metrics spec'd but not implemented. Missing: `obs/spans.go` (5 span types),
+> `obs/metrics.go` (9 metric families), `/metrics` handler. All configured via
 > standard OTel env vars; disabled by default. `obs/` package owns setup.
 
 ## What this solves
@@ -54,7 +55,7 @@ records run a sidecar collector with disk buffering.
 
 ---
 
-## Logs (shipped)
+## Logs (✓ shipped)
 
 ### Library shape
 
@@ -93,7 +94,7 @@ Exported by `I-tool-call-logging.md`. Fields ride as OTLP attributes under
 
 ---
 
-## Traces
+## Traces (✗ not implemented)
 
 ### Spans
 
@@ -135,7 +136,7 @@ stamps outbound tool calls. Not v1 — routd-side rebuild suffices for now.
 
 ---
 
-## Metrics
+## Metrics (✗ not implemented)
 
 Prometheus-style metrics exposed at `GET /metrics` per daemon when
 `METRICS_ENABLED=true`.
