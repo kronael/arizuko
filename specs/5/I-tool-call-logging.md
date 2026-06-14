@@ -1,11 +1,11 @@
 ---
-status: partial
+status: shipped
 depends: [5-uniform-mcp-rest]
 ---
 
 # specs/5/I — per-tool-call logging
 
-> **Status (2026-06-07): partial.** Layer A shipped — `audit_log` (params_summary, duration_ms, turn_id, surface, redaction) emitted in-tx across every daemon. Layer B deferred — the in-container PreToolUse/PostToolUse hooks + container-log tap (the `agent_pretool` surface constant exists; the hook script, `ant/.claude/settings.json` config, and log tap do not).
+> **Status (2026-06-14): shipped.** Both layers complete. Layer A: `audit_log` (params_summary, duration_ms, turn_id, surface, redaction) emitted in-tx via `audit.EmitInTx` across every daemon. Layer B: PreToolUse/PostToolUse hooks in `ant/src/tool-log.ts`, wired via `ant/src/backend/claude.ts`, captured by `container/runner.go` which forwards `[ant] [tool]` lines to slog.
 
 ## What this solves
 
