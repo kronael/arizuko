@@ -6,13 +6,16 @@ package routd
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanreg"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
 // es256Verifier is the in-package stand-in for cmd/routd's keysetVerifier: it
@@ -159,4 +162,65 @@ func TestChannelRegisterES256OriginPinSurvivesRotation(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("hijack by different principal: status=%d want 409", rec.Code)
 	}
+}
+
+// TestIngressJIDOwnershipES256: ingress rejects when the verified adapter
+// principal doesn't own the JID prefix. service:teled owns telegram: but not
+// slack:, so a slack: inbound from teled is denied.
+func TestIngressJIDOwnershipES256(t *testing.T) {
+	tok, ks := mintFor(t, "service:teled", "service")
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatalf("open mem db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := NewServer(db, nil, nil, es256Verifier{ks}, 0, "")
+	srv.SetChannelRegistry(chanreg.New(), nil, nil)
+	h := srv.Handler()
+
+	// register service:teled owning telegram:
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, chanReq("POST", "/v1/channels/register", tok, map[string]any{
+		"name": "teled", "url": "http://teled:8080",
+		"jid_prefixes": []string{"telegram:"},
+		"capabilities": map[string]bool{"send_text": true},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
+	}
+
+	cases := []struct {
+		name string
+		jid  string
+		want int
+	}{
+		{"owned telegram", "telegram:42", http.StatusOK},
+		{"unowned slack", "slack:T1/C/U", http.StatusBadRequest},
+		{"web exempt", "web:demo", http.StatusOK},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := doJSONWithBearer(t, h, "POST", "/v1/messages", tok, "",
+				apiv1.Message{ChatJID: c.jid, Sender: "u", Content: "hi", Verb: "message"})
+			if rec.Code != c.want {
+				t.Fatalf("jid %q: code=%d want %d (%s)", c.jid, rec.Code, c.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func doJSONWithBearer(t *testing.T, h http.Handler, method, path, bearer, idemKey string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, path, strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	if idemKey != "" {
+		req.Header.Set("X-Idempotency-Key", idemKey)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }

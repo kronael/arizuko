@@ -33,6 +33,7 @@ type Entry struct {
 	// different service principal.
 	OriginIP   string
 	SecretHash [32]byte
+	Principal  string // service principal (e.g., service:teled) for ingress ownership lookup
 }
 
 func (e *Entry) HasCap(cap string) bool { return e.Capabilities[cap] }
@@ -47,9 +48,10 @@ func (e *Entry) Owns(jid string) bool {
 }
 
 type Registry struct {
-	mu      sync.RWMutex
-	entries map[string]*Entry // keyed by name
-	byToken map[string]*Entry // keyed by session token
+	mu          sync.RWMutex
+	entries     map[string]*Entry // keyed by name
+	byToken     map[string]*Entry // keyed by session token
+	byPrincipal map[string]*Entry // keyed by service principal (service:<daemon>)
 
 	// bearer is the credential routd presents to adapters on egress: its
 	// service:routd ES256 token source (spec 5/1). nil → local dev (no
@@ -59,8 +61,9 @@ type Registry struct {
 
 func New() *Registry {
 	return &Registry{
-		entries: make(map[string]*Entry),
-		byToken: make(map[string]*Entry),
+		entries:     make(map[string]*Entry),
+		byToken:     make(map[string]*Entry),
+		byPrincipal: make(map[string]*Entry),
 	}
 }
 
@@ -113,6 +116,9 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 			}
 		}
 		delete(r.byToken, old.Token)
+		if old.Principal != "" {
+			delete(r.byPrincipal, old.Principal)
+		}
 	}
 
 	token, err := genToken()
@@ -129,9 +135,13 @@ func (r *Registry) RegisterWithOrigin(name, rawURL string, prefixes []string, ca
 		RegisteredAt: time.Now(),
 		OriginIP:     originIP,
 		SecretHash:   presentedHash,
+		Principal:    presentedSecret,
 	}
 	r.entries[name] = e
 	r.byToken[token] = e
+	if presentedSecret != "" {
+		r.byPrincipal[presentedSecret] = e
+	}
 
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryChannel,
@@ -155,6 +165,9 @@ func (r *Registry) Deregister(name string) {
 	e, ok := r.entries[name]
 	if ok {
 		delete(r.byToken, e.Token)
+		if e.Principal != "" {
+			delete(r.byPrincipal, e.Principal)
+		}
 		delete(r.entries, name)
 	}
 	r.mu.Unlock()
@@ -180,6 +193,12 @@ func (r *Registry) ByToken(token string) *Entry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.byToken[token]
+}
+
+func (r *Registry) ByPrincipal(principal string) *Entry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.byPrincipal[principal]
 }
 
 func (r *Registry) All() map[string]*Entry {

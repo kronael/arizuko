@@ -395,14 +395,21 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// reject): a platform-scheme inbound must land under a registered channel's
 	// prefixes — a caller can't inject JIDs no adapter owns. Internal schemes
 	// (web:/hook:/bare-folder, used by web chat + timed + onbod) carry no channel
-	// prefix and are exempt. NOTE the split decouples the JWT principal
-	// (AUTHD_SERVICE_NAME, e.g. teled) from the channel-registration name (e.g.
-	// telegram), so this binds to "some registered channel owns it", not to the
-	// caller's own entry; cross-adapter spoofing needs a principal↔channel map
-	// that the registry doesn't carry yet (see report).
-	if s.reg != nil && isChannelJID(m.ChatJID) && s.reg.ForJID(m.ChatJID) == nil {
-		writeErr(w, 400, "jid_prefix_mismatch", "no registered channel owns "+m.ChatJID)
-		return
+	// prefix and are exempt. When the caller is verified (sub != ""), maps the
+	// service principal to its registry entry and rejects when the entry doesn't
+	// own the JID prefix. When unverified (local dev, sub == ""), falls back to
+	// checking if any registered adapter owns it.
+	if s.reg != nil && isChannelJID(m.ChatJID) {
+		if sub != "" {
+			entry := s.reg.ByPrincipal(sub)
+			if entry == nil || !entry.Owns(m.ChatJID) {
+				writeErr(w, 400, "jid_prefix_mismatch", "adapter doesn't own "+m.ChatJID)
+				return
+			}
+		} else if s.reg.ForJID(m.ChatJID) == nil {
+			writeErr(w, 400, "jid_prefix_mismatch", "no registered channel owns "+m.ChatJID)
+			return
+		}
 	}
 	// Idempotency for the append-only log keys on the message id (the PK).
 	// X-Idempotency-Key is honored ONLY when id is absent: routd mints
