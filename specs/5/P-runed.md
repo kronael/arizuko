@@ -1,5 +1,6 @@
 ---
-status: partial
+status: shipped
+shipped: 2026-06-14
 depends:
   [
     1-auth-standalone,
@@ -11,13 +12,12 @@ depends:
 
 # runed — the execution plane
 
-> **Status (2026-06-10): partial.** The shipped surface is done: `runed`
-> is the sole container-spawner (`docker.sock` + crackbox egress attach),
-> owns the per-folder serialization / circuit-breaker / runTTL / steer +
-> the per-spawn capability-token broker, and records every run in
-> `runed.db`. The remaining gap is the **DB-stateless executor refactor**
-> (this spec's run-state design): `manager.go` still holds in-memory
-> maps; it must read `spawns` per admission (§ Run state).
+> **Shipped (2026-06-14).** runed is the sole container-spawner, owns
+> per-folder serialization / circuit-breaker / runTTL / steer, brokers
+> capability tokens, and records runs in `runed.db`. The DB-stateless
+> executor refactor is complete: `manager.go` reads `spawns` per
+> admission (no in-memory maps), `circuit_breaker` table persists failure
+> counts across restarts.
 
 **Decided.** `runed` is the **execution plane** — the daemon that runs the
 agent container per turn. It owns the **container execution envelope**:

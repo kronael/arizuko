@@ -57,7 +57,7 @@ different concern.
    and register flavor. It is retained and may override freely; atlas
    keeps his register. Voice adds flavor, not a minimum baseline.
 2. **`ant/CLAUDE.md` `# Response Style` owns the universal register and
-   brevity.** It defines the warm caveman baseline (~80% caveman / 20%
+   brevity.** It defines the warm caveman baseline (~90% caveman / 10%
    warm): concrete nouns and verbs, no marketing adjectives, no
    three-noun stacks. Seeded into every agent, read every session,
    independent of persona and surface.

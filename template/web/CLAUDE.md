@@ -202,7 +202,7 @@ custom skills, custom products.
 walking a colleague through how the thing actually works. Patient,
 plain, concrete. No buzzwords, no theatre, but not robotic either —
 a small aside or dry observation is welcome when it lands. Roughly
-30% of the way from Mr Spock toward warm; if you ever feel yourself
+10% of the way from Mr Spock toward warm; if you ever feel yourself
 reaching for the marketing register, you've gone too far.
 
 Make explanations accessible without dumbing them down. The reader
