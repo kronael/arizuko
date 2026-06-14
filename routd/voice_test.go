@@ -306,6 +306,46 @@ func TestEnrich_DownloadsWithoutTranscriptWhenVoiceOff(t *testing.T) {
 	}
 }
 
+// TestObservedMessages_GetEnriched verifies that messages routed to an observe
+// folder (is_observed=1, no turn) still get their attachments downloaded. This
+// was a bug: only trigger messages got enriched, observed messages had raw URLs.
+func TestObservedMessages_GetEnriched(t *testing.T) {
+	mediaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("image-bytes"))
+	}))
+	defer mediaSrv.Close()
+
+	db, l, groups := enrichLoop(t, mediaConfig{Enabled: true, MaxBytes: 1 << 20})
+
+	// Set up an observe route: tg:** → demo#observe (observe mode, no agent turn)
+	// Route target "demo#observe" parses to {Folder:"demo", Mode:"observe"}
+	db.SQL().Exec(`INSERT INTO routes(seq, match, target) VALUES(1, 'tg:**', 'demo#observe')`)
+
+	// Simulate an inbound message with attachment to the observed JID
+	att, _ := json.Marshal([]chanlib.InboundAttachment{{URL: mediaSrv.URL + "/img.png", Mime: "image/png", Filename: "img.png"}})
+	msg := core.Message{ID: "obs-1", ChatJID: "tg:123", Content: "check this image", Attachments: string(att), Timestamp: time.Now(), Verb: "message"}
+	if err := db.PutMessage(msg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Process via the observe path (pollOnce triggers route resolution + observe)
+	l.pollOnce()
+
+	// Verify: message should be enriched (attachment downloaded, content rewritten)
+	rows, _ := db.MessagesSince("tg:123", "")
+	if len(rows) == 0 {
+		t.Fatal("message not found")
+	}
+	if !strings.Contains(rows[0].Content, "<attachment") {
+		t.Errorf("observed message not enriched: %q", rows[0].Content)
+	}
+	// The file should exist in the media dir
+	files, _ := filepath.Glob(filepath.Join(groups, "demo", "media", "*", "img.png"))
+	if len(files) == 0 {
+		t.Error("media file not downloaded for observed message")
+	}
+}
+
 // --- helper parity (mirror of gateway HTTP-helper tests) ---
 
 func TestDownloadFile_OversizeErrors(t *testing.T) {

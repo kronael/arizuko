@@ -33,8 +33,11 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	if !r.ok {
 		if r.Observe != "" {
 			ids := make([]string, len(msgs))
-			for i, m := range msgs {
-				ids[i] = m.ID
+			for i := range msgs {
+				ids[i] = msgs[i].ID
+				if l.media.Enabled {
+					l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
+				}
 			}
 			if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
 				slog.Warn("process: mark observed", "jid", chatJID, "err", err)

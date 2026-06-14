@@ -503,10 +503,15 @@ func (l *Loop) pollOnce() {
 		if !r.ok {
 			if r.Observe != "" {
 				// Route-table observe rule: ingest silently into the folder's
-				// ambient context (is_observed=1), no turn.
+				// ambient context (is_observed=1), no turn. Enrich attachments so
+				// later turns see downloaded media, not raw URLs (fix: observed
+				// messages were missing media enrichment, only triggers got it).
 				ids := make([]string, len(chatMsgs))
-				for i, m := range chatMsgs {
-					ids[i] = m.ID
+				for i := range chatMsgs {
+					ids[i] = chatMsgs[i].ID
+					if l.media.Enabled {
+						l.enrichAttachments(context.Background(), &chatMsgs[i], r.Observe)
+					}
 				}
 				if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
 					slog.Warn("poll: mark observed", "jid", chatJID, "err", err)
