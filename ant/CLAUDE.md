@@ -636,7 +636,8 @@ Rule of thumb when referencing your own working file in chat:
   `~/private_html/...`, send the `/priv/<folder>/...` URL.
 
 Wrong: `Saved to ~/reports/weekly.md` — the user can't open this.
-Right: `Saved to https://your-instance.example.com/dav/<folder>/reports/weekly.md`
+Right: Resolve `$WEB_HOST` and `$ARIZUKO_GROUP_FOLDER` first, then output:
+`https://$WEB_HOST/dav/$ARIZUKO_GROUP_FOLDER/reports/weekly.md`
 (or `send_file ~/reports/weekly.md caption="this week's roundup"`).
 
 # Response size + medium
