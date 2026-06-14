@@ -87,23 +87,17 @@ becomes a thin forwarder for task ops.
 
 ## Configuration
 
-Dual fire-loop path, gated on `ROUTER_URL`:
-
-- **Monolith** (`ROUTER_URL` unset) — direct messages.db: claim → enqueue →
-  log → reschedule run as SQL against the shared DB.
-- **Split** (`ROUTER_URL` set) — federated over routd: timed opens NO
-  messages.db. Per tick it drives `GET /v1/tasks/due` (claim),
-  `POST /v1/messages` (enqueue), `POST /v1/tasks/runlog` (log),
-  `POST /v1/tasks/{id}/reschedule` (next_run+status) with a `service:timed`
-  token exchanged from `AUTHD_SERVICE_KEY` at `AUTHD_URL`.
+timed opens NO local DB. It drives routd over HTTP on every tick:
+`GET /v1/tasks/due` (claim), `POST /v1/messages` (enqueue),
+`POST /v1/tasks/runlog` (log), `POST /v1/tasks/{id}/reschedule`
+(next_run+status) — all authenticated with a `service:timed` ES256 token
+exchanged from `AUTHD_SERVICE_KEY` at boot.
 
 Env:
 
-- `DATA_DIR` — resolves `<DATA_DIR>/store/messages.db` if `DATABASE` unset (monolith)
-- `DATABASE` — explicit sqlite DSN (monolith)
+- `ROUTER_URL` — required; routd address (`http://routd:8080`)
+- `AUTHD_URL` / `AUTHD_SERVICE_KEY` — service-token boot-exchange
 - `TZ` — cron timezone (default `UTC`)
-- `ROUTER_URL` — split router (`http://routd:8080`); set → federated path
-- `AUTHD_URL` / `AUTHD_SERVICE_KEY` — service-token boot-exchange (split)
 
 ## Health signal
 
@@ -112,8 +106,8 @@ no `task_run_logs` rows appearing despite active tasks.
 
 ## Files
 
-- `main.go` — dispatch + monolith poll loop, claim-fire-advance on messages.db.
-- `split.go` — federated fire loop over routd's HTTP surface (no messages.db).
+- `main.go` — entry point; validates `ROUTER_URL`, delegates to `runSplit`.
+- `split.go` — poll loop: claim due tasks → enqueue message → log → reschedule.
 
 ## Related docs
 

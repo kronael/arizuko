@@ -1,13 +1,14 @@
 # store
 
-SQLite access layer. Owns `messages.db` schema and all migrations.
+SQLite access layer. Shared schema library for the split topology.
 
 ## Purpose
 
-Single writer of the shared database. `Migrate` runs every migration in
-`migrations/` on `Open`. Other daemons connect to the same DB but must
-wait for the owning daemon to finish migrating on startup (WAL mode + 5s busy
-timeout tolerate the handoff).
+`store` is a library, not a daemon. It provides the `Open`/`Migrate` call
+and typed accessors for the tables shared across daemons (`messages.db` in
+the split is owned by routd; `onbod.db` by onbod; `auth.db` by authd —
+each runs its own migrations). WAL mode + 5 s busy timeout tolerate
+concurrent readers on the same file.
 
 ## Public API
 

@@ -69,7 +69,7 @@ session_log).
 - `DATA_DIR` — `routd.db` + groups/web dirs
 - `AUTHD_URL` — JWKS source; unset → verifier open (local-dev)
 - `AUTHD_SERVICE_KEY` / `ROUTD_SERVICE_TOKEN` — service identity for outbound
-- `RUNED_URL` (default `http://runed:8080`), `WEB_HOST`, `CHANNEL_SECRET`
+- `RUNED_URL` (default `http://runed:8080`), `WEB_HOST`
 - `LISTEN_ADDR`, `ENGAGEMENT_TTL`, `ASSISTANT_NAME`, `SEND_DISABLED_CHANNELS`
 
 ## Health signal

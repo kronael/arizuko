@@ -37,7 +37,8 @@ off the shared DB. Once federation lands those reads migrate to
 Shipped today (see `server.go`):
 
 - `POST /send`, `POST /typing`, `POST /v1/round_done` — channel adapter
-  inbound from routd, signed via `CHANNEL_SECRET` (`channel.go`).
+  inbound from routd, verified via ES256 `service:routd` token (`channel.go`,
+  `chanlib.Auth`).
 - `GET /api/groups`, `GET /api/groups/{folder}/topics`,
   `GET /api/groups/{folder}/messages` — chat UI JSON reads
   (`api.go`).
@@ -65,8 +66,8 @@ Planned per `specs/5/5-uniform-mcp-rest.md`:
   accept either headers signed by `proxyd` (`PROXYD_HMAC_SECRET`) or a
   Bearer ES256 token verified against authd's JWKS (fetched via
   `auth.FetchKeys` at boot). webd never signs tokens.
-- `/send`, `/typing`, `/v1/round_done` keep their existing
-  `chanlib.Auth(channelSecret)` HMAC contract.
+- `/send`, `/typing`, `/v1/round_done` are gated by `chanlib.Auth`:
+  ES256 `service:routd` token when `AUTHD_URL` is set, open in local dev.
 - `/chat/<token>/*` stays unauthenticated; the URL route-token IS the
   capability (looked up in `route_tokens`).
 
@@ -88,7 +89,7 @@ reads to routd.
 
 ## Configuration
 
-- `WEBD_LISTEN`, `WEBD_URL`, `ROUTER_URL`, `CHANNEL_SECRET`
+- `WEBD_LISTEN`, `WEBD_URL`, `ROUTER_URL`
 - `WEB_HOST`, `ASSISTANT_NAME`
 - `PROXYD_HMAC_SECRET` — shared with proxyd to verify forwarded headers
 
