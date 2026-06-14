@@ -1,20 +1,18 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `routd` process (`routd.ServeTurnMCP`); per
-`specs/5/5-uniform-mcp-rest.md` this is the **MCP host** issuer in the
-platform-token model.
+subsystem inside the `routd` process; per `specs/5/5-uniform-mcp-rest.md`
+this is the **MCP host** issuer in the platform-token model.
 
 ## Purpose
 
 One MCP server per group at `ipc/<folder>/gated.sock`, JSON-RPC over a
-unix socket, one connection per agent container. Action tools
-(send/reply/post/like/…, `schedule_task`, `register_group`,
-`set_routes`, …) mutate state; the `inspect_*` family is read-only
-introspection. Tools are filtered per-caller by `auth.Authorize`
-against derived grant rules. Identity (folder, tier) is resolved from
-the socket path; the kernel-attested peer uid (`SO_PEERCRED`) gates
-every connection.
+unix socket, one connection per agent container. Concurrent connections
+bounded to 8 per socket. Action tools (send/reply/post/like/…,
+`schedule_task`, `register_group`, `set_routes`, …) mutate state; the
+`inspect_*` family is read-only introspection. Tools are filtered by
+grant rules; identity (folder, tier) is resolved from the socket path;
+the kernel-attested peer uid (`SO_PEERCRED`) gates every connection.
 
 ## Capability token (planned, per `specs/5/5-uniform-mcp-rest.md` §"Issuance sites")
 
@@ -78,19 +76,34 @@ Social verbs (chanreg-backed, `*UnsupportedError`-aware):
   `quote`, `repost`, `edit`, `pin_message`, `unpin_message`,
   `unpin_all`, `send_file`, `send_voice`
 
-(Names are post-rename: `send_message`→`send`, `send_reply`→`reply`,
-`react`→`like`, `score_down`→`dislike`, `delete_post`→`delete`. No
-aliases.)
-
 Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
-`refresh_groups`, `list_routes`, `set_routes`, `add_route`,
-`delete_route`, `list_acl`, `fetch_history`,
-`get_thread`, `inject_message`,
-`fork_topic` (branch a topic from another's current state — spec 6/F).
+`list_routes`, `set_routes`, `add_route`, `delete_route`, `add_acl`,
+`remove_acl`, `inject_message`, `fork_topic`, `reset_session`,
+`observe_group`, `unobserve_group`, `set_observe_window`,
+`set_group_open`, `engage`, `disengage`.
+
+Tasks: `schedule_task`, `list_tasks` (plus `inspect_tasks` in read-only).
+
+Invites: `invite_create`, `invite_list`, `invite_revoke`.
+
+Route tokens: `issue_chat_link`, `issue_webhook`, `list_tokens`,
+`revoke_token`.
+
+Network: `network_allow`, `network_deny`, `network_list`.
+
+Web routes: `set_web_route`, `del_web_route`, `list_web_routes`,
+`get_web_presence`.
+
+Slack pane controls: `pane_set_prompts`, `pane_set_title`.
+
+Cost tracking: `log_external_cost`.
+
+MCP-subprocess connectors: dynamically registered from catalog (spec 7/Y).
 
 Per-turn agent output flows back over the same socket via the
-`submit_turn` JSON-RPC method (hidden from `tools/list`); stdout from
-the container is discarded.
+`submit_turn` JSON-RPC method (hidden from `tools/list`);
+`submit_status` delivers mid-turn progress notices. Stdout from the
+container is discarded.
 
 Read-only introspection: `inspect_messages`, `inspect_routing`,
 `inspect_tasks`, `inspect_session`, `inspect_identity`, `find_messages`.
@@ -109,10 +122,13 @@ post-fetch `JIDRoutedToFolder` per row.
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = ant image's `node` user in prod; ≤0 disables the check for
   tests). `callerSub` is the agent's auth subject, stamped into audit
-  rows as the actor.
-- `GatedFns` — callbacks into the host daemon, routd (enqueue, register channel, run container, social verbs). The type name is historical; routd wires it via `buildGatedFns`.
+  rows as the actor. Returns a stop func that tears down the listener.
+- `GatedFns` — callbacks into the host daemon, routd (enqueue, register
+  channel, run container, social verbs).
 - `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)
-- `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types
+- `TurnResult`, `ModelUsage` — turn submission payloads
+- `RouteTokenInfo` — route token metadata
+- `PlatformHistory`, `ErroredChat`, `TaskRunLog`, `NetworkRule` — DTO types
 
 ## Dependencies
 
@@ -120,8 +136,12 @@ post-fetch `JIDRoutedToFolder` per row.
 
 ## Files
 
-- `ipc.go` — server wiring, action tools, `SO_PEERCRED` accept gate
-- `inspect.go` — read-only introspection (`inspect_routing`, `inspect_tasks`, `inspect_session`, `inspect_identity`)
+- `ipc.go` — server wiring, action tools, `SO_PEERCRED` accept gate,
+  social verbs, routing/groups, tasks, invites, tokens, network
+- `inspect.go` — read-only introspection (`inspect_routing`,
+  `inspect_tasks`, `inspect_session`, `inspect_identity`,
+  `inspect_messages`, `find_messages`)
+- `connector.go` — MCP-subprocess tool broker (spec 7/Y)
 - `SECURITY.md` — threat model (peer UID, path resolution, grants)
 
 ## Related docs
@@ -130,6 +150,7 @@ post-fetch `JIDRoutedToFolder` per row.
 - `specs/5/30-inspect-tools.md`
 - `specs/5/5-uniform-mcp-rest.md` — MCP host's role as token issuer +
   HTTP-federation pattern for foreign-domain tools
-- `../auth/README.md` — `Mint`/`VerifyHTTP`/`HasScope`/`MatchesFolder` contract
+- `specs/7/Y-connectors.md` — MCP-subprocess tool catalog
+- `../auth/README.md` — `Authorize` / identity resolution
 - `../routd/README.md` — host process; routd-owned tables stay local
-- `SECURITY.md` — root threat model
+- `../SECURITY.md` — root threat model
