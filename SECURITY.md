@@ -14,7 +14,7 @@ Three isolation axes:
    (directly or through `acl_membership`). OAuth → JWT at the proxy
    edge; `auth.Authorize` enforces.
 3. **Daemon isolation** — adapters reach routd only over the internal
-   docker network with a shared `CHANNEL_SECRET` bearer token.
+   docker network using ES256 service tokens minted by `authd`.
 
 ### The group is the tenant boundary
 
@@ -73,11 +73,11 @@ makes the cross-tenant threat go away.
 | Web routes          | `/pub/*` + `/health` public; `/priv/*` JWT-gated (serves from `web/priv/`); `/slink/*` forwarded to webd (which 301s → `/chat/<token>/`); `/chat/*` + `/hook/*` token; rest JWT                                                       | `proxyd/main.go`, `webd/server.go` (`handleSlinkRedirect`)                                        |
 | Chat-MCP            | `/chat/<token>/mcp` — token IS the auth; possession = group membership                                                                                                                                                                | `webd/chat_mcp.go` (`handleChatMCP`)                                                              |
 | WebDAV write-block  | `.env` / `*.pem` / `.git` write-blocked; `<group>/logs/` read-only                                                                                                                                                                    | `proxyd/main.go` (`davAllow`)                                                                     |
-| Chat identity relay | proxyd signs `X-Folder` via HMAC with `X-Chat-Token`; webd verifies                                                                                                                                                                   | `proxyd/main.go`, `auth.SignHMAC`                                                                 |
+| Chat identity relay | proxyd stamps `X-Folder` and proves channel via ES256 `service:proxyd` bearer; webd verifies via `auth.ProxydTransit`                                                                                                                 | `proxyd/main.go`, `webd/server.go` (`auth.ProxydTransit`)                                         |
 | Authn               | GitHub / Google / Discord / Telegram OAuth → JWT (1h) + refresh (30d)                                                                                                                                                                 | `auth/web.go`, `auth/oauth.go`                                                                    |
 | Login throttle      | 5 POST `/auth/login` per IP per 15min, in-memory                                                                                                                                                                                      | `auth/web.go`                                                                                     |
 | Authz               | Unified `acl` + `acl_membership` → `auth.Authorize`; `grants.CheckAction` for per-tool param gating                                                                                                                                   | `auth/authorize.go`, `grants/`                                                                    |
-| Channel ingress     | `Authorization: Bearer <CHANNEL_SECRET>`; docker-network only                                                                                                                                                                         | `chanlib/run.go`, `chanlib/chanlib.go` (`Auth`), `api/api.go`                                     |
+| Channel ingress     | ES256 service token (`AUTHD_SERVICE_KEY`); adapter exchanges key for `service:<daemon>` JWT on startup, presents bearer on every routd call; docker-network only                                                                      | `chanlib/run.go`, `chanlib/chanlib.go` (`bearer`)                                                 |
 | Slack webhook       | proxyd forwards `/slack/*` → `slakd:8080` verbatim; `X-Slack-Signature` HMAC over `v0:<ts>:<body>` (signing secret); ±5min skew                                                                                                       | `slakd/bot.go` (verify), `template/services/slakd.toml` (route), `slakd/README.md` § Threat model |
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                      | `emaid/imap.go`, spec 10/17                                                                       |
 | Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                        | `routd/loop.go`, spec 6/J                                                                         |
@@ -106,33 +106,24 @@ the agent explicitly copying bytes. Full model:
 
 ## Identity header trust
 
-`proxyd` is the **sole signer** of identity headers
-(`X-User-Sub`, `X-User-Name`, `X-User-Groups`, `X-User-Sig`).
-Every other HTTP-receiving backend MUST verify the signature via the
-centralized middleware in `auth/middleware.go`:
+`proxyd` is the **sole stamper** of identity headers
+(`X-User-Sub`, `X-User-Name`, `X-User-Groups`). It strips any
+client-supplied values, authenticates the user, re-stamps the headers,
+then proves the channel to backends by attaching its own authd-minted
+ES256 service token (`sub=service:proxyd`) as the `Authorization: Bearer`.
+Backends trust the stamped headers **only** when that transit proof
+verifies:
 
-- `auth.RequireSigned(secret)` — strict, redirect-on-fail. Use on
-  always-authed backends (e.g. `webd/server.go:44` constructs it once
-  and stamps it on every private route).
-- `auth.StripUnsigned(secret)` — lenient, scrub-spoofed-and-continue.
-  Use on backends mixing public + authed flows (e.g. `onbod/main.go:81`
-  protects `/onboard` and `/invite/{token}` so unauthenticated landings
-  still work but a forged `X-User-Sub` never reaches a handler).
+- `auth.ProxydTransit(r, ks)` — returns true when the request carries a
+  valid authd ES256 bearer with `typ=service`, `sub=service:proxyd`. Both
+  `webd` and `onbod` call this before acting on `X-User-*`. With no JWKS
+  configured (`ks==nil`, local dev), it always returns false — callers
+  gate the open-for-local-dev path on `ks==nil` separately.
 
-The shared secret is `PROXYD_HMAC_SECRET` in `.env`. It must be set
-and **identical** in both `proxyd` and `webd` (and `onbod`). The
-compose generator propagates it from `.env` to each service's scoped
-`env/<daemon>.env`. If unset, proxyd generates an ephemeral secret
-per run — webd will then reject all signed headers, breaking ant link
-SSE auth and authenticated web chat.
-
-Crypto lives in `auth/hmac.go` (`SignHMAC`, `VerifyUserSig`,
-`UserSigMessage`) and is shared by both signer and verifiers. Never
-inline a `VerifyUserSig` call in handler code — go through the
-middleware. The single exception is in `webd/slink.go` where signed
-identity is one of two acceptable identities (the other being
-anonymous-from-trusted-IP); even there, the call is a boolean
-"is this user known?" check, not an authentication gate.
+No shared HMAC secret. The pin is the subject claim: without it, any
+holder of a valid authd token reaching a backend directly could spoof
+`X-User-*`. The `service:proxyd` subject is the load-bearing check
+(`auth/middleware.go`).
 
 ## Trust zones
 
