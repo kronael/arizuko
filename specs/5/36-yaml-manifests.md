@@ -1,5 +1,6 @@
 ---
-status: partial
+status: shipped
+shipped: 2026-06-14
 depends: specs/5/5-uniform-mcp-rest.md, specs/8/2-data-model.md
 ---
 
