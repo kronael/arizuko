@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [5-uniform-mcp-rest, 6-middleware-pipeline]
+depends: [5-uniform-mcp-rest, 5/E-routd]
 supersedes-in-part: [4/19-action-grants.md]
 ---
 

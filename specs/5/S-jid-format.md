@@ -11,9 +11,8 @@ shipped: 2026-05-01
 > `*url.URL`, with `ParseJID`/`MatchJID`) were **descoped** — production
 > keeps JIDs as plain `string`s and splits them with `core.JidPlatform` /
 > `core.JidRoom` (`core/types.go`); `router.RouteMatches` does the
-> `path.Match`. `core/jid.go` was deleted. The genericization direction
-> ([`U-genericization.md`](U-genericization.md)) moves `ChatJID` further
-> toward a bare string alias. Read every "typed struct" / `ParseJID` /
+> `path.Match`. `core/jid.go` was deleted. The split daemons keep `ChatJID`
+> as a bare string alias. Read every "typed struct" / `ParseJID` /
 > `JID.Path()` reference below as the wire contract those helpers enforce,
 > not as live Go types.
 

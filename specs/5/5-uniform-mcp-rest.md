@@ -40,8 +40,8 @@ Today's surface is split asymmetrically:
   hand-written wrapper over `gated`/`store` calls.
 - Authorization lives in [`auth/policy.go:14-96`](../../auth/policy.go),
   a hand-maintained switch over tool names; gating is by capability
-  scope (tier is dropped — [`U-genericization.md`](U-genericization.md)
-  "Capability-vs-tier"). Today proxyd injects signed identity headers
+  scope (tier is dropped — capability tokens via authd downscope).
+  Today proxyd injects signed identity headers
   via [`proxyd/main.go:590-604`](../../proxyd/main.go) and in-container
   agents carry no token — the target model below gives agents an
   `authd`-minted capability token for sibling `/v1/*` calls.
@@ -233,8 +233,8 @@ opaque and surfaces it via `Identity.Extra["folder"]` — it is never a
 first-class `auth.Identity` field. It scopes the token to a subtree: an
 `atlas/main` token can operate on `atlas/main/*` resources but not on
 `rhias/*`. Root tokens omit it. There is no `tier` — authorization is
-scope-match over `scope` ([`U-genericization.md`](U-genericization.md)
-"Capability-vs-tier"); folder bounds the subtree, scopes bound the verbs.
+scope-match over `scope` (capability tokens via authd downscope, not tier);
+folder bounds the subtree, scopes bound the verbs.
 
 Scopes are minted from grant rules at issuance time (snapshot), so
 revoking grants requires token expiry or an explicit revocation list.
@@ -350,8 +350,8 @@ cross-daemon reaches into another's storage.
 | **dashd**  | nothing — aggregator UI calling the above                                                                                                                                       | HTML/HTMX over `/v1/*` of others                                                                                                                                                                  |
 
 The first four rows are the products of the `gated` split
-([`U-genericization.md`](U-genericization.md) Phase C, [`E-routd.md`](E-routd.md),
-[`P-runed.md`](P-runed.md)): `authd` signs (extracted standalone first),
+([`E-routd.md`](E-routd.md), [`P-runed.md`](P-runed.md)): `authd` signs
+(extracted standalone first — [`1-auth-standalone.md`](1-auth-standalone.md)),
 then `routd` (conversation engine + sole message appender; also hosts the
 agent MCP socket in-process, `ServeTurnMCP`) and `runed` (execution plane:
 queue + container lifecycle) carve out in one multi-DB cutover. This
@@ -840,8 +840,8 @@ slog telemetry only — no audit row. Field schema:
   that spec's per-action matrix becomes the scope minter — at issuance,
   `folder` + grant rules → set of `<resource>:<verb>[:own_group]`
   scopes. The matrix authors which scopes `authd` mints; this spec
-  authors how scopes are checked. No `tier` participates
-  ([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
+  authors how scopes are checked. No `tier` participates (capability
+  tokens via authd downscope, not tier).
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
   9-case per-tool switch. After Phase G it is **deleted** — not thinned.
   The per-resource `Authz` callback delegating to `auth.Authorize` over

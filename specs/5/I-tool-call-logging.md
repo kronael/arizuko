@@ -169,9 +169,8 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
   `Caller`/`Resource`/`Action` shape this spec extends; the audit
   emit contract; the federated `/v1/*` surfaces whose REST hits
   this spec covers.
-- [`5/U-genericization.md`](U-genericization.md) — each daemon owns
-  its `audit_log` table or shares the gated one; covered in Q3 of
-  this spec when daemon-DB split lands.
+- [`5/E-routd.md`](E-routd.md), [`5/P-runed.md`](P-runed.md) — each
+  daemon owns its own DB; `audit_log` is co-located per daemon.
 - [`5/36-yaml-manifests.md` §OpenAPI emission](36-yaml-manifests.md#openapi-emission) — the
   endpoint catalog this spec logs against.
 - [`7/F-audit-stream.md`](../7/F-audit-stream.md) — the DB-side

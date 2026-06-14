@@ -173,8 +173,7 @@ covers the today consumer pattern and
 [`specs/11/12-crackbox-sandboxing.md`](12-crackbox-sandboxing.md)
 the planned [`sandd`](c-sandd.md) extraction. KVM lands as one backend
 behind the `ContainerRuntime` seam — see
-[`specs/5/U-genericization.md`](../5/U-genericization.md) §
-_ContainerRuntime — pluggable sandbox backends_.
+[`specs/5/P-runed.md`](../5/P-runed.md) § ContainerRuntime.
 
 ### messaging-gateway (future, extracted from gated)
 

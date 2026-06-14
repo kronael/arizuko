@@ -12,10 +12,10 @@ status: draft
 
 Draft / future. No consumer wired yet. Cataloged in
 [A-orthogonal-components.md](A-orthogonal-components.md) §
-_mcp-firewall_; this spec expands that stub. Extraction lands when the
-gated split ([U-genericization.md](../5/U-genericization.md)) reaches
-`mcpd` (the MCP host) and per-folder tool gating needs a home that
-isn't tangled with grants.
+_mcp-firewall_; this spec expands that stub. The gated split shipped
+(`routd` + `runed` — see [`specs/5/E-routd.md`](../5/E-routd.md),
+[`P-runed.md`](../5/P-runed.md)); this lands when per-folder tool gating
+needs a home that isn't tangled with grants.
 
 ## Problem
 
@@ -185,12 +185,13 @@ the derived list:
    `pkg/firewall` in-process) as `{tool: <glob>, action: allow}` rules,
    one ruleset per agent/turn. Denials are implicit via default-deny;
    explicit `deny` rules express revocations on top of a broad allow.
-3. `mcpd` (the MCP host from the gated split,
-   [U-genericization.md](../5/U-genericization.md)) sits **behind** the
-   firewall. The in-container agent's MCP client connects to the
-   firewall socket — the same `ipc/` socat bridge it uses today
-   ([ipc/SECURITY.md](../../ipc/SECURITY.md)); the firewall dials
-   `mcpd`. The agent cannot reach `mcpd` except through the firewall.
+3. `routd` hosts the per-turn MCP socket (see
+   [`specs/5/E-routd.md`](../5/E-routd.md)); the firewall sits
+   **between** the in-container agent and that socket. The agent's MCP
+   client connects to the firewall socket — the same `ipc/` socat bridge
+   it uses today ([ipc/SECURITY.md](../../ipc/SECURITY.md)); the firewall
+   dials routd. The agent cannot reach the MCP socket except through the
+   firewall.
 4. The firewall allows / denies / logs each `tools/call`; arizuko reads
    the decision log via `GET /v1/log` for audit (arizuko's own
    `audit_log` remains the forensic source of truth — the firewall's

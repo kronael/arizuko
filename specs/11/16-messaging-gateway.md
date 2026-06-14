@@ -30,14 +30,15 @@ to spawn an agent, and the message types carry `chat_jid` / `sender` /
 destination id, retry on failure) is reusable; the domain (what a
 folder is, which grant applies, when to spawn) is not.
 
-Per [U-genericization.md](../5/U-genericization.md), `gated` is being
-split into per-daemon daemons — `routd` (routing), `runed` (agent
-runner), `mcpd` (MCP host), `authd`. `routd` is the arizuko **daemon**
-that owns the domain. messaging-gateway is the generic **component**
-that `routd` consumes. They are distinct: `routd` maps arizuko folders
-onto messaging-gateway's opaque route ids and applies grants before
-handing over a flat route; messaging-gateway never learns a folder
-existed.
+The gated split shipped: `routd` (routing +
+MCP host — see [`specs/5/E-routd.md`](../5/E-routd.md)), `runed` (agent
+runner — [`P-runed.md`](../5/P-runed.md)), `authd`
+([`1-auth-standalone.md`](../5/1-auth-standalone.md)). `routd` is the
+arizuko **daemon** that owns the domain. messaging-gateway is the generic
+**component** that `routd` consumes. They are distinct: `routd` maps
+arizuko folders onto messaging-gateway's opaque route ids and applies
+grants before handing over a flat route; messaging-gateway never learns a
+folder existed.
 
 ## What it owns (mechanism)
 
@@ -178,9 +179,8 @@ Per [A §_Acceptance_](A-orthogonal-components.md):
 
 ## How arizuko consumes it
 
-`routd` (the arizuko routing daemon from the
-[U-genericization.md](../5/U-genericization.md) gated split) is the
-domain layer on top:
+`routd` (the arizuko routing daemon — see
+[`specs/5/E-routd.md`](../5/E-routd.md)) is the domain layer on top:
 
 1. `routd` owns the folder hierarchy, the route rules joined with
    grants, and the priority ladder (@mention > reply > sticky >

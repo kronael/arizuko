@@ -10,7 +10,7 @@ an access token, and lets them interact. The operator runs the
 platform; the platform runs the tenants.
 
 Rides on [5-uniform-mcp-rest.md](5-uniform-mcp-rest.md) (federated `/v1/*` and
-capability tokens) and [U-genericization.md](U-genericization.md)
+capability tokens), [`E-routd.md`](E-routd.md) and [`P-runed.md`](P-runed.md)
 (`types.Folder`, `runed`). Shares its seeding code with
 [../16/R-products.md](../16/R-products.md) — products are the static path,
 this is the dynamic path. Reference for the API shape:
@@ -43,8 +43,8 @@ same MCP socket model. The new surface is the _creation_ gate.
   `folder=agents/<user_sub>/<agent_name>` and the capability scopes
   `messages:{read,send}` + `tasks:read` (plus a `user_spawned` marker
   scope if a deployment wants to single these tenants out). There is no
-  `tier` — authorization is scope-match
-  ([`U-genericization.md`](U-genericization.md) "Capability-vs-tier").
+  `tier` — authorization is scope-match (capability tokens via authd
+  downscope, not tier; see [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)).
   No `grants:write`, no `routes:write` outside the subtree.
 - **Skill allowlist.** Definition's `skills` is intersected with
   `USER_SPAWNED_ALLOWED_SKILLS` (default: `diary`, `facts`,
@@ -123,8 +123,7 @@ user --POST /v1/agents--> gated
 `arizuko create --product <name>` collapses to the same flow with
 `user_sub=operator`, `auto_approve=true`, definition sourced from
 `ant/examples/<name>/`. One code path; the menu is the operator's
-shortcut. `runed` is per U-genericization Phase C; until that
-ships, `container.SetupGroup` + gateway do the job.
+shortcut. `runed` ([`P-runed.md`](P-runed.md)) owns the container spawn.
 
 ## Out of scope
 

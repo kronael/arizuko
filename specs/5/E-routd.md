@@ -2,7 +2,6 @@
 status: shipped
 depends:
   [
-    U-genericization,
     Q-unified-routing,
     B-route-mode-ingestion,
     F-topic-lineage,
@@ -42,12 +41,11 @@ transactional view per `(chat, group)`.
 `status: shipped` (2026-06). The loop was extracted verbatim from the
 former `gateway/gateway.go` + `api/api.go` (now deleted) + `store/` +
 `router/` into this standalone daemon. routd shipped in the gated-split
-release alongside `runed` (the `authd` daemon shipped standalone first;
-[`U-genericization.md`](U-genericization.md) § Phase C, § HMAC
-retirement). It landed as one coordinated migration: the daemons carved
-their tables into their own DBs (`routd.db`/`runed.db`), the monolithic
-`messages.db` schema-authority was deleted, no shared-DB interim, no compat shim
-([`U-genericization.md`](U-genericization.md) NO BACKWARD COMPATIBILITY).
+release alongside `runed` (the `authd` daemon shipped standalone first).
+It landed as one coordinated migration: the daemons carved their tables
+into their own DBs (`routd.db`/`runed.db`), the monolithic `messages.db`
+schema-authority was deleted, no shared-DB interim, no compat shim
+(`ARCHITECTURE.md` § Daemon conventions — no backward compatibility).
 The agent MCP socket is hosted **in-process by routd**
 (`ServeTurnMCP`) — no separate MCP-host daemon and no runed federation
 (see Status note). `runed` ([`P-runed.md`](P-runed.md)) only spawns the
@@ -88,8 +86,8 @@ Hard boundaries, no overlap:
 ## routd.db schema
 
 `routd` owns `routd.db` — its own SQLite file (WAL), its own
-`routd/migrations/` subdir, per the
-[`U-genericization.md`](U-genericization.md) DB-ownership rule. The
+`routd/migrations/` subdir, per the DB-ownership rule
+(`ARCHITECTURE.md` § Daemon conventions). The
 tables below carry the live column shapes out of today's `messages.db`
 (`store/migrations/*.sql`). **Times are RFC3339Nano UTC TEXT
 throughout** — the Go layer computes every timestamp (no `strftime` in
@@ -510,7 +508,7 @@ ordered view per `(chat, group)`**, serial within a folder.
 
 `routd/api/v1/` is the published-contract package (wire types + thin
 client), importing only `types/`
-([`U-genericization.md`](U-genericization.md) § Per-service api/v1).
+(`ARCHITECTURE.md` § Daemon conventions — per-daemon api/v1).
 Every endpoint has an MCP twin where an agent needs it — one hand-written
 handler, two faces ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)).
 
@@ -982,8 +980,8 @@ offline-verified + scope-checked by routd; runed never re-signs.
 runed never opens `routd.db` or appends a message. The agent run is
 driven over the `POST /v1/runs` contract; the conversation tools are
 served in-process by routd's MCP socket. The `ContainerRuntime` seam
-([`U-genericization.md`](U-genericization.md) § ContainerRuntime) lives
-entirely inside runed.
+([`P-runed.md`](P-runed.md) § ContainerRuntime) lives entirely inside
+runed.
 
 ## Auth
 
@@ -1013,8 +1011,8 @@ precedes this split
 
 ## Standalone-ready acceptance
 
-One contract test (the [`U-genericization.md`](U-genericization.md)
-§ Acceptance bar for routd), in `tests/standalone/routd_test.go`:
+One contract test (standalone-readiness acceptance bar), in
+`tests/standalone/routd_test.go`:
 
 > Boots with `DB_PATH=/tmp/routd.db` and a stub `RUNED_URL`; runs its own
 > migrations; accepts an inbound via `POST /v1/messages`; resolves a route

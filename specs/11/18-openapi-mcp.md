@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [1-auth-standalone, U-genericization, 36-yaml-manifests]
+depends: [1-auth-standalone, 5/E-routd, 36-yaml-manifests]
 ---
 
 # openapi-mcp — annotated REST → well-behaved MCP
@@ -22,9 +22,8 @@ declaration. This spec extends the **derivation** from CRUD rows to
 agent-facing description in the OpenAPI doc, and defines the generic
 gateway that renders any annotated doc as MCP. Gated on `authd`
 ([1-auth-standalone.md](../5/1-auth-standalone.md), the REST JWT gate)
-and the per-daemon `/v1/*` structure
-([U-genericization.md](../5/U-genericization.md)). Cataloged here, not
-yet extracted.
+and the per-daemon `/v1/*` structure (`ARCHITECTURE.md` § Daemon
+conventions). Cataloged here, not yet extracted.
 
 ## Problem
 

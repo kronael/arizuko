@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [Y-secret-broker, 5/6-middleware-pipeline]
+depends: [Y-secret-broker, 5/E-routd]
 ---
 
 # egred HTTPS-MITM — placeholder substitution at egress
@@ -88,8 +88,8 @@ crackbox/cmd/crackbox/main.go             new `ca init` subcommand wraps cagen
 
 The data path is a `[]func(http.Handler) http.Handler` slice reduced
 into a single handler by `Chain(slice, terminal)` — same idiom as
-`proxyd/main.go` (see `specs/5/6-middleware-pipeline.md ## 6/6c HTTP
-chain`):
+`proxyd/main.go` (HTTP middleware chain pattern — the 6/6c design
+was folded into `specs/5/E-routd.md`):
 
 ```go
 var mitmChain = []func(http.Handler) http.Handler{
@@ -547,8 +547,8 @@ in-process secret cache. Per-source `WireEntry` carries `secret_scope`
 d. **MITM data path uses the same `Chain(slice, terminal)` idiom as
 proxyd.** Middlewares are `func(http.Handler) http.Handler` slice
 elements, reduced with `Chain`. Order is auditable, new middleware
-lands in one slot. Cross-reference
-`specs/5/6-middleware-pipeline.md ## 6/6c HTTP chain`.
+lands in one slot (HTTP middleware chain pattern from the former
+`specs/5/6-middleware-pipeline.md`, now folded into `E-routd.md`).
 
 e. **Reuse `secret_use_log`, no new audit table.** Spec 7/Y already
 built this. `caller='egred'` discriminates MITM swaps from broker
