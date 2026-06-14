@@ -10,14 +10,16 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 ## Responsibilities
 
 - Authenticate with `MASTODON_ACCESS_TOKEN` against `MASTODON_INSTANCE_URL`.
-- Stream notifications; filter to mentions/DMs.
-- Post inbound as `mastodon:<account>` JIDs.
-- Handle `/send`, `/v1/history`.
+- Stream user notifications; handle mention, reply, favourite, reblog, follow.
+- Post inbound as `mastodon:account/<id>` JIDs (legacy `mastodon:<id>` accepted).
+- Mount `/send`, `/send-file`, `/send-voice`, `/typing`, `/post`, `/like`,
+  `/delete`, `/forward`, `/quote`, `/repost`, `/dislike`, `/edit`, `/pin`,
+  `/unpin`, `/health`, `/v1/history`, `/files/`.
 
 ## Entry points
 
 - Binary: `mastd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9004`)
+- Listen: `$LISTEN_ADDR` (default `:8080`)
 - Router registration: `mastodon:` prefix, caps `send_text`,
   `fetch_history`, `post`, `like`, `delete`, `repost`, `edit`.
 
@@ -28,8 +30,9 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 ## Configuration
 
 - `MASTODON_INSTANCE_URL`, `MASTODON_ACCESS_TOKEN`
-- `ROUTER_URL`, `CHANNEL_SECRET` (or `MASTD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`
-- `MEDIA_MAX_FILE_BYTES`, `MASTODON_FILE_CACHE_SIZE` (default 1000)
+- `ROUTER_URL`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://mastd:8080`)
+- `CHANNEL_NAME` (default `mastodon`)
+- `MEDIA_MAX_FILE_BYTES` (default 20MB), `MASTODON_FILE_CACHE_SIZE` (default 1000)
 
 ## Verb support
 
@@ -46,6 +49,8 @@ posts inbound to the router. Outbound uses the Mastodon REST API.
 | forward   | hint        | no primitive; suggests `repost` or text relay                           |
 | quote     | hint        | rejected as anti-feature on Mastodon; suggests `post` with permalink    |
 | dislike   | hint        | no native downvote; suggests textual `reply`                            |
+| pin       | unsupported | not implemented                                                         |
+| unpin     | unsupported | not implemented                                                         |
 
 ## Known gaps
 
@@ -69,9 +74,9 @@ extended 503 means instance issues.
 
 ## Files
 
-- `main.go` — wiring
-- `client.go` — stream consumer, REST posting
-- `server.go` — adapter handlers
+- `main.go` — wiring, config
+- `client.go` — stream consumer, REST posting, verb handlers
+- `server.go` — HTTP mux setup
 
 ## Related docs
 

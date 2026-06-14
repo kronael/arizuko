@@ -4,17 +4,20 @@ Email (IMAP inbound, SMTP outbound) channel adapter.
 
 ## Purpose
 
-Polls IMAP for new messages, posts inbound to the router. Sends outbound
-via SMTP. Tracks email threads in a local sqlite (`store.go`) so replies
-preserve the conversation JID.
+Polls IMAP for new messages (IDLE when supported, fallback poll), posts
+inbound to the router. Sends outbound via SMTP. Tracks email threads in
+a local SQLite DB so replies preserve the conversation JID and thread
+References/In-Reply-To headers.
 
 ## Responsibilities
 
-- Connect to IMAP (`EMAIL_IMAP_HOST:PORT`), poll INBOX.
-- Send via SMTP (`EMAIL_SMTP_HOST:PORT`).
-- Keep a thread table: `thread_id → chat_jid` (matches `email_threads` in messages.db).
-- Handle `/send`, `/v1/history`.
-- Serve attachments through an in-process registry.
+- Poll IMAP INBOX (IDLE when supported, 30s fallback poll)
+- Classify inbound sender trust (Authentication-Results DMARC + optional From-domain allowlist)
+- Post inbound to router with `message` (trusted) or `untrusted` Verb
+- Send outbound via SMTP with correct In-Reply-To/References threading
+- Track threads: `thread_id → (from_address, root_msg_id)` in local SQLite
+- Serve `/send`, `/v1/history`, `/files/{uid}/{part}` endpoints
+- Re-fetch attachments from IMAP on-demand (transient in-memory registry, no local storage)
 
 ## Verb support
 
@@ -35,8 +38,8 @@ preserve the conversation JID.
 ## Entry points
 
 - Binary: `emaid/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9003`)
-- Router registration: `email:` prefix, caps `send_text`, `fetch_history`.
+- Listen: `$LISTEN_ADDR` (default `:8080`)
+- Router registration: `email:` prefix, caps `send_text`, `fetch_history`
 
 ## Dependencies
 
@@ -47,8 +50,13 @@ preserve the conversation JID.
 - `EMAIL_IMAP_HOST`, `EMAIL_IMAP_PORT` (default `993`)
 - `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT` (default `587`)
 - `EMAIL_ACCOUNT`, `EMAIL_PASSWORD`
-- `EMAIL_STRICT_AUTH` (`true` rejects unsigned senders)
-- `ROUTER_URL`, `CHANNEL_SECRET` (or `EMAID_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
+- `EMAIL_TRUSTED_AUTHSERV` — upstream MTA whose Authentication-Results headers we trust (e.g. `mx.google.com`); empty = fail-closed
+- `EMAIL_TRUSTED_DOMAINS` — comma-separated From-domain allowlist (optional; DMARC pass alone is sufficient when unset)
+- `EMAIL_STRICT_AUTH` — `true` drops untrusted inbound; default `false` (deliver with `untrusted` Verb)
+- `EMAIL_UNVERIFIED_SUBJECT_PREFIX` — `true` prefixes `[UNVERIFIED]` on untrusted subjects; default `false` (signal in Verb only)
+- `EMAIL_VERIFY_DKIM` — tier-3 independent DKIM verification (pre-wired, not yet implemented)
+- `CHANNEL_NAME` (default `email`)
+- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR` (default `:8080`), `LISTEN_URL` (default `http://email:9003`), `DATA_DIR` (default `/srv/data/emaid`), `MEDIA_MAX_FILE_BYTES` (default 20 MiB)
 
 ## Health signal
 
@@ -56,11 +64,12 @@ preserve the conversation JID.
 
 ## Files
 
-- `main.go` — wiring
-- `imap.go` — poll loop
-- `smtp.go` — outbound
-- `store.go` — local thread tracking
-- `server.go` — adapter handlers
+- `main.go` — wiring, config
+- `imap.go` — IMAP poll loop, IDLE support, attachment registry
+- `smtp.go` — SMTP outbound
+- `store.go` — local thread tracking DB
+- `server.go` — adapter handlers (`/send`, `/v1/history`, `/files/{uid}/{part}`)
+- `auth.go` — inbound sender trust classifier (Authentication-Results + From-domain allowlist)
 
 ## Related docs
 

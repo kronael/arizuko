@@ -10,15 +10,16 @@ router. Outbound writes use `app.bsky.feed.*` records on the user's PDS.
 ## Responsibilities
 
 - Authenticate with `BLUESKY_IDENTIFIER` + `BLUESKY_PASSWORD` (app password).
-- Poll notifications; deliver inbound as `bluesky:<did>` JIDs.
+- Poll `app.bsky.notification.listNotifications` for mentions/replies every 10s.
+- Deliver inbound as `bluesky:user/<encoded-did>` JIDs (legacy `bluesky:<did>` accepted outbound).
 - Serve `/send`, `/send-file`, `/post`, `/like`, `/delete`, `/quote`,
   `/repost`, `/forward`, `/dislike`, `/edit`, `/v1/history`.
-- Proxy blob fetches (`/files/<did>/<cid>`) for inbound image attachments.
+- Proxy blob fetches (`GET /files/<did>/<cid>`) for inbound image attachments via `com.atproto.sync.getBlob`.
 
 ## Entry points
 
 - Binary: `bskyd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9005`)
+- Listen: `$LISTEN_ADDR` (default `:8080`)
 - Router registration: `bluesky:` prefix.
 - Caps: `send_text`, `send_file`, `fetch_history`, `post`, `like`,
   `delete`, `quote`, `repost`.
@@ -29,9 +30,14 @@ router. Outbound writes use `app.bsky.feed.*` records on the user's PDS.
 
 ## Configuration
 
-- `BLUESKY_IDENTIFIER`, `BLUESKY_PASSWORD`, `BLUESKY_SERVICE` (default `https://bsky.social`)
-- `ROUTER_URL`, `CHANNEL_SECRET` (or `BSKYD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`
-- `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`
+- `BLUESKY_IDENTIFIER`, `BLUESKY_PASSWORD` (required; use an app password)
+- `BLUESKY_SERVICE` (default `https://bsky.social`)
+- `ROUTER_URL` (required)
+- `CHANNEL_NAME` (default `bluesky`)
+- `LISTEN_ADDR` (default `:8080`)
+- `LISTEN_URL` (default `http://bluesky:8080`; used for attachment URLs)
+- `DATA_DIR` (default `/srv/data/bskyd`; stores session token)
+- `MEDIA_MAX_FILE_BYTES` (default `20971520` = 20MB)
 
 ## Verb support
 
@@ -61,7 +67,7 @@ polling lands, switch to `chat.bsky.convo.sendMessage` proxied via
 
 ## Health signal
 
-`GET /health` returns 503 when auth session is invalid.
+`GET /health` returns 503 when `authed` is false (session create/refresh both failed).
 
 ## Files
 

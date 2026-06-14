@@ -14,8 +14,8 @@ alternatives.
 
 | Verb            | Native? | Endpoint / behaviour                                                                                                                    |
 | --------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `send`          | yes     | `POST /v2/socialActions/{urn}/comments` when ChatJID is a post URN; falls back to `ugcPost` when AutoPublish=true                       |
-| `reply`         | yes     | Same as `send` with `parentComment` set                                                                                                 |
+| `send`          | yes     | `POST /v2/socialActions/{urn}/comments` when ChatJID is a post URN; else `POST /v2/ugcPosts` (gated by `LINKEDIN_AUTO_PUBLISH=true`)    |
+| `reply`         | yes     | Same as `send` with `parentComment` set (within a post's comments)                                                                      |
 | `post`          | yes     | `POST /v2/ugcPosts` with `ShareContent`                                                                                                 |
 | `like`          | yes     | `POST /v2/socialActions/{urn}/likes`                                                                                                    |
 | `delete`        | yes     | `DELETE /v2/ugcPosts/{urn}` (own posts)                                                                                                 |
@@ -31,14 +31,18 @@ alternatives.
 
 - Register as `linkedin:` prefix.
 - Caps: `send_text`, `fetch_history`, `post`, `like`, `delete`, `repost`.
-- Poll own shares + comments (interval `LINKEDIN_POLL_INTERVAL`,
-  default `300s`).
+- Poll own shares (`/v2/shares?q=owners`) + comments on each post
+  (`/v2/socialActions/{urn}/comments`) at `LINKEDIN_POLL_INTERVAL`
+  (default `300s`).
 - Publish via the UGC endpoint when `LINKEDIN_AUTO_PUBLISH=true`.
+- Dedup inbound comments via `DATA_DIR/linkd-state-<name>.json` (seen
+  map capped at 5000 entries).
 
 ## Entry points
 
 - Binary: `linkd/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9010`)
+- Listen: `$LISTEN_ADDR` (code default `:9010`, container `:8080`)
+- Listen URL: `$LISTEN_URL` (code default `http://linkd:9010`, container `http://linkd:8080`)
 - Router registration: `linkedin:` prefix.
 
 ## Dependencies
@@ -47,23 +51,30 @@ alternatives.
 
 ## Configuration
 
-- `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`
-- `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_REFRESH_TOKEN`
+- `CHANNEL_NAME` (default `linkedin`)
+- `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` (required)
+- `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_REFRESH_TOKEN` (optional — persisted in `DATA_DIR/linkd-state-<name>.json`)
 - `LINKEDIN_API_BASE` (default `https://api.linkedin.com`)
 - `LINKEDIN_OAUTH_BASE` (default `https://www.linkedin.com`)
-- `LINKEDIN_POLL_INTERVAL`, `LINKEDIN_AUTO_PUBLISH`
-- `ROUTER_URL`, `CHANNEL_SECRET` (or `LINKD_CHANNEL_SECRET` override), `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
+- `LINKEDIN_POLL_INTERVAL` (default `300s`)
+- `LINKEDIN_AUTO_PUBLISH` (default `false` — gate for new posts/reshares)
+- `ROUTER_URL`, `CHANNEL_SECRET`, `LISTEN_ADDR`, `LISTEN_URL`, `DATA_DIR`
 
 OAuth scopes required: `r_liteprofile`, `w_member_social`. Reshares
 require the same `w_member_social` scope as posts. Company-page
 posting and DM messaging both need separate LinkedIn partner
 approvals and are intentionally out of scope here.
 
-## Health signal
+## Endpoints
 
-`GET /health` returns 503 when the access token is expired and refresh
-fails. Refresh-on-401 retry is automatic on every API call via
-`lc.do(...)`.
+Standard adapter surface (via `chanlib.NewAdapterMux`):
+
+- `GET /health` — 503 when OAuth authentication fails (initial
+  token/refresh failure or subsequent refresh failure). Refresh-on-401
+  retry is automatic on every API call via `lc.do(...)`.
+- `POST /dispatch` — outbound verb dispatch (authenticated via
+  `CHANNEL_SECRET`).
+- `GET /caps` — capability list.
 
 ## Files
 
