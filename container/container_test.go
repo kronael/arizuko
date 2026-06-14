@@ -850,7 +850,7 @@ func TestInputJSONNewFields(t *testing.T) {
 		Folder:   "g",
 		ChatJID:  "chat@jid",
 		Sender:   "telegram:123",
-		Soul:     "be kind",
+		Persona:  "be kind",
 		SystemMd: "you are an agent",
 	}
 
@@ -865,22 +865,22 @@ func TestInputJSONNewFields(t *testing.T) {
 	if got["sender"] != "telegram:123" {
 		t.Errorf("sender = %v", got["sender"])
 	}
-	if got["soul"] != "be kind" {
-		t.Errorf("soul = %v", got["soul"])
+	if got["persona"] != "be kind" {
+		t.Errorf("persona = %v", got["persona"])
 	}
 	if got["systemMd"] != "you are an agent" {
 		t.Errorf("systemMd = %v", got["systemMd"])
 	}
 }
 
-func TestSoulAndSystemMdLoading(t *testing.T) {
+func TestPersonaAndSystemMdLoading(t *testing.T) {
 	d := t.TempDir()
 	os.WriteFile(filepath.Join(d, "PERSONA.md"), []byte("warm and friendly"), 0o644)
 	os.WriteFile(filepath.Join(d, "SYSTEM.md"), []byte("custom system prompt"), 0o644)
 
-	soul := readOptional(filepath.Join(d, "PERSONA.md"))
-	if soul != "warm and friendly" {
-		t.Errorf("soul = %q", soul)
+	persona := readOptional(filepath.Join(d, "PERSONA.md"))
+	if persona != "warm and friendly" {
+		t.Errorf("persona = %q", persona)
 	}
 
 	sys := readOptional(filepath.Join(d, "SYSTEM.md"))
@@ -933,12 +933,12 @@ func TestPrepareInputNoWorkMd(t *testing.T) {
 	}
 }
 
-func TestSoulAndSystemMdMissing(t *testing.T) {
+func TestPersonaAndSystemMdMissing(t *testing.T) {
 	d := t.TempDir()
 
-	soul := readOptional(filepath.Join(d, "PERSONA.md"))
-	if soul != "" {
-		t.Errorf("expected empty soul, got %q", soul)
+	persona := readOptional(filepath.Join(d, "PERSONA.md"))
+	if persona != "" {
+		t.Errorf("expected empty persona, got %q", persona)
 	}
 
 	sys := readOptional(filepath.Join(d, "SYSTEM.md"))

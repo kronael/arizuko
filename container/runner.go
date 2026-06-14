@@ -86,7 +86,7 @@ type Input struct {
 	MessageID string            `json:"messageId,omitempty"`
 	Grants    []string          `json:"grants,omitempty"`
 	Sender    string            `json:"sender,omitempty"`
-	Soul      string            `json:"soul,omitempty"`
+	Persona   string            `json:"persona,omitempty"`
 	SystemMd  string            `json:"systemMd,omitempty"`
 
 	GroupPath string           `json:"-"`
@@ -490,7 +490,7 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 			_ = os.Rename(soulPath, personaPath)
 		}
 	}
-	in.Soul = readOptional(personaPath)
+	in.Persona = readOptional(personaPath)
 	in.SystemMd = readOptional(filepath.Join(groupDir, "SYSTEM.md"))
 
 	in.Annotations = append(in.Annotations,

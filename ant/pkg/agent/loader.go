@@ -21,7 +21,7 @@ var ErrNotFound = errors.New("ant folder not found")
 // presence checks. Callers verify presence per their own contract.
 type Folder struct {
 	Root      string
-	Soul      string
+	Persona   string
 	ClaudeMD  string
 	Skills    string
 	Diary     string
@@ -50,7 +50,7 @@ func LoadFolder(path string) (*Folder, error) {
 	}
 	return &Folder{
 		Root:      abs,
-		Soul:      filepath.Join(abs, "PERSONA.md"),
+		Persona:   filepath.Join(abs, "PERSONA.md"),
 		ClaudeMD:  filepath.Join(abs, "CLAUDE.md"),
 		Skills:    filepath.Join(abs, "skills"),
 		Diary:     filepath.Join(abs, "diary"),
