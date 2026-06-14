@@ -20,89 +20,63 @@ those tables directly via the `store` package; it never migrates.
 
 ## Surface
 
-Handlers are registered in `dash.registerRoutes` (`main.go`). Counts
-below match the actual `mux.HandleFunc` calls.
+39 routes registered in `dash.registerRoutes` (`main.go`).
 
-- **Health** (1): `GET /health` — JSON `{ok:true}`.
+- **Public** (3): `GET /health`, `GET /openapi.json`, `GET /dash/assets/htmx.min.js` — no auth required.
 - **Portal** (1): `GET /dash/` — tile grid with status/tasks dots.
-- **Read pages** (6): `GET /dash/status/`, `/dash/tasks/`,
-  `/dash/activity/`, `/dash/groups/`, `/dash/memory/`, `/dash/profile/`.
-  Render full HTML pages from direct DB reads + group fs reads.
-- **HTMX partials** (2): `GET /dash/tasks/x/list`,
-  `GET /dash/activity/x/recent` — `<tbody>` fragments refreshed every
-  10s by the parent page.
-- **Memory edits** (2): `PUT|DELETE /dash/memory/{folder}/{rel}` —
-  allow-listed file edits under a group folder (`MEMORY.md`,
-  `.claude/CLAUDE.md`, flat `*.md` under `diary/`, `facts/`, `users/`,
-  `episodes/`). Symlink-escape and path-traversal hardened.
-- **Per-user secrets** (4): `GET /dash/me/secrets`,
-  `POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}`.
-  Identity-bound to `X-User-Sub`; writes require same-origin.
-  (`me_secrets.go`)
-- **Routes editor — admin** (5): `GET /dash/routes/`,
-  `POST /dash/routes/`, `PATCH /dash/routes/{id}`,
-  `DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` (HTML-form
-  fallback for DELETE). (`routes_admin.go`)
-- **Groups CRUD — admin** (6): `GET /dash/groups/new`,
-  `POST /dash/groups/new`, `GET /dash/groups/{folder}/settings`,
-  `POST /dash/groups/{folder}/settings`,
-  `DELETE /dash/groups/{folder}`, `POST /dash/groups/{folder}/delete`
-  (form fallback). (`groups_admin.go`)
-- **Invites — admin** (2): `GET/POST /dash/invites/` — list pending
-  invites, create new (admin-gated), revoke by token. (`invites.go`)
-- **Grants viewer — admin** (2): `GET/POST /dash/groups/{folder}/grants`
-  — ACL rows for the folder, add form (all 32 actions), per-row revoke.
-  (`grants_admin.go`)
-- **Model selector**: dropdown in groups settings writes `groups.model`;
-  container runner passes `ARIZUKO_MODEL` env var.
-- **Skill toggle**: checkbox list in groups settings creates/removes
-  `.disabled` marker at `<group>/.claude/skills/<name>/.disabled`.
-- **Workspace links**: settings page "Agent files" section links to
-  `/dav/{folder}/CLAUDE.md`, `PERSONA.md`, `MEMORY.md`, `workspace/`.
+- **Read pages** (6): `GET /dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`, `/dash/profile/`. Scope-filtered to caller's visible folders.
+- **HTMX partials** (2): `GET /dash/tasks/x/list`, `GET /dash/activity/x/recent` — 10s-polled `<tbody>` fragments.
+- **Memory edits** (2): `PUT|DELETE /dash/memory/` — admin-gated writes to allow-listed group files (`MEMORY.md`, `.claude/CLAUDE.md`, flat `*.md` under `diary/`, `facts/`, `users/`, `episodes/`). Symlink-escape hardened.
+- **Per-user secrets** (4): `GET|POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}` — identity-bound to `X-User-Sub`; writes require same-origin. (`me_secrets.go`)
+- **Tasks** (3): `GET /dash/tasks/{id}`, `POST /dash/tasks/`, `POST /dash/tasks/{id}/{action}` — detail, create, pause/resume. (`tasks_admin.go`)
+- **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. (`routes_admin.go`)
+- **Groups CRUD** (8): `GET|POST /dash/groups/new`, `GET|POST /dash/groups/{folder...}` (dispatchers to settings/delete/grants), `DELETE /dash/groups/{folder...}`, `GET /dash/groups/{folder}/tools|grants`, `POST /dash/groups/{folder}/grants|grants/revoke` — admin-gated. Model selector dropdown writes `groups.model`; skill toggles create/remove `.disabled` markers. (`groups_admin.go`, `grants_admin.go`, `tools_admin.go`)
+- **Route tokens** (3): `GET|POST /dash/tokens/{folder}/`, `POST /dash/tokens/{folder}/{jid}/revoke` — issue chat/webhook tokens, revoke. Admin-gated writes; reads scope-filtered. (`route_tokens.go`)
+- **Invites** (3): `GET|POST /dash/invites/`, `POST /dash/invites/{token}/revoke` — operator-only (`**`). (`invites.go`)
+- **WhatsApp re-pair** (3): `GET /dash/channels/whatsapp/pair`, `GET /dash/channels/whatsapp/pair/status`, `POST /dash/channels/whatsapp/pair/start` — operator-only (`**`), proxies to whapd with service:dashd bearer. (`channels.go`)
 
 ## Auth
 
-dashd enforces auth itself; it does not assume the upstream filtered
-the request:
+Every non-public route runs through `d.guard` — verifies proxyd's ES256 service:proxyd bearer (proves transit through proxyd, which stamps X-User-Sub/-Groups) before trusting the end-user identity. No verifier (AUTHD_URL unset) → open (local dev). Then:
 
-- `requireUser` (`me_secrets.go`) — reads `X-User-Sub` set by proxyd;
-  401 if absent. Used by every non-public route.
-- `requireSameOrigin` — CSRF guard on state-changing requests; rejects
-  cross-origin `Origin`/`Referer`.
-- `requireAdmin` (`authz.go`) — calls `auth.Authorize(store, caller,
-"admin", scope, nil)` with `caller.Extra` populated from
-  `X-User-Groups`. Used by every routes/groups write verb. Scope is
-  the target folder for per-group writes, `**` for global creates.
+- `requireUser` (`me_secrets.go`) — reads `X-User-Sub`; 401 if absent.
+- `requireSameOrigin` (`me_secrets.go`) — CSRF guard on mutations; rejects cross-origin `Origin`/`Referer`.
+- `requireAdmin` (`authz.go`) — calls `auth.Authorize(store, caller, "admin", scope, nil)` with `caller.Extra` from `X-User-Groups`. Scope is target folder or `**` for global creates. Used by write verbs.
+- `requireVisible` (`authz.go`) — gates per-folder GETs to non-operators; 403 if caller's grants don't cover the folder. Used by settings/tokens/tools read pages.
+- `requireOperator` (`authz.go`) — gates `**`-scoped surfaces (invites, whatsapp re-pair); 403 for non-operators.
 
-Read pages (`/dash/status/`, `/dash/tasks/`, etc.) currently render the
-full DB to any authenticated user; per-group scoping of read pages is
-future work.
+Read surfaces (`/dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`) filter rows via `callerScope` + `visible` — non-operators see only folders they hold grants on (direct or subtree). Operators (`**`) see everything.
 
 ## Entry points
 
 - Binary: `dashd/main.go`
-- Listen: `$DASH_PORT` (default `:8080`)
+- Listen: `DASH_PORT` (default `:8080`)
 
 ## Dependencies
 
-- `auth` — token/scope check (`Authorize`, `Caller`)
-- `store` — DB access for routes, groups, secrets, acl, invites
-- `core` — config helpers used by groups/routes admin handlers
+- `auth` — `Authorize`, `Caller`, `KeySet`, `ProxydTransit`, `ServiceToken`
+- `store` — routes, groups, secrets, acl, invites, tasks, messages, sessions, route_tokens
+- `audit` — audit log emission
+- `obs` — OTLP setup
+- `resreg` — OpenAPI handler
+- `core` — `MsgID` for audit rows
 - `container` — group folder bootstrap on create
-- `groupfolder` — folder path validation, parent resolution
-- `chanlib` — request log middleware
-- `diary` — extract `summary:` frontmatter for memory listings
+- `groupfolder` — folder path validation, parent resolution, `JidFolder`
+- `chanlib` — request log middleware, `EnvOr`
+- `diary` — `ExtractSummary` for memory listings
 - `theme` — shared CSS + theme toggle script
-- `html_helpers.go` — shared page shell, nav, banner helpers (vendored htmx)
 
 ## Configuration
 
-- `DATA_DIR` — base for `<DATA_DIR>/store/messages.db` and `<DATA_DIR>/groups/`
-- `DB_PATH` — explicit DB DSN; overrides the `DATA_DIR`-derived path
+- `DATA_DIR` — base for `<DATA_DIR>/store/*.db` and `<DATA_DIR>/groups/`
+- `DB_PATH` — explicit messages.db DSN; overrides `DATA_DIR/store/messages.db`
 - `DASH_PORT` — listen port (default `:8080`)
-
-`INSTANCE_NAME` is not read by dashd today; the portal header is
-static.
+- `ARIZUKO_INSTANCE` — instance name for audit/obs; read at startup
+- `AUTHD_URL` — authd JWKS endpoint; unset → identity verification disabled (local dev)
+- `AUTHD_SERVICE_KEY` — ES256 private key for service:dashd bearer (whapd re-pair proxy); optional
+- `AUTHD_SERVICE_NAME` — service name (default `dashd`)
+- `HOST_APP_DIR` — app source path for enumerating stock skills in groups settings
+- `WHAPD_URL` — whapd base URL for re-pair proxy (default `http://whapd:8080`)
 
 ## Health signal
 
@@ -112,25 +86,20 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 
 ## Files
 
-- `main.go` — bootstrap, route table, portal, status, tasks, activity,
-  groups (read-only), memory read/write.
-- `me_secrets.go` — per-user secrets CRUD + shared `requireUser` /
-  `requireSameOrigin` helpers.
-- `routes_admin.go` — routes table CRUD (admin-gated).
+- `main.go` — bootstrap, route table, portal, status, tasks, activity, groups (list + routes), memory read/write.
+- `authz.go` — `requireAdmin`, `requireVisible`, `requireOperator`, `callerScope`, `visible`, scope-filtered count helpers.
+- `me_secrets.go` — per-user secrets CRUD + `requireUser` / `requireSameOrigin`.
+- `routes_admin.go` — routes CRUD (admin-gated).
 - `groups_admin.go` — group create / settings (model, skills, workspace links) / delete (admin-gated).
 - `grants_admin.go` — ACL viewer + add/revoke per folder (admin-gated).
-- `tools_admin.go` — read-only MCP tool browser at `/dash/groups/{folder}/tools`.
-- `tasks_admin.go` — task detail + run logs + pause/resume at `/dash/tasks/{id}`.
-- `route_tokens.go` — `/dash/tokens/` chat/webhook route-token list + issue + revoke.
-- `channels.go` — `/dash/channels/whatsapp/pair` pairing form + live status.
-- `invites.go` — invite list + create + revoke (admin-gated).
-- `profile.go` — `/dash/profile/` view of linked subs for the caller.
-- `authz.go` — `requireAdmin` wrapper around `auth.Authorize`.
-- `html_helpers.go` — shared page shell, nav, htmx boost, banner helpers.
+- `tools_admin.go` — read-only MCP tool browser per folder.
+- `tasks_admin.go` — task detail + run logs + create + pause/resume.
+- `route_tokens.go` — chat/webhook route-token list + issue + revoke.
+- `channels.go` — WhatsApp re-pair form + live status (operator-only).
+- `invites.go` — invite list + create + revoke (operator-only).
+- `profile.go` — linked subs view + provider link buttons.
+- `html_helpers.go` — page shell, nav, htmx boost, banner helpers.
 
 ## Future work
 
-Per-group scoping of read pages (`/dash/status/`, `/dash/activity/`,
-`/dash/memory/`) so a non-admin sees only folders they hold a grant on;
-migration of direct DB reads to `routd/v1/*` once that surface lands
-(`specs/5/5-uniform-mcp-rest.md`).
+Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/5-uniform-mcp-rest.md`). Read scoping already implemented.
