@@ -33,15 +33,20 @@ func signChatHeaders(token, folder string) map[string]string {
 	}
 }
 
-// mockRouter is a minimal fake of the router API used by webd.
+// mockRouter is a minimal fake of the router API used by webd. When st is
+// non-nil, inbound messages are persisted to simulate routd's behavior; tests
+// can then read them back from the store (matching production where routd
+// persists and webd reads from routd.db).
 type mockRouter struct {
 	mu       sync.Mutex
 	messages []chanlib.InboundMsg
 	srv      *httptest.Server
+	st       *store.Store
 }
 
-func newMockRouter() *mockRouter {
-	m := &mockRouter{}
+func newMockRouter() *mockRouter              { return newMockRouterWithStore(nil) }
+func newMockRouterWithStore(st *store.Store) *mockRouter {
+	m := &mockRouter{st: st}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
 		var msg chanlib.InboundMsg
@@ -49,6 +54,23 @@ func newMockRouter() *mockRouter {
 		m.mu.Lock()
 		m.messages = append(m.messages, msg)
 		m.mu.Unlock()
+		// Persist to store (simulates routd), enabling read-back tests.
+		// Use time.Now() with full nanosecond precision — time.Unix(seconds, 0)
+		// produces "...T10:15:47Z" which SQLite string-compares as > "...T10:15:47.nnnZ"
+		// because 'Z' (90) > '.' (46), breaking timestamp < ? queries.
+		if m.st != nil {
+			_ = m.st.PutMessage(core.Message{
+				ID:        msg.ID,
+				ChatJID:   msg.ChatJID,
+				Sender:    msg.Sender,
+				Name:      msg.SenderName,
+				Content:   msg.Content,
+				Timestamp: time.Now(),
+				Topic:     msg.Topic,
+				TurnID:    msg.ID, // user message is its own turn
+				Source:    "web",
+			})
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 	m.srv = httptest.NewServer(mux)
@@ -67,6 +89,8 @@ func (m *mockRouter) sent() []chanlib.InboundMsg {
 
 // newTestServer builds a server wired to in-memory store + mock router.
 // Callers append groups via st.PutGroup before driving requests.
+// In tests, st serves as both messages.db and routd.db (single in-memory DB).
+// The mock router persists inbound messages to st (simulates routd).
 func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	t.Helper()
 	st, err := store.OpenMem()
@@ -75,14 +99,15 @@ func newTestServer(t *testing.T) (*server, *mockRouter, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	mr := newMockRouter()
+	mr := newMockRouterWithStore(st)
 	t.Cleanup(mr.close)
 
 	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
 	cfg := config{assistantName: "assistant"}
-	return newServer(cfg, st, newHub(), rc, nil, nil), mr, st
+	// st serves as both messages.db (legacy) and routd.db (live reads)
+	return newServer(cfg, st, st, newHub(), rc, nil, nil), mr, st
 }
 
 func seedGroup(t *testing.T, st *store.Store, folder, name string) core.Group {

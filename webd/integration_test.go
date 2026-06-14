@@ -35,14 +35,15 @@ func newIntegServer(t *testing.T) *integInst {
 	inst := testutils.NewInstance(t)
 	st := store.New(inst.DB)
 
-	mr := newMockRouter()
+	mr := newMockRouterWithStore(st)
 	t.Cleanup(mr.close)
 
 	rc := chanlib.NewRouterClient(mr.srv.URL)
 	rc.SetToken("test-token")
 
 	cfg := config{assistantName: "assistant"}
-	return &integInst{Inst: inst, srv: newServer(cfg, st, newHub(), rc, nil, nil), mr: mr, st: st}
+	// st serves as both messages.db (legacy) and routd.db (live reads) in tests
+	return &integInst{Inst: inst, srv: newServer(cfg, st, st, newHub(), rc, nil, nil), mr: mr, st: st}
 }
 
 // TestSlinkWebsocketEcho — adapted to webd's actual SSE transport. Verifies
@@ -132,9 +133,9 @@ func TestSlinkWebsocketEcho(t *testing.T) {
 	if !gotAssistant {
 		t.Error("SSE stream missing assistant echo from /send callback")
 	}
-
-	// Assistant message also persisted.
-	testutils.AssertMessage(t, ii.DB, "web:echo", "pong")
+	// Note: assistant message persistence is NOT verified here — routd/gated is
+	// the sole appender (webd's /send only publishes to hub). The mock doesn't
+	// simulate gated writing to the DB.
 }
 
 // TestSlinkMCPBridge exercises the MCP-over-HTTP endpoint with proxyd-signed

@@ -27,7 +27,8 @@ const (
 
 type server struct {
 	cfg         config
-	st          *store.Store
+	st          *store.Store // messages.db: audit_log only (legacy, frozen for messages/turns/tokens)
+	stRoutd     *store.Store // routd.db: groups, messages, turn_results, route_tokens (live)
 	hub         *hub
 	rc          *chanlib.RouterClient
 	proxyd      *proxydClient
@@ -36,9 +37,9 @@ type server struct {
 	limiter     *rateLimiter
 }
 
-func newServer(cfg config, st *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet, svc *auth.TokenSource) *server {
+func newServer(cfg config, st, stRoutd *store.Store, h *hub, rc *chanlib.RouterClient, ks *auth.KeySet, svc *auth.TokenSource) *server {
 	s := &server{
-		cfg: cfg, st: st, hub: h, rc: rc,
+		cfg: cfg, st: st, stRoutd: stRoutd, hub: h, rc: rc,
 		proxyd:  newProxydClient(cfg.proxydURL, svc),
 		ks:      ks,
 		limiter: newRateLimiter(cfg.rateHookPerMin, cfg.rateWebPerMin),

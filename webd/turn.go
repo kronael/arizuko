@@ -39,16 +39,17 @@ func messageFrames(msgs []core.Message) []frame {
 	return out
 }
 
+// route_tokens + messages live in routd.db (stRoutd) — split ownership
 func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, turnID string) {
 	token := r.PathValue("token")
 	turnID = r.PathValue("id")
-	row, ok := s.st.LookupRouteToken(token)
+	row, ok := s.stRoutd.LookupRouteToken(token)
 	if !ok {
 		http.Error(w, "not found", http.StatusNotFound)
 		return "", ""
 	}
 	folder = groupfolder.JidFolder(row.JID)
-	if _, ok := s.st.MessageTimestampByID(turnID, row.JID); !ok {
+	if _, ok := s.stRoutd.MessageTimestampByID(turnID, row.JID); !ok {
 		http.Error(w, "turn not found", http.StatusNotFound)
 		return "", ""
 	}
@@ -56,19 +57,20 @@ func (s *server) authorizeTurn(w http.ResponseWriter, r *http.Request) (folder, 
 }
 
 // GET /slink/<token>/turn/<id>[?after=<msg_id>]
+// turn_results + messages live in routd.db (stRoutd) — split ownership
 func (s *server) handleTurnSnapshot(w http.ResponseWriter, r *http.Request) {
 	folder, turnID := s.authorizeTurn(w, r)
 	if folder == "" {
 		return
 	}
 	after := r.URL.Query().Get("after")
-	msgs, err := s.st.TurnFrames(turnID, after, 200)
+	msgs, err := s.stRoutd.TurnFrames(turnID, after, 200)
 	if err != nil {
 		slog.Error("turn frames query", "folder", folder, "turn", turnID, "err", err)
 		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	info, err := s.st.GetTurnResult(folder, turnID)
+	info, err := s.stRoutd.GetTurnResult(folder, turnID)
 	if err != nil {
 		slog.Error("turn result query", "folder", folder, "turn", turnID, "err", err)
 		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
@@ -93,12 +95,12 @@ func (s *server) handleTurnStatus(w http.ResponseWriter, r *http.Request) {
 	if folder == "" {
 		return
 	}
-	info, err := s.st.GetTurnResult(folder, turnID)
+	info, err := s.stRoutd.GetTurnResult(folder, turnID)
 	if err != nil {
 		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
-	msgs, err := s.st.TurnFrames(turnID, "", 200)
+	msgs, err := s.stRoutd.TurnFrames(turnID, "", 200)
 	if err != nil {
 		chanlib.WriteErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -122,7 +124,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jid := "web:" + folder
-	topic := s.st.TopicByMessageID(turnID, jid)
+	topic := s.stRoutd.TopicByMessageID(turnID, jid)
 	if topic == "" {
 		http.Error(w, "turn topic missing", http.StatusInternalServerError)
 		return
@@ -140,7 +142,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 
 	after := r.Header.Get("Last-Event-Id")
-	msgs, err := s.st.TurnFrames(turnID, after, 200)
+	msgs, err := s.stRoutd.TurnFrames(turnID, after, 200)
 	if err == nil {
 		for _, m := range msgs {
 			fr := messageFrames([]core.Message{m})[0]
@@ -149,7 +151,7 @@ func (s *server) handleTurnSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if info, _ := s.st.GetTurnResult(folder, turnID); info.Status != "pending" {
+	if info, _ := s.stRoutd.GetTurnResult(folder, turnID); info.Status != "pending" {
 		payload, _ := json.Marshal(map[string]any{
 			"turn_id": turnID,
 			"status":  info.Status,

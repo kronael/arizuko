@@ -119,7 +119,7 @@ func TestSlinkMCP_SendMessage(t *testing.T) {
 		t.Errorf("missing turn_id")
 	}
 
-	msgs, err := s.st.MessagesByTopic(g.Folder, "round-1", time.Now().Add(time.Second), 10)
+	msgs, err := s.stRoutd.MessagesByTopic(g.Folder, "round-1", time.Now().Add(time.Second), 10)
 	if err != nil {
 		t.Fatalf("MessagesByTopic: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestSlinkMCP_GetRound_NoWait(t *testing.T) {
 	c := slinkMCPDial(t, srv.URL+"/chat/"+tok+"/mcp")
 
 	turnID := slinkMCPSend(t, c, "ping", "round-3")
-	if err := s.st.PutMessage(core.Message{
+	if err := s.stRoutd.PutMessage(core.Message{
 		ID:        "bot-r3",
 		ChatJID:   "web:" + g.Folder,
 		Sender:    "assistant",
@@ -202,7 +202,7 @@ func TestSlinkMCP_GetRound_AfterCursor(t *testing.T) {
 	turnID := slinkMCPSend(t, c, "many replies", "round-cursor")
 	t0 := time.Now()
 	for i, id := range []string{"bot-c1", "bot-c2", "bot-c3"} {
-		if err := s.st.PutMessage(core.Message{
+		if err := s.stRoutd.PutMessage(core.Message{
 			ID:        id,
 			ChatJID:   "web:" + g.Folder,
 			Sender:    "assistant",
@@ -254,7 +254,7 @@ func TestSlinkMCP_GetRoundStatus(t *testing.T) {
 
 	turnID := slinkMCPSend(t, c, "ask", "round-status")
 	for _, id := range []string{"bot-s1", "bot-s2"} {
-		if err := s.st.PutMessage(core.Message{
+		if err := s.stRoutd.PutMessage(core.Message{
 			ID:        id,
 			ChatJID:   "web:" + g.Folder,
 			Sender:    "assistant",

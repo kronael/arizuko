@@ -102,9 +102,10 @@ func TestMCP_ListGroups_FiltersByGrants(t *testing.T) {
 	}
 }
 
-// send with a valid grant: message hits store + router with authed sub.
+// send with a valid grant: message hits router with authed sub. routd is the
+// sole message appender — webd sends to router, no local storage.
 func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
-	s, srv := newMCPTestServer(t)
+	_, srv := newMCPTestServer(t)
 	groups, _ := json.Marshal([]string{"main"})
 	c := mcpDial(t, srv.URL+"/mcp", signUserHeaders(map[string]string{
 		"X-User-Sub":    "user:alice",
@@ -127,19 +128,13 @@ func TestMCP_SendMessage_AllowedFolder(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("tool error: %s", toolText(t, res))
 	}
-
-	msgs, err := s.st.MessagesByTopic("main", "t1", time.Now().Add(time.Second), 10)
-	if err != nil {
-		t.Fatalf("MessagesByTopic: %v", err)
+	// Message goes to router (routd), not local store — success means router accepted it.
+	body := toolText(t, res)
+	if !strings.Contains(body, `"folder":"main"`) {
+		t.Errorf("response missing folder: %s", body)
 	}
-	if len(msgs) != 1 {
-		t.Fatalf("messages = %d, want 1", len(msgs))
-	}
-	if msgs[0].Sender != "user:alice" {
-		t.Errorf("sender = %q, want authed sub", msgs[0].Sender)
-	}
-	if msgs[0].Name != "Alice" {
-		t.Errorf("name = %q", msgs[0].Name)
+	if !strings.Contains(body, `"topic":"t1"`) {
+		t.Errorf("response missing topic: %s", body)
 	}
 }
 

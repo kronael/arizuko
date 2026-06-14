@@ -162,8 +162,9 @@ func TestAPITyping(t *testing.T) {
 	}
 }
 
-// POST /send (channel callback from gated) writes bot message, publishes
-// on the hub, and returns the new id.
+// POST /send (channel callback from routd) publishes assistant message on the
+// hub and returns the new id. routd is the sole message appender — webd only
+// publishes to SSE subscribers, no local storage.
 func TestHandleSend(t *testing.T) {
 	s, _, st := newTestServer(t)
 	seedGroup(t, st, "main", "Main")
@@ -189,13 +190,7 @@ func TestHandleSend(t *testing.T) {
 		t.Fatalf("bad resp: %s", w.Body.String())
 	}
 
-	// Bot message persisted?
-	msgs, err := st.MessagesByTopic("main", "", time.Now().Add(time.Second), 10)
-	if err != nil || len(msgs) != 1 || !msgs[0].BotMsg {
-		t.Fatalf("store missing bot msg: %+v err=%v", msgs, err)
-	}
-
-	// Hub received publish?
+	// Hub received publish? (no local storage — routd is the sole appender)
 	select {
 	case frame := <-ch:
 		if !strings.Contains(frame, `"role":"assistant"`) {

@@ -63,6 +63,16 @@ func main() {
 	}
 	defer st.Close()
 
+	// routd.db owns groups/messages/turn_results/route_tokens in the split topology.
+	// webd reads those for route-token resolution + history; a frozen messages.db
+	// twin would make post-cutover tokens/messages invisible.
+	stRoutd, err := store.OpenRoutd(cfg.storeDir)
+	if err != nil {
+		slog.Error("open routd.db", "err", err)
+		os.Exit(1)
+	}
+	defer stRoutd.Close()
+
 	audit.Init(st.DB(), os.Getenv("ARIZUKO_INSTANCE"))
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
@@ -131,7 +141,7 @@ func main() {
 	}
 	slog.Info("webd starting", "addr", cfg.listenAddr)
 
-	srv := &http.Server{Handler: newServer(cfg, st, hub, rc, ks, svc).handler()}
+	srv := &http.Server{Handler: newServer(cfg, st, stRoutd, hub, rc, ks, svc).handler()}
 	go srv.Serve(ln)
 
 	<-ctx.Done()

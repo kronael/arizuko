@@ -35,6 +35,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 	// Operator-only resource tools (spec 5/5). Invisible to non-operators.
 	registerRoutesMCP(srv, s.proxyd, sub, name, grants)
 
+	// groups lives in routd.db (stRoutd) — split ownership
 	resolveGroup := func(folder string) (core.Group, *mcp.CallToolResult) {
 		folder = strings.TrimSpace(folder)
 		if folder == "" {
@@ -43,7 +44,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		if !userAllowedFolder(grants, folder) {
 			return core.Group{}, mcp.NewToolResultError("forbidden: no grant for folder")
 		}
-		g, ok := s.st.GroupByFolder(folder)
+		g, ok := s.stRoutd.GroupByFolder(folder)
 		if !ok {
 			return core.Group{}, mcp.NewToolResultError("group not found")
 		}
@@ -53,7 +54,7 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 	srv.AddTool(mcp.NewTool("list_groups",
 		mcp.WithDescription("List groups (folders) this user has access to."),
 	), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		all := s.st.AllGroups()
+		all := s.stRoutd.AllGroups()
 		type row struct {
 			Folder string `json:"folder"`
 		}
@@ -68,6 +69,8 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		return mcp.NewToolResultText(string(data)), nil
 	})
 
+	// routd is the sole message appender — no local PutMessage. rc.SendMessage
+	// delivers to routd which persists + dispatches.
 	srv.AddTool(mcp.NewTool("send",
 		mcp.WithDescription("Send a message to a group. Returns the message id + topic."),
 		mcp.WithString("folder", mcp.Required()),
@@ -88,38 +91,29 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		}
 
 		id := core.MsgID("msg")
-		m := core.Message{
-			ID:        id,
-			ChatJID:   "web:" + g.Folder,
-			Sender:    sub,
-			Name:      name,
-			Content:   content,
-			Timestamp: time.Now(),
-			Topic:     topic,
-		}
-		if err := s.st.PutMessage(m); err != nil {
-			return mcp.NewToolResultError("store failed: " + err.Error()), nil
-		}
+		ts := time.Now()
+		jid := "web:" + g.Folder
 		if err := s.rc.SendMessage(chanlib.InboundMsg{
-			ID:         m.ID,
-			ChatJID:    m.ChatJID,
+			ID:         id,
+			ChatJID:    jid,
 			Sender:     sub,
 			SenderName: name,
 			Content:    content,
-			Timestamp:  m.Timestamp.Unix(),
+			Timestamp:  ts.Unix(),
+			Topic:      topic,
 			IsGroup:    false,
 		}); err != nil {
 			return mcp.NewToolResultError("router: " + err.Error()), nil
 		}
 		payload, _ := json.Marshal(map[string]any{
-			"id":         m.ID,
+			"id":         id,
 			"role":       "user",
-			"content":    m.Content,
+			"content":    content,
 			"sender":     name,
-			"created_at": m.Timestamp.Format(time.RFC3339),
+			"created_at": ts.Format(time.RFC3339),
 		})
 		s.hub.publish(g.Folder, topic, "message", string(payload))
-		out, _ := json.Marshal(map[string]any{"id": m.ID, "topic": topic, "folder": g.Folder})
+		out, _ := json.Marshal(map[string]any{"id": id, "topic": topic, "folder": g.Folder})
 		return mcp.NewToolResultText(string(out)), nil
 	})
 
@@ -141,7 +135,8 @@ func (s *server) buildWebMCP(sub, name string, grants []string) *mcpserver.MCPSe
 		if limit <= 0 || limit > 100 {
 			limit = 50
 		}
-		msgs, err := s.st.MessagesByTopic(g.Folder, topic, time.Now(), limit)
+		// messages lives in routd.db (stRoutd) — split ownership
+		msgs, err := s.stRoutd.MessagesByTopic(g.Folder, topic, time.Now(), limit)
 		if err != nil {
 			return mcp.NewToolResultError("query failed: " + err.Error()), nil
 		}

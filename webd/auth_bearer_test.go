@@ -19,7 +19,7 @@ import (
 func bearerServer(t *testing.T, ks *auth.KeySet) *server {
 	t.Helper()
 	cfg := config{assistantName: "assistant"}
-	return newServer(cfg, nil, newHub(), nil, ks, nil)
+	return newServer(cfg, nil, nil, newHub(), nil, ks, nil)
 }
 
 // channelBearer mints a service:proxyd token (the channel proof proxyd presents)

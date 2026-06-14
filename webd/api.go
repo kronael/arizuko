@@ -16,9 +16,10 @@ func (s *server) handleAPIGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/groups/<folder>/topics
+// groups/messages live in routd.db (stRoutd) — split ownership
 func (s *server) handleAPITopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	topics, err := s.st.Topics(folder)
+	topics, err := s.stRoutd.Topics(folder)
 	if err != nil {
 		chanlib.WriteErr(w, 500, "query failed")
 		return
@@ -46,7 +47,7 @@ func (s *server) handleAPIMessages(w http.ResponseWriter, r *http.Request) {
 			before = t
 		}
 	}
-	msgs, err := s.st.MessagesByTopic(folder, topic, before, 50)
+	msgs, err := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
 	if err != nil {
 		chanlib.WriteErr(w, 500, "query failed")
 		return
@@ -75,7 +76,7 @@ func (s *server) handleAPITyping(w http.ResponseWriter, r *http.Request) {
 // injection from the /panel/<folder> chat page. JSON {content, topic}.
 func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	if _, ok := s.st.GroupByFolder(folder); !ok {
+	if _, ok := s.stRoutd.GroupByFolder(folder); !ok {
 		chanlib.WriteErr(w, 404, "group not found")
 		return
 	}
@@ -111,7 +112,7 @@ type groupOut struct {
 }
 
 func (s *server) groupList() []groupOut {
-	groups := s.st.AllGroups()
+	groups := s.stRoutd.AllGroups()
 	out := make([]groupOut, 0, len(groups))
 	for _, g := range groups {
 		out = append(out, groupOut{Folder: g.Folder})

@@ -84,14 +84,15 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 		after := strings.TrimSpace(req.GetString("after", ""))
 		wait := req.GetBool("wait", false)
 
+		// turn_results + messages live in routd.db (stRoutd) — split ownership
 		frames := s.collectRoundFrames(turnID, after)
-		info, _ := s.st.GetTurnResult(folder, turnID)
+		info, _ := s.stRoutd.GetTurnResult(folder, turnID)
 		done := hasAssistant(frames)
 		if !wait || done {
 			return roundSnapshot(turnID, info.Status, frames, done), nil
 		}
 
-		topic := s.st.TopicByMessageID(turnID, jid)
+		topic := s.stRoutd.TopicByMessageID(turnID, jid)
 		if topic == "" {
 			return roundSnapshot(turnID, info.Status, frames, false), nil
 		}
@@ -100,7 +101,7 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 
 		frames = s.collectRoundFrames(turnID, after)
 		if hasAssistant(frames) {
-			info, _ = s.st.GetTurnResult(folder, turnID)
+			info, _ = s.stRoutd.GetTurnResult(folder, turnID)
 			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
 
@@ -108,10 +109,10 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 		defer cancel()
 		if a, ok := waitForAssistant(deadline, ch); ok {
 			frames = appendUnique(frames, a)
-			info, _ = s.st.GetTurnResult(folder, turnID)
+			info, _ = s.stRoutd.GetTurnResult(folder, turnID)
 			return roundSnapshot(turnID, info.Status, frames, true), nil
 		}
-		info, _ = s.st.GetTurnResult(folder, turnID)
+		info, _ = s.stRoutd.GetTurnResult(folder, turnID)
 		return roundSnapshot(turnID, info.Status, frames, false), nil
 	})
 
@@ -123,8 +124,8 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 		if turnID == "" {
 			return mcp.NewToolResultError("turn_id required"), nil
 		}
-		info, _ := s.st.GetTurnResult(folder, turnID)
-		msgs, err := s.st.TurnFrames(turnID, "", 200)
+		info, _ := s.stRoutd.GetTurnResult(folder, turnID)
+		msgs, err := s.stRoutd.TurnFrames(turnID, "", 200)
 		if err != nil {
 			return mcp.NewToolResultError("query failed"), nil
 		}
@@ -145,7 +146,7 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 }
 
 func (s *server) collectRoundFrames(turnID, after string) []map[string]any {
-	msgs, err := s.st.TurnFrames(turnID, after, 100)
+	msgs, err := s.stRoutd.TurnFrames(turnID, after, 100)
 	if err != nil {
 		slog.Warn("chat-mcp get_round query", "turn_id", turnID, "err", err)
 		return nil

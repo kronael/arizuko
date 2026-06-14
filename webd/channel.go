@@ -10,6 +10,8 @@ import (
 	"github.com/kronael/arizuko/core"
 )
 
+// handleSend is routd's callback to push assistant messages to SSE subscribers.
+// routd is the sole message appender — we only publish to hub, no local PutMessage.
 func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ChatJID string `json:"chat_jid"`
@@ -24,30 +26,17 @@ func (s *server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	folder := strings.TrimPrefix(req.ChatJID, "web:")
-	topic := s.st.TopicByMessageID(req.ReplyTo, req.ChatJID)
+	// messages lives in routd.db (stRoutd) — split ownership
+	topic := s.stRoutd.TopicByMessageID(req.ReplyTo, req.ChatJID)
 
 	id := core.MsgID("bot")
-	m := core.Message{
-		ID:        id,
-		ChatJID:   req.ChatJID,
-		Sender:    s.cfg.assistantName,
-		Content:   req.Content,
-		Timestamp: time.Now(),
-		BotMsg:    true,
-		ReplyToID: req.ReplyTo,
-		Topic:     topic,
-		TurnID:    req.TurnID,
-	}
-	if err := s.st.PutMessage(m); err != nil {
-		chanlib.WriteErr(w, 500, "store failed")
-		return
-	}
+	ts := time.Now()
 
 	payload, _ := json.Marshal(map[string]any{
-		"id":         m.ID,
+		"id":         id,
 		"role":       "assistant",
-		"content":    m.Content,
-		"created_at": m.Timestamp.Format(time.RFC3339),
+		"content":    req.Content,
+		"created_at": ts.Format(time.RFC3339),
 		"turn_id":    req.TurnID,
 	})
 	s.hub.publish(folder, topic, "message", string(payload))
@@ -68,7 +57,8 @@ func (s *server) handleRoundDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jid := "web:" + req.Folder
-	topic := s.st.TopicByMessageID(req.TurnID, jid)
+	// messages lives in routd.db (stRoutd) — split ownership
+	topic := s.stRoutd.TopicByMessageID(req.TurnID, jid)
 	payload, _ := json.Marshal(map[string]any{
 		"turn_id": req.TurnID,
 		"status":  req.Status,

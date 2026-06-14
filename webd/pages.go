@@ -50,7 +50,7 @@ func (s *server) handleGroupsPage(w http.ResponseWriter, r *http.Request) {
 // surface to /chat/<token>/ and renamed this operator view to /panel.
 func (s *server) handleChatPage(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	g, ok := s.st.GroupByFolder(folder)
+	g, ok := s.stRoutd.GroupByFolder(folder)
 	if !ok {
 		http.NotFound(w, r)
 		return

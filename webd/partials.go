@@ -22,7 +22,7 @@ func (s *server) handleXGroups(w http.ResponseWriter, r *http.Request) {
 // GET /x/groups/<folder>/topics
 func (s *server) handleXTopics(w http.ResponseWriter, r *http.Request) {
 	folder := folderParam(r)
-	topics, _ := s.st.Topics(folder)
+	topics, _ := s.stRoutd.Topics(folder)
 	w.Header().Set("Content-Type", "text/html")
 	for _, t := range topics {
 		label := t.LastAt.Format("Jan 2")
@@ -49,7 +49,7 @@ func (s *server) handleXMessages(w http.ResponseWriter, r *http.Request) {
 			before = t
 		}
 	}
-	msgs, _ := s.st.MessagesByTopic(folder, topic, before, 50)
+	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
 	w.Header().Set("Content-Type", "text/html")
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]

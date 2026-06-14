@@ -51,9 +51,10 @@ func anonSender(r *http.Request) string {
 }
 
 // lookupRouteToken fetches the row or writes 404 and returns ok=false.
+// route_tokens lives in routd.db (stRoutd) — split ownership.
 func (s *server) lookupRouteToken(w http.ResponseWriter, r *http.Request) (store.RouteToken, bool) {
 	token := r.PathValue("token")
-	row, ok := s.st.LookupRouteToken(token)
+	row, ok := s.stRoutd.LookupRouteToken(token)
 	if !ok {
 		slog.Warn("route token not found",
 			"path", r.URL.Path, "token_hash", chanlib.ShortHash(token))
@@ -121,7 +122,8 @@ func (s *server) handleChatTokenHistory(w http.ResponseWriter, r *http.Request) 
 	}
 	out := []msgOut{}
 	if topic != "" {
-		msgs, err := s.st.MessagesByThread(row.JID, topic, time.Now(), 100)
+		// messages lives in routd.db (stRoutd) — split ownership
+		msgs, err := s.stRoutd.MessagesByThread(row.JID, topic, time.Now(), 100)
 		if err != nil {
 			http.Error(w, "store failed", http.StatusInternalServerError)
 			return
@@ -256,34 +258,25 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 	jid := row.JID
 	folder := groupfolder.JidFolder(jid)
 
-	m := core.Message{
-		ID:        core.MsgID("hook"),
-		ChatJID:   jid,
-		Sender:    sender,
-		Name:      sender,
-		Content:   string(body),
-		Timestamp: time.Now(),
-		Source:    "web",
-	}
-	if err := s.st.PutMessage(m); err != nil {
-		slog.Warn("hook store", "folder", folder, "err", err)
-		http.Error(w, "store failed", http.StatusInternalServerError)
-		return
-	}
+	// routd is the sole message appender — no local PutMessage. rc.SendMessage
+	// delivers to routd which persists + dispatches.
+	ts := time.Now()
+	id := core.MsgID("hook")
 	slog.Info("hook inbound", "folder", folder, "sender", sender,
 		"token_hash", chanlib.ShortHash(r.PathValue("token")), "bytes", len(body))
 
 	if err := s.rc.SendMessage(chanlib.InboundMsg{
-		ID:         m.ID,
+		ID:         id,
 		ChatJID:    jid,
 		Sender:     sender,
 		SenderName: sender,
-		Content:    m.Content,
-		Timestamp:  m.Timestamp.Unix(),
+		Content:    string(body),
+		Timestamp:  ts.Unix(),
 		IsGroup:    false,
 	}); err != nil {
 		slog.Warn("hook router", "folder", folder, "err", err)
-		// Already stored; don't fail the webhook on router unavailability.
+		http.Error(w, "router unavailable", http.StatusBadGateway)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -335,6 +328,8 @@ func parseChatBody(r *http.Request) (content, topic string, err error) {
 
 // injectRouteMessage is the shared writer for chat-token POSTs (the
 // hook-token surface inlines its own simpler path: no topic, no SSE).
+// routd is the sole message appender — no local PutMessage. rc.SendMessage
+// delivers to routd which persists + dispatches.
 func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderName, token string) (core.Message, map[string]any, error) {
 	m := core.Message{
 		ID:        core.MsgID("msg"),
@@ -346,10 +341,6 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 		Topic:     topic,
 		Source:    "web",
 	}
-	if err := s.st.PutMessage(m); err != nil {
-		slog.Warn("route-token store", "folder", folder, "err", err)
-		return core.Message{}, nil, errRouteTokenStore
-	}
 	slog.Info("route-token inbound", "folder", folder, "anon_sender", sender,
 		"token_hash", chanlib.ShortHash(token), "topic", topic)
 
@@ -360,6 +351,7 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 		SenderName: senderName,
 		Content:    content,
 		Timestamp:  m.Timestamp.Unix(),
+		Topic:      topic,
 		IsGroup:    false,
 	}); err != nil {
 		slog.Warn("route-token router", "folder", folder, "err", err)
@@ -411,9 +403,10 @@ func (s *server) handleRouteTokenStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// messages lives in routd.db (stRoutd) — split ownership
 	if lastID := r.Header.Get("Last-Event-Id"); lastID != "" {
-		if t, ok := s.st.MessageTimestampByID(lastID, "web:"+folder); ok {
-			msgs, _ := s.st.MessagesSinceTopic(folder, topic, t, 50)
+		if t, ok := s.stRoutd.MessageTimestampByID(lastID, "web:"+folder); ok {
+			msgs, _ := s.stRoutd.MessagesSinceTopic(folder, topic, t, 50)
 			flusher, _ := w.(http.Flusher)
 			for _, m := range msgs {
 				data, _ := json.Marshal(map[string]any{

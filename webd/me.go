@@ -94,9 +94,10 @@ func (s *server) handleMeChats(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /me/x/folders — HTMX partial: folder tree
+// groups lives in routd.db (stRoutd) — split ownership
 func (s *server) handleMeXFolders(w http.ResponseWriter, r *http.Request) {
 	grants := userGroups(r)
-	groups := s.st.AllGroups()
+	groups := s.stRoutd.AllGroups()
 	w.Header().Set("Content-Type", "text/html")
 
 	// collect allowed folders, sorted
@@ -146,7 +147,7 @@ func (s *server) handleMeXFolders(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleMeXChats(w http.ResponseWriter, r *http.Request) {
 	grants := userGroups(r)
 	filterFolder := r.URL.Query().Get("folder")
-	groups := s.st.AllGroups()
+	groups := s.stRoutd.AllGroups()
 	w.Header().Set("Content-Type", "text/html")
 
 	type chatRow struct {
@@ -164,7 +165,7 @@ func (s *server) handleMeXChats(w http.ResponseWriter, r *http.Request) {
 		if filterFolder != "" && folder != filterFolder && !strings.HasPrefix(folder, filterFolder+"/") {
 			continue
 		}
-		topics, err := s.st.Topics(folder)
+		topics, err := s.stRoutd.Topics(folder)
 		if err != nil {
 			continue
 		}
@@ -216,7 +217,8 @@ func (s *server) handleMeXThread(w http.ResponseWriter, r *http.Request) {
 			before = t
 		}
 	}
-	msgs, _ := s.st.MessagesByTopic(folder, topic, before, 50)
+	// messages lives in routd.db (stRoutd) — split ownership
+	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, before, 50)
 	w.Header().Set("Content-Type", "text/html")
 	for i := len(msgs) - 1; i >= 0; i-- {
 		writeMsgDiv(w, msgs[i])
@@ -243,7 +245,7 @@ func (s *server) handleMeThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msgs, _ := s.st.MessagesByTopic(folder, topic, time.Now(), 50)
+	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, time.Now(), 50)
 
 	meShellOpen(w, r, groupfolder.NameOf(folder))
 
@@ -334,7 +336,7 @@ func (s *server) handleMeSSE(w http.ResponseWriter, r *http.Request) {
 // GET /me/chats/new
 func (s *server) handleMeNewChat(w http.ResponseWriter, r *http.Request) {
 	grants := userGroups(r)
-	groups := s.st.AllGroups()
+	groups := s.stRoutd.AllGroups()
 
 	meShellOpen(w, r, "new chat")
 	fmt.Fprint(w, `<div style="padding:1rem;max-width:480px">
@@ -389,11 +391,11 @@ func (s *server) handleMeFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	if _, ok := s.st.GroupByFolder(folder); !ok {
+	if _, ok := s.stRoutd.GroupByFolder(folder); !ok {
 		http.NotFound(w, r)
 		return
 	}
-	topics, _ := s.st.Topics(folder)
+	topics, _ := s.stRoutd.Topics(folder)
 	meShellOpen(w, r, groupfolder.NameOf(folder))
 	fmt.Fprintf(w,
 		`<div style="padding:1rem"><h2>%s</h2><p style="margin:.5rem 0;color:#666">%s</p>`,
