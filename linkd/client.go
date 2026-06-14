@@ -750,8 +750,8 @@ func (lc *linkClient) FetchHistory(req chanlib.HistoryRequest) (chanlib.HistoryR
 		}
 		msgs = append(msgs, chanlib.InboundMsg{
 			ID:         urn + "-" + c.ID,
-			ChatJID:    "linkedin:" + urn,
-			Sender:     "linkedin:" + c.Actor,
+			ChatJID:    "linkedin:post/" + urn,
+			Sender:     "linkedin:user/" + c.Actor,
 			SenderName: c.Actor,
 			Content:    c.Message.Text,
 			Timestamp:  ts,

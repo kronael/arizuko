@@ -368,7 +368,7 @@ func TestFetchHistory_Comments(t *testing.T) {
 	if resp.Messages[0].ID != "urn:li:activity:999-c1" {
 		t.Errorf("ID=%q", resp.Messages[0].ID)
 	}
-	if resp.Messages[0].ChatJID != "linkedin:urn:li:activity:999" {
+	if resp.Messages[0].ChatJID != "linkedin:post/urn:li:activity:999" {
 		t.Errorf("ChatJID=%q", resp.Messages[0].ChatJID)
 	}
 	if resp.Messages[1].Verb != "reply" || resp.Messages[1].ReplyTo != "urn:li:comment:xyz" {

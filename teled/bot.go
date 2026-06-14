@@ -263,11 +263,21 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		return true
 	}
 
-	if b.mentionRe != nil && b.api.Self.UserName != "" && msg.Entities != nil {
+	// Check for @bot mention in groups — set verb="mention" so routing rules
+	// can distinguish explicit engagement from ambient messages (consistent
+	// with slakd/discd). Also rewrite @username to @AssistantName.
+	isGroup := msg.Chat.ID < 0
+	verb := ""
+	if b.api.Self.UserName != "" && msg.Entities != nil {
 		mention := "@" + b.api.Self.UserName
 		for _, e := range msg.Entities {
-			if e.Type == "mention" && strings.EqualFold(entity(msg.Text, e), mention) && !b.mentionRe.MatchString(content) {
-				content = "@" + b.cfg.AssistantName + " " + content
+			if e.Type == "mention" && strings.EqualFold(entity(msg.Text, e), mention) {
+				if isGroup {
+					verb = "mention"
+				}
+				if b.mentionRe != nil && !b.mentionRe.MatchString(content) {
+					content = "@" + b.cfg.AssistantName + " " + content
+				}
 				break
 			}
 		}
@@ -284,10 +294,11 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		Sender:      "telegram:user/" + userID(msg.From),
 		SenderName:  userName(msg.From),
 		Content:     content,
+		Verb:        verb,
 		Timestamp:   int64(msg.Date),
 		Topic:       topic,
 		Attachments: res.attachments,
-		IsGroup:     msg.Chat.ID < 0,
+		IsGroup:     isGroup,
 		ChatName:    msg.Chat.Title,
 	}
 	if r := msg.ReplyToMessage; r != nil {
