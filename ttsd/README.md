@@ -15,13 +15,17 @@ implementation details.
 
 ## Endpoints
 
-- `GET /health` → 200 `{status:"ok"}` when the backend is reachable;
-  503 `{status:"disconnected"}` otherwise.
+- `GET /health` → 200 `{status:"ok", name:"ttsd"}` when the backend is
+  reachable; 503 `{status:"disconnected", name:"ttsd"}` otherwise.
+  Probes backend's `/health` endpoint; falls back to `HEAD /` if the
+  backend lacks `/health`.
 - `POST /v1/audio/speech` → forwards verbatim to the backend.
   Request body: `{model, voice, input, response_format}` per OpenAI.
   Response: audio bytes (`audio/ogg`, `audio/mpeg`, etc).
 - `GET /v1/voices` → forwards verbatim. Convenience for listing voices
   on Kokoro-FastAPI.
+
+Returns 502 when the backend is unreachable during a proxy request.
 
 ## Config
 
@@ -40,12 +44,12 @@ docker run -d --name ttsd -p 8880:8880 -e TTS_BACKEND_URL=http://localhost:8881 
 
 # Use external (e.g. OpenAI cloud):
 docker run -d --name ttsd -p 8880:8880 \
-  -e TTS_BACKEND_URL=https://api.openai.com -e TTS_AUTH_HEADER='Authorization: Bearer sk-...' \
+  -e TTS_BACKEND_URL=https://api.openai.com \
   arizuko-ttsd:latest
 ```
 
-(`TTS_AUTH_HEADER` injection is a future extension; today, front the
-backend with whatever auth your infrastructure provides.)
+Auth forwarding: front the backend with proxyd or your infrastructure's
+auth layer. ttsd itself has no auth logic.
 
 ## Testing
 
