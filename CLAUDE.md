@@ -321,6 +321,63 @@ arizuko invite <instance> ...  issue/list/revoke onboarding invites
 Full command list in `cmd/arizuko/README.md`. Daemons are standalone
 binaries (`authd`, `routd`, `runed`, `timed`, ...); see README for the full table.
 
+## Quick Setup
+
+**Prerequisites**: Docker, Go 1.22+, make, git, write access to `/srv/data/`.
+
+```bash
+# 1. Build
+git clone https://github.com/kronael/arizuko && cd arizuko
+make build                  # ./arizuko + all daemon binaries
+sudo make images            # arizuko:latest (router + adapters)
+sudo make agent             # arizuko-ant:latest (Claude Code agent)
+
+# 2. Create instance
+./arizuko create <name>     # seeds /srv/data/arizuko_<name>/ + .env
+```
+
+Edit `/srv/data/arizuko_<name>/.env` — required vars:
+
+```bash
+ASSISTANT_NAME=             # display name of the agent
+AUTH_SECRET=                # openssl rand -hex 32
+SECRETS_KEY=                # openssl rand -hex 32
+CLAUDE_CODE_OAUTH_TOKEN=    # from claude.ai/settings → API → OAuth token
+CONTAINER_IMAGE=arizuko-ant:latest
+WEB_HOST=                   # public hostname (e.g. myhost.example.com)
+```
+
+Channel adapter tokens — add whichever you're deploying:
+
+| adapter | env vars needed                                                                      |
+| ------- | ------------------------------------------------------------------------------------ |
+| teled   | `TELEGRAM_BOT_TOKEN`                                                                 |
+| discd   | `DISCORD_BOT_TOKEN`                                                                  |
+| slakd   | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                            |
+| mastd   | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                                         |
+| bskyd   | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                             |
+| emaid   | `IMAP_HOST`, `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` |
+| whapd   | (none — pairs via QR or `arizuko pair <inst> whapd`)                                 |
+
+```bash
+# 3. Register first group (example: Telegram chat -123456789)
+./arizuko group <name> add tg:-123456789 main
+
+# 4. Run
+./arizuko run <name>        # generates docker-compose.yml + docker compose up
+```
+
+**Verify:**
+
+```bash
+sudo systemctl status arizuko_<name>
+sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
+# All core containers (routd, authd, runed, <adapter>) should show (healthy).
+make smoke SMOKE_INSTANCE=<name>
+```
+
+If the agent doesn't reply, see "Nothing works" checklist below.
+
 ## Service Architecture
 
 Daemons end in `d`. Libraries don't. Shared SQLite (WAL). The full
