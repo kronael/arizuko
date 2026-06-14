@@ -403,7 +403,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at                                                                 |
 | `onboarding_gates` | gate (PK), limit_per_day, enabled                                                                                                              |
 | `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count                                                            |
-| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted, v1: prefix, key=SHA-256(SECRETS_KEY or AUTH_SECRET)), created_at               |
+| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted, v2: prefix, key=SHA-256(SECRETS_KEY)), created_at                              |
 | `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9)                                                                  |
 | `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge                                                                                |
 | `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at — per-turn submit_turn outcomes                                                         |
@@ -674,7 +674,7 @@ Three substrates, clearly split:
   collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set in the instance
   `.env`. Logs not spans; `turn_id` → deterministic TraceID across
   daemons. Library: [`obs/`](obs/). Spec:
-  [`5/O`](specs/5/O-otlp-export.md). Off by default.
+  [`5/O`](specs/5/O-observability.md). Off by default.
 
 ## Error Handling
 

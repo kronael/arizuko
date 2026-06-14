@@ -431,7 +431,7 @@ sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
 slog → journald is the default and always-on substrate. To also push
 events to an OTel-compatible collector (Grafana / Tempo / Datadog /
 Honeycomb), set `OTEL_EXPORTER_OTLP_ENDPOINT` in the instance `.env`.
-Spec: [`specs/5/O-otlp-export.md`](specs/5/O-otlp-export.md), library:
+Spec: [`specs/5/O-observability.md`](specs/5/O-observability.md), library:
 [`obs/`](obs/).
 
 - Unset → zero overhead; stderr JSON handler only.
