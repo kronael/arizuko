@@ -10,7 +10,7 @@ downscoped capability token per spawn. It never appends a message
 (routd is the sole appender) and never signs a token (authd is the sole
 signer). The per-turn agent MCP socket is hosted in-process by **routd**
 (`Input.ExternalMCP=true`), so runed only mounts the ipc dir and does no
-in-process `ServeMCP`. Spec: `specs/5/P`.
+in-process `ServeMCP`. Spec: `specs/5/P-runed.md`.
 
 ## Responsibilities
 
@@ -25,25 +25,27 @@ in-process `ServeMCP`. Spec: `specs/5/P`.
 ## Tables owned
 
 `runed.db` (separate from routd's `routd.db`): `spawns`, `session_log`,
-`spawn_logs`, `mcp_tokens` — runtime execution state with no home in
-routd. Migrations in `runed/migrations/`. These are runtime tables, not
-manifest-addressable config, so `/openapi.json` exposes zero resource
-paths (emitted only for aggregator uniformity).
+`spawn_logs`, `mcp_tokens`, `circuit_breaker` — runtime execution state
+with no home in routd. Migrations in `runed/migrations/`. These are
+runtime tables, not manifest-addressable config, so `/openapi.json`
+exposes zero resource paths (emitted only for aggregator uniformity).
 
 ## Entry points
 
 - Binary: `runed/cmd/runed/main.go`
 - Listen: `:8080` (`LISTEN_ADDR` default). Surface (`server.go`):
   - `POST /v1/runs` — start a run (scope `runs:run`)
+  - `POST /v1/runs/stop` — operator kill by folder (`runs:kill`)
   - `GET /v1/runs/{run_id}` — status; `DELETE /v1/runs/{run_id}` — kill (`runs:kill`)
   - `GET /v1/sessions` — session history (scope `sessions:read`, folder-bound)
+  - `GET /v1/sessions/recent` — recent session_log rows (scope `sessions:read`, routd federation read)
   - `GET /openapi.json`, `GET /health`
 
 ## Dependencies
 
 - `auth` (offline token verify via authd JWKS; `ServiceToken` bootstrap)
 - `container` (docker runner), `core`, `groupfolder`, `obs`, `resreg`, `types`
-- `authd` (token broker + JWKS), `routd` (forwards agent tools back to `/v1/turns/*`)
+- `authd` (token broker + JWKS), `routd` (hosts the per-turn agent MCP socket)
 
 ## Configuration
 
@@ -54,8 +56,9 @@ paths (emitted only for aggregator uniformity).
   container hard-kill AND the in-container agent query timeout
   (`ARIZUKO_QUERY_TIMEOUT_MS` = `RUNED_RUN_TIMEOUT − 30s`), so the agent aborts
   and delivers a graceful summary before runed kills the container.
-- `RUNED_SHUTDOWN_GRACE`
-- `LISTEN_ADDR`; container config via `core.LoadConfig` (`MaxContainers`, dirs)
+- `RUNED_SHUTDOWN_GRACE` (default = `RUNED_RUN_TIMEOUT`) — graceful shutdown wait for in-flight handlers
+- `LISTEN_ADDR` (default `:8080`)
+- Container config via `core.LoadConfig`: `MaxContainers`, dirs (GroupsDir, IpcDir, StoreDir, etc.)
 
 ## Health signal
 
@@ -72,17 +75,18 @@ Metrics emitted when `METRICS_ENABLED=true`:
 - `arizuko_requests_total` — HTTP requests (daemon, method, status)
 
 Spans: `container_spawn`, `cross_daemon`.
-Spec: `specs/5/O-observability.md`.
+Spec: `specs/5/O-otlp-export.md`.
 
 ## Files
 
 - `cmd/runed/main.go` — daemon wiring, verifier/broker bootstrap, shutdown
 - `server.go` — HTTP surface + bearer/scope gate
-- `manager.go`, `runtime.go`, `runtimes.go` — run lifecycle + concurrency
-- `docker.go` — `dockerRuntime`: spawn / steer / kill (ExternalMCP)
+- `manager.go` — Manager: run lifecycle, concurrency, queue, circuit breaker
+- `runtime.go` — Runtime interface (Run, Kill); RunSpec
+- `docker.go` — dockerRuntime: spawn / steer / kill (ExternalMCP)
 - `broker.go` — per-spawn token brokering from authd
-- `db.go` — `runed.db` spawn/session/token persistence
+- `db.go` — runed.db spawn/session/token persistence
 
 ## Status
 
-Live — the split is the only topology (gated removed, v0.50.0). Spec: `specs/5/P`.
+Live — the split is the only topology (gated removed, v0.50.0). Spec: `specs/5/P-runed.md`.

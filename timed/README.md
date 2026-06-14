@@ -1,116 +1,61 @@
 # timed
 
-Scheduler daemon: polls `scheduled_tasks`, inserts messages at due times.
+Scheduler daemon: polls routd for due tasks, enqueues messages at due times.
 
 ## Purpose
 
 Separate process that fires cron/interval tasks. Keeps scheduler logic out
-of `routd`. Writes prompts as messages through routd's DB;
-routd picks them up via normal polling.
+of `routd`. Drives routd over HTTP; opens NO local DB.
 
 ## Responsibilities
 
-- Poll `scheduled_tasks` every 60s; atomically claim due rows.
-- Insert the task prompt as a message with sender `timed` or `timed-isolated:<id>`.
-- Advance `next_run` (`robfig/cron` or interval-ms); mark one-shots completed.
-- Log each run to `task_run_logs`.
-
-## Tables owned
-
-`scheduled_tasks`, `task_run_logs`. routd runs the migrations today, but
-timed is the only daemon that mutates these rows. Other daemons must go
-through timed's API.
+- Poll routd's `/v1/tasks/due` every 60s; routd atomically claims + returns due tasks.
+- Enqueue the task prompt as a message (`POST /v1/messages`) with sender `timed` or `timed-isolated:<id>`.
+- Compute `next_run` client-side (`robfig/cron` or interval-ms).
+- Reschedule task (`POST /v1/tasks/{id}/reschedule`); mark one-shots completed.
+- Log each run (`POST /v1/tasks/runlog`).
 
 ## Entry points
 
 - Binary: `timed/main.go`
-- Listen: `:8080` — `/health` + `GET /openapi.json`
-  (`resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`); `/v1/tasks` planned
-- Config: `DATA_DIR`, `DATABASE`, `TZ`
+- Listen: `:8080` — `/health` (always 200 `ok`) + `GET /openapi.json`
+  (`resreg.OpenAPIHandler("timed", ["scheduled_tasks"])`)
+- Config: `ROUTER_URL`, `AUTHD_URL`, `AUTHD_SERVICE_KEY`, `TZ`
+
+## Configuration
+
+Env vars:
+
+- `ROUTER_URL` — required; routd address (e.g. `http://routd:8080`)
+- `AUTHD_URL` / `AUTHD_SERVICE_KEY` — service-token boot-exchange; required for routd auth
+- `TZ` — cron timezone (default `UTC`)
+- `ARIZUKO_INSTANCE` — instance name (used by `obs.Setup` for OTLP)
+
+timed exchanges `AUTHD_SERVICE_KEY` for a `service:timed` ES256 token at boot
+(`auth.ServiceToken`) and presents it on every routd call. If
+`AUTHD_URL`/`AUTHD_SERVICE_KEY` are unset, routd's bearer gate denies all calls.
 
 ## Dependencies
 
 - `core` (config)
-- `auth` (token verification on `/v1/*`, planned)
-- Direct SQLite via `modernc.org/sqlite` (no schema ownership — read/write only)
-
-## Planned `/v1/tasks` surface
-
-Per `specs/5/5-uniform-mcp-rest.md`, timed will serve `/v1/tasks` as the
-canonical control surface for `scheduled_tasks`:
-
-- `GET /v1/tasks` — list (paginated, filtered by folder, status, kind)
-- `GET /v1/tasks/{id}` — get one
-- `POST /v1/tasks` — create
-- `PATCH /v1/tasks/{id}` — partial update (pause/resume → `status`)
-- `DELETE /v1/tasks/{id}` — delete
-
-`task_run_logs` is exposed as a sub-resource: `GET /v1/tasks/{id}/runs`
-or via `GET /v1/tasks/runs?task_id=…` filter. Not separately writable.
-
-## Token contract (planned)
-
-timed will verify ES256 tokens signed by authd — no local issuance. It
-caches authd's public JWKS (`auth.FetchKeys` / `KeySet`) and verifies the
-same token format regardless of issuer:
-
-- proxyd-issued user-session tokens (operator hitting dashd → timed)
-- agent capability tokens (agent calling `pause_task` over MCP,
-  HTTP-forwarded into timed)
-
-Per request, timed runs:
-
-```go
-sub, err := auth.VerifyHTTP(r, ks)
-if !auth.HasScope(sub.Scope, "tasks", verb) { return 403 }   // read|write
-```
-
-Scopes: `tasks:read` for GET, `tasks:write` for POST/PATCH/DELETE. The
-target task's folder is matched against the `arz/folder` claim in
-`sub.Extra`.
-
-## Cross-daemon flow
-
-Agent-side scheduler tools (`schedule_task`, `pause_task`, `list_tasks`)
-become HTTP forwards from the MCP host into timed:
-
-```
-agent → ipc.tools/call(pause_task, id=42)
-       → ipc verifies agent token has tasks:write + folder match
-       → ipc HTTP-PATCH timed/v1/tasks/42 {status:"paused"}
-              Authorization: Bearer <agent-cap-token>
-       → timed verifies the same token, executes, returns
-```
-
-Local in-process calls go away once `/v1/tasks` ships; the MCP host
-becomes a thin forwarder for task ops.
-
-## Configuration
-
-timed opens NO local DB. It drives routd over HTTP on every tick:
-`GET /v1/tasks/due` (claim), `POST /v1/messages` (enqueue),
-`POST /v1/tasks/runlog` (log), `POST /v1/tasks/{id}/reschedule`
-(next_run+status) — all authenticated with a `service:timed` ES256 token
-exchanged from `AUTHD_SERVICE_KEY` at boot.
-
-Env:
-
-- `ROUTER_URL` — required; routd address (`http://routd:8080`)
-- `AUTHD_URL` / `AUTHD_SERVICE_KEY` — service-token boot-exchange
-- `TZ` — cron timezone (default `UTC`)
+- `auth` (service-token bootstrap)
+- `routd` (HTTP client)
+- `robfig/cron/v3` (cron parsing)
+- `obs` (OTLP setup)
+- `resreg` (OpenAPI handler)
 
 ## Health signal
 
-`GET /health` returns 200 when `db.Ping()` succeeds. Red flag:
-no `task_run_logs` rows appearing despite active tasks.
+`GET /health` returns 200 `ok` always. Red flag: no `task_run_logs` rows
+appearing despite active tasks.
 
 ## Files
 
-- `main.go` — entry point; validates `ROUTER_URL`, delegates to `runSplit`.
-- `split.go` — poll loop: claim due tasks → enqueue message → log → reschedule.
+- `main.go` — entry point; validates `ROUTER_URL`, `obs.Setup`, delegates to `runSplit`
+- `split.go` — federated fire loop: claim due tasks → enqueue message → log → reschedule
+- `split_test.go` / `timed_test.go` — unit tests
 
 ## Related docs
 
 - `specs/4/8-scheduler-service.md`
-- `specs/5/5-uniform-mcp-rest.md` (full `/v1/*` contract, token model)
 - `ARCHITECTURE.md` (Scheduler section)
