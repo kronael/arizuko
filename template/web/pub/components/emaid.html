@@ -69,7 +69,7 @@
       <li>Poll IMAP <code>INBOX</code> for messages newer than the last seen UID.</li>
       <li>Parse <code>Authentication-Results</code>. DMARC pass on the configured authserv-id (plus optional <code>From</code>-domain allowlist) &rarr; <code>verb=message</code>. Anything else &rarr; <code>verb=untrusted</code>, optional <code>[UNVERIFIED]</code> subject prefix. <code>EMAIL_STRICT_AUTH=1</code> drops untrusted mail outright.</li>
       <li>Look up the thread row by <code>Message-ID</code> or <code>References</code>. Hit &rarr; reuse the existing <code>chat_jid</code>. Miss &rarr; mint a new one.</li>
-      <li>POST <code>/v1/messages</code> to routd, signed with <code>CHANNEL_SECRET</code>.</li>
+      <li>POST <code>/v1/messages</code> to routd, signed with an ES256 service token (<code>AUTHD_SERVICE_KEY</code>).</li>
       <li>On outbound, routd calls back to <code>POST /send</code>. emaid hands the body to SMTP with <code>In-Reply-To</code> + <code>References</code> set from the thread row.</li>
     </ol>
 
@@ -79,7 +79,7 @@
         |  IMAP IDLE / poll
         v
       emaid     (parse Authentication-Results, classify verb)
-        |  POST /v1/messages    (signed by CHANNEL_SECRET)
+        |  POST /v1/messages    (ES256 service token)
         v
       routd
         |  POST /send           (callback to emaid)
@@ -102,13 +102,15 @@
       <li><code>EMAIL_UNVERIFIED_SUBJECT_PREFIX</code> &mdash; truthy adds an <code>[UNVERIFIED]</code> prefix to the subject when the message lands as untrusted.</li>
     </ul>
 
-    <p>The gateway will not promote an untrusted reply-to-bot to <code>verb=mention</code> (mention-promotion spec). Operators route <code>verb=untrusted</code> to a quarantine sub-group.</p>
+    <p>routd will not promote an untrusted reply-to-bot to <code>verb=mention</code> (mention-promotion spec). Operators route <code>verb=untrusted</code> to a quarantine sub-group.</p>
 
     <h2>Standalone usage</h2>
     <p>emaid is a plain Go binary. It needs a reachable routd, an IMAP+SMTP account, and a writable directory for its thread store.</p>
 
     <pre><code>export ROUTER_URL=http://routd:8080
-export CHANNEL_SECRET=$(grep ^CHANNEL_SECRET .env | cut -d= -f2)
+export AUTHD_URL=http://authd:8080
+export AUTHD_SERVICE_NAME=emaid
+export AUTHD_SERVICE_KEY=<key from authd>
 export LISTEN_ADDR=:8080
 export DATA_DIR=/srv/data/arizuko_demo
 export EMAIL_IMAP_HOST=imap.fastmail.com EMAIL_IMAP_PORT=993

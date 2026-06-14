@@ -71,7 +71,6 @@ $EDITOR .env</code></pre>
       <p>The Slack-team product needs at least these keys set:</p>
       <pre><code># Identity + secrets
 ASSISTANT_NAME=acme              # agent display name
-CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and routd
 AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
 WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
 
@@ -87,7 +86,7 @@ GOOGLE_CLIENT_SECRET=…
 DISCORD_CLIENT_ID=…
 DISCORD_CLIENT_SECRET=…</code></pre>
       <p>
-        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        Generate <code>AUTH_SECRET</code> with <code>openssl rand -hex 32</code>.
         See <a href="../../reference/env.html">reference / env</a> for the
         complete list and the daemons that read each one.
       </p>
@@ -296,7 +295,6 @@ volumes = ["${HOST_DATA_DIR}:${CONTAINER_DATA}"]
 ROUTER_URL = "http://routd:8080"
 SLACK_BOT_TOKEN = "xoxb-beta-workspace-token"
 SLACK_SIGNING_SECRET = "beta-signing-secret"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ASSISTANT_NAME = "${ASSISTANT_NAME}"
 LISTEN_ADDR = ":8080"
 LISTEN_URL = "http://slakd-beta:8080"
@@ -575,7 +573,7 @@ mcpc @s tools-call add_route \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-14">2026-06-14</time>
       </div>
     </main>
 
