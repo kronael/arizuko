@@ -1,5 +1,6 @@
 ---
-status: partial
+status: shipped
+shipped: 2026-06-14
 depends: [1-auth-standalone, 35-proxyd-standalone]
 ---
 
@@ -74,8 +75,8 @@ which surface gets a feature is accidental, not principled.
    via the arizuko helper over `Identity.Extra["folder"]`, since `auth/`
    is folder-agnostic — [`1-auth-standalone.md`](1-auth-standalone.md));
    handlers read `Caller`, not `*http.Request` or `mcp.ToolRequest`.
-4. **Policy is declarative.** A `ScopePred` per action lives next to
-   the resource; handler dispatches by action, policy is checked first.
+4. **Policy is declarative.** `Resource.Authz` returns the required
+   scope per action; `auth.Authorize` checks it before the handler runs.
 
 ## Caller and Resource shape
 
@@ -645,15 +646,15 @@ Hot-tier agent tools (`reply`, `send`, `like`, `delete`, `post`, `diary`,
 `tasks`, session control, inspect) stay in `ipc/ipc.go` — MCP-only by
 design (see "Two tiers" in The principle).
 
-| Phase | Deliverable                                                                                                                                                                                                                     |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `ScopePred` types in `auth/` (alongside `auth.VerifyHTTP` against authd's JWKs per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
-| B     | High-priority cold-tier resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core.                                                                                                                    |
-| C     | Backfill missing REST mirrors for cold-tier MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                                                      |
-| D     | Migrate `routes`, `scheduled_tasks` to resreg; deletes the duplicate cold-tier hand-written tool and direct DB call.                                                                                                            |
-| E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                                                 |
-| F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                                                        |
-| G     | Delete cold-tier tools in `ipc/ipc.go` that have a resreg equivalent (hot-tier agent tools remain).                                                                                                                             |
+| Phase | Deliverable                                                                                                                                                                                                                          |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `Resource.Authz` types in `auth/` (alongside `auth.VerifyHTTP` against authd's JWKs per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
+| B     | High-priority cold-tier resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core.                                                                                                                         |
+| C     | Backfill missing REST mirrors for cold-tier MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                                                           |
+| D     | Migrate `routes`, `scheduled_tasks` to resreg; deletes the duplicate cold-tier hand-written tool and direct DB call.                                                                                                                 |
+| E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                                                      |
+| F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                                                             |
+| G     | Delete cold-tier tools in `ipc/ipc.go` that have a resreg equivalent (hot-tier agent tools remain).                                                                                                                                  |
 
 Each phase is independent. Stopping at C still leaves the system in
 a saner state (REST parity); E+F are the structural wins.
@@ -774,42 +775,12 @@ MCP-only by design.
 
 ## Open (parked)
 
-- **`:own_group` matching under nested folders.** Subtree containment
-  is the lean. Pin when the arizuko `identity.go` folder helper (the
-  folder-match logic moved out of `auth/` per
-  [`1-auth-standalone.md`](1-auth-standalone.md)) lands.
-- **Bulk endpoints.** Many POSTs, bulk only on demand.
-- **Action verbs vs CRUD shape.** `messages.send` / `groups.escalate`
-  are action-shaped. Inherit Google's `:verb` convention.
-- **`ScopePred` concrete shapes** land per-resource in Phase B.
-- **Token TTL & revocation.** Short TTL (1h) is the default;
-  revocation list deferred. Long-lived API keys (dashd-issued) need a
-  revocation table — when, where?
-- **Cross-daemon transactions.** Some operations span tables (e.g.
-  "create group → seed skills → register routes"). Once ownership
-  is split, these become saga-shaped. Acceptable since each step is
-  idempotent; flag if not.
-- **MCP socket lifecycle vs token TTL.** Container can outlive its
-  token if a turn runs longer than TTL. Refresh via the MCP host?
-  Accept the rare expiry? Deferred — short-lived turns mostly avoid
-  this.
-- **dashd hosting decision.** Keep dashd as Go HTML server, or fold
-  HTML rendering into webd? Lean: keep.
-- **Token TTL refresh against authd.** `authd` is the decided central
-  signer ([`1-auth-standalone.md`](1-auth-standalone.md)), extracted
-  standalone first. Open here is only the refresh ergonomics —
-  centralized revocation list + audit live in `authd`; the question is
-  whether long turns re-fetch a token from `authd` mid-run or accept
-  rare expiry.
-- **Streaming endpoints.** SSE on REST and MCP notifications on the
-  agent side. Today they diverge. Defer; not CRUD-shaped.
-- **Pagination shape.** MCP tools return arrays today; REST uses
-  cursor pagination on some routes. Harmonize or leave per-resource.
+cursor pagination on some routes. Harmonize or leave per-resource.
 
 ## Code pointers
 
 - `auth/` ([`README.md`](../../auth/README.md)) — gains `Caller`,
-  `Resource`, `Endpoint`, `MCPTool`, `ScopePred`, `RegisterResource`,
+  `Resource`, `Endpoint`, `MCPTool`, `Resource.Authz`, `RegisterResource`,
   `VerifyHTTP`, `FetchKeys`, `HasScope` per Phase A. `auth/` stays
   folder-agnostic; the folder-match helper lives in arizuko's
   `identity.go` over `Identity.Extra["folder"]`
