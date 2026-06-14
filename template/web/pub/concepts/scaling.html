@@ -90,6 +90,27 @@
 
       <p>The jump from solo to dogfood is a Slack bot token and a few invites. The jump from team to internet is a route token and tighter egress rules. No redeploy, no new containers, no schema migration.</p>
 
+      <h3>Solo</h3>
+      <pre><code>arizuko create myagent
+arizuko group myagent add tg:123456789 main
+arizuko run myagent</code></pre>
+      <p>One user, one channel. <a href="../howto/">Getting started</a> walks through the full setup.</p>
+
+      <h3>Dogfood</h3>
+      <pre><code>arizuko invite myagent create --email alice@example.com
+arizuko group myagent add slack:T1234/C5678 alice</code></pre>
+      <p>Add adapters to <code>.env</code>, issue invites, create folders. See <a href="../reference/env.html">env reference</a> for adapter tokens.</p>
+
+      <h3>Team</h3>
+      <pre><code>arizuko group myagent add slack:T1234/C1111 eng
+arizuko group myagent add slack:T1234/C2222 eng/frontend
+arizuko acl myagent add alice@example.com "eng/**" "**"</code></pre>
+      <p>Nested folders inherit from parents; ACL rows grant actions per folder. See <a href="grants.html">grants</a> and <a href="scopes.html">scopes</a>.</p>
+
+      <h3>Internet</h3>
+      <pre><code>arizuko token myagent create --jid web:support</code></pre>
+      <p>A route token lets anonymous visitors in. Add <code>ONBOARDING_ADMISSION=queue</code> to gate new users, <code>CRACKBOX_ENABLED=true</code> to sandbox egress. See <a href="tokens.html">tokens</a> and <a href="onboarding.html">onboarding</a>.</p>
+
       <h2>Where isolation comes from</h2>
       <p>Tenants share a single SQLite WAL file, a single set of daemons, a single container image. Isolation comes from three things:</p>
       <ul>
