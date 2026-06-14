@@ -15,12 +15,14 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 > here; deriving it from annotated REST is a separate downstream followup
 > ([`11/18-openapi-mcp`](../11/18-openapi-mcp.md)), not a dependency.
 
-**Every operator action accessible via both REST (outside, OAuth-gated)
-AND MCP (inside, scope-gated), wrapped over a single handler.** One
-resource, one handler, two faces. Auth is the only thing that differs.
+**Cold-tier operator config resources accessible via both REST (outside,
+OAuth-gated) AND MCP (inside, scope-gated), wrapped over a single
+handler.** One resource, one handler, two faces. Auth is the only thing
+that differs. Hot-tier agent tools (`reply`, `send`, etc.) are MCP-only
+by design — see The principle.
 
 This spec defines the federated `/v1/*` surface and how tokens are
-consumed AND makes explicit that the MCP tool surface is the same
+consumed. For cold-tier resources, the MCP tool surface is the same
 registry viewed through a different auth lens — never a second
 hand-written tree. Per-daemon ownership: each daemon owns its tables and
 serves its own `/v1/*`; cross-daemon MCP calls become HTTP forwards over
@@ -691,17 +693,22 @@ does an HTTP call downstream; the adapter skips the tx/audit dance, and
 the destination daemon writes the audit row.
 `webd/routes_mcp.go` is the canonical example.
 
-## Phased rollout
+## Phased rollout (cold-tier only)
+
+Phases below migrate **cold-tier operator config** resources to resreg.
+Hot-tier agent tools (`reply`, `send`, `like`, `delete`, `post`, `diary`,
+`tasks`, session control, inspect) stay in `ipc/ipc.go` — MCP-only by
+design (see "Two tiers" in The principle).
 
 | Phase | Deliverable                                                                                                                                                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A     | `Caller`, `Resource`, `Endpoint`, `MCPTool`, `ScopePred` types in `auth/` (alongside `auth.VerifyHTTP` against authd's JWKs per [`1-auth-standalone.md`](1-auth-standalone.md)). `RegisterResource` helper. No behavior change. |
-| B     | High-priority resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core; the agent-facing tools already exist.                                                                                        |
-| C     | Backfill missing REST mirrors for existing agent MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                                                 |
-| D     | Migrate `routes`, `scheduled_tasks` one at a time; each migration deletes the hand-written tool in `ipc/ipc.go` and the direct DB call.                                                                                         |
+| B     | High-priority cold-tier resources via `resreg`: `acl`, `groups`, `secrets`, `invites`. Operator-facing core.                                                                                                                    |
+| C     | Backfill missing REST mirrors for cold-tier MCP tools (`set_grants`, `register_group`, `add_route`, `set_web_route`). One PR per resource.                                                                                      |
+| D     | Migrate `routes`, `scheduled_tasks` to resreg; deletes the duplicate cold-tier hand-written tool and direct DB call.                                                                                                            |
 | E     | Cutover `cmd/arizuko/*.go` to call the local MCP socket. Deletes direct `store.*` calls from `cmd/`. CLI becomes a thin client.                                                                                                 |
 | F     | Cutover dashd write handlers. `/dash/me/secrets` becomes a `secrets.create` dispatch. Drops the dashd-private REST path.                                                                                                        |
-| G     | Deprecate hand-written tools in `ipc/ipc.go` that have a registry equivalent; delete after one release.                                                                                                                         |
+| G     | Delete cold-tier tools in `ipc/ipc.go` that have a resreg equivalent (hot-tier agent tools remain).                                                                                                                             |
 
 Each phase is independent. Stopping at C still leaves the system in
 a saner state (REST parity); E+F are the structural wins.
