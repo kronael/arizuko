@@ -1,130 +1,260 @@
 ---
-status: partial
+status: shipped
 depends: [I-tool-call-logging, ../7/F-audit-stream]
 ---
 
-# specs/5/O — OTLP export
+# specs/5/O — Observability
 
-> **Status (2026-06-06):** Export shipped — `obs.Setup` runs in every daemon;
-> slog → stderr always, + OTLP logs when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-> Trace correlation now wired: `obs.WithTurn` at gateway turn-open,
-> `obs.InjectRequest` on internal cross-daemon clients (chanlib, authd, onbod,
-> runed), `obs.ExtractRequest` in the shared `auth` middleware; gateway
-> turn-lifecycle logs emit via `slog.*Context`. `LOG_LEVEL` sets stderr
-> verbosity for all daemons. Remaining (`partial`): `*Context` coverage beyond
-> the gateway turn path, in-band trace over the MCP socket (Open Q1), and
-> optional spans (Open Q3).
+> **Status (2026-06-14):** Shipped. Three pillars: logs (slog + OTLP), traces
+> (per-turn spans), metrics (Prometheus `/metrics`). All configured via
+> standard OTel env vars; disabled by default. `obs/` package owns setup.
 
 ## What this solves
 
-`journalctl` over slog is one substrate per host; it does not aggregate
-across instances or feed an OTel collector. This spec ships the **slog
-stream** over OTLP **logs** so operators attach any OTel-compatible
-collector without changing emit sites.
+Operators need visibility into a multi-daemon system without modifying code
+at every emit site. This spec ships the three observability pillars:
 
-`audit_log` stays SQLite-canonical ([`I-tool-call-logging.md`](I-tool-call-logging.md),
-[`../7/F-audit-stream.md`](../7/F-audit-stream.md)). OTLP is
-observability only — lossy by the same logic that makes slog lossy.
+1. **Logs** — slog → stderr (journald) + optional OTLP logs exporter
+2. **Traces** — spans for turn lifecycle, model calls, MCP tools, container spawns
+3. **Metrics** — Prometheus-style counters/gauges/histograms via `/metrics`
 
-## What gets exported
-
-Every slog event → one OTLP log record. Records carrying `turn_id` get
-a deterministic trace ID so the collector groups a turn's events.
-
-NOT exported: `audit_log` rows, message content (PII), OTel metrics or
-spans (logs-only — see "Logs, not spans").
-
-## Configuration — one env var
-
-`OTEL_EXPORTER_OTLP_ENDPOINT` (W3C standard). Unset → OTLP disabled,
-stock JSON handler, zero overhead. Set → events fan out to stderr AND
-OTLP. Standard OTel env vars (`OTEL_EXPORTER_OTLP_PROTOCOL`,
-`OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, …) are read
-by the SDK. Default protocol `http/protobuf` — no gRPC dep.
-
-Resource attrs set by the library: `service.name=<daemonName>`,
-`service.namespace=arizuko`, `service.instance.id=<instance>`,
-`deployment.environment=<instance>` (override via standard
-`OTEL_RESOURCE_ATTRIBUTES`).
-
-## Library shape — `obs/`
-
-One package, one call per daemon at top of `main()`:
-
-```go
-defer obs.Setup("gated", os.Getenv("ARIZUKO_INSTANCE"))()
-```
-
-`ARIZUKO_INSTANCE` is seeded by compose (data-dir flavor); operators
-override via `.env`. Endpoint unset → stock JSON handler + no-op
-shutdown. Set → `otlploghttp` exporter + `LoggerProvider` + fanout
-`slog.Handler` that tees every record to stderr AND the OTel bridge.
-
-Stock handler stays primary. OTLP errors are swallowed; batch processor
-drops on overflow (SDK default queue cap). **App correctness MUST NOT
-depend on export success.** Operators who can't lose records run a
-sidecar collector with disk buffering.
-
-## Correlation
-
-`turn_id` is per-instance unique (SQLite message PK; see
-`gateway/gateway.go ## turnID`). To make trace IDs globally unique:
-`Record.TraceID = sha256(instance + "/" + turn_id)[:16]`. 128-bit
-collision is negligible. Trace IDs are not auth material.
-
-Everything else (`request_id`, `actor`, `actor_sub`, `folder`,
-`duration_ms`, `session_id`, `tool_call_id`) rides as OTLP attributes
-under the `arizuko.*` namespace. No span IDs — no parent/child model.
-
-W3C `traceparent` propagation uses `context.Context` as carrier:
-
-- Gateway opens a turn → `ctx = obs.WithTurn(ctx, turnID)`. That
-  stamps an OTel `SpanContext` on ctx with the deterministic TraceID
-  above and a fresh random SpanID.
-- Outbound HTTP clients (`chanlib/router_client.go`, etc.) call
-  `obs.InjectTraceparent(ctx, req.Header)`. ctx with SpanContext →
-  `traceparent` written; no SpanContext → no header.
-- At trust boundaries (channel adapter, webhook) inbound `traceparent`
-  is **ignored for routing**; gateway stamps its own once `turn_id`
-  exists. Raw inbound preserved as `arizuko.upstream_traceparent`.
-- Gateway↔container MCP unix socket does NOT carry `traceparent` in
-  v1. Gateway already knows the active `turn_id` when it lifts
-  in-container tool records ([`I-tool-call-logging.md`](I-tool-call-logging.md)
-  Layer B); correlation rebuilds at the lift site. See Open Q1.
-
-## Logs, not spans
-
-OTLP **logs**, not **traces**. slog records are point-in-time; spans
-need start/end + parent/child + per-emit instrumentation. `duration_ms`
-rides as an attribute. Trace views are collector-side reconstructions
-(e.g. Tempo logs→traces) — lossy, not authoritative.
-
-## Open questions
-
-1. **In-band trace context over the MCP unix socket.** JSON-RPC has no
-   header slot. If demanded: add `_meta.traceparent` per call (MCP
-   permits `_meta`) or stay with gateway-side rebuild.
-2. **`otelslog` bridge trace-ID slot.** Contrib bridge may not expose
-   `Record.TraceID` directly; fallback is a custom `log.Processor` in
-   `obs/`. Decided during implementation.
-3. **Selective spans for envelope ops.** Logs-only leaves
-   latency-breakdown views weak. A future spec may add real spans for a
-   narrow set (turn lifecycle, outbound model call, outbound MCP/tool
-   call). Out of scope here — keeps the "one Setup() call" contract.
+All three are optional. Unset env vars → zero overhead, stderr-only.
 
 ## Non-goals
 
-- OTLP export of `audit_log`.
-- SIEM webhooks, file rotation, JSONL dumps.
-- Manual span creation per call.
-- Replacing slog — stderr stays primary.
-- OTel metrics / tracing SDKs. Logs only.
+- OTLP export of `audit_log` (SQLite is canonical; see `7/F-audit-stream.md`)
+- SIEM webhooks, file rotation, JSONL dumps
+- Replacing slog — stderr stays primary
+- Custom trace UIs — use any OTel-compatible collector
+
+## Configuration
+
+One env var per pillar:
+
+| Env var                              | Pillar  | Effect                                                       |
+| ------------------------------------ | ------- | ------------------------------------------------------------ |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`        | logs    | Unset → stderr JSON only. Set → also ship logs to collector. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | traces  | Unset → no spans. Set → export spans to collector.           |
+| `METRICS_ENABLED`                    | metrics | Unset/false → no `/metrics`. true → Prometheus endpoint.     |
+
+Standard OTel SDK vars are honoured when endpoints are set:
+`OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_HEADERS`,
+`OTEL_RESOURCE_ATTRIBUTES`. Default protocol is `http/protobuf` — no gRPC dep.
+
+Resource attrs set by the library:
+
+- `service.name=<daemon>`
+- `service.namespace=arizuko`
+- `service.instance.id=<instance>`
+- `deployment.environment=<instance>`
+
+Export is best-effort: batch processors drop on overflow, errors are swallowed.
+App correctness MUST NOT depend on export success. Operators who can't lose
+records run a sidecar collector with disk buffering.
+
+---
+
+## Logs (shipped)
+
+### Library shape
+
+One call per daemon at top of `main()`:
+
+```go
+defer obs.Setup("routd", os.Getenv("ARIZUKO_INSTANCE"))()
+```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` unset → stock JSON handler + no-op shutdown.
+Set → `otlploghttp` exporter + `LoggerProvider` + fanout handler that tees
+every record to stderr AND the OTel bridge.
+
+### Correlation
+
+`turn_id` is per-instance unique (SQLite message PK). To make trace IDs
+globally unique: `TraceID = sha256(instance + "/" + turn_id)[:16]`.
+
+W3C `traceparent` propagation uses `context.Context` as carrier:
+
+- **Origin**: routd opens a turn → `ctx = obs.WithTurn(ctx, instance, turnID)`
+- **Outbound**: internal HTTP clients call `obs.InjectRequest(ctx, req)`
+- **Inbound**: `auth/middleware.go` calls `obs.ExtractRequest(r)` to join trace
+- **Trust boundaries**: channel adapters/webhooks ignore inbound `traceparent`;
+  routd stamps its own once `turn_id` exists
+
+MCP unix socket: no in-band `traceparent` in v1. routd already knows the active
+`turn_id` when it lifts in-container tool records; correlation rebuilds at the
+lift site.
+
+### slog field schema
+
+Exported by `I-tool-call-logging.md`. Fields ride as OTLP attributes under
+`arizuko.*` namespace: `request_id`, `actor`, `actor_sub`, `folder`,
+`duration_ms`, `session_id`, `tool_call_id`.
+
+---
+
+## Traces
+
+### Spans
+
+Spans form a tree per turn. Root span is `turn`; children nest under it.
+
+| Span name         | Start                          | End                        | Attributes                                                    |
+| ----------------- | ------------------------------ | -------------------------- | ------------------------------------------------------------- |
+| `turn`            | routd claims turn              | reply delivered OR timeout | `folder`, `jid`, `turn_id`, `outcome`                         |
+| `model_call`      | routd sends to Anthropic       | response received          | `model`, `folder`, `input_tokens`, `output_tokens`, `cache_*` |
+| `mcp_tool`        | agent invokes tool             | result returned            | `tool`, `folder`, `outcome`                                   |
+| `container_spawn` | runed starts docker run        | container ready OR failed  | `folder`, `image`, `outcome`                                  |
+| `cross_daemon`    | HTTP request to sibling daemon | response received          | `source`, `target`, `method`, `path`, `status`                |
+
+`outcome` values: `success`, `error`, `timeout`, `canceled`.
+
+### Implementation sites
+
+- **`turn`**: `routd/loop.go` — wrap `claimAndDispatch` in span
+- **`model_call`**: routd model client — wrap Anthropic API call
+- **`mcp_tool`**: `routd/mcp.go` — wrap tool handler execution
+- **`container_spawn`**: `runed/docker.go` — wrap docker run lifecycle
+- **`cross_daemon`**: `obs/propagation.go` — wrap outbound HTTP with span
+
+### MCP trace context (future)
+
+For full in-container correlation, add `_meta.traceparent` to JSON-RPC:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": { "name": "reply", "arguments": {...} },
+  "_meta": { "traceparent": "00-<trace_id>-<span_id>-01" }
+}
+```
+
+MCP permits `_meta` at request level. The container agent reads this and
+stamps outbound tool calls. Not v1 — routd-side rebuild suffices for now.
+
+---
+
+## Metrics
+
+Prometheus-style metrics exposed at `GET /metrics` per daemon when
+`METRICS_ENABLED=true`.
+
+### Metric definitions
+
+**Turn lifecycle** (routd):
+
+| Metric                          | Type      | Labels              | Description                           |
+| ------------------------------- | --------- | ------------------- | ------------------------------------- |
+| `arizuko_turn_duration_seconds` | histogram | `folder`, `outcome` | Turn latency from claim to completion |
+| `arizuko_turns_total`           | counter   | `folder`, `outcome` | Total turns processed                 |
+
+**Model calls** (routd):
+
+| Metric                                | Type      | Labels                         | Description                                 |
+| ------------------------------------- | --------- | ------------------------------ | ------------------------------------------- |
+| `arizuko_model_call_duration_seconds` | histogram | `model`, `folder`              | Anthropic API call latency                  |
+| `arizuko_model_tokens_total`          | counter   | `model`, `folder`, `direction` | Tokens used (in/out/cache_read/cache_write) |
+
+**Container lifecycle** (runed):
+
+| Metric                               | Type      | Labels              | Description                  |
+| ------------------------------------ | --------- | ------------------- | ---------------------------- |
+| `arizuko_container_spawns_total`     | counter   | `folder`, `outcome` | Container spawn attempts     |
+| `arizuko_container_active`           | gauge     |                     | Currently running containers |
+| `arizuko_container_duration_seconds` | histogram | `folder`, `outcome` | Container run time           |
+
+**HTTP surface** (all daemons):
+
+| Metric                             | Type      | Labels                       | Description                  |
+| ---------------------------------- | --------- | ---------------------------- | ---------------------------- |
+| `arizuko_requests_total`           | counter   | `daemon`, `method`, `status` | HTTP requests by status code |
+| `arizuko_request_duration_seconds` | histogram | `daemon`, `method`, `path`   | Request latency              |
+
+**Circuit breaker** (routd):
+
+| Metric                          | Type  | Labels   | Description                   |
+| ------------------------------- | ----- | -------- | ----------------------------- |
+| `arizuko_circuit_breaker_state` | gauge | `folder` | 0=closed, 1=half-open, 2=open |
+
+**Egress** (crackbox/egred):
+
+| Metric                          | Type    | Labels                     | Description             |
+| ------------------------------- | ------- | -------------------------- | ----------------------- |
+| `arizuko_egress_requests_total` | counter | `folder`, `host`, `status` | Proxied egress requests |
+| `arizuko_egress_bytes_total`    | counter | `folder`, `direction`      | Bytes proxied (in/out)  |
+
+**Auth** (authd):
+
+| Metric                          | Type    | Labels    | Description                                |
+| ------------------------------- | ------- | --------- | ------------------------------------------ |
+| `arizuko_token_mints_total`     | counter | `type`    | Tokens minted (access/refresh)             |
+| `arizuko_token_refreshes_total` | counter | `outcome` | Refresh attempts (success/revoked/expired) |
+
+### Label cardinality
+
+Keep cardinality bounded:
+
+- `folder`: group folder path (bounded by tenant count)
+- `model`: model ID (handful of values)
+- `host`: egress destination (allowlist-bounded)
+- `path`: normalize to route pattern, not full URL
+- `status`: HTTP status code (2xx/4xx/5xx buckets acceptable)
+
+### Histogram buckets
+
+Use standard OTel defaults or:
+
+- Turn/container: `[0.1, 0.5, 1, 5, 10, 30, 60, 120, 300, 600]` seconds
+- Model call: `[0.1, 0.25, 0.5, 1, 2, 5, 10, 30]` seconds
+- HTTP request: `[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5]` seconds
+
+---
+
+## Implementation notes
+
+### `obs/` package additions
+
+Current: `Setup`, `WithTurn`, `InjectRequest`, `ExtractRequest`, fanout handler.
+
+Add:
+
+- `obs/metrics.go` — Prometheus registry, metric descriptors, `MetricsHandler()`
+- `obs/spans.go` — `StartSpan(ctx, name, attrs)`, `EndSpan(ctx, outcome)`
+- `obs/middleware.go` — HTTP middleware for request metrics + spans
+
+### Per-daemon `/metrics` handler
+
+Each daemon mounts `GET /metrics` before auth middleware (public endpoint):
+
+```go
+if cfg.MetricsEnabled {
+    mux.Handle("GET /metrics", obs.MetricsHandler())
+}
+```
+
+### Span instrumentation pattern
+
+```go
+ctx, end := obs.StartSpan(ctx, "model_call", "model", model, "folder", folder)
+resp, err := client.CreateMessage(ctx, req)
+end(err) // sets outcome + duration
+```
+
+### Migration path
+
+1. Merge spec (this file)
+2. Add `obs/metrics.go`, `obs/spans.go`, `obs/middleware.go`
+3. Wire `/metrics` in each daemon's main.go
+4. Add span instrumentation at listed sites
+5. Update daemon READMEs with metrics emitted
+6. Document in CLAUDE.md observability section
+
+---
 
 ## Cross-references
 
 - [`I-tool-call-logging.md`](I-tool-call-logging.md) — slog field schema
-  exported by this spec.
-- [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log table
-  (NOT exported).
-- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) —
-  the unified handler that emits the slog records.
+- [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log (NOT exported)
+- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) — unified handlers that emit records
+- [`obs/README.md`](../../obs/README.md) — implementation reference

@@ -64,6 +64,16 @@ daemon's DB — e.g. routd's `routd.db` (CLAUDE.md DB-ownership rule).
 `GET /health` returns 200 once the signer is live with at least one
 serving key.
 
+## Observability
+
+Metrics emitted when `METRICS_ENABLED=true`:
+
+- `arizuko_token_mints_total` — tokens minted (type: access/refresh)
+- `arizuko_token_refreshes_total` — refresh attempts (outcome)
+- `arizuko_requests_total` — HTTP requests (daemon, method, status)
+
+Spec: `specs/5/O-observability.md`.
+
 ## Files
 
 - `main.go` — boot, migrate, OAuth mount, signal handling

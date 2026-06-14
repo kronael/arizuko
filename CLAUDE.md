@@ -133,6 +133,28 @@ daemon's `/openapi.json` URL with a one-line description. Spec:
 [`specs/5/36-yaml-manifests.md`](specs/5/36-yaml-manifests.md)
 §"OpenAPI emission" (subsumes the former openapi-discoverable spec).
 
+### Observability
+
+Three pillars, all optional (off by default):
+
+- **Logs**: slog → stderr (journald) + optional OTLP exporter
+- **Traces**: per-turn spans with W3C traceparent propagation
+- **Metrics**: Prometheus `/metrics` when `METRICS_ENABLED=true`
+
+Spec: [`specs/5/O-observability.md`](specs/5/O-observability.md).
+Library: [`obs/`](obs/).
+
+Every daemon calls `defer obs.Setup("name", instance)()` at top of `main()`.
+Env vars control export: `OTEL_EXPORTER_OTLP_ENDPOINT` for logs,
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` for spans, `METRICS_ENABLED` for metrics.
+Unset → zero overhead.
+
+When adding metrics: keep label cardinality bounded (folder, model, status —
+not unbounded IDs). When adding spans: use `obs.StartSpan`/`EndSpan` at the
+listed instrumentation sites (turn lifecycle, model calls, container spawns,
+cross-daemon HTTP). `audit_log` stays SQLite-canonical; OTLP is observability
+only.
+
 ## Docs layout
 
 Root UPPERCASE files: `README.md`, `ARCHITECTURE.md`, `SECURITY.md`,

@@ -62,6 +62,18 @@ paths (emitted only for aggregator uniformity).
 `GET /health` returns 200 once the process is up. Red flag: spawns stuck
 in `state=queued` (broker or docker unavailable).
 
+## Observability
+
+Metrics emitted when `METRICS_ENABLED=true`:
+
+- `arizuko_container_spawns_total` — spawn attempts (folder, outcome)
+- `arizuko_container_active` — running containers (gauge)
+- `arizuko_container_duration_seconds` — container run time (folder, outcome)
+- `arizuko_requests_total` — HTTP requests (daemon, method, status)
+
+Spans: `container_spawn`, `cross_daemon`.
+Spec: `specs/5/O-observability.md`.
+
 ## Files
 
 - `cmd/runed/main.go` — daemon wiring, verifier/broker bootstrap, shutdown

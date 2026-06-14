@@ -77,6 +77,20 @@ session_log).
 `GET /health` returns 200 once the process is up. Red flag: turns stuck
 unclaimed in the loop, or runed unreachable on dispatch.
 
+## Observability
+
+Metrics emitted when `METRICS_ENABLED=true`:
+
+- `arizuko_turn_duration_seconds` — turn latency (folder, outcome)
+- `arizuko_turns_total` — turns processed (folder, outcome)
+- `arizuko_model_call_duration_seconds` — Anthropic API latency (model, folder)
+- `arizuko_model_tokens_total` — token usage (model, folder, direction)
+- `arizuko_circuit_breaker_state` — breaker status (folder)
+- `arizuko_requests_total` — HTTP requests (daemon, method, status)
+
+Spans: `turn`, `model_call`, `mcp_tool`, `cross_daemon`.
+Spec: `specs/5/O-observability.md`.
+
 ## Files
 
 - `cmd/routd/main.go` — daemon wiring, verifier, loop, channel registry

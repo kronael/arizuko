@@ -112,6 +112,15 @@ Blocked requests log `"dav blocked"` and return `403 Forbidden`.
 `GET /health` returns 200 when running. Auth failures and slink rate
 limiting surface as 401/429 in access logs.
 
+## Observability
+
+Metrics emitted when `METRICS_ENABLED=true`:
+
+- `arizuko_requests_total` — HTTP requests (daemon, method, status)
+- `arizuko_request_duration_seconds` — request latency (daemon, method, path)
+
+Spec: `specs/5/O-observability.md`.
+
 ## Files
 
 - `main.go` — config, path routing, auth gate, HMAC signing
