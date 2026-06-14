@@ -660,62 +660,50 @@ a saner state (REST parity); E+F are the structural wins.
 
 ## Coverage matrix
 
-Resources to verify uniform coverage on (refine during implementation;
-the live state is in `resreg/resources/*.go` after the 5/36 engine
-landed):
+**What's actually mounted** — verified against `routd/server.go`,
+`onbod/main.go`, and `resreg/resources/*.go`. Resources exist in resreg
+but REST is NOT mounted unless listed below.
 
-| Resource           | MCP tool                                                     | REST endpoint                                           | Engine-managed?              |
-| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------- | ---------------------------- |
-| `groups`           | `groups.list`, `groups.get`, ...                             | `/v1/groups`                                            | yes (5/36)                   |
-| `acl`              | `acl.list`, `acl.add`, ...                                   | `/v1/acl`                                               | yes (5/36)                   |
-| `acl_membership`   | `acl_membership.add`, ...                                    | `/v1/acl_membership`                                    | yes (5/36)                   |
-| `routes`           | `routes.list`, `routes.add`, ...                             | `/v1/routes`                                            | yes (5/36)                   |
-| `web_routes`       | `web_routes.set`, ...                                        | `/v1/web_routes`                                        | yes (5/36)                   |
-| `scheduled_tasks`  | `tasks.create`, `tasks.list`, ...                            | `/v1/scheduled_tasks`                                   | yes (5/36)                   |
-| `secrets`          | `secrets.list`, `secrets.add`, ...                           | `/v1/secrets`                                           | yes (5/36)                   |
-| `network_rules`    | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | `/v1/network_rules` (OpenAPI doc; CRUD not yet mounted) | resreg row + hand-rolled MCP |
-| `proxyd_routes`    | `proxyd_routes.list`, ...                                    | `/v1/proxyd_routes`                                     | yes (5/36)                   |
-| `onboarding_gates` | `gates.list`, `gates.enable`, ...                            | `/v1/onboarding_gates`                                  | yes (5/36)                   |
-| `invites`          | `invites.create`, `invites.list`, `invites.revoke`           | `/v1/invites`                                           | imperative                   |
-| `route_tokens`     | `tokens.create`, `tokens.list`, `tokens.revoke`              | `/v1/route_tokens`                                      | imperative                   |
-| `chats`            | `chats.list`, `chats.get`, ...                               | `/v1/chats`                                             | runtime query                |
-| `messages`         | per [`C-message-mcp.md`](C-message-mcp.md)                   | `/v1/messages`                                          | runtime query                |
+### routd REST endpoints (mounted in `routd/server.go`)
 
-Engine-managed resources get both surfaces automatically per
-[`36-yaml-manifests.md`](36-yaml-manifests.md): one `resreg.Resource`
+| Endpoint                 | Methods                                                   | Notes                         |
+| ------------------------ | --------------------------------------------------------- | ----------------------------- |
+| `/v1/routes`             | GET, PUT, POST, DELETE /{id}                              | full CRUD                     |
+| `/v1/web_routes`         | GET, PUT, DELETE                                          | full CRUD                     |
+| `/v1/route_tokens`       | POST /chat, POST /hook, GET, DELETE /{jid}, POST /resolve | imperative                    |
+| `/v1/acl`                | POST, DELETE                                              | add/remove only (no list/get) |
+| `/v1/secrets`            | POST, DELETE /{key}                                       | set/delete only (no list/get) |
+| `/v1/messages`           | POST, GET /inspect, GET /thread, GET /find                | inbound + query               |
+| `/v1/routing`            | GET /resolve, GET /errored                                | resolution helpers            |
+| `/v1/engagement`         | GET, POST                                                 | engagement state              |
+| `/v1/sessions`           | GET                                                       | session query                 |
+| `/v1/users/{sub}/scopes` | GET                                                       | scope introspection           |
+| `/v1/pane`               | POST                                                      | pane set                      |
 
-- `RowType` registration produces SQL CRUD, REST handler, MCP tool,
-  and YAML round-trip. Imperative resources (tokens) follow the same
-  handler shape but are not full-rebuild candidates. Runtime queries
-  (`chats`, `messages`, `audit_log`) need bespoke filter/pagination
-  DSL; see [`C-message-mcp.md`](C-message-mcp.md).
+### onbod REST endpoints (mounted in `onbod/main.go`)
 
-## Implementation pattern (one resource at a time)
+| Endpoint      | Methods                          | Notes            |
+| ------------- | -------------------------------- | ---------------- |
+| `/v1/invites` | POST, GET, DELETE /{token}       | imperative       |
+| `/v1/gates`   | GET, PUT /{gate}, DELETE /{gate} | onboarding gates |
 
-```go
-// handler — pure logic, no transport
-type ChatsService struct { store Store; clock Clock }
+### resreg resources exist but REST NOT mounted
 
-func (s *ChatsService) List(ctx context.Context, actor Actor, q ChatsQuery) ([]Chat, error) {
-    if err := acl.Authorize(actor, "chats:list", q.Scope); err != nil { return nil, err }
-    if err := validateChatsQuery(q); err != nil { return nil, err }
-    chats, err := s.store.ListChats(ctx, q)
-    if err != nil { return nil, err }
-    audit.Emit(ctx, "chats.list", actor, q, len(chats))
-    return chats, nil
-}
+| Resource           | resreg file         | REST status                               |
+| ------------------ | ------------------- | ----------------------------------------- |
+| `groups`           | groups.go           | resreg row only; dashd FS-manages         |
+| `acl_membership`   | membership.go       | resreg row only; dashd FS-manages         |
+| `network_rules`    | network_rules.go    | resreg row only; MCP via ipc/ipc.go       |
+| `proxyd_routes`    | proxyd_routes.go    | resreg row only; compose-generated        |
+| `scheduled_tasks`  | scheduled_tasks.go  | resreg row only; MCP via ipc/ipc.go       |
+| `onboarding_gates` | onboarding_gates.go | resreg row only; onbod serves `/v1/gates` |
 
-// MCP wrapper — auth from the capability token (auth.VerifyToken), JSON-RPC marshalling
-func (h *MCPHandler) handleListChats(ctx context.Context, req mcp.Req) mcp.Resp { ... }
+OpenAPI docs at `/openapi.json` per daemon:
 
-// REST wrapper — auth from Bearer JWT (auth.VerifyHTTP against authd JWKs), HTTP marshalling
-func (h *RESTHandler) handleGetChats(w http.ResponseWriter, r *http.Request) { ... }
-```
-
-Both wrappers are thin. The handler is the only place business
-logic lives. For engine-managed resources, this skeleton is
-generated by the engine; bespoke handlers (runtime queries,
-streaming) follow it by hand.
+- routd: `["routes", "web_routes", "acl", "secrets"]`
+- onbod: `["onboarding_gates"]`
+- timed: `["scheduled_tasks"]` (no REST handlers)
+- runed: `[]` (control plane, not CRUD)
 
 ## Per-resource integration testing
 
