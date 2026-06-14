@@ -731,6 +731,7 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	s := &server{
 		cfg:         config{authSecret: secret},
 		st:          st,
+		stRoutd:     st, // tests use single in-memory DB with all tables
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 		rr:          newRoutesResource(nil, []Route{chatRoute, panelRoute, slinkRoute}),

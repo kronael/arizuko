@@ -461,7 +461,7 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, stRoutd: st, ks: ks}
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user"}, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -503,7 +503,7 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, stRoutd: st, ks: ks}
 	// ES256 token carries NO groups claim — proxyd must source them from the DB.
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:999", Typ: "user"}, time.Hour)
 	if err != nil {
@@ -530,6 +530,60 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 	}
 	if r2.Header.Get("X-User-Sig") != "" {
 		t.Error("X-User-Sig must NOT be injected post-flip; the bearer is the channel proof")
+	}
+}
+
+// Split-read proof: scopes must come from stRoutd (routd.db), not st (messages.db).
+// A grant in stRoutd but absent from st must still appear in X-User-Groups.
+// This guards against the frozen-messages.db bug where post-cutover grants are
+// invisible to scope stamping.
+func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
+	// stMessages simulates the frozen messages.db — no grants.
+	stMessages, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stMessages.Close() })
+
+	// stRoutd simulates the live routd.db — has grants.
+	stRoutd, err := store.OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stRoutd.Close() })
+	if err := stRoutd.PutACLRow(core.ACLRow{
+		Principal: "google:split", Action: "*", Scope: "new-grant", Effect: "allow",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	k, ks := es256KeySet(t)
+	s := &server{
+		cfg:     config{authSecret: "hs", authdURL: "http://authd"},
+		st:      stMessages, // messages.db has no grants
+		stRoutd: stRoutd,    // routd.db has the grant
+		ks:      ks,
+	}
+	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:split", Typ: "user"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	r2 := s.tryAuth(r)
+	if r2 == nil {
+		t.Fatal("tryAuth nil for ES256 bearer with grant in routd.db")
+	}
+	var groups []string
+	_ = json.Unmarshal([]byte(r2.Header.Get("X-User-Groups")), &groups)
+	found := false
+	for _, g := range groups {
+		if g == "new-grant" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("X-User-Groups = %q; want new-grant from routd.db (not frozen messages.db)", groups)
 	}
 }
 

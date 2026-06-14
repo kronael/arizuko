@@ -107,8 +107,9 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg         config
-	st          *store.Store
-	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
+	st          *store.Store      // messages.db: proxyd_routes, auth_sessions
+	stRoutd     *store.Store      // routd.db: acl, auth_users, route_tokens (split ownership)
+	rr          *routesResource   // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	ks          *auth.KeySet      // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	svc         *auth.TokenSource // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
@@ -209,12 +210,13 @@ func (p *pubRedirect) reachable() bool {
 	return p.ok
 }
 
-func newServer(cfg config, st *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
+func newServer(cfg config, st, stRoutd *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
 	return &server{
 		cfg:         cfg,
 		st:          st,
+		stRoutd:     stRoutd,
 		rr:          rr,
 		viteProxy:   proxy(cfg.viteAddr),
 		ks:          ks,
@@ -675,8 +677,9 @@ func (s *server) dispatchRouteToken(rp *httputil.ReverseProxy, w http.ResponseWr
 			}
 		}
 	}
-	if token != "" && s.st != nil {
-		if row, ok := s.st.LookupRouteToken(token); ok {
+	// route_tokens lives in routd.db (stRoutd) — split ownership
+	if token != "" && s.stRoutd != nil {
+		if row, ok := s.stRoutd.LookupRouteToken(token); ok {
 			folder := groupfolder.JidFolder(row.JID)
 			r = r.Clone(r.Context())
 			r.Header.Set("X-Folder", folder)
@@ -801,11 +804,12 @@ func (s *server) setUserHeaders(r *http.Request, sub, name string, groups []stri
 // ES256 subs are prefixed (`user:google:123`); grant rows key on the bare sub
 // (`google:123`) per spec 5/1 § "sub prefix rule". Strip a leading `user:`
 // before the lookup so ES256 and HS256 subs map to the same grants.
+// Reads from routd.db (stRoutd) — acl lives there in the split topology.
 func (s *server) groupsForSub(sub string) []string {
-	if s.st == nil {
+	if s.stRoutd == nil {
 		return nil
 	}
-	return s.st.UserScopes(strings.TrimPrefix(sub, "user:"))
+	return s.stRoutd.UserScopes(strings.TrimPrefix(sub, "user:"))
 }
 
 // tryAuth returns an identity-stamped request if the caller has a valid
@@ -834,19 +838,24 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 	if err != nil {
 		return nil
 	}
+	// auth_sessions lives in messages.db (st)
 	sess, ok := s.st.AuthSession(auth.HashToken(cookie.Value))
 	if !ok || !time.Now().Before(sess.ExpiresAt) {
+		return nil
+	}
+	// auth_users + acl live in routd.db (stRoutd) — split ownership
+	if s.stRoutd == nil {
 		return nil
 	}
 	// Resolve canonical at the cookie path too — refresh sessions are
 	// bound to the sub at creation time, but the user may have linked
 	// since. Single source of truth: store.CanonicalSub.
-	canonical := s.st.CanonicalSub(sess.UserSub)
-	u, ok := s.st.AuthUserBySub(canonical)
+	canonical := s.stRoutd.CanonicalSub(sess.UserSub)
+	u, ok := s.stRoutd.AuthUserBySub(canonical)
 	if !ok {
 		return nil
 	}
-	return s.setUserHeaders(r, u.Sub, u.Name, s.st.UserScopes(u.Sub))
+	return s.setUserHeaders(r, u.Sub, u.Name, s.stRoutd.UserScopes(u.Sub))
 }
 
 // redirectAuthToAuthd 302s a browser /auth/* request to authd's matching
@@ -908,6 +917,16 @@ func main() {
 	}
 	defer st.Close()
 
+	// routd.db owns acl/auth_users/route_tokens in the split topology (spec 5/5).
+	// proxyd reads those for scope stamping + route token resolution; a frozen
+	// messages.db twin would make post-cutover grants invisible to auth.
+	stRoutd, err := store.OpenRoutd(coreCfg.StoreDir)
+	if err != nil {
+		slog.Error("open routd.db", "err", err)
+		os.Exit(1)
+	}
+	defer stRoutd.Close()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -938,7 +957,7 @@ func main() {
 		slog.Warn("AUTHD_URL/AUTHD_SERVICE_KEY unset; proxyd forwards identity unsigned (local dev)")
 	}
 
-	s := newServer(cfg, st, ks, svc)
+	s := newServer(cfg, st, stRoutd, ks, svc)
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
