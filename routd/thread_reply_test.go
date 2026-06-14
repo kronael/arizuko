@@ -144,6 +144,37 @@ func TestMcpDeliverReplyThreadsSendDoesNot(t *testing.T) {
 	}
 }
 
+// A reply that starts a new thread (threadRoot set) stamps the bot message with
+// Topic = threadRoot so that threadHasBotMessage finds it when subsequent
+// in-thread messages arrive. Without this, the bot's first reply stores Topic=""
+// and later thread participants fail to trigger the mention-promotion (spec 5/L).
+func TestReplyStartsThreadSetsTopic(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	jid := "discord:g1/ch-1"
+	_ = db.SetChatIsGroup(jid, true)
+	threadTurn(t, db, "t1", "demo", jid, "root-1")
+	h := srv.Handler()
+
+	doJSONKey(t, h, "POST", "/v1/turns/t1/reply", "k1",
+		apiv1.ReplyRequest{JID: jid, Text: "answer"})
+	// The bot message row must have Topic = threadRoot.
+	var topic string
+	db.db.QueryRow("SELECT COALESCE(topic,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").Scan(&topic)
+	if topic != "root-1" {
+		t.Errorf("bot message topic = %q, want root-1", topic)
+	}
+	// threadHasBotMessage must now find it.
+	if !srv.threadHasBotMessage(jid, "root-1") {
+		t.Error("threadHasBotMessage returned false, want true")
+	}
+}
+
 // A document delivered from an in-thread turn carries the topic as threadID —
 // files thread like text (Document used to hardcode "" and never threaded).
 func TestDocumentThreadsOnTopic(t *testing.T) {

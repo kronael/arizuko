@@ -10,6 +10,12 @@ shipped: 2026-05-18
 > channel-as-thread (topic inherited via MessageByID); teled sets ReplyTo
 > for explicit replies. Telegram forum topics are an edge case — address
 > if reported broken.
+>
+> **Fix 2026-06-14:** Bot messages that START a thread (threadRoot set,
+> tc.Topic empty) were stored with `topic=""`, so `threadHasBotMessage`
+> never found them. Now `deliverRow` stamps `row.Topic = threadRoot` on
+> success when a new thread is created. Discord sloth threads now trigger
+> mention promotion correctly.
 
 ## Problem
 

@@ -288,6 +288,13 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, tc.Topic, threadRoot, row.ID); err == nil {
 		row.PlatformID = pid
 		row.Status = core.MessageStatusSent
+		// A reply that started a new thread (threadRoot set) is now IN that thread.
+		// Record its topic so threadHasBotMessage finds it when subsequent messages
+		// in the thread arrive. The thread ID = threadRoot on both Discord (thread
+		// channel ID = root message ID) and Slack (thread_ts = root message ts).
+		if threadRoot != "" && row.Topic == "" {
+			row.Topic = threadRoot
+		}
 	}
 }
 
