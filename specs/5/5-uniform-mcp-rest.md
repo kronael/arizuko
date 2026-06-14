@@ -624,15 +624,14 @@ Some operations look like state changes but should not be exposed as
 MCP tools. Each has the same shape: hot path, high-volume internal
 event, or stream rather than CRUD verb.
 
-- **Inbound message ingestion.** The gateway poll loop
-  (`gateway/gateway.go:502+`) writes `messages` rows per inbound.
-  Per-message hot-path; pushing it through `resreg` would force a
-  capability check and audit log per inbound. Not in scope. The agent
-  can `inject_message` for synthetic sends — that IS an MCP tool
-  (audited, low-volume).
+- **Inbound message ingestion.** The adapter poll loops write `messages`
+  rows per inbound. Per-message hot-path; pushing it through `resreg`
+  would force a capability check and audit log per inbound. Not in scope.
+  The agent can `inject_message` for synthetic sends — that IS an MCP
+  tool (audited, low-volume).
 - **Cost-log writes** (`store/cost_log.go:20`). Every Claude API call
   emits a row. Per-call, not per-operator-action. Stays as a direct
-  store write from `gateway` and `timed`.
+  store write from adapters and `timed`.
 - **Agent cursor advancement.** Internal bookkeeping, not user-facing.
 - **Streaming surfaces.** Slink message stream, agent live output —
   not CRUD/RPC. SSE / WebSocket sits next to `resreg`, not inside it.
