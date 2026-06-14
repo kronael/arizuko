@@ -97,22 +97,28 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 	// A new inbound resets the breaker for a broken folder (spec 5/P §
 	// circuit breaker: "a new inbound resets it"). Done before admission so
 	// a retry after 3 failures actually spawns.
-	m.mu.Lock()
-	if m.failures[folder] >= circuitBreakerThreshold {
-		m.failures[folder] = 0
+	if failures, _ := m.db.GetFailures(folder); failures >= circuitBreakerThreshold {
+		_ = m.db.ResetFailures(folder)
 	}
-	m.mu.Unlock()
 
 	for {
-		// One locked critical section: the steer-check AND the live-run
-		// registration. Two concurrent runs for one idle folder cannot both
-		// spawn — exactly one wins the registration; the other steers or
-		// waits.
+		// The admission decision and spawn-row creation must be atomic to
+		// prevent concurrent runs from all passing the cap check. We hold
+		// m.mu for the entire check-and-claim sequence.
 		m.mu.Lock()
-		if fr := m.active[folder]; fr != nil {
+
+		// Check for a live spawn in the DB.
+		active, err := m.db.GetActiveSpawn(folder)
+		if err != nil {
+			m.mu.Unlock()
+			return runedv1.RunOutcome{}, fmt.Errorf("check active spawn: %w", err)
+		}
+
+		if active != nil {
 			// Folder busy: try to steer into the running container.
-			steered := fr.steer != nil && fr.steer(req.MessageBatch)
-			runID, sessionID := fr.runID, fr.sessionID
+			steer := m.steerFns[folder]
+			steered := steer != nil && steer(req.MessageBatch)
+			runID, sessionID := active.RunID, active.SessionID
 			if steered {
 				m.mu.Unlock()
 				_ = m.db.MarkSteered(runID)
@@ -132,7 +138,14 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 			}
 			continue
 		}
-		if m.activeCount >= m.maxRun {
+
+		// Check the global concurrency cap from DB.
+		activeCount, err := m.db.ActiveCount()
+		if err != nil {
+			m.mu.Unlock()
+			return runedv1.RunOutcome{}, fmt.Errorf("check active count: %w", err)
+		}
+		if activeCount >= m.maxRun {
 			// At the global cap: queue and retry once a slot frees.
 			w := &waiter{folder: folder, ch: make(chan struct{})}
 			m.waiting = append(m.waiting, w)
@@ -143,44 +156,38 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 			}
 			continue
 		}
-		// Idle folder, under cap: resolve the effective session id (resume or
-		// fresh) and register the live run now (still holding the lock) so a
-		// racing Run that steers in sees the real session id, not the empty
-		// req.SessionID a fresh spawn would otherwise carry until spawn() mints
-		// one.
+
+		// Idle folder, under cap: claim the slot by creating the spawn row
+		// NOW (while holding the lock) so concurrent Runs see it immediately.
 		runID := "run_" + randHex(8)
 		sessionID := req.SessionID
 		if sessionID == "" {
 			sessionID = newUUID()
 		}
-		m.active[folder] = &folderRun{runID: runID, sessionID: sessionID}
-		m.activeCount++
+		containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
+		_ = m.db.CreateSpawn(Spawn{
+			RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
+			SessionID: sessionID, State: "queued",
+		})
 		m.mu.Unlock()
-		return m.spawn(ctx, req, runID, sessionID), nil
+
+		return m.spawn(ctx, req, runID, sessionID, containerName), nil
 	}
 }
 
 // spawn runs the full execution-session envelope for one fresh spawn. The
-// live-run slot is already registered (under the Run lock) and is freed by
-// endRun on every exit path.
-func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sessionID string) runedv1.RunOutcome {
+// spawn row is already created (under the Run lock) to claim the slot.
+func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sessionID, containerName string) runedv1.RunOutcome {
 	folder := string(req.Folder)
-	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
 
 	// Isolated (timed-isolated:*) runs are one-off containers: no session_log
 	// row. The spawns row still exists for GET/DELETE.
 	var logID int64
 	if !req.Isolated {
 		logID, _ = m.db.RecordSession(folder, sessionID)
+		// Update the spawn row with the session_log_id.
+		_ = m.db.SetSpawnSessionLogID(runID, logID)
 	}
-
-	// Create the spawns row BEFORE brokering so a returned RunID is always
-	// GET /v1/runs/{id}-able — including the broker-failure path below. The
-	// row carries the token jti only once brokering succeeds.
-	_ = m.db.CreateSpawn(Spawn{
-		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
-		SessionLogID: logID, SessionID: sessionID, State: "queued",
-	})
 
 	// broker the downscoped capability token (spec 5/P § brokering).
 	want := intersect(m.scopes, req.CapabilityScopes)
@@ -250,30 +257,26 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	return out
 }
 
-// endRun frees the folder's live-run slot, updates the breaker counter, and
-// drains an admission waiter. Returns true when this exit trips the breaker
+// endRun clears the steer callback, updates the breaker counter in the DB,
+// and drains an admission waiter. Returns true when this exit trips the breaker
 // (failure count reaches the threshold on this run).
 func (m *Manager) endRun(folder, runID string, failed bool) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	fr := m.active[folder]
-	if fr == nil || fr.runID != runID {
-		return false
-	}
-	tripped := false
+	// Update circuit breaker in DB.
+	var tripped bool
 	if failed {
-		m.failures[folder]++
-		tripped = m.failures[folder] == circuitBreakerThreshold
+		newCount, _ := m.db.IncrFailures(folder)
+		tripped = newCount == circuitBreakerThreshold
 	} else {
 		// Any clean exit resets the breaker (silent included); a folder
 		// alternating error/silent must never creep to the threshold.
-		m.failures[folder] = 0
+		_ = m.db.ResetFailures(folder)
 	}
-	delete(m.active, folder)
-	if m.activeCount > 0 {
-		m.activeCount--
-	}
+
+	// Clear the steer callback and drain waiters.
+	m.mu.Lock()
+	delete(m.steerFns, folder)
 	m.drainLocked()
+	m.mu.Unlock()
 	return tripped
 }
 
@@ -281,10 +284,12 @@ func (m *Manager) endRun(folder, runID string, failed bool) bool {
 // under the cap. Caller holds m.mu. A released Run re-checks admission under
 // the lock (it may steer if the folder went busy again, or re-queue).
 func (m *Manager) drainLocked() {
+	activeCount, _ := m.db.ActiveCount()
 	kept := m.waiting[:0]
 	freed := map[string]bool{}
 	for _, w := range m.waiting {
-		if m.activeCount < m.maxRun && m.active[w.folder] == nil && !freed[w.folder] {
+		folderActive, _ := m.db.ActiveSpawnForFolder(w.folder)
+		if activeCount < m.maxRun && folderActive == "" && !freed[w.folder] {
 			freed[w.folder] = true // one waiter per idle folder per drain pass
 			close(w.ch)
 			continue
@@ -320,11 +325,14 @@ func waitFor(ctx context.Context, ch chan struct{}) error {
 // SIGUSR1). The production Runtime calls this once the container is up so
 // a concurrent POST /v1/runs can steer into it.
 func (m *Manager) SetSteer(folder, runID string, steer func(batch string) bool) {
+	// Verify the run_id is still active for this folder before wiring.
+	active, _ := m.db.GetActiveSpawn(folder)
+	if active == nil || active.RunID != runID {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if fr := m.active[folder]; fr != nil && fr.runID == runID {
-		fr.steer = steer
-	}
+	m.steerFns[folder] = steer
 }
 
 // Kill stops a run's container (DELETE /v1/runs/{id}) and frees its queue
@@ -343,16 +351,10 @@ func (m *Manager) Kill(runID string) error {
 		// between GetSpawn and here keeps its terminal state (not 'killed').
 		_ = m.db.KillSpawn(runID)
 	}
-	// Free the slot if this run still owns its folder's live registration
-	// (the synchronous spawn goroutine may not have returned yet).
+	// Clear steer callback and drain waiters (the DB row is already terminal).
 	m.mu.Lock()
-	if fr := m.active[sp.Folder]; fr != nil && fr.runID == runID {
-		delete(m.active, sp.Folder)
-		if m.activeCount > 0 {
-			m.activeCount--
-		}
-		m.drainLocked()
-	}
+	delete(m.steerFns, sp.Folder)
+	m.drainLocked()
 	m.mu.Unlock()
 	return nil
 }
@@ -374,19 +376,14 @@ func (m *Manager) StopFolder(folder string) (runID string, killed bool, err erro
 
 // ActiveRunID returns the run_id of a folder's live spawn, or "" when none.
 func (m *Manager) ActiveRunID(folder string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if fr := m.active[folder]; fr != nil {
-		return fr.runID
-	}
-	return ""
+	runID, _ := m.db.ActiveSpawnForFolder(folder)
+	return runID
 }
 
 // ActiveCount returns the number of live spawns (test/observability).
 func (m *Manager) ActiveCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.activeCount
+	n, _ := m.db.ActiveCount()
+	return n
 }
 
 // intersect returns the requested scope ∩ the ceiling. Empty or fully

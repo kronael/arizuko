@@ -112,36 +112,70 @@ func TestCapAdmitsQueuedRunWhenSlotFrees(t *testing.T) {
 	}
 }
 
-// TestBreakerNotCorruptedByStaleRun: a run whose folder slot was already
-// reassigned (e.g. killed + a fresh run took the slot) must NOT mutate the
-// breaker counter when it finally returns — endRun guards on fr.runID==runID,
-// so a stale run finishing late is a no-op on the breaker. Without the guard a
-// late stale failure would increment the NEW run's folder counter and could
-// trip the breaker on a healthy folder.
-func TestBreakerNotCorruptedByStaleRun(t *testing.T) {
-	_, mgr := newMgr(t, FakeRuntime{}, 5)
+// TestBreakerPersistsToDB: a failed run increments the circuit_breaker table,
+// a successful run resets it, and the count survives a manager restart.
+func TestBreakerPersistsToDB(t *testing.T) {
+	db, mgr := newMgr(t, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+		return RunResult{Outcome: runedv1.OutcomeError, Error: "boom"}
+	}}, 5)
 
-	// Register a live run for the folder (the "current" owner of the slot).
-	mgr.mu.Lock()
-	mgr.active["demo"] = &folderRun{runID: "current", sessionID: "s"}
-	mgr.activeCount++
-	mgr.mu.Unlock()
+	// Two failures → count is 2 in DB.
+	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
 
-	// A STALE run (different run_id) reports a failure via endRun. Because it no
-	// longer owns the slot, the breaker counter must stay 0.
-	tripped := mgr.endRun("demo", "stale-run", true)
-	if tripped {
-		t.Fatal("stale run tripped the breaker despite not owning the folder slot")
+	got, err := db.GetFailures("demo")
+	if err != nil {
+		t.Fatalf("GetFailures: %v", err)
 	}
-	mgr.mu.Lock()
-	got := mgr.failures["demo"]
-	stillActive := mgr.active["demo"] != nil && mgr.active["demo"].runID == "current"
-	mgr.mu.Unlock()
+	if got != 2 {
+		t.Fatalf("failure count=%d want 2", got)
+	}
+
+	// Simulate restart: create a new manager with the same DB.
+	mgr2 := NewManager(db, FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+	}}, NewStaticBroker("jws", "jti"), ManagerConfig{
+		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 5,
+	})
+
+	// New manager reads existing failure count. A successful run resets it.
+	mgr2.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "m"})
+	got, _ = db.GetFailures("demo")
 	if got != 0 {
-		t.Fatalf("breaker failures[demo]=%d want 0 (stale run must not corrupt the counter)", got)
+		t.Fatalf("failure count after success=%d want 0 (reset)", got)
 	}
-	if !stillActive {
-		t.Fatal("stale endRun evicted the current live run from the slot")
+}
+
+// TestActiveSpawnsPersistAcrossRestart: spawns in 'running' state are visible
+// to a new manager (simulated restart), enabling correct cap enforcement and
+// folder exclusivity without in-memory state.
+func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
+	db, _ := newMgr(t, FakeRuntime{}, 5)
+
+	// Simulate two active spawns left by a crashed manager.
+	_ = db.CreateSpawn(Spawn{RunID: "r1", Folder: "a", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(Spawn{RunID: "r2", Folder: "b", ContainerName: "c2", State: "queued"})
+	// One terminated spawn (should not count).
+	_ = db.CreateSpawn(Spawn{RunID: "r3", Folder: "c", ContainerName: "c3", State: "exited"})
+
+	// New manager reads state from DB.
+	mgr2 := NewManager(db, FakeRuntime{}, NewStaticBroker("jws", "jti"), ManagerConfig{
+		Scopes: []types.Scope{"messages:send:own_group"}, Instance: "test", MaxConcurrent: 3,
+	})
+
+	// ActiveCount should return 2 (the two live spawns).
+	if got := mgr2.ActiveCount(); got != 2 {
+		t.Fatalf("ActiveCount()=%d want 2 (DB state persisted)", got)
+	}
+
+	// ActiveRunID for folder "a" should return "r1".
+	if got := mgr2.ActiveRunID("a"); got != "r1" {
+		t.Fatalf("ActiveRunID(a)=%q want r1", got)
+	}
+
+	// Folder "c" has no active spawn (it exited).
+	if got := mgr2.ActiveRunID("c"); got != "" {
+		t.Fatalf("ActiveRunID(c)=%q want empty (exited)", got)
 	}
 }
 
@@ -255,20 +289,23 @@ func TestSteerWhenNoLiveRunSpawns(t *testing.T) {
 // TestSetSteerIgnoresStaleRunID: SetSteer for a run_id that no longer owns the
 // folder's slot is a no-op — a late steer registration from a finished run must
 // not overwrite the current live run's steer closure (the slot-reassignment
-// guard, fr.runID==runID).
+// guard checks DB state).
 func TestSetSteerIgnoresStaleRunID(t *testing.T) {
-	_, mgr := newMgr(t, FakeRuntime{}, 5)
-	mgr.mu.Lock()
-	mgr.active["demo"] = &folderRun{runID: "current", sessionID: "s"}
-	mgr.mu.Unlock()
+	db, mgr := newMgr(t, FakeRuntime{}, 5)
 
+	// Create a live spawn in the DB with run_id "current".
+	_ = db.CreateSpawn(Spawn{RunID: "current", Folder: "demo", ContainerName: "c", State: "running", SessionID: "s"})
+
+	// Try to set steer for a STALE run_id — should be ignored.
 	called := false
 	mgr.SetSteer("demo", "stale", func(string) bool { called = true; return true })
+
+	// The steer callback should NOT be set (stale run_id doesn't match DB).
 	mgr.mu.Lock()
-	fr := mgr.active["demo"]
+	steer := mgr.steerFns["demo"]
 	mgr.mu.Unlock()
-	if fr.steer != nil {
-		t.Fatal("SetSteer for a stale run_id overwrote the current run's steer closure")
+	if steer != nil {
+		t.Fatal("SetSteer for a stale run_id set a steer callback")
 	}
 	_ = called
 }

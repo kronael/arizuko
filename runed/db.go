@@ -361,6 +361,13 @@ func (d *DB) GetActiveSpawn(folder string) (*ActiveSpawn, error) {
 	return &a, nil
 }
 
+// SetSpawnSessionLogID links a spawn to its session_log row (called after
+// RecordSession when the spawn row was created before the session row).
+func (d *DB) SetSpawnSessionLogID(runID string, logID int64) error {
+	_, err := d.db.Exec("UPDATE spawns SET session_log_id=? WHERE run_id=?", logID, runID)
+	return err
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil
