@@ -288,6 +288,79 @@ func (d *DB) SweepExpired(retention time.Duration) error {
 	return err
 }
 
+// --- circuit_breaker ---
+
+// GetFailures returns the consecutive failure count for a folder (0 if absent).
+func (d *DB) GetFailures(folder string) (int, error) {
+	var n int
+	err := d.db.QueryRow("SELECT failures FROM circuit_breaker WHERE folder=?", folder).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return n, err
+}
+
+// IncrFailures increments the failure count and returns the new value.
+func (d *DB) IncrFailures(folder string) (int, error) {
+	_, err := d.db.Exec(`INSERT INTO circuit_breaker(folder, failures, last_failure)
+		VALUES(?, 1, ?)
+		ON CONFLICT(folder) DO UPDATE SET failures=failures+1, last_failure=excluded.last_failure`,
+		folder, nowTS())
+	if err != nil {
+		return 0, err
+	}
+	return d.GetFailures(folder)
+}
+
+// ResetFailures sets the failure count to zero.
+func (d *DB) ResetFailures(folder string) error {
+	_, err := d.db.Exec("DELETE FROM circuit_breaker WHERE folder=?", folder)
+	return err
+}
+
+// --- active spawns queries (DB-stateless manager) ---
+
+// ActiveSpawnForFolder returns the run_id of a folder's live spawn, or "" if
+// none. A "live" spawn is one in state queued or running.
+func (d *DB) ActiveSpawnForFolder(folder string) (string, error) {
+	var runID string
+	err := d.db.QueryRow(`SELECT run_id FROM spawns
+		WHERE folder=? AND state IN ('queued','running')
+		ORDER BY created_at DESC LIMIT 1`, folder).Scan(&runID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return runID, err
+}
+
+// ActiveCount returns the total number of live spawns (queued or running).
+func (d *DB) ActiveCount() (int, error) {
+	var n int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM spawns WHERE state IN ('queued','running')").Scan(&n)
+	return n, err
+}
+
+// ActiveSpawn is a live spawn's identifying info for the steer path.
+type ActiveSpawn struct {
+	RunID     string
+	SessionID string
+}
+
+// GetActiveSpawn returns identifying info for a live spawn, or nil if none.
+func (d *DB) GetActiveSpawn(folder string) (*ActiveSpawn, error) {
+	var a ActiveSpawn
+	err := d.db.QueryRow(`SELECT run_id, COALESCE(session_id,'') FROM spawns
+		WHERE folder=? AND state IN ('queued','running')
+		ORDER BY created_at DESC LIMIT 1`, folder).Scan(&a.RunID, &a.SessionID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil

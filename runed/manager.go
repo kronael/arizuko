@@ -25,6 +25,15 @@ const (
 // waiting queue, the steer-into-running path, the circuit breaker, token
 // brokering, and the Runtime envelope. It is the body behind POST /v1/runs
 // (spec 5/P § The routd↔runed interface, § The queue + container model).
+//
+// State is DB-backed for restart recovery:
+//   - active spawns: spawns WHERE state IN ('queued','running')
+//   - failure counts: circuit_breaker table
+//   - activeCount: COUNT(*) on live spawns
+//
+// Only two pieces remain in-memory:
+//   - steerFns: the live steer callbacks (container-lifetime, non-persistable)
+//   - waiting: the FIFO admission queue (waiters reconnect on restart)
 type Manager struct {
 	db       *DB
 	runtime  Runtime
@@ -34,19 +43,11 @@ type Manager struct {
 	instance string
 	maxRun   int
 
-	mu          sync.Mutex
-	active      map[string]*folderRun // folder -> live run (the exclusivity gate)
-	failures    map[string]int        // folder -> consecutive failures (breaker)
-	activeCount int                   // total live spawns (cap denominator)
-	waiting     []*waiter             // FIFO admission queue (over cap or folder busy)
+	mu       sync.Mutex
+	steerFns map[string]func(batch string) bool // folder -> steer callback (runtime-wired)
+	waiting  []*waiter                          // FIFO admission queue (over cap or folder busy)
 }
 
-// folderRun tracks a folder's live spawn for the steer path + exclusivity.
-type folderRun struct {
-	runID     string
-	sessionID string
-	steer     func(batch string) bool // SIGUSR1 + IPC write; false = container already exited
-}
 
 // waiter is one Run blocked on admission (folder busy or cap reached); it
 // is released (ch closed) when a slot frees AND its folder is idle.
@@ -81,8 +82,7 @@ func NewManager(db *DB, runtime Runtime, broker Broker, cfg ManagerConfig) *Mana
 		runTTL:   cfg.RunTTL,
 		instance: cfg.Instance,
 		maxRun:   cfg.MaxConcurrent,
-		active:   map[string]*folderRun{},
-		failures: map[string]int{},
+		steerFns: map[string]func(batch string) bool{},
 	}
 }
 
