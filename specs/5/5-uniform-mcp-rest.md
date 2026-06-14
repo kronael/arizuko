@@ -565,61 +565,6 @@ flow produces one session JWT. No second login for "the MCP side";
 MCP is the agent's surface, the agent is a different principal
 (`sub: "agent:<folder>"`, not `user:<sub>`).
 
-## Inventory — today's writes
-
-Every store write below is a candidate for `resreg` exposure. Columns:
-**Today** = where it's invoked from; **MCP** = is there an existing
-MCP tool; **REST** = is there an existing endpoint.
-
-| Operation                           | Store call                                                       | Today                             | MCP                                                          | REST                                  |
-| ----------------------------------- | ---------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ | ------------------------------------- |
-| Group create                        | `PutGroup` (`store/groups.go:20`)                                | onbod/SetupGroup, CLI             | `register_group`                                             | —                                     |
-| Group delete                        | `DeleteGroup` (`store/groups.go:47`)                             | CLI                               | —                                                            | —                                     |
-| Route add / set / delete            | `AddRoute`/`SetRoutes`/`DeleteRoute` (`store/routes.go`)         | CLI, agent MCP, dashd             | `add_route`/`set_routes`/`delete_route` (`ipc/ipc.go:1252`+) | —                                     |
-| User grant / ungrant                | `Grant`/`Ungrant` (`store/auth.go:175`)                          | CLI (`arizuko grant`)             | —                                                            | —                                     |
-| Action grants (folder rule overlay) | `SetGrants` (`store/grants.go:17`)                               | agent MCP                         | `set_grants`                                                 | —                                     |
-| Secret put / delete                 | `SetSecret`/`DeleteSecret` (`store/secrets.go:50`)               | dashd (`/dash/me/secrets`), CLI   | —                                                            | dashd-private                         |
-| Invite create / list / revoke       | `CreateInvite`/`ListInvites`/`RevokeInvite` (`store/invites.go`) | CLI, onbod, agent MCP             | `invite_create`/`invite_list`/`invite_revoke` (`ipc/ipc.go`) | onbod `/v1/invites` (POST/GET/DELETE) |
-| Identity create / link / unlink     | `CreateIdentity`/`LinkSub`/`UnlinkSub` (`store/identities.go`)   | CLI                               | —                                                            | —                                     |
-| Onboarding gates                    | `PutGate`/`DeleteGate`/`EnableGate` (`store/onboarding.go`)      | CLI                               | —                                                            | —                                     |
-| Egress allowlist                    | `AddNetworkRule`/`RemoveNetworkRule` (`store/network.go`)        | crackbox register, CLI, agent MCP | `network_allow`/`network_deny`/`network_list` (`ipc/ipc.go`) | —                                     |
-| Web routes                          | `SetWebRoute`/`DelWebRoute` (`store/web_routes.go`)              | agent MCP                         | `set_web_route`/`del_web_route` (`ipc/ipc.go:1786`+)         | —                                     |
-| Scheduled tasks                     | `schedule_task` family                                           | agent MCP                         | `schedule_task`+                                             | —                                     |
-| Cost caps                           | `SetFolderCap`/`SetUserCap` (`store/cost_log.go:74`)             | CLI                               | —                                                            | —                                     |
-| ACL rows (per 4/9)                  | `grantACL`/`revokeACL` (`routd/server.go`)                       | REST `/v1/acl`, agent MCP, CLI    | `add_acl`/`remove_acl` (`ipc/ipc.go`)                        | one writer                            |
-
-Columns with `—` are the gap. Most operator concepts are either
-CLI-only with direct store calls (`cmd/arizuko/*.go`) or MCP-only with
-no REST sibling. The shape is bimodal; the principle above is to make
-it uniform.
-
-### Resource declarations to add
-
-For each row above without a `resreg.Resource`, the declaration shape
-is a small struct literal. Catalog of new resources:
-
-Owning daemon is the post-split owner; `routd` holds the residual config +
-conversation tables that were gated's.
-
-| Resource          | Actions                                                                                                   | Owning daemon                                     | Scope predicates                                                |
-| ----------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------- |
-| `groups`          | list/get/create/update/delete                                                                             | routd                                             | `admin` at scope ⊇ folder; `*` operator                         |
-| `acl`             | list/get/create/delete                                                                                    | routd                                             | `admin` at scope ⊇ row.scope; `*` operator                      |
-| `secrets`         | list/get/create/delete (no read of value via MCP — agent broker rule preserved)                           | routd                                             | folder-`admin` at scope, plus user-owned writes via dashd OAuth |
-| `invites`         | list/get/create/revoke                                                                                    | onbod                                             | `admin` at scope ⊇ targetGlob                                   |
-| `identities`      | list/get/create/link/unlink                                                                               | onbod                                             | self for own sub; `*` for cross-user link                       |
-| `gates`           | list/get/put/delete/enable                                                                                | onbod                                             | `*` operator                                                    |
-| `network_rules`   | list/get/create/delete (MCP shipped as `network_allow`/`network_deny`/`network_list`; REST CRUD to mount) | routd                                             | folder-`admin` at scope                                         |
-| `cost_caps`       | list/get/set                                                                                              | routd                                             | `*` operator; self-read for own user                            |
-| `scheduled_tasks` | (already partial — finish symmetry)                                                                       | routd                                             | folder-`admin` at scope                                         |
-| `web_routes`      | (already MCP — add REST mirror)                                                                           | routd (served via webd read; see ownership table) | folder-`admin` at scope                                         |
-
-New action = one struct literal addition + one handler function. The
-handler is the only behavior; everything else is registration. Authz
-delegates to `auth.Authorize`; for store-backed resources the adapter
-threads a `*sql.Tx` in `Execution` so the mutation + audit row commit
-as a unit.
-
 ## Anti-patterns — what should NOT go via MCP
 
 Some operations look like state changes but should not be exposed as
