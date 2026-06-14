@@ -299,8 +299,13 @@ egress allowlist. (A real auth gate gives mixed codes: 200 on public paths,
   host)` — e.g. `network_allow("atlas/search", "krons.fiu.wtf")`. A rule at a
   parent cascades to all children. `network_deny`/`network_list` manage it.
 - **Tier 2+:** you get only the inherited allowlist and **cannot** grant egress.
-  If you need a host, ask your world/root agent to `network_allow` it for you,
-  or file it via `/issues` for the operator. Don't keep retrying a denied host.
+  If you need a host, escalate — don't keep retrying a denied host.
+
+  **How to escalate egress requests (tier 2+):**
+  1. Tell the user the exact fix: "I need `api.example.com` allowlisted. You can
+     ask the root agent: `/root please run network_allow('main/trading', 'api.example.com')`"
+  2. Or file via `/issues` for the operator to handle async.
+  3. NEVER say vague things like "the operator can..." — give the user the command.
 
 Never touch `settings.json` to fix network access.
 
