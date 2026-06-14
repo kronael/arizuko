@@ -734,6 +734,7 @@ type TurnContext struct {
 	ReturnTo     string
 	State        string
 	RunReturned  bool
+	RetryCount   int
 }
 
 // GetTurnContext recovers a turn's context by turn_id.
@@ -741,9 +742,9 @@ func (d *DB) GetTurnContext(turnID string) (TurnContext, bool) {
 	var tc TurnContext
 	var trigMsg sql.NullString
 	var runReturned int
-	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, trigger_msg_id, return_to, state, run_returned
+	err := d.db.QueryRow(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, trigger_msg_id, return_to, state, run_returned, retry_count
 		FROM turn_context WHERE turn_id=?`, turnID).Scan(
-		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &trigMsg, &tc.ReturnTo, &tc.State, &runReturned)
+		&tc.TurnID, &tc.Folder, &tc.Topic, &tc.ChatJID, &tc.Trigger, &trigMsg, &tc.ReturnTo, &tc.State, &runReturned, &tc.RetryCount)
 	if err != nil {
 		return TurnContext{}, false
 	}
@@ -782,10 +783,29 @@ func (d *DB) SetTurnRunID(turnID, runID string) error {
 	return err
 }
 
-// RunningTurns lists turn_ids still in state=running (crash-recovery feed).
+// IncrementRetryCount bumps a turn's retry_count and sets state to pending_retry.
+// Returns the new count.
+func (d *DB) IncrementRetryCount(turnID string) (int, error) {
+	_, err := d.db.Exec("UPDATE turn_context SET retry_count=retry_count+1, state='pending_retry' WHERE turn_id=?", turnID)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	d.db.QueryRow("SELECT retry_count FROM turn_context WHERE turn_id=?", turnID).Scan(&count)
+	return count, nil
+}
+
+// ResetTurnForRetry resets a turn's state to running for the next retry attempt.
+func (d *DB) ResetTurnForRetry(turnID string) error {
+	_, err := d.db.Exec("UPDATE turn_context SET state='running', run_returned=0 WHERE turn_id=?", turnID)
+	return err
+}
+
+// RunningTurns lists turn_ids still in state=running or pending_retry
+// (crash-recovery feed).
 func (d *DB) RunningTurns() ([]TurnContext, error) {
 	rows, err := d.db.Query(`SELECT turn_id, folder, topic, chat_jid, trigger_sender, return_to, state, run_returned
-		FROM turn_context WHERE state='running'`)
+		FROM turn_context WHERE state IN ('running', 'pending_retry')`)
 	if err != nil {
 		return nil, err
 	}

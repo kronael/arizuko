@@ -115,6 +115,10 @@ type Loop struct {
 	// applied when a group has no per-group model. A per-group model wins; if
 	// both are empty the container's ant SDK uses its own hardcoded default.
 	defaultModel string
+
+	// maxTurnRetry is the number of times to retry a turn that fails without
+	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
+	maxTurnRetry int
 }
 
 // SetOnbodClient wires the onbod federation for the /invite + /gate commands.
@@ -180,6 +184,10 @@ type LoopConfig struct {
 	// applied when a group has no per-group model. Empty leaves resolution to the
 	// container's ant SDK default.
 	DefaultModel string
+
+	// MaxTurnRetry is the number of retry attempts when a turn fails without
+	// delivering a reply (SIGKILL/OOM/timeout). Default 3.
+	MaxTurnRetry int
 }
 
 // NewLoop builds the Loop and its per-folder queue. The queue's
@@ -195,6 +203,12 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 	}
 	if cfg.SessionIdle == 0 {
 		cfg.SessionIdle = sessionIdleExpiry
+	}
+	maxRetry := cfg.MaxTurnRetry
+	if maxRetry < 0 {
+		maxRetry = 0 // explicit disable via -1
+	} else if maxRetry == 0 {
+		maxRetry = 3 // unset: default
 	}
 	l := &Loop{
 		db:              db,
@@ -217,6 +231,7 @@ func NewLoop(db *DB, runner Runner, cfg LoopConfig) *Loop {
 		onboardingEnabled:   cfg.OnboardingEnabled,
 		onboardingPlatforms: cfg.OnboardingPlatforms,
 		defaultModel:        cfg.DefaultModel,
+		maxTurnRetry:        maxRetry,
 	}
 	if cfg.Proactive.Enabled {
 		l.modes = newModeCache(cfg.GroupsDir)

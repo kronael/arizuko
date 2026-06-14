@@ -2,10 +2,12 @@ package routd
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
@@ -134,6 +136,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		pr := v.(proactiveResult)
 		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
 	}
+	// Inject retry note when this is a retry attempt (spec 5/40). The turn_context
+	// row exists from the failed prior attempt; read its retry_count.
+	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {
+		rendered = retryNoteBlock(tc.RetryCount, l.maxTurnRetry) + rendered
+	}
 
 	// A delegated trigger carries forwarded_from = the origin chat JID; persist
 	// it as the turn's return address so reply/send/document deliver back to the
@@ -229,10 +236,26 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	// 409s, even if an early submit_turn already flipped state→done.
 	_ = l.db.SetRunReturned(turnID)
 	if out.Outcome == runedv1.OutcomeError {
-		// The run definitively failed. Flag the chat errored, mark the trigger
-		// batch errored (so the breaker can prune it), and notify the chat —
-		// don't treat a failed run as a silent success.
-		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error)
+		// The run failed. Check if we can retry: a turn that died without
+		// delivering a reply (SIGKILL/OOM/timeout) gets rescheduled up to
+		// maxTurnRetry times before we give up and notify the user.
+		tc, _ := l.db.GetTurnContext(turnID)
+		hasBotReply := l.db.TurnHasBotReply(turnID)
+		if !hasBotReply && tc.RetryCount < l.maxTurnRetry {
+			newCount, err := l.db.IncrementRetryCount(turnID)
+			if err == nil {
+				slog.Warn("turn failed without reply, scheduling retry",
+					"folder", folder, "turn_id", turnID, "retry", newCount, "max", l.maxTurnRetry)
+				time.AfterFunc(retryBackoff, func() {
+					_ = l.db.ResetTurnForRetry(turnID)
+					l.Enqueue(chatJID)
+				})
+				return false, false, nil
+			}
+		}
+		// Final failure: all retries exhausted or agent did reply (partial is OK).
+		slog.Warn("run outcome error", "folder", folder, "turn_id", turnID, "err", out.Error,
+			"retry_count", tc.RetryCount)
 		_ = l.db.MarkChatErrored(chatJID)
 		ids := make([]string, len(trigger))
 		for i, m := range trigger {
@@ -240,7 +263,12 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		_ = l.db.MarkMessagesErrored(ids)
 		if l.deliver != nil {
-			_, _ = l.deliver.Send(chatJID, runFailureNotice, "", topic, "", "fail-"+turnID)
+			notice := runFailureNotice
+			// Use retry-exhausted notice only when retries were actually attempted.
+			if !hasBotReply && tc.RetryCount > 0 && tc.RetryCount >= l.maxTurnRetry {
+				notice = retryExhaustedNotice
+			}
+			_, _ = l.deliver.Send(chatJID, notice, "", topic, "", "fail-"+turnID)
 		}
 		_ = l.db.SetTurnState(turnID, "done")
 		// The breaker rides only on the run that trips it (runed reports
@@ -336,6 +364,20 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 // runFailureNotice is sent to the chat when a run returns outcome:error and
 // produced no usable output, so the user isn't left silent.
 const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
+
+// retryExhaustedNotice is sent when all retry attempts are exhausted without
+// a reply (spec 5/40 turn-retry).
+const retryExhaustedNotice = "⚠️ Agent couldn't complete this request after 3 attempts."
+
+// retryBackoff is the delay between retry attempts (spec 5/40).
+const retryBackoff = 10 * time.Second
+
+// retryNoteBlock renders the system note injected on retry attempts.
+func retryNoteBlock(attempt, max int) string {
+	return fmt.Sprintf("<system-note>This is retry attempt %d of %d. "+
+		"The previous attempt was killed before completing. "+
+		"Be conservative with resource usage.</system-note>\n", attempt+1, max)
+}
 
 // jidScheme returns the JID scheme (telegram|slack|discord|web) — the
 // per-surface output-style selector — or "" for a bare folder / scheme-less JID

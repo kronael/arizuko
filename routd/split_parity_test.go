@@ -60,7 +60,8 @@ func TestRunTurnBreakerOpen_PrunesErroredBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	loop := NewLoop(db, errBreakerRunner{}, LoopConfig{})
+	// MaxTurnRetry=-1 disables retry so breaker fires on first failure.
+	loop := NewLoop(db, errBreakerRunner{}, LoopConfig{MaxTurnRetry: -1})
 	loop.StopQueue()
 
 	const jid = "tg:7"

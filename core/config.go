@@ -114,6 +114,10 @@ type Config struct {
 	// miss branch to whichever folder most recently spoke there.
 	EngagementTTL time.Duration
 
+	// MaxTurnRetry is the maximum number of retry attempts when a turn
+	// fails without delivering a reply (SIGKILL/OOM/timeout). Default 3.
+	MaxTurnRetry int
+
 	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 6/Y).
 	// Required by gated — secrets are encrypted at rest, no plaintext mode and no
 	// AUTH_SECRET fallback. Comma-separate to rotate: the first key seals new
@@ -212,6 +216,8 @@ func LoadConfig() (*Config, error) {
 		CostCapsEnabled: envOr("COST_CAPS_ENABLED", "true") == "true",
 
 		EngagementTTL: envDur("ENGAGEMENT_TTL", 20*time.Minute),
+
+		MaxTurnRetry: envInt("MAX_TURN_RETRY", 3),
 
 		SecretsKey: envOr("SECRETS_KEY", ""),
 	}

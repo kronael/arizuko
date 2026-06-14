@@ -165,6 +165,8 @@ func main() {
 		// to this so the container never goes empty → ant SDK default. Default keeps
 		// behavior correct with no .env entry.
 		DefaultModel: envOr("ARIZUKO_DEFAULT_MODEL", "claude-opus-4-8"),
+		// Turn retry on SIGKILL/OOM/timeout (spec 5/40). Default 3.
+		MaxTurnRetry: intOr("MAX_TURN_RETRY", 3),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
 		Media: routd.MediaConfig(
