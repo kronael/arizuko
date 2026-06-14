@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord team agent — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/" aria-current="page">Discord team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Discord team agent</p>
+      <h1>Discord team agent</h1>
+
+
+
+      <p class="lede">
+        One agent in a Discord guild, with channel-scoped persona and thread
+        context but per-member memory, grants, and a full web workspace.
+      </p>
+
+      <h2>what you get</h2>
+      <ul>
+        <li>
+          <strong>Personal cloud storage.</strong> Each member gets a private
+          workspace accessible via WebDAV. Mount it in Finder, VS Code, or any
+          file manager. Store notes, uploads, agent outputs &mdash; persistent
+          across sessions.
+        </li>
+        <li>
+          <strong>Web interface.</strong> A browser-based chat at
+          <code>/chat/&lt;token&gt;/</code> against the same agent. Take the
+          conversation off Discord onto a phone or laptop without losing context.
+        </li>
+        <li>
+          <strong>Google Docs and web page access.</strong> The agent can read
+          public web pages and Google Docs you share with it &mdash; paste a URL
+          and it fetches the content. Private docs require sharing the link;
+          no OAuth into your Google account.
+        </li>
+        <li>
+          <strong>Dashboard.</strong> Operators and members with dashboard access
+          see usage, privileges, routing rules, and scheduled tasks at
+          <code>/dash/</code>. Per-member usage tracking shows turns, tokens,
+          and tool calls.
+        </li>
+        <li>
+          <strong>Per-member memory.</strong> The agent maintains a memory file
+          per member &mdash; preferences, recurring tasks, prior conclusions.
+          Alice has hers, Bob has his.
+        </li>
+        <li>
+          <strong>Per-member grants.</strong> Per-member grant rules decide which
+          actions each person can ask the agent to take. Operators set defaults;
+          individuals can have overrides.
+        </li>
+        <li>
+          <strong>Linked identities.</strong> GitHub, Google, Slack, and
+          Telegram logins resolve to the same user record so the same person
+          reaches the same memory and grants across surfaces.
+        </li>
+      </ul>
+
+      <h2>system shape</h2>
+      <ul>
+        <li>
+          <strong>Channel as workspace.</strong> A Discord channel maps to an
+          arizuko group folder. The product ships its base persona and rules in
+          <code>~/.claude/CLAUDE.md</code>; the channel&rsquo;s own
+          <code>~/CLAUDE.md</code> overrides and extends them &mdash; allowed
+          tools, citation rules, refusals, voice for this channel.
+        </li>
+        <li>
+          <strong>Thread context.</strong> Discord threads behave like
+          conversation branches. The agent sees thread history as context,
+          replies stay in-thread.
+        </li>
+        <li>
+          <strong>Operator dashboard.</strong> <code>/dash/</code> for grants,
+          routing, scheduled tasks, admission queue, and per-channel health.
+          Members with elevated privileges see their own usage and can manage
+          their workspace.
+        </li>
+        <li>
+          <strong>Customisable, upgradable in place.</strong> Persona, skills,
+          and channel rules are plain Markdown edited via WebDAV or chat. Each
+          release ships migrations the agent applies as a per-group 3-way merge,
+          preserving local edits.
+        </li>
+      </ul>
+
+      <h2>use cases</h2>
+
+      <h3>support and analysis agent</h3>
+      <p>
+        A support agent answers questions from a knowledge base, cites sources,
+        and escalates when it doesn't know. Useful for community support channels,
+        internal help desks, or documentation Q&amp;A.
+      </p>
+      <ul>
+        <li>Searches a <code>facts/</code> directory of markdown files for answers</li>
+        <li>Cites the source file and line when answering</li>
+        <li>Says "I don't know" rather than guessing</li>
+        <li>Can triage and tag issues, track resolution status</li>
+        <li>Escalates to human operators when stuck or when the user requests it</li>
+      </ul>
+      <pre><code>#help-desk
+
+  user   How do I reset my API key?
+  bot    To reset your API key:
+         1. Go to Settings &rarr; API Keys
+         2. Click "Regenerate" next to the key you want to reset
+         3. Copy the new key immediately &mdash; it won't be shown again
+         source: docs/api-keys.md:45
+
+  user   What about enterprise SSO setup?
+  bot    I don't have documentation on enterprise SSO in my knowledge base.
+         I've flagged this for the team. Someone will follow up.
+</code></pre>
+
+      <h3>trading and market analysis agent</h3>
+      <p>
+        A collaborative research agent that ingests news, tracks market data,
+        and synthesizes analysis. Works best when multiple members contribute
+        observations and the agent aggregates them.
+      </p>
+      <ul>
+        <li>Fetches and summarizes news from URLs you paste</li>
+        <li>Tracks observations members share over time</li>
+        <li>Maintains a shared research diary with timestamped entries</li>
+        <li>Cross-references multiple sources to identify patterns</li>
+        <li>Produces synthesis reports on request</li>
+      </ul>
+      <pre><code>#market-watch
+
+  alice  https://example.com/article-about-earnings
+  bot    Summarized: Q2 earnings beat estimates by 12%. Key drivers:
+         cloud revenue +34% YoY, hardware flat. Guidance raised for Q3.
+         Logged to research diary.
+
+  bob    I noticed unusual options activity on XYZ today
+  bot    Noted. Adding to today's observations. You've logged 3 observations
+         this week on XYZ &mdash; want me to compile a summary?
+
+  alice  Yes, give us the weekly synthesis
+  bot    Weekly synthesis for XYZ:
+         - Monday: Earnings beat, guidance raised (source: earnings article)
+         - Wednesday: Insider filing showed CEO sold 10k shares
+         - Today: Unusual options activity (Bob's observation)
+         Pattern: Mixed signals. Fundamentals strong but insider selling
+         and options activity suggest caution.
+</code></pre>
+
+      <h3>general team assistant</h3>
+      <p>
+        The default configuration: a capable assistant that handles Q&amp;A,
+        summarization, file processing, and task tracking for a team channel.
+      </p>
+
+      <h2>example: shared thread, member-scoped state</h2>
+      <pre><code>#dev-chat &middot; thread
+
+  alice  @bot summarize the fix from the cold-start runbook for this thread
+  bot    Bundle growth after deploy is coming from broad SDK imports.
+         Recommended: switch back to per-service imports.
+         source: /docs/runbooks/lambda-cold-start.md:67
+
+  bob    @bot save that conclusion to my notes
+  bot    Wrote notes/lambda-cold-start.md in your workspace.
+
+  alice  @bot remember: prefer per-service imports for any new lambda
+  bot    Saved to your memory.
+</code></pre>
+      <p>
+        Same thread, same channel <code>CLAUDE.md</code>, different resolved
+        member state. The answer is visible to the team; Bob&rsquo;s write lands
+        in Bob&rsquo;s workspace; Alice&rsquo;s preference lands in her memory
+        file. Shared deliberation, member-scoped state.
+      </p>
+
+      <h2>how members use it</h2>
+      <ul>
+        <li>
+          <strong>In a channel.</strong> The bot stays quiet by default.
+          <code>@bot</code> mentions fire a turn. With the recommended
+          routing rule (see setup), channel chatter lands in
+          <code>#observe</code> &mdash; agent reads for context but
+          doesn&rsquo;t reply unless called on.
+        </li>
+        <li>
+          <strong>In a thread.</strong> Replying to one of the bot&rsquo;s
+          messages counts as a mention &mdash; the agent answers in the
+          same thread, with the thread&rsquo;s history as context.
+        </li>
+        <li>
+          <strong>In a DM.</strong> Every message is for the bot. No
+          mention needed; replies come back in the same DM.
+        </li>
+        <li>
+          <strong>File uploads.</strong> Drop a file on the bot or in a
+          mentioned thread. The agent reads it and replies in-thread.
+        </li>
+        <li>
+          <strong>Web interface.</strong> Sign in at
+          <code>/auth/login</code> to get a personal chat URL. Same agent,
+          same memory, browser-based.
+        </li>
+        <li>
+          <strong>WebDAV workspace.</strong> Mount your personal cloud at
+          <code>/dav/&lt;your-folder&gt;/</code>. Access agent outputs, notes,
+          and uploads from any file manager.
+        </li>
+      </ul>
+
+      <h2>data and trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> Conversation history, channel files,
+          per-member memory, channel-scoped secrets, agent state &mdash; all live
+          under <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code> of the directory; no DB dump.
+        </li>
+        <li>
+          <strong>Default outbound paths.</strong> Discord for bot traffic;
+          Anthropic for model calls. Any extra agent egress goes through
+          <a href="../../components/crackbox.html">crackbox</a> and only reaches hosts you
+          allowlist per channel.
+        </li>
+        <li>
+          <strong>Channel-scoped secrets.</strong> API keys for tools the agent
+          calls live in the <code>secrets</code> table, AES-256-GCM encrypted
+          at rest. Folder-scoped values are merged into the container's spawn
+          env; guild channels get folder secrets only.
+        </li>
+        <li>
+          <strong>Channel boundary.</strong> A member in #dev-chat sees
+          that channel&rsquo;s context and their own workspace; #marketing&rsquo;s
+          files and persona are inaccessible unless granted explicitly.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create acme
+cd /srv/data/arizuko_acme
+$EDITOR .env             # set Discord token; enable the adapter
+arizuko run acme
+
+# in Discord:
+#   create the bot at discord.com/developers/applications
+#   set DISCORD_BOT_TOKEN in .env
+#   invite the bot to your guild with the OAuth2 URL generator
+#   members sign in via OAuth at /auth/login for linked identities</code></pre>
+      <p>
+        Full step-by-step is in the
+        <a href="setup.html">operator setup guide</a>.
+        Per-channel <code>CLAUDE.md</code> override lives in the channel folder;
+        edit via WebDAV or directly on the server.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../concepts/primitives.html">primitives</a> &mdash; the
+          same pipeline as every other agent
+        </li>
+        <li>
+          <a href="../../concepts/grants.html">grants</a> &mdash; per-member and
+          per-group action scoping
+        </li>
+        <li>
+          <a href="../../concepts/personas.html">personas</a> &mdash;
+          how voice + skills + frontmatter shape one channel&rsquo;s agent
+        </li>
+        <li>
+          <a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers,
+          account linking, identity resolution
+        </li>
+        <li>
+          <a href="../../concepts/webdav.html">webdav</a> &mdash; mounting the
+          channel workspace
+        </li>
+        <li>
+          <a href="../../components/crackbox.html">crackbox</a> &mdash; per-channel egress
+          isolation
+        </li>
+        <li>
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
+          first channel, first invite
+        </li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../slack-team/setup.html">&larr; Slack team setup</a>
+        <a rel="next" href="setup.html">Discord team setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/discord-team/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-06-14">2026-06-14</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -24,6 +24,7 @@
             <li><a href="../supermarket/">Supermarket price agent</a></li>
             <li><a href="../trip/">Trip planner (May)</a></li>
             <li><a href="../slack-team/" aria-current="page">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
             <li><a href="../reality/">Reality agent</a></li>
             <li><a href="../company-brain/">Company brain</a></li>
           </ul>
@@ -39,8 +40,50 @@
 
       <p class="lede">
         One agent in a Slack channel, with channel-scoped persona and thread
-        context but per-teammate memory, grants, and private web chat.
+        context but per-teammate memory, grants, and a full web workspace.
       </p>
+
+      <h2>what you get</h2>
+      <ul>
+        <li>
+          <strong>Personal cloud storage.</strong> Each teammate gets a private
+          workspace accessible via WebDAV. Mount it in Finder, VS Code, or any
+          file manager. Store notes, uploads, agent outputs &mdash; persistent
+          across sessions.
+        </li>
+        <li>
+          <strong>Web interface.</strong> A browser-based chat at
+          <code>/chat/&lt;token&gt;/</code> against the same agent. Take the
+          conversation off Slack onto a phone or laptop without losing context.
+        </li>
+        <li>
+          <strong>Google Docs and web page access.</strong> The agent can read
+          public web pages and Google Docs you share with it &mdash; paste a URL
+          and it fetches the content. Private docs require sharing the link;
+          no OAuth into your Google account.
+        </li>
+        <li>
+          <strong>Dashboard.</strong> Operators and teammates with dashboard access
+          see usage, privileges, routing rules, and scheduled tasks at
+          <code>/dash/</code>. Per-teammate usage tracking shows turns, tokens,
+          and tool calls.
+        </li>
+        <li>
+          <strong>Per-teammate memory.</strong> The agent maintains a memory file
+          per teammate &mdash; preferences, recurring tasks, prior conclusions.
+          Alice has hers, Bob has his.
+        </li>
+        <li>
+          <strong>Per-teammate grants.</strong> Grant rules decide which
+          actions each teammate can ask the agent to take. Operators set defaults;
+          individuals can have overrides.
+        </li>
+        <li>
+          <strong>Linked identities.</strong> GitHub, Google, Discord, and
+          Telegram logins resolve to the same user record so the same person
+          reaches the same memory and grants across surfaces.
+        </li>
+      </ul>
 
       <h2>system shape</h2>
       <ul>
@@ -152,6 +195,74 @@
           handy for &ldquo;thumbs up to confirm&rdquo; flows.
         </li>
       </ul>
+
+      <h2>use cases</h2>
+
+      <h3>support and analysis agent</h3>
+      <p>
+        A support agent answers questions from a knowledge base, cites sources,
+        and escalates when it doesn't know. Useful for internal help desks,
+        customer-facing support channels, or documentation Q&amp;A.
+      </p>
+      <ul>
+        <li>Searches a <code>facts/</code> directory of markdown files for answers</li>
+        <li>Cites the source file and line number</li>
+        <li>Says "I don't know" rather than guessing</li>
+        <li>Can triage and tag issues, track resolution status</li>
+        <li>Escalates to human operators when stuck or when the user requests it</li>
+      </ul>
+      <pre><code>#eng-support
+
+  user   How do I reset my API key?
+  bot    To reset your API key:
+         1. Go to Settings &rarr; API Keys
+         2. Click "Regenerate" next to the key you want to reset
+         3. Copy the new key immediately &mdash; it won't be shown again
+         source: docs/api-keys.md:45
+
+  user   What about enterprise SSO setup?
+  bot    I don't have documentation on enterprise SSO in my knowledge base.
+         I've flagged this for the team. Someone will follow up.
+</code></pre>
+
+      <h3>trading and market analysis agent</h3>
+      <p>
+        A collaborative research agent that ingests news, tracks market data,
+        and synthesizes analysis. Works best when multiple teammates contribute
+        observations and the agent aggregates them.
+      </p>
+      <ul>
+        <li>Fetches and summarizes news from URLs you paste</li>
+        <li>Tracks observations teammates share over time</li>
+        <li>Maintains a shared research diary with timestamped entries</li>
+        <li>Cross-references multiple sources to identify patterns</li>
+        <li>Produces synthesis reports on request</li>
+      </ul>
+      <pre><code>#market-watch
+
+  alice  https://example.com/article-about-earnings
+  bot    Summarized: Q2 earnings beat estimates by 12%. Key drivers:
+         cloud revenue +34% YoY, hardware flat. Guidance raised for Q3.
+         Logged to research diary.
+
+  bob    I noticed unusual options activity on XYZ today
+  bot    Noted. Adding to today's observations. You've logged 3 observations
+         this week on XYZ &mdash; want me to compile a summary?
+
+  alice  Yes, give us the weekly synthesis
+  bot    Weekly synthesis for XYZ:
+         - Monday: Earnings beat, guidance raised (source: earnings article)
+         - Wednesday: Insider filing showed CEO sold 10k shares
+         - Today: Unusual options activity (Bob's observation)
+         Pattern: Mixed signals. Fundamentals strong but insider selling
+         and options activity suggest caution.
+</code></pre>
+
+      <h3>general team assistant</h3>
+      <p>
+        The default configuration: a capable assistant that handles Q&amp;A,
+        summarization, file processing, and task tracking for a team channel.
+      </p>
 
       <h2>data &amp; trust</h2>
       <ul>
@@ -309,7 +420,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/slack-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
       </div>
     </main>
 
