@@ -15,9 +15,9 @@ attachments (cached via `chanlib.URLCache`).
 - Emit synthetic `like` / `dislike` inbound events on
   `MessageReactionAdd` (raw emoji on `InboundMsg.Reaction`,
   classified via `chanlib.ClassifyEmoji`).
-- Handle `/send`, `/send-file`, `/typing`, `/like`, `/edit`,
-  `/delete`, `/quote`, `/v1/history` (others are 501-with-hint via
-  `chanlib.UnsupportedError`).
+- Handle `/send`, `/send-file`, `/send-voice`, `/typing`, `/like`,
+  `/edit`, `/delete`, `/quote`, `/pin`, `/unpin`, `/v1/history`
+  (others are 501-with-hint via `chanlib.UnsupportedError`).
 - Proxy CDN file fetches through short-token URLs (shared
   `chanlib.URLCache`).
 
@@ -26,26 +26,29 @@ attachments (cached via `chanlib.URLCache`).
 - Binary: `discd/main.go`
 - Listen: `$LISTEN_ADDR` (default `:9002`)
 - Router registration: `discord:` prefix, caps `send_text`,
-  `send_file`, `typing`, `fetch_history`, `like`, `edit`, `delete`,
-  `quote`. Hint-only verbs (`forward`, `post`, `repost`, `dislike`)
-  are still served so the agent reaches the structured hint instead of
-  a generic "capability not advertised".
+  `send_file`, `send_voice`, `typing`, `fetch_history`, `like`,
+  `edit`, `delete`, `quote`, `pin`. Hint-only verbs (`forward`,
+  `post`, `repost`, `dislike`) are still served so the agent reaches
+  the structured hint instead of a generic "capability not advertised".
 
 ## Verb support
 
-| Verb        | Status | Notes                                                                       |
-| ----------- | ------ | --------------------------------------------------------------------------- |
-| `send`      | native | `POST /channels/{ch}/messages`; chunks at 2000 chars; honours `reply_to`    |
-| `send_file` | native | multipart upload                                                            |
-| `reply`     | native | via `send` with `reply_to` (message_reference)                              |
-| `edit`      | native | `PATCH /channels/{ch}/messages/{id}`                                        |
-| `delete`    | native | `DELETE /channels/{ch}/messages/{id}`                                       |
-| `like`      | native | emoji reaction (default 👍)                                                 |
-| `quote`     | native | reply with own commentary (`message_reference` to source)                   |
-| `dislike`   | hint   | redirects to `like(emoji='👎')` — Discord has one reaction primitive        |
-| `forward`   | hint   | redirects to `send` with quoted text — no native forward in arizuko's model |
-| `post`      | hint   | redirects to `send` — Discord channels are the post surface, no broadcast   |
-| `repost`    | hint   | redirects to `send` — no retweet equivalent                                 |
+| Verb         | Status | Notes                                                                       |
+| ------------ | ------ | --------------------------------------------------------------------------- |
+| `send`       | native | `POST /channels/{ch}/messages`; chunks at 2000 chars; honours `reply_to`    |
+| `send_file`  | native | multipart upload                                                            |
+| `send_voice` | native | posts `.ogg` audio as attachment; Discord renders inline player             |
+| `reply`      | native | via `send` with `reply_to` (message_reference)                              |
+| `edit`       | native | `PATCH /channels/{ch}/messages/{id}`                                        |
+| `delete`     | native | `DELETE /channels/{ch}/messages/{id}`                                       |
+| `like`       | native | emoji reaction (default 👍)                                                 |
+| `quote`      | native | reply with own commentary (`message_reference` to source)                   |
+| `pin`        | native | `PUT /channels/{ch}/pins/{id}`                                              |
+| `unpin`      | native | `DELETE /channels/{ch}/pins/{id}`; `unpin_all` returns hint (no bulk API)   |
+| `dislike`    | hint   | redirects to `like(emoji='👎')` — Discord has one reaction primitive        |
+| `forward`    | hint   | redirects to `send` with quoted text — no native forward in arizuko's model |
+| `post`       | hint   | redirects to `send` — Discord channels are the post surface, no broadcast   |
+| `repost`     | hint   | redirects to `send` — no retweet equivalent                                 |
 
 ## Dependencies
 
@@ -69,9 +72,9 @@ outage.
 
 ## Files
 
-- `main.go` — wiring; note `b.files` must be assigned before `b.start` (documented in source).
-- `bot.go` — websocket event loop, send helpers
-- `server.go` — adapter handlers
+- `main.go` — wiring; `b.files` assigned before `b.start` (event loop depends on it).
+- `bot.go` — websocket event loop, send helpers, thread management
+- `server.go` — adapter HTTP handlers
 
 ## Message routing
 

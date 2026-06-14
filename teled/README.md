@@ -11,20 +11,23 @@ proxy because Telegram bot-token URLs are short-lived.
 
 ## Verb coverage
 
-| Verb        | Telegram primitive             | Status                                |
-| ----------- | ------------------------------ | ------------------------------------- | ------- |
-| `send`      | `sendMessage`                  | native                                |
-| `send_file` | `sendPhoto`/`Video`/`Document` | native (extension-routed)             |
-| `reply`     | `sendMessage` + `reply_to`     | native (folded into `send`)           |
-| `post`      | `sendMessage` to channel chat  | native (text only; media → send_file) |
-| `like`      | `setMessageReaction`           | native (defaults to 👍)               |
-| `dislike`   | —                              | hint → `like(emoji='👎')`             |
-| `delete`    | `deleteMessage`                | native                                |
-| `forward`   | `forwardMessage`               | native (`source_msg_id="<chatJid>     | <id>"`) |
-| `quote`     | —                              | hint → `reply`                        |
-| `repost`    | —                              | hint → `forward`                      |
-| `edit`      | `editMessageText`              | native (own messages only)            |
-| `typing`    | `sendChatAction`               | native (refreshed every 4 s)          |
+| Verb         | Telegram primitive             | Status                                        |
+| ------------ | ------------------------------ | --------------------------------------------- |
+| `send`       | `sendMessage`                  | native                                        |
+| `send_file`  | `sendPhoto`/`Video`/`Document` | native (extension-routed)                     |
+| `send_voice` | `sendVoice`                    | native (PTT audio messages)                   |
+| `reply`      | `sendMessage` + `reply_to`     | native (folded into `send`)                   |
+| `post`       | `sendMessage` to channel chat  | native (text only; media → send_file)         |
+| `like`       | `setMessageReaction`           | native (defaults to 👍)                       |
+| `dislike`    | —                              | hint → `like(emoji='👎')`                     |
+| `delete`     | `deleteMessage`                | native                                        |
+| `forward`    | `forwardMessage`               | native (`source_msg_id="<chatJid>\|<id>"`)    |
+| `quote`      | —                              | hint → `reply`                                |
+| `repost`     | —                              | hint → `forward`                              |
+| `edit`       | `editMessageText`              | native (own messages only)                    |
+| `typing`     | `sendChatAction`               | native (refreshed every 5 s)                  |
+| `pin`        | `pinChatMessage`               | native                                        |
+| `unpin`      | `unpinChatMessage`             | native (single message or all via `all=true`) |
 
 `fetch_history` returns `source: "unsupported"` — Telegram's Bot API has
 no per-chat history surface; the gateway falls back to its local cache.
@@ -54,12 +57,9 @@ no per-chat history surface; the gateway falls back to its local cache.
 ## Entry points
 
 - Binary: `teled/main.go`
-- Listen: `$LISTEN_ADDR` (default `:9001`)
-- Capabilities advertised: `send_text`, `send_file`, `typing`,
-  `fetch_history`, `post`, `fwd`, `edit`, `like`, `delete`, `dislike`,
-  `quote`, `repost`. Hint-only verbs are advertised so the agent reaches
-  the adapter and receives the structured `UnsupportedError` hint instead
-  of a generic "capability not advertised" message.
+- Listen: `$LISTEN_ADDR` (code default `:9001`; deployment TOML sets `:8080`)
+- Capabilities advertised: `send_text`, `send_file`, `send_voice`, `typing`,
+  `post`, `fwd`, `edit`, `like`, `delete`, `pin`.
 
 ## Dependencies
 
@@ -70,21 +70,33 @@ no per-chat history surface; the gateway falls back to its local cache.
 
 ## Configuration
 
-- `TELEGRAM_BOT_TOKEN`, `ROUTER_URL`, `CHANNEL_SECRET` (or `TELED_CHANNEL_SECRET` override)
-- `LISTEN_ADDR`, `LISTEN_URL`, `CHANNEL_NAME`
-- `DATA_DIR`, `MEDIA_MAX_FILE_BYTES`, `ASSISTANT_NAME`
+- `TELEGRAM_BOT_TOKEN` — Telegram Bot API token (required)
+- `ROUTER_URL` — routd URL (required)
+- `CHANNEL_SECRET` — auth secret for router communication
+- `LISTEN_ADDR` — HTTP listen address (default `:9001`)
+- `LISTEN_URL` — public URL for `/files/` proxy (default `http://telegram:9001`)
+- `CHANNEL_NAME` — adapter instance name (default `telegram`)
+- `DATA_DIR` — directory for poll offset persistence (default `/srv/app/home`)
+- `MEDIA_MAX_FILE_BYTES` — max file size for `/files/` proxy (default 20 MiB)
+- `ASSISTANT_NAME` — bot name for mention rewriting (optional)
 
 ## Health signal
 
-`GET /health` returns 200 when connected to Telegram AND inbound activity
-in the last 5 min (`chanlib.handleHealth`); 503 `{status:"disconnected"}`
-when long-poll is failing.
+`GET /health` returns 200 `{status:"ok"}` when connected to Telegram AND
+inbound activity in the last 5 min; 503 `{status:"disconnected"}` when
+long-poll fails or no activity.
+
+## Endpoints
+
+- `GET /health` — connection status
+- `GET /files/<fileID>` — proxies Telegram file downloads (auth-protected)
+- Standard adapter surface mounted by `chanlib.AdapterMux` (`/send`, `/send_file`, `/send_voice`, `/typing`, `/post`, `/forward`, `/edit`, `/like`, `/delete`, `/pin`, `/unpin`)
 
 ## Files
 
 - `main.go` — config, capability map, wiring via `chanlib.Run`
-- `bot.go` — long-poll, verb implementations, `do()` helper
-- `server.go` — adapter handlers for `/files/`
+- `bot.go` — long-poll loop, verb implementations, `do()` helper for raw Bot API calls
+- `server.go` — `/files/` proxy handler
 
 ## Related docs
 

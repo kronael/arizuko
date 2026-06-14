@@ -61,23 +61,22 @@ in shape — registers with `routd` via `chanlib.RouterClient`, exposes
 Slack's "Agents & AI Apps" feature gives the bot a dedicated sidebar
 pane. slakd implements the full lifecycle when the app has
 `assistant:write` scope and subscribes to `assistant_thread_started`
+and `assistant_thread_context_changed`:
 
-- `assistant_thread_context_changed`:
-
-* `assistant_thread_started` → upserts a row in `pane_sessions` keyed
+- `assistant_thread_started` → upserts a row in `pane_sessions` keyed
   by `(team_id, user_id, thread_ts)`, sets the pane title
   (`<ASSISTANT_NAME> — chat`), seeds three default suggested prompts,
   and dispatches a synthetic `pane_open` inbound so the agent gets
   a turn.
-* `assistant_thread_context_changed` → updates
+- `assistant_thread_context_changed` → updates
   `pane_sessions.context_jid` with the workspace channel the user is
   viewing. No synthetic turn (context drift isn't a user action).
-* `Typing()` adds a 👀 reaction to the last inbound message for the JID
+- `Typing()` adds a 👀 reaction to the last inbound message for the JID
   (on=true) and removes it (on=false). Same path for pane and regular
   channels — no `conversations.typing` (RTM-only, discontinued) and no
   `assistant.threads.setStatus`. Silent no-op when no prior inbound
   message is known.
-* `Send()` into a pane channel drains pending prompts/title staged
+- `Send()` into a pane channel drains pending prompts/title staged
   via the MCP tools below and fires `assistant.threads.setSuggestedPrompts`
   / `setTitle` after the `chat.postMessage` succeeds.
 
@@ -94,10 +93,10 @@ Both endpoints are reached by routd via `chanreg.HTTPChannel`'s
 `core.Suggester` and `core.Namer` capabilities). Today slakd is the
 only adapter that implements them.
 
-slakd opens the shared `messages.db` directly to read/write
-`pane_sessions` rows; `DB_PATH` (preferred) or `DATA_DIR/store`
-points to the file. Unset → pane persistence becomes a no-op and the
-pane lifecycle handlers degrade silently to type-only logging.
+slakd opens `routd.db` to read `pane_sessions` rows (routd owns the
+table); pane writes go via HTTP (`POST /v1/pane` to routd). `DB_PATH`
+(preferred) or `DATA_DIR/store` points to the DB directory. Unset →
+pane reads fail, prompts/title staging returns 404.
 
 ## Dependencies
 
@@ -113,6 +112,9 @@ ROUTER_URL=http://routd:8080  required
 CHANNEL_SECRET=...            (or SLAKD_CHANNEL_SECRET) for chanlib.Auth
 LISTEN_ADDR=:8080             internal HTTP listener
 LISTEN_URL=http://slakd:8080  URL the router uses to reach slakd
+ASSISTANT_NAME=...            shown in pane title (<name> — chat); omit → "chat"
+DB_PATH=...                   path to routd.db (preferred for pane reads)
+DATA_DIR=...                  fallback (uses DATA_DIR/store); omit both → no pane support
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
