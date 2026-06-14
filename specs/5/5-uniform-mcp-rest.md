@@ -775,7 +775,14 @@ MCP-only by design.
 
 ## Open (parked)
 
-cursor pagination on some routes. Harmonize or leave per-resource.
+- **Bulk endpoints.** Many POSTs, bulk only on demand.
+- **Token TTL & revocation.** Short TTL (1h) is the default;
+  revocation list deferred. Long-lived API keys (dashd-issued) need a
+  revocation table — when, where?
+- **Streaming endpoints.** SSE on REST and MCP notifications on the
+  agent side. Today they diverge. Defer; not CRUD-shaped.
+- **Pagination shape.** MCP tools return arrays today; REST uses
+  cursor pagination on some routes. Harmonize or leave per-resource.
 
 ## Code pointers
 
