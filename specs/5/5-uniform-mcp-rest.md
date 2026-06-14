@@ -784,7 +784,11 @@ row write fails, the mutation MUST roll back. Read-only handlers emit
 slog telemetry only — no audit row. Field schema:
 [`I-tool-call-logging.md`](I-tool-call-logging.md).
 
-## Acceptance
+## Acceptance (cold-tier resources)
+
+These criteria apply to cold-tier operator config resources in
+`resreg/resources/*.go`. Hot-tier agent tools in `ipc/ipc.go` are
+MCP-only by design.
 
 - A new `Resource{}` value added to the registry is automatically
   reachable via both `POST /v1/<resource>` AND `<resource>.create` MCP
@@ -823,9 +827,10 @@ slog telemetry only — no audit row. Field schema:
   authors how scopes are checked. No `tier` participates (capability
   tokens via authd downscope, not tier).
 - **vs [`auth/policy.go`](../../auth/policy.go)** today: hand-maintained
-  9-case per-tool switch. After Phase G it is **deleted** — not thinned.
-  The per-resource `Authz` callback delegating to `auth.Authorize` over
-  the unified ACL is the only authorization site. The switch survives in
+  per-tool switch. For cold-tier resources, Phase G replaces it with
+  resreg's `Authz` callback. Hot-tier agent tools (`reply`, `send`, etc.)
+  keep their authz in `ipc/` — `ipc.authorizeJID` + folder containment.
+  The switch shrinks as cold-tier tools migrate; hot-tier stays. Survives in
   CHANGELOG only.
 
 ## Open (parked)
@@ -873,12 +878,11 @@ slog telemetry only — no audit row. Field schema:
   single source of truth for token format; minting lives in `authd`.
 - [`auth/policy.go:14-96`](../../auth/policy.go) — current `Authorize`
   switch; Phase G replaces with registry lookup.
-- [`ipc/ipc.go:32-120`](../../ipc/ipc.go) — `GatedFns`/`StoreFns` plus
-  per-tool registrations; resource-action tools migrate to
-  `RegisterResource`, shrinking the file. After the split this MCP host
-  is `runed` ([`P-runed.md`](P-runed.md)), which gains an authd
-  token-brokering client (not a local minter) and an HTTP-forward client
-  for cross-daemon tools (conversation tools → routd).
+- [`ipc/ipc.go`](../../ipc/ipc.go) — hot-tier agent tools: `reply`,
+  `send`, `like`, `delete`, `post`, `diary`, `tasks`, session control,
+  inspect. MCP-only by design — no REST twin (see "Two tiers" in
+  The principle). The MCP host is `routd` (`ServeTurnMCP`); `routd`
+  verifies the agent's capability token and enforces folder containment.
 - [`proxyd/main.go:590-634`](../../proxyd/main.go) — signed-identity
   header path; the `Caller` builder for REST. OAuth login delegates to
   `authd`, which mints the scope-carrying token; proxyd verifies.
