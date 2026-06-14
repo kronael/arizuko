@@ -157,7 +157,7 @@ only.
 
 ## Docs layout
 
-Root UPPERCASE files: `README.md`, `ARCHITECTURE.md`, `SECURITY.md`,
+Root UPPERCASE files: `README.md`, `INSTALL.md`, `ARCHITECTURE.md`, `SECURITY.md`,
 `ROUTING.md`, `EXTENDING.md`, `GRANTS.md`, `CHANGELOG.md`, `CLAUDE.md`.
 Per-daemon detail lives next to the source (e.g. `ipc/SECURITY.md`).
 No `docs/` directory — add a per-daemon `SECURITY.md` when its threat
@@ -166,6 +166,8 @@ model outgrows a row in the root table.
 ### When to read what
 
 - **README.md** — daemon map, public pitch, build/test entry.
+- **INSTALL.md** — prerequisites, blocker fixes, step-by-step setup. Start here
+  when helping a user install arizuko on a fresh machine.
 - **ARCHITECTURE.md** — package graph, message flow, SQLite schema.
 - **SECURITY.md** — threat model + egress + secrets boundaries.
 - **ROUTING.md** — route table, topic/sticky/reply rules. `/chat/<token>/`
@@ -344,6 +346,9 @@ Full command list in `cmd/arizuko/README.md`. Daemons are standalone
 binaries (`authd`, `routd`, `runed`, `timed`, ...); see README for the full table.
 
 ## Quick Setup
+
+**Full guide**: [`INSTALL.md`](INSTALL.md) — prerequisites checklist, blocker fixes,
+troubleshooting. Read that first when helping a user install arizuko.
 
 **Prerequisites**: Docker, Go 1.22+, make, git, write access to `/srv/data/`.
 
