@@ -106,7 +106,7 @@ If you want a local coding assistant for one developer machine, a single-user to
 ```bash
 make build                                 # ./arizuko + daemon binaries
 arizuko create foo                         # seed /srv/data/arizuko_foo + .env
-vim /srv/data/arizuko_foo/.env             # set CHANNEL_SECRET, AUTH_SECRET, WEB_HOST, …
+vim /srv/data/arizuko_foo/.env             # set AUTH_SECRET, WEB_HOST, …
 arizuko group foo add tg:-123456789 main   # register first group
 arizuko run foo                            # generate compose + docker compose up
 ```
@@ -180,9 +180,6 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 ## What's planned
 
-- Proactive interjection — lurk-mode + validator chain ([spec](specs/5/33-proactive-interjection.md))
-- Capability-token auth — the `auth/` library is shipped (offline JWT verify, OAuth, ACL, middleware); per-tenant token minting + revocation and `PROXYD_HMAC_SECRET` / `CHANNEL_SECRET` retirement are the target ([spec](specs/5/1-auth-standalone.md))
-- Capability scopes — replace folder-depth tiers with token scopes; the per-daemon `routd` / `runed` / `authd` split that this rides on has shipped ([spec](specs/5/U-genericization.md))
 - Uniform MCP+REST across the cold tier — one hand-rolled handler per resource, both faces ([spec](specs/5/5-uniform-mcp-rest.md))
 - End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
 
