@@ -1,67 +1,59 @@
 # crackbox
 
-Sandbox + egress umbrella component. Two halves:
+Egress-filtering proxy + KVM sandbox library. Two halves:
 
-- **`egred`** — forward HTTP/HTTPS proxy daemon (shipped). Per-source-IP
-  allowlist, admin API, transparent + forward modes. Same binary as
-  `crackbox proxy serve`. See [`specs/11/9`](../specs/11/9-crackbox-standalone.md).
-- **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (planned;
-  see [`specs/9/a`](../specs/11/12-crackbox-sandboxing.md)). Spawns VMs,
-  manages privileges, ensures egred is up. Imported by
-  [`sandd`](../specs/11/c-sandd.md) (arizuko-internal sandbox daemon)
-  and by `crackbox run --kvm` for laptop one-shots.
+- **Proxy** (`crackbox proxy serve`) — forward HTTP/HTTPS proxy with
+  per-source-IP allowlists. Admin API, transparent + forward modes, DNS
+  interception. See [`specs/11/9`](../specs/11/9-crackbox-standalone.md)
+  - [`specs/11/15`](../specs/11/15-crackbox-dns-filter.md).
+- **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (shipped;
+  see [`specs/11/12`](../specs/11/12-crackbox-sandboxing.md)). Spawns VMs,
+  manages privileges, integrates proxy registration. Imported by
+  arizuko's container runner and by `crackbox run --kvm` for standalone use.
 
-The two halves ship together so `crackbox run` composes a
-sandboxed-execution CLI with no extra dep. Today only the proxy half
-is in production. The library half is next phase.
+Both halves ship together. Proxy is production; host library is complete but
+not yet wired into arizuko's spawn path.
 
 ## Subcommands
 
 ```
-crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] [--transparent :3127]
+crackbox proxy serve [--config <path>] [--listen :3128] [--admin :3129] \
+                      [--transparent :3127] [--dns-listen :53] [--dns-upstream 1.1.1.1:53]
 crackbox run --allow <list> [--id <name>] [--image <img>] [--kvm] -- <cmd>...
 crackbox state [--admin <url>]
-crackbox host run --image <vm> [--memory 2G] -- <cmd>...   # planned
 ```
 
-- `proxy serve` — long-running egred daemon. Functionally identical
-  to invoking `egred` standalone. Forward proxy on `:3128`, admin API
-  on `:3129` (`/v1/register`, `/v1/unregister`, `/v1/state`, `/health`),
-  transparent-mode listener on `:3127`. matchHost is per-source-IP
-  lookup.
-- `run` — convenience wrapper. Creates a Docker network (or KVM
-  bridge with `--kvm`), spawns egred on it, registers one allowlist
-  for the to-be-run user container/VM, runs `<cmd>` with `HTTPS_PROXY`
-  set, tears everything down on exit. Same daemon code; the registry
-  just happens to have one entry.
-- `state` — query a running daemon's registry.
-- `host run` (planned) — spawn one KVM VM directly via `pkg/host/`
-  for non-egress use cases. Same backend `sandd` will use.
+- `proxy serve` — proxy daemon. Forward mode on `:3128`, transparent on
+  `:3127`, DNS on `:53` (all configurable). Admin API on `:3129`
+  (`/v1/register`, `/v1/unregister`, `/v1/state`, `/health`). Per-source-IP
+  allowlist enforced at HTTP/CONNECT + DNS layers.
+- `run` — one-shot wrapper. Creates a Docker network (or KVM bridge with
+  `--kvm`), spawns proxy, registers one allowlist, runs `<cmd>` with
+  `HTTPS_PROXY` set, tears down on exit.
+- `state` — query running daemon's registry.
 
-## Transparent mode
+## Transparent mode + DNS interception
 
-Same daemon, two ways to receive traffic. Forward mode = client sets
-`HTTPS_PROXY=http://crackbox:3128`. Transparent mode = client side runs
-iptables `REDIRECT` to send port-80/443 traffic to crackbox's
-`:3127`. Crackbox reads the pre-NAT destination via
-`getsockopt(SO_ORIGINAL_DST)`, peeks SNI (443) or `Host:` (80), runs
-the same per-source-IP `Allow()`, splices on success.
+Three enforcement layers, same allowlist:
 
-The transparent listener is enabled by default. It's idle when nothing
-redirects to it, so binding costs nothing. Disable it in
-`~/.crackboxrc` (or any config path below) with `transparent_listen = ""`,
-or pass `--transparent ""` on the CLI.
+1. **Forward proxy** (`:3128`) — client sets `HTTPS_PROXY`, crackbox checks
+   `Allow(src-ip, dest-host)`, splices or 403.
+2. **Transparent proxy** (`:3127`) — client iptables redirects 80/443,
+   crackbox reads `SO_ORIGINAL_DST`, peeks SNI/Host, same `Allow()`.
+3. **DNS filter** (`:53`) — client resolver points at crackbox, queries for
+   non-allowed hosts return NXDOMAIN. Allowed queries forward to upstream.
 
-Linux-only (uses Linux netfilter sockopts). v1 supports ports 80 and
-443; other ports are rejected.
+Transparent + DNS are optional (disable with empty listen addr). Forward is
+always on. All three layers use the same per-source-IP registry.
 
-One-liner iptables example, redirecting outbound 443 from a single
-test user `tester` to a local crackbox instance:
+Linux-only (uses `getsockopt(SO_ORIGINAL_DST)`). Transparent supports ports
+80/443; other ports rejected.
+
+iptables example (redirect 443 from user `tester` to crackbox):
 
 ```sh
 sudo iptables -t nat -A OUTPUT -p tcp --dport 443 \
-  -m owner --uid-owner tester \
-  -j REDIRECT --to-ports 3127
+  -m owner --uid-owner tester -j REDIRECT --to-ports 3127
 ```
 
 ## Configuration file
@@ -75,6 +67,8 @@ or `/etc/crackbox.toml` (in that order). Override the path with
 listen = ":3128"
 admin_listen = ":3129"
 transparent_listen = ":3127"  # set to "" to disable
+dns_listen = ":53"            # set to "" to disable
+dns_upstream = "1.1.1.1:53"
 
 [admin]
 secret = ""                   # bearer token; empty disables auth
@@ -101,33 +95,33 @@ Default-deny is the trade. `crackbox run --allow ""` blocks everything;
 ```
 crackbox/
   cmd/
-    crackbox/main.go          umbrella CLI: proxy serve / run / state / host (planned)
-    egred/main.go             standalone egred binary (planned; thin wrapper around pkg/proxy)
+    crackbox/main.go          umbrella CLI: proxy serve / run / state
   pkg/
-    proxy/                    forward HTTP + CONNECT + transparent + splice (egred internals)
-    host/                     KVM/qemu sandbox lifecycle (planned; spec 8/a)
+    proxy/                    forward HTTP + CONNECT + transparent + splice
+    dns/                      UDP/53 allowlist-enforcing resolver
+    host/                     KVM/qemu sandbox lifecycle (shipped; spec 11/12)
     config/                   TOML config loader (search path + defaults)
     match/                    Host(allowlist, host) bool, validators
     admin/                    Registry + admin API handlers
     run/                      `crackbox run` orchestration
-    client/                   admin HTTP client (consumed by sandd, by `crackbox run`)
+    client/                   admin HTTP client
   Dockerfile, Makefile
 ```
 
 ## Configuration
 
-| Var                         | Default                 | Used by                                                        |
-| --------------------------- | ----------------------- | -------------------------------------------------------------- |
-| `CRACKBOX_PROXY_ADDR`       | `:3128`                 | `proxy serve` listen                                           |
-| `CRACKBOX_ADMIN_ADDR`       | `:3129`                 | `proxy serve` admin                                            |
-| `CRACKBOX_TRANSPARENT_ADDR` | `:3127`                 | `proxy serve` transparent listener; empty = disabled           |
-| `CRACKBOX_DNS_ADDR`         | `:53`                   | `proxy serve` UDP DNS listener (spec 9/15); empty = disabled   |
-| `CRACKBOX_DNS_UPSTREAM`     | `1.1.1.1:53`            | upstream resolver for allowed queries                          |
-| `CRACKBOX_ADMIN_SECRET`     | (unset)                 | bearer token for `/v1/register`+`/v1/unregister`; empty = open |
-| `CRACKBOX_STATE_PATH`       | (unset)                 | persist registry to JSON file; empty = RAM-only                |
-| `CRACKBOX_IMAGE`            | `crackbox:latest`       | `run` proxy image                                              |
-| `CRACKBOX_SUBNET`           | `10.99.0.0/16`          | `run` Docker subnet                                            |
-| `CRACKBOX_ADMIN`            | `http://localhost:3129` | `state`                                                        |
+| Var                         | Default                 | Used by                                           |
+| --------------------------- | ----------------------- | ------------------------------------------------- |
+| `CRACKBOX_PROXY_ADDR`       | `:3128`                 | `proxy serve` forward-mode listen                 |
+| `CRACKBOX_ADMIN_ADDR`       | `:3129`                 | `proxy serve` admin API                           |
+| `CRACKBOX_TRANSPARENT_ADDR` | `:3127`                 | `proxy serve` transparent listener; "" = disabled |
+| `CRACKBOX_DNS_ADDR`         | `:53`                   | `proxy serve` DNS listener; "" = disabled         |
+| `CRACKBOX_DNS_UPSTREAM`     | `1.1.1.1:53`            | upstream resolver for allowed queries             |
+| `CRACKBOX_ADMIN_SECRET`     | (unset)                 | bearer token for admin mutations; empty = open    |
+| `CRACKBOX_STATE_PATH`       | (unset)                 | registry persistence; empty = RAM-only            |
+| `CRACKBOX_IMAGE`            | `crackbox:latest`       | `run` proxy image                                 |
+| `CRACKBOX_SUBNET`           | `10.99.0.0/16`          | `run` Docker subnet                               |
+| `CRACKBOX_ADMIN`            | `http://localhost:3129` | `state` default admin URL                         |
 
 `CRACKBOX_ADMIN_SECRET` empty leaves mutating endpoints unauthenticated
 and logs a warning. The same secret must be set on both the daemon and
@@ -147,15 +141,13 @@ the invoking shell.
 
 ## Reuse from origin crackbox
 
-The proxy half (`pkg/match/Host`, `LooksLikeDomain`, `LooksLikeIP`,
-`domainRegex`, test fixtures) is ported from
-`/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go`.
+Proxy (`pkg/match/Host`, `LooksLikeDomain`, `LooksLikeIP`, `domainRegex`, test
+fixtures) ported from `/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go`.
 
-The host-library half (planned, `pkg/host/`) ports the prototype's
-`internal/vm/launch.go` (qemu invocation, virtio-net, virtio-fs),
-`internal/vm/network.go` (bridge + tap + iptables NAT), and
-`internal/vm/secrets.go` (TLS-terminating placeholder injection).
-See [`specs/11/12-crackbox-sandboxing.md`](../specs/11/12-crackbox-sandboxing.md).
+Host library (`pkg/host/`) ported from the prototype's `internal/vm/launch.go`
+(qemu invocation, virtio-net, virtio-fs), `internal/vm/network.go` (bridge +
+tap + iptables NAT), `internal/vm/secrets.go` (TLS-terminating placeholder
+injection). See [`specs/11/12`](../specs/11/12-crackbox-sandboxing.md).
 
 ## Orthogonality
 

@@ -1,94 +1,97 @@
 # ant
 
-A standalone Claude agent runner. Wraps the `claude` CLI, mounts a
-folder of identity + skills + memory + workspace, optionally puts the
-agent behind a sandbox, and exposes the resulting agent over MCP.
+The agent container runtime for arizuko. Wraps Claude Code (via
+`@anthropic-ai/claude-agent-sdk`), injects group identity + skills +
+memory, and exposes MCP tools over a gated unix socket.
 
-## What is it?
+## What it does
 
-A binary you can point at any directory: `ant <folder>`. The folder
-holds the agent's `PERSONA.md` / `CLAUDE.md` (identity), `skills/`
-(callable capabilities), `diary/` (memory), `secrets/` (env injection),
-`MCP.json` (tool wiring), and `workspace/` (scratch). One folder, one
-agent. Run it interactively, give it a one-shot `--prompt`, or expose
-it as an MCP server (`--mcp`) for another agent to call.
-
-The same skills directory and prompt machinery used inside arizuko —
-just without the router, channel adapters, or DB. Sandbox is optional
-(`--sandbox=none|dockbox|crackbox`); default is unsandboxed local exec.
-
-## Why?
-
-arizuko's per-group Claude container is currently a TS runtime
-(`ant/src/index.ts`) wrapping the Anthropic Agent SDK. That works, but
-it's the only Node code in an otherwise Go codebase, and it's not
-usable outside arizuko. This package collapses both: a Go binary that
-drives the official `claude` CLI in stream-json mode, with the
-arizuko-specific glue split into a separate component
-(`ant-arizuko/`). The result runs anywhere — laptop, CI, a different
-host — without bringing the router along.
-
-## How do I use it?
-
-```sh
-ant ~/my-agent                          # interactive REPL
-ant ~/my-agent --prompt="summarise PR"  # one-shot
-ant ~/my-agent --mcp --socket=/tmp/x.sock
-ant ~/my-agent --sandbox=crackbox --prompt=...
-```
-
-## Status
-
-Foundation only — see [`specs/12/b-ant-standalone.md`](../specs/12/b-ant-standalone.md).
-The package skeleton (`cmd/ant`, `pkg/agent`, `pkg/host`,
-`pkg/runtime`) is in place; the runtime port (replacing
-`ant/src/index.ts`), the sandbox backends, and the skills curation
-move into `ant-arizuko/` are tracked there but not yet shipped. The
-existing TS runtime in `src/` still drives `arizuko-ant:latest`.
+Every arizuko group runs in a fresh Docker container on each turn.
+`ant/src/index.ts` is the entrypoint: it reads stdin for the prompt,
+loads the group's `PERSONA.md` / `CLAUDE.md` / `~/.claude/settings.json`,
+assembles MCP servers (core `arizuko` server via socat to `gated.sock` +
+third-party connectors from `settings.json`), runs the Claude Code SDK,
+and delivers the result via the `submit_turn` JSON-RPC method back to
+`routd`.
 
 ## TS runtime (`src/`)
 
-The shipping in-container agent runs `@anthropic-ai/claude-agent-sdk`
-0.3.153 (`package.json`). MCP servers are declared in
-`src/mcp-servers.ts` with a per-server `alwaysLoad` flag: the `arizuko`
-core server (socat to routd's MCP socket — `send` / `reply` / `inspect_*` /
-`send_file`, needed every turn) is `alwaysLoad: true` so its tools stay
-eager; connector servers omit the flag so their tools load only when
-the model finds them via the SDK's Tool Search Tool. A large connector
-catalog no longer floods every turn's context (spec 6/A § "Tools side:
-deferred disclosure").
+The shipping runtime uses `@anthropic-ai/claude-agent-sdk` 0.3.153.
+MCP servers are assembled in `src/mcp-servers.ts`:
+
+- **`arizuko` core server** — socat bridge to `/run/ipc/gated.sock`,
+  `alwaysLoad: true` so `send`/`reply`/`inspect_*`/`send_file` stay
+  eager every turn.
+- **Third-party connectors** — loaded from `~/.claude/settings.json`
+  (agent-registered or operator-seeded), `alwaysLoad` omitted so the
+  SDK defers them behind Tool Search Tool. Large platform catalogs
+  no longer flood context. Spec 6/A.
+
+## Folder layout (agent view)
+
+The container mounts the group folder at `/home/node/`:
+
+```
+/home/node/
+  PERSONA.md          operator-owned identity overlay
+  CLAUDE.md           operator-owned runbook overlay
+  .claude/
+    CLAUDE.md         agent-managed, merged on /migrate
+    settings.json     outputStyle, mcpServers
+    skills/           stock skills (seeded, 3-way merged on /migrate)
+  diary/              session log
+  facts/              researched knowledge
+  users/              per-user memory
+  workspace/          working files
+  public_html/        bind-mount → /pub/<folder>/ (no auth)
+  private_html/       bind-mount → /priv/<folder>/ (JWT)
+```
+
+Skills in `~/.claude/skills/<name>/` that match stock names in
+`/opt/arizuko/ant/skills/<name>/` are managed (seeded + merged).
+Custom-named skills are untouched.
+
+## Skills (83 portable, 1 arizuko-only)
+
+`scripts/curate-skills.sh` classifies every skill by SKILL.md content:
+arizuko-only if it mentions `@gated`, `@arizuko`, or `gated.sock`;
+portable otherwise. Current: 83 portable, 1 arizuko-only (`mcp`).
+
+The partition exists for the future standalone-ant binary
+(`specs/12/b-ant-standalone.md`) but doesn't run yet — all skills
+ship in `ant/skills/`, nothing has moved to a separate `ant-arizuko/`
+package.
+
+## Standalone ant (foundation only)
+
+`cmd/ant/`, `pkg/agent/`, `pkg/host/`, `pkg/runtime/` are the skeleton
+for a Go-based standalone agent runner (spec 12/b). The package exists,
+imports no arizuko-internal code, and defines the folder layout, but
+the runtime port and sandbox backends aren't shipped. The TS runtime
+in `src/` still drives `arizuko-ant:latest`.
+
+## Build
+
+```sh
+make image      # docker build → arizuko-ant:latest (TS runtime)
+```
+
+The image is `FROM node:22-bookworm-slim`, installs `claude` CLI +
+`socat` + runtimes (uv/bun/go/rust), copies `skills/` to
+`/opt/arizuko/ant/skills/`, and sets `ENTRYPOINT ["node", "dist/index.js"]`.
 
 ## Layout
 
 ```
 ant/
-  cmd/ant/main.go         CLI entrypoint (flag stub)
-  pkg/agent/loader.go     Folder layout resolution
-  pkg/host/               Sandbox abstraction (deferred)
-  pkg/runtime/            Claude CLI driver (deferred)
-  scripts/curate-skills.sh  portable vs arizuko-only skill partition
-  skills/                 In-tree skills (current arizuko ant)
-  src/                    Existing TS runtime (still in use)
-  Dockerfile, Makefile    Builds arizuko-ant:latest (TS)
+  src/index.ts           Entrypoint (stdin → SDK → submit_turn)
+  src/mcp-servers.ts     MCP server assembly (eager vs deferred)
+  src/backend/           SDK session wrappers
+  CLAUDE.md              Agent identity + runbook (seeded to groups)
+  PERSONA.md             Default persona
+  skills/                Stock skills (83 portable, 1 arizuko-only)
+  output-styles/         Per-surface response-length rules
+  cmd/ant/               Standalone CLI stub (not shipped)
+  pkg/agent/loader.go    Folder layout resolver (standalone-ant)
+  Dockerfile             Builds arizuko-ant:latest (TS)
 ```
-
-## Skill partition
-
-`scripts/curate-skills.sh` partitions `skills/` into portable vs
-arizuko-only. A skill is arizuko-only if its `SKILL.md` mentions
-`@gated`, `@arizuko`, or `gated.sock`; everything else is portable
-(loadable by Claude Code without arizuko). Current count: **37
-portable, 1 arizuko-only** (`self`). The arizuko-only set will move
-to `ant-arizuko/skills/` when curation actually runs; for now nothing
-has moved.
-
-## Orthogonality
-
-```sh
-grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated)' ant/cmd/ ant/pkg/  # returns empty
-```
-
-`ant/cmd/`, `ant/pkg/agent`, `ant/pkg/host`, and `ant/pkg/runtime`
-import nothing from arizuko-internal packages. Like crackbox, ant
-shares arizuko's single `go.mod` but the import graph keeps it
-shippable as a standalone binary.
