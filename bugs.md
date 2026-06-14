@@ -5,6 +5,57 @@ Open-issues queue. Resolved entries are moved to `.diary/` — see e.g.
 date + scope + severity + suspected fix-path; don't auto-fix during
 general audits (CLAUDE.md bug-triage protocol). Workflow: `/bugs` skill.
 
+## OPEN 2026-06-14 (marinade/atlas eval) — deep-dive replies cut off + re-mention needed in thread
+
+Eval of atlas on Slack (marinade). Prompt: "research AI trends last quarter,
+deep dive, distill a list of topics." Two reported symptoms; both trace to ONE
+root cause plus two amplifiers.
+
+**Root cause — long deep-dive turns die before they reply.** atlas/search runs an
+UNBOUNDED research loop: container log (turn 5c88ebdb) shows it refetching the
+SAME Databricks URL 4+ times and looping on one "12x" claim across 15+ min.
+Then: routd `dispatch run transport failure … context deadline exceeded`
+(08:38:21) and runed `container exited with error code:137 duration≈22min`
+(08:38:31) — a SIGKILL mid-turn. 2 such 137 kills for atlas in 24h. No
+`--memory` cap exists in `container/`/`runed/` (grep clean) and RUNED_RUN_TIMEOUT
+=30m while the kill was at ~22min → likely HOST OOM-kill (marinade host pressure,
+like krons earlier), not the run timeout. A turn killed before it emits its reply
+delivers nothing/partial.
+
+**Symptom 1 (reply cut off abruptly):** the killed turn never reaches
+`submit_turn`/`reply` → truncated or missing answer. AMPLIFIER: slakd `Send`
+(`slakd/bot.go:890`) posts the whole reply as ONE `chat.postMessage` with NO
+chunking → any reply over Slack's ~40k-char `text` limit is truncated by Slack.
+(chanlib send body cap is 1<<20 = 1MB, `chanlib/chanlib.go:31` — not the limit.)
+
+**Symptom 2 (must re-mention in his own thread):** engagement is committed ONLY
+on the reply path — `SetEngagement(tc.ChatJID, tc.Topic, …)` at `routd/turns.go:231`,
+inside the send handler. A turn killed (137) before replying NEVER commits
+engagement → the thread goes cold → the user must re-mention. (When turns DO
+complete, root-topic "" engagement should carry thread replies via the
+`engTopic→""` fallback in `routd/loop.go:567-585`; slakd stamps thread replies
+with `topic=thread_ts` at `bot.go:492`. Worth a live test that the fallback
+holds — possible secondary topic-mismatch.) Default ENGAGEMENT_TTL=30m; a
+deep-dive that runs ~20m eats most of the window even when it succeeds.
+
+**Fix paths (not applied — eval only; span agent-config + platform + redeploy):**
+1. Agent discipline (the real fix): bound atlas/search's research so it converges
+   — a `## Session opening` + research-convergence rule (no refetching, cap
+   sources, write a plan-of-record) in atlas's `CLAUDE.md` / the search skill.
+   This is exactly the workflow discipline now at `concepts/workflows.html`.
+2. Platform — investigate the 137: check marinade host memory; add a per-container
+   memory cap with graceful handling, and/or deliver a PARTIAL reply on kill
+   instead of nothing.
+3. slakd — chunk long replies into multiple thread messages (real gap; no
+   chunking today).
+4. Engagement — consider committing engagement at dispatch-claim time (not only
+   on reply) so a failed/long turn still keeps the thread live; mind
+   `routd/server.go:448` (deferred to dispatch because folder is unknown at
+   ingress). Verify the root-vs-thread_ts fallback with a live Slack thread.
+Also noted: routd `@prefix: child group not found child=atlas/search/marinade`
+(repeated) — atlas is @-addressing a non-existent child (instance-name suffix
+confusion); separate, low.
+
 ## PARTIALLY FIXED 2026-06-14 (split) — vestigial messages.db reads in webd/proxyd/dashd
 
 Ownership SETTLED against migrations + live krons DBs (read-only). Two
