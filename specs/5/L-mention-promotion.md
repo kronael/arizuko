@@ -1,14 +1,15 @@
 ---
-status: review
+status: shipped
 shipped: 2026-05-18
 ---
 
 # Gateway-side reply-to-bot → verb=mention promotion
 
-> **Review (2026-06-10):** the thread-participation refinement shipped, but
-> needs a review pass on adapter-side `ReplyTo`/`Topic` wiring (discd/teled
-> don't yet set thread-root `ReplyTo` like slakd) and on over-trigger
-> behavior in busy threads.
+> **Shipped.** Thread-participation refinement landed 2026-06-10. Adapter
+> models differ by platform: slakd sets `ReplyTo = thread_ts`; discd uses
+> channel-as-thread (topic inherited via MessageByID); teled sets ReplyTo
+> for explicit replies. Telegram forum topics are an edge case — address
+> if reported broken.
 
 ## Problem
 
