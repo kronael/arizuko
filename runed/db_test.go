@@ -105,6 +105,36 @@ func TestKillSpawnDoesNotOverwriteTerminal(t *testing.T) {
 	}
 }
 
+// TestExpireOrphans marks running/queued spawns as exited on startup.
+func TestExpireOrphans(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.CreateSpawn(Spawn{RunID: "run_orphan1", Folder: "demo", ContainerName: "c1", State: "running"})
+	_ = db.CreateSpawn(Spawn{RunID: "run_orphan2", Folder: "demo", ContainerName: "c2", State: "queued"})
+	_ = db.CreateSpawn(Spawn{RunID: "run_done", Folder: "demo", ContainerName: "c3", State: "exited"})
+
+	n, err := db.ExpireOrphans()
+	if err != nil {
+		t.Fatalf("ExpireOrphans: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expired %d, want 2", n)
+	}
+	// running/queued are gone from active count
+	active, _ := db.ActiveCount()
+	if active != 0 {
+		t.Errorf("active count = %d after expire, want 0", active)
+	}
+	// already-terminal row untouched
+	sp, _ := db.GetSpawn("run_done")
+	if sp.State != "exited" {
+		t.Errorf("terminal spawn state = %q, want exited", sp.State)
+	}
+}
+
 // TestSweepExpired drops aged spawns + expired tokens.
 func TestSweepExpired(t *testing.T) {
 	db, err := OpenMem()

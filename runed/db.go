@@ -277,6 +277,18 @@ func (d *DB) RecordToken(jti, runID, parentJTI, folder, scopeJSON, expiresAt str
 	return err
 }
 
+// ExpireOrphans marks any spawn left in running/queued state as exited.
+// Called once at startup: runed was killed while containers were live,
+// leaving rows that count toward ActiveCount and block the concurrency cap.
+func (d *DB) ExpireOrphans() (int64, error) {
+	res, err := d.db.Exec(`UPDATE spawns SET state='exited', outcome='error',
+		exit_code=-1, ended_at=? WHERE state IN ('running','queued')`, nowTS())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // SweepExpired drops spawns older than retention (cascading spawn_logs +
 // mcp_tokens) and any mcp_tokens past expires_at (hourly GC).
 func (d *DB) SweepExpired(retention time.Duration) error {

@@ -44,6 +44,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	if n, err := db.ExpireOrphans(); err != nil {
+		slog.Error("expire orphan spawns", "err", err)
+	} else if n > 0 {
+		slog.Warn("runed: expired orphan spawns from prior run", "count", n)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
