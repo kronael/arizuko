@@ -496,6 +496,16 @@ func (s *server) vhostRedirect(w http.ResponseWriter, r *http.Request, world str
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	// /arizuko is a cross-vhost canonical path — always routes to /pub/arizuko/,
+	// not /pub/<world>/arizuko/, so the docs are reachable without /pub/ prefix.
+	if rawPath == "/arizuko" || strings.HasPrefix(rawPath, "/arizuko/") {
+		loc := "/pub/arizuko" + strings.TrimPrefix(rawPath, "/arizuko")
+		if r.URL.RawQuery != "" {
+			loc += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, loc, http.StatusFound)
+		return
+	}
 	loc := "/pub/" + world + rawPath
 	if r.URL.RawQuery != "" {
 		loc += "?" + r.URL.RawQuery
