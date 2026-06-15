@@ -175,6 +175,38 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 	}
 }
 
+// threadHasBotMessage must find a bot reply whose topic="" but turn_id=thread_ts
+// — the mcp-* path (ipc/recordOutbound) stores turn_id=trigger_id without
+// stamping topic (unlike the REST path's deliverRow). The fix adds OR turn_id=?
+// so the first bot reply in a thread is discoverable even when topic is empty.
+func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	jid := "slack:T/channel/C1"
+	threadTS := "1700000100.000100"
+
+	// Bot reply stored with topic="" and turn_id=threadTS (mcp-* path).
+	if err := db.PutMessage(core.Message{
+		ID:      "mcp-abc123",
+		ChatJID: jid,
+		TurnID:  threadTS,
+		BotMsg:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.threadHasBotMessage(jid, threadTS) {
+		t.Error("threadHasBotMessage must find bot reply matched by turn_id, got false")
+	}
+	// Must not fire for a different thread in the same chat.
+	if srv.threadHasBotMessage(jid, "1700000999.000100") {
+		t.Error("threadHasBotMessage must not match a different thread_ts")
+	}
+}
+
 // A document delivered from an in-thread turn carries the topic as threadID —
 // files thread like text (Document used to hardcode "" and never threaded).
 func TestDocumentThreadsOnTopic(t *testing.T) {

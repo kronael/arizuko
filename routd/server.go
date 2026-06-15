@@ -487,9 +487,14 @@ func (s *Server) threadHasBotMessage(chatJID, topic string) bool {
 		return false
 	}
 	var bot int
+	// topic=? catches bot replies stored with the thread topic.
+	// turn_id=? catches the first bot reply to a root message: turn_id is set
+	// to the trigger message's ID, which equals the thread's topic (thread_ts)
+	// for all subsequent replies — but the first reply has topic="" because the
+	// trigger had topic="" (it was a root channel message, not a thread reply).
 	s.db.db.QueryRow(
-		"SELECT 1 FROM messages WHERE chat_jid=? AND topic=? AND is_bot_message=1 LIMIT 1",
-		chatJID, topic,
+		"SELECT 1 FROM messages WHERE chat_jid=? AND (topic=? OR turn_id=?) AND is_bot_message=1 LIMIT 1",
+		chatJID, topic, topic,
 	).Scan(&bot)
 	return bot == 1
 }
