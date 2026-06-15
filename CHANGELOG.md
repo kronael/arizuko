@@ -14,34 +14,82 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
-- **Replies thread, sends don't** — `reply` lands in a thread off the message
-  it answers (Discord starts one if needed; Slack threads on the trigger),
-  keeping channels clean; `send` is the deliberate top-level/other-channel post.
-  Per-group `thread_replies` preference (default on for group chats, off in DMs).
-- **Agents address people by name** — in-content platform mentions (`<@id>`)
-  resolve to display names; the bot's own mention renders as the assistant name.
-  (Slack needs the bot token's `users:read` scope for non-bot names.)
-- **Less channel noise** — the redundant per-turn "Replied with …" meta-summary
-  no longer double-posts (MCP reply rows now carry their turn id), and isolated
-  cron compaction (`compact-memories`) stays truly silent instead of posting
-  "Silent cron compaction complete".
-- **Shared per-world workspace** — every agent container now mounts
-  `/var/lib/share` (the world's `groups/<world>/share/`, writable) for
-  cross-group file handoff; `share_mount{readonly=true}` grant downgrades to RO.
-- **Skill migrations unstick** — the agent's `/migrate` self-updater is now
-  refreshed on every spawn, so groups carrying the pre-split version (which
-  looked for a mount that no longer exists) can finally pull new skills instead
-  of silently freezing.
-- **Quiet agents don't trip the breaker** — a turn where the agent chooses not
-  to reply no longer counts as a failure, so busy channels (Discord especially)
-  stop hitting spurious "too many failures" circuit-breaks.
-- **Clearer tool errors** — a bad emoji on a Slack reaction now returns a plain
-  "invalid" (400) the agent can correct, not a confusing 502.
-- **Lighter web server** — vited only watches the files it actually serves and
-  reaps cleanly on restart, cutting idle CPU on busy instances (~21%→~5% where a
-  large published tree lived under the web root).
-- **Better abuse logs** — the web proxy records the real client IP (not just the
-  edge hop) when it rejects an unauthenticated request.
+---
+
+## [v0.52.0] — 2026-06-15
+
+> arizuko v0.52.0 — threads, mentions, and reliability
+>
+> Reply threading lands on every platform, Slack @mentions reliably reach the agent, and a whole class of silent failures got fixed.
+>
+> • Replies thread, sends don't — `reply` starts/joins the platform thread (Discord, Slack, Telegram); `send` is top-level; preference per group
+> • Thread @mention promotion — replies inside a thread where the bot already posted auto-promote to mention, so the agent stays in the conversation
+> • Slack @mentions delivered — `app_mention` events were silently dropped since launch; now wired; outbound text converts CommonMark → mrkdwn
+> • Turn retry on OOM/timeout — a run killed mid-flight reschedules with 10s backoff instead of failing permanently
+> • Observability — spans, 9 metric families, and HTTP middleware (OTLP-exportable); ARIZUKO_DEFAULT_MODEL sets the instance default model
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Reply threading (spec 5/L, 5/T).** `reply` lands in a thread off the trigger
+  message (Slack threads on TS, Discord starts one if needed, Telegram replies inline);
+  `send` posts top-level. Per-group `thread_replies` preference (on by default for
+  group chats, off in DMs). Thread-participation mention promotion: replies in a
+  thread where the bot already posted are promoted to `verb=mention` automatically.
+- **Turn retry.** Runs killed by SIGKILL, OOM, or container timeout reschedule
+  with a 10s backoff instead of counting as failures and draining the breaker.
+- **Observability (spec O).** `obs/` gains spans (turn lifecycle, model call,
+  MCP tool, container spawn, token mint/refresh), 9 metric families, and an HTTP
+  middleware. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export; zero overhead when unset.
+- **Instance model control.** `ARIZUKO_DEFAULT_MODEL` sets the agent model instance-wide;
+  per-group override (`ARIZUKO_MODEL` from the group's grants or secrets) is now
+  delivered as `docker -e` so the per-group choice actually takes effect.
+- **Mid-turn progress + timeout summary.** `<status>` lines stream to the channel
+  while the agent works; on `RUNED_RUN_TIMEOUT` the agent gets a graceful "you're
+  running out of time" nudge instead of a hard kill.
+- **proxyd redirect_to (migration 0072).** DB-backed exact-path redirect on
+  `proxyd_routes`; `/arizuko → /pub/arizuko/` row added on krons.
+- **proxyd /priv/<folder>/ (spec 5/38).** Folder-scoped grant check on the private
+  web surface — caller's folder must contain the target folder, mirrors WebDAV.
+- **chanreg reliability.** Dead JID self-evicts from the outbox (no head-of-line
+  block); permanent 4xx sends surface to the agent for correction (not retried as 502).
+- **Agent skills (migrations 160-161).** Creative bundle (14 skills: diagrams,
+  ASCII art, web designs, video scripts…), `/browse`, `/sonnet` + `/haiku` subagent
+  dispatch, model-economy guidance. `/migrate` self-heals a missing merge-base.
+
+### Fixed
+
+- **slakd: app_mention events delivered.** `dispatch()` was hitting the default
+  no-op branch; wired to `handleMessage` with `verb="mention"` unconditional (fixes
+  BotUserID startup race that suppressed the verb via text-scan).
+- **routd: thread mention via MCP path.** `threadHasBotMessage` now also matches
+  on `turn_id` so the first bot reply (stored `topic=""` by the MCP path) is found.
+- **Skill migrations unstick.** `/migrate` is refreshed from `/opt/arizuko/ant/`
+  on every spawn; routd clears the session first so the agent reads the fresh skill.
+- **timed: sub-folder cron stall.** PathEscape the task ID in the reschedule URL;
+  tasks with a `/` in the folder path were silently stalling.
+- **routd: re-arm stranded tasks.** Scheduled tasks left in `firing` state across
+  a restart are re-armed on startup.
+- **webd /chat 502.** `service:webd` was not granted `messages:write`; fixed.
+- **Turn double-execution.** routd now out-waits runed's RunTTL so a slow spawn
+  doesn't get dispatched twice on timeout.
+- **runed: ctx honored.** Container is killed when routd drops the request (not
+  left running until container timeout).
+- **runed: EndSpawn/EndSession errors logged.** Silent discard could leave a spawn
+  in `running` state forever; now logged at `Error` level so the operator can
+  identify and reset zombie spawns.
+- **Less channel noise.** MCP reply rows carry turn_id to suppress duplicate
+  result prose; isolated cron turns (`compact-memories`) never deliver a reply.
+- **Quiet agents don't trip the breaker.** Silent turns (agent chose not to reply)
+  no longer count as failures.
+- **Clearer tool errors.** Bad emoji on a Slack reaction → 400 the agent can
+  correct, not a 502. Caller-input errors in chanlib → 400, not 502.
+- **Discord typing in thread.** Typing indicator now shows in the live thread,
+  not the parent channel.
+- **slakd: mentions resolve to names.** The bot's own `@mention` token renders as
+  `@AssistantName`; no `users:read` scope needed.
+- **vited scoped watcher.** Only watches the served trees; cleans up on SIGTERM.
 
 ---
 
