@@ -7,6 +7,8 @@ package obs
 // and arizuko is not latency-sensitive.
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -62,4 +64,21 @@ func (w *statusWriter) WriteHeader(code int) {
 func (w *statusWriter) Write(b []byte) (int, error) {
 	w.wroteHeader = true
 	return w.ResponseWriter.Write(b)
+}
+
+// Flush + Hijack forward to the wrapped writer so SSE (Flusher) and websocket
+// upgrades (Hijacker) keep working through the middleware. A plain
+// ResponseWriter that lacks them yields ErrNotSupported, exactly as if
+// unwrapped.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
