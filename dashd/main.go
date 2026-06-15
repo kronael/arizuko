@@ -81,6 +81,7 @@ func folderPath(folder string) string {
 
 func main() {
 	defer obs.Setup("dashd", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("dashd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	dataDir := os.Getenv("DATA_DIR")
 	groupsDir := filepath.Join(dataDir, "groups")
@@ -192,8 +193,11 @@ func main() {
 	mux := http.NewServeMux()
 	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc}
 	d.registerRoutes(mux)
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
 
-	srv := &http.Server{Addr: port, Handler: chanlib.LogMiddleware(mux)}
+	srv := &http.Server{Addr: port, Handler: obs.HTTPMiddleware("dashd")(chanlib.LogMiddleware(mux))}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

@@ -107,9 +107,9 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg         config
-	st          *store.Store      // messages.db: proxyd_routes, auth_sessions
-	stRoutd     *store.Store      // routd.db: acl, auth_users, route_tokens (split ownership)
-	rr          *routesResource   // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
+	st          *store.Store    // messages.db: proxyd_routes, auth_sessions
+	stRoutd     *store.Store    // routd.db: acl, auth_users, route_tokens (split ownership)
+	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	ks          *auth.KeySet      // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
 	svc         *auth.TokenSource // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
@@ -383,8 +383,11 @@ func (s *server) handler(aud *audit.Audit) http.Handler {
 	mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
 	mux.HandleFunc("/", s.route)
-	return logging(mux, aud)
+	return obs.HTTPMiddleware("proxyd")(logging(mux, aud))
 }
 
 // clientIP is the real client address: the left-most X-Forwarded-For hop when
@@ -900,6 +903,7 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func main() {
 	defer obs.Setup("proxyd", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("proxyd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	coreCfg, err := core.LoadConfig()
 	if err != nil {

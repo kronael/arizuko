@@ -55,6 +55,7 @@ type config struct {
 
 func main() {
 	defer obs.Setup("onbod", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("onbod", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	if os.Getenv("ONBOARDING_ENABLED") == "0" {
 		slog.Info("onboarding disabled")
@@ -169,8 +170,11 @@ func main() {
 	mux.HandleFunc("GET /v1/gates", adm.handleGateList)
 	mux.HandleFunc("PUT /v1/gates/{gate}", adm.handleGatePut)
 	mux.HandleFunc("DELETE /v1/gates/{gate}", adm.handleGateDelete)
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
 
-	srv := &http.Server{Addr: cfg.listenAddr, Handler: mux}
+	srv := &http.Server{Addr: cfg.listenAddr, Handler: obs.HTTPMiddleware("onbod")(mux)}
 	go func() {
 		slog.Info("onbod listening", "addr", cfg.listenAddr)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {

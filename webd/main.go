@@ -53,6 +53,7 @@ func loadConfig() config {
 
 func main() {
 	defer obs.Setup("webd", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("webd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	cfg := loadConfig()
 

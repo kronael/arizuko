@@ -11,6 +11,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/resreg"
 	_ "github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
@@ -149,7 +150,10 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /x/groups", s.requireUser(s.handleXGroups))
 	mux.HandleFunc("GET /x/groups/{rest...}", s.requireUser(s.routeXGroups))
 
-	return chanlib.LogMiddleware(mux)
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
+	return obs.HTTPMiddleware("webd")(chanlib.LogMiddleware(mux))
 }
 
 func userGroups(r *http.Request) []string {
