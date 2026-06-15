@@ -24,6 +24,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/mountsec"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/router"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -446,7 +447,25 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 			continue
 		}
 
-		resp := srv.HandleMessage(ctx, raw)
+		// mcp_tool span (spec 5/O): every tools/call funnels through
+		// HandleMessage. Parse the tool name for the span attr; non-tool methods
+		// (initialize/tools/list) get no span — zero overhead when traces off.
+		mctx := ctx
+		var endSpan func(error)
+		if head.Method == "tools/call" {
+			var p struct {
+				Params struct {
+					Name string `json:"name"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(raw, &p)
+			mctx, endSpan = obs.StartSpan(ctx, "mcp_tool",
+				"tool", p.Params.Name, "folder", folder)
+		}
+		resp := srv.HandleMessage(mctx, raw)
+		if endSpan != nil {
+			endSpan(nil)
+		}
 		if resp != nil {
 			writeJSON(resp)
 		}
