@@ -15,10 +15,11 @@ type ProxydRoute struct {
 	GatedBy         string   `json:"gated_by,omitempty"`
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
+	RedirectTo      string   `json:"redirect_to,omitempty"`
 }
 
 func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
-	rows, err := s.db.Query(`SELECT path, backend, auth, gated_by, preserve_headers, strip_prefix
+	rows, err := s.db.Query(`SELECT path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to
 	                         FROM proxyd_routes ORDER BY path`)
 	if err != nil {
 		return nil, err
@@ -29,7 +30,7 @@ func (s *Store) AllProxydRoutes() ([]ProxydRoute, error) {
 		var r ProxydRoute
 		var headers string
 		var strip int
-		if err := rows.Scan(&r.Path, &r.Backend, &r.Auth, &r.GatedBy, &headers, &strip); err != nil {
+		if err := rows.Scan(&r.Path, &r.Backend, &r.Auth, &r.GatedBy, &headers, &strip, &r.RedirectTo); err != nil {
 			return nil, err
 		}
 		if headers != "" {
