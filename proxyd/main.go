@@ -40,7 +40,6 @@ type config struct {
 	chatAnonDosRPM int
 	hostingDomain  string            // world W reached at W.<hostingDomain> → 302 /pub/W/
 	vhostAliases   map[string]string // host→world where the label ≠ world name (fab.krons.cx→atlas)
-	pathRedirects  map[string]string // PROXYD_REDIRECTS: /src=/dst exact-path overrides
 }
 
 func loadConfig() config {
@@ -58,7 +57,6 @@ func loadConfig() config {
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
 		vhostAliases:   groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
-		pathRedirects:  parsePathRedirects(os.Getenv("PROXYD_REDIRECTS")),
 	}
 }
 
@@ -83,25 +81,6 @@ func parseTrustedProxies(s string) []*net.IPNet {
 		} else {
 			slog.Warn("invalid TRUSTED_PROXIES entry", "entry", part, "err", err)
 		}
-	}
-	return out
-}
-
-// parsePathRedirects parses PROXYD_REDIRECTS: comma-separated "/src=/dst" pairs.
-// Exact-path matches redirect to the configured destination.
-func parsePathRedirects(s string) map[string]string {
-	out := make(map[string]string)
-	for _, entry := range strings.Split(s, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		idx := strings.Index(entry, "=")
-		if idx <= 0 {
-			slog.Warn("invalid PROXYD_REDIRECTS entry", "entry", entry)
-			continue
-		}
-		out[entry[:idx]] = entry[idx+1:]
 	}
 	return out
 }
@@ -294,6 +273,9 @@ func loadInitialRoutes(routesJSON string, st *store.Store) []Route {
 		slog.Info("proxyd routes seeded from env", "count", len(routes))
 	}
 	for _, r := range routes {
+		if r.RedirectTo != "" {
+			continue
+		}
 		if p := buildRouteProxy(r); p == nil {
 			slog.Error("invalid route backend; refusing to boot", "path", r.Path, "backend", r.Backend)
 			os.Exit(1)
@@ -629,13 +611,6 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Instance-specific path overrides (PROXYD_REDIRECTS env var). Checked
-	// here so named paths bypass the vhost world-prefix logic.
-	if dst, ok := s.cfg.pathRedirects[r.URL.Path]; ok {
-		http.Redirect(w, r, dst, http.StatusFound)
-		return
-	}
-
 	// Final public catch-all. A mapped vhost front-doors its world's slot;
 	// every reserved prefix was dispatched above, so this is the only place
 	// the derivation runs — that placement keeps reserved surfaces global and
@@ -652,6 +627,10 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 // `/dav/` lives in dedicated helpers so the generic auth switch stays
 // orthogonal.
 func (s *server) dispatchRoute(rt *Route, w http.ResponseWriter, r *http.Request) {
+	if rt.RedirectTo != "" {
+		http.Redirect(w, r, rt.RedirectTo, http.StatusFound)
+		return
+	}
 	rp := s.proxies()[rt.Path]
 	if rp == nil {
 		http.NotFound(w, r)

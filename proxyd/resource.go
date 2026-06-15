@@ -83,7 +83,9 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 	// connections per backend host on its own.
 	procs := make(map[string]*httputil.ReverseProxy, len(routes))
 	for _, r := range routes {
-		procs[r.Path] = buildRouteProxy(r)
+		if r.RedirectTo == "" {
+			procs[r.Path] = buildRouteProxy(r)
+		}
 	}
 	return routes, procs
 }
@@ -126,7 +128,7 @@ func toStoreRoute(r Route) store.ProxydRoute {
 	return store.ProxydRoute{
 		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
 		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
-		StripPrefix: r.StripPrefix,
+		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
 	}
 }
 
@@ -134,7 +136,7 @@ func fromStoreRoute(r store.ProxydRoute) Route {
 	return Route{
 		Path: r.Path, Backend: r.Backend, Auth: r.Auth,
 		GatedBy: r.GatedBy, PreserveHeaders: r.PreserveHeaders,
-		StripPrefix: r.StripPrefix,
+		StripPrefix: r.StripPrefix, RedirectTo: r.RedirectTo,
 	}
 }
 
@@ -142,8 +144,8 @@ func validateRoute(r Route, existing []Route, isUpdate bool) error {
 	if !strings.HasPrefix(r.Path, "/") {
 		return resreg.Errorf(http.StatusBadRequest, "path %q must start with '/'", r.Path)
 	}
-	if r.Backend == "" {
-		return resreg.Errorf(http.StatusBadRequest, "backend is required")
+	if r.Backend == "" && r.RedirectTo == "" {
+		return resreg.Errorf(http.StatusBadRequest, "backend or redirect_to is required")
 	}
 	if !validAuth[r.Auth] {
 		return resreg.Errorf(http.StatusBadRequest, "auth %q not in {public,user,operator}", r.Auth)
@@ -399,18 +401,18 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 func insertProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
 	headers, strip := proxydRouteJSON(r)
 	_, err := tx.ExecContext(ctx, `INSERT INTO proxyd_routes
-		(path, backend, auth, gated_by, preserve_headers, strip_prefix)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip)
+		(path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		r.Path, r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo)
 	return err
 }
 
 func updateProxydRouteTx(ctx context.Context, tx *sql.Tx, r store.ProxydRoute) error {
 	headers, strip := proxydRouteJSON(r)
 	res, err := tx.ExecContext(ctx, `UPDATE proxyd_routes
-		SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?
+		SET backend=?, auth=?, gated_by=?, preserve_headers=?, strip_prefix=?, redirect_to=?
 		WHERE path=?`,
-		r.Backend, r.Auth, r.GatedBy, headers, strip, r.Path)
+		r.Backend, r.Auth, r.GatedBy, headers, strip, r.RedirectTo, r.Path)
 	if err != nil {
 		return err
 	}

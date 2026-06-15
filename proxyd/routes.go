@@ -24,9 +24,11 @@ type Route struct {
 	// proxyd NEVER reads it at runtime (a route in the table is already a
 	// survivor) — it is round-tripped through CRUD only to preserve the route's
 	// declared shape. It does NOT gate request authz; Auth does.
-	GatedBy string `json:"gated_by,omitempty"`
+	GatedBy         string   `json:"gated_by,omitempty"`
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
+	// RedirectTo non-empty: 302 to this URL instead of proxying. Backend must be "".
+	RedirectTo      string   `json:"redirect_to,omitempty"`
 }
 
 // LoadRoutes parses a JSON-encoded route list (typically PROXYD_ROUTES_JSON).
@@ -47,8 +49,8 @@ func LoadRoutes(raw string) ([]Route, error) {
 		if !strings.HasPrefix(r.Path, "/") {
 			return nil, fmt.Errorf("route[%d] path %q: must start with '/'", i, r.Path)
 		}
-		if r.Backend == "" {
-			return nil, fmt.Errorf("route[%d] path %q: backend is required", i, r.Path)
+		if r.Backend == "" && r.RedirectTo == "" {
+			return nil, fmt.Errorf("route[%d] path %q: backend or redirect_to is required", i, r.Path)
 		}
 		if !validAuth[r.Auth] {
 			return nil, fmt.Errorf("route[%d] path %q: auth %q not in {public,user,operator}", i, r.Path, r.Auth)

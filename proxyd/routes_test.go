@@ -51,7 +51,7 @@ func TestLoadRoutes_Validation(t *testing.T) {
 		name, json string
 	}{
 		{"no_leading_slash", `[{"path":"slack/","backend":"http://x","auth":"public"}]`},
-		{"empty_backend", `[{"path":"/x/","backend":"","auth":"public"}]`},
+		{"empty_backend_no_redirect", `[{"path":"/x/","backend":"","auth":"public"}]`},
 		{"unknown_auth", `[{"path":"/x/","backend":"http://x","auth":"admin"}]`},
 		{"missing_auth", `[{"path":"/x/","backend":"http://x"}]`},
 	}
@@ -103,6 +103,17 @@ func TestMatchRoute_ExactPath(t *testing.T) {
 func TestBuildRouteProxy_BadURL_ReturnsNil(t *testing.T) {
 	if rp := buildRouteProxy(Route{Path: "/x/", Backend: ":://bad"}); rp != nil {
 		t.Errorf("expected nil for invalid backend, got %v", rp)
+	}
+}
+
+func TestLoadRoutes_RedirectRoute_NoBackendRequired(t *testing.T) {
+	in := `[{"path":"/arizuko","redirect_to":"/pub/arizuko/","auth":"public"}]`
+	rs, err := LoadRoutes(in)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(rs) != 1 || rs[0].RedirectTo != "/pub/arizuko/" || rs[0].Backend != "" {
+		t.Errorf("route = %+v", rs[0])
 	}
 }
 
