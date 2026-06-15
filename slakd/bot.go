@@ -420,6 +420,12 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 			return
 		}
 		b.handleMessage(teamID, raw)
+	case "app_mention":
+		// Slack sends app_mention when the bot is @mentioned in a channel.
+		// Same payload shape as message; handleMessage sets verb=mention.
+		// If message.channels is also subscribed the duplicate TS is a no-op
+		// in routd (INSERT OR IGNORE).
+		b.handleMessage(teamID, raw)
 	case "reaction_added":
 		b.handleReaction(teamID, raw)
 	case "member_joined_channel":

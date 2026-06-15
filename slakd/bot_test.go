@@ -160,6 +160,37 @@ func TestDispatch_ThreadBroadcastDropped(t *testing.T) {
 	}
 }
 
+// app_mention is sent by Slack when the bot is @mentioned in a channel.
+// It has the same payload shape as a message event and must be delivered
+// with verb=mention so routing rules like "verb=mention|atlas" fire.
+func TestDispatch_AppMentionDeliveredAsMention(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "app_mention",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "<@Ubot> what is limiting these validators?",
+	    "ts": "1700001234.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("app_mention must deliver 1 msg, got %d", len(msgs))
+	}
+	if msgs[0].Verb != "mention" {
+		t.Errorf("verb = %q, want mention", msgs[0].Verb)
+	}
+}
+
 // DM messages are direct — there's no need for an @mention to address the
 // bot, so Verb must stay empty even when the text contains <@BOTID>.
 func TestInbound_DMNeverMentionVerb(t *testing.T) {
