@@ -40,6 +40,7 @@ type config struct {
 	chatAnonDosRPM int
 	hostingDomain  string            // world W reached at W.<hostingDomain> → 302 /pub/W/
 	vhostAliases   map[string]string // host→world where the label ≠ world name (fab.krons.cx→atlas)
+	pathRedirects  map[string]string // PROXYD_REDIRECTS: /src=/dst exact-path overrides
 }
 
 func loadConfig() config {
@@ -57,6 +58,7 @@ func loadConfig() config {
 		chatAnonDosRPM: chanlib.EnvInt("CHAT_ANON_DOS_RPM", 10),
 		hostingDomain:  strings.ToLower(strings.TrimSuffix(chanlib.EnvOr("HOSTING_DOMAIN", ""), ".")),
 		vhostAliases:   groupfolder.ParseVhostAliases(os.Getenv("WEB_VHOST_ALIASES")),
+		pathRedirects:  parsePathRedirects(os.Getenv("PROXYD_REDIRECTS")),
 	}
 }
 
@@ -81,6 +83,25 @@ func parseTrustedProxies(s string) []*net.IPNet {
 		} else {
 			slog.Warn("invalid TRUSTED_PROXIES entry", "entry", part, "err", err)
 		}
+	}
+	return out
+}
+
+// parsePathRedirects parses PROXYD_REDIRECTS: comma-separated "/src=/dst" pairs.
+// Exact-path matches redirect to the configured destination.
+func parsePathRedirects(s string) map[string]string {
+	out := make(map[string]string)
+	for _, entry := range strings.Split(s, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		idx := strings.Index(entry, "=")
+		if idx <= 0 {
+			slog.Warn("invalid PROXYD_REDIRECTS entry", "entry", entry)
+			continue
+		}
+		out[entry[:idx]] = entry[idx+1:]
 	}
 	return out
 }
@@ -496,16 +517,6 @@ func (s *server) vhostRedirect(w http.ResponseWriter, r *http.Request, world str
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	// /arizuko is a cross-vhost canonical path — always routes to /pub/arizuko/,
-	// not /pub/<world>/arizuko/, so the docs are reachable without /pub/ prefix.
-	if rawPath == "/arizuko" || strings.HasPrefix(rawPath, "/arizuko/") {
-		loc := "/pub/arizuko" + strings.TrimPrefix(rawPath, "/arizuko")
-		if r.URL.RawQuery != "" {
-			loc += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, loc, http.StatusFound)
-		return
-	}
 	loc := "/pub/" + world + rawPath
 	if r.URL.RawQuery != "" {
 		loc += "?" + r.URL.RawQuery
@@ -615,6 +626,13 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	// so it bounces to /auth/login rather than the public /pub fallback.
 	if strings.HasPrefix(r.URL.Path, "/auth/") {
 		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		return
+	}
+
+	// Instance-specific path overrides (PROXYD_REDIRECTS env var). Checked
+	// here so named paths bypass the vhost world-prefix logic.
+	if dst, ok := s.cfg.pathRedirects[r.URL.Path]; ok {
+		http.Redirect(w, r, dst, http.StatusFound)
 		return
 	}
 

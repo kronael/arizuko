@@ -587,6 +587,30 @@ func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
 	}
 }
 
+func TestParsePathRedirects(t *testing.T) {
+	cases := []struct {
+		in   string
+		want map[string]string
+	}{
+		{"", map[string]string{}},
+		{"/arizuko=/pub/arizuko/", map[string]string{"/arizuko": "/pub/arizuko/"}},
+		{"/a=/b,/c=/d", map[string]string{"/a": "/b", "/c": "/d"}},
+		{" /a=/b , /c=/d ", map[string]string{"/a": "/b", "/c": "/d"}},
+		{"bad", map[string]string{}}, // no = → skipped
+	}
+	for _, c := range cases {
+		got := parsePathRedirects(c.in)
+		for k, v := range c.want {
+			if got[k] != v {
+				t.Errorf("input %q: [%q] = %q, want %q", c.in, k, got[k], v)
+			}
+		}
+		if len(got) != len(c.want) {
+			t.Errorf("input %q: len = %d, want %d", c.in, len(got), len(c.want))
+		}
+	}
+}
+
 // Soak step 6: with AUTHD_URL set, /auth/login 302s to authd; query preserved.
 func TestRedirectAuthToAuthd(t *testing.T) {
 	s := &server{cfg: config{authdURL: "https://authd.example"}}
