@@ -15,6 +15,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/obs"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -77,6 +78,13 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		b, _ := json.Marshal(spec.ContainerConfig)
 		_ = json.Unmarshal(b, &gc)
 	}
+	// container_spawn span + spawn/duration/active metrics (spec 5/O). The span
+	// joins the turn trace via ctx (routd injected traceparent over POST /v1/runs).
+	folder := string(spec.Folder)
+	ctx, endSpan := obs.StartSpan(ctx, "container_spawn",
+		"folder", folder, "image", d.cfg.Image)
+	obs.ContainerActiveInc()
+	start := time.Now()
 	out := d.runner.Run(d.cfg, d.folders, container.Input{
 		Name:           spec.ContainerName,
 		Prompt:         spec.MessageBatch,
@@ -94,8 +102,16 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
 		Egress:         d.egress(spec.EgressAllowlist),
 	})
+	obs.ContainerActiveDec()
+	outcome := outcomeFor(out)
+	var spawnErr error
+	if outcome == runedv1.OutcomeError {
+		spawnErr = fmt.Errorf("%s", out.Error)
+	}
+	endSpan(spawnErr)
+	obs.RecordContainerSpawn(folder, outcome, time.Since(start).Seconds())
 	return RunResult{
-		Outcome:      outcomeFor(out),
+		Outcome:      outcome,
 		NewSessionID: out.NewSessionID,
 		Error:        out.Error,
 		ExitCode:     out.ExitCode,

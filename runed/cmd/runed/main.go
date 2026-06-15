@@ -27,6 +27,7 @@ import (
 
 func main() {
 	defer obs.Setup("runed", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("runed", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	cfg, err := core.LoadConfig()
 	if err != nil {
@@ -133,8 +134,11 @@ func main() {
 	// its tables are runtime (spawns / session_log / mcp_tokens). Empty
 	// list → zero paths, but still emits the doc for aggregator uniformity.
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("runed", []string{}))
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
 
-	httpd := &http.Server{Addr: listenAddr, Handler: mux}
+	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("runed")(mux)}
 	go func() {
 		slog.Info("runed started", "addr", listenAddr, "db", cfg.StoreDir)
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {
