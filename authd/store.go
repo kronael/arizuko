@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/obs"
 )
 
 //go:embed migrations/*.sql
@@ -151,6 +152,7 @@ func rotateRefresh(db *sql.DB, fam, sub string, scope []string, aud string, ttl 
 	if err != nil {
 		return "", err
 	}
+	obs.RecordTokenMint("refresh")
 	return raw, nil
 }
 

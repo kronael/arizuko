@@ -29,6 +29,7 @@ const (
 
 func main() {
 	defer obs.Setup("authd", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("authd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	dsn, err := resolveDSN(os.Getenv("DATABASE"), os.Getenv("DATA_DIR"))
 	if err != nil {
@@ -112,7 +113,10 @@ func main() {
 		slog.Warn("oauth /auth/* not mounted: config load failed", "err", cerr)
 	}
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", []string{}))
-	httpd := &http.Server{Addr: listenAddr, Handler: mux}
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
+	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("authd")(mux)}
 
 	go func() {
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {

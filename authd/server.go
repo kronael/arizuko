@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/obs"
 )
 
 // Authd is the sole signer. It holds the active ES256 key in memory plus every
@@ -163,7 +164,11 @@ func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string
 	if err != nil {
 		return "", err
 	}
-	return k.MintForSubject(targetGrants, auth.TokenClaims{Sub: sub, Typ: typ, Scope: requested, Aud: aud}, a.accessTTL)
+	tok, err := k.MintForSubject(targetGrants, auth.TokenClaims{Sub: sub, Typ: typ, Scope: requested, Aud: aud}, a.accessTTL)
+	if err == nil {
+		obs.RecordTokenMint("access")
+	}
+	return tok, err
 }
 
 // MintNarrower signs a delegated token: requested must be a subset of the
@@ -210,6 +215,7 @@ func (a *Authd) signMinted(c auth.TokenClaims, folder string, ttl time.Duration)
 	if err != nil {
 		return minted{}, err
 	}
+	obs.RecordTokenMint("access")
 	return minted{token: tok, jti: c.Jti, expiresAt: time.Now().Add(ttl)}, nil
 }
 

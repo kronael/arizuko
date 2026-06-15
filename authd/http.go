@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -323,6 +324,7 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	access, newRefresh, err := s.a.Refresh(r.Context(), raw)
+	obs.RecordTokenRefresh(refreshOutcome(err))
 	if err != nil {
 		if err == errReuse {
 			slog.Warn("refresh token reuse — family revoked")
@@ -346,6 +348,21 @@ func (s *server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		body["refresh_token"] = newRefresh
 	}
 	writeJSON(w, body)
+}
+
+// refreshOutcome maps a Refresh error to a bounded metric outcome label
+// (spec 5/O arizuko_token_refreshes_total).
+func refreshOutcome(err error) string {
+	switch {
+	case err == nil:
+		return "success"
+	case err == errReuse:
+		return "revoked"
+	case errors.Is(err, auth.ErrExpiredToken):
+		return "expired"
+	default:
+		return "invalid"
+	}
 }
 
 // refreshFromRequest pulls the refresh token off the cookie (browser channel,
