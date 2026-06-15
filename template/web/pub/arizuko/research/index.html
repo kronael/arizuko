@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arizuko Research — Architecture, Security, Patterns, Skills</title>
+  <meta name="description" content="Technical research hub for arizuko multi-tenant agent platform. Architecture, security model, coordination patterns, skill development.">
+  <meta name="keywords" content="arizuko, multi-tenant agents, Claude, MCP, crackbox, agent coordination, routing, security model, agent patterns, skills">
+  <link rel="stylesheet" href="../assets/hub.css" />
+  <style>
+    /* Research-page components (arizuko palette via shared vars) */
+    :root {
+      --gradient-start: rgba(212, 175, 55, 0.06);
+      --gradient-end: rgba(74, 144, 226, 0.06);
+    }
+    [data-theme="light"] {
+      --gradient-start: rgba(139, 105, 20, 0.06);
+      --gradient-end: rgba(29, 78, 216, 0.06);
+    }
+    .back-btn {
+      position: fixed; top: 1em; left: 1em;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 3px; padding: 0.5em 0.8em; font-size: 1em;
+      z-index: 1000; transition: all 0.2s;
+      color: var(--fg); text-decoration: none;
+    }
+    .back-btn:hover {
+      background: var(--code-bg); border-color: var(--accent);
+      color: var(--accent); text-decoration: none;
+    }
+    .hub-subtitle { color: var(--dim); font-size: 0.9em; margin-bottom: 2em; }
+    .hub-footer {
+      margin-top: 3em; padding-top: 1em; border-top: 1px solid var(--border);
+      color: var(--dim); font-size: 0.8em;
+    }
+    .tldr-box {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      border: 2px solid var(--accent); border-radius: 3px;
+      padding: 1.5em; margin: 1.5em 0;
+    }
+    .tldr-label {
+      font-size: 0.75em; font-weight: bold; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.6em;
+    }
+    .tldr-text { font-size: 1.15em; line-height: 1.5; }
+    .tldr-text strong { color: var(--accent2); }
+    .jump-box {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      border: 2px solid var(--accent); border-radius: 3px;
+      padding: 1.2em 1.5em; margin: 1.5em 0;
+    }
+    .jump-title {
+      font-size: 0.85em; font-weight: bold; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.8em;
+    }
+    .jump-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+      gap: 0.6em;
+    }
+    .jump-link {
+      display: flex; align-items: center; gap: 0.6em;
+      padding: 0.6em 0.8em; background: var(--card);
+      border: 1px solid var(--border); border-radius: 3px; transition: all 0.15s;
+    }
+    .jump-link:hover {
+      border-color: var(--accent); background: var(--code-bg); text-decoration: none;
+    }
+    .jump-icon { font-size: 1.2em; width: 1.5em; text-align: center; }
+    .jump-text { display: flex; flex-direction: column; }
+    .jump-text-main { color: var(--fg); font-weight: 500; }
+    .jump-text-sub { font-size: 0.8em; color: var(--dim); }
+    .hub-nav {
+      position: sticky; top: 0; background: var(--bg);
+      border-bottom: 1px solid var(--border); padding: 0.8em 1.5em;
+      margin: 0 -1.5em 1.5em; z-index: 10; overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .hub-nav-inner { display: flex; gap: 0.4em; flex-wrap: wrap; align-items: center; }
+    .nav-item {
+      display: flex; flex-direction: column; padding: 0.4em 0.7em;
+      border-radius: 3px; border: 1px solid transparent;
+      transition: all 0.15s; text-decoration: none;
+    }
+    .nav-item:hover {
+      background: var(--card); border-color: var(--border); text-decoration: none;
+    }
+    .nav-item.active { background: var(--card); border-color: var(--accent); }
+    .nav-label {
+      font-size: 0.75em; font-weight: bold; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .nav-hint { font-size: 0.65em; color: var(--dim); margin-top: 0.1em; }
+    .nav-item:hover .nav-hint { color: var(--fg); }
+    @media (max-width: 600px) {
+      .back-btn {
+        position: static; display: inline-block;
+        margin: 0.8em 0 0 0.5em; font-size: 0.85em; padding: 0.4em 0.7em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="../" class="back-btn">&larr; arizuko</a>
+  <button class="theme-toggle" aria-label="Toggle theme"></button>
+
+  <div class="hub-container">
+    <h1>Arizuko Research</h1>
+    <p class="hub-subtitle">
+      Multi-tenant agent platform architecture, security model, coordination patterns, and skill development
+    </p>
+
+    <div class="tldr-box">
+      <div class="tldr-label">System Model</div>
+      <p class="tldr-text">
+        <strong>Folders are agents.</strong> Each folder is a tenant: isolated memory, persona, skills, routes.
+        <strong>MCP over unix socket.</strong> Tool calls go through `gated`; host controls what agents can reach.
+        <strong>Defense-in-depth.</strong> Container isolation + DNS filtering + per-group MCP sockets + secret injection.
+      </p>
+    </div>
+
+    <div class="jump-box">
+      <div class="jump-title">What brings you here?</div>
+      <div class="jump-grid">
+        <a href="#architecture" class="jump-link">
+          <span class="jump-icon">🏗️</span>
+          <span class="jump-text">
+            <span class="jump-text-main">Architecture</span>
+            <span class="jump-text-sub">Tenancy, routing, groups/topics/sessions</span>
+          </span>
+        </a>
+        <a href="#security" class="jump-link">
+          <span class="jump-icon">🔒</span>
+          <span class="jump-text">
+            <span class="jump-text-main">Security</span>
+            <span class="jump-text-sub">Crackbox, DNS filtering, MCP isolation</span>
+          </span>
+        </a>
+        <a href="#patterns" class="jump-link">
+          <span class="jump-icon">🔄</span>
+          <span class="jump-text">
+            <span class="jump-text-main">Patterns</span>
+            <span class="jump-text-sub">Coordination, dispatch, resume tokens</span>
+          </span>
+        </a>
+        <a href="#skills" class="jump-link">
+          <span class="jump-icon">⚡</span>
+          <span class="jump-text">
+            <span class="jump-text-main">Skills</span>
+            <span class="jump-text-sub">MCP tradeoffs, marketplace, evals</span>
+          </span>
+        </a>
+      </div>
+    </div>
+
+    <nav class="hub-nav" id="nav">
+      <div class="hub-nav-inner">
+        <a href="#architecture" class="nav-item">
+          <span class="nav-label">Architecture</span>
+          <span class="nav-hint">tenancy model</span>
+        </a>
+        <a href="#security" class="nav-item">
+          <span class="nav-label">Security</span>
+          <span class="nav-hint">defense-in-depth</span>
+        </a>
+        <a href="#patterns" class="nav-item">
+          <span class="nav-label">Patterns</span>
+          <span class="nav-hint">coordination</span>
+        </a>
+        <a href="#skills" class="nav-item">
+          <span class="nav-label">Skills</span>
+          <span class="nav-hint">MCP tradeoffs</span>
+        </a>
+      </div>
+    </nav>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+
+      <h3>Tenancy Model</h3>
+      <p>
+        Each folder is a tenant. Authority is scoped by path depth:
+      </p>
+      <table>
+        <tr>
+          <th>Tier</th>
+          <th>Folder Path</th>
+          <th>Authority</th>
+          <th>Tools Available</th>
+        </tr>
+        <tr>
+          <td>0</td>
+          <td><code>root</code></td>
+          <td>Unrestricted</td>
+          <td>All MCP tools, migrations, vhost management</td>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td><code>world/</code></td>
+          <td>World-scoped</td>
+          <td>Routing, group creation, token issuance, observe</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><code>world/team/</code></td>
+          <td>Send-only</td>
+          <td>Reply, like, send_file, observe (read-only)</td>
+        </tr>
+      </table>
+      <p>
+        Folder depth determines tier. <code>gated</code> enforces grants at tool-call time.
+        No privilege escalation — agents can only delegate to children or escalate to parent.
+      </p>
+
+      <h3>Execution Model</h3>
+      <p>
+        When a message arrives:
+      </p>
+      <ul>
+        <li>Gateway matches route predicates (<code>platform=</code>, <code>chat_jid=</code>, <code>sender=</code>)</li>
+        <li>Starts a Docker container for the matched folder</li>
+        <li>Mounts <code>/home/node/</code> (group workspace), <code>/workspace/web/</code> (optional web surface)</li>
+        <li>Bridges MCP unix socket from host into container</li>
+        <li>Claude Code agent runs; all tool calls go through <code>gated</code> via MCP socket</li>
+        <li>Container exits after turn completes; workspace persists</li>
+      </ul>
+      <p>
+        Containers are ephemeral. All state is in <code>/home/node/</code> (volume-mounted) or
+        <code>messages.db</code> (WAL, host-side SQLite).
+      </p>
+
+      <h3>Groups, Topics, Sessions</h3>
+      <table>
+        <tr>
+          <th>Primitive</th>
+          <th>Lifecycle</th>
+          <th>Isolation</th>
+          <th>Use</th>
+        </tr>
+        <tr>
+          <td><strong>Group</strong></td>
+          <td>Persistent</td>
+          <td>Folder boundary</td>
+          <td>Agent identity, memory, persona, skills</td>
+        </tr>
+        <tr>
+          <td><strong>Topic</strong></td>
+          <td>Transient</td>
+          <td>Session ID</td>
+          <td>One conversation thread, forkable</td>
+        </tr>
+        <tr>
+          <td><strong>Session</strong></td>
+          <td>Ephemeral</td>
+          <td>Claude Code session</td>
+          <td>LLM context window, reset via <code>/new</code></td>
+        </tr>
+      </ul>
+      <p>
+        <strong>Groups</strong> are folders. <strong>Topics</strong> scope conversations within a group.
+        <strong>Sessions</strong> are Claude Code's execution context. Fork a topic to branch a conversation
+        while preserving parent context.
+      </p>
+
+      <h3>Routing</h3>
+      <p>
+        Routes are rows in <code>routes</code> table with <code>seq</code> (priority),
+        <code>match</code> (key=glob predicates), and <code>target</code> (folder or <code>:daemon:</code>).
+      </p>
+      <pre><code>seq  match                          target
+100  platform=telegram room=main    corp/sales
+200  platform=slack                 corp/eng
+300  chat_jid=web:*                 :daemon:webd</code></pre>
+      <p>
+        First match wins. <code>gated</code> resolves predicates at message-receive time.
+        Engagement overrides routing for N turns after a reply.
+      </p>
+
+      <h3>Observable Architecture</h3>
+      <p>
+        Groups can <strong>observe</strong> other groups' inbound messages without becoming the active agent:
+      </p>
+      <ul>
+        <li><code>observe_group(source)</code> — subscribe to another folder's messages</li>
+        <li><code>set_group_open(true)</code> — expose this group to sibling ambient context</li>
+        <li>Observed messages surface in <code>&lt;observed&gt;</code> blocks (gateway-injected)</li>
+      </ul>
+      <p>
+        Use for parent monitoring children, sibling awareness, or root aggregation.
+        Observed context is capped per turn (env: <code>OBSERVE_WINDOW_MESSAGES</code>,
+        <code>OBSERVE_WINDOW_CHARS</code>). See <a href="https://github.com/kronael/arizuko/blob/main/specs/6/F-group-observe.md">spec 6/F</a>.
+      </p>
+    </section>
+
+    <section id="security">
+      <h2>Security</h2>
+
+      <h3>Threat Model</h3>
+      <p>
+        Arizuko assumes:
+      </p>
+      <ul>
+        <li><strong>Agents are untrusted.</strong> LLM output can be malicious or compromised.</li>
+        <li><strong>Tool calls are the attack surface.</strong> Every MCP tool call is a potential privilege escalation.</li>
+        <li><strong>Network egress is risk.</strong> Agents can exfiltrate data if unrestricted.</li>
+      </ul>
+      <p>
+        Defense: isolation at container, network, MCP, and secret layers.
+      </p>
+
+      <h3>Defense-in-Depth</h3>
+      <table>
+        <tr>
+          <th>Layer</th>
+          <th>Mechanism</th>
+          <th>Threat Mitigated</th>
+        </tr>
+        <tr>
+          <td>Container</td>
+          <td>Docker isolation, no <code>--privileged</code></td>
+          <td>Process escape, host filesystem access</td>
+        </tr>
+        <tr>
+          <td>Network</td>
+          <td>Crackbox DNS filtering + allowlist</td>
+          <td>Exfiltration, C2 communication</td>
+        </tr>
+        <tr>
+          <td>MCP</td>
+          <td>Per-group unix socket, grants enforced by <code>gated</code></td>
+          <td>Cross-tenant tool access, privilege escalation</td>
+        </tr>
+        <tr>
+          <td>Secrets</td>
+          <td>AES-256-GCM at rest, env-var injection, no disk persistence</td>
+          <td>Secret theft via disk access or container inspect</td>
+        </tr>
+      </table>
+
+      <h3>Crackbox</h3>
+      <p>
+        Per-folder egress sandbox. Wraps each container with:
+      </p>
+      <ul>
+        <li><strong>DNS filtering:</strong> allowlist of permitted hostnames per folder</li>
+        <li><strong>HTTPS via CONNECT:</strong> proxy intercepts TLS, validates hostname</li>
+        <li><strong>Seccomp + Landlock:</strong> syscall filtering, filesystem isolation</li>
+        <li><strong>No new privileges:</strong> <code>--security-opt no-new-privileges</code></li>
+      </ul>
+      <p>
+        Agent can only reach what operator explicitly permits. Example allowlist:
+        <code>["api.anthropic.com", "*.github.com", "pypi.org"]</code>.
+        See <a href="/pub/arizuko/components/crackbox.html">crackbox docs</a> and
+        <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>.
+      </p>
+
+      <h3>MCP Socket Isolation</h3>
+      <p>
+        Each group gets its own unix socket (<code>/ipc/&lt;group_id&gt;.sock</code>).
+        <code>gated</code> brokers every tool call, enforces grants, and logs actions.
+        Agents cannot reach other groups' sockets — Docker mounts only the agent's own socket.
+      </p>
+
+      <h3>Secrets Injection</h3>
+      <p>
+        Secrets are AES-256-GCM encrypted in <code>secrets.db</code>. At container start,
+        <code>gated</code> decrypts and injects as env vars. No disk persistence inside container.
+        Secrets never written to <code>/home/node/</code> or logs.
+      </p>
+    </section>
+
+    <section id="patterns">
+      <h2>Patterns</h2>
+
+      <h3>Agent-to-Agent Coordination</h3>
+      <p>
+        Three MCP tools for hierarchical coordination:
+      </p>
+      <ul>
+        <li>
+          <strong><code>delegate_group(group, prompt, chatJid)</code></strong> —
+          hand work down to a child. Child runs async, parent doesn't block.
+        </li>
+        <li>
+          <strong><code>escalate_group(prompt, chatJid)</code></strong> —
+          hand work up to parent. Parent responds back through this child.
+        </li>
+        <li>
+          <strong><code>observe_group(source)</code></strong> —
+          watch another group's messages without taking over.
+        </li>
+      </ul>
+      <p>
+        Use <code>delegate</code> for specialist work. Use <code>escalate</code> when authority is needed.
+        Use <code>observe</code> for ambient awareness (sibling monitoring, aggregation).
+      </p>
+
+      <h3>Topic Forking</h3>
+      <p>
+        <code>fork_topic(parent, child)</code> — create a new topic from another's session state.
+        Child gets a fresh session ID but starts with parent's Claude Code context. Use for:
+      </p>
+      <ul>
+        <li>Side-conversations that need parent context</li>
+        <li>Parallel workstreams without polluting parent</li>
+        <li>Focused exploration that can later merge findings back</li>
+      </ul>
+
+      <h3>Dispatch Trigger Design</h3>
+      <p>
+        Skills can specify <code>ALWAYS</code> or <code>NEVER</code> triggers in <code>SKILL.md</code>:
+      </p>
+      <pre><code>ALWAYS:
+- "download this video" → acquire
+- "transcribe this" → acquire
+
+NEVER:
+- Static pages → do NOT use agent-browser, use acquire instead</code></pre>
+      <p>
+        Gateway reads these at session start and surfaces them in <code>&lt;skills&gt;</code> block.
+        Agent uses them for fast dispatch without re-reading every <code>SKILL.md</code>.
+      </p>
+
+      <h3>Stateless Iteration Loops (Ralph)</h3>
+      <p>
+        Pattern for long-running tasks that survive session resets:
+      </p>
+      <ul>
+        <li>Write progress to <code>~/state/<task>.json</code></li>
+        <li>Each turn: read state, process next batch, write state</li>
+        <li>On session reset: re-read state, continue from last checkpoint</li>
+        <li>No in-memory state — stateless across turns</li>
+      </ul>
+      <p>
+        Named after "ralph loop" (stateless iteration). Use for multi-page scrapes,
+        batch processing, or any task that takes >1 session.
+      </p>
+
+      <h3>Resume Tokens</h3>
+      <p>
+        For APIs with pagination or long-running operations:
+      </p>
+      <ul>
+        <li>Store resume token in <code>~/state/</code> or <code>~/facts/</code></li>
+        <li>On next turn, check for token, resume from checkpoint</li>
+        <li>Example: GitHub API pagination (<code>page=N</code>), Stripe list cursors</li>
+      </ul>
+
+      <h3>Fingerprint-Based Change Detection</h3>
+      <p>
+        Detect file changes without storing full content:
+      </p>
+      <ul>
+        <li>Compute SHA-256 of file, store in <code>~/state/fingerprints.json</code></li>
+        <li>On next turn, recompute and compare</li>
+        <li>Only process changed files</li>
+      </ul>
+      <p>
+        Use for monitoring codebases, watching config files, or tracking external resources.
+      </p>
+
+      <h3>Multi-Agent Pipeline Orchestration</h3>
+      <p>
+        Chain multiple agents for staged processing:
+      </p>
+      <pre><code>ingest → classify → route → specialist → review → publish</code></pre>
+      <p>
+        Each stage is a separate group. Use <code>delegate_group</code> or direct message routing.
+        Example: support intake → triage agent → specialist teams → summary agent → publish.
+      </p>
+    </section>
+
+    <section id="skills">
+      <h2>Skills</h2>
+
+      <h3>MCP vs In-Context Skills</h3>
+      <table>
+        <tr>
+          <th>Aspect</th>
+          <th>MCP Tools</th>
+          <th>In-Context Skills</th>
+        </tr>
+        <tr>
+          <td>Context window</td>
+          <td>Tool name + description only</td>
+          <td>Full SKILL.md in system prompt</td>
+        </tr>
+        <tr>
+          <td>Authority</td>
+          <td>Host-enforced grants</td>
+          <td>Agent-enforced (prompt-based)</td>
+        </tr>
+        <tr>
+          <td>State</td>
+          <td>Stateless, always available</td>
+          <td>Loaded at session start, persists</td>
+        </tr>
+        <tr>
+          <td>Best for</td>
+          <td>Platform operations (routing, groups, tokens)</td>
+          <td>Workflow patterns, domain knowledge, multi-step procedures</td>
+        </tr>
+      </table>
+      <p>
+        <strong>Rule:</strong> Use MCP for side effects (send message, create group, issue token).
+        Use in-context skills for knowledge and workflow guidance.
+      </p>
+
+      <h3>Skill Development</h3>
+      <p>
+        Each skill is a directory under <code>~/.claude/skills/&lt;name&gt;/</code> with:
+      </p>
+      <ul>
+        <li><code>SKILL.md</code> — description, workflow, ALWAYS/NEVER triggers</li>
+        <li>Optional: scripts, templates, reference files</li>
+      </ul>
+      <p>
+        Gateway reads <code>SKILL.md</code> at session start, injects into system prompt.
+        Skills compose — agent can invoke multiple skills per turn.
+      </p>
+
+      <h3>Skill Marketplace Patterns</h3>
+      <p>
+        (Research in progress. Placeholder for skill discovery, versioning, dependencies,
+        and performance evals.)
+      </p>
+      <ul>
+        <li>Skill discovery: local index, remote registry?</li>
+        <li>Versioning: semver, lock file?</li>
+        <li>Dependencies: skill-to-skill references?</li>
+        <li>Evals: measurable performance improvements?</li>
+      </ul>
+
+      <h3>Performance Improvements</h3>
+      <p>
+        Measurable improvements from skill-based workflows:
+      </p>
+      <ul>
+        <li>Dispatch latency: ALWAYS/NEVER triggers reduce skill-matching overhead</li>
+        <li>Context efficiency: tight skill descriptions vs bloated prompts</li>
+        <li>Eval-driven iteration: A/B test skill variants, track success rate</li>
+      </ul>
+    </section>
+
+    <footer class="hub-footer">
+      <p>
+        Part of the <a href="../">arizuko docs</a> &middot;
+        Strategy: <a href="../strategy/">competitive landscape &amp; GitOps</a>
+      </p>
+      <p>
+        Related: <a href="/pub/krons/agents/">Agent Frameworks</a> &middot;
+        <a href="/pub/krons/">krons.fiu.wtf</a>
+      </p>
+      <p>
+        Source: <a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a> (MIT) &middot;
+        <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a> &middot;
+        <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>
+      </p>
+    </footer>
+  </div>
+
+  <script src="../assets/hub.js"></script>
+</body>
+</html>
