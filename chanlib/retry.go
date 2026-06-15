@@ -19,7 +19,7 @@ var retryBackoffs = []time.Duration{300 * time.Millisecond, 800 * time.Milliseco
 // retry loop to give up and return the response as-is.
 var retryMaxRetryAfter = 30 * time.Second
 
-// DoWithRetry retries on 5xx/429 with jittered backoff, max 3 total attempts.
+// DoWithRetry retries on 5xx/429 with jittered backoff, max len(retryBackoffs)+1 total attempts.
 // Accepts double-post risk on non-idempotent requests — caller's choice.
 // On 429, respects Retry-After header (seconds or HTTP-date) if present and <= 30s.
 // On 5xx, uses jittered exponential backoff: ~300ms, ~800ms.

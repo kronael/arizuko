@@ -421,13 +421,14 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 		if head.Subtype != "" && head.Subtype != "file_share" {
 			return
 		}
-		b.handleMessage(teamID, raw)
+		b.handleMessage(teamID, raw, "")
 	case "app_mention":
 		// Slack sends app_mention when the bot is @mentioned in a channel.
-		// Same payload shape as message; handleMessage sets verb=mention.
+		// Same payload shape as message; verb=mention is unconditional here
+		// so BotUserID startup race doesn't suppress it.
 		// If message.channels is also subscribed the duplicate TS is a no-op
 		// in routd (INSERT OR IGNORE).
-		b.handleMessage(teamID, raw)
+		b.handleMessage(teamID, raw, "mention")
 	case "reaction_added":
 		b.handleReaction(teamID, raw)
 	case "member_joined_channel":
@@ -460,7 +461,7 @@ type slackMessage struct {
 	} `json:"assistant_thread"`
 }
 
-func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
+func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 	var m slackMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
 		slog.Warn("slack: message decode failed", "err", err)
@@ -509,8 +510,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage) {
 	}
 
 	isGroup := !conv.IsIM
-	verb := ""
-	if isGroup && b.BotUserID() != "" && strings.Contains(m.Text, "<@"+b.BotUserID()+">") {
+	if verb == "" && isGroup && b.BotUserID() != "" && strings.Contains(m.Text, "<@"+b.BotUserID()+">") {
 		verb = "mention"
 	}
 

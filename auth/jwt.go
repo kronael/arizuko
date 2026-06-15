@@ -76,9 +76,6 @@ func VerifyJWT(secret []byte, token string) (Claims, error) {
 	if c.Nbf != 0 && now+skew < c.Nbf {
 		return c, ErrInvalidToken
 	}
-	if c.Iat != 0 && now+skew < c.Iat {
-		return c, ErrInvalidToken
-	}
 	if now > c.Exp+skew {
 		return c, ErrExpiredToken
 	}

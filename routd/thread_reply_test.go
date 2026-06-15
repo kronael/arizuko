@@ -205,6 +205,10 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 	if srv.threadHasBotMessage(jid, "1700000999.000100") {
 		t.Error("threadHasBotMessage must not match a different thread_ts")
 	}
+	// Must not fire for a different chat with the same thread_ts.
+	if srv.threadHasBotMessage("slack:T/channel/C2", threadTS) {
+		t.Error("threadHasBotMessage must not match a different chat_jid")
+	}
 }
 
 // A document delivered from an in-thread turn carries the topic as threadID —

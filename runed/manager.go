@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -196,9 +197,13 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	want := intersect(m.scopes, req.CapabilityScopes)
 	jws, jti, expiresAt, berr := m.broker.Broker(ctx, req.CallerSub, folder, want, m.runTTL)
 	if berr != nil {
-		m.db.EndSpawn(runID, "error", runedv1.OutcomeError, -1)
+		if err := m.db.EndSpawn(runID, "error", runedv1.OutcomeError, -1); err != nil {
+			slog.Error("runed: EndSpawn failed on broker error — spawn may become zombie", "run_id", runID, "err", err)
+		}
 		if !req.Isolated {
-			m.db.EndSession(logID, "", runedv1.OutcomeError, "broker: "+berr.Error(), 0)
+			if err := m.db.EndSession(logID, "", runedv1.OutcomeError, "broker: "+berr.Error(), 0); err != nil {
+				slog.Error("runed: EndSession failed on broker error", "log_id", logID, "err", err)
+			}
 		}
 		m.endRun(folder, runID, true)
 		return runedv1.RunOutcome{RunID: runID, Outcome: runedv1.OutcomeError, Error: "broker: " + berr.Error()}
@@ -239,9 +244,15 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	if res.NewSessionID != "" {
 		endSession = res.NewSessionID
 	}
-	m.db.EndSpawn(runID, state, res.Outcome, res.ExitCode)
+	if err := m.db.EndSpawn(runID, state, res.Outcome, res.ExitCode); err != nil {
+		// spawn row stays 'running' if this fails → zombie that blocks the cap.
+		// Operator must reset it manually: UPDATE spawns SET state='exited' WHERE run_id=?
+		slog.Error("runed: EndSpawn failed — spawn may become zombie", "run_id", runID, "err", err)
+	}
 	if !req.Isolated {
-		m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount)
+		if err := m.db.EndSession(logID, res.NewSessionID, res.Outcome, res.Error, res.MessageCount); err != nil {
+			slog.Error("runed: EndSession failed", "log_id", logID, "err", err)
+		}
 	}
 	breakerTripped := m.endRun(folder, runID, failed)
 
