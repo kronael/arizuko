@@ -55,20 +55,14 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 			continue
 		}
 		if resp.StatusCode == 429 {
+			if i == attempts-1 {
+				return resp, nil
+			}
 			wait, ok := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if !ok || wait > retryMaxRetryAfter {
 				wait = retryBackoffs[min(i, len(retryBackoffs)-1)]
 			}
 			resp.Body.Close()
-			if i == attempts-1 {
-				// Re-issue to return a fresh response to caller.
-				if req.GetBody != nil {
-					if body, berr := req.GetBody(); berr == nil {
-						req.Body = body
-					}
-				}
-				return client.Do(req)
-			}
 			sleepJittered(wait)
 			continue
 		}

@@ -191,6 +191,33 @@ func TestDoWithRetry_BodyRewound(t *testing.T) {
 }
 
 // sanity: strings.NewReader body wraps cleanly.
+// On exhausted 429s the caller gets the 429 response — no extra request beyond
+// the budget (len(backoffs)+1 total).
+func TestDoWithRetry_429Exhausted_NoExtraRequest(t *testing.T) {
+	shortBackoffs(t)
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&n, 1)
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	resp, err := DoWithRetry(srv.Client(), req)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 429 {
+		t.Fatalf("got %d, want 429", resp.StatusCode)
+	}
+	// shortBackoffs sets len=2, so budget = 3 attempts. The old code re-issued
+	// after the final 429, making 4 total. Fixed: exactly 3.
+	if got := atomic.LoadInt32(&n); got != 3 {
+		t.Fatalf("made %d requests, want 3 (no extra request after last 429)", got)
+	}
+}
+
 func TestDoWithRetry_StringsBody(t *testing.T) {
 	shortBackoffs(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

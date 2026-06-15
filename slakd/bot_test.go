@@ -163,6 +163,35 @@ func TestDispatch_ThreadBroadcastDropped(t *testing.T) {
 // app_mention is sent by Slack when the bot is @mentioned in a channel.
 // It has the same payload shape as a message event and must be delivered
 // with verb=mention so routing rules like "verb=mention|atlas" fire.
+// Slack sends file uploads as message subtype file_share; they must reach
+// handleMessage so attachmentsFor can extract the download URL.
+func TestDispatch_FileShareDelivered(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, rm := setupBot(t, mock)
+
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "subtype": "file_share",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "here is the file",
+	    "ts": "1700001300.000100",
+	    "files": [{"name":"doc.pdf","mimetype":"application/pdf","url_private":"https://files.slack.com/doc.pdf","size":1024}]
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	msgs := rm.snapshot()
+	if len(msgs) != 1 {
+		t.Fatalf("file_share must deliver 1 msg, got %d", len(msgs))
+	}
+}
+
 func TestDispatch_AppMentionDeliveredAsMention(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.Close()

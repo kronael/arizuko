@@ -413,10 +413,12 @@ func (b *bot) dispatch(teamID string, raw json.RawMessage) {
 		// also surfaced in the parent channel — the original reply
 		// already arrived as a regular message event, so dropping the
 		// broadcast prevents duplicate inbound delivery.
+		// file_share delivers a file upload; allow it through so
+		// attachmentsFor can extract the download URL.
 		if head.Subtype == "thread_broadcast" {
 			return
 		}
-		if head.Subtype != "" {
+		if head.Subtype != "" && head.Subtype != "file_share" {
 			return
 		}
 		b.handleMessage(teamID, raw)

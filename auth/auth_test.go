@@ -45,6 +45,16 @@ func TestJWTExpired(t *testing.T) {
 	}
 }
 
+// A token expired by less than clockSkew must still be accepted (skew parity
+// with the ES256 path in jwks.go).
+func TestJWTExpiredWithinSkew(t *testing.T) {
+	token := mintJWT(testSecret, "user1", "Test", nil, -10*time.Second)
+	_, err := VerifyJWT(testSecret, token)
+	if err != nil {
+		t.Fatalf("token within clockSkew must be accepted, got err=%v", err)
+	}
+}
+
 func TestJWTBadSignature(t *testing.T) {
 	token := mintJWT(testSecret, "user1", "Test", nil, time.Hour)
 	_, err := VerifyJWT([]byte("wrong"), token)

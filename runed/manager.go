@@ -165,10 +165,13 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 			sessionID = newUUID()
 		}
 		containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
-		_ = m.db.CreateSpawn(Spawn{
+		if err := m.db.CreateSpawn(Spawn{
 			RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
 			SessionID: sessionID, State: "queued",
-		})
+		}); err != nil {
+			m.mu.Unlock()
+			return runedv1.RunOutcome{}, fmt.Errorf("create spawn: %w", err)
+		}
 		m.mu.Unlock()
 
 		return m.spawn(ctx, req, runID, sessionID, containerName), nil
