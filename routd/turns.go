@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/obs"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
+	"github.com/kronael/arizuko/router"
 )
 
 // The /v1/turns/{turn_id}/* callback surface — the HTTP twin of the agent's
@@ -667,6 +668,8 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 		userSub := callerSubOfMsg(tc.Trigger)
 		for model, c := range req.Models {
 			_ = s.db.PutCost(tc.Folder, turnID, userSub, model, c.Input, c.Output, c.CostCents)
+			obs.RecordModelTokens(model, tc.Folder, "in", c.Input)
+			obs.RecordModelTokens(model, tc.Folder, "out", c.Output)
 		}
 		_ = s.db.SetTurnState(turnID, "done")
 		if s.loop != nil {

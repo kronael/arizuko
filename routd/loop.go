@@ -13,6 +13,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/obs"
 	"github.com/kronael/arizuko/queue"
 	"github.com/kronael/arizuko/router"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -674,6 +675,7 @@ func (l *Loop) sessionIdleExpired(chatJID string) bool {
 // instead of replaying the same failure. The chat-visible failure notice is sent
 // by the OutcomeError path (runTurn); this is the prune+reset half only.
 func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
+	obs.SetCircuitBreakerState(folder, 2) // 2=open (spec 5/O)
 	if err := l.db.DeleteErroredMessages(chatJID); err != nil {
 		slog.Warn("prune errored messages failed", "jid", chatJID, "err", err)
 	}
