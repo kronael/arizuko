@@ -677,10 +677,13 @@ func (d *DB) Engaged(jid, topic string) (string, bool) {
 }
 
 // SetLastReply seeds the reply-to-bot threading anchor for (jid, topic).
+// Only updates last_reply_id on conflict — never clobbers engaged_folder on an
+// existing row, since an active engagement window (set by SetEngagement) would
+// be silently hijacked by a broadcast send from a different group.
 func (d *DB) SetLastReply(jid, topic, msgID, folder string) error {
 	_, err := d.db.Exec(`INSERT INTO chat_reply_state(jid, topic, last_reply_id, engaged_folder)
 		VALUES(?,?,?,?)
-		ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id, engaged_folder=excluded.engaged_folder`,
+		ON CONFLICT(jid, topic) DO UPDATE SET last_reply_id=excluded.last_reply_id`,
 		jid, topic, msgID, folder)
 	return err
 }
