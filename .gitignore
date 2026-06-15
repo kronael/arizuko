@@ -38,6 +38,8 @@ runed/runed
 onbod/onbod
 dashd/dashd
 proxyd/proxyd
+proxyd.test
+*.test
 webd/webd
 timed/timed
 teled/teled
