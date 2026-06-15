@@ -1,6 +1,7 @@
 package db_utils
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -49,30 +50,60 @@ func Migrate(db *sql.DB, fsys embed.FS, dir, service string) error {
 		if ver <= max {
 			continue
 		}
-		if ver != max+1 {
-			return fmt.Errorf("migration gap: expected %d, got %d", max+1, ver)
-		}
 		raw, err := fsys.ReadFile(dir + "/" + f)
 		if err != nil {
 			return fmt.Errorf("%s: read: %w", f, err)
 		}
-		tx, err := db.Begin()
+		// Serialise concurrent openers of the same DB (e.g. webd + proxyd
+		// both racing to apply the same migration). BEGIN EXCLUSIVE holds a
+		// write lock for the duration, so the second opener blocks until the
+		// first commits, then sees cur >= ver and skips.
+		ctx := context.Background()
+		conn, err := db.Conn(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(string(raw)); err != nil {
-			tx.Rollback()
+		if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
+			conn.Close()
+			return fmt.Errorf("%s: exclusive lock: %w", f, err)
+		}
+		var cur int
+		if err := conn.QueryRowContext(ctx,
+			"SELECT COALESCE(MAX(version),0) FROM migrations WHERE service=?",
+			service).Scan(&cur); err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
+			return fmt.Errorf("%s: recheck version: %w", f, err)
+		}
+		if cur >= ver {
+			// another process applied this migration while we were waiting
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
+			max = cur
+			continue
+		}
+		if ver != cur+1 {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
+			return fmt.Errorf("migration gap: expected %d, got %d", cur+1, ver)
+		}
+		if _, err := conn.ExecContext(ctx, string(raw)); err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
 			return fmt.Errorf("%s: %w", f, err)
 		}
-		if _, err := tx.Exec(
+		if _, err := conn.ExecContext(ctx,
 			"INSERT INTO migrations (service, version, applied_at) VALUES (?,?,?)",
 			service, ver, time.Now().Format(time.RFC3339)); err != nil {
-			tx.Rollback()
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
 			return fmt.Errorf("%s: record: %w", f, err)
 		}
-		if err := tx.Commit(); err != nil {
+		if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+			conn.Close()
 			return fmt.Errorf("%s: commit: %w", f, err)
 		}
+		conn.Close()
 		max = ver
 	}
 	return nil
