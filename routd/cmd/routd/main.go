@@ -32,6 +32,7 @@ import (
 
 func main() {
 	defer obs.Setup("routd", os.Getenv("ARIZUKO_INSTANCE"))()
+	defer obs.SetupTraces("routd", os.Getenv("ARIZUKO_INSTANCE"))()
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
@@ -238,8 +239,11 @@ func main() {
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
 		"routes", "web_routes", "acl", "secrets",
 	}))
+	if obs.MetricsEnabled() {
+		mux.Handle("GET /metrics", obs.MetricsHandler())
+	}
 
-	httpd := &http.Server{Addr: listenAddr, Handler: mux}
+	httpd := &http.Server{Addr: listenAddr, Handler: obs.HTTPMiddleware("routd")(mux)}
 	go func() {
 		slog.Info("routd started", "addr", listenAddr, "db", dataDir, "runed", runedURL)
 		if err := httpd.ListenAndServe(); err != nil && err != http.ErrServerClosed {

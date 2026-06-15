@@ -12,6 +12,7 @@ import (
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/obs"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
 )
@@ -99,8 +100,23 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // records its outcome, and returns (hadOutput, steered, err). It does NOT
 // advance the agent_cursor — processGroupMessages advances once past the
 // whole batch after all per-sender/per-topic turns close.
-func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (bool, bool, error) {
+func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered bool, rerr error) {
 	last := trigger[len(trigger)-1]
+	// turn span + duration/count metric (spec 5/O). Trace ID derives from the
+	// turn ID so every daemon handling this turn shares one trace; the span ctx
+	// flows into dispatchRun so container_spawn/cross_daemon nest under it.
+	ctx := obs.WithTurn(context.Background(), l.instanceName, turnID)
+	ctx, endSpan := obs.StartSpan(ctx, "turn",
+		"folder", folder, "jid", chatJID, "turn_id", turnID)
+	start := time.Now()
+	defer func() {
+		outcome := "success"
+		if rerr != nil {
+			outcome = "error"
+		}
+		obs.RecordTurn(folder, outcome, time.Since(start).Seconds())
+		endSpan(rerr)
+	}()
 	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
 	// channel-visible refusal (no run dispatched) and consume the batch — return
 	// hadOutput=true so processGroupMessages advances the cursor past it.
@@ -213,7 +229,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if l.deliver != nil {
 		_ = l.deliver.Typing(typingJID, true)
 	}
-	out, derr := l.dispatchRun(folder, topic, chatJID, turnID, last.Sender, rendered)
+	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered)
 	if l.deliver != nil {
 		_ = l.deliver.Typing(typingJID, false)
 	}
@@ -287,6 +303,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if out.SessionID != "" && !l.db.TurnResultRecorded(folder, turnID) {
 		_ = l.db.PutSession(folder, topic, out.SessionID)
 	}
+	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
 	_ = l.db.SetTurnState(turnID, "done")
 	return out.Outcome != runedv1.OutcomeSilent, false, nil
 }
@@ -395,8 +412,7 @@ func jidScheme(jid string) string {
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // agent's conversation frames arrive out-of-band during the run via the
 // /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
-func (l *Loop) dispatchRun(folder, topic, chatJID, turnID, trigger, batch string) (runedv1.RunOutcome, error) {
-	ctx := context.Background()
+func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string) (runedv1.RunOutcome, error) {
 	var cancel context.CancelFunc
 	if l.runTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, l.runTimeout)
