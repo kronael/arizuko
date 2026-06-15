@@ -575,13 +575,33 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /priv/* — JWT-gated. Served by the same vited instance as /pub/*,
-	// resolving to files under <data>/web/priv/<folder>/. Spec 5/V:
+	// /priv/* — JWT-gated + folder-scoped. Served by the same vited instance
+	// as /pub/*, resolving to files under <data>/web/priv/<folder>/. Spec 5/V:
 	// agents publish to ~/private_html/, bind-mounted from web/priv/.
 	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
-	// to web/priv/X naturally.
+	// to web/priv/X naturally. Spec 5/38: after auth, the caller must hold
+	// a grant covering the target folder (MatchGroups on X-User-Groups).
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
-		s.requireAuth(s.viteProxy.ServeHTTP)(w, r)
+		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+			rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/priv"), "/")
+			folder := strings.SplitN(rest, "/", 2)[0]
+			if folder != "" {
+				var gs []string
+				if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
+					if err := json.Unmarshal([]byte(hdr), &gs); err != nil {
+						http.Error(w, "Forbidden", http.StatusForbidden)
+						return
+					}
+				}
+				if !auth.MatchGroups(gs, folder) {
+					slog.Warn("priv forbidden", "sub", r.Header.Get("X-User-Sub"),
+						"folder", folder, "path", r.URL.Path)
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
+			}
+			s.viteProxy.ServeHTTP(w, r)
+		})(w, r)
 		return
 	}
 

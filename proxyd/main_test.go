@@ -33,6 +33,18 @@ func testMintJWT(secret []byte, sub string) string {
 	return hdr + "." + body + "." + sig
 }
 
+func testMintJWTGroups(secret []byte, sub string, groups []string) string {
+	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	gb, _ := json.Marshal(groups)
+	c := fmt.Sprintf(`{"sub":%q,"name":"test","groups":%s,"exp":%d,"iat":%d}`,
+		sub, gb, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
+	body := base64.RawURLEncoding.EncodeToString([]byte(c))
+	h := hmac.New(sha256.New, secret)
+	h.Write([]byte(hdr + "." + body))
+	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return hdr + "." + body + "." + sig
+}
+
 func testServer() *server {
 	return &server{
 		cfg:         config{authSecret: ""},
@@ -446,7 +458,7 @@ func TestProxydPrivPathWithJWTReachesUpstream(t *testing.T) {
 	s, up := testServerWithUpstream(t)
 	defer up.Close()
 
-	tok := testMintJWT([]byte("testsecret"), "alice")
+	tok := testMintJWTGroups([]byte("testsecret"), "alice", []string{"krons"})
 	req := httptest.NewRequest("GET", "/priv/krons/secret.html", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()

@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 ---
 
 # Web access: grant-gated content, configurable cross-group sharing
@@ -128,15 +128,24 @@ ACL table that gates everything else. Revoke = drop the grant.
 - `auth.Authorize` / `4/9` — the canonical containment decision to reuse.
 - `5/V` — ownership/slot/vhost model this builds on (unchanged).
 
-## Open questions (draft)
+## Implementation (shipped 2026-06-15)
 
-- Read vs list: does a folder grant gate _reading a known path_ only, or
-  also _directory listing_? (vited serves files, not listings today — so
-  read-only is the natural scope.)
-- Grant verb: reuse an existing read scope (e.g. `chats:read` /
-  `groups:read` family) or mint a `web:read` scope? Prefer reusing an
-  existing read verb so the web surface needs no new vocabulary —
-  decide against the `4/9` scope table before shipping.
-- Inheritance: a grant on `atlas` ⊇ `atlas/search` already by scope
-  containment — confirm that's the desired default (parent grant sees
-  child web content) and document it as such.
+Single edit: `proxyd/main.go` `/priv/*` handler. After `requireAuth`
+stamps `X-User-Groups`, the inner closure:
+
+1. Extracts `<folder>` from the first path segment after `/priv/`.
+2. Calls `auth.MatchGroups(gs, folder)` — the same containment helper used
+   by the WebDAV handler. `**` = operator; parent grant covers child folder.
+3. Denies with 403 if no match; proxies to vited on success.
+
+Open questions resolved:
+
+- **Read vs list**: vited serves files (not directory listings), so the
+  check gates file reads. No listing surface to scope separately.
+- **Grant verb**: no new `web:read` verb. `MatchGroups` checks scope
+  containment against the caller's grant patterns — any grant (interact,
+  admin, `*`) covering the folder passes. Reuses the existing scope
+  vocabulary.
+- **Inheritance**: a grant on `atlas` covers `atlas/search` by
+  `matchSegments` traversal — confirmed and documented here as the
+  intended behavior.

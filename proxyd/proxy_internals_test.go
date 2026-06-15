@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -362,6 +364,48 @@ func TestParseTrustedProxies_IPv6(t *testing.T) {
 	ones, _ := nets[0].Mask.Size()
 	if ones != 128 {
 		t.Errorf("mask = /%d, want /128", ones)
+	}
+}
+
+// /priv/<folder>/ requires the caller to hold a grant covering the folder.
+func TestPriv_FolderScopedGrant(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+	bu, _ := url.Parse(backend.URL)
+	secret := []byte("testsecret")
+
+	s := &server{
+		cfg:         config{authSecret: string(secret)},
+		chatAnonDOS: newRateLimiter(10, time.Minute),
+		viteProxy:   httputil.NewSingleHostReverseProxy(bu),
+	}
+
+	cases := []struct {
+		name   string
+		path   string
+		groups []string
+		want   int
+	}{
+		{"own folder", "/priv/atlas/file.html", []string{"atlas"}, 200},
+		{"operator", "/priv/atlas/file.html", []string{"**"}, 200},
+		{"parent covers child", "/priv/atlas/search/page.html", []string{"atlas"}, 200},
+		{"wrong folder", "/priv/atlas/file.html", []string{"research"}, 403},
+		{"no groups", "/priv/atlas/file.html", []string{}, 403},
+		{"bare priv no folder", "/priv", []string{}, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tok := testMintJWTGroups(secret, "user:1", tc.groups)
+			req := httptest.NewRequest("GET", tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			s.route(w, req)
+			if w.Code != tc.want {
+				t.Errorf("path=%q groups=%v: status=%d want=%d", tc.path, tc.groups, w.Code, tc.want)
+			}
+		})
 	}
 }
 
