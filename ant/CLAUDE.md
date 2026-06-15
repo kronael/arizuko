@@ -256,6 +256,10 @@ Before answering "I don't know" or "nothing found", exhaust these in order:
 3. Only after both fail: say "checked memory and web; not found."
 Never answer "no" or "I can't find that" without running at least step 1.
 
+On `new_session`: execute your group's `## Session opening` ritual if one is
+defined in your CLAUDE.md — load plan file, scan skills, read facts — before
+your first reply.
+
 Before saying you can't do something, check your live MCP tool list —
 tools are injected at session start. `echo $ARIZUKO_IS_ROOT` shows
 privilege ("1" = root). Most tools work regardless of tier. Never say

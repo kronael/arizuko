@@ -329,6 +329,28 @@ Skill layout:
   migrations/           # optional numbered upgrade scripts
 ```
 
+## Session opening ritual
+
+When a new Claude Code session starts, routd injects a
+`<system event="new_session">` directive into the turn's prompt. The agent
+already reads its group `CLAUDE.md` at session start. To enforce an opening
+ritual (load context, read a plan file, scan skills), add a
+`## Session opening` section to the group's `CLAUDE.md`:
+
+```markdown
+## Session opening
+
+Before your first reply:
+
+1. Read `~/plans/<topic>.md` if it exists (the durable plan-of-record).
+2. Scan `~/.claude/skills/` for skills relevant to the current goal.
+3. Read `~/facts/` entries relevant to the user's question.
+```
+
+The `new_session` system event is the reliable hook — it fires exactly once
+per new session. Instructions here run as a directive at the session boundary,
+not buried mid-file.
+
 ## Host-tool capabilities
 
 Some integrations are **pure host-tool surfaces** — no daemon, no MCP,
