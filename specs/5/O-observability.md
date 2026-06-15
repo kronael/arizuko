@@ -1,14 +1,15 @@
 ---
-status: partial
+status: shipped
 depends: [I-tool-call-logging, ../7/F-audit-stream]
 ---
 
 # specs/5/O — Observability
 
-> **Status (2026-06-14):** Partial. Logs shipped (slog + OTLP export); traces
-> and metrics spec'd but not implemented. Missing: `obs/spans.go` (5 span types),
-> `obs/metrics.go` (9 metric families), `/metrics` handler. All configured via
-> standard OTel env vars; disabled by default. `obs/` package owns setup.
+> **Status (2026-06-15):** Shipped. All three pillars implemented: logs (slog +
+> OTLP fanout, `obs/Setup`), traces (`obs/spans.go`: 5 span types, `StartSpan`/
+> `EndOutcome`), metrics (`obs/metrics.go`: 9 families, `obs/middleware.go` for
+> HTTP). `/metrics` handler per daemon. All configured via standard OTel env vars;
+> zero overhead when unset. `audit_log` stays SQLite-canonical.
 
 ## What this solves
 
