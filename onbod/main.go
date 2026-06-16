@@ -174,6 +174,14 @@ func main() {
 	mux.HandleFunc("GET /v1/gates", adm.handleGateList)
 	mux.HandleFunc("PUT /v1/gates/{gate}", adm.handleGatePut)
 	mux.HandleFunc("DELETE /v1/gates/{gate}", adm.handleGateDelete)
+
+	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
+	// admits the proxyd-stamped end-user identity; handleDash then gates on
+	// operator (`**` in X-User-Groups). Distinct from the /v1 bearer gate.
+	mux.HandleFunc("GET /dash/onbod/", stripUnsigned(adm.handleDash))
+	mux.HandleFunc("POST /dash/onbod/approve/{jid}", stripUnsigned(adm.handleDashApprove))
+	mux.HandleFunc("POST /dash/onbod/deny/{jid}", stripUnsigned(adm.handleDashDeny))
+	mux.HandleFunc("POST /dash/onbod/reprompt/{jid}", stripUnsigned(adm.handleDashReprompt))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
 	}
