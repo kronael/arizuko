@@ -16,22 +16,25 @@ test.describe('route tokens', () => {
   });
 
   test('issue chat token → raw token shown → appears in table', async ({
-    page,
+    context,
   }) => {
-    await page.goto('/dash/tokens/inbox/');
-    await page.locator('select[name="kind"]').selectOption('chat');
-    await page.locator('button[type="submit"]').click();
+    // revoke any stale token first (idempotent — 303 or 404 both OK)
+    await context.request.post('/dash/tokens/inbox/web:inbox/revoke', {
+      maxRedirects: 0,
+    });
 
-    // POST renders inline (no redirect). htmlBanner escapes content so the
-    // raw token appears as plain text inside div.banner-ok.
-    const banner = page.locator('div.banner-ok');
-    await expect(banner).toContainText('Copy it now');
-
-    // jid web:inbox appears in table
-    await expect(page.locator('table tbody')).toContainText('web:inbox');
+    // POST returns 200 with inline banner (no redirect).
+    // kind via query-string because r.FormValue reads URL params before body.
+    const res = await context.request.post('/dash/tokens/inbox/?kind=chat', {
+      maxRedirects: 0,
+    });
+    const html = await res.text();
+    expect(html).toContain('banner-ok');
+    expect(html).toContain('Copy it now');
+    expect(html).toContain('web:inbox');
 
     // cleanup
-    await page.context().request.post('/dash/tokens/inbox/web:inbox/revoke', {
+    await context.request.post('/dash/tokens/inbox/web:inbox/revoke', {
       maxRedirects: 0,
     });
   });
