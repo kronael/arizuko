@@ -108,6 +108,15 @@ updates immediately, lower latency and CPU. ~100 LOC change:
 **Blocker**: HTTPS endpoint required (Telegram needs TLS on
 443/80/88/8443). Need TLS termination in front of `teled:9001`.
 
+## Test infrastructure debt
+
+- **`tests/dashd-playwright/seed/main.go` inline SQL**: seed creates
+  `onbod.db` schema via raw DDL because `onbod` is `package main` (can't
+  import). Fix: expose `store.CreateOnbodSchema(db *sql.DB) error` verb
+  in the `store/` package so the DDL lives in one place. Currently the
+  inline SQL must be kept in sync with `onbod/migrations/*.sql` manually —
+  any new onbod migration column will silently break the Playwright seed.
+
 ## Daemon test gaps (high priority)
 
 Zero test coverage on the following daemons. Risk of regression high
