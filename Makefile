@@ -42,26 +42,38 @@ test:
 	$(foreach d,$(DAEMONS),make -C $(d) test;)
 	$(foreach c,$(COMPONENTS),make -C $(c) test;)
 
-# test-race: race detector on the concurrency-critical packages only.
-# Kept out of `make test` because -race is ~10x slower; run before tagging.
+# integration: pure integration tests in tests/ (no -short; hits real DBs,
+# real HTTP between daemons). Excluded from `make test` due to setup cost.
+# CI runs: `make test && make integration`.
+integration:
+	go test ./tests/... -count=1 -timeout 120s
+.PHONY: integration
+
+# test-all: full suite — unit + integration + Playwright. What CI runs on
+# a release candidate. Equivalent to: test + integration + play.
+test-all: test integration play
+.PHONY: test-all
+
+# test-race: race detector on concurrency-critical packages only.
+# ~10x slower than make test; run before tagging.
 test-race:
 	go test -race -count=1 ./runed/... ./timed/... ./routd/... ./store/... ./authd/...
 .PHONY: test-race
 
-# test-e2e: release-only end-to-end tests. Drive a real round through the
-# slink HTTP/MCP surface (POST /slink/<token>, /slink/stream, /send agent
-# callback) against an in-memory store + fake gated. Slow (≤ 5 min) and
-# excluded from `make test`. Intended to run on release tag from CI;
-# locally invoke before tagging. Heavier shapes may need Docker.
+# test-e2e: release-only webd slink E2E tests (slow, ≤5 min). Run before tagging.
 test-e2e:
 	go test ./webd/... -count=1 -run E2E -timeout 300s
 .PHONY: test-e2e
 
-# test-dash: Playwright suite against a throwaway dashd + seeded sqlite.
-# Builds the seed + dashd binaries on demand. Requires Node + a one-time
+# play: Playwright browser suite against a throwaway dashd + seeded sqlite.
+# Builds seed + dashd binaries on demand. Requires Node + one-time
 # `npx playwright install --with-deps chromium` under tests/dashd-playwright/.
-test-dash:
+play:
 	cd tests/dashd-playwright && npx playwright test
+.PHONY: play
+
+# test-dash: alias for play (backward compat).
+test-dash: play
 .PHONY: test-dash
 
 # smoke: post-deploy verification on a running instance. Pings the
