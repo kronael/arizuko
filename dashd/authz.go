@@ -43,7 +43,7 @@ func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = callerGroups(r)
 	if len(allowed) == 0 {
 		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" {
-			allowed = store.New(d.adminDB()).UserScopes(sub)
+			allowed = store.New(d.adminDB()).UserScopes(strings.TrimPrefix(sub, "user:"))
 		}
 	}
 	for _, a := range allowed {
@@ -227,6 +227,8 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	if !requireSameOrigin(w, r) {
 		return "", false
 	}
+	// ES256 subs carry a "user:" prefix; acl_membership keys on bare subs.
+	sub = strings.TrimPrefix(sub, "user:")
 	s := store.New(d.adminDB())
 	caller := auth.Caller{Principal: sub, Extra: callerGroups(r)}
 	if !auth.Authorize(s, caller, "admin", scope, nil) {
