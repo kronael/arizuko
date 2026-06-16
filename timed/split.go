@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -50,12 +51,26 @@ func runSplit(routerURL, tz string) {
 	}
 	slog.Info("scheduler started (split)", "router", routerURL, "tz", tz)
 
+	// ks gates /dash/timed/ to operators (proxyd-stamped X-User-Groups `**`).
+	// AUTHD_URL set → fetch authd's JWKS as the enforce switch; unset (local dev)
+	// → nil ks → open, mirroring onbod's dashboard gate.
+	var ks *auth.KeySet
+	if authdURL != "" {
+		if k, kerr := auth.FetchKeys(context.Background(), authdURL); kerr != nil {
+			slog.Warn("fetch authd keys for dash gate", "err", kerr)
+		} else {
+			ks = k
+		}
+	}
+	dash := &dashServer{r: r, ks: ks}
+
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte("ok"))
 		})
 		mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("timed", []string{"scheduled_tasks"}))
+		mux.HandleFunc("GET /dash/timed/", dash.handleDash)
 		if err := http.ListenAndServe(":8080", mux); err != nil {
 			slog.Error("health server", "err", err)
 		}
@@ -88,11 +103,42 @@ func runSplit(routerURL, tz string) {
 // client-side (cron/interval parsing); routd is a boring writer.
 
 // router is the split-mode client: the routd base URL + a live service token.
+// loop holds the in-memory fire-loop health the /dash/timed/ overview renders;
+// timed owns the fire runtime (routd owns the at-rest rows), so last-tick
+// time/outcome is timed-local state, mutex-guarded against the dash reader.
 type router struct {
 	base  string
 	token *auth.TokenSource
 	http  *http.Client
 	tz    string
+
+	mu   sync.Mutex
+	loop loopState
+}
+
+// loopState is the last fire-loop tick's outcome, read by the dashboard.
+type loopState struct {
+	LastTick time.Time
+	Fired    int
+	Err      string
+}
+
+func (r *router) recordTick(fired int, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loop.LastTick = time.Now()
+	r.loop.Fired = fired
+	if err != nil {
+		r.loop.Err = err.Error()
+	} else {
+		r.loop.Err = ""
+	}
+}
+
+func (r *router) loopHealth() loopState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.loop
 }
 
 // dueTask mirrors routd's GET /v1/tasks/due row.
@@ -110,8 +156,10 @@ func (r *router) fireSplit(ctx context.Context) {
 	tasks, err := r.due(ctx)
 	if err != nil {
 		slog.Error("claim due tasks (split)", "err", err)
+		r.recordTick(0, err)
 		return
 	}
+	defer r.recordTick(len(tasks), nil)
 	for _, t := range tasks {
 		start := time.Now()
 		sender := "timed"
