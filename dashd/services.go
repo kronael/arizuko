@@ -26,8 +26,8 @@ type service struct {
 // entry IS registration (spec 6/1); adding a daemon here is a deliberate edit.
 // Set Built=true once the per-daemon /dash/ route is shipped.
 var services = []service{
-	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", false},
-	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", false},
+	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true},
+	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true},
 	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers", false},
 	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", false},
 	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true},

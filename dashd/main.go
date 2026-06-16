@@ -229,8 +229,22 @@ func main() {
 		}
 	}
 
+	// runed OWNS spawns in the split topology; the /dash/runed/ runs view reads
+	// them straight from runed.db (same FS-access discipline as routd.db/onbod.db).
+	var dbRuned *sql.DB
+	if runedPath := filepath.Join(filepath.Dir(dsn), "runed.db"); runedPath != dsn {
+		if _, statErr := os.Stat(runedPath); statErr == nil {
+			if s, err := sql.Open("sqlite", runedPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"); err == nil {
+				dbRuned = s
+				defer dbRuned.Close()
+			} else {
+				slog.Warn("open runed.db for runs view", "path", runedPath, "err", err)
+			}
+		}
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/")}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -261,11 +275,14 @@ type dash struct {
 	// messages.db twin (db/dbRW) is frozen at cutover — read it for nothing routd owns.
 	dbOnbod *sql.DB // onbod.db handle. onbod OWNS invites/onboarding_gates in the
 	// split topology (spec 5/5); dashd's invites page reads+writes them here.
+	dbRuned *sql.DB // runed.db handle. runed OWNS spawns in the split topology;
+	// the /dash/runed/ runs view reads them here directly (FS-access discipline).
 	dbPath    string
 	groupsDir string
 	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
+	runedURL  string                                // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
 }
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
@@ -323,6 +340,10 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
 	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
+	mux.HandleFunc("GET /dash/routd/", g(d.handleRoutd))
+	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
+	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
+	mux.HandleFunc("POST /dash/runed/kill", g(d.handleRunedKill))
 	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
 	mux.HandleFunc("GET /dash/tasks/", g(d.handleTasks))
 	mux.HandleFunc("GET /dash/activity/", g(d.handleActivity))
