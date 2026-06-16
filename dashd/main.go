@@ -423,6 +423,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <h1>arizuko</h1>
 <p class="dim">Operator dashboard</p>
 {{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
+{{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
 <div class="tiles">
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
@@ -457,12 +458,14 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := portalTmpl.Execute(w, struct {
-		Head      template.HTML
-		Nav       template.HTML
-		StatusDot string
-		TasksDot  string
-		Err       string
-	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r)), statusDot, tasksDot, ""}); err != nil {
+		Head         template.HTML
+		Nav          template.HTML
+		StatusDot    string
+		TasksDot     string
+		Err          string
+		ErroredCount int
+		FailedTasks  int
+	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r)), statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
