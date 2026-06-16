@@ -295,6 +295,11 @@ type ProxydRoute struct {
 // the unified-port convention (DNS name + :8080). GatedBy maps to env vars
 // that toggle daemon emission so the route presence tracks the daemon.
 var coreProxydRoutes = []ProxydRoute{
+	// Federated cockpit: per-daemon /dash/<daemon>/ surfaces route to the
+	// owning daemon. Longest-prefix matching (proxyd/routes.go:MatchRoute)
+	// means these must come before the catch-all /dash/ → dashd route.
+	{Path: "/dash/onbod/", Backend: "http://onbod:8080", Auth: "user", GatedBy: "ONBOARDING_ENABLED"},
+	// /dash/ catch-all → dashd (hub + cross-cutting pages).
 	{Path: "/dash/", Backend: "http://dashd:8080", Auth: "user"},
 	// /chat/ — bespoke handler in proxyd (dispatchRouteToken). Token in
 	// path → public; no token segment (operator panel moved to /panel/)
