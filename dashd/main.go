@@ -371,6 +371,14 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/groups/{folder}/grants", g(d.handleGroupGrantAdd))
 	mux.HandleFunc("POST /dash/groups/{folder}/grants/revoke", g(d.handleGroupGrantRevoke))
 
+	// Chat portal — browse groups, open/continue web chat sessions. A single
+	// trailing-wildcard ({folder...}) dispatcher routes the bare /dash/chat/
+	// (empty tail → portal) and nested folders (corp/eng/sre → group page);
+	// Go's mux forbids a bare /dash/chat/ next to {folder...} (both match the
+	// empty tail), so we dispatch inside one handler like the groups routes.
+	mux.HandleFunc("GET /dash/chat/{folder...}", g(d.dispatchChatGet))
+	mux.HandleFunc("POST /dash/chat/{folder...}", g(d.handleChatNew))
+
 	// Route tokens — issue/revoke per folder.
 	mux.HandleFunc("GET /dash/tokens/{folder}/", g(d.handleTokensFolder))
 	mux.HandleFunc("POST /dash/tokens/{folder}/", g(d.handleTokensFolder))
@@ -403,6 +411,7 @@ var navLinks = []struct {
 	operator    bool
 }{
 	{"/dash/", "arizuko", false},
+	{"/dash/chat/", "chat", false},
 	{"/dash/services/", "services", true},
 	{"/dash/status/", "status", false},
 	{"/dash/tasks/", "tasks", false},
