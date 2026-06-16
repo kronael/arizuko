@@ -17,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"html/template"
+
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/theme"
 )
 
 // oauth carries everything the /auth/* handlers need: the signer (authd), the
@@ -69,17 +72,22 @@ func (s *server) registerOAuth(mux *http.ServeMux, cfg *core.Config) {
 
 func (o *oauth) loginPage(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
+	errMsg := r.URL.Query().Get("error")
+	if errMsg == "unauthorized" {
+		b.WriteString(`<p class="banner-err">Not authorised — contact the operator to request access.</p>`)
+	}
+	b.WriteString(`<p class="sub">Sign in to continue</p>`)
 	if o.cfg.GoogleClientID != "" {
-		b.WriteString(`<a href="/auth/google">Sign in with Google</a> `)
+		b.WriteString(`<a class="oauth-btn" href="/auth/google">Sign in with Google</a>`)
 	}
 	if o.cfg.GitHubClientID != "" {
-		b.WriteString(`<a href="/auth/github">Sign in with GitHub</a> `)
+		b.WriteString(`<a class="oauth-btn" href="/auth/github">Sign in with GitHub</a>`)
 	}
 	if o.cfg.DiscordClientID != "" {
-		b.WriteString(`<a href="/auth/discord">Sign in with Discord</a>`)
+		b.WriteString(`<a class="oauth-btn" href="/auth/discord">Sign in with Discord</a>`)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><body><h1>arizuko</h1>%s</body></html>`, b.String())
+	fmt.Fprint(w, theme.Page("Sign in", template.HTML(b.String())))
 }
 
 // redirect builds the provider authorize URL and writes the CSRF state + PKCE
