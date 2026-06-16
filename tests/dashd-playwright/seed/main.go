@@ -142,6 +142,10 @@ func main() {
 	}); err != nil {
 		log.Fatalf("seed: put message: %v", err)
 	}
+	// Mark one message errored so the portal alert banner appears in tests.
+	if _, err := sqlDB.Exec(`UPDATE messages SET errored=1 WHERE id='seed-msg-1'`); err != nil {
+		log.Fatalf("seed: mark errored: %v", err)
+	}
 
 	if err := os.WriteFile(
 		filepath.Join(dataDir, "groups", "inbox", "MEMORY.md"),

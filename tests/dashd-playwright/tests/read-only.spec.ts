@@ -15,6 +15,22 @@ test.describe('read-only pages', () => {
     await expect(page.locator('.tiles')).toContainText('groups');
   });
 
+  test('portal /dash/ shows alert banner for errored chats', async ({
+    page,
+    context,
+  }) => {
+    // Seed marks seed-msg-1 as errored=1 — banner must appear and link to /dash/status/.
+    await context.setExtraHTTPHeaders({
+      'X-User-Sub': 'testadmin',
+      'X-User-Groups': '**',
+    });
+    await page.goto('/dash/');
+    const banner = page.locator('.banner-warn');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('errored chat');
+    await expect(banner.locator('a')).toHaveAttribute('href', '/dash/status/');
+  });
+
   test('/dash/status/ shows group count row', async ({ page }) => {
     await page.goto('/dash/status/');
     await expect(page.locator('h1')).toHaveText('Status');
