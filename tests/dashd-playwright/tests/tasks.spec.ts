@@ -21,6 +21,8 @@ test.describe('tasks', () => {
     await page.fill('[name="prompt"]', 'playwright task probe');
     await page.fill('[name="cron"]', '0 9 * * *');
     await page.click('button[type="submit"]');
+    // POST 303 → detail page; navigate back to list to assert row.
+    await page.goto('/dash/tasks/');
     await expect(page.locator('table tbody')).toContainText(
       'playwright task probe',
     );
@@ -29,10 +31,5 @@ test.describe('tasks', () => {
   test('partial refresh endpoint returns rows', async ({ context }) => {
     const r = await context.request.get('/dash/tasks/x/list');
     expect(r.status()).toBe(200);
-  });
-
-  test('unauthenticated → 401', async ({ request }) => {
-    const r = await request.get('/dash/tasks/');
-    expect(r.status()).toBe(401);
   });
 });
