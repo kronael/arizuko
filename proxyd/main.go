@@ -111,9 +111,10 @@ type server struct {
 	stRoutd     *store.Store    // routd.db: acl, auth_users, route_tokens (split ownership)
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
-	ks          *auth.KeySet      // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
-	svc         *auth.TokenSource // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
-	chatAnonDOS *rateLimiter      // anon DoS shield, IP-keyed (not metering)
+	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
+	ks          *auth.KeySet           // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
+	svc         *auth.TokenSource      // service:proxyd token presented to backends (nil → local dev, X-User-* unsigned)
+	chatAnonDOS *rateLimiter           // anon DoS shield, IP-keyed (not metering)
 	pubRedir    *pubRedirect
 }
 
@@ -213,12 +214,17 @@ func (p *pubRedirect) reachable() bool {
 func newServer(cfg config, st, stRoutd *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
 	routes := loadInitialRoutes(cfg.routesJSON, st)
 	rr := newRoutesResource(st, routes)
+	var ap *httputil.ReverseProxy
+	if cfg.authdURL != "" {
+		ap = proxy(cfg.authdURL)
+	}
 	return &server{
 		cfg:         cfg,
 		st:          st,
 		stRoutd:     stRoutd,
 		rr:          rr,
 		viteProxy:   proxy(cfg.viteAddr),
+		authdProxy:  ap,
 		ks:          ks,
 		svc:         svc,
 		chatAnonDOS: newRateLimiter(cfg.chatAnonDosRPM, time.Minute),
@@ -381,9 +387,10 @@ func (rl *rateLimiter) allow(key string) bool {
 
 func (s *server) handler(aud *audit.Audit) http.Handler {
 	mux := http.NewServeMux()
-	// Compose always sets AUTHD_URL, so new logins 302 to authd's ES256 OAuth.
-	// Existing HS256 sessions still verify via tryAuth's dual path.
-	mux.HandleFunc("/auth/", s.redirectAuthToAuthd)
+	// Proxy /auth/* to authd internally — the browser sees only the public
+	// WEB_HOST URL throughout the OAuth flow. Redirecting to authdURL would
+	// expose the Docker-internal address (http://authd:8080) to the browser.
+	mux.HandleFunc("/auth/", s.handleAuth)
 	resreg.RegisterREST(mux, routesResourceDecl(s.rr), callerFromHTTP(s.ks))
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("proxyd", []string{"proxyd_routes"}))
 	if obs.MetricsEnabled() {
@@ -888,15 +895,17 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 	return s.setUserHeaders(r, u.Sub, u.Name, s.stRoutd.UserScopes(u.Sub))
 }
 
-// redirectAuthToAuthd 302s a browser /auth/* request to authd's matching
-// /auth/* endpoint (soak step: new logins mint ES256 at authd). Path + query
-// are preserved so /auth/login?return=... and provider callbacks carry through.
-func (s *server) redirectAuthToAuthd(w http.ResponseWriter, r *http.Request) {
-	loc := s.cfg.authdURL + r.URL.Path
-	if r.URL.RawQuery != "" {
-		loc += "?" + r.URL.RawQuery
+// handleAuth proxies /auth/* to authd without redirecting. A redirect would
+// send the browser to http://authd:8080 (Docker-internal), which is unreachable
+// from outside the container network. Proxying keeps the public WEB_HOST URL
+// visible to the browser throughout the OAuth flow.
+// Falls through to 404 in local dev (authdURL unset, authdProxy nil).
+func (s *server) handleAuth(w http.ResponseWriter, r *http.Request) {
+	if s.authdProxy == nil {
+		http.NotFound(w, r)
+		return
 	}
-	http.Redirect(w, r, loc, http.StatusFound)
+	s.authdProxy.ServeHTTP(w, r)
 }
 
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {

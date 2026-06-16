@@ -631,16 +631,31 @@ func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
 	}
 }
 
-// Soak step 6: with AUTHD_URL set, /auth/login 302s to authd; query preserved.
-func TestRedirectAuthToAuthd(t *testing.T) {
-	s := &server{cfg: config{authdURL: "https://authd.example"}}
+// handleAuth proxies to authd when authdProxy is set; 404 when unset (local dev).
+func TestHandleAuth(t *testing.T) {
+	// With authdProxy set: request is proxied, not redirected.
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Proxied-Path", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	s := &server{authdProxy: proxy(backend.URL)}
 	r := httptest.NewRequest("GET", "/auth/login?return=/me", nil)
 	w := httptest.NewRecorder()
-	s.redirectAuthToAuthd(w, r)
-	if w.Code != http.StatusFound {
-		t.Fatalf("status = %d, want 302", w.Code)
+	s.handleAuth(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "https://authd.example/auth/login?return=/me" {
-		t.Errorf("Location = %q", loc)
+	if got := w.Header().Get("X-Proxied-Path"); got != "/auth/login" {
+		t.Errorf("proxied path = %q, want /auth/login", got)
+	}
+
+	// Without authdProxy (local dev): 404.
+	s2 := &server{}
+	w2 := httptest.NewRecorder()
+	s2.handleAuth(w2, httptest.NewRequest("GET", "/auth/login", nil))
+	if w2.Code != http.StatusNotFound {
+		t.Fatalf("no proxy: status = %d, want 404", w2.Code)
 	}
 }

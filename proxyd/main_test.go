@@ -865,10 +865,16 @@ func TestProxydRouteRawSecretAsRefreshCookieRejected(t *testing.T) {
 
 // --- oauth / auth routes via handler ----------------------------------------
 
-// /auth/* 302s to authd (the only OAuth host since the local HS256 mount was
-// removed). Path + query carry through so logins and provider callbacks reach
-// authd unchanged, bypassing requireAuth.
-func TestProxydHandlerAuthRedirectsToAuthd(t *testing.T) {
+// /auth/* is proxied to authd (not redirected — a redirect would expose the
+// Docker-internal authd URL to the browser). Path + query carry through so
+// logins and provider callbacks reach authd unchanged, bypassing requireAuth.
+func TestProxydHandlerAuthProxiesToAuthd(t *testing.T) {
+	authd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Proxied-Path", r.URL.RequestURI())
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer authd.Close()
+
 	st, err := store.OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -877,18 +883,19 @@ func TestProxydHandlerAuthRedirectsToAuthd(t *testing.T) {
 
 	s, up := testRouteServer(t, st, "testsecret")
 	defer up.Close()
-	s.cfg.authdURL = "http://authd:8080"
+	s.cfg.authdURL = authd.URL
+	s.authdProxy = proxy(authd.URL)
 	h := s.handler(nil)
 
 	for _, path := range []string{"/auth/login", "/auth/google/callback?code=x&state=y"} {
 		req := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
-		if w.Code != http.StatusFound {
-			t.Errorf("%s status = %d, want 302 to authd", path, w.Code)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s status = %d, want 200 (proxied)", path, w.Code)
 		}
-		if loc := w.Header().Get("Location"); loc != "http://authd:8080"+path {
-			t.Errorf("%s Location = %q, want authd + path", path, loc)
+		if got := w.Header().Get("X-Proxied-Path"); got != path {
+			t.Errorf("%s proxied path = %q, want %q", path, got, path)
 		}
 	}
 }
