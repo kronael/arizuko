@@ -36,6 +36,11 @@ func htmlBanner(class, msg string) string {
 	return fmt.Sprintf(`<div class="banner-%s">%s</div>`, class, esc(msg))
 }
 
+// htmlBannerRaw is htmlBanner for pre-escaped/trusted HTML content.
+func htmlBannerRaw(class, html string) string {
+	return fmt.Sprintf(`<div class="banner-%s">%s</div>`, class, html)
+}
+
 func htmlSection(title, body string) string {
 	return fmt.Sprintf(`<h2>%s</h2>%s`, esc(title), body)
 }
