@@ -1,17 +1,20 @@
 // seed: prepare a throwaway DATA_DIR for the playwright dashd suite.
 //
-// Creates the dir layout (store/, groups/), runs schema migrations on a
-// fresh sqlite, and seeds:
-//   - one group `solo/inbox`
-//   - one route targeting it
-//   - ACL grants: principal `testadmin` -> action `admin` scope `**` (operator),
-//     principal `testuser` -> no admin grants (write attempts must 403)
+// Creates the dir layout, runs migrations on routd.db (routd.Open) and
+// messages.db (store.Open), and seeds:
+//   - group `inbox` in routd.db
+//   - route targeting it in routd.db
+//   - ACL grant: testadmin → admin on ** (operator); testuser has none
+//   - sample message in routd.db for /dash/activity
+//   - MEMORY.md on disk for /dash/memory
+//
+// Since the split, dashd's adminDB() points at routd.db for all admin
+// tables (acl/groups/routes/secrets). Seed must write to routd.db.
 //
 // Usage: seed -data <dir>
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +22,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/routd"
 	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
@@ -31,60 +36,62 @@ func main() {
 		log.Fatal("seed: -data required")
 	}
 
-	for _, sub := range []string{"store", "groups", "groups/inbox"} {
-		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
+	storeDir := filepath.Join(dataDir, "store")
+	for _, sub := range []string{storeDir, filepath.Join(dataDir, "groups"), filepath.Join(dataDir, "groups", "inbox")} {
+		if err := os.MkdirAll(sub, 0o755); err != nil {
 			log.Fatalf("seed: mkdir %s: %v", sub, err)
 		}
 	}
 
-	dbPath := filepath.Join(dataDir, "store", "messages.db")
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	// routd.db — admin tables (acl, groups, routes, secrets, messages).
+	rdb, err := routd.Open(storeDir)
 	if err != nil {
-		log.Fatalf("seed: open db: %v", err)
+		log.Fatalf("seed: open routd.db: %v", err)
 	}
-	defer db.Close()
+	defer rdb.Close()
 
-	if err := store.Migrate(db); err != nil {
-		log.Fatalf("seed: migrate: %v", err)
+	// messages.db — apply schema so dashd opens it without errors.
+	sdb, err := store.Open(storeDir)
+	if err != nil {
+		log.Fatalf("seed: open messages.db: %v", err)
+	}
+	defer sdb.Close()
+
+	// onbod.db — needed for /dash/invites/. dashd opens it as dbOnbod.
+	odb, err := store.OpenOnbod(storeDir)
+	if err != nil {
+		log.Fatalf("seed: open onbod.db: %v", err)
+	}
+	defer odb.Close()
+
+	now := time.Now().UTC()
+	nowS := now.Format(time.RFC3339)
+
+	if err := rdb.PutGroup(core.Group{Folder: "inbox", AddedAt: now, Product: "assistant"}); err != nil {
+		log.Fatalf("seed: put group: %v", err)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	sqlDB := rdb.SQL()
 
-	if _, err := db.Exec(
-		`INSERT INTO groups (folder, added_at, product) VALUES (?, ?, 'assistant')`,
-		"inbox", now,
-	); err != nil {
-		log.Fatalf("seed: insert group: %v", err)
-	}
-
-	if _, err := db.Exec(
-		`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
-		0, "chat_jid=telegram:user/seed", "inbox",
-	); err != nil {
+	if _, err := sqlDB.Exec(`INSERT INTO routes (seq, match, target) VALUES (?, ?, ?)`,
+		0, "chat_jid=telegram:user/seed", "inbox"); err != nil {
 		log.Fatalf("seed: insert route: %v", err)
 	}
 
-	// Operator-tier admin via the `**` scope row.
-	if _, err := db.Exec(
+	if _, err := sqlDB.Exec(
 		`INSERT INTO acl (principal, action, scope, effect, granted_at, granted_by)
-		 VALUES ('testadmin', 'admin', '**', 'allow', ?, 'seed')`,
-		now,
-	); err != nil {
-		log.Fatalf("seed: insert acl operator: %v", err)
+		 VALUES ('testadmin', 'admin', '**', 'allow', ?, 'seed')`, nowS); err != nil {
+		log.Fatalf("seed: insert acl: %v", err)
 	}
 
-	// Seed a sample message for /dash/activity to render.
-	if _, err := db.Exec(
-		`INSERT INTO messages
-		   (id, chat_jid, sender, content, timestamp, source, verb)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		"seed-msg-1", "telegram:user/seed", "testuser", "hello from seed",
-		now, "telegram", "say",
-	); err != nil {
-		log.Fatalf("seed: insert message: %v", err)
+	if err := rdb.PutMessage(core.Message{
+		ID: "seed-msg-1", ChatJID: "telegram:user/seed",
+		Sender: "testuser", Content: "hello from seed",
+		Timestamp: now, Source: "telegram", Verb: "say",
+	}); err != nil {
+		log.Fatalf("seed: put message: %v", err)
 	}
 
-	// MEMORY.md for the seeded group so /dash/memory has content.
 	if err := os.WriteFile(
 		filepath.Join(dataDir, "groups", "inbox", "MEMORY.md"),
 		[]byte("# seed MEMORY\n\nplaywright test marker M-MARK-XYZ\n"),

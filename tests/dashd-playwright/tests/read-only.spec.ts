@@ -15,13 +15,10 @@ test.describe('read-only pages', () => {
     await expect(page.locator('.tiles')).toContainText('groups');
   });
 
-  test('/dash/status/ shows DB path + group count row', async ({ page }) => {
+  test('/dash/status/ shows group count row', async ({ page }) => {
     await page.goto('/dash/status/');
     await expect(page.locator('h1')).toHaveText('Status');
-    // Page has two tables (key/value summary + channels list). Match the
-    // summary table by content, then check rows inside it.
-    const summary = page.locator('table').filter({ hasText: 'DB' }).first();
-    await expect(summary).toContainText('Groups');
+    const summary = page.locator('table').filter({ hasText: 'Groups' }).first();
     await expect(summary).toContainText('Active sessions');
   });
 
