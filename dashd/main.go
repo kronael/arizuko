@@ -283,6 +283,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	// proxyd cannot forge an operator identity.
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
+	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
 	mux.HandleFunc("GET /dash/status/", g(d.handleStatus))
 	mux.HandleFunc("GET /dash/tasks/", g(d.handleTasks))
 	mux.HandleFunc("GET /dash/activity/", g(d.handleActivity))
@@ -363,6 +364,7 @@ var navLinks = []struct {
 	operator    bool
 }{
 	{"/dash/", "arizuko", false},
+	{"/dash/services/", "services", true},
 	{"/dash/status/", "status", false},
 	{"/dash/tasks/", "tasks", false},
 	{"/dash/activity/", "activity", false},

@@ -203,6 +203,22 @@ td:first-child { white-space: nowrap; }
 .tile h2 { margin: 0 0 .3em; font-size: .95em; color: var(--fg); border: none; padding: 0; font-weight: 600; }
 .tile p { color: var(--dim); font-size: .85em; margin: 0; }
 
+/* --- Services hub (dashd) --- */
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem; margin: 1rem 0;
+}
+.service-tile {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; background: var(--card);
+}
+.service-tile h3 { margin: 0 0 .25rem; font-size: 1rem; border: none; padding: 0; }
+.service-tile .desc { color: var(--dim); font-size: .85em; margin: .25rem 0; }
+.status-ok { color: var(--ok); }
+.status-err { color: var(--danger); }
+.status-unknown { color: var(--dim); }
+
 /* --- Nav (active state for breadcrumbs) --- */
 nav a[aria-current="page"] {
   color: var(--accent);
