@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"sync"
 	"time"
@@ -57,8 +58,8 @@ func probeHealth(host string) string {
 }
 
 // classifyHealth maps a /health GET outcome to a status.
-// DNS lookup failure = container not deployed = unknown.
-// Connection refused or timeout = deployed but daemon down = err.
+// DNS failure or client timeout (host unreachable in ≤500ms) = unknown.
+// Connection refused = deployed but daemon down = err.
 func classifyHealth(resp *http.Response, err error) string {
 	if err == nil {
 		defer resp.Body.Close()
@@ -69,6 +70,10 @@ func classifyHealth(resp *http.Response, err error) string {
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
+		return statusUnknown
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Timeout() {
 		return statusUnknown
 	}
 	return statusErr
