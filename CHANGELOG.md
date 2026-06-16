@@ -16,6 +16,54 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.53.0] — 2026-06-16
+
+> arizuko v0.53.0 — operator cockpit: services hub and federated dashboards
+>
+> The operator dashboard gains a live services grid and federated per-daemon control planes for onboarding and scheduled tasks.
+>
+> • Services hub — `/dash/services/` probes all 8 core daemons concurrently; DNS failure = unknown, refused/timeout = err (was always unknown); linked tiles for built pages only
+> • Onboarding queue — `GET /v1/onboarding` list + approve/deny/reprompt; `/dash/onbod/` control plane with action buttons
+> • Scheduled tasks control — `/dash/timed/` shows task table, loop health, lag/stuck flags via routd `/v1/tasks`
+> • Portal alert banner — landing page promotes already-computed errored-chat and failed-task counts into a visible banner with link to status
+> • Proxyd federated routing — `/dash/onbod/` and `/dash/timed/` route to their own daemons; `/dash/` catch-all remains dashd
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Cockpit services hub (spec 6/1).** `GET /dash/services/` — operator-only tile grid,
+  8 core daemons, concurrent 500ms `/health` probes. `classifyHealth` now distinguishes
+  DNS failure (container not deployed = `unknown`) from connection-refused/timeout (daemon
+  down = `err`). Tiles with a built control plane link to it; others render as plain text
+  until the page ships.
+- **Onboarding queue API.** `ListOnboarding`, `ApproveOnboarding`, `DenyOnboarding`,
+  `RepromptOnboarding` in `store/onboarding.go`. Four new `GET/POST /v1/onboarding`
+  routes in onbod, gated by `invites:write` scope.
+- **`/dash/onbod/` federated dashboard.** Operator-gated table of the admission queue
+  with approve/deny/reprompt action buttons as form POSTs.
+- **`/dash/timed/` federated dashboard.** Reads tasks from routd `GET /v1/tasks` via
+  service bearer (no direct DB read), shows loop health in-memory with lag/stuck flags.
+- **Portal alert banner.** `handlePortal` promotes `erroredCount`/`failedTasks` (already
+  computed) into a visible `banner-warn` with a link to `/dash/status/`.
+- **Playwright harness targets.** `make play` (Playwright suite, was `test-dash`),
+  `make integration` (pure integration tests), `make test-all` (unit + integration + play).
+- **Proxyd federated routes.** `/dash/onbod/` → onbod:8080 and `/dash/timed/` → timed:8080
+  added to `coreProxydRoutes` before the `/dash/` catch-all → dashd.
+- **BUGS.md.** Open-issues queue seeded with critique findings: spec 6/1 read-path
+  contract, missing audit-log page, missing usage/analytics page, relative timestamps,
+  nav identity signal.
+
+### Fixed
+
+- **`classifyHealth` distinguished DNS from refused.** Previously mapped all errors to
+  `unknown`; a daemon that is genuinely down in production was indistinguishable from
+  a container not deployed. Now: DNS lookup failure → `unknown`; refused/timeout → `err`.
+- **prettier exclude for BUGS.md.** `.pre-commit-config.yaml` had `bugs\.md$` (lowercase);
+  file is `BUGS.md` — hook failed on every commit.
+
+---
+
 ## [v0.52.0] — 2026-06-15
 
 > arizuko v0.52.0 — threads, mentions, and reliability
