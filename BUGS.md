@@ -52,8 +52,9 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
 - **Scope:** dashd/main.go activity handler
 - **Affected:** operators during incident response
 - **Source:** dashd/main.go:688, 628-639
-- **Status:** open
-- **Fix:**
+- **Status:** partial — relative timestamps added (`relativeTS`, abbr tooltip still shows ISO full);
+  pagination not yet implemented
+- **Fix:** `relativeTS` function + writeActivityRows updated (2026-06-16)
 
 ## Nav chrome: no identity/scope signal (2026-06-16, open)
 
@@ -66,5 +67,5 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
 - **Scope:** dashd/main.go dashNavFor
 - **Affected:** all dashd pages
 - **Source:** dashd/main.go:362-376
-- **Status:** open
-- **Fix:**
+- **Status:** resolved — name + ◆ operator badge added to nav as profile link (2026-06-16)
+- **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
@@ -87,6 +88,27 @@ func shortTS(ts string) string {
 		return ts[:16]
 	}
 	return ts
+}
+
+// relativeTS returns a human-relative label ("now", "5m", "2h", "3d") for use
+// in <abbr> display alongside the full ISO timestamp as the title.
+func relativeTS(ts string) string {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, ts); err == nil {
+			d := time.Since(t)
+			switch {
+			case d < time.Minute:
+				return "now"
+			case d < time.Hour:
+				return fmt.Sprintf("%dm", int(d.Minutes()))
+			case d < 24*time.Hour:
+				return fmt.Sprintf("%dh", int(d.Hours()))
+			default:
+				return fmt.Sprintf("%dd", int(d.Hours()/24))
+			}
+		}
+	}
+	return shortTS(ts)
 }
 
 // folderPath URL-encodes a group folder for use in path segments.
@@ -405,8 +427,19 @@ func dashNavFor(r *http.Request) string {
 			break
 		}
 	}
+	// identity badge: name from X-User-Name, fallback to sub sans provider prefix.
+	name := r.Header.Get("X-User-Name")
+	if name == "" {
+		sub := r.Header.Get("X-User-Sub")
+		if i := strings.Index(sub, ":"); i >= 0 {
+			name = sub[i+1:]
+		} else {
+			name = sub
+		}
+	}
+
 	var b strings.Builder
-	b.WriteString(`<nav hx-boost="true" hx-target="#content" hx-swap="innerHTML" hx-indicator="#global-spinner">`)
+	b.WriteString(`<nav hx-boost="true" hx-target="#content" hx-swap="innerHTML" hx-indicator="#global-spinner" style="display:flex;align-items:center;flex-wrap:wrap">`)
 	for _, l := range navLinks {
 		if l.operator && !operator {
 			continue
@@ -422,6 +455,13 @@ func dashNavFor(r *http.Request) string {
 		} else {
 			fmt.Fprintf(&b, `<a href=%q>%s</a>`, l.Href, l.Label)
 		}
+	}
+	if name != "" {
+		badge := esc(name)
+		if operator {
+			badge += " ◆"
+		}
+		fmt.Fprintf(&b, `<a href="/dash/profile/" style="margin-left:auto;font-size:.85em;white-space:nowrap">%s</a>`, badge)
 	}
 	b.WriteString(`</nav><button class="theme-toggle"></button>`)
 	b.WriteString(`<div id="global-spinner" class="htmx-indicator dim" style="position:fixed;top:8px;right:12px;font-size:0.85em">loading…</div>`)
@@ -735,7 +775,7 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 			chatCell = `<a href="/dash/groups/` + esc(folderPath(folder)) + `">` + chatCell + `</a>`
 		}
 		fmt.Fprintf(w, `<tr><td><abbr title="%s">%s</abbr></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
-			esc(ts), esc(shortTS(ts)),
+			esc(ts), esc(relativeTS(ts)),
 			esc(source),
 			chatCell,
 			esc(sender),
