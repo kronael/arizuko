@@ -72,6 +72,23 @@ func safeJoin(base, leaf string) (string, error) {
 
 var esc = template.HTMLEscapeString
 
+// shortTS trims a full ISO timestamp to HH:MM for compact display.
+// Input may be "2026-06-16T15:58:28Z" or "2026-06-16 15:58:28"; output "15:58".
+func shortTS(ts string) string {
+	for i, r := range ts {
+		if r == 'T' || r == ' ' {
+			rest := ts[i+1:]
+			if len(rest) >= 5 {
+				return rest[:5]
+			}
+		}
+	}
+	if len(ts) > 16 {
+		return ts[:16]
+	}
+	return ts
+}
+
 // folderPath URL-encodes a group folder for use in path segments.
 // Nested folders like "rhias/nemo" become "rhias%2Fnemo" so Go's
 // net/http mux {folder} wildcard matches them as a single segment.
@@ -516,29 +533,54 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	groupCount := d.countVisibleGroups(allowed, operator)
 	erroredCount := d.countVisibleErroredChats(allowed, operator)
-	var sessionCount int
-	// Sessions count is instance-wide infra; only shown in full to operators.
-	if operator {
-		if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&sessionCount); err != nil {
-			slog.Warn("status: sessions scan", "err", err)
-		}
-	}
 
-	bannerText := fmt.Sprintf("%d groups, %d errored chats", groupCount, erroredCount)
 	bannerClass := "ok"
 	if erroredCount > 0 {
 		bannerClass = "warn"
 	}
-	fmt.Fprint(w, `<p class="dim">Service health</p>`)
-	fmt.Fprint(w, htmlBanner(bannerClass, bannerText))
-
-	metricRows := [][]string{
-		{`Groups`, fmt.Sprintf(`%d`, groupCount)},
-		{`Active sessions`, fmt.Sprintf(`%d`, sessionCount)},
+	errLink := fmt.Sprintf(`%d groups`, groupCount)
+	if erroredCount > 0 {
+		errLink += fmt.Sprintf(` &middot; <a href="/dash/activity/">%d errored chat%s</a>`,
+			erroredCount, pluralS(erroredCount))
 	}
-	fmt.Fprint(w, htmlTable([]string{"metric", "value"}, metricRows))
+	fmt.Fprint(w, `<p class="dim">Service health</p>`)
+	fmt.Fprint(w, htmlBannerRaw(bannerClass, errLink))
+
+	// Sessions breakdown — operator-only; group_folder → session count.
+	if operator {
+		rows, err := d.adminDB().Query(
+			`SELECT group_folder, COUNT(*) FROM sessions GROUP BY group_folder ORDER BY group_folder`)
+		if err != nil {
+			slog.Warn("status: sessions query", "err", err)
+		} else {
+			defer rows.Close()
+			var sessionRows [][]string
+			var total int
+			for rows.Next() {
+				var folder string
+				var n int
+				if err := rows.Scan(&folder, &n); err == nil {
+					fp := folderPath(folder)
+					link := fmt.Sprintf(`<a href="/dash/groups/%s">%s</a>`, esc(fp), esc(folder))
+					sessionRows = append(sessionRows, []string{link, fmt.Sprintf("%d", n)})
+					total += n
+				}
+			}
+			if len(sessionRows) > 0 {
+				fmt.Fprintf(w, `<h2>Active sessions <span class="dim" style="font-weight:normal">%d total</span></h2>`, total)
+				fmt.Fprint(w, htmlTable([]string{"group", "sessions"}, sessionRows))
+			}
+		}
+	}
 
 	pageClose(w, r)
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func (d *dash) handleTasks(w http.ResponseWriter, r *http.Request) {
@@ -692,8 +734,8 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 		if folder != "" {
 			chatCell = `<a href="/dash/groups/` + esc(folderPath(folder)) + `">` + chatCell + `</a>`
 		}
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
-			esc(ts),
+		fmt.Fprintf(w, `<tr><td><abbr title="%s">%s</abbr></td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
+			esc(ts), esc(shortTS(ts)),
 			esc(source),
 			chatCell,
 			esc(sender),
