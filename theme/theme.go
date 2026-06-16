@@ -353,7 +353,7 @@ const ThemeScript = `<script>(function(){var t=localStorage.getItem('hub-theme')
 // ToggleScript adds the theme toggle button behavior. Include after body
 // content or at end of head. Requires a <button class="theme-toggle"> in
 // the DOM.
-const ToggleScript = `<script>(function(){window.toggleTheme=function(){var c=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',c);localStorage.setItem('hub-theme',c);var b=document.querySelector('.theme-toggle');if(b)b.textContent=c==='dark'?'\u{1F319}':'\u{1F506}'};document.addEventListener('DOMContentLoaded',function(){var b=document.querySelector('.theme-toggle');if(b){b.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'\u{1F319}':'\u{1F506}';b.addEventListener('click',toggleTheme)}})})();</script>`
+const ToggleScript = `<script>(function(){function themeIcon(t){return t==='dark'?'☀️':'\u{1F319}'}window.toggleTheme=function(){var c=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',c);localStorage.setItem('hub-theme',c);var b=document.querySelector('.theme-toggle');if(b)b.textContent=themeIcon(c)};document.addEventListener('DOMContentLoaded',function(){var b=document.querySelector('.theme-toggle');if(b){b.textContent=themeIcon(document.documentElement.getAttribute('data-theme'));b.addEventListener('click',toggleTheme)}})})();</script>`
 
 func Head(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>arizuko — ` +

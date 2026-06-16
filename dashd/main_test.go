@@ -256,8 +256,8 @@ func TestRenderMemorySectionClaudeMissing(t *testing.T) {
 	if !strings.Contains(body, "MEMORY.md") {
 		t.Errorf("MEMORY.md header missing: body = %q", body)
 	}
-	if !strings.Contains(body, "/dav/g1/CLAUDE.md") {
-		t.Errorf("CLAUDE.md workspace link missing: body = %q", body)
+	if !strings.Contains(body, "/dav/g1/") {
+		t.Errorf("workspace link missing: body = %q", body)
 	}
 }
 

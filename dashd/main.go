@@ -411,11 +411,13 @@ func dashNavFor(r *http.Request) string {
 	return b.String()
 }
 
+const navActiveScript = `<script>document.addEventListener('htmx:afterSettle',function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');var active=h==='/dash/'?(p==='/dash/'||p==='/dash'):p.startsWith(h);active?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')})});</script>`
+
 func dashHead(title string) string {
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
 		`<title>` + esc(title) + ` — arizuko</title>` +
 		`<script src="/dash/assets/htmx.min.js"></script>` +
-		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + `</head>`
+		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + navActiveScript + `</head>`
 }
 
 var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
@@ -678,20 +680,22 @@ func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operat
 				esc(err.Error()))
 			continue
 		}
-		if !operator {
-			folder, seen := folderOf[chatJID]
-			if !seen {
-				folder = d.jidFolder(chatJID)
-				folderOf[chatJID] = folder
-			}
-			if !visible(allowed, operator, folder) {
-				continue
-			}
+		folder, seen := folderOf[chatJID]
+		if !seen {
+			folder = d.jidFolder(chatJID)
+			folderOf[chatJID] = folder
 		}
-		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td><code>%s</code></td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
+		if !operator && !visible(allowed, operator, folder) {
+			continue
+		}
+		chatCell := `<code>` + esc(chatJID) + `</code>`
+		if folder != "" {
+			chatCell = `<a href="/dash/groups/` + esc(folderPath(folder)) + `">` + chatCell + `</a>`
+		}
+		fmt.Fprintf(w, `<tr><td>%s</td><td>%s</td><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>`,
 			esc(ts),
 			esc(source),
-			esc(chatJID),
+			chatCell,
 			esc(sender),
 			esc(verb.String),
 			esc(content),
@@ -1106,12 +1110,8 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 		return
 	}
 
-	fmt.Fprintf(w, `<p class="dim">Edit in workspace: `+
-		`<a href="/dav/%s/MEMORY.md" target="_blank">MEMORY.md</a> &middot; `+
-		`<a href="/dav/%s/PERSONA.md" target="_blank">PERSONA.md</a> &middot; `+
-		`<a href="/dav/%s/CLAUDE.md" target="_blank">CLAUDE.md</a> &middot; `+
-		`<a href="/dav/%s/" target="_blank">workspace/</a></p>`,
-		esc(folder), esc(folder), esc(folder), esc(folder))
+	fmt.Fprintf(w, `<p><a class="btn btn-secondary" href="/dav/%s/" target="_blank">Open workspace ↗</a></p>`,
+		esc(folder))
 
 	var memBuf strings.Builder
 	renderCappedFile(&memBuf, groupDir, "MEMORY.md", true)
