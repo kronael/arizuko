@@ -545,3 +545,34 @@ func TestDelegatedReplyEngagesDispatchChat(t *testing.T) {
 		t.Fatal("engagement leaked onto the return-substituted origin chat")
 	}
 }
+
+// TestSetLastReplyPreservesEngagement: a broadcast send from a different group
+// must not hijack the engagement window set by SetEngagement. Regression for
+// the v0.52.0 routing glitch: happy's migration broadcast called
+// SetLastReply("telegram:user/X","","id","happy") which clobbered
+// engaged_folder="krons" → "happy" while leaving engaged_until intact.
+func TestSetLastReplyPreservesEngagement(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jid := "telegram:user/1112184352"
+	// krons claims engagement on the DM (normal reply path).
+	if err := db.SetEngagement(jid, "", "krons", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	// happy's migration broadcast calls SetLastReply on the same DM with a different folder.
+	if err := db.SetLastReply(jid, "", "msg-broadcast", "happy"); err != nil {
+		t.Fatal(err)
+	}
+	// engaged_folder must still be "krons" — the broadcast must not hijack it.
+	folder, ok := db.Engaged(jid, "")
+	if !ok || folder != "krons" {
+		t.Fatalf("Engaged=%q,%v after broadcast SetLastReply; want krons,true", folder, ok)
+	}
+	// but last_reply_id must have updated (that's SetLastReply's job).
+	if id := db.LastReplyID(jid, ""); id != "msg-broadcast" {
+		t.Fatalf("LastReplyID=%q after SetLastReply; want msg-broadcast", id)
+	}
+}
