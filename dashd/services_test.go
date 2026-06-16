@@ -8,8 +8,9 @@ import (
 )
 
 // TestServicesOperator: an operator GET /dash/services/ renders one tile per
-// known daemon. In-test, the daemon hostnames don't resolve, so every tile is
-// "unknown" — but the grid, tiles, and per-daemon links must all be present.
+// known daemon. In-test, daemon hostnames fail DNS resolution → unknown status.
+// Built tiles link to their /dash/ surface; unbuilt tiles render the name as
+// plain text.
 func TestServicesOperator(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
@@ -28,14 +29,19 @@ func TestServicesOperator(t *testing.T) {
 		t.Errorf("missing services-grid")
 	}
 	for _, s := range services {
-		if !strings.Contains(body, s.Dash) {
-			t.Errorf("missing link to %s (%s)", s.Name, s.Dash)
+		if !strings.Contains(body, s.Name) {
+			t.Errorf("missing tile for %s", s.Name)
 		}
-		if !strings.Contains(body, ">"+s.Name+"</a>") {
-			t.Errorf("missing tile heading for %s", s.Name)
+		if s.Built {
+			if !strings.Contains(body, s.Dash) {
+				t.Errorf("built tile %s missing link to %s", s.Name, s.Dash)
+			}
+			if !strings.Contains(body, ">"+s.Name+"</a>") {
+				t.Errorf("built tile %s missing link text", s.Name)
+			}
 		}
 	}
-	// Unreachable hosts → unknown status, never err (red is for reachable-unhealthy).
+	// Unreachable via DNS → unknown (not err; err = deployed but down).
 	if !strings.Contains(body, `data-status="unknown"`) {
 		t.Errorf("expected unknown status for unresolvable hosts")
 	}
@@ -60,7 +66,7 @@ func TestServicesNonOperatorForbidden(t *testing.T) {
 
 func TestProbeHealthUnreachable(t *testing.T) {
 	if got := probeHealth("no-such-daemon-host"); got != statusUnknown {
-		t.Errorf("probeHealth(unreachable) = %q, want %q", got, statusUnknown)
+		t.Errorf("probeHealth(unresolvable) = %q, want %q", got, statusUnknown)
 	}
 }
 

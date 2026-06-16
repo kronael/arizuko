@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sort"
 	"sync"
@@ -9,26 +11,28 @@ import (
 )
 
 // service describes one daemon tile on the cockpit services hub. host is the
-// Docker-network name probed at <host>:8080/health; dash is the daemon's own
-// /dash/ surface (rendered as a link even before that surface exists).
+// Docker-network name probed at <host>:8080/health. Built is true when the
+// /Dash route is deployed; false = control plane in progress.
 type service struct {
-	Name string
-	Host string
-	Dash string
-	Desc string
+	Name  string
+	Host  string
+	Dash  string
+	Desc  string
+	Built bool
 }
 
 // services is the static daemon list the hub probes. No autodiscovery — route
 // entry IS registration (spec 6/1); adding a daemon here is a deliberate edit.
+// Set Built=true once the per-daemon /dash/ route is shipped.
 var services = []service{
-	{"routd", "routd", "/dash/routd/", "message router, route table, breakers"},
-	{"runed", "runed", "/dash/runed/", "agent container runs and tokens"},
-	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers"},
-	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy"},
-	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites"},
-	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks"},
-	{"webd", "webd", "/dash/webd/", "web chat widget and routes"},
-	{"davd", "davd", "/dash/davd/", "WebDAV workspace access"},
+	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", false},
+	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", false},
+	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers", false},
+	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", false},
+	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true},
+	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true},
+	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false},
+	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons
@@ -36,8 +40,8 @@ var services = []service{
 const healthTimeout = 500 * time.Millisecond
 
 // statusOK/Err/Unknown classify a tile's status dot. ok = /health 2xx;
-// err = reachable but unhealthy; unknown = unreachable (local dev, where
-// daemon hostnames don't resolve, or the daemon is down).
+// err = reachable-but-unhealthy OR refused/timeout (daemon down in production);
+// unknown = DNS failure (container not deployed or local-dev name mismatch).
 const (
 	statusOK      = "ok"
 	statusErr     = "err"
@@ -52,24 +56,27 @@ func probeHealth(host string) string {
 	return classifyHealth(resp, err)
 }
 
-// classifyHealth maps a /health GET outcome to a status. A dial/timeout error
-// (unreachable host) is "unknown", not "err" — in local dev the daemon names
-// don't resolve and that is expected, not a failure to surface red. A reachable
-// daemon returning non-2xx is "err".
+// classifyHealth maps a /health GET outcome to a status.
+// DNS lookup failure = container not deployed = unknown.
+// Connection refused or timeout = deployed but daemon down = err.
 func classifyHealth(resp *http.Response, err error) string {
-	if err != nil {
-		return statusUnknown
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return statusOK
+		}
+		return statusErr
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return statusOK
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return statusUnknown
 	}
 	return statusErr
 }
 
 // handleServices renders the cockpit services hub: one tile per known daemon
-// with a live /health status dot and a link into its /dash/ surface. Read-only,
-// operator-gated. Probes run concurrently so the page waits one timeout, not N.
+// with a live /health status dot. Tiles with Built=true link into their /dash/
+// surface; others show the name as plain text until that surface ships.
 func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -104,18 +111,24 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		}
 		summary += fmt.Sprintf("%d %s", counts[k], k)
 	}
-	fmt.Fprintf(w, `<p class="dim">Daemon health across the instance (%s). Click a tile for its control plane.</p>`, esc(summary))
+	fmt.Fprintf(w, `<p class="dim">Daemon health (%s). Control planes with a link are available; others are in progress.</p>`, esc(summary))
 
 	fmt.Fprint(w, `<div class="services-grid">`)
 	for i, s := range services {
+		var nameHTML string
+		if s.Built {
+			nameHTML = fmt.Sprintf(`<a href="%s">%s</a>`, esc(s.Dash), esc(s.Name))
+		} else {
+			nameHTML = esc(s.Name)
+		}
 		fmt.Fprintf(w,
 			`<div class="service-tile" data-status="%s">`+
-				`<h3><span class="status-%s">%s</span> <a href="%s">%s</a></h3>`+
+				`<h3><span class="status-%s">%s</span> %s</h3>`+
 				`<p class="desc">%s</p>`+
 				`</div>`,
 			esc(statuses[i]),
 			esc(statuses[i]), statusGlyph(statuses[i]),
-			esc(s.Dash), esc(s.Name),
+			nameHTML,
 			esc(s.Desc),
 		)
 	}
