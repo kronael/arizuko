@@ -632,6 +632,51 @@ func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
 }
 
 // handleAuth proxies to authd when authdProxy is set; 404 when unset (local dev).
+func TestTryRefreshViaAuthd(t *testing.T) {
+	k, ks := es256KeySet(t)
+	// Fake authd returns a fresh access JWT + rotated refresh_token cookie.
+	authd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/v1/refresh" {
+			http.NotFound(w, r)
+			return
+		}
+		tok, _ := k.Sign(auth.TokenClaims{Sub: "user:google:alice", Typ: "user"}, time.Hour)
+		http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "newrot", Path: "/"})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": tok})
+	}))
+	defer authd.Close()
+
+	s := &server{cfg: config{authdURL: authd.URL, authSecret: "s"}, ks: ks}
+	r := httptest.NewRequest("GET", "/dash/", nil)
+	r.AddCookie(&http.Cookie{Name: "refresh_token", Value: "oldtoken"})
+	w := httptest.NewRecorder()
+	r2 := s.tryRefreshViaAuthd(w, r)
+	if r2 == nil {
+		t.Fatal("tryRefreshViaAuthd returned nil")
+	}
+	if got := r2.Header.Get("X-User-Sub"); got != "user:google:alice" {
+		t.Errorf("X-User-Sub = %q, want user:google:alice", got)
+	}
+	// Rotated cookie forwarded to browser.
+	resp := w.Result()
+	var found bool
+	for _, c := range resp.Cookies() {
+		if c.Name == "refresh_token" && c.Value == "newrot" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("rotated refresh_token cookie not forwarded to browser")
+	}
+
+	// No authdURL → nil.
+	s2 := &server{}
+	if s2.tryRefreshViaAuthd(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil)) != nil {
+		t.Error("should return nil without authdURL")
+	}
+}
+
 func TestHandleAuth(t *testing.T) {
 	// With authdProxy set: request is proxied, not redirected.
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

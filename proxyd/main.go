@@ -908,6 +908,45 @@ func (s *server) handleAuth(w http.ResponseWriter, r *http.Request) {
 	s.authdProxy.ServeHTTP(w, r)
 }
 
+// tryRefreshViaAuthd exchanges a refresh_token cookie for a fresh ES256 access
+// JWT by calling authd's POST /v1/refresh. Forwards the rotated Set-Cookie to
+// the browser so the token stays alive across subsequent requests. Returns nil
+// when authd is unconfigured, no cookie present, or the exchange fails.
+func (s *server) tryRefreshViaAuthd(w http.ResponseWriter, r *http.Request) *http.Request {
+	if s.cfg.authdURL == "" || s.ks == nil {
+		return nil
+	}
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil || cookie.Value == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(r.Context(), "POST", s.cfg.authdURL+"/v1/refresh", nil)
+	if err != nil {
+		return nil
+	}
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || result.Token == "" {
+		return nil
+	}
+	for _, v := range resp.Header.Values("Set-Cookie") {
+		w.Header().Add("Set-Cookie", v)
+	}
+	rr := r.Clone(r.Context())
+	rr.Header.Set("Authorization", "Bearer "+result.Token)
+	if sub, err := auth.VerifyHTTP(rr, s.ks); err == nil {
+		return s.setUserHeaders(r, sub.Sub, sub.Extra["name"], s.groupsForSub(sub.Sub))
+	}
+	return nil
+}
+
 func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.authSecret == "" {
@@ -916,6 +955,10 @@ func (s *server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if a := s.tryAuth(r); a != nil {
+			next(w, a)
+			return
+		}
+		if a := s.tryRefreshViaAuthd(w, r); a != nil {
 			next(w, a)
 			return
 		}
