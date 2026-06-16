@@ -188,6 +188,62 @@ func (a *admin) handleOnboardingInsert(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleOnboardingList is GET /v1/onboarding?status= — list onboarding rows for
+// the operator dashboard queue page. Bearer scope invites:write. The token field
+// is NEVER returned (live onboarding tokens are bearer credentials; spec 6/7
+// "No token column").
+func (a *admin) handleOnboardingList(w http.ResponseWriter, r *http.Request) {
+	if !a.authed(w, r, "invites:write") {
+		return
+	}
+	rows, err := store.New(a.db).ListOnboarding(r.URL.Query().Get("status"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"onboarding": rows})
+}
+
+// handleOnboardingApprove is POST /v1/onboarding/{jid}/approve — operator
+// fast-path admission, bypassing the gate's daily limit. Bearer scope invites:write.
+func (a *admin) handleOnboardingApprove(w http.ResponseWriter, r *http.Request) {
+	if !a.authed(w, r, "invites:write") {
+		return
+	}
+	if err := store.New(a.db).ApproveOnboarding(r.PathValue("jid")); err != nil {
+		writeErr(w, http.StatusInternalServerError, "approve_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleOnboardingDeny is DELETE /v1/onboarding/{jid} — deny/drop the row.
+// Bearer scope invites:write.
+func (a *admin) handleOnboardingDeny(w http.ResponseWriter, r *http.Request) {
+	if !a.authed(w, r, "invites:write") {
+		return
+	}
+	if err := store.New(a.db).DenyOnboarding(r.PathValue("jid")); err != nil {
+		writeErr(w, http.StatusInternalServerError, "deny_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleOnboardingReprompt is POST /v1/onboarding/{jid}/reprompt — resets the
+// row to awaiting_message so the next poll tick resends the auth link. Bearer
+// scope invites:write.
+func (a *admin) handleOnboardingReprompt(w http.ResponseWriter, r *http.Request) {
+	if !a.authed(w, r, "invites:write") {
+		return
+	}
+	if err := store.New(a.db).RepromptOnboarding(r.PathValue("jid")); err != nil {
+		writeErr(w, http.StatusInternalServerError, "reprompt_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 type gateJSON struct {
 	Gate        string `json:"gate"`
 	LimitPerDay int    `json:"limit_per_day"`

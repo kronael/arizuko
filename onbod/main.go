@@ -164,6 +164,10 @@ func main() {
 	// open, like routd's nil-verifier local-dev path.
 	adm := &admin{db: obdb, ks: ks}
 	mux.HandleFunc("POST /v1/onboarding", adm.handleOnboardingInsert)
+	mux.HandleFunc("GET /v1/onboarding", adm.handleOnboardingList)
+	mux.HandleFunc("POST /v1/onboarding/{jid}/approve", adm.handleOnboardingApprove)
+	mux.HandleFunc("DELETE /v1/onboarding/{jid}", adm.handleOnboardingDeny)
+	mux.HandleFunc("POST /v1/onboarding/{jid}/reprompt", adm.handleOnboardingReprompt)
 	mux.HandleFunc("POST /v1/invites", adm.handleInviteCreate)
 	mux.HandleFunc("GET /v1/invites", adm.handleInviteList)
 	mux.HandleFunc("DELETE /v1/invites/{token}", adm.handleInviteRevoke)
