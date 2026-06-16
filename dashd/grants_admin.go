@@ -83,7 +83,54 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		tableRows,
 	))
 
-	// Add grant form.
+	// Gather known principals for datalist autocomplete.
+	var principalOpts strings.Builder
+	principalOpts.WriteString(`<datalist id="principals">`)
+	if uRows, err := d.adminDB().Query(
+		`SELECT sub, name FROM auth_users ORDER BY name`); err == nil {
+		defer uRows.Close()
+		for uRows.Next() {
+			var sub, name string
+			if err := uRows.Scan(&sub, &name); err == nil {
+				label := sub
+				if name != "" && name != sub {
+					label += " (" + name + ")"
+				}
+				fmt.Fprintf(&principalOpts, `<option value="%s" label="%s">`, esc(sub), esc(label))
+			}
+		}
+	}
+	// Membership principals already in acl_membership.
+	if mRows, err := d.adminDB().Query(
+		`SELECT DISTINCT child FROM acl_membership WHERE child NOT LIKE 'role:%' ORDER BY child`); err == nil {
+		defer mRows.Close()
+		for mRows.Next() {
+			var p string
+			if err := mRows.Scan(&p); err == nil {
+				fmt.Fprintf(&principalOpts, `<option value="%s">`, esc(p))
+			}
+		}
+	}
+	principalOpts.WriteString(`</datalist>`)
+
+	// Gather folder list for scope select.
+	var scopeSelect strings.Builder
+	scopeSelect.WriteString(`<select name="scope">`)
+	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
+	fmt.Fprintf(&scopeSelect, `<option value="**">** (all folders — operator)</option>`)
+	if gRows, err := d.adminDB().Query(
+		`SELECT folder FROM groups WHERE folder != ? ORDER BY folder LIMIT 200`, folder); err == nil {
+		defer gRows.Close()
+		for gRows.Next() {
+			var gf string
+			if err := gRows.Scan(&gf); err == nil {
+				fmt.Fprintf(&scopeSelect, `<option value="%s">%s</option>`, esc(gf), esc(gf))
+			}
+		}
+	}
+	scopeSelect.WriteString(`</select>`)
+
+	// Action select.
 	var actionSelect strings.Builder
 	actionSelect.WriteString(`<select name="action">`)
 	for _, a := range commonActions {
@@ -92,11 +139,14 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	actionSelect.WriteString(`</select>`)
 
 	fmt.Fprintf(w, `<h2>Add grant</h2><form method="post" action="/dash/groups/%s/grants">`, folderPath(folder))
-	fmt.Fprint(w, htmlFormRow("principal", `<input type="text" name="principal" required size="40" placeholder="user@example or group:name">`))
+	fmt.Fprint(w, principalOpts.String())
+	fmt.Fprint(w, htmlFormRow("principal",
+		`<input type="text" name="principal" required list="principals" autocomplete="off" `+
+			`size="40" placeholder="google:123 or local:admin">`))
 	fmt.Fprint(w, htmlFormRow("action", actionSelect.String()))
 	fmt.Fprint(w, htmlFormRow("effect", `<select name="effect"><option value="allow">allow</option><option value="deny">deny</option></select>`))
-	fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (leave blank for none)">`))
-	fmt.Fprintf(w, htmlFormRow("scope", `<input type="text" name="scope" size="40" value="%s">`), esc(folder))
+	fmt.Fprint(w, htmlFormRow("params", `<input type="text" name="params" size="40" placeholder="jid=telegram:* (blank = any)">`))
+	fmt.Fprint(w, htmlFormRow("scope", scopeSelect.String()))
 	fmt.Fprint(w, `<p><button type="submit">add grant</button></p></form>`)
 
 	pageClose(w, r)
