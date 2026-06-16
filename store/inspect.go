@@ -74,3 +74,31 @@ func (s *Store) TaskRunLogs(taskID string, limit int) []TaskRunLog {
 	}
 	return out
 }
+
+// AllRunLogs returns the most recent task_run_logs rows across all tasks.
+func (s *Store) AllRunLogs(limit int) []TaskRunLog {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.Query(
+		`SELECT id, task_id, run_at, COALESCE(duration_ms,0), status,
+		        COALESCE(result,''), COALESCE(error,'')
+		 FROM task_run_logs
+		 ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []TaskRunLog
+	for rows.Next() {
+		var l TaskRunLog
+		var runAt string
+		if err := rows.Scan(&l.ID, &l.TaskID, &runAt, &l.DurationMS,
+			&l.Status, &l.Result, &l.Error); err != nil {
+			continue
+		}
+		l.RunAt, _ = time.Parse(time.RFC3339, runAt)
+		out = append(out, l)
+	}
+	return out
+}

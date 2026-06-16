@@ -221,3 +221,25 @@ func (d *DB) TaskRunLogs(taskID string, limit int) []ipc.TaskRunLog {
 	}
 	return out
 }
+
+// AllRunLogs returns recent task_run_logs rows across all tasks, for
+// GET /v1/tasks/runs (timed's dashboard cross-task run feed).
+func (d *DB) AllRunLogs(limit int) []ipc.TaskRunLog {
+	rows := d.taskStore().AllRunLogs(limit)
+	out := make([]ipc.TaskRunLog, len(rows))
+	for i, r := range rows {
+		out[i] = ipc.TaskRunLog{
+			ID: r.ID, TaskID: r.TaskID, RunAt: r.RunAt,
+			DurationMS: r.DurationMS, Status: r.Status,
+			Result: r.Result, Error: r.Error,
+		}
+	}
+	return out
+}
+
+// PatchTask applies a partial update to a scheduled task.
+// status: set if non-empty ("active", "paused").
+// nextRun: set if non-empty (RFC3339); used for run-now (set to now).
+func (d *DB) PatchTask(id, status, nextRun string) error {
+	return d.taskStore().PatchTask(id, status, nextRun)
+}

@@ -80,6 +80,23 @@ func (s *Store) SetTaskStatus(id, status string) error {
 	return err
 }
 
+// PatchTask applies a partial update: status and/or next_run. Both optional;
+// at least one must be non-empty. nextRun must be RFC3339 or empty.
+func (s *Store) PatchTask(id, status, nextRun string) error {
+	switch {
+	case status != "" && nextRun != "":
+		_, err := s.db.Exec(`UPDATE scheduled_tasks SET status=?, next_run=? WHERE id=?`, status, nextRun, id)
+		return err
+	case status != "":
+		return s.SetTaskStatus(id, status)
+	case nextRun != "":
+		_, err := s.db.Exec(`UPDATE scheduled_tasks SET next_run=? WHERE id=?`, nextRun, id)
+		return err
+	default:
+		return nil
+	}
+}
+
 // RemoveTask deletes one task WITHOUT emitting an audit_log row — the audit-free
 // twin of DeleteTask for an audit_log-less DB (routd.db). Backs cancel_task.
 func (s *Store) RemoveTask(id string) error {
