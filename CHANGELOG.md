@@ -16,6 +16,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.53.2] — 2026-06-16
+
+> arizuko v0.53.2 — sign-in flow fixed; branded login page
+>
+> Signing in via Google/GitHub/Discord now lands you in the dashboard as expected.
+>
+> • Auth cookie path fixed — proxyd exchanges the `refresh_token` cookie with authd (`POST /v1/refresh`) and stamps identity headers; previously the authd-issued cookie was invisible to proxyd
+> • Login page branded — uses `theme.Page` with `.oauth-btn` links; shows a "Not authorised" banner on `?error=unauthorized`
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+---
+
+## [v0.53.1] — 2026-06-16
+
+> arizuko v0.53.1 — auth redirect bug fixed
+>
+> The `/auth/login` page on HTTPS deployments no longer redirects the browser to `http://authd:8080` (the Docker-internal address). Auth flows were silently broken on all non-local deployments.
+>
+> • proxyd proxies `/auth/*` to authd instead of issuing a 302 to the internal URL; the browser only ever sees the public `WEB_HOST`
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+---
+
 ## [v0.53.0] — 2026-06-16
 
 > arizuko v0.53.0 — operator cockpit: services hub and federated dashboards
