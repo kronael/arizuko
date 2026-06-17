@@ -77,7 +77,6 @@ func (d *dash) handleChatPortal(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "Chat")
-	fmt.Fprint(w, convStyle)
 
 	folders := d.visibleFolders(allowed, operator)
 
@@ -308,7 +307,6 @@ func (d *dash) handleChatGroup(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Chat — "+folder,
 		struct{ Href, Label string }{"/dash/chat/", "chat"},
 		struct{ Href, Label string }{"", folder})
-	fmt.Fprint(w, convStyle)
 
 	fmt.Fprint(w, htmlSection("Start a session",
 		fmt.Sprintf(`<form method="post" action="/dash/chat/%s/">`, folderPath(folder))+
@@ -484,17 +482,3 @@ func chatFolder(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 	return folder, true
 }
-
-// convStyle is the conversation-list CSS, scoped to .conv-* classes and using
-// only theme CSS vars (--border, --accent, --dim). Emitted inline after
-// pageTopFor; idempotent if a page emits it twice (last wins, identical rules).
-const convStyle = `<style>
-.conv-list { display:flex; flex-direction:column; gap:.25em; margin-top:.5em; }
-.conv-row { display:block; padding:.6em .8em; border-radius:6px; border:1px solid var(--border); text-decoration:none; color:inherit; }
-.conv-row:hover { border-color:var(--accent); background:var(--border); }
-.conv-meta { display:flex; justify-content:space-between; font-size:.8em; margin-bottom:.2em; }
-.conv-title { font-size:.95em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.conv-date-group { font-size:.8em; font-weight:600; color:var(--dim); margin:.8em 0 .3em; text-transform:uppercase; letter-spacing:.05em; }
-.conv-search { display:flex; gap:.5em; margin-bottom:1em; align-items:center; flex-wrap:wrap; }
-.conv-new { display:flex; gap:.5em; margin-bottom:1em; align-items:center; flex-wrap:wrap; }
-</style>`

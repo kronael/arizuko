@@ -73,6 +73,14 @@ func safeJoin(base, leaf string) (string, error) {
 
 var esc = template.HTMLEscapeString
 
+// brandName is the operator-configured product name (ASSISTANT_NAME env var).
+// Set at startup; default "arizuko". Used in page titles and the portal header.
+var brandName = "arizuko"
+
+// accentOverride is an optional CSS color string (DASH_ACCENT_COLOR env var)
+// that overrides --accent for white-labelling. Empty = use theme default.
+var accentOverride = ""
+
 // shortTS trims a full ISO timestamp to HH:MM for compact display.
 // Input may be "2026-06-16T15:58:28Z" or "2026-06-16 15:58:28"; output "15:58".
 func shortTS(ts string) string {
@@ -140,6 +148,14 @@ func main() {
 	}
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
+	}
+
+	if v := os.Getenv("ASSISTANT_NAME"); v != "" {
+		brandName = v
+		navLinks[0].Label = v
+	}
+	if v := os.Getenv("DASH_ACCENT_COLOR"); v != "" {
+		accentOverride = v
 	}
 
 	db, err := sql.Open("sqlite", dsn+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)")
@@ -505,16 +521,22 @@ func dashNavFor(r *http.Request) string {
 const navActiveScript = `<script>document.addEventListener('htmx:afterSettle',function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');var active=h==='/dash/'?(p==='/dash/'||p==='/dash'):p.startsWith(h);active?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')})});</script>`
 
 func dashHead(title string) string {
+	css := theme.CSS
+	// accentOverride is an operator-set env var (DASH_ACCENT_COLOR), not user
+	// input, so it goes into the <style> block raw — no untrusted HTML path.
+	if accentOverride != "" {
+		css += `:root{--accent:` + accentOverride + `}`
+	}
 	return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-		`<title>` + esc(title) + ` — arizuko</title>` +
+		`<title>` + esc(title) + ` — ` + esc(brandName) + `</title>` +
 		`<script src="/dash/assets/htmx.min.js"></script>` +
-		`<style>` + theme.CSS + `</style>` + theme.ThemeScript + theme.ToggleScript + navActiveScript + `</head>`
+		`<style>` + css + `</style>` + theme.ThemeScript + theme.ToggleScript + navActiveScript + `</head>`
 }
 
 var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
 <div class="page-wide">{{.Nav}}
-<h1>arizuko</h1>
-<p class="dim">Operator dashboard</p>
+<h1 class="brand">{{.Brand}}</h1>
+<p class="dim">Operator control plane</p>
 {{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
 <div class="tiles">
@@ -553,12 +575,13 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	if err := portalTmpl.Execute(w, struct {
 		Head         template.HTML
 		Nav          template.HTML
+		Brand        string
 		StatusDot    string
 		TasksDot     string
 		Err          string
 		ErroredCount int
 		FailedTasks  int
-	}{template.HTML(dashHead("arizuko")), template.HTML(dashNavFor(r)), statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
+	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }

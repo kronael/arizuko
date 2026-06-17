@@ -10,22 +10,40 @@ import (
 // Page(), or inline it directly inside <style> tags.
 const CSS = `
 :root {
-  --bg: #0a0a0a; --fg: #e0e0e0;
-  --accent: #58a6ff; --dim: #888; --border: #222;
-  --card: #111; --card-hover: #161616;
-  --code-bg: #1a1a1a;
-  --danger: #e5484d; --warn: #fa0; --ok: #4ade80;
-  --shadow: 0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,.5);
+  --bg: #0a0e1a;          /* deep navy, not pure black */
+  --fg: #f0f0ea;          /* warm off-white */
+  --bright: #f8f9fa;
+  --dim: #8892a4;
+  --accent: #d4af37;      /* arizuko gold — THE brand color */
+  --accent2: #4a90e2;     /* secondary blue (use for info/links where gold would clash) */
+  --card: #151b28;        /* dark navy card bg */
+  --card-hover: #1c2436;
+  --code-bg: #1a2332;
+  --border: #1e2d42;      /* navy border */
+  --danger: #e5484d;
+  --warn: #fa0;
+  --ok: #4ade80;
+  --hover: rgba(212,175,55,.07);   /* subtle gold hover wash — used by .conv-row */
+  --shadow: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,.6);
   --radius: 8px;
   --transition: .15s ease;
 }
 [data-theme=light] {
-  --bg: #fafafa; --fg: #1a1a1a;
-  --accent: #0969da; --dim: #6e7681; --border: #ddd;
-  --card: #fff; --card-hover: #f5f5f5;
-  --code-bg: #f0f0f0;
-  --danger: #cf222e; --warn: #b85d00; --ok: #1a7f37;
+  --bg: #fafaf8;
+  --fg: #1a1a1a;
+  --bright: #0a0a0a;
+  --dim: #5a6272;
+  --accent: #8b6914;      /* darker gold for contrast on light bg */
+  --accent2: #1d4ed8;
+  --card: #ffffff;
+  --card-hover: #f5f4f0;
+  --code-bg: #f0f0ec;
+  --border: #d4d0c8;
+  --danger: #cf222e;
+  --warn: #b85d00;
+  --ok: #1a7f37;
+  --hover: rgba(139,105,20,.06);
   --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
   --shadow-lg: 0 4px 12px rgba(0,0,0,.1);
 }
@@ -33,8 +51,8 @@ const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-               "Helvetica Neue", Arial, sans-serif;
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+               "Liberation Mono", monospace;
   font-size: 14px;
   line-height: 1.55;
   color: var(--fg);
@@ -42,7 +60,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 code, pre, .mono, .id {
-  font-family: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  font-family: inherit;
   font-size: .92em;
 }
 code, .id {
@@ -77,12 +95,7 @@ pre code { background: none; padding: 0; border: 0; }
 .card-full { width: 100%; }
 
 /* --- Typography --- */
-.brand {
-  color: var(--fg);
-  font-weight: 600;
-  font-size: 1.2em;
-  letter-spacing: -.01em;
-}
+.brand { color: var(--accent); font-weight: 700; letter-spacing: -.02em; }
 h1 { font-size: 1.5em; color: var(--fg); font-weight: 600; margin-bottom: .25em; }
 h2 {
   font-size: 1.05em; color: var(--fg); font-weight: 600;
@@ -118,7 +131,7 @@ input, select {
 input:focus, select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(88,166,255,.15);
+  box-shadow: 0 0 0 2px rgba(212,175,55,.2);
 }
 input::placeholder { color: var(--dim); }
 
@@ -127,7 +140,7 @@ button, .btn {
   display: inline-block;
   padding: .55rem 1.2rem;
   background: var(--accent);
-  color: #fff;
+  color: #0a0e1a;   /* dark text on gold bg */
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -219,13 +232,6 @@ td:first-child { white-space: nowrap; }
 .status-err { color: var(--danger); }
 .status-unknown { color: var(--dim); }
 
-/* --- Nav (active state for breadcrumbs) --- */
-nav a[aria-current="page"] {
-  color: var(--accent);
-  border-bottom: 2px solid var(--accent);
-  padding-bottom: 2px;
-}
-
 /* --- Code --- */
 pre, code { background: var(--code-bg); border-radius: 3px; }
 code { padding: .15em .4em; font-size: .9em; }
@@ -244,14 +250,16 @@ details summary:hover { color: var(--accent); }
 .banner-ok, .banner-warn, .banner-err {
   padding: .6em 1em; margin: 1em 0; border-radius: 6px; border: 1px solid;
 }
-.banner-ok { background: rgba(74,222,128,.08); border-color: var(--accent); color: var(--accent); }
+.banner-ok { background: rgba(74,222,128,.07); border-color: var(--ok); color: var(--ok); }
 .banner-warn { background: rgba(255,170,0,.08); border-color: var(--warn); color: var(--warn); }
 .banner-err { background: rgba(229,72,77,.08); border-color: var(--danger); color: var(--danger); }
 
 /* --- Nav (dashd) --- */
-nav { margin: .4em 0 1.4em; color: var(--dim); font-size: .9em; }
-nav a { color: var(--dim); margin-right: 1rem; }
-nav a:hover { color: var(--accent); }
+nav { gap: .5rem; padding: .6rem 0 .8rem; border-bottom: 1px solid var(--border); margin-bottom: 1.2rem; }
+nav a { font-size: .87em; padding: .25em .5em; border-radius: 4px; color: var(--dim); transition: color var(--transition), background var(--transition); }
+nav a:hover { color: var(--fg); text-decoration: none; }
+nav a[aria-current="page"] { color: var(--accent); font-weight: 600; background: var(--hover); }
+nav a:first-child { color: var(--accent); font-weight: 700; font-size: .95em; }  /* brand link */
 
 /* --- Theme toggle --- */
 .theme-toggle {
@@ -344,6 +352,28 @@ nav a:hover { color: var(--accent); }
 .tool-card summary { cursor: pointer; font-family: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace; font-weight: 600; }
 .tool-card p { margin: 0.4em 0 0.2em; }
 .tool-card pre { margin: 0.4em 0; font-size: 0.85em; }
+
+/* --- Chat portal (conversation list) --- */
+.conv-list { display: flex; flex-direction: column; gap: 2px; margin-top: .5rem; }
+.conv-row {
+  display: block; padding: .55rem .75rem; border-radius: 6px;
+  border: 1px solid transparent; text-decoration: none; color: var(--fg);
+  transition: background var(--transition), border-color var(--transition);
+}
+.conv-row:hover { background: var(--hover); border-color: var(--border); text-decoration: none; }
+.conv-row[aria-current="true"] { background: var(--hover); border-color: var(--accent); }
+.conv-meta { display: flex; justify-content: space-between; margin-bottom: .15rem; }
+.conv-folder { font-size: .75em; color: var(--dim); font-family: "SF Mono", monospace; }
+.conv-time { font-size: .75em; color: var(--dim); }
+.conv-title { font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.conv-date-group {
+  font-size: .72em; font-weight: 700; color: var(--dim);
+  margin: 1rem 0 .35rem; text-transform: uppercase; letter-spacing: .07em;
+}
+.conv-search { display: flex; gap: .5rem; margin-bottom: 1rem; align-items: center; }
+.conv-search select, .conv-search input[type=text], .conv-search input[type=search] { width: auto; flex: 1; }
+.conv-search select { flex: 0 0 auto; }
+.conv-new { margin-bottom: 1.2rem; }
 `
 
 // ThemeScript initializes the theme from localStorage or system preference.
