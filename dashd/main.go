@@ -610,7 +610,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	errLink := fmt.Sprintf(`%d groups`, groupCount)
 	if erroredCount > 0 {
-		errLink += fmt.Sprintf(` &middot; <a href="/dash/activity/">%d errored chat%s</a>`,
+		errLink += fmt.Sprintf(` &middot; <a href="/dash/routd/">%d errored chat%s</a>`,
 			erroredCount, pluralS(erroredCount))
 	}
 	fmt.Fprint(w, `<p class="dim">Service health</p>`)
