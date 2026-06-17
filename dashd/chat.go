@@ -204,7 +204,7 @@ func (d *dash) writeNewConvForm(w http.ResponseWriter, folders []string, selecte
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<form method="post" id="new-conv-form" action="/dash/chat/%s/" class="conv-new">`,
-		folderPath(first))
+		esc(folderPath(first)))
 	b.WriteString(`<select name="_group" aria-label="group" onchange="document.getElementById('new-conv-form').action='/dash/chat/'+encodeURIComponent(this.value)+'/'">`)
 	for _, f := range folders {
 		sel := ""
