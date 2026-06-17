@@ -25,7 +25,7 @@ actions (approve/deny onboarding, revoke token, etc.). Table stakes for multiten
 - **Scope:** dashd, authd
 - **Affected:** operators — no audit trail in UI
 - **Source:** dashd/main.go:114-124; grep: no audit handler in dashd
-- **Status:** open
+- **Status:** resolved — /dash/audit/ shipped
 - **Fix:**
 
 ## No usage/analytics page (2026-06-16, open)
@@ -39,7 +39,7 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
 - **Scope:** dashd specs 6/1, 6/2
 - **Affected:** operators, business visibility
 - **Source:** dashd/main.go:789-822; specs/6/2-dashd-hub.md
-- **Status:** open
+- **Status:** resolved — /dash/usage/ shipped
 - **Fix:**
 
 ## Activity page: no relative timestamps and no pagination (2026-06-16, open)

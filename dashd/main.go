@@ -340,6 +340,8 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	g := d.guard
 	mux.HandleFunc("GET /dash/", g(d.handlePortal))
 	mux.HandleFunc("GET /dash/services/", g(d.handleServices))
+	mux.HandleFunc("GET /dash/audit/", g(d.handleAudit))
+	mux.HandleFunc("GET /dash/usage/", g(d.handleUsage))
 	mux.HandleFunc("GET /dash/routd/", g(d.handleRoutd))
 	mux.HandleFunc("POST /dash/routd/retry", g(d.handleRoutdRetry))
 	mux.HandleFunc("GET /dash/runed/", g(d.handleRuned))
@@ -434,6 +436,8 @@ var navLinks = []struct {
 	{"/dash/", "arizuko", false},
 	{"/dash/chat/", "chat", false},
 	{"/dash/services/", "services", true},
+	{"/dash/audit/", "audit", true},
+	{"/dash/usage/", "usage", true},
 	{"/dash/status/", "status", false},
 	{"/dash/tasks/", "tasks", false},
 	{"/dash/activity/", "activity", false},
