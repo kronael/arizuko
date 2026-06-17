@@ -739,3 +739,32 @@ func TestMemoryRejectsSymlink(t *testing.T) {
 		t.Errorf("outside file modified: %q", data)
 	}
 }
+
+// TestBrandNameAccentPropagation: brandName and accentOverride package vars are
+// reflected in the portal page output.
+func TestBrandNameAccentPropagation(t *testing.T) {
+	orig, origAccent := brandName, accentOverride
+	t.Cleanup(func() { brandName = orig; accentOverride = origAccent })
+	brandName = "MyBot"
+	accentOverride = "#ff0000"
+
+	db := testDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbRoutd: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := asOperator(httptest.NewRequest("GET", "/dash/", nil))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "MyBot") {
+		t.Errorf("brandName MyBot not in portal: %s", body)
+	}
+	if !strings.Contains(body, "#ff0000") {
+		t.Errorf("accentOverride #ff0000 not in portal: %s", body)
+	}
+}

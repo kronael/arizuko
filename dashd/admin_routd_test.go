@@ -62,14 +62,17 @@ CREATE TABLE auth_users (
 // also proves the gate's read path reads routd.db, not messages.db.
 func splitAdminDash(t *testing.T, adminSub string) (*dash, *sql.DB, *sql.DB) {
 	t.Helper()
-	msg, err := sql.Open("sqlite", "file:admin_msg?mode=memory&cache=shared")
+	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
+	msg, err := sql.Open("sqlite",
+		"file:admin_msg_"+name+"?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := msg.Exec(adminSchema); err != nil {
 		t.Fatalf("messages.db schema: %v", err)
 	}
-	routd, err := sql.Open("sqlite", "file:admin_routd?mode=memory&cache=shared")
+	routd, err := sql.Open("sqlite",
+		"file:admin_routd_"+name+"?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatal(err)
 	}

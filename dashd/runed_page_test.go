@@ -215,3 +215,24 @@ func TestRunedNonOperatorForbidden(t *testing.T) {
 		t.Fatalf("status = %d, want 403", w.Code)
 	}
 }
+
+// TestRunedKillNonOperatorForbidden: POST /dash/runed/kill is operator-only.
+func TestRunedKillNonOperatorForbidden(t *testing.T) {
+	rdb := runedDB(t)
+	defer rdb.Close()
+	db := routdDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbRoutd: db, dbRuned: rdb}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	form := strings.NewReader("folder=corp/eng")
+	req := httptest.NewRequest("POST", "/dash/runed/kill", form)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "github:regular")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}

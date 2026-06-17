@@ -134,6 +134,69 @@ func TestAuditPagination(t *testing.T) {
 	}
 }
 
+// TestAuditNilDB: when d.db is nil the page renders a "not available" banner
+// rather than panicking or returning 500.
+func TestAuditNilDB(t *testing.T) {
+	// dbRoutd is needed for requireOperator's callerScope fallback.
+	routd, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer routd.Close()
+	if _, err := routd.Exec(adminSchema); err != nil {
+		t.Fatalf("routd schema: %v", err)
+	}
+	if _, err := routd.Exec(
+		`INSERT INTO acl (principal, action, scope, effect, granted_at)
+		 VALUES ('op@x', 'admin', '**', 'allow', '')`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: nil, dbRoutd: routd}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+	req := asOperator(httptest.NewRequest("GET", "/dash/audit/", nil))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("nil db: status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "unavailable") {
+		t.Errorf("nil db should render unavailable banner: %s", w.Body.String())
+	}
+}
+
+// TestAuditActorFilter: ?actor= filters rows to matching actor substring.
+// TestAuditFolderFilter: ?folder= filters rows to exact folder match.
+func TestAuditActorFilter(t *testing.T) {
+	db := auditDB(t)
+	defer db.Close()
+	seedAudit(t, db, "mutation", "routd.retry", "alice", "grp1", "ok")
+	seedAudit(t, db, "grant", "grant.add", "bob", "grp2", "ok")
+
+	body := auditGet(t, db, "/dash/audit/?actor=alice")
+	if !strings.Contains(body, "alice") {
+		t.Errorf("alice row missing: %s", body)
+	}
+	if strings.Contains(body, "bob") {
+		t.Errorf("bob row leaked under ?actor=alice: %s", body)
+	}
+}
+
+func TestAuditFolderFilter(t *testing.T) {
+	db := auditDB(t)
+	defer db.Close()
+	seedAudit(t, db, "mutation", "routd.retry", "alice", "grp1", "ok")
+	seedAudit(t, db, "grant", "grant.add", "bob", "grp2", "ok")
+
+	body := auditGet(t, db, "/dash/audit/?folder=grp2")
+	if !strings.Contains(body, "grp2") {
+		t.Errorf("grp2 row missing: %s", body)
+	}
+	if strings.Contains(body, "grp1") {
+		t.Errorf("grp1 row leaked under ?folder=grp2: %s", body)
+	}
+}
+
 // TestAuditNonOperatorForbidden: the audit page is operator-only.
 func TestAuditNonOperatorForbidden(t *testing.T) {
 	db := auditDB(t)

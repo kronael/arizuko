@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/tests/testutils"
+	_ "modernc.org/sqlite"
 )
 
 // chatTestDash builds a dashd over a migrated instance DB and a mux. The
@@ -364,6 +366,47 @@ func TestHandleChatNew_creates(t *testing.T) {
 	}
 	if row.JID != "web:"+folder || row.OwnerFolder != folder {
 		t.Errorf("token row = %+v, want web:%s / %s", row, folder, folder)
+	}
+}
+
+// TestHandleChatNew_nilDB: with d.db == nil (no messages.db) handleChatNew must
+// still redirect 303 — the chat_sessions INSERT is best-effort.
+func TestHandleChatNew_nilDB(t *testing.T) {
+	// Build a routd-only DB with the admin schema (acl + route_tokens).
+	routd, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer routd.Close()
+	if _, err := routd.Exec(adminSchema); err != nil {
+		t.Fatalf("routd schema: %v", err)
+	}
+	folder := "solo"
+	if _, err := routd.Exec(`INSERT INTO groups (folder, added_at) VALUES (?, '')`, folder); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := routd.Exec(
+		`INSERT INTO acl (principal, action, scope, effect, granted_at)
+		 VALUES ('op@x', 'admin', '**', 'allow', '')`); err != nil {
+		t.Fatal(err)
+	}
+	d := &dash{db: nil, dbRW: nil, dbRoutd: routd, groupsDir: t.TempDir()}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	req := httptest.NewRequest("POST", "/dash/chat/"+folder+"/",
+		strings.NewReader("label=niltest"))
+	req.Host = "example.com"
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "op@x")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("nil db: status = %d, want 303; body = %q", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/chat/") {
+		t.Errorf("redirect = %q, want /chat/<token>/", loc)
 	}
 }
 

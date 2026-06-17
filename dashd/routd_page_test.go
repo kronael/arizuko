@@ -152,6 +152,25 @@ func TestRoutdRetryClears(t *testing.T) {
 	}
 }
 
+// TestRoutdRetryNonOperatorForbidden: POST /dash/routd/retry is operator-only.
+func TestRoutdRetryNonOperatorForbidden(t *testing.T) {
+	db := routdDB(t)
+	defer db.Close()
+	d := &dash{db: db, dbRW: db, dbRoutd: db}
+	mux := http.NewServeMux()
+	d.registerRoutes(mux)
+
+	form := strings.NewReader("chat_jid=web:alice")
+	req := httptest.NewRequest("POST", "/dash/routd/retry", form)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-User-Sub", "github:regular")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}
+
 // TestRoutdNonOperatorForbidden: the routd cockpit is operator-only.
 func TestRoutdNonOperatorForbidden(t *testing.T) {
 	db := routdDB(t)
