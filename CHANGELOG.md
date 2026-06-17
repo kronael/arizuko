@@ -16,6 +16,65 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.54.0] — 2026-06-17
+
+> arizuko v0.54.0 — cockpit control planes + chat session dashboard
+>
+> The operator dashboard gains four new control planes and a redesigned conversation view that works like ChatGPT — with session history, continue links, and search.
+>
+> • routd control plane — errored chats with retry; runed control plane — active spawns with kill
+> • Audit log browser — every operator action, filterable by category, actor, and folder
+> • Usage analytics — 7-day instance totals, per-group breakdown, and daily volume chart
+> • Chat session list — auto-titled sessions grouped Today/Yesterday/7 days/Older with continue links and search
+> • Branding — `ASSISTANT_NAME` labels the nav and page titles; `DASH_ACCENT_COLOR` overrides the CSS accent per instance
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **routd control plane.** `GET /dash/routd/` — operator-gated: errored chats grouped by
+  JID (count, last error, retry button), pending outbound count, route and group totals.
+  `POST /dash/routd/retry` clears `errored=0` for a chat JID.
+- **runed control plane.** `GET /dash/runed/` — active spawns (state queued/running) with
+  per-run kill form, recent runs colored by state/outcome/duration.
+  `POST /dash/runed/kill` proxies to `RUNED_URL /v1/runs/stop` using the service token.
+- **Audit log browser.** `GET /dash/audit/` — full `audit_log` table with category, actor,
+  and folder filters; cursor pagination (51-row look-ahead); outcome colored. Read-only.
+- **Usage analytics.** `GET /dash/usage/` — three summary cards (total msgs, tokens, cost
+  over 7 days), per-group table sorted by token spend, 7-day daily volume breakdown.
+- **Chat session list (ChatGPT-style).** `handleChatPortal` shows all past sessions from
+  `chat_sessions` table, grouped Today/Yesterday/7 days/Older. Each row shows an
+  auto-title (first user message body, truncated) and a Continue link (`/chat/<token>/`).
+  Supports `?q=` title search and `?group=` filter.
+- **`chat_sessions` table.** Minted at `POST /dash/chat/<folder>/` — raw token stored
+  alongside the folder and created_at so sessions are reconstructable. Queried with a
+  first-message JOIN for auto-title derivation.
+- **Nav identity badge.** Caller name and ◆ operator indicator always visible at the right
+  of the nav bar as a profile link.
+- **Relative activity timestamps.** `relativeTS` renders "5m", "2h" etc.; full ISO
+  timestamp in `<abbr>` tooltip. Status errored count links to `/dash/routd/`.
+- **Branding support.** `ASSISTANT_NAME` → nav label and `<title>` suffix.
+  `DASH_ACCENT_COLOR` → CSS `--accent` override appended by `dashHead()` for white-labelling.
+- **hub.css palette.** `theme/theme.go` updated to arizuko gold `#d4af37` accent, navy
+  `#0a0e1a` background, monospace body font. Added `--hover`, `--accent2`, `--bright` vars.
+
+### Fixed
+
+- **XSS: `folderPath` in form action.** `chat.go` form action attribute now wraps
+  `folderPath(first)` with `esc()`, preventing a folder name with `"` from breaking out.
+
+### Tests
+
+- `splitAdminDash` DSN names now per-test (`t.Name()` suffix) — no shared-state race on
+  parallel runs.
+- `TestHandleChatNew_nilDB`: 303 redirect when `d.db` is nil.
+- `TestAuditNilDB`: 200 unavailable banner, not panic.
+- `TestAuditActorFilter` / `TestAuditFolderFilter`: filter params return only matching rows.
+- `TestRoutdRetryNonOperatorForbidden` / `TestRunedKillNonOperatorForbidden`: 403 gate.
+- `TestBrandNameAccentPropagation`: `brandName` and `accentOverride` appear in portal response.
+
+---
+
 ## [v0.53.2] — 2026-06-16
 
 > arizuko v0.53.2 — sign-in flow fixed; branded login page
