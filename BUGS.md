@@ -42,6 +42,34 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
 - **Status:** resolved — /dash/usage/ shipped
 - **Fix:**
 
+## dashd: routes + task-detail visible to any auth'd user (2026-06-17, open)
+
+`handleRoutes` GET (`routes_admin.go:28`) gates on `requireUser` only — any auth'd caller can
+enumerate the full route table including routes targeting other tenants' folders. `handleTaskDetail`
+GET (`tasks_admin.go:21`) also gates on `requireUser` with no folder-scope check — any auth'd
+caller who knows a task ID can read its full prompt and owner. Both list pages filter correctly
+(`handleGroups`, `handleTasks`), but their detail/read views don't re-check scope.
+
+- **Severity:** medium
+- **Scope:** dashd/routes_admin.go:28, dashd/tasks_admin.go:21
+- **Affected:** multitenant: non-operator users can see other tenants' routes/task details
+- **Source:** bucket A refine review 2026-06-17
+- **Status:** open
+- **Fix:** add `requireOperator` or `requireVisible(folder)` gate to those GET handlers
+
+## dashd: adminDB() panics if routd.db open fails (2026-06-17, open)
+
+`main.go:226-231` warns and continues if `routd.db` fails to open, leaving `d.dbRoutd = nil`.
+`adminDB()` (`main.go:307`) returns `d.dbRoutd` unconditionally. Any request to `handleStatus`,
+`handleGroups`, `handleTasks`, `writeActivityRows`, etc. then panics at the `.Query` call.
+
+- **Severity:** medium
+- **Scope:** dashd/main.go:226-231, main.go:307
+- **Affected:** startup — routd.db missing/corrupt causes panic on first request
+- **Source:** bucket A refine review 2026-06-17
+- **Status:** open
+- **Fix:** make routd.db open failure fatal, or nil-check in adminDB() and return 503
+
 ## Activity page: no relative timestamps and no pagination (2026-06-16, open)
 
 `writeActivityRows` emits raw ISO8601 nanosecond timestamps (dashd/main.go:688). No "N min ago"
