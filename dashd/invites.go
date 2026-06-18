@@ -48,12 +48,17 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 			if inv.ExpiresAt != nil {
 				expires = inv.ExpiresAt.Format("2006-01-02")
 			}
-			revokeBtn := fmt.Sprintf(
-				`<form method="post" action="/dash/invites/%s/revoke" class="form-inline"`+
-					` onsubmit="return confirm('revoke invite %s?')">`+
-					`<button type="submit">revoke</button></form>`,
-				esc(inv.Token), esc(inv.Token[:8]),
-			)
+			// Fully-used invites can't be redeemed again; hide revoke. MaxUses<=0
+			// means no use limit (always revocable).
+			revokeBtn := `<span class="dim">used</span>`
+			if inv.MaxUses <= 0 || inv.UsedCount < inv.MaxUses {
+				revokeBtn = fmt.Sprintf(
+					`<form method="post" action="/dash/invites/%s/revoke" class="form-inline"`+
+						` onsubmit="return confirm('revoke invite %s?')">`+
+						`<button type="submit">revoke</button></form>`,
+					esc(inv.Token), esc(inv.Token[:8]),
+				)
+			}
 			tableRows[i] = []string{
 				`<code>` + esc(inv.Token) + `</code>`,
 				`<code>` + esc(inv.TargetGlob) + `</code>`,

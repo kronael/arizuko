@@ -224,12 +224,12 @@ func shortID(id string) string {
 }
 
 // runStateClass maps a spawn state to a status CSS class: exited/running→ok,
-// error/killed→err, queued→unknown.
+// error→err, killed/queued→unknown (SCREENS.md /dash/runed/ "State CSS").
 func runStateClass(state string) string {
 	switch state {
 	case "exited", "running":
 		return statusOK
-	case "error", "killed":
+	case "error":
 		return statusErr
 	default:
 		return statusUnknown

@@ -451,15 +451,15 @@ var navLinks = []struct {
 }{
 	{"/dash/", "arizuko", false},
 	{"/dash/chat/", "chat", false},
-	{"/dash/services/", "services", true},
-	{"/dash/audit/", "audit", true},
-	{"/dash/usage/", "usage", true},
 	{"/dash/status/", "status", false},
 	{"/dash/tasks/", "tasks", false},
 	{"/dash/activity/", "activity", false},
 	{"/dash/groups/", "groups", false},
 	{"/dash/routes/", "routes", false},
+	{"/dash/services/", "services", true},
 	{"/dash/invites/", "invites", true},
+	{"/dash/audit/", "audit", true},
+	{"/dash/usage/", "usage", true},
 	{"/dash/memory/", "memory", false},
 	{"/dash/profile/", "profile", false},
 }
@@ -538,6 +538,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <h1 class="brand">{{.Brand}}</h1>
 <p class="dim">{{.Subtitle}}</p>
 {{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
+{{if eq .GroupCount 0}}<div class="banner-warn">No groups configured. <a href="/dash/groups/new">Create your first group</a> to get started.</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
 <div class="tiles">
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
@@ -548,6 +549,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
 <a class="tile" href="/dash/profile/"><h2>profile</h2><p>linked accounts</p></a>
+{{if .Operator}}<a class="tile" href="/dash/services/"><h2>services</h2><p>daemon health</p></a>{{end}}
 {{if .Operator}}<a class="tile" href="/dash/invites/"><h2>invites</h2><p>onboarding invites</p></a>{{end}}
 </div>
 </div></body></html>`))
@@ -559,19 +561,20 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, operator := d.callerScope(r)
 
+	groupCount := d.countVisibleGroups(allowed, operator)
 	erroredCount := d.countVisibleErroredChats(allowed, operator)
 	failedTasks := d.countVisibleFailedTasks(allowed, operator)
 
-	statusDot := "ok"
+	statusDot := "dot-ok"
 	if erroredCount > 0 {
-		statusDot = "warn"
+		statusDot = "dot-warn"
 	}
 
-	tasksDot := "ok"
+	tasksDot := "dot-ok"
 	if failedTasks >= 3 {
-		tasksDot = "err"
+		tasksDot = "dot-err"
 	} else if failedTasks > 0 {
-		tasksDot = "warn"
+		tasksDot = "dot-warn"
 	}
 
 	subtitle := "operator dashboard"
@@ -589,9 +592,10 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		StatusDot    string
 		TasksDot     string
 		Err          string
+		GroupCount   int
 		ErroredCount int
 		FailedTasks  int
-	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
+	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, "", groupCount, erroredCount, failedTasks}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
@@ -647,11 +651,14 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	errLink := fmt.Sprintf(`%d groups`, groupCount)
 	if erroredCount > 0 {
-		errLink += fmt.Sprintf(` &middot; <a href="/dash/routd/">%d errored chat%s</a>`,
+		errLink += fmt.Sprintf(` &middot; <a href="/dash/activity/">%d errored chat%s</a>`,
 			erroredCount, pluralS(erroredCount))
 	}
 	fmt.Fprint(w, `<p class="dim">Service health</p>`)
 	fmt.Fprint(w, htmlBannerRaw(bannerClass, errLink))
+	if groupCount == 0 {
+		fmt.Fprint(w, htmlBannerRaw("warn", `No groups configured. <a href="/dash/groups/new">Create your first group.</a>`))
+	}
 
 	// Sessions breakdown — operator-only; group_folder → session count.
 	if operator {
@@ -1269,13 +1276,13 @@ func (d *dash) renderMemorySection(w http.ResponseWriter, folder string) {
 	var personaBuf strings.Builder
 	renderCappedFile(&personaBuf, groupDir, "PERSONA.md", false)
 	if s := personaBuf.String(); s != "" {
-		fmt.Fprint(w, htmlSection("PERSONA.md", s))
+		fmt.Fprint(w, s)
 	}
 
 	var claudeBuf strings.Builder
 	renderCappedFile(&claudeBuf, groupDir, "CLAUDE.md", false)
 	if s := claudeBuf.String(); s != "" {
-		fmt.Fprint(w, htmlSection("CLAUDE.md", s))
+		fmt.Fprint(w, s)
 	}
 
 	renderEntries(w, groupDir, "diary", "Diary", true)

@@ -126,11 +126,15 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		} else {
 			nameHTML = esc(s.Name)
 		}
+		if !s.Built {
+			nameHTML += ` <span class="dim">(coming soon)</span>`
+		}
 		fmt.Fprintf(w,
 			`<div class="service-tile" data-status="%s">`+
-				`<h3><span class="status-%s">%s</span> %s</h3>`+
-				`<p class="desc">%s</p>`+
+				`<h3><span class="dot dot-%s"></span><span class="status-%s">%s</span> %s</h3>`+
+				`<p class="dim">%s</p>`+
 				`</div>`,
+			esc(statuses[i]),
 			esc(statuses[i]),
 			esc(statuses[i]), statusGlyph(statuses[i]),
 			nameHTML,
@@ -139,7 +143,25 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, `</div>`)
 
+	if allUnknown(statuses) {
+		fmt.Fprint(w, `<p class="dim">Local dev: daemon DNS names don't resolve outside Docker network.</p>`)
+	}
+
 	pageClose(w, r)
+}
+
+// allUnknown reports whether every probe came back statusUnknown — the
+// local-dev signature (daemon DNS names unresolvable outside the Docker net).
+func allUnknown(statuses []string) bool {
+	if len(statuses) == 0 {
+		return false
+	}
+	for _, s := range statuses {
+		if s != statusUnknown {
+			return false
+		}
+	}
+	return true
 }
 
 // statusGlyph maps a status to its dot glyph. The CSS color class is the status

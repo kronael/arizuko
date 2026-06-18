@@ -41,6 +41,8 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", "Grants"},
 	)
 
+	fmt.Fprint(w, `<p><a href="/dash/groups/`+folderPath(folder)+`/settings">← Back to settings</a></p>`)
+
 	if d.adminDB() == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		pageClose(w, r)

@@ -64,7 +64,7 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "WhatsApp re-pair",
-		struct{ Href, Label string }{"", "Channels"},
+		struct{ Href, Label string }{"/dash/", "Channels"},
 		struct{ Href, Label string }{"", "WhatsApp"},
 		struct{ Href, Label string }{"", "re-pair"},
 	)
@@ -74,11 +74,15 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `<p class="dim">Operator-only. Re-pair binds the instance's WhatsApp account to a new linked device. <a href="/pub/arizuko/components/channels.html">channels overview</a>.</p>`)
 	fmt.Fprintf(w, `<div id="pair-status">%s</div>`, renderPairStatus(st))
-	fmt.Fprintf(w, `<form method="post" action="/dash/channels/whatsapp/pair/start" hx-post="/dash/channels/whatsapp/pair/start" hx-target="#pair-result" hx-swap="innerHTML">
+	if d.svc == nil {
+		fmt.Fprint(w, `<p class="dim">Pair proxy unavailable (local dev)</p>`)
+	} else {
+		fmt.Fprintf(w, `<form method="post" action="/dash/channels/whatsapp/pair/start" hx-post="/dash/channels/whatsapp/pair/start" hx-target="#pair-result" hx-swap="innerHTML">
 <p><label>Phone <input type="text" name="phone" value="%s" placeholder="+420..." required size="20"></label></p>
 <p><button type="submit">Start pairing</button></p>
-</form>
-<div id="pair-result"></div>
+</form>`, esc(phone))
+	}
+	fmt.Fprint(w, `<div id="pair-result"></div>
 <script>
 (function(){
   // Light polling without bringing in htmx for the read view: refresh
@@ -88,8 +92,16 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
       .then(s => { document.getElementById('pair-status').innerHTML = renderStatus(s); })
       .catch(() => {});
   }
+  function stateLabel(state) {
+    switch (state) {
+      case 'connected': return 'paired';
+      case 'qr': return 'awaiting QR';
+      case 'pair_code': return 'awaiting pairing code';
+      default: return 'unknown';
+    }
+  }
   function renderStatus(s) {
-    let html = '<p>session: <strong>' + (s.state||'?') + '</strong>';
+    let html = '<p>session: <strong>' + stateLabel(s.state) + '</strong>';
     if (s.expires_at) html += ' expires_at ' + s.expires_at;
     if (s.since) html += ' since ' + s.since;
     html += '</p>';
@@ -97,7 +109,7 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
   }
   setInterval(refresh, 2000);
 })();
-</script>`, esc(phone))
+</script>`)
 	pageClose(w, r)
 }
 
@@ -171,8 +183,22 @@ func (d *dash) fetchPairStatus() pairStatus {
 	return st
 }
 
+// pairStateLabel maps a whapd pair state to a human label.
+func pairStateLabel(state string) string {
+	switch state {
+	case "connected":
+		return "paired"
+	case "qr":
+		return "awaiting QR"
+	case "pair_code":
+		return "awaiting pairing code"
+	default:
+		return "unknown"
+	}
+}
+
 func renderPairStatus(st pairStatus) string {
-	out := fmt.Sprintf(`<p>session: <strong>%s</strong>`, esc(st.State))
+	out := fmt.Sprintf(`<p>session: <strong>%s</strong>`, esc(pairStateLabel(st.State)))
 	if st.ExpiresAt != "" {
 		out += " expires_at " + esc(st.ExpiresAt)
 	}

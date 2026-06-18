@@ -557,9 +557,9 @@ func TestPortalAllDotsOk(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
-	// each dot span should have class "dot ok"
-	if !strings.Contains(body, `dot ok`) {
-		t.Errorf("expected 'dot ok' classes: %s", body)
+	// each dot span should have class "dot dot-ok"
+	if !strings.Contains(body, `dot dot-ok`) {
+		t.Errorf("expected 'dot dot-ok' classes: %s", body)
 	}
 }
 
@@ -582,8 +582,8 @@ func TestPortalFailedTasksDot(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
-	if !strings.Contains(body, `dot err`) {
-		t.Errorf("expected 'dot err' class for >=3 failed tasks: %s", body)
+	if !strings.Contains(body, `dot dot-err`) {
+		t.Errorf("expected 'dot dot-err' class for >=3 failed tasks: %s", body)
 	}
 }
 

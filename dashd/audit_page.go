@@ -17,7 +17,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTopFor(w, r, "Audit")
+	pageTopFor(w, r, "audit")
 
 	if d.db == nil {
 		fmt.Fprint(w, htmlBanner("err", "audit store unavailable"))

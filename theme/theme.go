@@ -199,6 +199,7 @@ td:first-child { white-space: nowrap; }
 .dot-ok { background: var(--ok); }
 .dot-warn { background: var(--warn); }
 .dot-err { background: var(--danger); }
+.dot-unknown { background: var(--dim); }
 .ok { background: var(--ok); }
 .warn { background: var(--warn); }
 .err { background: var(--danger); }
@@ -281,6 +282,12 @@ nav a:first-child { color: var(--accent); font-weight: 700; font-size: .95em; } 
   margin: 1rem 0;
 }
 .cols > .card-full { grid-column: 1 / -1; }
+.cols-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.2rem;
+  margin: 1rem 0;
+}
 
 /* --- Section cards (onbod dashboard) --- */
 .section {
@@ -325,6 +332,7 @@ nav a:first-child { color: var(--accent); font-weight: 700; font-size: .95em; } 
   body { font-size: 13px; }
   .page-wide { padding: 1.5rem 1rem; }
   .cols { grid-template-columns: 1fr; }
+  .cols-3 { grid-template-columns: 1fr; }
   .card { padding: 1.2rem; }
 }
 @media (max-width: 480px) {

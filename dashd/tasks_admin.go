@@ -52,9 +52,9 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", id},
 	)
 
-	dot := "ok"
+	dot := "dot-ok"
 	if status != "active" {
-		dot = "warn"
+		dot = "dot-warn"
 	}
 
 	fmt.Fprintf(w, `<table>%s%s%s%s%s%s%s%s</table>`,

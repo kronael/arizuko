@@ -131,7 +131,7 @@ func TestUsageWithCost(t *testing.T) {
 	if !strings.Contains(body, "$2.50") {
 		t.Errorf("expected cost total $2.50: %s", body)
 	}
-	if !strings.Contains(body, `href="/dash/groups/alice/"`) {
+	if !strings.Contains(body, `href="/dash/groups/alice"`) {
 		t.Errorf("per-group row should link to the group page: %s", body)
 	}
 }

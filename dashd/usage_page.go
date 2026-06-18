@@ -17,7 +17,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTopFor(w, r, "Usage")
+	pageTopFor(w, r, "usage")
 
 	if d.dbRoutd == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
@@ -52,7 +52,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Summary cards.
-	fmt.Fprintf(w, `<div class="cols">`+
+	fmt.Fprintf(w, `<div class="cols-3">`+
 		`<div class="card"><h3>%d</h3><p class="dim">total messages</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">tokens / 7d</p></div>`+
 		`<div class="card"><h3>%s</h3><p class="dim">cost / 7d</p></div>`+
@@ -67,7 +67,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 	var groupRows [][]string
 	for _, s := range summaries {
 		groupRows = append(groupRows, []string{
-			fmt.Sprintf(`<a href="/dash/groups/%s/">%s</a>`, folderPath(s.Folder), esc(s.Folder)),
+			fmt.Sprintf(`<a href="/dash/groups/%s">%s</a>`, folderPath(s.Folder), esc(s.Folder)),
 			usageCount(s.MsgCount),
 			usageTokens(s.Tokens7d),
 			usageCents(s.Cents7d),
