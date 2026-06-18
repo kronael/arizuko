@@ -133,7 +133,7 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 	c := &http.Client{Timeout: 15 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
-		fmt.Fprintf(w, `<div class="err">pair-start failed: %s</div>`, esc(err.Error()))
+		fmt.Fprintf(w, `<div class="banner-err">pair-start failed: %s</div>`, esc(err.Error()))
 		return
 	}
 	defer resp.Body.Close()
@@ -145,11 +145,11 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = fmt.Sprintf("whapd returned %d", resp.StatusCode)
 		}
-		fmt.Fprintf(w, `<div class="err">%s</div>`, esc(msg))
+		fmt.Fprintf(w, `<div class="banner-err">%s</div>`, esc(msg))
 		return
 	}
 	d.auditPairStart(sub, phone)
-	fmt.Fprintf(w, `<div class="ok"><p>code: <strong class="code-xl">%s</strong> &middot; expires_at %s</p>
+	fmt.Fprintf(w, `<div class="banner-ok"><p>code: <strong class="code-xl">%s</strong> &middot; expires_at %s</p>
 <ol><li>Open WhatsApp on +%s</li><li>Settings &rsaquo; Linked Devices &rsaquo; Link a Device</li><li>Tap "Link with phone number instead"</li><li>Enter the code above.</li></ol></div>`,
 		esc(pr.Code), esc(pr.ExpiresAt), esc(strings.TrimPrefix(phone, "+")))
 }

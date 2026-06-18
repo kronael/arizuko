@@ -17,7 +17,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTopFor(w, r, "audit")
+	pageTopFor(w, r, "Audit")
 
 	if d.db == nil {
 		fmt.Fprint(w, htmlBanner("err", "audit store unavailable"))
@@ -143,7 +143,7 @@ func (d *dash) auditFilterForm(cat, actor, folder string) string {
 	}
 
 	return fmt.Sprintf(
-		`<form method="get" action="/dash/audit/" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem">`+
+		`<form method="get" action="/dash/audit/" class="filter-row">`+
 			`<select name="cat">%s</select>`+
 			`<input name="actor" placeholder="actor" value="%s">`+
 			`<input name="folder" placeholder="folder" value="%s">`+

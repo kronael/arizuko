@@ -121,7 +121,7 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<div class="services-grid">`)
 	for i, s := range services {
 		var nameHTML string
-		if s.Built {
+		if s.Built && statuses[i] != statusUnknown {
 			nameHTML = fmt.Sprintf(`<a href="%s">%s</a>`, esc(s.Dash), esc(s.Name))
 		} else {
 			nameHTML = esc(s.Name)

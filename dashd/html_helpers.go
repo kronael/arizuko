@@ -11,9 +11,15 @@ func isHtmx(r *http.Request) bool {
 }
 
 // htmlTable renders a <table> with thead+tbody. Empty rows emits a <p class="empty">.
-func htmlTable(headers []string, rows [][]string) string {
+// Pass an optional second call with htmlTableEmpty to override the empty message,
+// or use htmlTableMsg for a one-shot call.
+func htmlTable(headers []string, rows [][]string, emptyMsg ...string) string {
 	if len(rows) == 0 {
-		return `<p class="empty">no entries</p>`
+		msg := "no entries"
+		if len(emptyMsg) > 0 && emptyMsg[0] != "" {
+			msg = emptyMsg[0]
+		}
+		return `<p class="empty">` + esc(msg) + `</p>`
 	}
 	var b strings.Builder
 	b.WriteString(`<table><thead><tr>`)

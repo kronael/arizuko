@@ -81,6 +81,7 @@ func (d *dash) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, htmlTable(
 		[]string{"ID", "Seq", "Match", "Target", "Window (msgs/chars)", ""},
 		tableRows,
+		"No routes configured. Messages will not be delivered until at least one route exists.",
 	))
 
 	fmt.Fprint(w, htmlSection("Add route",

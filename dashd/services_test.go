@@ -9,8 +9,9 @@ import (
 
 // TestServicesOperator: an operator GET /dash/services/ renders one tile per
 // known daemon. In-test, daemon hostnames fail DNS resolution → unknown status.
-// Built tiles link to their /dash/ surface; unbuilt tiles render the name as
-// plain text.
+// Built tiles with unknown status render the name as plain text (container not
+// deployed); links only appear when the daemon is reachable. Unbuilt tiles
+// always render the name as plain text.
 func TestServicesOperator(t *testing.T) {
 	db := testDB(t)
 	defer db.Close()
@@ -31,14 +32,6 @@ func TestServicesOperator(t *testing.T) {
 	for _, s := range services {
 		if !strings.Contains(body, s.Name) {
 			t.Errorf("missing tile for %s", s.Name)
-		}
-		if s.Built {
-			if !strings.Contains(body, s.Dash) {
-				t.Errorf("built tile %s missing link to %s", s.Name, s.Dash)
-			}
-			if !strings.Contains(body, ">"+s.Name+"</a>") {
-				t.Errorf("built tile %s missing link text", s.Name)
-			}
 		}
 	}
 	// Unreachable via DNS → unknown (not err; err = deployed but down).

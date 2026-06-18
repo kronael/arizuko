@@ -65,7 +65,7 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
-				fmt.Fprint(w, htmlBanner("ok", "Token issued. Copy it now — it will not be shown again.<br><code>"+esc(raw)+"</code>"))
+				fmt.Fprint(w, htmlBannerRaw("ok", "Token issued. Copy it now — it will not be shown again.<br><code>"+esc(raw)+"</code>"))
 			}
 		}
 	}
@@ -78,14 +78,16 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			`<form method="post" action="/dash/tokens/%s/%s/revoke">`+
 				`<button class="btn btn-danger btn-sm" type="submit">revoke</button></form>`,
 			folderPath(folder), esc(encodeJID(t.JID)))
+		iso := t.CreatedAt.UTC().Format(time.RFC3339)
 		tableRows = append(tableRows, []string{
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
 			esc(kind),
-			t.CreatedAt.UTC().Format("2006-01-02 15:04"),
+			`<abbr title="` + esc(iso) + `">` + relativeTS(iso) + `</abbr>`,
 			revoke,
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", ""}, tableRows))
+	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", ""}, tableRows,
+		"No tokens. Issue a chat link or webhook token above."))
 
 	fmt.Fprint(w, htmlSection("Issue new token",
 		fmt.Sprintf(`<form method="post" action="/dash/tokens/%s/">`, folderPath(folder))+

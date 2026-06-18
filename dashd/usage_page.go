@@ -17,7 +17,7 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	pageTopFor(w, r, "usage")
+	pageTopFor(w, r, "Usage")
 
 	if d.dbRoutd == nil {
 		fmt.Fprint(w, htmlBanner("err", "store unavailable"))

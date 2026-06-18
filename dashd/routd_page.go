@@ -82,7 +82,7 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		retry := fmt.Sprintf(
-			`<form method="post" action="/dash/routd/retry" style="display:inline">`+
+			`<form method="post" action="/dash/routd/retry" class="form-inline">`+
 				`<input type="hidden" name="chat_jid" value="%s">`+
 				`<button class="btn" type="submit">retry</button></form>`,
 			esc(chatJID))

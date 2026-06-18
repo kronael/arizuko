@@ -71,7 +71,7 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 			age = relativeTS(startedAt)
 		}
 		kill := fmt.Sprintf(
-			`<form method="post" action="/dash/runed/kill" style="display:inline"`+
+			`<form method="post" action="/dash/runed/kill" class="form-inline"`+
 				` onsubmit="return confirm('kill active runs for %s?')">`+
 				`<input type="hidden" name="folder" value="%s">`+
 				`<button class="btn-danger" type="submit">kill</button></form>`,
@@ -87,7 +87,8 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 	if err := rows.Err(); err != nil {
 		slog.Warn("runed page: active rows", "err", err)
 	}
-	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Age", "Run", ""}, tableRows))
+	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Age", "Run", ""}, tableRows,
+		"No active runs."))
 }
 
 // renderRecentRuns writes the recently-finished runs table.
@@ -125,7 +126,8 @@ func (d *dash) renderRecentRuns(w http.ResponseWriter) {
 	if err := rows.Err(); err != nil {
 		slog.Warn("runed page: recent rows", "err", err)
 	}
-	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Outcome", "Exit", "Duration", "Ended"}, tableRows))
+	fmt.Fprint(w, htmlTable([]string{"Folder", "State", "Outcome", "Exit", "Duration", "Ended"}, tableRows,
+		"No recent runs."))
 }
 
 // handleRunedKill handles POST /dash/runed/kill — proxy the operator-kill to
@@ -221,13 +223,13 @@ func shortID(id string) string {
 	return id[:8]
 }
 
-// runStateClass maps a spawn state to a status CSS class: exited→ok, error→err,
-// killed/queued→unknown, running→ok.
+// runStateClass maps a spawn state to a status CSS class: exited/running→ok,
+// error/killed→err, queued→unknown.
 func runStateClass(state string) string {
 	switch state {
 	case "exited", "running":
 		return statusOK
-	case "error":
+	case "error", "killed":
 		return statusErr
 	default:
 		return statusUnknown

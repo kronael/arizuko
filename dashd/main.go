@@ -536,16 +536,19 @@ func dashHead(title string) string {
 var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><html>{{.Head}}<body>
 <div class="page-wide">{{.Nav}}
 <h1 class="brand">{{.Brand}}</h1>
-<p class="dim">Operator control plane</p>
+<p class="dim">{{.Subtitle}}</p>
 {{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
 <div class="tiles">
 <a class="tile" href="/dash/status/"><h2>status<span class="dot {{.StatusDot}}"></span></h2><p>service health</p></a>
 <a class="tile" href="/dash/tasks/"><h2>tasks<span class="dot {{.TasksDot}}"></span></h2><p>scheduled jobs</p></a>
 <a class="tile" href="/dash/activity/"><h2>activity</h2><p>message flow</p></a>
+<a class="tile" href="/dash/chat/"><h2>chat</h2><p>web chat sessions</p></a>
 <a class="tile" href="/dash/groups/"><h2>groups</h2><p>group hierarchy</p></a>
+<a class="tile" href="/dash/routes/"><h2>routes</h2><p>message routing table</p></a>
 <a class="tile" href="/dash/memory/"><h2>memory</h2><p>knowledge browser</p></a>
 <a class="tile" href="/dash/profile/"><h2>profile</h2><p>linked accounts</p></a>
+{{if .Operator}}<a class="tile" href="/dash/invites/"><h2>invites</h2><p>onboarding invites</p></a>{{end}}
 </div>
 </div></body></html>`))
 
@@ -571,17 +574,24 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		tasksDot = "warn"
 	}
 
+	subtitle := "operator dashboard"
+	if inst := os.Getenv("ARIZUKO_INSTANCE"); inst != "" {
+		subtitle = inst + " operator dashboard"
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := portalTmpl.Execute(w, struct {
 		Head         template.HTML
 		Nav          template.HTML
 		Brand        string
+		Subtitle     string
+		Operator     bool
 		StatusDot    string
 		TasksDot     string
 		Err          string
 		ErroredCount int
 		FailedTasks  int
-	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
+	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, "", erroredCount, failedTasks}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
@@ -752,8 +762,8 @@ func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator b
 			esc(prompt), esc(truncate64(prompt)),
 			esc(cron.String),
 			dot, esc(status),
-			esc(createdAt),
-			esc(nextRun.String),
+			`<abbr title="`+esc(createdAt)+`">`+relativeTS(createdAt)+`</abbr>`,
+			`<abbr title="`+esc(nextRun.String)+`">`+relativeTS(nextRun.String)+`</abbr>`,
 		)
 		n++
 	}
@@ -964,7 +974,7 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 			usageParts += fmt.Sprintf(` &middot; $%.2f / 7d`, float64(u.cents7d)/100)
 		}
 		if u.lastActive != "" {
-			usageParts += ` &middot; last ` + esc(u.lastActive[:10])
+			usageParts += ` &middot; last <abbr title="` + esc(u.lastActive) + `">` + relativeTS(u.lastActive) + `</abbr>`
 		}
 		fmt.Fprintf(w,
 			`<details><summary><code>%s</code>%s <span class="dim">(%s)</span></summary>`+

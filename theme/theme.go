@@ -161,6 +161,7 @@ button:hover, .btn:hover { opacity: .88; }
   border: 1px solid var(--border);
 }
 .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-primary { background: var(--accent); color: #0a0e1a; }
 
 /* --- OAuth buttons --- */
 .sep { color: var(--dim); text-align: center; margin: 1em 0 .5em; font-size: .8em; }
@@ -345,6 +346,7 @@ nav a:first-child { color: var(--accent); font-weight: 700; font-size: .95em; } 
 /* --- Utility --- */
 .form-narrow { max-width: 420px; }
 .form-inline { display: inline; }
+.filter-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
 .plain-list { list-style: none; padding: 0; }
 .code-xl { font-size: 1.4em; }
 

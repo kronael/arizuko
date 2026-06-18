@@ -63,8 +63,8 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		htmlDetail("Chat JID", `<code>`+esc(chatJID)+`</code>`),
 		htmlDetail("Cron", `<code>`+esc(cron.String)+`</code>`),
 		htmlDetail("Status", `<span class="dot `+dot+`"></span>`+esc(status)),
-		htmlDetail("Created", esc(createdAt)),
-		htmlDetail("Next Run", esc(nextRun.String)),
+		htmlDetail("Created", `<abbr title="`+esc(createdAt)+`">`+relativeTS(createdAt)+`</abbr>`),
+		htmlDetail("Next Run", `<abbr title="`+esc(nextRun.String)+`">`+relativeTS(nextRun.String)+`</abbr>`),
 		htmlDetail("Context Mode", esc(contextMode.String)),
 	)
 
@@ -112,7 +112,7 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		logRows = append(logRows, []string{
-			esc(runAt),
+			`<abbr title="` + esc(runAt) + `">` + relativeTS(runAt) + `</abbr>`,
 			esc(runStatus),
 			fmt.Sprintf(`%d ms`, durMS),
 			esc(errMsg),

@@ -68,6 +68,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 			esc(row.Principal), esc(row.Action), esc(row.Effect),
 			esc(row.Params), esc(row.Predicate),
 		)
+		grantedAt := `<abbr title="` + esc(row.GrantedAt) + `">` + relativeTS(row.GrantedAt) + `</abbr>`
 		tableRows[i] = []string{
 			`<code>` + esc(row.Principal) + `</code>`,
 			esc(row.Action),
@@ -75,12 +76,14 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 			`<code>` + esc(row.Params) + `</code>`,
 			`<code>` + esc(row.Predicate) + `</code>`,
 			esc(row.GrantedBy),
+			grantedAt,
 			revokeBtn,
 		}
 	}
 	fmt.Fprint(w, htmlTable(
-		[]string{"principal", "action", "effect", "params", "predicate", "granted_by", ""},
+		[]string{"principal", "action", "effect", "params", "predicate", "granted_by", "granted_at", ""},
 		tableRows,
+		"No grants for this group.",
 	))
 
 	// Gather known principals for datalist autocomplete.

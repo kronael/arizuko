@@ -58,7 +58,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 				`<code>` + esc(inv.Token) + `</code>`,
 				`<code>` + esc(inv.TargetGlob) + `</code>`,
 				esc(inv.IssuedBySub),
-				esc(inv.IssuedAt.Format("2006-01-02")),
+				`<abbr title="` + esc(inv.IssuedAt.UTC().Format(time.RFC3339)) + `">` + relativeTS(inv.IssuedAt.UTC().Format(time.RFC3339)) + `</abbr>`,
 				esc(expires),
 				fmt.Sprintf("%d / %d", inv.UsedCount, inv.MaxUses),
 				revokeBtn,

@@ -313,10 +313,10 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/grants">Manage grants &rarr;</a></p>`, folderPath(folder))
 	fmt.Fprintf(w, `<p><a href="/dash/groups/%s/tools">Browse tools &rarr;</a></p>`, folderPath(folder))
 
-	fmt.Fprintf(w, `<h2>Danger zone</h2>
-<form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">
-<button type="submit" class="btn-danger">delete group</button>
-</form>`, folderPath(folder), esc(folder))
+	fmt.Fprintf(w, `<details><summary>Danger zone</summary><div style="margin-top:.5rem">`+
+		`<form method="post" action="/dash/groups/%s/delete" onsubmit="return confirm('Delete group %s? Routes, sessions, files remain on disk; the DB row is removed.')">`+
+		`<button type="submit" class="btn-danger">delete group</button></form>`+
+		`</div></details>`, folderPath(folder), esc(folder))
 
 	pageClose(w, r)
 }
