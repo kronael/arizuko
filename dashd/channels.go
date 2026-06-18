@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,20 +29,21 @@ func (d *dash) whapdURL() string {
 }
 
 // pairAuth sets the service:dashd bearer on a whapd pair request. nil svc (local
-// dev, no AUTHD_URL) → no header. A token-exchange error is logged and the call
-// goes out unauthenticated, surfacing as whapd's 401 rather than a silent skip.
-func (d *dash) pairAuth(req *http.Request) {
+// dev, no AUTHD_URL) → no header, no error. A token-exchange error is returned
+// so callers refuse to forward an unauthenticated request (would be a silent
+// 401 at whapd, or worse an unauthenticated call).
+func (d *dash) pairAuth(req *http.Request) error {
 	if d.svc == nil {
-		return
+		return nil
 	}
 	tok, err := d.svc(req.Context())
 	if err != nil {
-		slog.Warn("whapd pair: service token unavailable", "err", err)
-		return
+		return err
 	}
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
+	return nil
 }
 
 type pairStatus struct {
@@ -89,7 +91,7 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
   // the status block every 2s while the page is open.
   function refresh() {
     fetch('/dash/channels/whatsapp/pair/status').then(r => r.json())
-      .then(s => { document.getElementById('pair-status').innerHTML = renderStatus(s); })
+      .then(s => { renderStatus(document.getElementById('pair-status'), s); })
       .catch(() => {});
   }
   function stateLabel(state) {
@@ -100,12 +102,18 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
       default: return 'unknown';
     }
   }
-  function renderStatus(s) {
-    let html = '<p>session: <strong>' + stateLabel(s.state) + '</strong>';
-    if (s.expires_at) html += ' expires_at ' + s.expires_at;
-    if (s.since) html += ' since ' + s.since;
-    html += '</p>';
-    return html;
+  // Build the status block with DOM nodes + textContent so whapd-supplied
+  // expires_at / since values can never inject markup.
+  function renderStatus(host, s) {
+    host.textContent = '';
+    var p = document.createElement('p');
+    p.appendChild(document.createTextNode('session: '));
+    var strong = document.createElement('strong');
+    strong.textContent = stateLabel(s.state);
+    p.appendChild(strong);
+    if (s.expires_at) p.appendChild(document.createTextNode(' expires_at ' + s.expires_at));
+    if (s.since) p.appendChild(document.createTextNode(' since ' + s.since));
+    host.appendChild(p);
   }
   setInterval(refresh, 2000);
 })();
@@ -137,25 +145,11 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "phone required", 400)
 		return
 	}
-	body, _ := json.Marshal(map[string]string{"phone": phone})
-	req, _ := http.NewRequestWithContext(r.Context(), "POST",
-		d.whapdURL()+"/v1/pair/start", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	d.pairAuth(req)
-	c := &http.Client{Timeout: 15 * time.Second}
-	resp, err := c.Do(req)
-	if err != nil {
-		fmt.Fprintf(w, `<div class="banner-err">pair-start failed: %s</div>`, esc(err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	var pr pairStartResp
-	json.Unmarshal(raw, &pr)
-	if resp.StatusCode != 200 || pr.Code == "" {
+	pr := d.fetchPairStart(r.Context(), phone)
+	if pr.Error != "" || pr.Code == "" {
 		msg := pr.Error
 		if msg == "" {
-			msg = fmt.Sprintf("whapd returned %d", resp.StatusCode)
+			msg = "pair-start failed"
 		}
 		fmt.Fprintf(w, `<div class="banner-err">%s</div>`, esc(msg))
 		return
@@ -166,9 +160,52 @@ func (d *dash) handleWhatsappPairStart(w http.ResponseWriter, r *http.Request) {
 		esc(pr.Code), esc(pr.ExpiresAt), esc(strings.TrimPrefix(phone, "+")))
 }
 
+// fetchPairStart POSTs the phone to whapd /v1/pair/start with the service:dashd
+// bearer, returning a pairStartResp. Every failure mode (marshal, request build,
+// token unavailable, transport, non-2xx, decode) is reported via .Error so the
+// caller never forwards or renders a half-formed result.
+func (d *dash) fetchPairStart(ctx context.Context, phone string) pairStartResp {
+	body, err := json.Marshal(map[string]string{"phone": phone})
+	if err != nil {
+		return pairStartResp{Error: "encode request: " + err.Error()}
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		d.whapdURL()+"/v1/pair/start", bytes.NewReader(body))
+	if err != nil {
+		return pairStartResp{Error: "build request: " + err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if err := d.pairAuth(req); err != nil {
+		return pairStartResp{Error: "service token unavailable"}
+	}
+	c := &http.Client{Timeout: 15 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return pairStartResp{Error: "pair-start request failed: " + err.Error()}
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var pr pairStartResp
+	if err := json.Unmarshal(raw, &pr); err != nil {
+		return pairStartResp{Error: fmt.Sprintf("whapd returned %d (unparseable body)", resp.StatusCode)}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if pr.Error != "" {
+			return pr
+		}
+		return pairStartResp{Error: fmt.Sprintf("whapd returned %d", resp.StatusCode)}
+	}
+	return pr
+}
+
 func (d *dash) fetchPairStatus() pairStatus {
-	req, _ := http.NewRequest("GET", d.whapdURL()+"/v1/pair/status", nil)
-	d.pairAuth(req)
+	req, err := http.NewRequest("GET", d.whapdURL()+"/v1/pair/status", nil)
+	if err != nil {
+		return pairStatus{State: "unreachable", Reason: err.Error()}
+	}
+	if err := d.pairAuth(req); err != nil {
+		return pairStatus{State: "unreachable", Reason: "service token unavailable"}
+	}
 	c := &http.Client{Timeout: 5 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {

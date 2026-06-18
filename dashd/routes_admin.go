@@ -191,13 +191,34 @@ func (d *dash) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	folder := core.ParseRouteTarget(body.Target).Folder
-	if _, ok := d.requireAdmin(w, r, folder); !ok {
-		return
-	}
 	if d.adminDB() == nil {
 		http.Error(w, "routes store unavailable", http.StatusServiceUnavailable)
 		return
+	}
+	// Authz on the CURRENT row's folder, not just the submitted target — an
+	// admin on folder B must not be able to repoint a route that currently
+	// targets folder A. Load the existing target first; 404 if it's gone.
+	var curTarget string
+	if err := d.adminDB().QueryRow(`SELECT target FROM routes WHERE id = ?`, id).Scan(&curTarget); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		slog.Warn("routes: update lookup", "id", id, "err", err)
+		http.Error(w, "lookup failed", http.StatusInternalServerError)
+		return
+	}
+	curFolder := core.ParseRouteTarget(curTarget).Folder
+	if _, ok := d.requireAdmin(w, r, curFolder); !ok {
+		return
+	}
+	// If the target moves to a different folder, the caller must also admin the
+	// new folder — otherwise they could donate a route into a folder they own.
+	newFolder := core.ParseRouteTarget(body.Target).Folder
+	if newFolder != curFolder {
+		if _, ok := d.requireAdmin(w, r, newFolder); !ok {
+			return
+		}
 	}
 	n, err := store.New(d.adminDB()).UpdateRouteRow(id, core.Route{
 		Seq:                   body.Seq,

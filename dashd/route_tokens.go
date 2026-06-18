@@ -3,16 +3,20 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/store"
 )
 
+// webhookLabelRe constrains webhook labels to URL-safe identifier chars so the
+// composed hook: JID stays well-formed.
+var webhookLabelRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
 // Route tokens dashboard: per-folder list + issue + revoke.
 // Mounted at:
 //
-//	GET  /dash/tokens/              — list all tokens (operator-wide)
 //	GET  /dash/tokens/{folder}/     — folder-scoped list + issue form
 //	POST /dash/tokens/{folder}/     — issue new token (kind in form)
 //	POST /dash/tokens/{folder}/{jid}/revoke — revoke by JID
@@ -48,6 +52,8 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		case "hook":
 			if label == "" {
 				fmt.Fprint(w, htmlBanner("err", "label required for webhook tokens"))
+			} else if !webhookLabelRe.MatchString(label) {
+				fmt.Fprint(w, htmlBanner("err", "invalid label: use letters, digits, . _ -"))
 			} else {
 				jid = "hook:" + folder + "/" + label
 			}
