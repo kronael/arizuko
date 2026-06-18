@@ -173,8 +173,13 @@ func (r *router) fireSplit(ctx context.Context) {
 		}); err != nil {
 			slog.Error("enqueue message (split)", "task", t.ID, "jid", t.ChatJID, "err", err)
 			r.runlog(ctx, t.ID, "error", err.Error(), time.Since(start).Milliseconds())
-			// Restore to active so the next tick re-fires (mirrors the monolith).
-			r.reschedule(ctx, t.ID, "", "active")
+			// Restore to active: compute the next scheduled fire so the task stays
+			// discoverable. For one-shot tasks (cron=""), retry in 1 minute.
+			retryRun := computeNextRun(t.Cron, r.tz, t.ID)
+			if retryRun == "" {
+				retryRun = time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
+			}
+			r.reschedule(ctx, t.ID, retryRun, "active")
 			continue
 		}
 
