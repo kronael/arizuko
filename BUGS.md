@@ -99,7 +99,7 @@ action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON dir
 - **Severity:** high
 - **Scope:** dashd/channels.go:33, :91
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — pairAuth returns error + fail-closed; JS uses textContent/createTextNode (80bd29da)
 - **Fix:** (1) fail closed when svc token unavailable; (2) use `textContent` or escape fields
 
 ## [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18, open)
@@ -111,7 +111,7 @@ otherwise inaccessible rule.
 - **Severity:** high
 - **Scope:** dashd/routes_admin.go:194
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — loads existing row first, requires admin on old + new folder (80bd29da)
 - **Fix:** load current row first; require admin on both old and new folder
 
 ## [SEC] invites: raw token exposed in revoke URL (2026-06-18, open)
@@ -134,7 +134,7 @@ break JID namespace.
 - **Severity:** high
 - **Scope:** dashd/route_tokens.go:43,:131
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** partial — label validated against `[a-zA-Z0-9._-]+` (80bd29da); encodeJID/decodeJID collision still open
 - **Fix:** use `url.PathEscape`; validate label against `[a-zA-Z0-9._-]+`
 
 ## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
@@ -157,7 +157,7 @@ check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (ter
 - **Severity:** high
 - **Scope:** dashd/routd_page.go:106, dashd/runed_page.go:135
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — `requireSameOrigin` added to both (1dc9b356)
 - **Fix:** add `requireSameOrigin` to both write endpoints
 
 ## [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18, open)
@@ -168,7 +168,7 @@ guards GET but not POST — nil adminDB panics on add/revoke.
 - **Severity:** high
 - **Scope:** dashd/grants_admin.go:184,:46
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — invalid effect → 400; nil adminDB guard on add + revoke (91159586)
 - **Fix:** reject invalid effect with 400; nil-guard adminDB in POST handlers
 
 ## tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
@@ -180,7 +180,7 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
 - **Severity:** high
 - **Scope:** dashd/tasks_admin.go:201,:216
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — `taskNextRun` computes next_run at create; invalid cron → 400 (91159586)
 - **Fix:** compute next_run at create time; validate cron using same parser as timed
 
 ## tasks: state-machine transitions not enforced (2026-06-18, open)
@@ -191,7 +191,7 @@ invalid cron/interval strings stored silently; timed logs warning and task stays
 - **Severity:** medium
 - **Scope:** dashd/tasks_admin.go:145
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — SQL-level guards on pause/resume/cancel; next_run recomputed on resume (91159586)
 - **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
 
 ## groups: delete parent leaves orphaned child rows; not atomic (2026-06-18, open)
@@ -203,7 +203,7 @@ Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurfa
 - **Severity:** medium
 - **Scope:** dashd/groups_admin.go:403
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — delete wrapped in transaction; descendant group rows purged atomically (91159586)
 - **Fix:** delete descendant groups rows in same transaction; forbid non-leaf delete or wrap all in tx
 
 ## groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
@@ -215,7 +215,7 @@ nothing) or "0 max_children" (spawning disabled).
 - **Severity:** medium
 - **Scope:** dashd/groups_admin.go:246,:286
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — -1/NULL renders blank; 0 clears to default via ClearGroupMaxChildren (91159586)
 - **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
 
 ## main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18, open)
@@ -238,7 +238,7 @@ correctly but mutations don't work.
 - **Severity:** medium
 - **Scope:** dashd/main.go:1073
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — parseMemoryPath scans split points right-to-left; nested folders work (91159586)
 - **Fix:** route mutations through a wildcard `{folder...}` path param or parse from suffix
 
 ## audit: pagination cursor off by one (2026-06-18, open)
@@ -249,7 +249,7 @@ correctly but mutations don't work.
 - **Severity:** medium
 - **Scope:** dashd/audit_page.go:83
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — cursor taken from last displayed row (29e759f7)
 - **Fix:** capture cursor from row 50, not the lookahead row
 
 ## routd: retry clears errored on all messages, not just errored=1 (2026-06-18, open)
@@ -260,7 +260,7 @@ non-errored history.
 - **Severity:** medium
 - **Scope:** dashd/routd_page.go:123
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — `AND errored=1` added (1dc9b356)
 - **Fix:** `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`
 
 ## services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
@@ -272,7 +272,7 @@ A healthy davd always shows err. `services.go:60`: timeout mapped to `unknown` �
 - **Severity:** medium
 - **Scope:** dashd/services.go:54,:60
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — per-service Probe field; timeout → statusErr; DNS → statusUnknown (29e759f7)
 - **Fix:** per-service probe path; classify timeout as err not unknown
 
 ## usage: 7-day query covers 8 days; GroupUsageBulk IN list will fail at scale (2026-06-18, open)
@@ -284,7 +284,7 @@ limit with many groups.
 - **Severity:** medium
 - **Scope:** dashd/usage_page.go:38,:111
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** partial — datetime fix applied (29e759f7); GroupUsageBulk IN-list still open
 - **Fix:** use `datetime('now','-7 days')` for rolling window; rewrite bulk query with JOIN
 
 ## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, open)
@@ -307,7 +307,7 @@ the hot path.
 - **Severity:** low
 - **Scope:** dashd/runed_page.go:52
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — dropped from SELECT (1dc9b356)
 - **Fix:** drop from SELECT and remove variable
 
 ## main: duplicate profile nav link + dead portal .Err field (2026-06-18, open)
@@ -318,7 +318,7 @@ on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty
 - **Severity:** low
 - **Scope:** dashd/main.go:463,:540
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved — profile removed from navLinks; .Err branch removed (91159586)
 - **Fix:** remove profile from navLinks (keep badge); remove .Err from portal template
 
 ---
