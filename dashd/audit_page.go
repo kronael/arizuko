@@ -71,7 +71,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var tableRows [][]string
-	var lastID int64
+	var ids []int64
 	for rows.Next() {
 		var id int64
 		var createdAt, category, action, actr, fld, outcome, resource, surface, params, errMsg string
@@ -80,7 +80,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("audit page: scan", "err", err)
 			continue
 		}
-		lastID = id
+		ids = append(ids, id)
 		outcomeCell := fmt.Sprintf(`<span class="%s">%s</span>`, outcomeClass(outcome), esc(outcome))
 		if errMsg != "" {
 			outcomeCell = fmt.Sprintf(`<abbr title="%s">%s</abbr>`, esc(errMsg), outcomeCell)
@@ -105,6 +105,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 	more := len(tableRows) > 50
 	if more {
 		tableRows = tableRows[:50]
+		ids = ids[:50]
 	}
 
 	fmt.Fprint(w, htmlTable(
@@ -112,6 +113,8 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		tableRows))
 
 	if more {
+		// Cursor = id of the last displayed row, not the lookahead row.
+		lastID := ids[len(ids)-1]
 		fmt.Fprintf(w, `<p><a class="btn" href="%s">older &rarr;</a></p>`,
 			esc(auditOlderHref(lastID, cat, actor, folder)))
 	}

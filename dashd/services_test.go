@@ -58,7 +58,7 @@ func TestServicesNonOperatorForbidden(t *testing.T) {
 }
 
 func TestProbeHealthUnreachable(t *testing.T) {
-	if got := probeHealth("no-such-daemon-host"); got != statusUnknown {
+	if got := probeHealth("no-such-daemon-host", ""); got != statusUnknown {
 		t.Errorf("probeHealth(unresolvable) = %q, want %q", got, statusUnknown)
 	}
 }

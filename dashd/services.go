@@ -1,39 +1,41 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"sort"
 	"sync"
 	"time"
 )
 
 // service describes one daemon tile on the cockpit services hub. host is the
-// Docker-network name probed at <host>:8080/health. Built is true when the
-// /Dash route is deployed; false = control plane in progress.
+// Docker-network name probed at <host>:8080<probe>. Built is true when the
+// /Dash route is deployed; false = control plane in progress. Probe overrides
+// the default /health path (davd has no /health — it answers GET /).
 type service struct {
 	Name  string
 	Host  string
 	Dash  string
 	Desc  string
 	Built bool
+	Probe string
 }
 
 // services is the static daemon list the hub probes. No autodiscovery — route
 // entry IS registration (spec 6/1); adding a daemon here is a deliberate edit.
 // Set Built=true once the per-daemon /dash/ route is shipped.
 var services = []service{
-	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true},
-	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true},
-	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers", false},
-	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", false},
-	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true},
-	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true},
-	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false},
-	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false},
+	{"routd", "routd", "/dash/routd/", "message router, route table, breakers", true, ""},
+	{"runed", "runed", "/dash/runed/", "agent container runs and tokens", true, ""},
+	{"authd", "authd", "/dash/authd/", "identity keys, tokens, providers", false, ""},
+	{"proxyd", "proxyd", "/dash/proxyd/", "auth-gated reverse proxy", false, ""},
+	{"onbod", "onbod", "/dash/onbod/", "onboarding queue, gates, invites", true, ""},
+	{"timed", "timed", "/dash/timed/", "scheduled tasks and ticks", true, ""},
+	{"webd", "webd", "/dash/webd/", "web chat widget and routes", false, ""},
+	{"davd", "davd", "/dash/davd/", "WebDAV workspace access", false, "/"},
 }
 
 // healthTimeout caps each /health probe. The grid probes all daemons
@@ -49,17 +51,37 @@ const (
 	statusUnknown = "unknown"
 )
 
-// probeHealth GETs http://<host>:8080/health with a short timeout and maps the
-// outcome to an ok/err/unknown status.
-func probeHealth(host string) string {
+// probeHealth GETs http://<host>:8080<path> with a short timeout and maps the
+// outcome to an ok/err/unknown status. path defaults to /health when empty.
+func probeHealth(host, path string) string {
+	if path == "" {
+		path = "/health"
+	}
 	c := &http.Client{Timeout: healthTimeout}
-	resp, err := c.Get("http://" + host + ":8080/health")
-	return classifyHealth(resp, err)
+	resp, err := c.Get("http://" + host + ":8080" + path)
+	status := classifyHealth(resp, err)
+	// A client-deadline timeout can hide a DNS failure: when the HTTP deadline
+	// fires before the resolver returns, the error is an opaque timeout, not a
+	// *net.DNSError. Disambiguate with an explicit resolve so an undeployed
+	// container (name doesn't resolve) is unknown, not err.
+	if status == statusErr && err != nil && !hostResolves(host) {
+		return statusUnknown
+	}
+	return status
+}
+
+// hostResolves reports whether host resolves to at least one address within the
+// probe timeout. A DNS failure (no such host, or resolver timeout) = false.
+func hostResolves(host string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+	return err == nil && len(addrs) > 0
 }
 
 // classifyHealth maps a /health GET outcome to a status.
-// DNS failure or client timeout (host unreachable in ≤500ms) = unknown.
-// Connection refused = deployed but daemon down = err.
+// DNS failure (host unresolvable) = unknown (container not deployed).
+// Connection refused or client timeout = deployed but daemon down = err.
 func classifyHealth(resp *http.Response, err error) string {
 	if err == nil {
 		defer resp.Body.Close()
@@ -70,10 +92,6 @@ func classifyHealth(resp *http.Response, err error) string {
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
-		return statusUnknown
-	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) && urlErr.Timeout() {
 		return statusUnknown
 	}
 	return statusErr
@@ -95,7 +113,7 @@ func (d *dash) handleServices(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i] = probeHealth(services[i].Host)
+			statuses[i] = probeHealth(services[i].Host, services[i].Probe)
 		}(i)
 	}
 	wg.Wait()

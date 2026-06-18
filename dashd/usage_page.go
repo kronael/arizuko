@@ -110,7 +110,7 @@ func (d *dash) usageVolumeTable() string {
 	rows, err := d.db.Query(
 		`SELECT DATE(timestamp) AS day, COUNT(*) AS cnt
 		 FROM messages
-		 WHERE is_bot_message=0 AND timestamp >= date('now', '-7 days')
+		 WHERE is_bot_message=0 AND timestamp >= datetime('now', '-7 days')
 		 GROUP BY day ORDER BY day DESC`)
 	if err != nil {
 		slog.Warn("usage page: volume", "err", err)
