@@ -171,8 +171,31 @@ func TestTypingRefresher_StopsOnSendError(t *testing.T) {
 	r.Set("jid1", true)
 	time.Sleep(80 * time.Millisecond)
 
-	// send returns false on first call; loop must not continue firing.
-	if got := atomic.LoadInt32(&sends); got != 1 {
-		t.Errorf("sends = %d, want 1 (loop should stop after first error)", got)
+	// Eager send fires once in Set; loop sends once then stops on first error.
+	// Total: 2 sends (eager + one loop tick).
+	if got := atomic.LoadInt32(&sends); got < 1 || got > 2 {
+		t.Errorf("sends = %d, want 1-2 (loop stops after error)", got)
+	}
+}
+
+func TestTypingRefresher_EagerSendFailureStartsLoop(t *testing.T) {
+	// Eager send in Set fails; loop goroutine starts anyway and succeeds on
+	// subsequent ticks. This is the fix for "typing dead when first API call
+	// hits a transient error."
+	var sends int32
+	r := NewTypingRefresher(20*time.Millisecond, time.Second,
+		func(string) bool {
+			n := atomic.AddInt32(&sends, 1)
+			return n != 1 // first (eager) call fails; loop ticks succeed
+		},
+		nil,
+	)
+
+	r.Set("jid1", true)
+	time.Sleep(100 * time.Millisecond) // several loop ticks
+	r.Set("jid1", false)
+
+	if got := atomic.LoadInt32(&sends); got < 3 {
+		t.Errorf("sends = %d, want >= 3 (loop ran despite eager-send failure)", got)
 	}
 }
