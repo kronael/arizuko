@@ -13,9 +13,10 @@ const CSS = `
   --bg: #0a0e1a;          /* deep navy, not pure black */
   --fg: #f0f0ea;          /* warm off-white */
   --bright: #f8f9fa;
-  --dim: #8892a4;
+  --dim: #a0a8b8;
   --accent: #d4af37;      /* arizuko gold — THE brand color */
   --accent2: #4a90e2;     /* secondary blue (use for info/links where gold would clash) */
+  --accent3: #87ceeb;     /* sky blue — section headers, structural hierarchy */
   --card: #151b28;        /* dark navy card bg */
   --card-hover: #1c2436;
   --code-bg: #1a2332;
@@ -33,9 +34,10 @@ const CSS = `
   --bg: #fafaf8;
   --fg: #1a1a1a;
   --bright: #0a0a0a;
-  --dim: #5a6272;
+  --dim: #404040;
   --accent: #8b6914;      /* darker gold for contrast on light bg */
   --accent2: #1d4ed8;
+  --accent3: #1e40af;     /* deep blue for section headers on light bg */
   --card: #ffffff;
   --card-hover: #f5f4f0;
   --code-bg: #f0f0ec;
@@ -98,7 +100,7 @@ pre code { background: none; padding: 0; border: 0; }
 .brand { color: var(--accent); font-weight: 700; letter-spacing: -.02em; }
 h1 { font-size: 1.5em; color: var(--fg); font-weight: 600; margin-bottom: .25em; }
 h2 {
-  font-size: 1.05em; color: var(--fg); font-weight: 600;
+  font-size: 1.05em; color: var(--accent3); font-weight: 600;
   margin: 1.4em 0 .6em;
   padding-bottom: .3em;
   border-bottom: 1px solid var(--border);
@@ -187,7 +189,6 @@ tbody tr:hover td { background: var(--card-hover); }
 td:first-child { white-space: nowrap; }
 .num { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", monospace; }
 .empty { color: var(--dim); font-style: italic; padding: 1.5rem; text-align: center; }
-.banner-err { color: var(--danger); padding: .75rem; border: 1px solid var(--danger); border-radius: 6px; background: rgba(229,72,77,.05); margin: .5rem 0; }
 
 /* --- Status dots --- */
 .dot {
@@ -250,9 +251,9 @@ details summary:hover { color: var(--accent); }
 .banner-ok, .banner-warn, .banner-err {
   padding: .6em 1em; margin: 1em 0; border-radius: 6px; border: 1px solid;
 }
-.banner-ok { background: rgba(74,222,128,.07); border-color: var(--ok); color: var(--ok); }
-.banner-warn { background: rgba(255,170,0,.08); border-color: var(--warn); color: var(--warn); }
-.banner-err { background: rgba(229,72,77,.08); border-color: var(--danger); color: var(--danger); }
+.banner-ok { background: color-mix(in srgb, var(--ok) 7%, var(--bg)); border-color: var(--ok); color: var(--ok); }
+.banner-warn { background: color-mix(in srgb, var(--warn) 8%, var(--bg)); border-color: var(--warn); color: var(--warn); }
+.banner-err { background: color-mix(in srgb, var(--danger) 8%, var(--bg)); border-color: var(--danger); color: var(--danger); }
 
 /* --- Nav (dashd) --- */
 nav { gap: .5rem; padding: .6rem 0 .8rem; border-bottom: 1px solid var(--border); margin-bottom: 1.2rem; }
