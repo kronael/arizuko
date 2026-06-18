@@ -116,6 +116,10 @@ func (d *dash) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t = t.UTC().Add(24 * time.Hour) // end of day UTC
+		if t.Before(time.Now().UTC()) {
+			http.Error(w, "expires_at must be in the future", http.StatusBadRequest)
+			return
+		}
 		expiresAt = &t
 	}
 

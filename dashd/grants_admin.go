@@ -118,13 +118,14 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	principalOpts.WriteString(`</datalist>`)
 
-	// Gather folder list for scope select.
+	// Gather scope select: only the current folder and its descendants. The
+	// POST handler rejects anything else (no widening to ** or siblings), so the
+	// UI must not offer options the server would reject.
 	var scopeSelect strings.Builder
 	scopeSelect.WriteString(`<select name="scope">`)
 	fmt.Fprintf(&scopeSelect, `<option value="%s" selected>%s (this folder)</option>`, esc(folder), esc(folder))
-	fmt.Fprintf(&scopeSelect, `<option value="**">** (all folders — operator)</option>`)
 	if gRows, err := d.adminDB().Query(
-		`SELECT folder FROM groups WHERE folder != ? ORDER BY folder LIMIT 200`, folder); err == nil {
+		`SELECT folder FROM groups WHERE folder LIKE ? || '/%' ORDER BY folder LIMIT 200`, folder); err == nil {
 		defer gRows.Close()
 		for gRows.Next() {
 			var gf string
@@ -168,6 +169,10 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if d.adminDB() == nil {
+		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -181,8 +186,13 @@ func (d *dash) handleGroupGrantAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "principal and action required", http.StatusBadRequest)
 		return
 	}
-	if effect != "allow" && effect != "deny" {
+	// Empty = omitted field → default allow. Any other non-allow/deny value is
+	// a malformed submission, not a default.
+	if effect == "" {
 		effect = "allow"
+	} else if effect != "allow" && effect != "deny" {
+		http.Error(w, "effect must be allow or deny", http.StatusBadRequest)
+		return
 	}
 	if scope == "" {
 		scope = folder
@@ -222,6 +232,10 @@ func (d *dash) handleGroupGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, ok := d.requireAdmin(w, r, folder)
 	if !ok {
+		return
+	}
+	if d.adminDB() == nil {
+		fmt.Fprint(w, htmlBanner("err", "store unavailable"))
 		return
 	}
 	if err := r.ParseForm(); err != nil {

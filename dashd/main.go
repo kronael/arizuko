@@ -444,7 +444,8 @@ func handleHtmxAsset(w http.ResponseWriter, r *http.Request) {
 // decides which gets aria-current. /dash/ is special-cased so child pages
 // don't all light up the home link. Operator-only links (invites) render only
 // for callers holding `**`; the scoped links (status/tasks/activity/groups/
-// routes/memory/profile) always show — their pages filter to visible folders.
+// routes/memory) always show — their pages filter to visible folders. Profile
+// is reached via the identity badge link, not a nav entry.
 var navLinks = []struct {
 	Href, Label string
 	operator    bool
@@ -461,7 +462,6 @@ var navLinks = []struct {
 	{"/dash/audit/", "audit", true},
 	{"/dash/usage/", "usage", true},
 	{"/dash/memory/", "memory", false},
-	{"/dash/profile/", "profile", false},
 }
 
 // dashNavFor renders the top nav with aria-current="page" on the link whose
@@ -537,7 +537,6 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html><htm
 <div class="page-wide">{{.Nav}}
 <h1 class="brand">{{.Brand}}</h1>
 <p class="dim">{{.Subtitle}}</p>
-{{if .Err}}<div class="banner-err">portal: {{.Err}}</div>{{end}}
 {{if eq .GroupCount 0}}<div class="banner-warn">No groups configured. <a href="/dash/groups/new">Create your first group</a> to get started.</div>{{end}}
 {{if gt .ErroredCount 0}}<div class="banner-warn"><a href="/dash/status/">{{.ErroredCount}} errored chat{{if gt .ErroredCount 1}}s{{end}}{{if gt .FailedTasks 0}} · {{.FailedTasks}} failed task{{if gt .FailedTasks 1}}s{{end}}{{end}}</a></div>{{end}}
 <div class="tiles">
@@ -591,11 +590,10 @@ func (d *dash) handlePortal(w http.ResponseWriter, r *http.Request) {
 		Operator     bool
 		StatusDot    string
 		TasksDot     string
-		Err          string
 		GroupCount   int
 		ErroredCount int
 		FailedTasks  int
-	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, "", groupCount, erroredCount, failedTasks}); err != nil {
+	}{template.HTML(dashHead(brandName)), template.HTML(dashNavFor(r)), brandName, subtitle, operator, statusDot, tasksDot, groupCount, erroredCount, failedTasks}); err != nil {
 		slog.Warn("portal: template execute", "err", err)
 	}
 }
@@ -1070,22 +1068,37 @@ func memoryPathAllowed(rel string) bool {
 	return false
 }
 
+// parseMemoryPath splits /dash/memory/<folder>/<rel> into (folder, rel) where
+// folder may be multi-segment (corp/eng/sre) and rel is one of the allowlisted
+// memory files. Splitting on the first '/' (as before) misattributed nested
+// folders — corp/eng/MEMORY.md became folder=corp, rel=eng/MEMORY.md. Instead
+// scan split points from the right and pick the one whose trailing part is an
+// allowed memory path; everything before it is the folder.
 func parseMemoryPath(urlPath string) (string, string) {
 	const prefix = "/dash/memory/"
 	if !strings.HasPrefix(urlPath, prefix) {
 		return "", ""
 	}
 	rest := strings.TrimPrefix(urlPath, prefix)
-	i := strings.IndexByte(rest, '/')
-	if i < 0 {
-		return "", ""
+	for i := strings.IndexByte(rest, '/'); i >= 0; i = indexByteFrom(rest, '/', i+1) {
+		folder := rest[:i]
+		rel := rest[i+1:]
+		if folder != "" && memoryPathAllowed(rel) {
+			return folder, rel
+		}
 	}
-	folder := rest[:i]
-	rel := rest[i+1:]
-	if folder == "" || rel == "" {
-		return "", ""
+	return "", ""
+}
+
+// indexByteFrom returns the index of c in s at or after start, or -1.
+func indexByteFrom(s string, c byte, start int) int {
+	if start > len(s) {
+		return -1
 	}
-	return folder, rel
+	if j := strings.IndexByte(s[start:], c); j >= 0 {
+		return start + j
+	}
+	return -1
 }
 
 func (d *dash) resolveMemoryFile(folder, rel string) (string, error) {

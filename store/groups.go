@@ -452,3 +452,15 @@ func (s *Store) SetGroupMaxChildren(folder string, n int) error {
 		n, folder)
 	return err
 }
+
+// ClearGroupMaxChildren removes the MaxChildren key from container_config so the
+// group falls back to the unset default (Config.MaxChildren == 0 = disabled).
+// Used by the settings form when the field is left blank.
+func (s *Store) ClearGroupMaxChildren(folder string) error {
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET container_config = json_remove(container_config, '$.MaxChildren')
+		 WHERE folder = ?`,
+		folder)
+	return err
+}

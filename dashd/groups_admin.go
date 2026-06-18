@@ -23,6 +23,26 @@ import (
 
 var skillNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// numOrBlank renders a settings value as a string, or "" when ≤0 (unset) so the
+// form shows an empty field rather than a 0 that would persist as a real override.
+func numOrBlank(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
+}
+
+// clearableNum parses an observe-window form field, returning -1 (the
+// SetGroupObserveWindow clear sentinel) for a blank, zero, or invalid value and
+// the positive value otherwise.
+func clearableNum(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n <= 0 {
+		return -1
+	}
+	return n
+}
+
 // GET /dash/groups/new — folder + product form.
 func (d *dash) handleGroupNewForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
@@ -243,12 +263,6 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	s := store.New(d.adminDB())
 	open := s.IsGroupOpen(folder)
 	owMsgs, owChars := s.GroupObserveWindow(folder)
-	if owMsgs < 0 {
-		owMsgs = 0
-	}
-	if owChars < 0 {
-		owChars = 0
-	}
 
 	fmt.Fprintf(w, `<p class="dim">Group <code>%s</code> &middot; product <code>%s</code></p>`, esc(folder), esc(product))
 	openChecked := ""
@@ -280,11 +294,11 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
 	fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
 	fmt.Fprint(w, htmlFormRow("observe_window_messages",
-		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%d" min="0"> <span class="dim">max messages a sibling sees (0 = default 50)</span>`, owMsgs)))
+		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
 	fmt.Fprint(w, htmlFormRow("observe_window_chars",
-		fmt.Sprintf(`<input type="number" name="observe_window_chars" value="%d" min="0"> <span class="dim">max chars per observation (0 = default 2000)</span>`, owChars)))
+		fmt.Sprintf(`<input type="number" name="observe_window_chars" value="%s" min="0"> <span class="dim">max chars per observation (blank = default 2000)</span>`, numOrBlank(owChars))))
 	fmt.Fprint(w, htmlFormRow("max_children",
-		fmt.Sprintf(`<input type="number" name="max_children" value="%d" min="-1"> <span class="dim">0 = disabled, -1 = unlimited</span>`, groupCfg.MaxChildren)))
+		fmt.Sprintf(`<input type="number" name="max_children" value="%s" min="-1"> <span class="dim">blank = default, 0 = disabled, -1 = unlimited</span>`, numOrBlank(groupCfg.MaxChildren))))
 
 	fmt.Fprintf(w, `<h2>Agent files</h2>`+
 		`<p class="dim">Edit in the workspace browser — dufs opens text files in its built-in editor.</p>`+
@@ -335,9 +349,10 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	open := r.FormValue("open") == "1"
-	owMsgs, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_messages")))
-	owChars, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("observe_window_chars")))
-	maxChildren, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("max_children")))
+	// Blank or 0 = clear to default. SetGroupObserveWindow clears on <0, so map
+	// an empty/zero submission to -1 instead of persisting 0 as a real override.
+	owMsgs := clearableNum(r.FormValue("observe_window_messages"))
+	owChars := clearableNum(r.FormValue("observe_window_chars"))
 	model := r.FormValue("model")
 	s := store.New(d.adminDB())
 	if err := s.SetGroupOpen(folder, open); err != nil {
@@ -355,9 +370,19 @@ func (d *dash) handleGroupSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	if r.Form.Has("max_children") {
-		if err := s.SetGroupMaxChildren(folder, maxChildren); err != nil {
+	// max_children: only persist a positive limit (and -1 = unlimited); a blank
+	// or 0 field clears the key so the group falls back to the unset default.
+	mcRaw := strings.TrimSpace(r.FormValue("max_children"))
+	mc, mcErr := strconv.Atoi(mcRaw)
+	if mcRaw != "" && mcErr == nil && mc != 0 {
+		if err := s.SetGroupMaxChildren(folder, mc); err != nil {
 			slog.Warn("group settings save: max_children", "folder", folder, "err", err)
+			http.Error(w, "write failed", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := s.ClearGroupMaxChildren(folder); err != nil {
+			slog.Warn("group settings save: clear max_children", "folder", folder, "err", err)
 			http.Error(w, "write failed", http.StatusInternalServerError)
 			return
 		}
@@ -400,31 +425,57 @@ func (d *dash) handleGroupDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	res, err := d.adminDB().Exec(`DELETE FROM groups WHERE folder = ?`, folder)
+	// acl (scope) and routes (target) have NO FK to groups — the groups DELETE
+	// cascades nothing. Purge the folder row, its child rows, and the folder's
+	// grant + route rows in ONE transaction so a parent delete never leaves
+	// orphaned child groups, and a re-created folder cannot inherit stale admin
+	// grants or routing targets. Covers the subtree (X/...) and X/**-style globs.
+	// Audit-free direct writes (routd.db has no audit_log) — same discipline as
+	// handleGroupCreate's raw INSERT.
+	tx, err := d.adminDB().Begin()
 	if err != nil {
+		slog.Warn("group delete: begin", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	res, err := tx.Exec(`DELETE FROM groups WHERE folder = ?`, folder)
+	if err != nil {
+		tx.Rollback()
 		slog.Warn("group delete: db", "folder", folder, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		tx.Rollback()
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	// acl (scope) and routes (target) have NO FK to groups — the groups DELETE
-	// above cascades nothing. Purge the folder's grant + route rows in the same
-	// flow so a re-created folder does not silently inherit stale admin grants or
-	// routing targets. Covers the subtree (X/...) and the X/**-style glob scope.
-	// Audit-free direct writes (routd.db has no audit_log) — same discipline as
-	// handleGroupCreate's raw INSERT.
-	if _, err := d.adminDB().Exec(
-		`DELETE FROM acl WHERE scope = ? OR scope LIKE ?||'/%'`, folder, folder); err != nil {
-		slog.Warn("group delete: purge acl", "folder", folder, "err", err)
+	if _, err := tx.Exec(`DELETE FROM groups WHERE folder LIKE ? || '/%'`, folder); err != nil {
+		tx.Rollback()
+		slog.Warn("group delete: purge children", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
 	}
-	if _, err := d.adminDB().Exec(
+	if _, err := tx.Exec(
+		`DELETE FROM acl WHERE scope = ? OR scope LIKE ?||'/%'`, folder, folder); err != nil {
+		tx.Rollback()
+		slog.Warn("group delete: purge acl", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(
 		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
 		folder, folder, folder); err != nil {
+		tx.Rollback()
 		slog.Warn("group delete: purge routes", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Warn("group delete: commit", "folder", folder, "err", err)
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
 	}
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategoryMutation,
