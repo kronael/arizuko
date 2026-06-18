@@ -84,6 +84,245 @@ incident you cannot scroll back past 50 events and must parse UTC strings by eye
   pagination not yet implemented
 - **Fix:** `relativeTS` function + writeActivityRows updated (2026-06-16)
 
+---
+## Codex audit 2026-06-18 — dashd full sweep
+
+---
+
+## [SEC] channels: pairAuth fails open + innerHTML XSS in pair-status polling (2026-06-18, open)
+
+Two issues in `channels.go`. (1) `pairAuth` at line 33: if service-token minting fails, dashd
+still sends the call to whapd without Authorization — auth bypass risk on a sensitive operator
+action. (2) Line 91: JS polling renders `expires_at`/`since` from whapd JSON directly into
+`innerHTML` — admin-page XSS sink if whapd or a proxy returns attacker-controlled strings.
+
+- **Severity:** high
+- **Scope:** dashd/channels.go:33, :91
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** (1) fail closed when svc token unavailable; (2) use `textContent` or escape fields
+
+## [SEC] routes: handleRouteUpdate authorizes new target, not existing row (2026-06-18, open)
+
+`routes_admin.go:194`: PATCH only requires admin on the new target folder. A caller who knows a
+route ID in another folder can PATCH it into a folder they own — changing match/seq/target on an
+otherwise inaccessible rule.
+
+- **Severity:** high
+- **Scope:** dashd/routes_admin.go:194
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** load current row first; require admin on both old and new folder
+
+## [SEC] invites: raw token exposed in revoke URL (2026-06-18, open)
+
+`invites.go:56`: token is a path param in the revoke form action — leaks live bearer into request
+logs, browser history, and proxy access logs.
+
+- **Severity:** high
+- **Scope:** dashd/invites.go:56
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** revoke by opaque row ID, not token
+
+## [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18, open)
+
+`route_tokens.go:131`: `decodeJID` maps every `--` back to `/`, so a label containing `--` revokes
+the wrong JID. `route_tokens.go:43`: label is unvalidated — can contain `/` or control chars that
+break JID namespace.
+
+- **Severity:** high
+- **Scope:** dashd/route_tokens.go:43,:131
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** use `url.PathEscape`; validate label against `[a-zA-Z0-9._-]+`
+
+## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
+
+`chat.go:152,262`: session list renders raw chat bearer tokens in Continue links. Any read-scoped
+user who can see the portal sees a reusable write-capable token, bypassing the admin gate on token
+minting.
+
+- **Severity:** high
+- **Scope:** dashd/chat.go:152,:262
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** restrict session listing to admins, or hide the raw token from non-admin views
+
+## [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18, open)
+
+`routd_page.go:106`: POST /dash/routd/retry gated by `requireOperator` only — no same-origin
+check. `runed_page.go:135`: POST /dash/runed/kill same issue, higher impact (terminates live runs).
+
+- **Severity:** high
+- **Scope:** dashd/routd_page.go:106, dashd/runed_page.go:135
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** add `requireSameOrigin` to both write endpoints
+
+## [SEC] grants: effect silently defaults to allow; nil adminDB in POST paths (2026-06-18, open)
+
+`grants_admin.go:184`: invalid `effect` value silently creates an allow grant. `grants_admin.go:46`
+guards GET but not POST — nil adminDB panics on add/revoke.
+
+- **Severity:** high
+- **Scope:** dashd/grants_admin.go:184,:46
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** reject invalid effect with 400; nil-guard adminDB in POST handlers
+
+## tasks: new tasks have no next_run; cron not validated on create (2026-06-18, open)
+
+`tasks_admin.go:216`: tasks inserted with `status='active'` but no `next_run` — timed only fires
+rows with `next_run <= now`, so dashboard-created tasks never schedule. `tasks_admin.go:201`:
+invalid cron/interval strings stored silently; timed logs warning and task stays dead.
+
+- **Severity:** high
+- **Scope:** dashd/tasks_admin.go:201,:216
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** compute next_run at create time; validate cron using same parser as timed
+
+## tasks: state-machine transitions not enforced (2026-06-18, open)
+
+`tasks_admin.go:145`: `resume` can revive cancelled/completed tasks without restoring `next_run`;
+`pause`/`cancel` can clobber a firing task. Produces zombie active tasks that never fire.
+
+- **Severity:** medium
+- **Scope:** dashd/tasks_admin.go:145
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** enforce valid transitions in SQL or code; recompute next_run on resume
+
+## groups: delete parent leaves orphaned child rows; not atomic (2026-06-18, open)
+
+`groups_admin.go:403`: deleting `corp` removes ACL/routes for the whole subtree and purges files,
+but leaves `corp/eng` rows in `groups`. Orphaned child groups become invisible but persistent.
+Also not atomic — if ACL cleanup fails after groups DELETE, stale rows resurface.
+
+- **Severity:** medium
+- **Scope:** dashd/groups_admin.go:403
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** delete descendant groups rows in same transaction; forbid non-leaf delete or wrap all in tx
+
+## groups: observe-window and max_children forms corrupt defaults on save (2026-06-18, open)
+
+`groups_admin.go:246,:286`: GET maps stored -1/NULL to `0` for display; POST saves `0` back as a
+real override. Opening settings and clicking save changes "use defaults" to "0 msgs/0 chars" (send
+nothing) or "0 max_children" (spawning disabled).
+
+- **Severity:** medium
+- **Scope:** dashd/groups_admin.go:246,:286
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** render -1/NULL as blank; treat submitted 0 as clear-to-default in POST handler
+
+## main: writeTaskRows and activity feed apply LIMIT before visibility filter (2026-06-18, open)
+
+`main.go:730`: `writeTaskRows` fetches LIMIT 500 then filters in Go — scoped users miss tasks that
+sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters — same class.
+
+- **Severity:** medium
+- **Scope:** dashd/main.go:730,:808
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** push visibility filter into SQL; or page until N visible rows found
+
+## main: memory write/delete broken for nested group folders (2026-06-18, open)
+
+`main.go:1073`: `parseMemoryPath` splits on first `/` after `/dash/memory/`. For
+`corp/eng`, folder="corp" and rel="eng/MEMORY.md" — fails allowlist. Read page shows nested groups
+correctly but mutations don't work.
+
+- **Severity:** medium
+- **Scope:** dashd/main.go:1073
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** route mutations through a wildcard `{folder...}` path param or parse from suffix
+
+## audit: pagination cursor off by one (2026-06-18, open)
+
+`audit_page.go:83`: `lastID` is set on the 51st lookahead row, then page is sliced to 50 and
+`before=<lastID>` skips the actual 50th row on the next page.
+
+- **Severity:** medium
+- **Scope:** dashd/audit_page.go:83
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** capture cursor from row 50, not the lookahead row
+
+## routd: retry clears errored on all messages, not just errored=1 (2026-06-18, open)
+
+`routd_page.go:123`: `UPDATE messages SET errored=0 WHERE chat_jid=?` resets all rows, including
+non-errored history.
+
+- **Severity:** medium
+- **Scope:** dashd/routd_page.go:123
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** `UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`
+
+## services: davd probe path wrong; timeout classified as unknown (2026-06-18, open)
+
+`services.go:54`: probe uses `GET /health` for all daemons, but davd's healthcheck is `GET /`.
+A healthy davd always shows err. `services.go:60`: timeout mapped to `unknown` — should be `err`
+(unknown is for DNS failures; timeout means deployed-but-down).
+
+- **Severity:** medium
+- **Scope:** dashd/services.go:54,:60
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** per-service probe path; classify timeout as err not unknown
+
+## usage: 7-day query covers 8 days; GroupUsageBulk IN list will fail at scale (2026-06-18, open)
+
+`usage_page.go:111`: `date('now', '-7 days')` includes the full day 7 days ago + today = 8 days.
+`usage_page.go:38`: `GroupUsageBulk` builds `IN (...)` from all folder names — hits SQLite param
+limit with many groups.
+
+- **Severity:** medium
+- **Scope:** dashd/usage_page.go:38,:111
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** use `datetime('now','-7 days')` for rolling window; rewrite bulk query with JOIN
+
+## chat: loadChatSessions limits before filtering; nondeterministic continue links (2026-06-18, open)
+
+`chat.go:90`: newest 200 rows fetched then filtered in Go — older sessions disappear once table
+grows. `chat.go:361`: `folderSessionTokens` infers topic→token by time proximity; two sessions
+without an early message produce nondeterministic continue links.
+
+- **Severity:** medium
+- **Scope:** dashd/chat.go:90,:361
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** push filter into SQL; persist topic-session linkage explicitly
+
+## runed: dead session_id variable in run query (2026-06-18, open)
+
+`runed_page.go:52`: `COALESCE(session_id,'')` selected and scanned but never used — dead code in
+the hot path.
+
+- **Severity:** low
+- **Scope:** dashd/runed_page.go:52
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** drop from SELECT and remove variable
+
+## main: duplicate profile nav link + dead portal .Err field (2026-06-18, open)
+
+`main.go:463`: `profile` appears in both `navLinks` and the identity badge — double aria-current
+on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty — dead branch.
+
+- **Severity:** low
+- **Scope:** dashd/main.go:463,:540
+- **Source:** codex audit 2026-06-18
+- **Status:** open
+- **Fix:** remove profile from navLinks (keep badge); remove .Err from portal template
+
+---
+
 ## Nav chrome: no identity/scope signal (2026-06-16, open)
 
 The persistent nav (`dashNavFor`) shows no identity, no folder scope, no operator badge. The only
