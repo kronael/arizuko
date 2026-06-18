@@ -49,7 +49,7 @@ func (d *dash) handleRuned(w http.ResponseWriter, r *http.Request) {
 func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 	fmt.Fprint(w, `<h2>Active runs</h2>`)
 	rows, err := d.dbRuned.Query(
-		`SELECT run_id, folder, state, created_at, COALESCE(started_at,''), COALESCE(session_id,'')
+		`SELECT run_id, folder, state, created_at, COALESCE(started_at,'')
 		 FROM spawns WHERE state IN ('queued','running')
 		 ORDER BY created_at DESC LIMIT 20`)
 	if err != nil {
@@ -61,8 +61,8 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 
 	var tableRows [][]string
 	for rows.Next() {
-		var runID, folder, state, createdAt, startedAt, sessionID string
-		if err := rows.Scan(&runID, &folder, &state, &createdAt, &startedAt, &sessionID); err != nil {
+		var runID, folder, state, createdAt, startedAt string
+		if err := rows.Scan(&runID, &folder, &state, &createdAt, &startedAt); err != nil {
 			slog.Warn("runed page: active scan", "err", err)
 			continue
 		}
@@ -134,6 +134,9 @@ func (d *dash) renderRecentRuns(w http.ResponseWriter) {
 // runed's POST /v1/runs/stop for every active run in the folder. Operator-only.
 func (d *dash) handleRunedKill(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
+		return
+	}
+	if !requireSameOrigin(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {

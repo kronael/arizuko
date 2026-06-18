@@ -107,6 +107,9 @@ func (d *dash) handleRoutdRetry(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
 	}
+	if !requireSameOrigin(w, r) {
+		return
+	}
 	if d.db == nil {
 		http.Error(w, "messages store unavailable", http.StatusServiceUnavailable)
 		return
@@ -120,7 +123,7 @@ func (d *dash) handleRoutdRetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chat_jid required", http.StatusBadRequest)
 		return
 	}
-	res, err := d.db.Exec(`UPDATE messages SET errored=0 WHERE chat_jid=?`, chatJID)
+	res, err := d.db.Exec(`UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, chatJID)
 	if err != nil {
 		slog.Warn("routd retry: update", "chat_jid", chatJID, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
