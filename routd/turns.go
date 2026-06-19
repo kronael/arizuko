@@ -216,22 +216,15 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		return 200, apiv1.SendResult{Status: core.MessageStatusSent}, nil
 	}
 
-	threadRoot := ""
-	if threaded {
-		if replyToID == "" {
-			replyToID = s.db.LastReplyID(jid, tc.Topic)
-		}
-		threadRoot = s.replyThreadRoot(tc, jid)
+	if threaded && replyToID == "" {
+		replyToID = s.db.LastReplyID(jid, tc.Topic)
 	}
 	row := s.outboundRow(tc, jid, clean, replyToID)
 	_ = s.db.SetLastReply(jid, tc.Topic, row.ID, tc.Folder)
 	if !strings.HasPrefix(tc.Trigger, "timed-") {
-		// Engagement is claimed on the DISPATCH chat (tc.ChatJID), not the
-		// delegation-substituted delivery target — a delegated reply must engage
-		// the chat that triggered the turn, not the origin JID the reply returns to.
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
-	s.deliverRow(tc, jid, &row, threadRoot)
+	s.deliverTurn(tc, jid, &row, threaded)
 	return 200, apiv1.SendResult{MessageID: row.ID, PlatformID: row.PlatformID, Status: row.Status}, &row
 }
 
@@ -262,14 +255,25 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 	}
 }
 
+// deliverTurn sends row via the platform, computing threadRoot from tc when
+// threaded=true. Use for reply (threaded=true) and status (threaded=true);
+// send (threaded=false). Callers never supply threadRoot directly — this is the
+// single policy site that calls replyThreadRoot.
+func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, threaded bool) {
+	threadRoot := ""
+	if threaded {
+		threadRoot = s.replyThreadRoot(tc, jid)
+	}
+	s.deliverRow(tc, jid, row, threadRoot)
+}
+
 // deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
-// build an out-of-band row, deliver it, persist it. Threaded on the trigger
-// message (same root as the final reply) so it appears in the reply thread,
-// not the main channel. Shared by appendAndDeliver's final-result status loop
+// build an out-of-band row, deliver it, persist it. Always threaded so it
+// appears alongside the final reply. Shared by appendAndDeliver's status loop
 // and the mid-turn submit_status MCP path so the two can't drift.
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
-	s.deliverRow(tc, jid, &row, s.replyThreadRoot(tc, jid))
+	s.deliverTurn(tc, jid, &row, true)
 	_ = s.db.PutMessage(row)
 }
 
