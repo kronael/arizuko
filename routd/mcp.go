@@ -200,7 +200,7 @@ func toInviteInfo(inv Invite) ipc.InviteInfo {
 }
 
 // registerGroup is the manual register_group path (ipc.GatedFns.RegisterGroup).
-// Ported from gateway.registerGroupIPC: persist the group, add a room-matched
+// registerGroup persists the group, adds a room-matched
 // default route (rolling the group row back if the route insert fails so a
 // route-less, unreachable, un-respawnable orphan is never left behind), then
 // git-init the group dir. The jid supplies the route's room literal.
@@ -219,7 +219,7 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 
 // ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither
 // exists. Non-fatal: a missing git binary or dir leaves the group untracked.
-// Ported verbatim from gateway.ensureGroupGitRepo.
+// ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither exists.
 func ensureGroupGitRepo(groupDir string) {
 	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
 		return

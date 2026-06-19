@@ -221,7 +221,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		"chat_jid", chatJID, "trigger", last.Sender)
 	// Type on the chat that RECEIVES the reply: for a delegated/forwarded turn
 	// that's the origin (ForwardedFrom), not the child folder JID the run
-	// addresses (which usually has no presence channel). Matches gated's deliverTo.
+	// addresses (which usually has no presence channel).
 	typingJID := chatJID
 	if last.ForwardedFrom != "" {
 		typingJID = last.ForwardedFrom

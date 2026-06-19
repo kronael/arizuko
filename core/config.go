@@ -21,8 +21,8 @@ const ContainerHome = "/home/node"
 // must stay in sync.
 const DefaultImage = "arizuko-ant:latest"
 
-// DefaultAPIPort is the gated listen port, used as the default for API_PORT
-// in config, compose generation, and seeded .env files.
+// DefaultAPIPort is the default daemon HTTP listen port, used as the default
+// for API_PORT in config, compose generation, and seeded .env files.
 const DefaultAPIPort = 8080
 
 type Config struct {

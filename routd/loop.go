@@ -104,7 +104,7 @@ type Loop struct {
 	// via SetOnbodClient.
 	onbod OnbodClient
 
-	// Chat-initiated onboarding (ported from gateway.pollOnce route-miss branch).
+	// Chat-initiated onboarding via onbod on route miss.
 	// onboardingEnabled false → a route miss never inserts an onboarding row.
 	// onboardingPlatforms restricts which jid platform prefixes may onboard
 	// (empty = all). onbod OWNS the onboarding table; routd federates the insert
@@ -519,8 +519,8 @@ func (l *Loop) pollOnce() {
 				}
 			} else if l.onboardingEnabled && l.onbod != nil {
 				// Genuine route miss (no observe rule): chat-initiated onboarding.
-				// Ported from gateway.pollOnce — discord guild channels only onboard
-				// on an explicit @mention so a busy server doesn't queue every poster.
+				// Discord guild channels only onboard on an explicit @mention so a
+				// busy server doesn't queue every poster.
 				// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
 				// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
 				discordGuild := strings.HasPrefix(chatJID, "discord:") &&
@@ -564,9 +564,9 @@ type resolution struct {
 	ok      bool
 }
 
-// resolveGroup is routd's single route renderer, shared by pollOnce and
-// processGroupMessages. Direct address → route table → engagement override, with
-// topic-root normalization and observe-mode signalling.
+// resolveGroup wraps resolve for callers (folderForJid, proactive) that only
+// need (folder, ok) and not the full resolution. Direct address → route table
+// → engagement override, with topic-root normalization and observe-mode signalling.
 func (l *Loop) resolveGroup(chatJID string, last core.Message) (string, bool) {
 	r := l.resolve(chatJID, last)
 	return r.Folder, r.ok
@@ -685,8 +685,7 @@ func (l *Loop) onCircuitBreakerOpen(chatJID, folder string) {
 }
 
 // onboardingAllowed reports whether jid's platform prefix is eligible for
-// chat-initiated onboarding. Empty platforms = all allowed. Ported verbatim from
-// gateway.onboardingAllowed.
+// chat-initiated onboarding. Empty platforms = all allowed.
 func onboardingAllowed(jid string, platforms []string) bool {
 	if len(platforms) == 0 {
 		return true

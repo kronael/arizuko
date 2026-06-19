@@ -397,8 +397,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "missing_field", "chat_jid and content required")
 		return
 	}
-	// Ingress JID-ownership (ported from gated api.handleMessage's entry.Owns
-	// reject): a platform-scheme inbound must land under a registered channel's
+	// Ingress JID-ownership: a platform-scheme inbound must land under a registered channel's
 	// prefixes — a caller can't inject JIDs no adapter owns. Internal schemes
 	// (web:/hook:/bare-folder, used by web chat + timed + onbod) carry no channel
 	// prefix and are exempt. When the caller is verified (sub != ""), maps the

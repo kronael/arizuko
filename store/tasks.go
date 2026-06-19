@@ -18,8 +18,8 @@ type TaskPatch struct {
 func (s *Store) CreateTask(t core.Task) error {
 	var nextRun *string
 	if t.NextRun != nil {
-		s := t.NextRun.Format(time.RFC3339)
-		nextRun = &s
+		v := t.NextRun.Format(time.RFC3339)
+		nextRun = &v
 	}
 	cm := t.ContextMode
 	if cm == "" {

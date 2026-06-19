@@ -177,7 +177,7 @@ func (s *Store) DenyOnboarding(jid string) error {
 	})
 }
 
-// RepromptOnboarding resets a token_used row back to awaiting_message so the
+// RepromptOnboarding resets an onboarding row's status back to awaiting_message so the
 // next poll tick re-sends the auth link.
 func (s *Store) RepromptOnboarding(jid string) error {
 	_, err := s.db.Exec(

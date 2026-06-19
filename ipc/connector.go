@@ -4,7 +4,7 @@ package ipc
 // proxy its tools through the broker. Per spec 7/Y § "Connector
 // declaration". v1 is per_call only — subprocess lifetime is one call.
 //
-// On boot gated calls tools/list once with empty secrets to harvest the
+// On boot routd calls tools/list once with empty secrets to harvest the
 // catalog, then teardown. Each catalog entry is registered as a broker
 // tool named "<connector>_<remote_tool>" whose RequiresSecrets is the
 // connector's secrets list. On invocation: broker resolves secrets,
@@ -28,7 +28,7 @@ import (
 )
 
 // ConnectorSpec is one [[mcp_connector]] block. Loaded from
-// <data_dir>/connectors.toml at gated boot. Immutable thereafter.
+// <data_dir>/connectors.toml at routd boot. Immutable thereafter.
 type ConnectorSpec struct {
 	Name        string            `toml:"name"`
 	Command     []string          `toml:"command"`
