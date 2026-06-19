@@ -37,27 +37,22 @@ ls -ld /srv/data 2>/dev/null || echo "/srv/data does not exist"
 
 ### Go missing or too old
 
-Option A — **official tarball** (recommended):
+Use **`g`** — a minimal Go version manager that installs without root and
+manages multiple versions cleanly:
 
 ```bash
-curl -LO https://go.dev/dl/go1.25.5.linux-amd64.tar.gz
-sudo rm -rf /usr/local/go
-sudo tar -C /usr/local -xzf go1.25.5.linux-amd64.tar.gz
-echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
-source ~/.bashrc
-go version   # verify: go1.25.5
-```
-
-Option B — **version manager** (g, goenv, etc.):
-
-```bash
-# Using g (github.com/stefanmaric/g)
-# Install per upstream instructions, then:
+curl -sSL https://raw.githubusercontent.com/stefanmaric/g/main/bin/g-install | bash
+# Re-source your shell profile (path the installer just printed), then:
 g install 1.25.5
+g set 1.25.5
+go version   # verify: go1.25.5 linux/amd64
 ```
 
-Note: `GOTOOLCHAIN=auto` in environment lets Go auto-download the right
-toolchain if your installed version is close but not exact.
+`g` adds itself and Go to `~/.local/bin` (or `~/go` by default). No sudo
+needed, no system Go touched.
+
+Note: `GOTOOLCHAIN=auto` lets Go auto-download the exact toolchain when the
+installed version is close but not exact — useful after `go.mod` bumps.
 
 ### Docker Compose v2 missing
 
