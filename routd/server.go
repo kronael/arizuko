@@ -403,12 +403,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// (web:/hook:/bare-folder, used by web chat + timed + onbod) carry no channel
 	// prefix and are exempt. When the caller is verified (sub != ""), maps the
 	// service principal to its registry entry and rejects when the entry doesn't
-	// own the JID prefix. When unverified (local dev, sub == ""), falls back to
-	// checking if any registered adapter owns it.
+	// own the JID prefix. Non-adapter internal services (timed, onbod) have no
+	// registry entry (entry == nil) and are allowed through — they're not a
+	// cross-adapter spoofing risk. When unverified (local dev, sub == ""), falls
+	// back to checking if any registered adapter owns it.
 	if s.reg != nil && isChannelJID(m.ChatJID) {
 		if sub != "" {
 			entry := s.reg.ByPrincipal(sub)
-			if entry == nil || !entry.Owns(m.ChatJID) {
+			if entry != nil && !entry.Owns(m.ChatJID) {
 				writeErr(w, 400, "jid_prefix_mismatch", "adapter doesn't own "+m.ChatJID)
 				return
 			}
