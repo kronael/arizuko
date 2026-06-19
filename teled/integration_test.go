@@ -544,7 +544,7 @@ func TestBotHandle_ReplyMetadata(t *testing.T) {
 	mr.mu.Lock()
 	defer mr.mu.Unlock()
 	got := mr.msgs[0]
-	if got.ReplyTo != "9" {
+	if got.ReplyTo != "telegram:user/1/9" {
 		t.Errorf("ReplyTo = %q", got.ReplyTo)
 	}
 	if got.ReplyToText != "original text" {

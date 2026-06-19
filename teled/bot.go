@@ -206,14 +206,14 @@ func (b *bot) handleReaction(r *messageReactionUpdated, rc *chanlib.RouterClient
 		}
 		jid := chatJIDFromID(r.Chat.ID)
 		im := chanlib.InboundMsg{
-			ID:         strconv.Itoa(r.MessageID) + ":r:" + e.Emoji,
+			ID:         jid + "/" + strconv.Itoa(r.MessageID) + ":r:" + e.Emoji,
 			ChatJID:    jid,
 			Sender:     "telegram:user/" + userID(r.User),
 			SenderName: userName(r.User),
 			Content:    e.Emoji,
 			Timestamp:  r.Date,
 			Verb:       chanlib.ClassifyEmoji(e.Emoji),
-			ReplyTo:    strconv.Itoa(r.MessageID),
+			ReplyTo:    jid + "/" + strconv.Itoa(r.MessageID),
 			Reaction:   e.Emoji,
 			IsGroup:    r.Chat.ID < 0,
 		}
@@ -288,7 +288,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 	}
 
 	im := chanlib.InboundMsg{
-		ID:          strconv.Itoa(msg.MessageID),
+		ID:          jid + "/" + strconv.Itoa(msg.MessageID),
 		ChatJID:     jid,
 		Sender:      "telegram:user/" + userID(msg.From),
 		SenderName:  userName(msg.From),
@@ -301,7 +301,7 @@ func (b *bot) handle(msg *tgbotapi.Message, rc *chanlib.RouterClient) bool {
 		ChatName:    msg.Chat.Title,
 	}
 	if r := msg.ReplyToMessage; r != nil {
-		im.ReplyTo = strconv.Itoa(r.MessageID)
+		im.ReplyTo = jid + "/" + strconv.Itoa(r.MessageID)
 		im.ReplyToSender = userName(r.From)
 		im.ReplyToText = r.Text
 		if im.ReplyToText == "" {
@@ -324,7 +324,11 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	replyMsgID := 0
 	if req.ReplyTo != "" {
-		if n, err := strconv.ParseInt(req.ReplyTo, 10, 64); err == nil {
+		raw := req.ReplyTo
+		if i := strings.LastIndex(raw, "/"); i >= 0 {
+			raw = raw[i+1:]
+		}
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
 			replyMsgID = int(n)
 		}
 	}
@@ -392,7 +396,11 @@ func (b *bot) SendFile(jid, path, name, caption, replyTo, threadID string) (stri
 	tid := threadMsgID(threadID)
 	reply := 0
 	if replyTo != "" {
-		if n, err := strconv.Atoi(replyTo); err == nil {
+		raw := replyTo
+		if i := strings.LastIndex(raw, "/"); i >= 0 {
+			raw = raw[i+1:]
+		}
+		if n, err := strconv.Atoi(raw); err == nil {
 			reply = n
 		}
 	}

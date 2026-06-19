@@ -81,8 +81,8 @@ func TestHandleReaction_Dispatches(t *testing.T) {
 	if msg.Reaction != "👍" {
 		t.Errorf("Reaction = %q, want 👍", msg.Reaction)
 	}
-	if msg.ReplyTo != "42" {
-		t.Errorf("ReplyTo = %q, want 42", msg.ReplyTo)
+	if msg.ReplyTo != "telegram:group/100123/42" {
+		t.Errorf("ReplyTo = %q, want telegram:group/100123/42", msg.ReplyTo)
 	}
 	if msg.Sender != "telegram:user/99" {
 		t.Errorf("Sender = %q, want telegram:user/99", msg.Sender)
