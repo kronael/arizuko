@@ -230,7 +230,11 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		_ = l.deliver.Typing(typingJID, true)
 	}
 	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered)
-	if l.deliver != nil {
+	// For steered turns (container already running, returned immediately), the
+	// container is still processing — don't clear typing here. appendAndDeliver
+	// clears it when content lands. For all other outcomes (including errors and
+	// silent runs), clear now.
+	if l.deliver != nil && !out.Steered {
 		_ = l.deliver.Typing(typingJID, false)
 	}
 	if derr != nil {

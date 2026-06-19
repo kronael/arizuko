@@ -225,6 +225,9 @@ func (s *Server) appendAndDeliver(turnID, jid, text, replyToID string, threaded 
 		_ = s.db.SetEngagement(tc.ChatJID, tc.Topic, tc.Folder, s.engagementT)
 	}
 	s.deliverTurn(tc, jid, &row, threaded)
+	if s.deliver != nil {
+		_ = s.deliver.Typing(jid, false)
+	}
 	return 200, apiv1.SendResult{MessageID: row.ID, PlatformID: row.PlatformID, Status: row.Status}, &row
 }
 
