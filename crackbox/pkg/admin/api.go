@@ -10,7 +10,7 @@ import (
 )
 
 // API exposes register/unregister/state/health endpoints used by consumers
-// (e.g. arizuko gated) to populate the registry. Mutating endpoints
+// (e.g. runed) to populate the registry. Mutating endpoints
 // (register/unregister) optionally require a bearer token; read-only
 // endpoints (state/health) are always open.
 type API struct {

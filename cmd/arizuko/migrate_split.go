@@ -138,8 +138,8 @@ var routdSpecs = []copySpec{
 	// final shape). Straight copy — identical schema both sides. This was the LAST
 	// messages.db sibling-read in routd; after it routd opens NO sibling DB.
 	{dst: "pane_sessions", src: "pane_sessions",
-		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at, last_status_at",
-		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at, last_status_at"},
+		cols: "team_id, user_id, thread_ts, channel_id, context_jid, opened_at",
+		sel:  "team_id, user_id, thread_ts, channel_id, context_jid, opened_at"},
 	// auth_users: routd.db OWNS it (routd migration 0011; cost_log.user_sub references
 	// it). Split onbod reads+writes it cross-DB on routd.db (xdb), so it MUST be copied
 	// — left an orphan, every existing user vanishes from onboarding / world-create.

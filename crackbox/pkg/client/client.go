@@ -1,5 +1,5 @@
 // Package client is the HTTP admin client for crackbox proxy daemon.
-// Used by consumers (e.g. arizuko gated) to register agent IPs against a
+// Used by consumers (e.g. runed) to register agent IPs against a
 // running daemon. Idempotent: Set replaces, Remove is no-op on missing.
 package client
 

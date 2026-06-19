@@ -24,7 +24,7 @@ func TestPaneSessions_UpsertGetByChannel(t *testing.T) {
 	if p.OpenedAt == "" {
 		t.Fatalf("get by channel: opened_at empty")
 	}
-	if p.ContextJID != "" || p.LastStatusAt != "" {
+	if p.ContextJID != "" {
 		t.Fatalf("get by channel: unexpected nulls populated %+v", p)
 	}
 }

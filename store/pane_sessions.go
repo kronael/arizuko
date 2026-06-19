@@ -14,9 +14,8 @@ type PaneSession struct {
 	UserID       string
 	ThreadTS     string
 	ChannelID    string
-	ContextJID   string
-	OpenedAt     string
-	LastStatusAt string
+	ContextJID string
+	OpenedAt   string
 }
 
 // UpsertPane inserts or updates the pane row for (team, user, thread_ts).
@@ -39,18 +38,17 @@ func (s *Store) UpsertPane(teamID, userID, threadTS, channelID string) error {
 // Returns (zero, false) when no row exists.
 func (s *Store) GetPaneByChannel(channelID string) (PaneSession, bool) {
 	var p PaneSession
-	var ctx, last sql.NullString
+	var ctx sql.NullString
 	err := s.db.QueryRow(
-		`SELECT team_id, user_id, thread_ts, channel_id, context_jid, opened_at, last_status_at
+		`SELECT team_id, user_id, thread_ts, channel_id, context_jid, opened_at
 		 FROM pane_sessions WHERE channel_id = ?
 		 ORDER BY opened_at DESC LIMIT 1`,
 		channelID,
-	).Scan(&p.TeamID, &p.UserID, &p.ThreadTS, &p.ChannelID, &ctx, &p.OpenedAt, &last)
+	).Scan(&p.TeamID, &p.UserID, &p.ThreadTS, &p.ChannelID, &ctx, &p.OpenedAt)
 	if err != nil {
 		return PaneSession{}, false
 	}
 	p.ContextJID = ctx.String
-	p.LastStatusAt = last.String
 	return p, true
 }
 
