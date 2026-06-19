@@ -1,5 +1,21 @@
 # BUGS.md — open issues queue
 
+## slakd message IDs are per-channel, not globally unique (2026-06-19, open)
+
+`slakd/bot.go:521` uses `m.TS` (Slack timestamp) as the `InboundMsg.ID`. Slack `ts` is unique
+within a channel but not across channels in the same workspace. Two channels posting at the same
+microsecond get the same `ts` → `INSERT OR IGNORE` would silently drop the second. Same class of
+bug as the teled cross-chat ID collision (fixed 2026-06-19). In practice extremely unlikely
+(Slack backend is monotonic per-workspace, microsecond precision), but structurally unsound.
+
+Fix: prefix with the channel JID, e.g. `jid + "/" + m.TS`. Same pattern as teled.
+Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
+
+- **Severity:** low (theoretical — Slack TS precision makes collision astronomically unlikely)
+- **Scope:** slakd
+- **Affected:** slakd/bot.go:521,567 — multi-channel Slack workspaces
+- **Status:** open
+
 ## dashd reads SQLite directly — violates spec 6/1 read-path contract (2026-06-16, open)
 
 `dashd/main.go:106, 170-177, 182-191` opens `routd.db`, `onbod.db`, and `messages.db` directly.
