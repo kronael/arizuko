@@ -16,6 +16,49 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.55.0] — 2026-06-19
+
+> arizuko v0.55.0 — dashboard hardening + reply threading
+>
+> Security, correctness, and reliability improvements across the board: dashboard CSRF guards, XSS fixes, and 14 codex-audit bugs resolved; ⏳ status messages now thread with replies instead of posting to the main channel; timed tasks no longer go NULL next_run on enqueue failure.
+>
+> • Dashboard — CSRF guard on state-mutating forms, pair-status XSS fix, routes PATCH authz, label validation, nav/design polish (codex + design audit, 14 bugs)
+> • routd — `deliverTurn` centralizes threading policy; ⏳ status messages thread with the triggering reply
+> • timed — reschedule with `computeNextRun` on enqueue failure; tasks no longer drop to NULL `next_run`
+> • chanlib — typing indicator starts even when eager send fails; stale-inbound is 200 not 503
+> • codebase — 3-round dead-code sweep (MatchesAudience, MintNarrower, GetState/SetState, NoSocial embeds, LastStatusAt, 100+ lines removed)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- **Dashboard CSRF + authz.** State-mutating dashd forms now carry a CSRF token; routes
+  PATCH enforces folder ownership; pair-status endpoint is XSS-clean; label inputs are
+  validated server-side. (codex audit: 14 items resolved across `29e759f7`/`91159586`/`80bd29da`)
+- **⏳ status messages thread with replies.** `deliverTurn` centralizes threading policy;
+  callers no longer supply `threadRoot` directly. Status messages (`<status>…</status>`)
+  now appear in the same Slack/Discord thread as the reply, not the channel root. (`4fd19264`)
+- **timed: NULL next_run on enqueue failure.** On a transient queue error, `reschedule`
+  now calls `computeNextRun` so the task's next fire time is correct instead of NULL. (`b55d0c2a`)
+- **chanlib: typing indicator on transient send failure.** Typing loop now starts even when
+  the eager send fails with a transient error, preventing silent dead typing. (`a0117c46`)
+- **chanlib: stale inbound is 200, not 503.** Health returns 503 only when the platform
+  connection is genuinely down; stale-inbound is informational. Fixes slakd false-positive
+  unhealthy. (`bc6dd1dc`)
+- **jid_prefix_mismatch for internal daemons.** `timed`/`onbod` `POST /v1/messages` was
+  blocked since the June 14 security commit; fixed entry ownership check. (`62c6edfc`)
+
+### Changed
+
+- **codebase refine (3 rounds).** Deleted dead exports: `MatchesAudience`, `MintNarrower`,
+  `Caller.Tier`, `GetState`/`SetState`, `SetPaneStatusAt`, `LastStatusAt`, `routerSvc`,
+  `EnvDur`, `fileResolver`/`FileURL`, `NoSocial` embed in teled/discd. Stale gated/gateway
+  comments removed. `reditd` now checks response status codes. `UserAgent` bumped to v0.55.0.
+- **Agent status rule tightened.** `ant/CLAUDE.md` mandates `<status>` blocks on any turn
+  with tool calls, not just "long tasks".
+
+---
+
 ## [v0.54.0] — 2026-06-17
 
 > arizuko v0.54.0 — cockpit control planes + chat session dashboard
