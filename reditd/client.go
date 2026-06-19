@@ -24,7 +24,6 @@ type tokenResp struct {
 }
 
 type redditClient struct {
-	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	cfg       config
@@ -477,11 +476,25 @@ func (rc *redditClient) Send(req chanlib.SendRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp.Body.Close()
+	if err := checkStatus(resp, "reddit send"); err != nil {
+		return "", err
+	}
 	return "", nil
 }
 
 func (rc *redditClient) Typing(string, bool) {}
+
+// checkStatus closes resp.Body and returns an error when the post-retry
+// status is outside 2xx. do() already retries 429/401; this guards the
+// remaining failures so an outbound verb doesn't report silent success.
+func checkStatus(resp *http.Response, op string) error {
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("%s: status %d: %s", op, resp.StatusCode, string(b))
+	}
+	return nil
+}
 
 func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	if len(req.MediaPaths) > 0 {
@@ -497,7 +510,9 @@ func (rc *redditClient) Post(req chanlib.PostRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reddit post: %w", err)
 	}
-	resp.Body.Close()
+	if err := checkStatus(resp, "reddit post"); err != nil {
+		return "", err
+	}
 	return "", nil
 }
 
@@ -542,8 +557,7 @@ func (rc *redditClient) vote(targetID string, dir int, tool string) error {
 	if err != nil {
 		return fmt.Errorf("reddit %s: %w", tool, err)
 	}
-	resp.Body.Close()
-	return nil
+	return checkStatus(resp, "reddit "+tool)
 }
 
 // Edit updates a self-post (t3_) or comment (t1_) via /api/editusertext.
@@ -557,8 +571,7 @@ func (rc *redditClient) Edit(req chanlib.EditRequest) error {
 	if err != nil {
 		return fmt.Errorf("reddit edit: %w", err)
 	}
-	resp.Body.Close()
-	return nil
+	return checkStatus(resp, "reddit edit")
 }
 
 func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {
@@ -567,8 +580,7 @@ func (rc *redditClient) Delete(req chanlib.DeleteRequest) error {
 	if err != nil {
 		return fmt.Errorf("reddit delete: %w", err)
 	}
-	resp.Body.Close()
-	return nil
+	return checkStatus(resp, "reddit delete")
 }
 
 func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment {
@@ -588,7 +600,7 @@ func (rc *redditClient) extractAttachments(t thing) []chanlib.InboundAttachment 
 		}
 		return atts
 	case d.URL != "" && isRedditImageURL(d.URL, d.PostHint):
-		return []chanlib.InboundAttachment{rc.makeAttachment(d.URL, mimeFromExt(d.URL), filenameFromURL(d.URL))}
+		return []chanlib.InboundAttachment{rc.makeAttachment(d.URL, imageMimeFromURL(d.URL), filenameFromURL(d.URL))}
 	}
 	return nil
 }
@@ -619,7 +631,7 @@ func isRedditImageURL(u, hint string) bool {
 	return false
 }
 
-func mimeFromExt(u string) string {
+func imageMimeFromURL(u string) string {
 	lower := strings.ToLower(u)
 	switch {
 	case strings.Contains(lower, ".png"):

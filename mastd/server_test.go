@@ -44,7 +44,7 @@ func (s *stubPoster) Delete(r chanlib.DeleteRequest) error {
 
 type stubFiles struct{ urls map[string]string }
 
-func (s *stubFiles) FileURL(id string) (string, bool) {
+func (s *stubFiles) get(id string) (string, bool) {
 	u, ok := s.urls[id]
 	return u, ok
 }
@@ -52,12 +52,12 @@ func (s *stubFiles) FileURL(id string) (string, bool) {
 func testMastServer(t *testing.T, secret string) *server {
 	t.Helper()
 	cfg := config{Name: "mastodon"}
-	return newServer(cfg, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	return newServer(cfg, &stubPoster{}, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 }
 
 func TestMastPost(t *testing.T) {
 	bot := &stubPoster{postID: "99"}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, bot, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "content": "toot"})
 	req := httptest.NewRequest("POST", "/post", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestMastPost(t *testing.T) {
 
 func TestMastLike(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, bot, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/like", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestMastLike(t *testing.T) {
 
 func TestMastDelete(t *testing.T) {
 	bot := &stubPoster{}
-	s := newServer(config{Name: "mastodon"}, bot, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, bot, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]any{"chat_jid": "mastodon:1", "target_id": "t1"})
 	req := httptest.NewRequest("POST", "/delete", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestMastHealth(t *testing.T) {
 }
 
 func TestMastHealthDisconnected(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return false }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, (&stubFiles{}).get, func() bool { return false }, func() int64 { return time.Now().Unix() })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
@@ -190,7 +190,7 @@ func TestMastAuthNoSecret(t *testing.T) {
 }
 
 func TestMastSendError(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{err: errors.New("boom")}, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 	body, _ := json.Marshal(map[string]string{"chat_jid": "mastodon:1", "content": "hi"})
 	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -220,7 +220,7 @@ func TestMastFileProxy(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att123": cdn.URL + "/media/att123.jpg"}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr.get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att123", nil)
 	req.Header.Set("Authorization", "Bearer sec")
@@ -241,7 +241,7 @@ func TestMastFileProxy(t *testing.T) {
 
 func TestMastFileProxyNotFound(t *testing.T) {
 	fr := &stubFiles{urls: map[string]string{}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr.get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/unknown", nil)
 	w := httptest.NewRecorder()
@@ -252,7 +252,7 @@ func TestMastFileProxyNotFound(t *testing.T) {
 	}
 }
 func TestMastFileProxyEmptyID(t *testing.T) {
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, &stubFiles{}, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, (&stubFiles{}).get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/", nil)
 	w := httptest.NewRecorder()
@@ -270,7 +270,7 @@ func TestMastFileProxyCDNError(t *testing.T) {
 	defer cdn.Close()
 
 	fr := &stubFiles{urls: map[string]string{"att1": cdn.URL + "/x"}}
-	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr, func() bool { return true }, func() int64 { return time.Now().Unix() })
+	s := newServer(config{Name: "mastodon"}, &stubPoster{}, fr.get, func() bool { return true }, func() int64 { return time.Now().Unix() })
 
 	req := httptest.NewRequest("GET", "/files/att1", nil)
 	w := httptest.NewRecorder()
@@ -284,14 +284,14 @@ func TestMastFileProxyCDNError(t *testing.T) {
 func TestExtractAttachments(t *testing.T) {
 	mc := &mastoClient{cfg: config{ListenURL: "http://mastd:9004"}, files: chanlib.NewURLCache(10)}
 	id := mc.files.Put("https://cdn.example.com/media/img1.jpg")
-	u, ok := mc.FileURL(id)
+	u, ok := mc.files.Get(id)
 	if !ok {
-		t.Fatal("FileURL not found")
+		t.Fatal("files.Get not found")
 	}
 	if u != "https://cdn.example.com/media/img1.jpg" {
 		t.Errorf("url = %q", u)
 	}
-	_, ok = mc.FileURL("missing")
+	_, ok = mc.files.Get("missing")
 	if ok {
 		t.Error("expected not found for missing key")
 	}

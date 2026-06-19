@@ -20,12 +20,12 @@ var caps = map[string]bool{
 func main() {
 	cfg := loadConfig()
 	chanlib.Run(chanlib.RunOpts{
-		Name:          cfg.Name,
-		RouterURL:     cfg.RouterURL,
-		ListenAddr:    cfg.ListenAddr,
-		ListenURL:     cfg.ListenURL,
-		Prefixes:      []string{"bluesky:"},
-		Caps:          caps,
+		Name:       cfg.Name,
+		RouterURL:  cfg.RouterURL,
+		ListenAddr: cfg.ListenAddr,
+		ListenURL:  cfg.ListenURL,
+		Prefixes:   []string{"bluesky:"},
+		Caps:       caps,
 		Start: func(ctx context.Context, rc *chanlib.RouterClient) (http.Handler, func(), error) {
 			bc, err := newBskyClient(cfg)
 			if err != nil {
@@ -47,7 +47,7 @@ type config struct {
 	ListenAddr    string
 	ListenURL     string
 	DataDir       string
-	MaxFileBytes  int64
+	MediaMaxBytes int64
 }
 
 func loadConfig() config {
@@ -60,6 +60,6 @@ func loadConfig() config {
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9005"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://bluesky:9005"),
 		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/bskyd"),
-		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 	}
 }

@@ -47,7 +47,7 @@ func TestIsRedditImageURL_NonImage(t *testing.T) {
 	}
 }
 
-func TestMimeFromExt(t *testing.T) {
+func TestImageMimeFromURL(t *testing.T) {
 	cases := []struct {
 		url  string
 		want string
@@ -61,9 +61,9 @@ func TestMimeFromExt(t *testing.T) {
 		{"https://i.redd.it/photo.PNG", "image/png"},
 	}
 	for _, tc := range cases {
-		got := mimeFromExt(tc.url)
+		got := imageMimeFromURL(tc.url)
 		if got != tc.want {
-			t.Errorf("mimeFromExt(%q) = %q, want %q", tc.url, got, tc.want)
+			t.Errorf("imageMimeFromURL(%q) = %q, want %q", tc.url, got, tc.want)
 		}
 	}
 }

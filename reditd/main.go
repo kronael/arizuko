@@ -42,19 +42,19 @@ func main() {
 }
 
 type config struct {
-	Name         string
-	ClientID     string
-	ClientSecret string
-	Username     string
-	Password     string
-	Subreddits   []string
-	UserAgent    string
-	RouterURL    string
-	ListenAddr   string
-	ListenURL    string
-	DataDir      string
-	MaxFileBytes int64
-	PollInterval time.Duration
+	Name          string
+	ClientID      string
+	ClientSecret  string
+	Username      string
+	Password      string
+	Subreddits    []string
+	UserAgent     string
+	RouterURL     string
+	ListenAddr    string
+	ListenURL     string
+	DataDir       string
+	MediaMaxBytes int64
+	PollInterval  time.Duration
 }
 
 func loadConfig() config {
@@ -65,19 +65,19 @@ func loadConfig() config {
 		}
 	}
 	return config{
-		Name:         chanlib.EnvOr("CHANNEL_NAME", "reddit"),
-		ClientID:     chanlib.MustEnv("REDDIT_CLIENT_ID"),
-		ClientSecret: chanlib.MustEnv("REDDIT_CLIENT_SECRET"),
-		Username:     chanlib.MustEnv("REDDIT_USERNAME"),
-		Password:     chanlib.MustEnv("REDDIT_PASSWORD"),
-		Subreddits:   subreddits,
-		UserAgent:    chanlib.EnvOr("REDDIT_USER_AGENT", "arizuko/1.0"),
-		RouterURL:    chanlib.MustEnv("ROUTER_URL"),
-		ListenAddr:   chanlib.EnvOr("LISTEN_ADDR", ":9006"),
-		ListenURL:    chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
-		DataDir:      chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),
-		MaxFileBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
-		PollInterval: parseDuration(chanlib.EnvOr("REDDIT_POLL_INTERVAL", "5m")),
+		Name:          chanlib.EnvOr("CHANNEL_NAME", "reddit"),
+		ClientID:      chanlib.MustEnv("REDDIT_CLIENT_ID"),
+		ClientSecret:  chanlib.MustEnv("REDDIT_CLIENT_SECRET"),
+		Username:      chanlib.MustEnv("REDDIT_USERNAME"),
+		Password:      chanlib.MustEnv("REDDIT_PASSWORD"),
+		Subreddits:    subreddits,
+		UserAgent:     chanlib.EnvOr("REDDIT_USER_AGENT", "arizuko/1.0"),
+		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
+		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9006"),
+		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://reditd:9006"),
+		DataDir:       chanlib.EnvOr("DATA_DIR", "/srv/data/reditd"),
+		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		PollInterval:  parseDuration(chanlib.EnvOr("REDDIT_POLL_INTERVAL", "5m")),
 	}
 }
 

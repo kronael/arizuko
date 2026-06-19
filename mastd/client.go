@@ -19,7 +19,6 @@ import (
 const mastodAPITimeout = 15 * time.Second
 
 type mastoClient struct {
-	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	cfg           config
@@ -238,7 +237,7 @@ func (mc *mastoClient) Send(req chanlib.SendRequest) (string, error) {
 	defer cancel()
 	st, err := mc.client.PostStatus(ctx, toot)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("mastodon send: %w", err)
 	}
 	slog.Debug("send", "chat_jid", req.ChatJID, "source", "mastodon", "id", st.ID)
 	return string(st.ID), nil
@@ -335,10 +334,6 @@ func (mc *mastoClient) extractAttachments(s *mastodon.Status) []chanlib.InboundA
 		})
 	}
 	return atts
-}
-
-func (mc *mastoClient) FileURL(id string) (string, bool) {
-	return mc.files.Get(id)
 }
 
 func mediaMime(typ string) string {

@@ -26,7 +26,6 @@ type session struct {
 }
 
 type bskyClient struct {
-	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 	chanlib.NoSocial
 	cfg     config

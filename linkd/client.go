@@ -21,7 +21,6 @@ import (
 // LinkedIn v2 API reference: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/share-api
 
 type linkClient struct {
-	chanlib.NoFileSender
 	chanlib.NoVoiceSender
 	chanlib.NoPinSupport
 	cfg       config
@@ -308,13 +307,8 @@ func (lc *linkClient) do(method, path string, params map[string]string, body io.
 // Share / post structures. LinkedIn v2 `shares` endpoint.
 // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/share-api
 type shareItem struct {
-	ID        string `json:"id"`        // urn:li:share:xxx
-	Activity  string `json:"activity"`  // urn:li:activity:xxx
-	Created   shareTS `json:"created"`
-	Owner     string `json:"owner"`
-	Text      struct {
-		Text string `json:"text"`
-	} `json:"text"`
+	ID       string `json:"id"`       // urn:li:share:xxx
+	Activity string `json:"activity"` // urn:li:activity:xxx
 }
 
 type shareTS struct {
@@ -328,14 +322,13 @@ type sharesResp struct {
 // commentItem: /v2/socialActions/{urn}/comments
 // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/shares/network-update-social-actions
 type commentItem struct {
-	ID       string  `json:"id"`     // numeric string within the post
-	Actor    string  `json:"actor"`  // urn:li:person:xxx
-	Created  shareTS `json:"created"`
-	Message  struct {
+	ID      string  `json:"id"`    // numeric string within the post
+	Actor   string  `json:"actor"` // urn:li:person:xxx
+	Created shareTS `json:"created"`
+	Message struct {
 		Text string `json:"text"`
 	} `json:"message"`
 	ParentComment string `json:"parentComment,omitempty"`
-	ObjectType    string `json:"$type,omitempty"`
 }
 
 type commentsResp struct {

@@ -13,7 +13,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// EnvInt / EnvDur / EnvBytes / ShortHash
+// EnvInt / EnvBytes / ShortHash
 // ---------------------------------------------------------------------------
 
 func TestEnvInt(t *testing.T) {
@@ -30,24 +30,6 @@ func TestEnvInt(t *testing.T) {
 	os.Setenv(k, "abc")
 	if got := EnvInt(k, 42); got != 42 {
 		t.Errorf("invalid: got %d, want fallback 42", got)
-	}
-}
-
-func TestEnvDur(t *testing.T) {
-	k := "CHANLIB_TEST_DUR"
-	os.Unsetenv(k)
-	if got := EnvDur(k, 5*time.Second); got != 5*time.Second {
-		t.Errorf("unset: got %v, want 5s", got)
-	}
-	// 2000 ms → 2s
-	os.Setenv(k, "2000")
-	defer os.Unsetenv(k)
-	if got := EnvDur(k, time.Second); got != 2*time.Second {
-		t.Errorf("set: got %v, want 2s", got)
-	}
-	os.Setenv(k, "bad")
-	if got := EnvDur(k, 3*time.Second); got != 3*time.Second {
-		t.Errorf("invalid: got %v, want fallback 3s", got)
 	}
 }
 

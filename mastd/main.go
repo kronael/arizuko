@@ -33,7 +33,7 @@ func main() {
 				return nil, nil, err
 			}
 			go mc.stream(ctx, rc)
-			return newServer(cfg, mc, mc, mc.isConnected, mc.LastInboundAt).handler(), nil, nil
+			return newServer(cfg, mc, mc.files.Get, mc.isConnected, mc.LastInboundAt).handler(), nil, nil
 		},
 	})
 }
@@ -45,7 +45,7 @@ type config struct {
 	RouterURL     string
 	ListenAddr    string
 	ListenURL     string
-	MaxFileBytes  int64
+	MediaMaxBytes int64
 	FileCacheSize int
 }
 
@@ -57,7 +57,7 @@ func loadConfig() config {
 		RouterURL:     chanlib.MustEnv("ROUTER_URL"),
 		ListenAddr:    chanlib.EnvOr("LISTEN_ADDR", ":9004"),
 		ListenURL:     chanlib.EnvOr("LISTEN_URL", "http://mastd:9004"),
-		MaxFileBytes:  chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
+		MediaMaxBytes: chanlib.EnvBytes("MEDIA_MAX_FILE_BYTES", 20*1024*1024),
 		FileCacheSize: chanlib.EnvInt("MASTODON_FILE_CACHE_SIZE", 1000),
 	}
 }

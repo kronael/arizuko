@@ -157,7 +157,7 @@ func TestHandleNotification_WithAttachments(t *testing.T) {
 	if got.Attachments[0].Mime != "image/jpeg" {
 		t.Errorf("mime[0] = %q", got.Attachments[0].Mime)
 	}
-	// URL uses hashed id; resolve round-trip via FileURL.
+	// URL uses hashed id; resolve round-trip via files.Get.
 	prefix := "http://mastd:9004/files/"
 	if !strings.HasPrefix(got.Attachments[0].URL, prefix) {
 		t.Errorf("url[0] = %q", got.Attachments[0].URL)
@@ -166,8 +166,8 @@ func TestHandleNotification_WithAttachments(t *testing.T) {
 		t.Errorf("content missing image desc: %q", got.Content)
 	}
 	id := strings.TrimPrefix(got.Attachments[0].URL, prefix)
-	if u, ok := mc.FileURL(id); !ok || u != "https://cdn/img1.jpg" {
-		t.Errorf("FileURL = %q, ok=%v", u, ok)
+	if u, ok := mc.files.Get(id); !ok || u != "https://cdn/img1.jpg" {
+		t.Errorf("files.Get = %q, ok=%v", u, ok)
 	}
 }
 

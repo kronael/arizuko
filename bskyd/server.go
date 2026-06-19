@@ -41,5 +41,5 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	chanlib.ProxyFile(w, resp, s.cfg.MaxFileBytes)
+	chanlib.ProxyFile(w, resp, s.cfg.MediaMaxBytes)
 }

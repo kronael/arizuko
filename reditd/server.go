@@ -69,7 +69,7 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	max := s.cfg.MaxFileBytes
+	max := s.cfg.MediaMaxBytes
 	if max <= 0 {
 		max = 20 * 1024 * 1024
 	}

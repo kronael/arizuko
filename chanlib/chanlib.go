@@ -316,20 +316,6 @@ func EnvInt(k string, fallback int) int {
 	return n
 }
 
-// EnvDur parses os.Getenv(k) as integer milliseconds (legacy encoding
-// for CONTAINER_TIMEOUT, IDLE_TIMEOUT, etc.).
-func EnvDur(k string, fallback time.Duration) time.Duration {
-	s := os.Getenv(k)
-	if s == "" {
-		return fallback
-	}
-	ms, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return time.Duration(ms) * time.Millisecond
-}
-
 // ShortHash returns 4-byte hex of sha256(s) for logging sensitive strings.
 // Empty input returns "" so callers can skip the log field.
 func ShortHash(s string) string {
