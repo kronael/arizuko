@@ -263,13 +263,13 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 }
 
 // deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
-// build an out-of-band row, deliver it, persist it. Not threaded, never the
-// turn's reply. Shared by appendAndDeliver's final-result status loop and the
-// mid-turn submit_status MCP path so the two can't drift (CLAUDE.md "one
-// renderer, many sinks").
+// build an out-of-band row, deliver it, persist it. Threaded on the trigger
+// message (same root as the final reply) so it appears in the reply thread,
+// not the main channel. Shared by appendAndDeliver's final-result status loop
+// and the mid-turn submit_status MCP path so the two can't drift.
 func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
-	s.deliverRow(tc, jid, &row, "")
+	s.deliverRow(tc, jid, &row, s.replyThreadRoot(tc, jid))
 	_ = s.db.PutMessage(row)
 }
 
