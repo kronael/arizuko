@@ -157,15 +157,6 @@ func TestSessionState(t *testing.T) {
 	}
 }
 
-func TestRouterState(t *testing.T) {
-	s, _ := OpenMem()
-	defer s.Close()
-
-	s.SetState("cursor", "2024-01-01")
-	if got := s.GetState("cursor"); got != "2024-01-01" {
-		t.Fatalf("expected '2024-01-01', got %q", got)
-	}
-}
 
 func TestSystemMessages(t *testing.T) {
 	s, _ := OpenMem()

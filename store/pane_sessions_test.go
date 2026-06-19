@@ -81,23 +81,6 @@ func TestPaneSessions_SetContext(t *testing.T) {
 	}
 }
 
-func TestPaneSessions_SetStatusAt(t *testing.T) {
-	s, err := OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	if err := s.UpsertPane("T1", "U1", "1700.001", "D1"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetPaneStatusAt("T1", "U1", "1700.001", "2026-05-16T10:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	p, _ := s.GetPaneByChannel("D1")
-	if p.LastStatusAt != "2026-05-16T10:00:00Z" {
-		t.Fatalf("status_at not set: %q", p.LastStatusAt)
-	}
-}
 
 func TestPaneSessions_GetByChannelMissing(t *testing.T) {
 	s, err := OpenMem()

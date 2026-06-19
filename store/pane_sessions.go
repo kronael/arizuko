@@ -90,14 +90,3 @@ func (s *Store) SetPaneContextByChannel(channelID, contextJID string) error {
 	)
 	return err
 }
-
-// SetPaneStatusAt stamps the last assistant.threads.setStatus call ts
-// (RFC3339Nano UTC). Used to debounce calls inside slakd.
-func (s *Store) SetPaneStatusAt(teamID, userID, threadTS, ts string) error {
-	_, err := s.db.Exec(
-		`UPDATE pane_sessions SET last_status_at = ?
-		 WHERE team_id = ? AND user_id = ? AND thread_ts = ?`,
-		ts, teamID, userID, threadTS,
-	)
-	return err
-}

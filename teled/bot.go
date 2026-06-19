@@ -22,7 +22,6 @@ import (
 )
 
 type bot struct {
-	chanlib.NoSocial
 	api       *tgbotapi.BotAPI
 	cfg       config
 	cancel    context.CancelFunc

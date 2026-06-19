@@ -139,20 +139,6 @@ func (s *Store) ForkTopic(folder, parent, child, newSessionID string, force bool
 	return nil
 }
 
-func (s *Store) GetState(key string) string {
-	var val string
-	s.db.QueryRow(`SELECT value FROM router_state WHERE key = ?`, key).Scan(&val)
-	return val
-}
-
-func (s *Store) SetState(key, val string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO router_state (key, value) VALUES (?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-		key, val,
-	)
-	return err
-}
 
 func (s *Store) EnqueueSysMsg(folder, origin, event, body string) error {
 	_, err := s.db.Exec(

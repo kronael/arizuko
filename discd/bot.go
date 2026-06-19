@@ -19,7 +19,6 @@ import (
 )
 
 type bot struct {
-	chanlib.NoSocial
 	session       *discordgo.Session
 	cfg           config
 	rc            *chanlib.RouterClient
