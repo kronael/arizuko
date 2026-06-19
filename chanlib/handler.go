@@ -615,17 +615,13 @@ var staleThresholds = map[string]time.Duration{
 	"reddit": 60 * time.Minute,
 }
 
-// strictStale lists adapters whose stale inbound means the platform link is
-// effectively dead, so /health returns 503 (not 200) — Docker's healthcheck
-// then marks the container unhealthy and a restart-policy recovers it. slakd's
-// Events-API webhook can silently stop delivering with auth.test still OK; a
-// stale-but-200 /health let an 11h outage go undetected (2026-06-05). Push
-// adapters absent from this set keep stale as an informational 200, since a
-// quiet-but-healthy channel is normal for them.
-var strictStale = map[string]bool{
-	"slack": true,
-}
-
+// Stale inbound is informational only: a quiet-but-connected channel is normal,
+// so /health stays 200 and only sets status=stale. Real platform-link death is
+// signalled through isConnected() (503), which each adapter drives from its own
+// honest liveness probe — slakd flips it off via auth.test, not via silence. An
+// earlier slack-only "strict stale → 503" existed to catch a dead Events-API
+// subscription while auth.test still passed (2026-06-05 outage), but that is now
+// the watchdog's auth.test-gated os.Exit job; a quiet workspace must not 503.
 const defaultStaleThreshold = 5 * time.Minute
 
 func handleHealth(name string, prefixes []string, isConnected func() bool, lastInboundAt func() int64) http.HandlerFunc {
@@ -633,7 +629,6 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 	if t, ok := staleThresholds[name]; ok {
 		threshold = t
 	}
-	strict := strictStale[name]
 	return func(w http.ResponseWriter, _ *http.Request) {
 		status, code := "ok", http.StatusOK
 		last := lastInboundAt()
@@ -645,9 +640,6 @@ func handleHealth(name string, prefixes []string, isConnected func() bool, lastI
 			staleSec = time.Now().Unix() - last
 			if last > 0 && staleSec > int64(threshold.Seconds()) {
 				status = "stale"
-				if strict {
-					code = http.StatusServiceUnavailable
-				}
 			}
 		}
 		resp := map[string]any{

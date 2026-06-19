@@ -49,9 +49,8 @@ stay thin — `main.go` calls `chanlib.Run` with a `Start` hook.
 
 `/health` returns:
 
-- `503 {status:"disconnected"}` when `isConnected()` is false (platform link down — whapd waiting on QR, mastd stream dropped).
-- `503 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within staleness threshold AND adapter in `strictStale` set (slack). Threshold: 5m default, 10m for email, 60m for reddit.
-- `200 {status:"stale", ...}` for informational stale (not in `strictStale`).
+- `503 {status:"disconnected"}` when `isConnected()` is false (platform link down — whapd waiting on QR, mastd stream dropped, slakd `auth.test` failing).
+- `200 {status:"stale", last_inbound_at, stale_seconds}` when no inbound within the staleness threshold (5m default, 10m for email, 60m for reddit). Informational only — a quiet-but-connected channel is normal and must not 503. Real death surfaces through `isConnected()`.
 - `200 {status:"ok"}` otherwise.
 
 Docker `HEALTHCHECK` marks containers `(unhealthy)` on 503.

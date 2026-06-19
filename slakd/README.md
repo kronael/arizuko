@@ -118,7 +118,7 @@ DATA_DIR=...                  fallback (uses DATA_DIR/store); omit both → no p
 SLAKD_USERS_CACHE_TTL=900     users.info + conversations.info TTL (seconds)
 MEDIA_MAX_FILE_BYTES=20971520 file-proxy cap
 CHANNEL_NAME=slack            registration name
-SLAKD_STALE_SECONDS=300       inbound silence past this ⇒ /health 503 + watchdog auth.test probe
+SLAKD_STALE_SECONDS=300       inbound silence past this ⇒ /health status=stale (still 200) + watchdog auth.test probe
 SLAKD_WATCHDOG_SECONDS=60     watchdog re-check interval
 SLAKD_STALE_FAIL_LIMIT=5      consecutive auth.test failures (while stale) before os.Exit(1) restart
 ```
@@ -155,15 +155,19 @@ registration auth (not yet implemented; a different value will cause 401).
 
 `GET /health` returns 503 when `auth.test` has not succeeded (token
 revoked, network outage, Slack down) — body `{"status":"disconnected"}`.
+`auth.test` is the honest liveness signal: a `healthProbe` goroutine
+re-runs it every 60s and the watchdog re-runs it whenever inbound is
+stale, flipping `isConnected()` (and thus the 503) on the result. A
+silently-paused event subscription that leaves the token valid is caught
+the same way — see the watchdog below.
 
-It also returns 503 when **inbound has gone stale**: Slack pushes events
-to `/slack/events`, so a healthy token with a silently-paused event
-subscription (app reinstall, repeated non-2xx disabling delivery,
-Slack-side pause) would otherwise report 200 forever — the bug that hid
-an 11h outage (2026-06-05). When the last inbound is older than
-`SLAKD_STALE_SECONDS` the body reads `{"status":"stale","stale_seconds":N}`
-and the code is 503, so Docker's healthcheck marks the container
-unhealthy.
+**Inbound staleness is informational, not a 503.** When the last inbound
+is older than `SLAKD_STALE_SECONDS` the body reads
+`{"status":"stale","stale_seconds":N}` but the code stays 200 — a quiet
+workspace is normal and must not be marked unhealthy. (Returning 503 on
+stale-but-connected bounced `slakd_marinade` on a genuinely quiet
+workspace, 2026-06-19.) Death detection lives entirely in `auth.test`,
+not in silence.
 
 A watchdog goroutine (`SLAKD_WATCHDOG_SECONDS` cadence) re-probes
 `auth.test` while stale — the only recovery slakd can self-perform,
@@ -173,9 +177,10 @@ the container every ~10 min on idle instances, and each restart drops
 Slack's in-flight POSTs — a self-inflicted flap, marinade 2026-06-08).
 Only when the channel is stale AND `auth.test` keeps failing for
 `SLAKD_STALE_FAIL_LIMIT` consecutive ticks does it call `os.Exit(1)`,
-letting the `restart: on-failure` policy re-create the container. A
-single inbound message — or a single passing `auth.test` — resets the
-streak.
+letting the `restart: on-failure` policy re-create the container — this
+is the real dead-subscription backstop that the 2026-06-05 11h-outage
+guard ultimately became. A single inbound message — or a single passing
+`auth.test` — resets the streak.
 
 ## Threat model
 

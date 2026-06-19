@@ -72,9 +72,12 @@ Show:
   threshold, consecutive `auth.test` fail counter vs
   `SLAKD_STALE_FAIL_LIMIT` (default 5 → process exit), last probe
   result + time (`slakd/bot.go` watchdog + health probe).
-- Strict-stale note: slakd is in `chanlib.strictStale` — stale returns
-  503 so Docker restarts it (the 11h silent Events-API outage,
-  2026-06-05).
+- Stale note: stale inbound is informational (`/health` stays 200,
+  `status=stale`) — a quiet workspace is normal. Death is `auth.test`
+  failing (`isConnected()` → 503) and, while stale, the watchdog's
+  `auth.test`-gated `os.Exit` backstop. (Stale-503 once bounced a quiet
+  `slakd_marinade`, 2026-06-19; the dead-subscription detection it was
+  added for, 2026-06-05, now lives in the watchdog.)
 - Webhook signature verification on (HMAC of `v0:<ts>:<body>`) —
   static fact line.
 

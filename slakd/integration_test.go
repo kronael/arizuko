@@ -1282,7 +1282,10 @@ func TestSend_NonPaneNoPromptCall(t *testing.T) {
 
 // /health returns 503 (not 200) when inbound has gone stale, through the full
 // server chain — the bug that let an 11h outage report "healthy".
-func TestHealth_StaleReturns503(t *testing.T) {
+// A stale-but-connected workspace stays 200 with status=stale: a quiet Slack
+// workspace is normal and must not be marked unhealthy. Death is isConnected()
+// (auth.test) going false, not silence — see TestWatchdog_*.
+func TestHealth_StaleStays200(t *testing.T) {
 	mock := newSlackMock()
 	defer mock.Close()
 	b, _ := setupBot(t, mock)
@@ -1294,8 +1297,8 @@ func TestHealth_StaleReturns503(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	s.handler().ServeHTTP(w, req)
-	if w.Code != 503 {
-		t.Fatalf("stale /health code = %d, want 503", w.Code)
+	if w.Code != 200 {
+		t.Fatalf("stale-but-connected /health code = %d, want 200", w.Code)
 	}
 	var body map[string]any
 	json.NewDecoder(w.Body).Decode(&body)

@@ -523,17 +523,19 @@ func TestHandlerHealthDefaultThreshold(t *testing.T) {
 	}
 }
 
-// strictStale adapters (slack) return 503 when stale so Docker's healthcheck
-// can mark the container unhealthy — the 2026-06-05 outage regression guard.
-func TestHandlerHealthStrictStaleReturns503(t *testing.T) {
+// A quiet-but-connected slack workspace must stay healthy: stale inbound is
+// informational (200 + status=stale), never 503. Real death is isConnected()
+// going false (auth.test), which the disconnected-beats-stale test covers. This
+// guards the false-positive unhealthy that bounced slakd_marinade (2026-06-19).
+func TestHandlerHealthSlackStaleStays200(t *testing.T) {
 	last := time.Now().Add(-6 * time.Minute).Unix()
 	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},
 		func() bool { return true }, func() int64 { return last })
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != 503 {
-		t.Fatalf("slack stale code = %d, want 503", w.Code)
+	if w.Code != 200 {
+		t.Fatalf("slack stale-but-connected code = %d, want 200", w.Code)
 	}
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
@@ -541,11 +543,11 @@ func TestHandlerHealthStrictStaleReturns503(t *testing.T) {
 		t.Errorf("status = %v, want stale (body must still diagnose staleness)", resp["status"])
 	}
 	if _, ok := resp["stale_seconds"]; !ok {
-		t.Error("stale_seconds missing from strict-stale body")
+		t.Error("stale_seconds missing from stale body")
 	}
 }
 
-// A fresh strict-stale adapter still returns 200 — the happy path must not regress.
+// A fresh slack adapter returns 200 — the happy path must not regress.
 func TestHandlerHealthStrictFreshReturns200(t *testing.T) {
 	last := time.Now().Unix()
 	h := NewAdapterMux("slack", []string{"slack:"}, &mockBot{},

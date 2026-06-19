@@ -57,7 +57,7 @@ sinks (Docker healthcheck, chanreg health loop, dashboard).
 | Datum           | Source                                                                                                                                                 |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | status          | `/health` struct: `disconnected` (503, `isConnected()` false) > `stale` (`last_inbound_at` older than threshold) > `ok`                                |
-| stale threshold | `chanlib.staleThresholds`: 5m default, `email` 10m, `reddit` 60m; `strictStale` set (slack) makes stale a 503                                          |
+| stale threshold | `chanlib.staleThresholds`: 5m default, `email` 10m, `reddit` 60m; stale is informational (200), never 503 — death is `isConnected()` false             |
 | identity        | what the adapter holds in memory after auth (phone JID, bot username, `auth.test` user+team, account handle, DID, reddit username, URN, email account) |
 | transport       | static per adapter: websocket / long-poll / webhook push / IMAP IDLE / HTTP poll + interval                                                            |
 | last inbound    | `lastInboundAt()` (unix s) + `stale_seconds` from `/health`                                                                                            |
