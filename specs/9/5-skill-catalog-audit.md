@@ -130,7 +130,7 @@ product template" (future spec slot), not as a generic stock skill.
 ### `/secret-prefetch` — REJECT
 
 **Aeon**: prefetches API tokens at workflow start, exposes via env.
-**Fit**: arizuko has `specs/7/Y-secret-broker.md`. Aeon's pattern is
+**Fit**: arizuko has `specs/5/41-ext-mcp.md`. Aeon's pattern is
 a workaround for GHA's secret-injection model that we don't share.
 **Decision**: skip; broker is the better answer.
 

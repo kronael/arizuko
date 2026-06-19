@@ -170,7 +170,7 @@ git crosses it for config, never for secrets.
 Rotation, BYOA layering, per-call audit — all stay in
 `store/secrets.go`, in **Phase C of `specs/5/32-tenant-self-service.md`**
 (folder/user-scope secrets layering), and in
-`specs/7/Y-secret-broker.md` (tool-level audit edge). No
+`specs/5/41-ext-mcp.md` (tool-level audit edge). No
 phase-7 work here.
 
 ## Federation topology

@@ -89,7 +89,7 @@ safely.
 Also composes with phase 7 hardening: `specs/7/F-audit-stream.md`
 (audit log for warm tier), `specs/7/E-encryption-at-rest.md`
 (secrets stay encrypted in SQLite, never leak into git),
-`specs/7/Y-secret-broker.md` (per-call audit at the secret edge),
+`specs/5/41-ext-mcp.md` (per-call audit at the secret edge),
 `specs/7/H-per-daemon-secrets.md` (adapter-side compartments).
 
 ## Specs in this phase

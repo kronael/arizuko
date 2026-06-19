@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [Y-secret-broker, 5/E-routd]
+depends: [5/41-ext-mcp, 5/E-routd]
 ---
 
 # egred HTTPS-MITM — placeholder substitution at egress
@@ -14,7 +14,7 @@ actually needs; iron-proxy is studied, not vendored.
 
 ## Why this is not a replacement for the broker
 
-Spec 7/Y dropped TLS-MITM in favor of the tool-broker:
+Spec 5/41 dropped TLS-MITM in favor of the tool-broker:
 
 > Per-user API tokens (GitHub, Jira, OpenAI, …) must reach external APIs
 > on the user's behalf without materializing inside the agent container.
@@ -22,7 +22,7 @@ Spec 7/Y dropped TLS-MITM in favor of the tool-broker:
 > at egress) added a CA-distribution surface, an HTTP/1.1 ALPN constraint,
 > and bytes-in-the-middle injection. Dropped: the agent is not the
 > credential carrier.
-> — `specs/7/Y-secret-broker.md` "Problem"
+> — `specs/5/41-ext-mcp.md` "Problem"
 
 This spec ships MITM **anyway**, as the _second-best_ fallback covering
 clients that don't go through MCP. The broker is correct for tool-mediated
@@ -49,21 +49,21 @@ gets deprecated. Until then, the safety net earns its keep.
 
 iron-proxy is ~50 KLOC. We need a small fraction. Per-subsystem call:
 
-| iron-proxy subsystem                                                              | Verdict   | Notes for egred                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/cagen/cagen.go` (137 LOC) — CA gen, RSA4096/Ed25519, PKCS8 PEM          | **lift**  | Port nearly verbatim to `crackbox/pkg/mitm/cagen.go`. Drop the RSA4096 default to Ed25519 (smaller, faster, modern clients are fine).                                                                                                                                                                                                                                                     |
-| `internal/certcache/cache.go` (174 LOC) — LRU per-SNI leaf, P256 keys, signs leaf | **lift**  | Port as `crackbox/pkg/mitm/leafcache.go`. Keep `hashicorp/golang-lru/v2/expirable` (tiny dep already in tree-friendly module).                                                                                                                                                                                                                                                            |
-| `internal/proxy/proxy.go:serveHTTPSMITM` (`/tmp/ip-proxy.go:159-168`)             | **adapt** | egred's existing CONNECT handler grows a branch: if registered source has `mitm: true`, hand the hijacked conn to a `tls.Server` using `GetCertificate: leafcache.GetOrCreate` instead of `io.Copy`-splicing to the upstream. No second listener — MITM is a per-source decision at CONNECT-accept time, not a separate `:443`.                                                           |
-| `internal/proxy/proxy.go:getCertificate` (`/tmp/ip-proxy.go:222-229`)             | **lift**  | SNI → leaf, one-line wrapper.                                                                                                                                                                                                                                                                                                                                                             |
-| `internal/transform/secrets/secrets.go` (593 LOC, pipeline shape)                 | **adapt** | Replace with a ~5 LOC `injectSecretsBroker` shim that imports Y-secret-broker's `injectSecrets` middleware (see 7/Y `## Resolution (the broker middleware)`) and slots it into the chain keyed by the source's `secret_scope`. egred scans no headers, holds no placeholder map, and runs no parallel resolver. No YAML, no body/path/query swap, no inject mode, no formatter templates. |
-| `internal/transform/secrets/resolver.go` (392 LOC) + `op_resolver.go` + `aws_sm`  | **drop**  | Resolution is the broker's job; egred owns no store lookup, no cache, no audit table. egred imports the broker's middleware function and lists it in the chain — same shape MCP dispatch uses (see 7/Y "the handler shape converges"). No 1Password, no AWS SM, no GCP — arizuko already has Y's resolver.                                                                                |
-| `internal/controlplane/poller.go` (config-reload watcher)                         | **drop**  | egred admin API already handles dynamic registration; `mitm` flag rides the same `POST /v1/register` path. Restart-to-reload for global config (CA path) is acceptable; arizuko restarts are cheap.                                                                                                                                                                                       |
-| gRPC management API (`proto/`, `internal/controlplane`)                           | **drop**  | egred has `:3129` admin API. Don't grow a second control plane.                                                                                                                                                                                                                                                                                                                           |
-| `internal/hostmatch` (per-host policy rules)                                      | **drop**  | egred's per-source-IP allowlist already gates _which_ hosts the source may reach; MITM has nothing to add about _who_ can call _where_.                                                                                                                                                                                                                                                   |
-| `internal/dnsguard`                                                               | **drop**  | egred can grow DNS guard separately (spec 9/15); orthogonal.                                                                                                                                                                                                                                                                                                                              |
-| `internal/mcp` (MCP policy interceptor)                                           | **drop**  | arizuko owns the MCP surface upstream of egred; redundant here.                                                                                                                                                                                                                                                                                                                           |
-| `iron-proxy.example.yaml` (644 LOC of options)                                    | **drop**  | Configuration is per-source via the admin API, not via YAML. The TOML/env at `~/.crackboxrc` only carries the global CA path + leaf TTL.                                                                                                                                                                                                                                                  |
-| `internal/transform/pipeline.go` (multi-transform chain, audit emit)              | **drop**  | egred runs the same `Chain(slice, terminal)` idiom as `proxyd/main.go` (spec 5/6) — no separate transform registry. Audit is one middleware (`auditMITM`) writing to the broker's `secret_use_log` with `caller='egred'`.                                                                                                                                                                 |
+| iron-proxy subsystem                                                              | Verdict   | Notes for egred                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/cagen/cagen.go` (137 LOC) — CA gen, RSA4096/Ed25519, PKCS8 PEM          | **lift**  | Port nearly verbatim to `crackbox/pkg/mitm/cagen.go`. Drop the RSA4096 default to Ed25519 (smaller, faster, modern clients are fine).                                                                                                                                                                                                                                                   |
+| `internal/certcache/cache.go` (174 LOC) — LRU per-SNI leaf, P256 keys, signs leaf | **lift**  | Port as `crackbox/pkg/mitm/leafcache.go`. Keep `hashicorp/golang-lru/v2/expirable` (tiny dep already in tree-friendly module).                                                                                                                                                                                                                                                          |
+| `internal/proxy/proxy.go:serveHTTPSMITM` (`/tmp/ip-proxy.go:159-168`)             | **adapt** | egred's existing CONNECT handler grows a branch: if registered source has `mitm: true`, hand the hijacked conn to a `tls.Server` using `GetCertificate: leafcache.GetOrCreate` instead of `io.Copy`-splicing to the upstream. No second listener — MITM is a per-source decision at CONNECT-accept time, not a separate `:443`.                                                         |
+| `internal/proxy/proxy.go:getCertificate` (`/tmp/ip-proxy.go:222-229`)             | **lift**  | SNI → leaf, one-line wrapper.                                                                                                                                                                                                                                                                                                                                                           |
+| `internal/transform/secrets/secrets.go` (593 LOC, pipeline shape)                 | **adapt** | Replace with a ~5 LOC `injectSecretsBroker` shim that imports 5/41-ext-mcp's `injectSecrets` middleware (see 5/41 `## Resolution (the broker middleware)`) and slots it into the chain keyed by the source's `secret_scope`. egred scans no headers, holds no placeholder map, and runs no parallel resolver. No YAML, no body/path/query swap, no inject mode, no formatter templates. |
+| `internal/transform/secrets/resolver.go` (392 LOC) + `op_resolver.go` + `aws_sm`  | **drop**  | Resolution is the broker's job; egred owns no store lookup, no cache, no audit table. egred imports the broker's middleware function and lists it in the chain — same shape MCP dispatch uses (see 5/41 "the handler shape converges"). No 1Password, no AWS SM, no GCP — arizuko already has Y's resolver.                                                                             |
+| `internal/controlplane/poller.go` (config-reload watcher)                         | **drop**  | egred admin API already handles dynamic registration; `mitm` flag rides the same `POST /v1/register` path. Restart-to-reload for global config (CA path) is acceptable; arizuko restarts are cheap.                                                                                                                                                                                     |
+| gRPC management API (`proto/`, `internal/controlplane`)                           | **drop**  | egred has `:3129` admin API. Don't grow a second control plane.                                                                                                                                                                                                                                                                                                                         |
+| `internal/hostmatch` (per-host policy rules)                                      | **drop**  | egred's per-source-IP allowlist already gates _which_ hosts the source may reach; MITM has nothing to add about _who_ can call _where_.                                                                                                                                                                                                                                                 |
+| `internal/dnsguard`                                                               | **drop**  | egred can grow DNS guard separately (spec 9/15); orthogonal.                                                                                                                                                                                                                                                                                                                            |
+| `internal/mcp` (MCP policy interceptor)                                           | **drop**  | arizuko owns the MCP surface upstream of egred; redundant here.                                                                                                                                                                                                                                                                                                                         |
+| `iron-proxy.example.yaml` (644 LOC of options)                                    | **drop**  | Configuration is per-source via the admin API, not via YAML. The TOML/env at `~/.crackboxrc` only carries the global CA path + leaf TTL.                                                                                                                                                                                                                                                |
+| `internal/transform/pipeline.go` (multi-transform chain, audit emit)              | **drop**  | egred runs the same `Chain(slice, terminal)` idiom as `proxyd/main.go` (spec 5/6) — no separate transform registry. Audit is one middleware (`auditMITM`) writing to the broker's `secret_use_log` with `caller='egred'`.                                                                                                                                                               |
 
 Roughly: **~310 LOC lifted (cagen + leafcache), ~5 LOC adapted (the broker shim), the rest discarded.**
 
@@ -95,7 +95,7 @@ was folded into `specs/5/E-routd.md`):
 var mitmChain = []func(http.Handler) http.Handler{
     bypassCheck,          // SNI in entry.BypassMITM → io.Copy splice, skip rest
     tlsTerminate,         // hijack CONNECT, tls.Server with leaf from leafcache
-    injectSecretsBroker,  // imports Y-secret-broker's injectSecrets, keyed by entry.SecretScope
+    injectSecretsBroker,  // imports 5/41-ext-mcp's injectSecrets, keyed by entry.SecretScope
     auditMITM,            // one secret_use_log row per request, tool='egred:mitm'
     bodyCap,              // first 10 MB buffered for header swap; rest streams past
 }
@@ -219,14 +219,14 @@ secrets this source may see). egred persists the scope and nothing
 else — no placeholder map, no `secret_ref` strings, no plaintext.
 
 At request time, `injectSecretsBroker` calls the broker's
-`injectSecrets` middleware (spec 7/Y `## Resolution (the broker
+`injectSecrets` middleware (spec 5/41 `## Resolution (the broker
 middleware)`) with `entry.SecretScope` as the visibility key. The
 broker holds the resolved value for request lifetime, in `gated`'s
 process, and returns swapped headers. egred re-encrypts to upstream
 and forgets.
 
 Audit is `auditMITM`, the next link in the chain — it writes one row
-per request to `secret_use_log` (the same table 7/Y writes to):
+per request to `secret_use_log` (the same table 5/41 writes to):
 
 ```
 secret_use_log(ts, spawn_id, caller_sub, folder, tool='egred:mitm',
@@ -517,8 +517,8 @@ simplification pay for themselves in deleted future work.
 Per-source registry state grows by one string (`secret_scope`) and
 one slice (`bypass_mitm`); the existing JSON state file
 (`CRACKBOX_STATE_PATH`) carries both. No new SQL table.
-`secret_use_log` (0048) already exists from 7/Y; the schema gains a
-`caller` column owned by 7/Y's migration.
+`secret_use_log` (0048) already exists from 5/41; the schema gains a
+`caller` column owned by 5/41's migration.
 
 Tests: leaf-cert chain verification with `x509.Verify`, middleware
 order (bypass short-circuits before `tlsTerminate`), end-to-end with
@@ -537,7 +537,7 @@ via shared CA is impossible. Trade: every instance must distribute
 its own CA to its containers (the image is per-instance anyway).
 
 c. **MITM is a broker middleware caller, not a parallel resolver.**
-Spec 7/Y is canonical for secret resolution; this spec imports the
+Spec 5/41 is canonical for secret resolution; this spec imports the
 broker's `injectSecrets` middleware function and lists it in the
 chain. egred holds no placeholder map, no `secret_ref` strings, no
 in-process secret cache. Per-source `WireEntry` carries `secret_scope`
@@ -550,7 +550,7 @@ elements, reduced with `Chain`. Order is auditable, new middleware
 lands in one slot (HTTP middleware chain pattern from the former
 `specs/5/6-middleware-pipeline.md`, now folded into `E-routd.md`).
 
-e. **Reuse `secret_use_log`, no new audit table.** Spec 7/Y already
+e. **Reuse `secret_use_log`, no new audit table.** Spec 5/41 already
 built this. `caller='egred'` discriminates MITM swaps from broker
 swaps. Same operator analytics work.
 
@@ -582,7 +582,7 @@ Rust binaries.
 
 ## Cross-references
 
-- [`specs/7/Y-secret-broker.md`](Y-secret-broker.md) — the preferred
+- [`specs/5/41-ext-mcp.md`](../5/41-ext-mcp.md) — the preferred
   path for tool-mediated secrets. This spec is the safety net for what
   Y doesn't cover.
 - [`specs/11/12-crackbox-sandboxing.md`](../11/12-crackbox-sandboxing.md) —

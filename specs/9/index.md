@@ -71,7 +71,7 @@ existing message bus. Nothing else.
 - **`specs/12/6-workflows.md`** — workflowd. `6/4` proposes dropping
   this in favour of "any automation is a folder" — see that spec for
   the case.
-- **`specs/7/Y-secret-broker.md`** — arizuko's answer to Aeon's
+- **`specs/5/41-ext-mcp.md`** — arizuko's answer to Aeon's
   prefetch-outside-sandbox pattern. Not imported; called out in
   `6/4` as "we already do this, but better".
 

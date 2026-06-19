@@ -459,23 +459,23 @@ Backing-table owners are the post-split daemons (see "Daemon ownership of
 config tables (`grants`, `secrets`, `acl`/`user_groups`, `network_rules`)
 land in `routd`, which inherits gated's schema authority.
 
-| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                                 | Backing tables                                        |
-| ------------------- | -------- | -------- | ---------------- | ----------------------------------------------------------------- | ----------------------------------------------------- |
-| `grants`            | operator | operator | agent + user     | agent + user                                                      | `grants` (routd)                                      |
-| `routes`            | operator | operator | —                | —                                                                 | `routes` (routd)                                      |
-| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/7/Y`](../7/Y-secret-broker.md)) | `secrets` (routd)                                     |
-| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                      | `scheduled_tasks` (routd)                             |
-| `chats`             | operator | operator | agent + user     | — (operator-only)                                                 | `messages` (routd)                                    |
-| `group_folders`     | operator | operator | —                | —                                                                 | `groups` (routd)                                      |
-| `egress_allowlist`  | operator | operator | agent (tier ≤1)  | agent (tier ≤1)                                                   | `network_allow`/`network_deny`/`network_list` (routd) |
-| `user_groups` (ACL) | operator | operator | —                | —                                                                 | `user_groups` (routd)                                 |
-| `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                        | `invites` (onbod)                                     |
+| Resource            | `read`   | `write`  | `read:own_group` | `write:own_group`                                             | Backing tables                                        |
+| ------------------- | -------- | -------- | ---------------- | ------------------------------------------------------------- | ----------------------------------------------------- |
+| `grants`            | operator | operator | agent + user     | agent + user                                                  | `grants` (routd)                                      |
+| `routes`            | operator | operator | —                | —                                                             | `routes` (routd)                                      |
+| `secrets`           | operator | operator | —                | user (`/dash/me/secrets`, [`specs/5/41`](../5/41-ext-mcp.md)) | `secrets` (routd)                                     |
+| `scheduled_tasks`   | operator | operator | agent + user     | agent + user                                                  | `scheduled_tasks` (routd)                             |
+| `chats`             | operator | operator | agent + user     | — (operator-only)                                             | `messages` (routd)                                    |
+| `group_folders`     | operator | operator | —                | —                                                             | `groups` (routd)                                      |
+| `egress_allowlist`  | operator | operator | agent (tier ≤1)  | agent (tier ≤1)                                               | `network_allow`/`network_deny`/`network_list` (routd) |
+| `user_groups` (ACL) | operator | operator | —                | —                                                             | `user_groups` (routd)                                 |
+| `invites`           | operator | operator | agent w/ scope   | agent w/ scope (`invites:write:own_group`)                    | `invites` (onbod)                                     |
 
 Rationale: `routes`/`group_folders`/`user_groups` are operator-only on
 both axes — the agent can't reach into its own ACL or topology; that's
 the trust boundary. `secrets:write:own_group` is user-via-dashboard
 only; the agent never reads or rotates secrets (invariant in
-[`specs/7/Y`](../7/Y-secret-broker.md); the broker resolves
+[`specs/5/41`](../5/41-ext-mcp.md); the broker resolves
 folder/user secrets inside the tool handler on the host, the container
 never sees them). `egress_allowlist:write:own_group` lets a tier-≤1
 agent open egress for its own subtree via the `network_allow`/

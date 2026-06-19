@@ -1,51 +1,162 @@
 ---
-status: draft
-depends: [5-uniform-mcp-rest, specs/4/9-acl-unified]
+status: partial
+depends:
+  [5-uniform-mcp-rest, specs/4/9-acl-unified, specs/5/32-tenant-self-service]
 ---
 
-# specs/5/41 — external MCP tool injection
+# specs/5/41 — external capability injection
 
-## What this solves
+> arizuko is the broker between agents and the web. Credentials never enter
+> the container. Every external call is governed by grants and written to the
+> audit log. The agent invokes a tool by name; arizuko resolves the
+> credential, calls the external service, and returns the result.
 
-Agents need to call external services (DNS providers, registrars, billing
-APIs). The naive approach — store a raw API key in a folder secret and let
-the agent call the HTTP API directly — is ungrantable: the agent can do
-anything the key permits with no audit trail and no per-operation ACL.
+This is a core arizuko primitive — the same mechanism that lets a group
+agent manage DNS records, open a GitHub PR, send a transactional email, or
+call any API the operator configures. The agent sees a tool. arizuko owns
+the credential.
 
-This spec defines a general injection mechanism: external services are
-declared as arizuko tool sets, auth is injected from folder secrets at
-call time, and the existing grants DSL governs which tools the agent may
-invoke.
+---
 
-## Existing ecosystem
+## The dispatch chain
 
-Three classes of provider:
+All handler shapes share one chain:
 
-| class               | examples                              | status                         |
-| ------------------- | ------------------------------------- | ------------------------------ |
-| Official MCP server | Cloudflare (OAuth), Route53 (AWS IAM) | exists, no grants enforcement  |
-| Community MCP       | Porkbun                               | partial, no grants enforcement |
-| REST-only           | Gandi, Namecheap, most DNS APIs       | no MCP; simple API key         |
+```
+agent MCP call
+       │
+       ▼
+  GrantsCheck       auth.Authorize("mcp:"+toolName) — may this folder call this tool?
+       │
+       ▼
+  InjectSecrets     resolve folder/user secrets → map[string]string (never logged)
+       │
+       ▼
+  Recover/Timeout
+       │
+       ▼
+  Handler           Go function  |  REST call  |  MCP subprocess
+       │
+       ▼
+  Audit             audit_log row: folder, tool, scope, status, latency_ms
+       │
+       ▼
+  result to agent   (secret values scrubbed from response)
+```
 
-The official servers work but bypass arizuko's grants layer — the agent
-sees a raw tool list with no ACL gate. The generic layer below adds that
-gate uniformly across all three classes.
+---
 
-## Design
+## Secrets table
 
-### Service descriptor
+`secrets(scope_kind, scope_id, key, value, created_at)`
+PK `(scope_kind, scope_id, key)`.
 
-Operators place a service descriptor in the group's config (or as a folder
-secret bundle). The descriptor maps tool names to REST endpoints:
+- `scope_kind ∈ {folder, user}`; `scope_id` = folder path or `auth_users.sub`
+- **Resolution**: folder-ancestry walk, deepest child wins. Per-user override
+  (`user` scope row beats `folder` scope row for same key) is **not yet
+  implemented** — `FolderSecretsResolved` reads folder scope only
+  (`store/secrets.go:373`).
+- **Encryption at rest**: plaintext by default; AES-256-GCM when `SECRETS_KEY`
+  set — stored `v2:base64(nonce‖ct)`, decrypted transparently on read.
+  Enabling runs a one-time idempotent encrypt-in-place migration.
+- Never injected into container env. `ANTHROPIC_API_KEY` and other operator
+  anchors are separate (container env, not this table).
+
+### Write paths
+
+| surface            | who      | how                                                           |
+| ------------------ | -------- | ------------------------------------------------------------- |
+| Operator CLI       | operator | `arizuko secret <inst> set <folder> KEY --value V`            |
+| dashd self-service | end user | `GET/POST/PATCH/DELETE /dash/me/secrets`                      |
+| OAuth dance        | platform | `specs/11/14-surrogate-oauth.md` — writes access+refresh here |
+
+---
+
+## Handler shape 1 — Go handler (built-in tools)
+
+```go
+registerWithSecrets("github_pr",
+    "Create or list pull requests on a GitHub repo.",
+    []string{"GITHUB_TOKEN"},
+    params,
+    func(ctx context.Context, req mcp.CallToolRequest,
+         secrets map[string]string) (*mcp.CallToolResult, error) {
+        token := secrets["GITHUB_TOKEN"]
+        if token == "" {
+            return toolErr("no GITHUB_TOKEN — set at /dash/me/secrets")
+        }
+        // outbound HTTP using token; value never logged or returned
+    })
+```
+
+`registerWithSecrets` is not yet implemented — the plumbing for passing
+`secrets map[string]string` to plain (non-connector) Go handlers is the
+missing piece alongside per-user resolution.
+
+---
+
+## Handler shape 2 — MCP subprocess connector (SHIPPED)
+
+Third-party services ship their own MCP server; arizuko spawns it per call
+as a stdio subprocess. No Go handler needed.
+
+### connectors.toml
+
+```toml
+[[mcp_connector]]
+name         = "github"
+command      = ["docker", "run", "-i", "--rm", "ghcr.io/anthropic/mcp-github"]
+secrets      = ["GITHUB_TOKEN"]
+env_template = { GITHUB_PERSONAL_ACCESS_TOKEN = "{secret:GITHUB_TOKEN}" }
+scope        = "per_call"   # subprocess lifetime; "per_session" pools per caller
+```
+
+### Lifecycle
+
+1. Boot: `DiscoverConnectorTools` spawns with empty env, calls `tools/list`,
+   caches catalog. Each tool registered as `<connector>_<remote_name>` with
+   `RequiresSecrets` = connector's `secrets` list. (`ipc/connector.go:74`)
+2. Per call: `ConnectorSecrets(folder, required)` narrows the folder secret map
+   to only the keys the connector declared — connector never sees the full
+   folder secret set. (`routd/sibling_db.go:119`)
+3. Dispatch: env_template rendered with resolved values, subprocess spawned,
+   `tools/call` proxied, result returned. (`ipc/connector.go:120`)
+4. Scrub: known secret values stripped from result JSON before returning
+   to agent.
+5. Teardown: `per_call` subprocesses torn down immediately; `per_session`
+   pooled per `(connector, caller.sub)`, never shared across users.
+
+### Code path (shipped)
+
+```
+routd/mcp.go:569    ResolveConnectorSecrets: s.db.ConnectorSecrets
+ipc/ipc.go:1027     if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
+                        secrets = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
+ipc/ipc.go:1031         return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
+```
+
+Grants: `auth.Authorize("mcp:"+localToolName)` — the `mcp:` prefix triggers
+tier-default grant derivation in `auth/authorize.go:102`.
+
+---
+
+## Handler shape 3 — REST descriptor (UNSHIPPED)
+
+Declarative TOML mapping tool names to REST endpoints. No subprocess, no
+Go handler — arizuko makes the HTTP call directly. Targets providers that
+don't ship an MCP server (Porkbun, Gandi, Namecheap, etc.).
 
 ```toml
 [[ext]]
-name    = "cloudflare"
-base    = "https://api.cloudflare.com/client/v4"
+name = "cloudflare"
+base = "https://api.cloudflare.com/client/v4"
 
   [ext.auth]
-  method = "bearer"          # bearer | apikey-header | apikey-query | basic
-  secret = "CF_API_TOKEN"    # key in folder secrets
+  method = "bearer"        # bearer | apikey-header | apikey-query | basic | dual-key
+  secret = "CF_API_TOKEN"  # key in secrets table (folder-scoped)
+  # apikey-header: header = "X-Api-Key"
+  # apikey-query:  param = "api_key"
+  # dual-key: secret2 = "CF_SECRET_KEY", header2 = "X-Secret-API-Key"
 
   [[ext.tool]]
   name   = "dns_list"
@@ -66,124 +177,144 @@ base    = "https://api.cloudflare.com/client/v4"
   path   = "/zones/{zone_id}/dns_records/{id}"
 ```
 
-### Auth methods
+Auth wire forms:
 
-| method          | wire form                                                  |
-| --------------- | ---------------------------------------------------------- |
-| `bearer`        | `Authorization: Bearer <secret>`                           |
-| `apikey-header` | `X-Api-Key: <secret>` (header name configurable)           |
-| `apikey-query`  | `?api_key=<secret>` (param name configurable)              |
-| `basic`         | `Authorization: Basic base64(user:secret)`                 |
-| `dual-key`      | two secrets injected as separate headers (Porkbun pattern) |
+| method          | wire                                           |
+| --------------- | ---------------------------------------------- |
+| `bearer`        | `Authorization: Bearer <secret>`               |
+| `apikey-header` | configurable header name                       |
+| `apikey-query`  | configurable query param name                  |
+| `basic`         | `Authorization: Basic base64(user:secret)`     |
+| `dual-key`      | two secrets injected as separate named headers |
 
-OAuth flows are provider-specific and out of scope here; operators who
-want OAuth-gated services (e.g. Cloudflare's own MCP) run those as
-upstream MCP servers and wire them through the proxy path below.
+### Built-in provider definitions
 
-### Grants matching
+Operators supply only the API key; tool schemas ship with arizuko:
 
-The grant DSL matches on `ext:<service>:<scope-suffix>`:
+| provider   | auth         | secret key(s)                      | notes                            |
+| ---------- | ------------ | ---------------------------------- | -------------------------------- |
+| Cloudflare | bearer       | `CF_API_TOKEN`                     | zone-scoped DNS, Workers, KV     |
+| Porkbun    | dual-key     | `PB_API_KEY` + `PB_SECRET`         | domain-scoped                    |
+| Gandi      | bearer       | `GANDI_PAT`                        | livedns API                      |
+| Namecheap  | apikey-query | `NAMECHEAP_KEY`                    | requires IP whitelist on account |
+| Route53    | AWS SigV4    | `AWS_ACCESS_KEY_ID` + `AWS_SECRET` | needs SigV4 — low priority       |
 
-```
-!ext:cloudflare:dns:write   # deny Cloudflare DNS writes
-ext:cloudflare:*            # allow all Cloudflare tools
-ext:*:dns:read              # allow DNS read across any service
-```
+Path: `ext/providers/<name>.toml` shipped with the binary; merged with any
+operator-defined `[[ext]]` blocks at boot.
 
-The tool's `scope` field in the descriptor IS the grant string checked at
-call time. No tool fires without a passing grant row for the caller's folder.
-Every call is written to `audit_log`.
-
-### Wire path
+### Grants for REST tools
 
 ```
-agent  →  MCP tool call: dns_set(zone_id=X, name=Y, type=MX, ...)
-              ↓
-          ipc layer: resolve ext service + check grants(caller, tool.scope)
-              ↓
-          inject auth from folder secrets (never sent to agent)
-              ↓
-          HTTP call to provider REST API
-              ↓
-          audit_log entry: folder, tool, params, status, latency
-              ↓
-          return JSON result to agent
+ext:cloudflare:dns:write    # allow Cloudflare DNS writes for this folder
+!ext:cloudflare:*           # deny all Cloudflare tools
+ext:*:dns:read              # read-only DNS across any registered service
 ```
 
-### Upstream MCP proxy (for official MCP servers)
+The tool's `scope` field IS the grant string checked at call time. Same
+ACL engine and glob syntax as `4/9-acl-unified`.
 
-When the provider already has an MCP server (Cloudflare, Route53), the
-operator can register it as an upstream instead of a REST descriptor:
+---
 
-```toml
-[[ext]]
-name     = "cloudflare-mcp"
-upstream = "wss://mcp.cloudflare.com/sse"  # or local socket path
+## Grants summary
 
-  [ext.auth]
-  method = "bearer"
-  secret = "CF_API_TOKEN"
+| handle shape    | grant prefix                | example                          |
+| --------------- | --------------------------- | -------------------------------- |
+| Go handler      | any custom string           | `github:pr:write`                |
+| MCP subprocess  | `mcp:<connector>:<tool>`    | `mcp:github:create_pull_request` |
+| REST descriptor | `ext:<service>:<operation>` | `ext:cloudflare:dns:write`       |
 
-  [[ext.tool]]
-  name  = "workers_list"
-  scope = "ext:cloudflare:workers:read"
-  # upstream tool name may differ; mapped here
-  upstream_tool = "list_workers"
+All checked via `auth.Authorize` before any handler fires.
+
+---
+
+## Audit
+
+Every tool call through this layer writes to `audit_log`:
+
+```
+(ts, folder, caller_sub, tool, scope_kind, scope_id, key, status, latency_ms)
 ```
 
-arizuko proxies the MCP call through, injects auth, and gates on grants
-before forwarding. The agent's view is identical to the REST descriptor
-path.
+`scope_kind ∈ {user, folder, missing}`. `status ∈ {ok, err, timeout}`.
+Secret values never written. One row per `(call × resolved key)`.
+
+The `secret_use_log` table design from the old broker spec is the target
+shape; it is **not yet created** — the current `audit_log` table does not
+include per-secret rows. This is the M2 gap.
+
+---
+
+## Trust model
+
+| scope            | where                                          | reaches agent?                   |
+| ---------------- | ---------------------------------------------- | -------------------------------- |
+| Operator anchors | container env (`ANTHROPIC_API_KEY`, bot creds) | yes — Claude Code CLI needs them |
+| Folder secrets   | `secrets` table, broker only                   | no                               |
+| Per-user secrets | `secrets` table, broker only                   | no                               |
+
+Three escape paths closed by the broker:
+
+1. **Tool result echoes the token** — broker scrubs known secret values from
+   `mcp.CallToolResult` before returning to agent (exact-string match on
+   the declared keys for that call).
+2. **Subprocess stderr** — routed to a gated-owned sink, never reaches agent.
+   `slog.Debug` under connector name (`ipc/connector.go:196`).
+3. **Agent steers the tool to leak** — connector registration is
+   operator-only; agents cannot add connectors or new REST descriptors.
+
+---
 
 ## DNS use case (motivating example)
 
-Setting up email for a new arizuko group requires:
-
-1. MX record pointing to the host
-2. SPF TXT record (`v=spf1 a mx ~all`)
-3. DKIM TXT record (public key)
-4. DMARC TXT record
-
-With this spec, the agent runs:
+Setting up email for a new group requires MX, SPF, DKIM, DMARC. With this
+spec, the agent runs:
 
 ```
-dns_set(zone_id="...", name="@", type="MX", content="mail.host.com", priority=10)
-dns_set(zone_id="...", name="@", type="TXT", content="v=spf1 a mx ~all")
+dns_set(zone_id="abc123", name="@",    type="MX",  content="mail.host.com", priority=10)
+dns_set(zone_id="abc123", name="@",    type="TXT", content="v=spf1 a mx ~all")
+dns_set(zone_id="abc123", name="mail", type="A",   content="1.2.3.4")
 ```
 
-No API key is visible to the agent. The operator's grant row
-`ext:cloudflare:dns:write` is what enables it, scoped per folder.
+`CF_API_TOKEN` lives in the folder secrets table. The agent never sees it.
+Grant row `ext:cloudflare:dns:write` scoped to the folder is what enables
+the calls. Every call appears in `audit_log`.
 
-## Built-in service definitions
+---
 
-Ship provider definitions for common DNS providers so operators only need
-to supply the API key. Suggested first set:
+## What's shipped
 
-| provider   | auth                                       | notes                 |
-| ---------- | ------------------------------------------ | --------------------- |
-| Cloudflare | bearer (CF_API_TOKEN)                      | zone scoped           |
-| Porkbun    | dual-key (PB_API_KEY + PB_SECRET)          | domain scoped         |
-| Gandi      | bearer (GANDI_PAT)                         | livedns API           |
-| Namecheap  | apikey-query (NAMECHEAP_KEY)               | requires IP whitelist |
-| Route53    | AWS SigV4 (AWS_ACCESS_KEY_ID + AWS_SECRET) | needs SigV4 signing   |
+| piece                           | location                               | state                         |
+| ------------------------------- | -------------------------------------- | ----------------------------- |
+| `secrets` table + migrations    | `store/secrets.go`, `0034-secrets.sql` | ✓ shipped                     |
+| AES-256-GCM at rest             | `store/secrets.go` `seal`/`open`       | ✓ shipped (opt-in)            |
+| `FolderSecretsResolved`         | `store/secrets.go:373`                 | ✓ shipped (folder scope only) |
+| Connector discovery + dispatch  | `ipc/connector.go`                     | ✓ shipped                     |
+| `ConnectorSecrets`              | `routd/sibling_db.go:119`              | ✓ shipped                     |
+| `ResolveConnectorSecrets` wired | `routd/mcp.go:569`                     | ✓ shipped                     |
+| `connectors.toml` loader        | `gateway/connectors.go`                | ✓ shipped                     |
+| dashd `/dash/me/secrets`        | `dashd/`                               | ✓ shipped                     |
+| Operator CLI                    | `cmd/arizuko/secret.go`                | ✓ shipped                     |
 
-Route53 needs SigV4 request signing — a separate auth method; low priority,
-implement after the simpler key-based providers.
+## What's not yet shipped
 
-## Implementation sketch
+| piece                                 | gap                                                                                          |
+| ------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Per-user secret override              | `FolderSecretsResolved` reads folder scope only; user-scope wins-over-folder not implemented |
+| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string`               |
+| REST descriptor layer                 | `[[ext]]` TOML loader, HTTP dispatcher, path param substitution                              |
+| Built-in provider definitions         | `ext/providers/*.toml` files                                                                 |
+| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                                            |
 
-- `extd` or inline in `runed`/`routd`: loads ext descriptors from group
-  config, registers tools into the agent's MCP tool list at spawn time
-- `auth/ext.go`: auth injectors per method (bearer, apikey-header, etc.)
-- `grants/ext.go`: `CheckExtTool(folder, scope string) bool` — delegates
-  to existing ACL engine
-- Built-in descriptors: `ext/providers/cloudflare.toml`, `porkbun.toml`, etc.
-- Audit: every ext tool call → `audit_log` with params (secrets redacted)
+---
 
-## What this is NOT
+## Out of scope
 
-- Not a general HTTP proxy for arbitrary URLs — tools must be declared
-- Not a replacement for channel adapters (teled, slakd, etc.) — those are
-  message channels, not capability APIs
-- Not OAuth for agents — operators pre-authenticate, secrets live in the
-  folder secret store
+- OAuth token dance + refresh — `specs/11/14-surrogate-oauth.md` (writes
+  access token into the `secrets` table the broker reads)
+- Hosted-remote MCP servers (e.g. `mcp.linear.app/mcp`) — need HTTP
+  upstream proxy mode, not stdio subprocess; design TBD
+- Per-tool secret-scope overrides (refuse folder fallback) — add
+  `MCPTool.SecretScopes` if needed, not v1
+- HSM / KMS integration
+- MITM-isolated egress for opaque HTTP clients — `specs/7/Z-egred-mitm.md`
+  (additive: catches clients the broker can't reach)
