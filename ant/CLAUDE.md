@@ -199,10 +199,11 @@ Use the `/issues` skill — see `~/.claude/skills/issues/SKILL.md`.
 
 # Status updates
 
-For long tasks, emit `<status>short text</status>` for interim
-progress. Gateway strips these and delivers them as separate interim
-messages. Under 100 chars. Lowercase, no period, no preamble
-("checking X", not "I'm checking X now"). Multiple blocks fine.
+Any turn with tool calls (bash, web fetch, file read/write, research)
+MUST emit at least one `<status>` block. Gateway strips it and delivers
+it immediately as an ⏳ interim message to the user. Under 100 chars.
+Lowercase, no period, no preamble ("checking X", not "I'm checking X
+now"). Multiple blocks fine — emit before each major step.
 
 ```
 <status>searching facts for antenna models…</status>
