@@ -63,9 +63,8 @@ var serviceGrants = map[string][]string{
 }
 
 // GrantsFetcher resolves the scope ceiling for an issuer-mint target. authd is
-// not the grants authority (gated is — spec 5/1 § Login-time scope snapshot);
-// the gated cutover step supplies an HTTP-backed implementation. Until then
-// it is nil and issuer-mint fails closed (503 grants_unavailable).
+// not the grants authority (routd is — spec 5/1 § Login-time scope snapshot);
+// GRANTS_URL unset → nil, and issuer-mint fails closed (503 grants_unavailable).
 type GrantsFetcher interface {
 	// FetchGrants returns the BARE sub's scope ceiling + folder subtree.
 	// ErrNoGrants → the sub has no grant rows; any other error → backend down.
@@ -84,7 +83,7 @@ var ErrNoGrants = errors.New("no grants for sub")
 type server struct {
 	a              *Authd
 	serviceSecrets map[string]string // bootstrap key -> service principal (sub)
-	grants         GrantsFetcher     // nil until the gated cutover step wires it
+	grants         GrantsFetcher     // nil when GRANTS_URL is unset
 	secureCookies  bool              // mark refresh cookies Secure (https deployment)
 }
 
@@ -385,8 +384,7 @@ func refreshFromRequest(w http.ResponseWriter, r *http.Request) (raw string, bro
 // handleIdentity resolves a platform sender sub (e.g. tg:123, discord:abc) to
 // its canonical identity and the full set of subs that identity claims, reading
 // authd's OWN auth.db identities/identity_claims (authd owns identity — spec
-// 5/9). routd's inspect_identity tool snapshots this over HTTP instead of
-// sibling-reading gated's messages.db. Bearer-gated by identity:read
+// 5/9). routd's inspect_identity tool snapshots this over HTTP.
 // (service:routd carries it). 200 {"identity":{...}|null,"subs":[...]}; an
 // unclaimed sub returns {"identity":null,"subs":[]} (200, not 404) so the tool
 // renders the unclaimed shape directly.

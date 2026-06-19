@@ -41,16 +41,16 @@ func envInt(k string, fallback int) int {
 
 // Config holds all audit configuration loaded from environment.
 type Config struct {
-	Enabled      bool
-	DataDir      string
-	Instance     string
-	MaxBytes     int64
-	RotateHours  int
-	WebhookURL   string
+	Enabled            bool
+	DataDir            string
+	Instance           string
+	MaxBytes           int64
+	RotateHours        int
+	WebhookURL         string
 	WebhookURLSystem   string
 	WebhookURLMessages string
 	WebhookURLWeb      string
-	WebhookSecret string
+	WebhookSecret      string
 }
 
 func LoadConfig(dataDir, instance string) Config {
@@ -116,16 +116,16 @@ type Outcome struct {
 
 // writer appends JSON lines to one file with size/age rotation.
 type writer struct {
-	mu         sync.Mutex
-	path       string
-	maxBytes   int64
-	rotateAge  time.Duration
-	openedAt   time.Time
-	f          *os.File
-	webhookURL string
+	mu            sync.Mutex
+	path          string
+	maxBytes      int64
+	rotateAge     time.Duration
+	openedAt      time.Time
+	f             *os.File
+	webhookURL    string
 	webhookSecret string
-	batch      [][]byte
-	lastFlush  time.Time
+	batch         [][]byte
+	lastFlush     time.Time
 }
 
 func newWriter(path string, maxBytes int64, rotateHours int, webhookURL, secret string) *writer {
@@ -208,7 +208,7 @@ func (w *writer) write(v any) {
 	}
 }
 
-// flushWebhook sends buffered lines when ≥200 or >5s since last flush.
+// flushWebhookLocked sends buffered lines when ≥200 or >5s since last flush.
 // Must be called with w.mu held.
 func (w *writer) flushWebhookLocked(force bool) {
 	if w.webhookURL == "" || len(w.batch) == 0 {

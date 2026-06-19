@@ -171,18 +171,6 @@ func (a *Authd) MintForSubject(sub, typ string, requested, targetGrants []string
 	return tok, err
 }
 
-// MintNarrower signs a delegated token: requested must be a subset of the
-// parent token's scope. parentJTI links it to the parent token it narrows
-// (required on a downscoped token — spec 5/1 § JWT claim set). Backs the
-// mint_token MCP tool.
-func (a *Authd) MintNarrower(sub string, parentScope, requested []string, aud, parentJTI string) (string, error) {
-	k, err := a.activeKey()
-	if err != nil {
-		return "", err
-	}
-	return k.MintNarrower(parentScope, auth.TokenClaims{Sub: sub, Scope: requested, Aud: aud, ParentJTI: parentJTI}, a.accessTTL)
-}
-
 // minted is one signed access token plus the values the HTTP layer echoes back.
 type minted struct {
 	token     string

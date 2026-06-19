@@ -20,12 +20,6 @@ func HasScope(scope []string, resource, verb string) bool {
 	return false
 }
 
-// MatchesAudience reports whether sub's audience matches aud. Empty sub
-// audience matches any (token not bound to one app); empty aud always matches.
-func MatchesAudience(sub Subject, aud string) bool {
-	return aud == "" || sub.Aud == "" || sub.Aud == aud
-}
-
 // scopeMatches reports whether a held scope grants a wanted "resource:verb".
 // "tasks:*" matches "tasks:read". An exact string matches itself. "*:*" is
 // rejected — never a valid held scope.

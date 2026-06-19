@@ -9,7 +9,7 @@ import (
 
 // RouteSource supplies the route source-jids in a world folder so DeriveRules
 // can scope tier-1/2 platform rules to the platforms actually routed there.
-// Both gated's *store.Store and routd's *DB satisfy it.
+// routd's *DB satisfies it.
 type RouteSource interface {
 	RouteSourceJIDsInWorld(worldFolder string) []string
 }

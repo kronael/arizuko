@@ -75,7 +75,6 @@ type Caller struct {
 	Sub    string
 	Name   string
 	Folder string
-	Tier   int
 	Claims map[string]string
 }
 
@@ -207,8 +206,7 @@ type CallerFromHTTPFunc func(r *http.Request) (Caller, error)
 
 // CallerFromMCPFunc builds a Caller from one MCP CallToolRequest + ctx.
 // Called per-invocation by the MCP adapter — the resolver runs every
-// time the agent invokes the tool, never at registration time. This is
-// the fix for "captured caller at register time".
+// time the agent invokes the tool, never at registration time.
 type CallerFromMCPFunc func(ctx context.Context, req mcp.CallToolRequest) (Caller, error)
 
 // RegisterREST mounts every endpoint of r on mux. build derives the
@@ -259,8 +257,7 @@ func restHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler 
 }
 
 // MCPTools registers every MCP tool of r on srv. callerFor is invoked
-// per call (not at registration) — privilege confusion in shared MCP
-// servers is fixed by this signature.
+// per call (not at registration) to avoid privilege confusion.
 func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc) {
 	for _, t := range r.MCPTools {
 		opts := []mcp.ToolOption{mcp.WithDescription(t.Description)}

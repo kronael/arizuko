@@ -64,9 +64,8 @@ func main() {
 	srv := &server{a: a, serviceSecrets: loadServiceSecrets()}
 
 	// Wire the grants fetcher onto BOTH the daemon (refresh re-snapshot) and the
-	// server (login snapshot + issuer-mint ceiling). authd is not the grants
-	// authority — gated is (spec 5/1 § Login-time scope snapshot). GRANTS_URL
-	// unset → grants stays nil (every session empty-scope; current behavior).
+	// server (login snapshot + issuer-mint ceiling). GRANTS_URL unset → grants
+	// stays nil (every session empty-scope; current behavior).
 	if grantsURL := os.Getenv("GRANTS_URL"); grantsURL != "" {
 		g := newHTTPGrants(a, grantsURL)
 		srv.grants = g

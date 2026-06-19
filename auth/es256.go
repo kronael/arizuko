@@ -4,9 +4,8 @@ package auth
 // holds the building blocks it uses. Backends never link the signing path —
 // they only call VerifyToken (jwks.go) against cached public JWKs.
 //
-// Named distinctly from the legacy HS256 Claims/Identity (jwt.go, identity.go)
-// so this slice is additive. The gated-split cutover retires those and may
-// rename these; until then both coexist.
+// Named distinctly from the legacy HS256 Claims/Identity (jwt.go, identity.go);
+// both coexist as the HS256 path handles service-token bootstrap flows.
 
 import (
 	"crypto/ecdsa"

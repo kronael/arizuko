@@ -108,8 +108,8 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 	if !HasScope(sub.Scope, "tasks", "read") {
 		t.Fatalf("expected tasks:read in %v", sub.Scope)
 	}
-	if !MatchesAudience(sub, "app") || MatchesAudience(sub, "other") {
-		t.Fatalf("audience check wrong for %+v", sub)
+	if sub.Aud != "app" {
+		t.Fatalf("audience wrong: got %q", sub.Aud)
 	}
 }
 

@@ -71,24 +71,6 @@ func TestMintVerifyThroughAuthd(t *testing.T) {
 	}
 }
 
-func TestAuthdMintNarrowerDownscope(t *testing.T) {
-	db := testDB(t)
-	a := newTestAuthd(t, db)
-	// Agent parent token holds tasks:read+write; downscope to read-only.
-	tok, err := a.MintNarrower("agent:sub", []string{"tasks:read", "tasks:write"}, []string{"tasks:read"}, "", "parent-jti")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ks := auth.NewKeySet(a.PublicKeys())
-	sub, _ := auth.VerifyToken(tok, ks)
-	if !auth.HasScope(sub.Scope, "tasks", "read") || auth.HasScope(sub.Scope, "tasks", "write") {
-		t.Fatalf("downscoped token scope wrong: %v", sub.Scope)
-	}
-	// Asking for more than the parent has must fail.
-	if _, err := a.MintNarrower("agent:sub", []string{"tasks:read"}, []string{"secrets:read"}, "", "parent-jti"); err == nil {
-		t.Fatal("escalation beyond parent scope must error")
-	}
-}
 
 func TestRotationKeepsOldKeyServingWithinWindow(t *testing.T) {
 	db := testDB(t)
