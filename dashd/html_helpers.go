@@ -11,8 +11,7 @@ func isHtmx(r *http.Request) bool {
 }
 
 // htmlTable renders a <table> with thead+tbody. Empty rows emits a <p class="empty">.
-// Pass an optional second call with htmlTableEmpty to override the empty message,
-// or use htmlTableMsg for a one-shot call.
+// Pass an optional emptyMsg to override the default "no entries" text.
 func htmlTable(headers []string, rows [][]string, emptyMsg ...string) string {
 	if len(rows) == 0 {
 		msg := "no entries"

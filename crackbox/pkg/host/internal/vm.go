@@ -6,26 +6,20 @@ import "fmt"
 type VMState int
 
 const (
-	VMStateCreating VMState = iota
-	VMStateStarting
+	VMStateStarting VMState = iota
 	VMStateRunning
 	VMStateStopped
-	VMStateError
 	VMStateDeleted
 )
 
 func (s VMState) String() string {
 	switch s {
-	case VMStateCreating:
-		return "creating"
 	case VMStateStarting:
 		return "starting"
 	case VMStateRunning:
 		return "running"
 	case VMStateStopped:
 		return "stopped"
-	case VMStateError:
-		return "error"
 	case VMStateDeleted:
 		return "deleted"
 	default:
@@ -59,11 +53,6 @@ const (
 	MaxNetIndex         = 255
 	VMCPUs              = "2"
 	VMMemory            = "2G"
-	VMSubnetPrefix      = "10.1"
-	VMSubnetMask        = "255.255.255.252"
-	VMSubnetHostOffset  = 1
-	VMSubnetGuestIP     = 2
-	DefaultRetention    = 7 * 24 // hours
 )
 
 // Alpine Linux base image configuration.

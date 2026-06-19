@@ -22,17 +22,10 @@ const containerDataMount = "/srv/app/home"
 // containerSrcMount is the container-side path where HOST_APP_DIR is mounted.
 const containerSrcMount = "/srv/app/arizuko"
 
-// routerSvc is the canonical router service name. The split (authd/routd/runed)
-// is the only topology — gated is gone — so the router is always routd. Every
-// depends_on default and the host-published API port follow this.
-func routerSvc(map[string]string) string {
-	return "routd"
-}
-
 // routerURL is the in-network base URL of the canonical router. webd/onbod and
 // any adapter ROUTER_URL is pinned to this in the generated compose.
 func routerURL(env map[string]string) string {
-	return "http://" + routerSvc(env) + ":8080"
+	return "http://routd:8080"
 }
 
 // dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
@@ -714,7 +707,7 @@ func writeSvc(def svcDef) string {
 	}
 	dep := def.dependsOn
 	if dep == "" {
-		dep = routerSvc(def.env)
+		dep = "routd"
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", dep)
 	b.WriteString(healthBlock)
@@ -885,7 +878,7 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 	}
 	// dashd is full-profile only; depending on it in web/standard profiles
 	// yields "depends on undefined service dashd" — a fatal compose error.
-	router := routerSvc(env)
+	router := "routd"
 	deps := router + ", webd"
 	if profile == "full" {
 		deps = router + ", dashd, webd"
@@ -920,7 +913,7 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
-	fmt.Fprintf(&b, "    depends_on: [%s]\n", routerSvc(env))
+	fmt.Fprintf(&b, "    depends_on: [%s]\n", "routd")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
@@ -991,7 +984,7 @@ func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]s
 	}
 	deps := cfg.DependsOn
 	if len(deps) == 0 {
-		deps = []string{routerSvc(env)}
+		deps = []string{"routd"}
 	}
 	fmt.Fprintf(&b, "    depends_on: [%s]\n", strings.Join(deps, ", "))
 	restart := cfg.Restart

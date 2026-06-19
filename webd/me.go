@@ -25,7 +25,7 @@ const meHead = `<!DOCTYPE html>
 `
 
 // meShell writes the three-pane shell open tags; caller writes main content then meShellClose.
-func meShellOpen(w http.ResponseWriter, r *http.Request, title string) {
+func meShellOpen(w http.ResponseWriter, r *http.Request) {
 	sub := userSub(r)
 	name := userName(r)
 	if name == "" {
@@ -53,7 +53,6 @@ func meShellOpen(w http.ResponseWriter, r *http.Request, title string) {
   </aside>
   <main class="me-main">
 `, htmlEscape(name))
-	_ = title
 }
 
 func meShellClose(w http.ResponseWriter) {
@@ -64,7 +63,7 @@ func meShellClose(w http.ResponseWriter) {
 
 // GET /me/
 func (s *server) handleMeIndex(w http.ResponseWriter, r *http.Request) {
-	meShellOpen(w, r, "home")
+	meShellOpen(w, r)
 	fmt.Fprint(w, `<div class="chat-list">
   <h2 style="margin-bottom:1rem">Recent chats</h2>
   <div hx-get="/me/x/chats" hx-trigger="load" hx-swap="innerHTML"></div>
@@ -76,7 +75,7 @@ func (s *server) handleMeIndex(w http.ResponseWriter, r *http.Request) {
 // GET /me/chats
 func (s *server) handleMeChats(w http.ResponseWriter, r *http.Request) {
 	folder := r.URL.Query().Get("folder")
-	meShellOpen(w, r, "chats")
+	meShellOpen(w, r)
 	if folder != "" {
 		fmt.Fprintf(w, `<div class="chat-list">
   <h2 style="margin-bottom:1rem">%s</h2>
@@ -247,7 +246,7 @@ func (s *server) handleMeThread(w http.ResponseWriter, r *http.Request) {
 
 	msgs, _ := s.stRoutd.MessagesByTopic(folder, topic, time.Now(), 50)
 
-	meShellOpen(w, r, groupfolder.NameOf(folder))
+	meShellOpen(w, r)
 
 	folderE := url.PathEscape(folder)
 	topicE := url.PathEscape(topic)
@@ -338,7 +337,7 @@ func (s *server) handleMeNewChat(w http.ResponseWriter, r *http.Request) {
 	grants := userGroups(r)
 	groups := s.stRoutd.AllGroups()
 
-	meShellOpen(w, r, "new chat")
+	meShellOpen(w, r)
 	fmt.Fprint(w, `<div style="padding:1rem;max-width:480px">
   <h2 style="margin-bottom:1rem">New chat</h2>
   <form method="POST" action="/me/chats/new">
@@ -396,7 +395,7 @@ func (s *server) handleMeFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	topics, _ := s.stRoutd.Topics(folder)
-	meShellOpen(w, r, groupfolder.NameOf(folder))
+	meShellOpen(w, r)
 	fmt.Fprintf(w,
 		`<div style="padding:1rem"><h2>%s</h2><p style="margin:.5rem 0;color:#666">%s</p>`,
 		htmlEscape(groupfolder.NameOf(folder)), htmlEscape(folder))
@@ -415,7 +414,7 @@ func (s *server) handleMeFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Files live on davd, not in the store — return a minimal page.
-	meShellOpen(w, r, groupfolder.NameOf(folder)+" files")
+	meShellOpen(w, r)
 	fmt.Fprintf(w, `<div style="padding:1rem"><h2>%s — files</h2>
 <p style="margin-top:.5rem;color:#666">Files are accessible via the WebDAV interface.</p>
 </div>`, htmlEscape(groupfolder.NameOf(folder)))
@@ -426,7 +425,7 @@ func (s *server) handleMeFiles(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleMeSettings(w http.ResponseWriter, r *http.Request) {
 	sub := userSub(r)
 	name := userName(r)
-	meShellOpen(w, r, "settings")
+	meShellOpen(w, r)
 	fmt.Fprintf(w, `<div style="padding:1rem;max-width:480px">
   <h2 style="margin-bottom:1rem">Settings</h2>
   <form hx-patch="/me/settings" hx-target="#settings-msg" hx-swap="innerHTML">

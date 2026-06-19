@@ -151,7 +151,8 @@ func (s *Server) handleRunStatus(w http.ResponseWriter, r *http.Request) {
 	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
 	}
@@ -179,7 +180,8 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 		if err == ErrNotFound {
 			writeErr(w, 404, "unknown_run", "no such run")
 			return
-		} else if err != nil {
+		}
+		if err != nil {
 			writeErr(w, 500, "store_error", err.Error())
 			return
 		}
@@ -188,10 +190,12 @@ func (s *Server) handleRunKill(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.mgr.Kill(runID); err == ErrNotFound {
+	err := s.mgr.Kill(runID)
+	if err == ErrNotFound {
 		writeErr(w, 404, "unknown_run", "no such run")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		writeErr(w, 500, "kill_failed", err.Error())
 		return
 	}

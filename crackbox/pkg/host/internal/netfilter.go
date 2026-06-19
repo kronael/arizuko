@@ -2,39 +2,11 @@ package internal
 
 import (
 	"log"
-	"net"
 	"os/exec"
-	"regexp"
 	"strings"
+
+	"github.com/kronael/arizuko/crackbox/pkg/match"
 )
-
-// domainRegex validates domain names (alphanumeric, hyphens, dots only).
-var domainRegex = regexp.MustCompile(
-	`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?` +
-		`(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
-
-// looksLikeDomain returns true if the target appears to be a domain name.
-func looksLikeDomain(target string) bool {
-	if !strings.Contains(target, ".") {
-		return false
-	}
-	if strings.Contains(target, "/") {
-		return false
-	}
-	if net.ParseIP(target) != nil {
-		return false
-	}
-	return domainRegex.MatchString(target)
-}
-
-// looksLikeIP returns true if the target is an IP or CIDR.
-func looksLikeIP(target string) bool {
-	if net.ParseIP(target) != nil {
-		return true
-	}
-	_, _, err := net.ParseCIDR(target)
-	return err == nil
-}
 
 // filterChain returns the iptables chain name for this manager's instance.
 // Format: "cbx-<H4>" (8 chars).
@@ -83,7 +55,7 @@ func (m *Manager) RestoreNetworkRules(meta *Meta) error {
 		}
 	}
 	for _, target := range meta.AllowList {
-		if looksLikeIP(target) {
+		if match.LooksLikeIP(target) {
 			if err := m.allowIP(meta, target); err != nil {
 				return err
 			}
@@ -114,7 +86,7 @@ func (m *Manager) CleanupNetworkRules(meta *Meta) {
 	iptablesDelete(chain, "-s", meta.IP, "-j", "ACCEPT")
 	iptablesDelete(chain, "-d", meta.IP, "-j", "ACCEPT")
 	for _, target := range meta.AllowList {
-		if looksLikeIP(target) {
+		if match.LooksLikeIP(target) {
 			iptablesDelete(chain, "-s", meta.IP, "-d", target, "-j", "ACCEPT")
 			iptablesDelete(chain, "-d", meta.IP, "-s", target, "-j", "ACCEPT")
 		}
