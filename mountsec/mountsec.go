@@ -97,23 +97,18 @@ func validateOne(m AdditionalMount, isRoot bool, al Allowlist) (ValidMount, bool
 		return ValidMount{}, false, "no allowlist configured"
 	}
 
-	expanded := expandHome(m.HostPath)
-	if !filepath.IsAbs(expanded) {
-		return ValidMount{}, false, "host path not absolute after expansion: " + expanded
+	clean := filepath.Clean(expandHome(m.HostPath))
+	if !filepath.IsAbs(clean) {
+		return ValidMount{}, false, "host path not absolute: " + clean
 	}
 
-	real, err := filepath.EvalSymlinks(expanded)
-	if err != nil {
-		return ValidMount{}, false, "host path does not exist: " + expanded
+	if pat := matchesBlocked(clean, al.BlockedPatterns); pat != "" {
+		return ValidMount{}, false, "matches blocked pattern \"" + pat + "\": " + clean
 	}
 
-	if pat := matchesBlocked(real, al.BlockedPatterns); pat != "" {
-		return ValidMount{}, false, "matches blocked pattern \"" + pat + "\": " + real
-	}
-
-	root := findAllowedRoot(real, al.AllowedRoots)
+	root := findAllowedRoot(clean, al.AllowedRoots)
 	if root == nil {
-		return ValidMount{}, false, "not under any allowed root: " + real
+		return ValidMount{}, false, "not under any allowed root: " + clean
 	}
 
 	cp := m.ContainerPath
@@ -137,7 +132,7 @@ func validateOne(m AdditionalMount, isRoot bool, al Allowlist) (ValidMount, bool
 	}
 
 	return ValidMount{
-		HostPath:      real,
+		HostPath:      clean,
 		ContainerPath: "/mnt/" + cp,
 		Readonly:      ro,
 	}, true, ""
@@ -169,14 +164,10 @@ func matchesBlocked(real string, patterns []string) string {
 	return ""
 }
 
-func findAllowedRoot(real string, roots []AllowedRoot) *AllowedRoot {
+func findAllowedRoot(clean string, roots []AllowedRoot) *AllowedRoot {
 	for i := range roots {
-		expanded := expandHome(roots[i].Path)
-		rr, err := filepath.EvalSymlinks(expanded)
-		if err != nil {
-			continue
-		}
-		rel, err := filepath.Rel(rr, real)
+		root := filepath.Clean(expandHome(roots[i].Path))
+		rel, err := filepath.Rel(root, clean)
 		if err != nil {
 			continue
 		}
