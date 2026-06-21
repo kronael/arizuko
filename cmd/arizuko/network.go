@@ -14,7 +14,7 @@ func cmdNetwork(args []string) {
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	s, err := store.Open(filepath.Join(dataDir, "store"))
+	s, err := store.OpenRoutd(filepath.Join(dataDir, "store"))
 	if err != nil {
 		die("Failed: open db: %v", err)
 	}
