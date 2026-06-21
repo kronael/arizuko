@@ -56,6 +56,14 @@ type Config struct {
 	HostGroupsDir   string
 	WebDir          string
 
+	// MountAllowedRoots is the operator-level gate for GroupConfig.Mounts.
+	// Comma-separated host paths; only paths under these roots may be
+	// bind-mounted into agent containers. All additional mounts are read-only
+	// unless the root also sets AllowReadWrite (not exposed via env — set via
+	// code if needed). Empty → deny all additional mounts (default).
+	// Set via MOUNT_ALLOWED_ROOTS env var.
+	MountAllowedRoots []string
+
 	// HostCodexDir, when non-empty, bind-mounts a host-side codex login
 	// state dir (typically `~/.codex` on the host) into each spawned
 	// agent at /home/node/.codex (rw). Lets agents using the `oracle`
@@ -182,7 +190,8 @@ func LoadConfig() (*Config, error) {
 		IpcDir:          filepath.Join(root, "ipc"),
 		HostGroupsDir:   filepath.Join(hostRoot, "groups"),
 		WebDir:          filepath.Join(root, "web"),
-		HostCodexDir:    envOr("HOST_CODEX_DIR", ""),
+		HostCodexDir:      envOr("HOST_CODEX_DIR", ""),
+		MountAllowedRoots: parseCSV(envOr("MOUNT_ALLOWED_ROOTS", "")),
 
 		APIPort:              envInt("API_PORT", DefaultAPIPort),
 		OnboardingEnabled:    envOr("ONBOARDING_ENABLED", "false") == "true",

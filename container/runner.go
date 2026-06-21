@@ -580,7 +580,11 @@ func buildMounts(
 			ro := cm.RO
 			add[i] = mountsec.AdditionalMount{HostPath: cm.Host, ContainerPath: cm.Container, Readonly: &ro}
 		}
-		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, mountsec.Allowlist{}) {
+		al := mountsec.Allowlist{NonMainReadOnly: true}
+		for _, p := range cfg.MountAllowedRoots {
+			al.AllowedRoots = append(al.AllowedRoots, mountsec.AllowedRoot{Path: p})
+		}
+		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, al) {
 			m = append(m, volumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
 		}
 	}

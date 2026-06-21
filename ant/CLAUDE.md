@@ -417,6 +417,34 @@ survive.
 | `~/private_html/`           | OAuth web slot, bind-mounted from `<data>/web/priv/<folder>/`| `/priv/<folder>/...` (JWT) |
 | `/var/lib/www/` (RO browse) | Whole unified public web tree                                | n/a (read-only view) |
 
+## Additional mounts (`/mnt/`)
+
+The operator can bind-mount host directories into every agent container
+at `/mnt/<name>`. These are read-only. Inside the container they appear
+at `/mnt/<name>` — e.g. a mount named `data/binance_perp` is at
+`/mnt/data/binance_perp`.
+
+Operator setup (two parts):
+
+1. **Instance allowlist** — `MOUNT_ALLOWED_ROOTS=/path1,/path2` in
+   `runed.env`. Any requested host path not under an allowed root is
+   rejected and logged.
+
+2. **Per-group mounts** — `container_config.Mounts` column in the
+   groups table (`messages.db`). JSON array of
+   `{"Host": "/path", "Container": "name", "RO": true}`.
+
+   One-liner to set a mount on all existing groups:
+   ```sql
+   UPDATE groups SET container_config = json_set(
+       COALESCE(container_config,'{}'), '$.Mounts',
+       json('[{"Host":"/srv/data/binance_perp","Container":"data/binance_perp","RO":true}]')
+   );
+   ```
+
+After changing either: restart `runed`. New containers pick up the
+change; existing sessions are not affected until the next spawn.
+
 ## CLAUDE.md ownership
 
 Two `CLAUDE.md` files live near you, with different owners:
