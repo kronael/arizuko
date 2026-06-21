@@ -1,5 +1,28 @@
 # BUGS.md — open issues queue
 
+## `arizuko network` CLI writes/reads messages.db, not routd.db (2026-06-21, fixed)
+
+`cmd/arizuko/network.go:17` opens the DB via `store.Open(dir/store)`, which targets
+`messages.db` (store/store.go:51). But in the split topology `network_rules` is owned by
+routd and lives in `routd.db` (store has `OpenRoutd` for exactly this). So `arizuko network
+<inst> allow|deny|list|resolve` operates on the wrong DB: writes land in a `network_rules`
+table routd never reads, and `resolve` shows stale messages.db rows, not routd's live
+allowlist. The operator thinks they edited the egress allowlist but the agent's crackbox
+rules are unchanged.
+
+Discovered while fixing sloth main/trading web access: `allow` reported success but the host
+stayed denied because the rule went to messages.db. Worked around by inserting directly into
+routd.db. The agent-facing MCP path (routd/mcp.go → s.db.AddNetworkRule) is correct — only the
+CLI is wrong.
+
+Fix: `cmdNetwork` should call `store.OpenRoutd(dataDir/store)` instead of `store.Open`.
+
+- **Severity:** medium (silent — operator egress edits via CLI are no-ops; no error surfaced)
+- **Scope:** cmd/arizuko/network.go
+- **Affected:** `arizuko network allow|deny|list|resolve` on all split instances
+- **Source:** cmd/arizuko/network.go:17 (`store.Open` → should be `store.OpenRoutd`)
+- **Status:** fixed 2026-06-21 (2dfa5670 — store.Open → store.OpenRoutd)
+
 ## slakd message IDs are per-channel, not globally unique (2026-06-19, open)
 
 `slakd/bot.go:521` uses `m.TS` (Slack timestamp) as the `InboundMsg.ID`. Slack `ts` is unique
