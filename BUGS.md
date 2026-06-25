@@ -1,5 +1,17 @@
 # BUGS.md — open issues queue
 
+## Slack threading ignored for in-thread triggers when thread_replies=false (2026-06-25, fixed)
+
+`routd/turns.go:deliverTurn` suppressed `threadRoot` (no new thread) when
+`thread_replies=false`, but still passed `tc.Topic` as `threadID` to the platform.
+On Slack this means: user types inside an existing thread → topic != "" → bot reply
+carries the thread_ts → stays in the thread → invisible in main channel. The
+`thread_replies=false` setting only blocked NEW threads, not existing thread chains.
+Fixed in 2b2e6062: `deliverTurn` now zeroes `threadID` too when threading is disabled.
+All atlas groups on marinade set to `thread_replies=0` (DB update).
+
+- **Status:** fixed 2b2e6062 (2026-06-25)
+
 ## Channel adapter silent no-op after auto-deregister (2026-06-25, fixed)
 
 `chanlib/run.go` registered with routd once at startup. After 3 consecutive `/health`
