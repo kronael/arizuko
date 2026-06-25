@@ -1,5 +1,18 @@
 # BUGS.md — open issues queue
 
+## Channel adapter silent no-op after auto-deregister (2026-06-25, fixed)
+
+`chanlib/run.go` registered with routd once at startup. After 3 consecutive `/health`
+503s (e.g. transient Telegram API Bad Gateway), routd auto-deregisters the adapter.
+Adapter recovers and `connected.Store(true)` flips health back to 200, but it never
+re-registers. In the split topology, JWT auth and channel registration are decoupled:
+inbound messages still reach routd (JWT passes), but outbound delivery silently fails
+(`deliverRow` drops the error). 3 bot replies stuck at `status=pending` on krons
+today. Fixed in 3625947b: 3-minute re-register heartbeat. Also added error logging
+in `deliverRow` (8e61521a) so failures are no longer silent.
+
+- **Status:** fixed 3625947b + 8e61521a (2026-06-25)
+
 ## `arizuko network` CLI writes/reads messages.db, not routd.db (2026-06-21, fixed)
 
 `cmd/arizuko/network.go:17` opens the DB via `store.Open(dir/store)`, which targets
