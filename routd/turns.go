@@ -303,6 +303,8 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 		if threadRoot != "" && row.Topic == "" {
 			row.Topic = threadRoot
 		}
+	} else {
+		slog.Error("deliver send failed", "jid", jid, "folder", tc.Folder, "err", err)
 	}
 }
 
