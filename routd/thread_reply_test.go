@@ -211,6 +211,45 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 	}
 }
 
+// thread_replies=false must suppress BOTH threadRoot (starting a new thread) AND
+// threadID (following an existing one). Without the threadID suppression, a reply
+// to a message already in a thread still carries topic as thread_ts → stays
+// invisible in the main channel behind a "1 reply" chip (the atlas/search bug).
+func TestReplyThreadPrefOffSuppressesThreadID(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	jid := "slack:T/channel/C1"
+	_ = db.SetChatIsGroup(jid, true)
+	if err := db.PutGroup(core.Group{Folder: "atlas"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetThreadReplies("atlas", false); err != nil {
+		t.Fatal(err)
+	}
+	// Turn is IN a thread: topic = existing thread_ts.
+	if _, err := db.PutTurnContext("t1", "atlas", "1700000100.000100", jid, "u1", ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.SetTurnTriggerMsg("t1", "1700000200.000200")
+
+	doJSONKey(t, srv.Handler(), "POST", "/v1/turns/t1/reply", "k1",
+		apiv1.ReplyRequest{JID: jid, Text: "answer"})
+	if len(dl.sends) != 1 {
+		t.Fatalf("sends = %d, want 1", len(dl.sends))
+	}
+	if dl.sends[0].threadRoot != "" {
+		t.Errorf("threadRoot = %q, want empty (thread_replies=false)", dl.sends[0].threadRoot)
+	}
+	if dl.sends[0].threadID != "" {
+		t.Errorf("threadID = %q, want empty (thread_replies=false must escape existing thread)", dl.sends[0].threadID)
+	}
+}
+
 // A document delivered from an in-thread turn carries the topic as threadID —
 // files thread like text (Document used to hardcode "" and never threaded).
 func TestDocumentThreadsOnTopic(t *testing.T) {

@@ -263,11 +263,18 @@ func (s *Server) outboundRow(tc TurnContext, jid, content, replyToID string) cor
 // send (threaded=false). Callers never supply threadRoot directly — this is the
 // single policy site that calls replyThreadRoot.
 func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, threaded bool) {
-	threadRoot := ""
+	threadRoot, threadID := "", tc.Topic
 	if threaded {
 		threadRoot = s.replyThreadRoot(tc, jid)
+		// thread_replies=false: suppress the existing thread context too, not just
+		// the new-thread root. Without this, a reply to an in-thread message still
+		// carries tc.Topic as thread_ts → stays in the thread even though the
+		// group prefers top-level delivery (Slack "1 reply" chip hides the answer).
+		if !s.db.ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid)) {
+			threadID = ""
+		}
 	}
-	s.deliverRow(tc, jid, row, threadRoot)
+	s.deliverRow(tc, jid, row, threadRoot, threadID)
 }
 
 // deliverStatus is the ONE renderer for an interim "⏳ ..." progress notice:
@@ -282,10 +289,11 @@ func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
 // threadRoot is non-empty only for a REPLY that should start a new platform
-// thread on the trigger message (replyThreadRoot). A SEND_DISABLED_GROUPS
-// folder skips the send entirely but still lands the row status=sent so the
-// poll loop never retries it.
-func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threadRoot string) {
+// thread on the trigger message (replyThreadRoot). threadID follows an
+// existing platform thread (Slack thread_ts, Discord thread channel ID).
+// A SEND_DISABLED_GROUPS folder skips the send entirely but still lands the
+// row status=sent so the poll loop never retries it.
+func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threadRoot, threadID string) {
 	if s.mutedGroup(tc.Folder) {
 		row.Status = core.MessageStatusSent
 		return
@@ -293,7 +301,7 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 	if s.deliver == nil {
 		return
 	}
-	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, tc.Topic, threadRoot, row.ID); err == nil {
+	if pid, err := s.deliver.Send(jid, row.Content, row.ReplyToID, threadID, threadRoot, row.ID); err == nil {
 		row.PlatformID = pid
 		row.Status = core.MessageStatusSent
 		// A reply that started a new thread (threadRoot set) is now IN that thread.
