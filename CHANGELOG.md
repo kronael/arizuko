@@ -12,11 +12,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
-## [Unreleased]
+## [v0.56.0] — 2026-06-26
+
+> arizuko v0.56.0 — BYOA secrets + Discord thread replies + groups config
+>
+> Users can now bring their own API keys via the dashboard; Discord threads now stay live after the bot's first reply; per-group settings (model, threading, observe window) consolidated into a single JSON config column.
+>
+> • BYOA — `/dash/me/secrets`: store personal API keys (e.g. `ANTHROPIC_API_KEY`) encrypted at rest; they override the group's keys for your spawns
+> • Discord threads — bot now responds to follow-up messages in threads it started, without requiring `@mention`
+> • Thread fix — `thread_replies=false` suppresses new thread creation only; in-thread replies still land in the thread
+> • Groups config — behavioral settings migrated to a JSON config column; `arizuko group thread-replies` CLI
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- **BYOA user secrets.** Web-chat users can bring their own API keys (e.g. `ANTHROPIC_API_KEY`) at `/dash/me/secrets`; the key overrides the group's keys for that user's spawns and is sealed at rest under `SECRETS_KEY`.
+- **BYOA user secrets.** Web-chat users can bring their own API keys (e.g. `ANTHROPIC_API_KEY`) at `/dash/me/secrets`; keys override the group's keys for that user's spawns and are sealed at rest under `SECRETS_KEY`. (`24d0b545`)
+- **`arizuko group thread-replies` CLI.** Set per-group threading preference from the host: `on` / `off` / `default`. (`7e10c71c`)
+
+### Fixed
+
+- **Discord thread follow-up.** Bot now responds to messages typed in a thread it started, without requiring an explicit `@mention`. The promotion gate (`ReplyTo != ""`) was blocking `threadHasBotMessage` for Discord — Slack always sets `ReplyTo` for in-thread messages; Discord does not. (`68b24a84`)
+- **`thread_replies=false` over-suppression.** Setting a group to never start new threads also silently dropped the `threadID` for in-thread triggers, sending replies to the main channel where the thread participant couldn't see them. Now only new-thread creation is suppressed. (`89fbe3cf`)
+- **Channel heartbeat re-registration.** `chanlib` re-registers with routd every 3 minutes to survive auto-deregister on inactivity; previously a deregistered adapter silently dropped outbound. (`3625947b`)
+- **Log-channel silent delivery drop.** Failed sends from deregistered log channels were silently discarded. Failed sends now log. (`8e61521a`)
+- **`arizuko network` wrong DB.** CLI opened `messages.db` instead of `routd.db` for egress-rule reads; rules were always empty. (`2dfa5670`)
+- **Durable typing on steered turns.** Typing indicator no longer clears mid-turn when the delivery target is steered; cleared on actual delivery. (`d77464aa`)
+
+### Changed
+
+- **Groups config JSON column.** Per-group behavioral settings (`model`, `thread_replies`, `observe_window_messages`, `observe_window_chars`, `open`) migrated from individual SQL columns into a single `config` JSON column. No backwards compatibility; migrations auto-apply on restart. (`eb968c20`)
+- **routd internal cleanup.** `threadHasBotMessage`/`replyTargetIsBot` moved to `DB` methods; group config setters route through `store.New`; `AllGroups` now includes `container_config`; secrets `writeLog` hardened. (`75887187`)
 
 ---
 
