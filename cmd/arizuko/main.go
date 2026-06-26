@@ -37,7 +37,7 @@ type productManifest struct {
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token|apply|plan|get|export> ...")
-		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants")
+		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
 		fmt.Println("  invite   <instance> list [--issued-by|-b SUB]")
@@ -342,7 +342,7 @@ func chownStore(storeDir string) {
 }
 
 func cmdGroup(args []string) {
-	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants> ...")
+	need(args, 2, "arizuko group <instance> <list|add|rm|grant|ungrant|grants|thread-replies> ...")
 	instance, action := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
@@ -464,6 +464,33 @@ func cmdGroup(args []string) {
 		if err := runGrants(acl, sub, os.Stdout); err != nil {
 			die("Failed: grants: %v", err)
 		}
+
+	case "thread-replies":
+		need(args, 4, "arizuko group <instance> thread-replies <folder> <on|off|default>")
+		folder, val := args[2], args[3]
+		gs := mustOpenACL(dataDir)
+		defer gs.Close()
+		var on *bool
+		switch val {
+		case "on":
+			v := true
+			on = &v
+		case "off":
+			v := false
+			on = &v
+		case "default":
+			on = nil
+		default:
+			die("Failed: expected on|off|default, got %q", val)
+		}
+		if err := gs.SetThreadReplies(folder, on); err != nil {
+			die("Failed: set thread-replies: %v", err)
+		}
+		label := val
+		if on == nil {
+			label = "default (group chats thread, DMs do not)"
+		}
+		fmt.Printf("thread-replies for %s set to %s\n", folder, label)
 
 	default:
 		die("unknown group action: %s", action)

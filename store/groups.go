@@ -343,6 +343,18 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 	return err
 }
 
+// SetThreadReplies sets the per-group thread_replies preference. nil = reset to
+// NULL (default: group chats thread, DMs do not). true = always thread. false =
+// never thread (replies land inline regardless of chat kind).
+func (s *Store) SetThreadReplies(folder string, on *bool) error {
+	var v any
+	if on != nil {
+		v = btoi(*on)
+	}
+	_, err := s.db.Exec(`UPDATE groups SET thread_replies = ? WHERE folder = ?`, v, folder)
+	return err
+}
+
 // SiblingFolders returns folders that share folder's immediate parent,
 // excluding folder itself and any closed sibling. Root folders (no
 // parent) have no siblings — returns nil. Spec 6/F ambient join.
