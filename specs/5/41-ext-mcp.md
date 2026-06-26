@@ -282,9 +282,17 @@ the calls. Every call appears in `audit_log`.
 | piece                                 | gap                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------ |
 | `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string` |
-| REST descriptor layer                 | `[[ext]]` TOML loader, HTTP dispatcher, path param substitution                |
-| Built-in provider definitions         | `ext/providers/*.toml` files                                                   |
 | `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                              |
+
+## What's shipped
+
+| piece                          | location                                                       | state |
+| ------------------------------ | -------------------------------------------------------------- | ----- |
+| Connector discovery + dispatch | `ipc/connector.go`, `routd/connectors.go`                      | ✓     |
+| REST descriptor layer          | `ipc/extcall.go`, `routd/ext.go`                               | ✓     |
+| Built-in provider definitions  | `routd/extproviders/{cloudflare,porkbun,gandi,namecheap}.toml` | ✓     |
+| `connectors.toml` loader       | `routd/connectors.go`                                          | ✓     |
+| `[[ext]]` loader               | `routd/ext.go:LoadExtProviders`                                | ✓     |
 
 ---
 

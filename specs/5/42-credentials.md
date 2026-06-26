@@ -188,25 +188,25 @@ New endpoint or separate section within `/dash/me/secrets`. Writes to
 
 ## What's shipped
 
-| piece                                                     | location                                              | state           |
-| --------------------------------------------------------- | ----------------------------------------------------- | --------------- |
-| `secrets` table + AES-256-GCM                             | `store/secrets.go`                                    | ✓               |
-| Env-profile key enforcement at store layer                | `store/secrets.go:EnvProfileKeys`, `validateScope`    | ✓               |
-| `FolderSecretsResolvedForUser`                            | `store/secrets.go`, `routd/dispatch.go`               | ✓               |
-| Spawn-time capability inject (interim: via container env) | `routd/dispatch.go`, `container/runner.go`            | ✓               |
-| `ConnectorSecrets` user-scope (callerSub threaded)        | `routd/sibling_db.go`, `routd/mcp.go:buildStoreFns`   | ✓               |
-| Grant-gated `tools/list`                                  | `ipc/ipc.go:1019` Authorize check before registration | ✓               |
-| dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓               |
-| dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓               |
-| Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓               |
-| OAuth write path                                          | `specs/11/14-surrogate-oauth.md`                      | ✓               |
-| Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓ (see spec 41) |
+| piece                                                     | location                                              | state |
+| --------------------------------------------------------- | ----------------------------------------------------- | ----- |
+| `secrets` table + AES-256-GCM                             | `store/secrets.go`                                    | ✓     |
+| Env-profile key enforcement at store layer                | `store/secrets.go:EnvProfileKeys`, `validateScope`    | ✓     |
+| `FolderSecretsResolvedForUser`                            | `store/secrets.go`, `routd/dispatch.go`               | ✓     |
+| Spawn-time capability inject (interim: via container env) | `routd/dispatch.go`, `container/runner.go`            | ✓     |
+| `ConnectorSecrets` user-scope (callerSub threaded)        | `routd/sibling_db.go`, `routd/mcp.go:buildStoreFns`   | ✓     |
+| Grant-gated `tools/list`                                  | `ipc/ipc.go:1019` Authorize check before registration | ✓     |
+| dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓     |
+| dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓     |
+| Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓     |
+| OAuth write path                                          | `specs/11/14-surrogate-oauth.md`                      | ✓     |
+| Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓     |
 
 ## What's not shipped
 
-All credential-model pieces from this spec are shipped. Remaining gaps belong
-to spec 41 (`registerWithSecrets` for Go handlers, `secret_use_log` per-key
-audit rows).
+All pieces from this spec are shipped. Remaining gaps in the broader ext-mcp
+surface belong to spec 41 (`registerWithSecrets` for Go handlers,
+`secret_use_log` per-key audit rows).
 
 ---
 
