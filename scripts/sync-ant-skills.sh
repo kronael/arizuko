@@ -23,11 +23,11 @@ cd "$(dirname "$0")/.."
 TOOLS="${1:-../tools}/skills"
 [ -d "$TOOLS" ] || { echo "Tools skills not found at $TOOLS — pass the path: $0 /path/to/tools" >&2; exit 1; }
 
-VENDORED="browse sonnet haiku
-create-architecture-diagram create-ascii-art create-ascii-video
-create-claude-design create-design-md create-excalidraw create-humanizer
-create-manim-video create-p5js create-popular-web-designs create-pretext
-create-sketch create-video-render create-video-script"
+VENDORED="browse fin sonnet haiku
+create create-eval
+humanize writing
+diagrams explore eye-13yo fable gh-comment hacker-eval merge
+opus py review rs scavenge sh software sub ts tsx"
 
 for s in $VENDORED; do
   if [ -d "$TOOLS/$s" ]; then
