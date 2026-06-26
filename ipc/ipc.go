@@ -1018,6 +1018,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	// tools/call, scrubs the result, tears the subprocess down.
 	for i := range db.Connectors {
 		tool := db.Connectors[i] // capture
+		// Skip announcement when the folder's own principal lacks grant. Default
+		// tier allows mcp:* so this only hides tools covered by an explicit deny.
+		if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, "mcp:"+tool.LocalName, nil) {
+			continue
+		}
 		opts := []mcp.ToolOption{}
 		if len(tool.InputSchema) > 0 {
 			opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
