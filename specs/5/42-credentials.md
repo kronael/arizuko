@@ -29,7 +29,9 @@ Conflating them caused silent injection bugs and a wrong `scope_kind` split.
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`.
 
 - **Owner**: user only. Never folder-scoped, never operator-table-scoped.
-- **Storage**: `user_env(user_sub, key, value)` — separate from `secrets`.
+- **Storage**: `secrets(scope_kind='user', scope_id=user_sub, key, value)` —
+  same table as capability credentials. Store layer rejects
+  `scope_kind='folder'` for these keys at write time.
 - **Injection**: at container spawn. `mergeSecrets` layers user override on
   top of operator platform fallback. Claude Code CLI reads from container env
   directly — cannot be broker-injected at call time.
@@ -46,8 +48,11 @@ Conflating them caused silent injection bugs and a wrong `scope_kind` split.
 - **Storage**: `secrets(scope_kind='user', scope_id=user_sub, key, value)`.
   Folder scope allowed only for shared team keys (e.g. a GitHub org token
   for a whole team) — user-scoped wins over folder-scoped.
-- **Injection**: broker at tool-call time only. Narrowed to the keys a
-  specific connector declared — the subprocess never sees the full map.
+- **Injection**: today — spawn-time, via `RunRequest.Secrets → mergeSecrets`
+  (same path as env-profile keys, interim). Target — call-time broker per
+  shape 3 (spec 41): arizuko makes the HTTP call, key never lands in
+  container env. For MCP subprocess connectors, `ConnectorSecrets` narrows
+  to declared keys at call time.
 - **Resolution**: `ConnectorSecrets(folder, callerSub)` →
   `FolderSecretsForUser(folder, callerSub)`. The triggering user's key
   resolves, never a folder-level default unless the user has no override.
@@ -69,7 +74,7 @@ Conflating them caused silent injection bugs and a wrong `scope_kind` split.
 
 | type        | table       | scope                                                  | user write         | operator write                           |
 | ----------- | ----------- | ------------------------------------------------------ | ------------------ | ---------------------------------------- |
-| env-profile | `user_env`  | user only                                              | `/dash/me/env`     | `.env` (platform fallback)               |
+| env-profile | `secrets`   | `scope_kind='user'` only (folder rejected at store)    | `/dash/me/env`     | `.env` (platform fallback)               |
 | capability  | `secrets`   | `scope_kind='user'` (or `folder` for shared team keys) | `/dash/me/secrets` | `arizuko secret <inst> set <folder> KEY` |
 | infra       | host `.env` | n/a                                                    | never              | `.env` or systemd override               |
 
@@ -93,16 +98,21 @@ mergeSecrets(
 )
 ```
 
-Env-profile keys (Tier 1) arrive via the same `mergeSecrets` path only
-when the user has set a personal override in `user_env`; otherwise the
-operator platform key from `readSecrets()` is the fallback.
+Env-profile keys arrive via the same `mergeSecrets` path only when the
+user has set a personal override in `secrets(scope_kind='user')`; otherwise
+the operator platform key from `readSecrets()` is the fallback.
 
-**At connector tool-call**, narrowed:
+**At MCP connector tool-call**, narrowed (after the ConnectorSecrets fix):
 
 ```
 ConnectorSecrets(folder, callerSub)
   = FolderSecretsForUser(folder, callerSub) narrowed to connector.Secrets
 ```
+
+`callerSub` is captured from `turnMCP.trigger` in `routd/mcp.go:buildStoreFns`
+— the same resolved caller used at dispatch. It is NOT the ACL principal
+(`"folder:"+folder`) used in `ServeTurnMCP:callerSub`; those serve different
+purposes.
 
 **`chats.kind` gate removed.** Spec 32 gated user-secret overlay on
 `chats.kind ∈ {dm, slink}`. Dropped: what matters is whether `callerSub`
@@ -138,17 +148,16 @@ set explicitly by the operator — they cannot inherit a user's personal key.
 
 ## Tool announcement (grant-gated tools/list)
 
-A connector tool must only appear in `tools/list` for sessions where
-`Authorize(folder, "mcp:"+localName)` passes. Agents must not see tools
-they have no grant for.
+Target: a connector tool appears in `tools/list` only for sessions where
+`Authorize(folder, "mcp:"+localName)` passes. Agents see only what they
+can use. The user says "use GitHub" → tool is discoverable only because
+the grant exists.
 
-Current bug: `ipc/ipc.go:1019` registers all connector tools
-unconditionally; the grant fires only at call time. Fix: filter at
-`ipc.NewSession` or via the MCP server's dynamic tool-list hook.
-
-Agent preamble pattern: the agent learns which external tools it has access
-to from the filtered `tools/list` — no explicit preamble injection needed.
-The user says "use GitHub" → agent discovers the tool exists and uses it.
+Current state: `ipc/ipc.go:1019` registers all connector tools
+unconditionally via `granted()`; the grant check fires only at call time.
+Tools are visible to agents even without a grant. Not yet fixed — requires
+per-session tool-list filtering at `ipc.ServeMCP` or a dynamic MCP
+tool-list hook.
 
 ---
 
@@ -163,14 +172,17 @@ Existing. `scope_kind='user'`, `scope_id=caller.sub`. Add:
 
 ### /dash/me/env — env-profile keys (PROPOSED)
 
-New endpoint. Same CRUD shape as `/dash/me/secrets`. Writes to `user_env`.
+New endpoint or separate section within `/dash/me/secrets`. Writes to
+`secrets(scope_kind='user')` with env-profile key names.
 
 - Keys allowed: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
   `OPENAI_API_KEY`, `CODEX_API_KEY`.
 - UI: separate section in dashd profile — "Model API keys — injected into
   your agent container at spawn".
 - Operator fallback shown read-only: "Platform key active" when no user
-  override is set.
+  override exists.
+- Store layer rejects these key names at `scope_kind='folder'` regardless
+  of call path.
 
 ---
 
@@ -187,15 +199,14 @@ New endpoint. Same CRUD shape as `/dash/me/secrets`. Writes to `user_env`.
 
 ## What's not shipped
 
-| piece                           | gap                                                                                                                                   |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `user_env` table                | env-profile keys land in `secrets`; no enforcement of user-only scope                                                                 |
-| `/dash/me/env` endpoint         | no UI distinction between env-profile and capability keys                                                                             |
-| `ConnectorSecrets` user-scope   | **bug**: `sibling_db.go:ConnectorSecrets` calls `FolderSecrets` (folder only) — user BYOA capability key never reaches MCP subprocess |
-| `callerSub` in connector path   | not threaded into `ipc/ipc.go:1027` dispatch                                                                                          |
-| Grant-gated `tools/list`        | all connectors announced unconditionally                                                                                              |
-| Env-profile key reject at store | writing `ANTHROPIC_API_KEY` with `scope_kind='folder'` silently succeeds                                                              |
-| Shape 3 REST descriptor         | `[[ext]]` TOML loader + HTTP dispatcher (see spec 41)                                                                                 |
+| piece                         | gap                                                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Env-profile key enforcement   | writing `ANTHROPIC_API_KEY` with `scope_kind='folder'` silently succeeds; store-layer reject not yet added                            |
+| `/dash/me/env` UI section     | no UI distinction between env-profile and capability keys in dashd                                                                    |
+| `ConnectorSecrets` user-scope | **bug**: `sibling_db.go:ConnectorSecrets` calls `FolderSecrets` (folder only) — user BYOA capability key never reaches MCP subprocess |
+| `callerSub` in connector path | not threaded into `ipc/ipc.go:1027` dispatch                                                                                          |
+| Grant-gated `tools/list`      | all connectors announced unconditionally                                                                                              |
+| Shape 3 REST descriptor       | `[[ext]]` TOML loader + HTTP dispatcher (see spec 41)                                                                                 |
 
 ---
 
