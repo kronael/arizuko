@@ -1,0 +1,35 @@
+[[ext]]
+name = "cloudflare"
+base = "https://api.cloudflare.com/client/v4"
+
+  [ext.auth]
+  method = "bearer"
+  secret = "CF_API_TOKEN"
+
+  [[ext.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:read"
+  method      = "GET"
+  path        = "/zones/{zone_id}/dns_records"
+
+  [[ext.tool]]
+  name        = "dns_create"
+  description = "Create a DNS record in a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:write"
+  method      = "POST"
+  path        = "/zones/{zone_id}/dns_records"
+
+  [[ext.tool]]
+  name        = "dns_delete"
+  description = "Delete a DNS record from a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:write"
+  method      = "DELETE"
+  path        = "/zones/{zone_id}/dns_records/{record_id}"
+
+  [[ext.tool]]
+  name        = "zone_list"
+  description = "List Cloudflare zones on the account."
+  scope       = "ext:cloudflare:zone:read"
+  method      = "GET"
+  path        = "/zones"

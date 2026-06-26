@@ -229,6 +229,11 @@ func main() {
 		srv.SetConnectors(conns)
 		slog.Info("connectors loaded", "tools", len(conns))
 	}
+	if extTools, eerr := routd.LoadExtProviders(ctx, dataDir); eerr != nil {
+		slog.Warn("ext providers: load failed", "err", eerr)
+	} else if len(extTools) > 0 {
+		srv.SetExtTools(extTools)
+	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
 	// routd owns the residual config + conversation tables (spec 5/36 catalog).

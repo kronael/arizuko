@@ -1,0 +1,15 @@
+[[ext]]
+name = "namecheap"
+base = "https://api.namecheap.com/xml.response"
+
+  [ext.auth]
+  method = "apikey-query"
+  secret = "NAMECHEAP_KEY"
+  param  = "ApiKey"
+
+  [[ext.tool]]
+  name        = "dns_list"
+  description = "List DNS hosts for a Namecheap domain. Requires ApiUser and ClientIp params."
+  scope       = "ext:namecheap:dns:read"
+  method      = "GET"
+  path        = ""

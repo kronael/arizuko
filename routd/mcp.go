@@ -565,7 +565,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// SECRETS_KEY, and narrows to the connector's declared secrets= list — so
 		// CallConnectorTool both injects them into the subprocess env AND scrubs
 		// their values from the result (a nil resolver leaves it unscrubbed).
-		Connectors:              s.connectors,
+		Connectors: s.connectors,
+		ExtTools:   s.extTools,
 		// Capture the trigger sender so ConnectorSecrets resolves the triggering
 		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
 		ResolveConnectorSecrets: func(folder string, required []string) map[string]string {

@@ -1,0 +1,31 @@
+[[ext]]
+name = "porkbun"
+base = "https://api.porkbun.com/api/json/v3"
+
+  [ext.auth]
+  method  = "json-body"
+  secret  = "PB_SECRET"
+  secret2 = "PB_API_KEY"
+  header  = "secretapikey"
+  header2 = "apikey"
+
+  [[ext.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Porkbun domain."
+  scope       = "ext:porkbun:dns:read"
+  method      = "POST"
+  path        = "/dns/retrieve/{domain}"
+
+  [[ext.tool]]
+  name        = "dns_create"
+  description = "Create a DNS record for a Porkbun domain."
+  scope       = "ext:porkbun:dns:write"
+  method      = "POST"
+  path        = "/dns/create/{domain}"
+
+  [[ext.tool]]
+  name        = "dns_delete"
+  description = "Delete a DNS record from a Porkbun domain."
+  scope       = "ext:porkbun:dns:write"
+  method      = "POST"
+  path        = "/dns/delete/{domain}/{record_id}"

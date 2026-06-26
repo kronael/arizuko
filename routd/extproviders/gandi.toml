@@ -1,0 +1,21 @@
+[[ext]]
+name = "gandi"
+base = "https://api.gandi.net/v5"
+
+  [ext.auth]
+  method = "bearer"
+  secret = "GANDI_PAT"
+
+  [[ext.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Gandi domain."
+  scope       = "ext:gandi:dns:read"
+  method      = "GET"
+  path        = "/livedns/domains/{domain}/records"
+
+  [[ext.tool]]
+  name        = "dns_set"
+  description = "Create or replace a DNS record for a Gandi domain."
+  scope       = "ext:gandi:dns:write"
+  method      = "PUT"
+  path        = "/livedns/domains/{domain}/records/{name}/{type}"

@@ -127,6 +127,10 @@ type Server struct {
 	// nil/empty leaves the connector path off. Set via SetConnectors.
 	connectors []ipc.ConnectorTool
 
+	// extTools is the REST-descriptor tool catalog (builtin providers +
+	// operator [[ext]] blocks), registered per-turn. Set via SetExtTools.
+	extTools []ipc.ExtTool
+
 	// Channel-registration surface. reg==nil leaves the /v1/channels endpoints
 	// unmounted (pure REST tests). on{Register,Deregister} keep the Deliverer's
 	// per-adapter HTTPChannel (and its retry outbox) in sync.
@@ -191,6 +195,10 @@ func (s *Server) SetAudit(a *audit.Audit) { s.audit = a }
 // SetConnectors supplies the discovered connector-tool catalog (LoadConnectors).
 // Every per-turn MCP socket registers it; nil/empty leaves the path off.
 func (s *Server) SetConnectors(c []ipc.ConnectorTool) { s.connectors = c }
+
+// SetExtTools supplies the REST-descriptor tool catalog (LoadExtProviders).
+// Every per-turn MCP socket registers it; nil/empty leaves the path off.
+func (s *Server) SetExtTools(t []ipc.ExtTool) { s.extTools = t }
 
 // SetIdentityResolver wires the authd identity client backing inspect_identity.
 // nil → the tool answers unclaimed. Set post-construction in main wiring.

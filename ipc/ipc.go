@@ -247,6 +247,11 @@ type StoreFns struct {
 	// Empty/nil disables the connector path. Spec 7/Y M6.
 	Connectors []ConnectorTool
 
+	// ExtTools is the REST-descriptor tool catalog loaded from [[ext]]
+	// TOML blocks (built-in providers + operator connectors.toml).
+	// Empty/nil leaves the ext path off.
+	ExtTools []ExtTool
+
 	// ResolveConnectorSecrets returns the folder/user-scoped secret values a
 	// connector call needs, narrowed to the connector's declared `required`
 	// names. buildMCPServer calls it per connector invocation and hands the
@@ -1034,6 +1039,31 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					secrets = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
 				}
 				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
+			})
+	}
+
+	// REST ext tools. Each call makes an HTTP request; secrets are
+	// resolved per-call and scrubbed from the response.
+	for i := range db.ExtTools {
+		tool := db.ExtTools[i] // capture
+		if db.Authorize != nil && !db.Authorize("folder:"+folder, folder, tool.Scope, nil) {
+			continue
+		}
+		opts := []mcp.ToolOption{}
+		if len(tool.InputSchema) > 0 {
+			opts = append(opts, mcp.WithRawInputSchema(tool.InputSchema))
+		}
+		granted(tool.LocalName, tool.Description, opts,
+			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				var secrets map[string]string
+				if db.ResolveConnectorSecrets != nil {
+					needed := []string{tool.SecretKey}
+					if tool.SecretKey2 != "" {
+						needed = append(needed, tool.SecretKey2)
+					}
+					secrets = db.ResolveConnectorSecrets(folder, needed)
+				}
+				return CallExtTool(ctx, tool, req.GetArguments(), secrets)
 			})
 	}
 
