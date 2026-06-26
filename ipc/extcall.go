@@ -70,7 +70,6 @@ func CallExtTool(
 
 	// Build query string for GET/DELETE, or JSON body for mutating methods.
 	var body io.Reader
-	header := make(http.Header)
 
 	method := strings.ToUpper(tool.Method)
 	switch method {
@@ -101,17 +100,14 @@ func CallExtTool(
 			return mcp.NewToolResultError("marshal body: " + err.Error()), nil
 		}
 		body = bytes.NewReader(b)
-		header.Set("Content-Type", "application/json")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
 		return mcp.NewToolResultError("build request: " + err.Error()), nil
 	}
-	for k, vs := range header {
-		for _, v := range vs {
-			req.Header.Set(k, v)
-		}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	// Wire authentication.
@@ -122,7 +118,9 @@ func CallExtTool(
 		}
 	case "apikey-header":
 		if tool.Header != "" {
-			req.Header.Set(tool.Header, secrets[tool.SecretKey])
+			if v := secrets[tool.SecretKey]; v != "" {
+				req.Header.Set(tool.Header, v)
+			}
 		}
 	case "apikey-query":
 		if tool.Param != "" {

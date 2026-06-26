@@ -88,6 +88,7 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 
 	var out []ipc.ExtTool
 	for _, p := range providers {
+		before := len(out)
 		for _, t := range p.Tools {
 			out = append(out, ipc.ExtTool{
 				LocalName:   p.Name + "_" + t.Name,
@@ -103,6 +104,9 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 				Header2:     p.Auth.Header2,
 				Param:       p.Auth.Param,
 			})
+		}
+		if len(out) == before {
+			slog.Warn("ext provider has no tools", "provider", p.Name)
 		}
 	}
 	slog.Info("ext providers loaded", "tools", len(out))

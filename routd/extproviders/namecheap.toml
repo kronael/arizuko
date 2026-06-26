@@ -1,6 +1,6 @@
 [[ext]]
 name = "namecheap"
-base = "https://api.namecheap.com/xml.response"
+base = "https://api.namecheap.com"
 
   [ext.auth]
   method = "apikey-query"
@@ -12,4 +12,4 @@ base = "https://api.namecheap.com/xml.response"
   description = "List DNS hosts for a Namecheap domain. Requires ApiUser and ClientIp params."
   scope       = "ext:namecheap:dns:read"
   method      = "GET"
-  path        = ""
+  path        = "/xml.response"

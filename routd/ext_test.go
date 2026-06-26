@@ -2,6 +2,8 @@ package routd
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,6 +29,9 @@ func TestLoadExtProviders_BuiltinCloudflare(t *testing.T) {
 	if !found {
 		t.Errorf("cloudflare_dns_list not found in %d tools", len(tools))
 	}
+	if len(tools) != 10 {
+		t.Errorf("want 10 builtin tools, got %d", len(tools))
+	}
 }
 
 func TestCallExtTool_Bearer(t *testing.T) {
@@ -35,7 +40,6 @@ func TestCallExtTool_Bearer(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		w.Write([]byte(`{"ok":true}`))
 	}))
-	defer srv.Close()
 
 	tool := ipc.ExtTool{
 		LocalName:  "test_op",
@@ -50,6 +54,7 @@ func TestCallExtTool_Bearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.Close()
 	if gotAuth != "Bearer tok123" {
 		t.Errorf("got auth %q", gotAuth)
 	}
@@ -108,5 +113,70 @@ func TestCallExtTool_Scrub(t *testing.T) {
 	}
 	if strings.Contains(tc.Text, "supersecret") {
 		t.Errorf("secret not scrubbed from response: %s", tc.Text)
+	}
+	if !strings.Contains(tc.Text, "«redacted»") {
+		t.Error("expected «redacted» marker in scrubbed output")
+	}
+}
+
+func TestCallExtTool_JsonBody(t *testing.T) {
+	var gotKey, gotSecret string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var m map[string]string
+		json.Unmarshal(body, &m)
+		gotKey = m["apikey"]
+		gotSecret = m["secretapikey"]
+		w.Write([]byte(`{"status":"SUCCESS"}`))
+	}))
+
+	tool := ipc.ExtTool{
+		LocalName:  "test_jsonbody",
+		Method:     "POST",
+		BaseURL:    srv.URL,
+		Path:       "/test",
+		AuthMethod: "json-body",
+		SecretKey:  "PB_API_KEY",
+		SecretKey2: "PB_SECRET",
+		Header:     "apikey",
+		Header2:    "secretapikey",
+	}
+	secrets := map[string]string{"PB_API_KEY": "mykey", "PB_SECRET": "mysecret"}
+	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	srv.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "mykey" {
+		t.Errorf("apikey in body: got %q", gotKey)
+	}
+	if gotSecret != "mysecret" {
+		t.Errorf("secretapikey in body: got %q", gotSecret)
+	}
+}
+
+func TestCallExtTool_MissingSecret(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+
+	tool := ipc.ExtTool{
+		LocalName:  "test_missing",
+		Method:     "GET",
+		BaseURL:    srv.URL,
+		Path:       "/test",
+		AuthMethod: "bearer",
+		SecretKey:  "CF_API_TOKEN",
+	}
+	secrets := map[string]string{}
+	_, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	srv.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "" {
+		t.Errorf("expected no Authorization header when secret missing, got %q", gotAuth)
 	}
 }

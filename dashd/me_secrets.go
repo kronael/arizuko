@@ -311,6 +311,10 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
+	if _, ok := store.EnvProfileKeys[key]; ok {
+		http.Error(w, key+": model API key — use /dash/me/env", http.StatusBadRequest)
+		return
+	}
 	// One writer: DeleteSecretRow owns the WHERE clause + the 0-rows → 404 case
 	// (ErrSecretNotFound). No keyring needed to delete, but routing through the
 	// store keeps the delete SQL in one place with create/update.

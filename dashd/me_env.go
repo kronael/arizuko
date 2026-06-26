@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/kronael/arizuko/audit"
@@ -25,16 +24,12 @@ var envProfileKeyList = []string{
 
 // listUserEnvKeys returns the caller's env-profile keys that are currently set.
 func (d *dash) listUserEnvKeys(sub string) ([]secretItem, error) {
-	// Build an IN(...) list from the fixed key set.
-	keys := make([]string, 0, len(store.EnvProfileKeys))
-	args := []any{sub}
-	placeholders := make([]string, 0, len(store.EnvProfileKeys))
-	for k := range store.EnvProfileKeys {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		placeholders = append(placeholders, "?")
+	// Build an IN(...) list from the fixed display-order key list.
+	placeholders := make([]string, len(envProfileKeyList))
+	args := make([]any, 0, len(envProfileKeyList)+1)
+	args = append(args, sub)
+	for i, k := range envProfileKeyList {
+		placeholders[i] = "?"
 		args = append(args, k)
 	}
 	q := fmt.Sprintf(

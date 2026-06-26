@@ -15,7 +15,7 @@ base = "https://api.gandi.net/v5"
 
   [[ext.tool]]
   name        = "dns_set"
-  description = "Create or replace a DNS record for a Gandi domain."
+  description = "Create or replace a DNS record for a Gandi domain. {rrset_name} is the record name, {rrset_type} is the record type."
   scope       = "ext:gandi:dns:write"
   method      = "PUT"
-  path        = "/livedns/domains/{domain}/records/{name}/{type}"
+  path        = "/livedns/domains/{domain}/records/{rrset_name}/{rrset_type}"

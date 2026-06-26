@@ -25,7 +25,7 @@ base = "https://api.porkbun.com/api/json/v3"
 
   [[ext.tool]]
   name        = "dns_delete"
-  description = "Delete a DNS record from a Porkbun domain."
+  description = "Delete a DNS record from a Porkbun domain. {id} is the record ID."
   scope       = "ext:porkbun:dns:write"
   method      = "POST"
-  path        = "/dns/delete/{domain}/{record_id}"
+  path        = "/dns/delete/{domain}/{id}"

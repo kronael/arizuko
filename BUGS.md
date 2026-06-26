@@ -20,7 +20,7 @@ Fix requires:
 
 Spec: `specs/5/42-credentials.md § ConnectorSecrets user-scope`.
 
-- **Status:** open
+- **Status:** fixed 0d244973 (2026-06-26) — ConnectorSecrets now takes callerSub, calls FolderSecretsForUser
 
 ## Slack threading ignored for in-thread triggers when thread_replies=false (2026-06-25, fixed)
 
@@ -406,6 +406,21 @@ on `/dash/profile/`. `main.go:540`: portal template `.Err` field is always empty
 - **Source:** codex audit 2026-06-18
 - **Status:** resolved — profile removed from navLinks; .Err branch removed (91159586)
 - **Fix:** remove profile from navLinks (keep badge); remove .Err from portal template
+
+## ext tools: InputSchema never populated — agents have no parameter schema (2026-06-26, open)
+
+`ipc.ExtTool.InputSchema` is `json.RawMessage` and `ipc/ipc.go` registration gates on
+`len(tool.InputSchema) > 0` to attach it. But `routd/ext.go:LoadExtProviders` never sets
+it — the `extToolConfig` struct has no schema field. Every ext tool registers with no
+MCP input schema. LLM agents infer args from tool name + description; schema-driven
+callers (and accurate UI hint displays) see nothing.
+
+- **Severity:** low (LLM agents guess correctly from description; functional gap for strict callers)
+- **Scope:** `ipc/extcall.go:ExtTool`, `routd/ext.go:extToolConfig`, `routd/extproviders/*.toml`
+- **Affected:** all REST-descriptor tools (cloudflare, porkbun, gandi, namecheap)
+- **Source:** refine review 2026-06-26
+- **Status:** open
+- **Fix:** add `input_schema` (JSON inline) or `params` (TOML array) to `extToolConfig`; populate `ExtTool.InputSchema` in `LoadExtProviders`; update each provider TOML
 
 ---
 
