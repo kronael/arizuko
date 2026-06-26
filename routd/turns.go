@@ -266,13 +266,6 @@ func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, thre
 	threadRoot, threadID := "", tc.Topic
 	if threaded {
 		threadRoot = s.replyThreadRoot(tc, jid)
-		// thread_replies=false: suppress the existing thread context too, not just
-		// the new-thread root. Without this, a reply to an in-thread message still
-		// carries tc.Topic as thread_ts → stays in the thread even though the
-		// group prefers top-level delivery (Slack "1 reply" chip hides the answer).
-		if !s.db.ThreadReplies(tc.Folder, s.db.ChatIsGroup(jid)) {
-			threadID = ""
-		}
 	}
 	s.deliverRow(tc, jid, row, threadRoot, threadID)
 }

@@ -211,11 +211,10 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 	}
 }
 
-// thread_replies=false must suppress BOTH threadRoot (starting a new thread) AND
-// threadID (following an existing one). Without the threadID suppression, a reply
-// to a message already in a thread still carries topic as thread_ts → stays
-// invisible in the main channel behind a "1 reply" chip (the atlas/search bug).
-func TestReplyThreadPrefOffSuppressesThreadID(t *testing.T) {
+// thread_replies=false suppresses new thread creation (threadRoot) but NOT
+// continuation of an existing thread (threadID). A reply triggered from within
+// a thread must stay in that thread so the person who asked can see the answer.
+func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
@@ -245,8 +244,8 @@ func TestReplyThreadPrefOffSuppressesThreadID(t *testing.T) {
 	if dl.sends[0].threadRoot != "" {
 		t.Errorf("threadRoot = %q, want empty (thread_replies=false)", dl.sends[0].threadRoot)
 	}
-	if dl.sends[0].threadID != "" {
-		t.Errorf("threadID = %q, want empty (thread_replies=false must escape existing thread)", dl.sends[0].threadID)
+	if dl.sends[0].threadID != "1700000100.000100" {
+		t.Errorf("threadID = %q, want 1700000100.000100 (in-thread trigger stays in thread)", dl.sends[0].threadID)
 	}
 }
 
