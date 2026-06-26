@@ -53,9 +53,9 @@ PK `(scope_kind, scope_id, key)`.
 
 - `scope_kind ∈ {folder, user}`; `scope_id` = folder path or `auth_users.sub`
 - **Resolution**: folder-ancestry walk, deepest child wins. Per-user override
-  (`user` scope row beats `folder` scope row for same key) is **not yet
-  implemented** — `FolderSecretsResolved` reads folder scope only
-  (`store/secrets.go:373`).
+  (`user` scope row beats `folder` scope row for same key) resolved by
+  `store/secrets.go:FolderSecretsResolvedForUser` (folder + user scope;
+  user wins).
 - **Encryption at rest**: plaintext by default; AES-256-GCM when `SECRETS_KEY`
   set — stored `v2:base64(nonce‖ct)`, decrypted transparently on read.
   Enabling runs a one-time idempotent encrypt-in-place migration.
@@ -246,11 +246,11 @@ include per-secret rows. This is the M2 gap.
 
 ## Trust model
 
-| scope            | where                                          | reaches agent?                   |
-| ---------------- | ---------------------------------------------- | -------------------------------- |
-| Operator anchors | container env (`ANTHROPIC_API_KEY`, bot creds) | yes — Claude Code CLI needs them |
-| Folder secrets   | `secrets` table, broker only                   | no                               |
-| Per-user secrets | `secrets` table, broker only                   | no                               |
+| scope            | where                                          | reaches agent?                                                                                                                             |
+| ---------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Operator anchors | container env (`ANTHROPIC_API_KEY`, bot creds) | yes — Claude Code CLI needs them (set in `.env`, injected at spawn via `container/runner.go:readSecrets()`; separate from `secrets` table) |
+| Folder secrets   | `secrets` table, broker only                   | no                                                                                                                                         |
+| Per-user secrets | `secrets` table, broker only                   | no                                                                                                                                         |
 
 Three escape paths closed by the broker:
 
@@ -283,27 +283,26 @@ the calls. Every call appears in `audit_log`.
 
 ## What's shipped
 
-| piece                           | location                               | state                         |
-| ------------------------------- | -------------------------------------- | ----------------------------- |
-| `secrets` table + migrations    | `store/secrets.go`, `0034-secrets.sql` | ✓ shipped                     |
-| AES-256-GCM at rest             | `store/secrets.go` `seal`/`open`       | ✓ shipped (opt-in)            |
-| `FolderSecretsResolved`         | `store/secrets.go:373`                 | ✓ shipped (folder scope only) |
-| Connector discovery + dispatch  | `ipc/connector.go`                     | ✓ shipped                     |
-| `ConnectorSecrets`              | `routd/sibling_db.go:119`              | ✓ shipped                     |
-| `ResolveConnectorSecrets` wired | `routd/mcp.go:569`                     | ✓ shipped                     |
-| `connectors.toml` loader        | `gateway/connectors.go`                | ✓ shipped                     |
-| dashd `/dash/me/secrets`        | `dashd/`                               | ✓ shipped                     |
-| Operator CLI                    | `cmd/arizuko/secret.go`                | ✓ shipped                     |
+| piece                           | location                                              | state                                      |
+| ------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
+| `secrets` table + migrations    | `store/secrets.go`, `0034-secrets.sql`                | ✓ shipped                                  |
+| AES-256-GCM at rest             | `store/secrets.go` `seal`/`open`                      | ✓ shipped (opt-in)                         |
+| `FolderSecretsResolvedForUser`  | `store/secrets.go`, `routd/dispatch.go (dispatchRun)` | ✓ shipped (folder + user scope; user wins) |
+| Connector discovery + dispatch  | `ipc/connector.go`                                    | ✓ shipped                                  |
+| `ConnectorSecrets`              | `routd/sibling_db.go:119`                             | ✓ shipped                                  |
+| `ResolveConnectorSecrets` wired | `routd/mcp.go:569`                                    | ✓ shipped                                  |
+| `connectors.toml` loader        | `gateway/connectors.go`                               | ✓ shipped                                  |
+| dashd `/dash/me/secrets`        | `dashd/`                                              | ✓ shipped                                  |
+| Operator CLI                    | `cmd/arizuko/secret.go`                               | ✓ shipped                                  |
 
 ## What's not yet shipped
 
-| piece                                 | gap                                                                                          |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Per-user secret override              | `FolderSecretsResolved` reads folder scope only; user-scope wins-over-folder not implemented |
-| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string`               |
-| REST descriptor layer                 | `[[ext]]` TOML loader, HTTP dispatcher, path param substitution                              |
-| Built-in provider definitions         | `ext/providers/*.toml` files                                                                 |
-| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                                            |
+| piece                                 | gap                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------ |
+| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string` |
+| REST descriptor layer                 | `[[ext]]` TOML loader, HTTP dispatcher, path param substitution                |
+| Built-in provider definitions         | `ext/providers/*.toml` files                                                   |
+| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                              |
 
 ---
 

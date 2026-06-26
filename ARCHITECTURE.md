@@ -485,6 +485,24 @@ runed (`POST /v1/runs`). runed performs the spawn:
    - Run timeout (`RUNED_RUN_TIMEOUT`): graceful stop then kill
    - Log: `groups/<folder>/logs/container-<ts>.log`
 
+### Secret injection
+
+Two tiers combine before the container starts:
+
+- **Operator anchors** (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+  `OPENAI_API_KEY`, `CODEX_API_KEY`): read from the host `.env` by
+  `container/runner.go:readSecrets()`. Per-instance, never in the
+  `secrets` table.
+- **Broker secrets** (everything else): resolved from the `secrets`
+  table by `routd/dispatch.go:FolderSecretsForUser(folder, callerSub)`.
+  User-scoped rows win over folder-scoped for real user triggers;
+  timed/system triggers use `caller="service:routd"` → folder scope
+  only.
+
+Both are merged by `mergeSecrets(anchors, tableSecrets)` into the
+container env. See `SECURITY.md § Secret injection` and
+`specs/5/41-ext-mcp.md`.
+
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →
 cursor advances (partial work preserved).
