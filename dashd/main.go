@@ -407,12 +407,17 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/tasks/", g(d.handleTaskCreate))
 	mux.HandleFunc("POST /dash/tasks/{id}/{action}", g(d.handleTaskAction))
 
-	// /dash/me/secrets — per-user secret CRUD. Identity-bound to signed-in
-	// X-User-Sub (proxyd-verified). CSRF on writes via same-origin check.
+	// /dash/me/secrets — capability credential CRUD (GITHUB_TOKEN, etc.).
+	// /dash/me/env   — env-profile key CRUD (ANTHROPIC_API_KEY, etc.).
+	// Both identity-bound to signed-in X-User-Sub; CSRF on writes.
 	mux.HandleFunc("GET /dash/me/secrets", g(d.handleMeSecrets))
 	mux.HandleFunc("POST /dash/me/secrets", g(d.handleMeSecretCreate))
 	mux.HandleFunc("PATCH /dash/me/secrets/{key}", g(d.handleMeSecretUpdate))
 	mux.HandleFunc("DELETE /dash/me/secrets/{key}", g(d.handleMeSecretDelete))
+	mux.HandleFunc("GET /dash/me/env", g(d.handleMeEnv))
+	mux.HandleFunc("POST /dash/me/env", g(d.handleMeEnvCreate))
+	mux.HandleFunc("PATCH /dash/me/env/{key}", g(d.handleMeEnvUpdate))
+	mux.HandleFunc("DELETE /dash/me/env/{key}", g(d.handleMeEnvDelete))
 
 	// WhatsApp re-pair — operator-only (** super-grant). Spec 8/15.
 	mux.HandleFunc("GET /dash/channels/whatsapp/pair", g(d.handleWhatsappPair))

@@ -132,7 +132,7 @@ func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items [
 
 	fmt.Fprint(w, htmlSection("Add a key",
 		`<form id="add-secret" onsubmit="return addSecret(event)">`+
-			htmlFormRow("Name", `<input type="text" name="key" placeholder="ANTHROPIC_API_KEY" pattern="[A-Z][A-Z0-9_]*" title="uppercase letters, digits, underscore" required size="40">`)+
+			htmlFormRow("Name", `<input type="text" name="key" placeholder="GITHUB_TOKEN" pattern="[A-Z][A-Z0-9_]*" title="uppercase letters, digits, underscore" required size="40">`)+
 			htmlFormRow("Value", `<input type="password" name="value" autocomplete="off" required size="40">`)+
 			`<p><button type="submit">save</button></p>`+
 			`</form>`+
@@ -206,6 +206,10 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
+	if _, ok := store.EnvProfileKeys[body.Key]; ok {
+		http.Error(w, body.Key+": model API key — use /dash/me/env", http.StatusBadRequest)
+		return
+	}
 	// Seal at rest via secretStore (SECRETS_KEY keyring): PutSecretRow upserts the
 	// `v2:` ciphertext — the same encoding routd reads back through FolderSecrets.
 	if err := ss.PutSecretRow(store.ScopeUser, sub, body.Key, body.Value); err != nil {
@@ -249,6 +253,10 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if !keyPattern.MatchString(key) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
+		return
+	}
+	if _, ok := store.EnvProfileKeys[key]; ok {
+		http.Error(w, key+": model API key — use /dash/me/env", http.StatusBadRequest)
 		return
 	}
 	body, err := parseSecretBody(w, r)
