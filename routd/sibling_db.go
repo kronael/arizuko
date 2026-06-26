@@ -127,15 +127,16 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 	return d.secretStore().DeleteSecretRow(scope, scopeID, key)
 }
 
-// ConnectorSecrets narrows the folder's resolved secrets to the `required` names
-// a connector declares (its [[mcp_connector]] secrets= list): a connector only
-// ever sees the keys it asked for, never the folder's full secret set. Missing
-// keys are omitted. nil/empty required → empty map.
-func (d *DB) ConnectorSecrets(folder string, required []string) map[string]string {
+// ConnectorSecrets narrows the resolved secrets to the `required` names a
+// connector declares. callerSub overlays the triggering user's user-scoped
+// secrets on top of the folder defaults (BYOA: user's own GITHUB_TOKEN wins
+// over a shared folder token). Empty callerSub → folder scope only.
+// Missing keys are omitted. nil/empty required → empty map.
+func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) map[string]string {
 	if len(required) == 0 {
 		return map[string]string{}
 	}
-	all := d.FolderSecrets(folder)
+	all := d.FolderSecretsForUser(folder, callerSub)
 	out := make(map[string]string, len(required))
 	for _, k := range required {
 		if v, ok := all[k]; ok {

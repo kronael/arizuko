@@ -566,7 +566,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// CallConnectorTool both injects them into the subprocess env AND scrubs
 		// their values from the result (a nil resolver leaves it unscrubbed).
 		Connectors:              s.connectors,
-		ResolveConnectorSecrets: s.db.ConnectorSecrets,
+		// Capture the trigger sender so ConnectorSecrets resolves the triggering
+		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
+		ResolveConnectorSecrets: func(folder string, required []string) map[string]string {
+			return s.db.ConnectorSecrets(folder, t.trigger, required)
+		},
 		// ACL: list_acl reads the operator rows; Authorize is the per-call row-ACL
 		// check ServeMCP runs when callerSub is set. Both nil-safe.
 		ListACL:           s.db.ListACL,
