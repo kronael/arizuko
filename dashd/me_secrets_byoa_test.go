@@ -24,7 +24,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 	mux := newMux(d)
 
 	req := httptest.NewRequest("POST", "/dash/me/secrets",
-		strings.NewReader(`{"key":"ANTHROPIC_API_KEY","value":"sk-plaintext"}`))
+		strings.NewReader(`{"key":"GITHUB_TOKEN","value":"sk-plaintext"}`))
 	req.Header.Set("X-User-Sub", "github:alice")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -34,7 +34,7 @@ func TestMeSecrets_SealsAtRest(t *testing.T) {
 
 	var raw string
 	if err := d.dbRW.QueryRow(
-		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='ANTHROPIC_API_KEY'`,
+		`SELECT value FROM secrets WHERE scope_kind='user' AND scope_id='github:alice' AND key='GITHUB_TOKEN'`,
 	).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
@@ -168,13 +168,17 @@ func TestMeSecrets_CrossUserIsolation(t *testing.T) {
 	d := meSecretsTestDB(t)
 	mux := newMux(d)
 
-	// Seed Alice's secret.
+	// Seed Alice's secret (capability credential — allowed at /dash/me/secrets).
 	post := httptest.NewRequest("POST", "/dash/me/secrets",
-		strings.NewReader(`{"key":"ANTHROPIC_API_KEY","value":"alice-key"}`))
+		strings.NewReader(`{"key":"GITHUB_TOKEN","value":"alice-key"}`))
 	post.Header.Set("X-User-Sub", "github:alice")
-	mux.ServeHTTP(httptest.NewRecorder(), post)
+	wr := httptest.NewRecorder()
+	mux.ServeHTTP(wr, post)
+	if wr.Code != http.StatusNoContent {
+		t.Fatalf("Alice POST = %d: %s", wr.Code, wr.Body.String())
+	}
 
-	// Bob GETs — must see nothing (no keys, empty list).
+	// Bob GETs — must see nothing (scope_id bound to verified caller sub).
 	req := httptest.NewRequest("GET", "/dash/me/secrets", nil)
 	req.Header.Set("X-User-Sub", "github:bob")
 	w := httptest.NewRecorder()
@@ -182,7 +186,7 @@ func TestMeSecrets_CrossUserIsolation(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("GET bob = %d", w.Code)
 	}
-	if strings.Contains(w.Body.String(), "ANTHROPIC_API_KEY") {
+	if strings.Contains(w.Body.String(), "GITHUB_TOKEN") {
 		t.Error("cross-user leak: Bob's GET returned Alice's key name")
 	}
 }

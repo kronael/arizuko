@@ -145,21 +145,22 @@ func TestFolderSecretsForUser_BYOA(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	s := seedSecretsStore(t, db, "byoa-routd-key")
 
-	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "ANTHROPIC_API_KEY", "folder-key"); err != nil {
+	// GITHUB_TOKEN: capability credential — allowed at folder scope (shared team key).
+	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_folder"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "ANTHROPIC_API_KEY", "user-key"); err != nil {
+	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "GITHUB_TOKEN", "ghp_user7"); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := db.FolderSecretsForUser("atlas", "telegram:user/7")["ANTHROPIC_API_KEY"]; got != "user-key" {
-		t.Errorf("user override = %q, want user-key (decrypted)", got)
+	if got := db.FolderSecretsForUser("atlas", "telegram:user/7")["GITHUB_TOKEN"]; got != "ghp_user7" {
+		t.Errorf("user override = %q, want ghp_user7 (user wins over folder)", got)
 	}
-	if got := db.FolderSecretsForUser("atlas", "telegram:user/9")["ANTHROPIC_API_KEY"]; got != "folder-key" {
-		t.Errorf("other user = %q, want folder-key", got)
+	if got := db.FolderSecretsForUser("atlas", "telegram:user/9")["GITHUB_TOKEN"]; got != "ghp_folder" {
+		t.Errorf("other user = %q, want ghp_folder (folder fallback)", got)
 	}
-	if got := db.FolderSecretsForUser("atlas", "")["ANTHROPIC_API_KEY"]; got != "folder-key" {
-		t.Errorf("empty user = %q, want folder-key", got)
+	if got := db.FolderSecretsForUser("atlas", "")["GITHUB_TOKEN"]; got != "ghp_folder" {
+		t.Errorf("empty user = %q, want ghp_folder (folder fallback)", got)
 	}
 }
 

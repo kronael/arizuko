@@ -245,8 +245,8 @@ func TestDispatchShipsUserSecrets(t *testing.T) {
 	defer db.Close()
 	db.SetSecretKeys([]byte("byoa-dispatch-key"))
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	// folder default + the user's BYOA override (sealed).
-	_ = db.SetSecret(store.ScopeFolder, "demo", "ANTHROPIC_API_KEY", "folder-key")
+	// folder default (capability credential, allowed at folder scope) + user's BYOA override.
+	_ = db.SetSecret(store.ScopeFolder, "demo", "GITHUB_TOKEN", "ghp_folder")
 	_ = db.SetSecret(store.ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "alice-key")
 
 	var got map[string]string

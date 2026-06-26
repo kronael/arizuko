@@ -124,17 +124,17 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 		t.Fatalf("OpenRoutd: %v", err)
 	}
 	var out bytes.Buffer
-	if err := runSecretSet(s, store.ScopeFolder, "main", "OPENAI_API_KEY", "sk-xyz", &out); err != nil {
+	if err := runSecretSet(s, store.ScopeFolder, "main", "GITHUB_TOKEN", "ghp-xyz", &out); err != nil {
 		t.Fatalf("runSecretSet: %v", err)
 	}
 	s.Close()
 
 	if n := countRows(t, dir, "routd.db",
-		"SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='main' AND key='OPENAI_API_KEY'"); n != 1 {
+		"SELECT COUNT(*) FROM secrets WHERE scope_kind='folder' AND scope_id='main' AND key='GITHUB_TOKEN'"); n != 1 {
 		t.Errorf("routd.db secret rows = %d, want 1", n)
 	}
 	if n := countRows(t, dir, "messages.db",
-		"SELECT COUNT(*) FROM secrets WHERE key='OPENAI_API_KEY'"); n != 0 {
+		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
 		t.Errorf("messages.db secret rows = %d, want 0 (CLI must not write the monolith)", n)
 	}
 
@@ -143,12 +143,12 @@ func TestSecretLandsInRoutdDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenRoutd: %v", err)
 	}
-	if err := runSecretDelete(s2, store.ScopeFolder, "main", "OPENAI_API_KEY", &out); err != nil {
+	if err := runSecretDelete(s2, store.ScopeFolder, "main", "GITHUB_TOKEN", &out); err != nil {
 		t.Fatalf("runSecretDelete: %v", err)
 	}
 	s2.Close()
 	if n := countRows(t, dir, "routd.db",
-		"SELECT COUNT(*) FROM secrets WHERE key='OPENAI_API_KEY'"); n != 0 {
+		"SELECT COUNT(*) FROM secrets WHERE key='GITHUB_TOKEN'"); n != 0 {
 		t.Errorf("routd.db secret rows after delete = %d, want 0", n)
 	}
 }
