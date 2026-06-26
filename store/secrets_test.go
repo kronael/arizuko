@@ -321,13 +321,14 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()
 
-	if err := s.SetSecret(ScopeFolder, "atlas", "ANTHROPIC_API_KEY", "folder-key"); err != nil {
+	// GITHUB_TOKEN: capability credential — allowed at folder scope (shared team key).
+	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", "folder-gh"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetSecret(ScopeFolder, "atlas", "FOLDER_ONLY", "shared"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSecret(ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "alice-key"); err != nil {
+	if err := s.SetSecret(ScopeUser, "github:alice", "GITHUB_TOKEN", "alice-gh"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetSecret(ScopeUser, "github:alice", "USER_ONLY", "alice-extra"); err != nil {
@@ -338,8 +339,8 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FolderSecretsResolvedForUser: %v", err)
 	}
-	if got["ANTHROPIC_API_KEY"] != "alice-key" {
-		t.Errorf("ANTHROPIC_API_KEY = %q, want alice-key (user wins)", got["ANTHROPIC_API_KEY"])
+	if got["GITHUB_TOKEN"] != "alice-gh" {
+		t.Errorf("GITHUB_TOKEN = %q, want alice-gh (user wins)", got["GITHUB_TOKEN"])
 	}
 	if got["FOLDER_ONLY"] != "shared" {
 		t.Errorf("FOLDER_ONLY = %q, want shared (folder key survives)", got["FOLDER_ONLY"])
@@ -353,8 +354,8 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bob["ANTHROPIC_API_KEY"] != "folder-key" {
-		t.Errorf("bob ANTHROPIC_API_KEY = %q, want folder-key", bob["ANTHROPIC_API_KEY"])
+	if bob["GITHUB_TOKEN"] != "folder-gh" {
+		t.Errorf("bob GITHUB_TOKEN = %q, want folder-gh", bob["GITHUB_TOKEN"])
 	}
 	if _, ok := bob["USER_ONLY"]; ok {
 		t.Error("bob must not see alice's USER_ONLY key")
@@ -365,8 +366,32 @@ func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if none["ANTHROPIC_API_KEY"] != "folder-key" || len(none) != 2 {
+	if none["GITHUB_TOKEN"] != "folder-gh" || len(none) != 2 {
 		t.Errorf("empty-user resolution = %v, want plain folder set", none)
+	}
+}
+
+// TestEnvProfileKeyFolderScopeRejected verifies the store-layer enforcement:
+// env-profile keys (ANTHROPIC_API_KEY etc) must not be written at folder scope.
+func TestEnvProfileKeyFolderScopeRejected(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	for _, k := range []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"} {
+		if err := s.SetSecret(ScopeFolder, "atlas", k, "val"); err == nil {
+			t.Errorf("SetSecret(ScopeFolder, %s): expected error, got nil", k)
+		}
+		if err := s.PutSecretRow(ScopeFolder, "atlas", k, "val"); err == nil {
+			t.Errorf("PutSecretRow(ScopeFolder, %s): expected error, got nil", k)
+		}
+	}
+	// Capability keys at folder scope are fine.
+	if err := s.SetSecret(ScopeFolder, "atlas", "GITHUB_TOKEN", "ghp_val"); err != nil {
+		t.Errorf("SetSecret(ScopeFolder, GITHUB_TOKEN): unexpected error: %v", err)
+	}
+	// Env-profile keys at user scope are fine.
+	if err := s.SetSecret(ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "sk-key"); err != nil {
+		t.Errorf("SetSecret(ScopeUser, ANTHROPIC_API_KEY): unexpected error: %v", err)
 	}
 }
 

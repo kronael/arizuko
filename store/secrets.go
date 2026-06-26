@@ -96,6 +96,17 @@ const (
 
 var ErrSecretNotFound = errors.New("secret not found")
 
+// EnvProfileKeys are the AI model credential names that belong to users only,
+// never folders. The operator platform fallback lives in host .env via
+// container/runner.go:readSecrets(). Folder-scope rows for these keys are
+// rejected at the store layer so the distinction is enforced uniformly.
+var EnvProfileKeys = map[string]struct{}{
+	"ANTHROPIC_API_KEY":       {},
+	"CLAUDE_CODE_OAUTH_TOKEN": {},
+	"OPENAI_API_KEY":          {},
+	"CODEX_API_KEY":           {},
+}
+
 type Secret struct {
 	ScopeKind SecretScope
 	ScopeID   string
@@ -113,6 +124,11 @@ func validateScope(scope SecretScope, scopeID, key string) error {
 	}
 	if key == "" {
 		return errors.New("key required")
+	}
+	if scope == ScopeFolder {
+		if _, ok := EnvProfileKeys[key]; ok {
+			return fmt.Errorf("%s: env-profile key must be scope_kind=user (set via /dash/me/env)", key)
+		}
 	}
 	return nil
 }
