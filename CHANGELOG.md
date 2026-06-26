@@ -14,6 +14,10 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Added
+
+- **BYOA user secrets.** Web-chat users can bring their own API keys (e.g. `ANTHROPIC_API_KEY`) at `/dash/me/secrets`; the key overrides the group's keys for that user's spawns and is sealed at rest under `SECRETS_KEY`.
+
 ---
 
 ## [v0.55.0] — 2026-06-19

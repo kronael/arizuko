@@ -21,6 +21,7 @@ import (
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
@@ -259,8 +260,17 @@ func main() {
 		}
 	}
 
+	// SECRETS_KEY keyring: dashd writes user secrets into routd.db directly (it is
+	// FS-mounted — split write-discipline) and MUST seal them at rest under the
+	// same key routd reads with. Unset → plaintext at rest (local dev), matching
+	// store.storeValue's no-key path.
+	secretKeyring := core.SecretKeyring(os.Getenv("SECRETS_KEY"))
+	if len(secretKeyring) == 0 {
+		slog.Warn("SECRETS_KEY unset in dashd — user secrets stored plaintext at rest")
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/")}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -298,7 +308,10 @@ type dash struct {
 	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
-	runedURL  string                                // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
+	runedURL      string   // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
+	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
+	// writes seal at rest under the same key routd reads with. Empty → plaintext.
+	secretKeyring [][]byte
 }
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
@@ -306,9 +319,25 @@ type dash struct {
 // admin SQL straight at routd.db (dbRoutd).
 func (d *dash) adminDB() *sql.DB { return d.dbRoutd }
 
-// secretsDB returns the handle the /dash/me/secrets paths read+write — the same
-// routd.db handle, since routd also OWNS the secrets table.
+// secretsDB returns the handle the /dash/me/secrets read+delete paths use — the
+// same routd.db handle, since routd OWNS the secrets table. (List returns no
+// values; delete needs no key. Writes go through secretStore to seal at rest.)
 func (d *dash) secretsDB() *sql.DB { return d.adminDB() }
+
+// secretStore wraps routd.db as a *store.Store with the SECRETS_KEY keyring set,
+// so user-secret writes (PutSecretRow) seal `v2:` values the same way routd's
+// secretStore does — the BYOA encryption-at-rest path. nil when routd.db is
+// absent (some read-only tests).
+func (d *dash) secretStore() *store.Store {
+	if d.adminDB() == nil {
+		return nil
+	}
+	s := store.New(d.adminDB())
+	if len(d.secretKeyring) > 0 {
+		s.SetSecretKeys(d.secretKeyring...)
+	}
+	return s
+}
 
 // invitesDB returns the handle the invites admin page reads+writes. onbod OWNS
 // invites in the split topology, so dashd points its invite SQL straight at

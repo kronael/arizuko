@@ -64,6 +64,10 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, htmlSection("Add a provider", providerLinks))
 
+	fmt.Fprint(w, htmlSection("API keys",
+		`<p class="dim">Bring your own API keys (e.g. ANTHROPIC_API_KEY). They override the group's keys when the agent runs for you.</p>`+
+			`<p><a class="btn btn-secondary" href="/dash/me/secrets">Manage API keys</a></p>`))
+
 	pageClose(w, r)
 }
 

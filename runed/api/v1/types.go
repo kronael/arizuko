@@ -20,11 +20,11 @@ type RunRequest struct {
 	Topic            string         `json:"topic"`
 	ChatJID          string         `json:"chat_jid"`
 	Channel          string         `json:"channel,omitempty"` // JID scheme (telegram|slack|discord|web); drives the per-surface output style. Empty = default.
-	SessionID        string         `json:"session_id"`     // empty = fresh; runed resumes if non-empty
-	MessageBatch     string         `json:"message_batch"`  // rendered prompt STRING
-	TriggerSender    string         `json:"trigger_sender"` // engagement-skip policy only; NOT token identity
-	CallerSub        types.UserSub  `json:"caller_sub"`     // token SUBJECT for the brokered agent token; never ""
-	TurnID           string         `json:"turn_id"`        // triggering inbound id; echoed on callbacks
+	SessionID        string         `json:"session_id"`        // empty = fresh; runed resumes if non-empty
+	MessageBatch     string         `json:"message_batch"`     // rendered prompt STRING
+	TriggerSender    string         `json:"trigger_sender"`    // engagement-skip policy only; NOT token identity
+	CallerSub        types.UserSub  `json:"caller_sub"`        // token SUBJECT for the brokered agent token; never ""
+	TurnID           string         `json:"turn_id"`           // triggering inbound id; echoed on callbacks
 	CapabilityScopes []types.Scope  `json:"capability_scopes"`
 	Model            string         `json:"model"`            // group override; empty = instance default
 	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
@@ -37,6 +37,13 @@ type RunRequest struct {
 	// constraint (runed has neither store; routd is the authz plane — spec 5/E).
 	Grants          []string `json:"grants,omitempty"`
 	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
+	// Secrets is the folder-ancestry secret set with the trigger user's
+	// user-scoped overrides overlaid (BYOA), resolved + DECRYPTED by routd (it
+	// holds SECRETS_KEY; runed has no store). runed injects them as container env
+	// at spawn so the agent's own LLM calls use the user's key. Empty = inject
+	// nothing. Plaintext on this hop: routd→runed is the trusted compose network,
+	// same boundary the brokered agent token already crosses.
+	Secrets map[string]string `json:"secrets,omitempty"`
 }
 
 // RunOutcome is the synchronous response of POST /v1/runs, returned when

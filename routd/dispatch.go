@@ -435,10 +435,14 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// spawn to the crackbox network + honor share_mount. nil allowlist on error
 	// is fine — runed treats empty as no-extra-constraint.
 	allowlist, _ := l.db.ResolveAllowlist(folder)
+	// Resolve folder secrets with the trigger user's user-scoped overrides (BYOA):
+	// a web-chat user's own ANTHROPIC_API_KEY shadows the folder default. routd
+	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
+	secrets := l.db.FolderSecretsForUser(folder, string(caller))
 	return l.runner.Run(ctx, runedv1.RunRequest{
-		Folder:           types.Folder(folder),
-		Topic:            topic,
-		ChatJID:          chatJID,
+		Folder:  types.Folder(folder),
+		Topic:   topic,
+		ChatJID: chatJID,
 		// Channel = the JID scheme (telegram|slack|discord|web) so the container
 		// picks the per-surface output style. gated derived this; the split dropped
 		// it → every channel got default formatting (markdown unrendered on
@@ -457,5 +461,6 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		Isolated:         strings.HasPrefix(trigger, "timed-isolated:"),
 		Grants:           deriveFolderGrants(l.db, folder),
 		EgressAllowlist:  allowlist,
+		Secrets:          secrets,
 	})
 }

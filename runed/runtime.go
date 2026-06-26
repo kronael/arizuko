@@ -25,10 +25,11 @@ type RunSpec struct {
 	TurnID          string
 	Token           string // brokered capability token (the JWS, in memory only)
 	Isolated        bool
-	Model           string         // per-group model override; empty = instance default
-	ContainerConfig map[string]any // opaque GroupConfig forwarded from groups.container_config
-	Grants          []string       // routd-derived grant rules → container.Input.Grants
-	EgressAllowlist []string       // routd-resolved crackbox allowlist → EgressConfig.AllowlistFn
+	Model           string            // per-group model override; empty = instance default
+	ContainerConfig map[string]any    // opaque GroupConfig forwarded from groups.container_config
+	Grants          []string          // routd-derived grant rules → container.Input.Grants
+	EgressAllowlist []string          // routd-resolved crackbox allowlist → EgressConfig.AllowlistFn
+	Secrets         map[string]string // routd-resolved folder+user secrets (BYOA) → container.Input.Secrets, injected as container env
 
 	// RunTTL is the run ceiling (the brokered token's TTL). The Runtime
 	// enforces it as a kill-deadline FROM WITHIN the run path so the kill is

@@ -314,6 +314,83 @@ func TestFolderSecretsResolved_DeepestWins(t *testing.T) {
 	}
 }
 
+// FolderSecretsResolvedForUser overlays the caller's user-scoped secrets on the
+// folder set: a user's own key WINS over the folder default; a folder-only key
+// still resolves; an empty userSub returns the folder set unchanged.
+func TestFolderSecretsResolvedForUser_UserOverridesFolder(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+
+	if err := s.SetSecret(ScopeFolder, "atlas", "ANTHROPIC_API_KEY", "folder-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecret(ScopeFolder, "atlas", "FOLDER_ONLY", "shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecret(ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "alice-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecret(ScopeUser, "github:alice", "USER_ONLY", "alice-extra"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
+	if err != nil {
+		t.Fatalf("FolderSecretsResolvedForUser: %v", err)
+	}
+	if got["ANTHROPIC_API_KEY"] != "alice-key" {
+		t.Errorf("ANTHROPIC_API_KEY = %q, want alice-key (user wins)", got["ANTHROPIC_API_KEY"])
+	}
+	if got["FOLDER_ONLY"] != "shared" {
+		t.Errorf("FOLDER_ONLY = %q, want shared (folder key survives)", got["FOLDER_ONLY"])
+	}
+	if got["USER_ONLY"] != "alice-extra" {
+		t.Errorf("USER_ONLY = %q, want alice-extra (user-only key present)", got["USER_ONLY"])
+	}
+
+	// A different user does NOT see alice's override → folder default stands.
+	bob, err := s.FolderSecretsResolvedForUser("atlas", "github:bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bob["ANTHROPIC_API_KEY"] != "folder-key" {
+		t.Errorf("bob ANTHROPIC_API_KEY = %q, want folder-key", bob["ANTHROPIC_API_KEY"])
+	}
+	if _, ok := bob["USER_ONLY"]; ok {
+		t.Error("bob must not see alice's USER_ONLY key")
+	}
+
+	// Empty userSub → the folder set unchanged.
+	none, err := s.FolderSecretsResolvedForUser("atlas", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none["ANTHROPIC_API_KEY"] != "folder-key" || len(none) != 2 {
+		t.Errorf("empty-user resolution = %v, want plain folder set", none)
+	}
+}
+
+// User overrides must DECRYPT — a sealed user value reads back as plaintext,
+// never the v2: ciphertext.
+func TestFolderSecretsResolvedForUser_Decrypts(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	s.SetSecretKeys([]byte("byoa-key"))
+	if err := s.SetSecret(ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "sk-alice"); err != nil {
+		t.Fatal(err)
+	}
+	if raw := rawSecretValue(t, s, ScopeUser, "github:alice", "ANTHROPIC_API_KEY"); !strings.HasPrefix(raw, "v2:") {
+		t.Fatalf("user secret not sealed: %q", raw)
+	}
+	got, err := s.FolderSecretsResolvedForUser("atlas", "github:alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["ANTHROPIC_API_KEY"] != "sk-alice" {
+		t.Errorf("resolved user key = %q, want decrypted sk-alice", got["ANTHROPIC_API_KEY"])
+	}
+}
+
 func TestFolderSecretsResolved_RootFallback(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

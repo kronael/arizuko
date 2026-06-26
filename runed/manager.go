@@ -49,7 +49,6 @@ type Manager struct {
 	waiting  []*waiter                          // FIFO admission queue (over cap or folder busy)
 }
 
-
 // waiter is one Run blocked on admission (folder busy or cap reached); it
 // is released (ch closed) when a slot frees AND its folder is idle.
 type waiter struct {
@@ -231,6 +230,7 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 		TurnID: req.TurnID, Token: jws, Isolated: req.Isolated,
 		Model: req.Model, ContainerConfig: req.ContainerConfig,
 		Grants: req.Grants, EgressAllowlist: req.EgressAllowlist,
+		Secrets:       req.Secrets,
 		RunTTL:        m.runTTL,
 		RegisterSteer: func(steer func(batch string) bool) { m.SetSteer(folder, runID, steer) },
 	})

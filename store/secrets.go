@@ -422,3 +422,38 @@ func (s *Store) FolderSecretsResolved(folder string) (map[string]string, error) 
 	}
 	return out, nil
 }
+
+// FolderSecretsResolvedForUser resolves the folder-ancestry secret set for
+// `folder` (FolderSecretsResolved) then overlays the caller's user-scoped
+// secrets: a user's own key WINS over the same folder key. This is the BYOA
+// override — a web-chat user supplies ANTHROPIC_API_KEY for themselves and it
+// shadows the folder default at spawn. Empty userSub returns the folder set
+// unchanged (a system/timed trigger has no user to override with).
+func (s *Store) FolderSecretsResolvedForUser(folder, userSub string) (map[string]string, error) {
+	out, err := s.FolderSecretsResolved(folder)
+	if err != nil {
+		return nil, err
+	}
+	if userSub == "" {
+		return out, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT key, value FROM secrets WHERE scope_kind = ? AND scope_id = ?`,
+		string(ScopeUser), userSub)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		plain, err := s.open(value)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = plain
+	}
+	return out, rows.Err()
+}

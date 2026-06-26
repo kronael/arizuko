@@ -134,6 +134,35 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 }
 
+// TestFolderSecretsForUser_BYOA: a user's user-scoped key overrides the folder
+// default at spawn resolution (BYOA), decrypted; a different/empty user sees the
+// folder value. This is what dispatchRun ships to runed as RunRequest.Secrets.
+func TestFolderSecretsForUser_BYOA(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	s := seedSecretsStore(t, db, "byoa-routd-key")
+
+	if err := s.PutSecretRow(store.ScopeFolder, "atlas", "ANTHROPIC_API_KEY", "folder-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSecretRow(store.ScopeUser, "telegram:user/7", "ANTHROPIC_API_KEY", "user-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := db.FolderSecretsForUser("atlas", "telegram:user/7")["ANTHROPIC_API_KEY"]; got != "user-key" {
+		t.Errorf("user override = %q, want user-key (decrypted)", got)
+	}
+	if got := db.FolderSecretsForUser("atlas", "telegram:user/9")["ANTHROPIC_API_KEY"]; got != "folder-key" {
+		t.Errorf("other user = %q, want folder-key", got)
+	}
+	if got := db.FolderSecretsForUser("atlas", "")["ANTHROPIC_API_KEY"]; got != "folder-key" {
+		t.Errorf("empty user = %q, want folder-key", got)
+	}
+}
+
 // TestSecretsReadOwnDB proves routd resolves secrets from its OWN routd.db:
 // with nothing seeded the resolved set is empty; a key seeded in routd.db DOES
 // resolve (decrypted). routd opens NO sibling messages.db. Mirrors

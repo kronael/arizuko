@@ -98,6 +98,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		Model:          spec.Model,
 		Config:         gc,
 		Grants:         spec.Grants,
+		Secrets:        spec.Secrets,
 		ExternalMCP:    true,
 		QueryTimeoutMs: queryTimeoutMs(spec.RunTTL),
 		Egress:         d.egress(spec.EgressAllowlist),

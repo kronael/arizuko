@@ -92,7 +92,7 @@ func (d *DB) UserCap(userSub string) (int, error) {
 	return d.userStore().UserCap(userSub)
 }
 
-// FolderSecrets resolves the folder/user-scoped secret set for `folder`,
+// FolderSecrets resolves the folder-scoped secret set for `folder`,
 // DECRYPTING `v2:` values via the SECRETS_KEY keyring (deepest-wins
 // folder-ancestry precedence). SECRETS_KEY unset / read error → empty map (the
 // caller treats absent secrets as "inject nothing").
@@ -100,6 +100,17 @@ func (d *DB) FolderSecrets(folder string) map[string]string {
 	out, err := d.secretStore().FolderSecretsResolved(folder)
 	if err != nil {
 		return map[string]string{}
+	}
+	return out
+}
+
+// FolderSecretsForUser is FolderSecrets with the trigger user's user-scoped
+// secrets overlaid (a user's own key shadows the folder default) — the BYOA
+// spawn-time resolution. Empty userSub or read error → the plain folder set.
+func (d *DB) FolderSecretsForUser(folder, userSub string) map[string]string {
+	out, err := d.secretStore().FolderSecretsResolvedForUser(folder, userSub)
+	if err != nil {
+		return d.FolderSecrets(folder)
 	}
 	return out
 }

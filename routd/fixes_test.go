@@ -9,6 +9,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
+	"github.com/kronael/arizuko/store"
 )
 
 // recDeliverer records every egress call and optionally fails Send.
@@ -194,6 +195,41 @@ func TestSubmitTurnSessionWinsOverRunResponse(t *testing.T) {
 	}
 	if got := db.SessionID("demo", ""); got != "fromsubmit" {
 		t.Fatalf("session_id=%q want fromsubmit (run-response clobbered submit_turn)", got)
+	}
+}
+
+// TestDispatchShipsUserSecrets is the BYOA wire test: a user's user-scoped
+// secret is resolved at dispatch (overriding the folder default) and set on
+// RunRequest.Secrets so runed injects it as container env. The web sender IS the
+// user's canonical sub, so caller==scope_id and the override resolves.
+func TestDispatchShipsUserSecrets(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetSecretKeys([]byte("byoa-dispatch-key"))
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	// folder default + the user's BYOA override (sealed).
+	_ = db.SetSecret(store.ScopeFolder, "demo", "ANTHROPIC_API_KEY", "folder-key")
+	_ = db.SetSecret(store.ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "alice-key")
+
+	var got map[string]string
+	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		got = req.Secrets
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=web", Target: "demo"}})
+	_ = db.PutMessage(core.Message{ID: "m", ChatJID: "web:demo", Sender: "github:alice",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if got["ANTHROPIC_API_KEY"] != "alice-key" {
+		t.Errorf("RunRequest.Secrets[ANTHROPIC_API_KEY] = %q, want alice-key (user override shipped)", got["ANTHROPIC_API_KEY"])
 	}
 }
 

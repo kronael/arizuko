@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +10,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/store"
 )
 
 // keyPattern: uppercase ENV-style identifiers only.
@@ -51,46 +52,117 @@ func requireSameOrigin(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+type secretItem struct {
+	Key       string `json:"key"`
+	CreatedAt string `json:"created_at"`
+}
+
+// listUserSecrets returns the caller's secret KEYS + created_at — never values
+// (the list surface mirrors GitHub SSH keys: names visible, secrets opaque).
+func (d *dash) listUserSecrets(sub string) ([]secretItem, error) {
+	rows, err := d.secretsDB().Query(
+		`SELECT key, created_at FROM secrets
+		 WHERE scope_kind = 'user' AND scope_id = ?
+		 ORDER BY key`, sub)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []secretItem{}
+	for rows.Next() {
+		var it secretItem
+		if err := rows.Scan(&it.Key, &it.CreatedAt); err != nil {
+			slog.Warn("me_secrets scan", "err", err)
+			continue
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+// handleMeSecrets serves the user's secret list: an HTML management page for a
+// browser (Accept: text/html) and JSON for API callers. Values are never
+// returned on either surface.
 func (d *dash) handleMeSecrets(w http.ResponseWriter, r *http.Request) {
 	sub, ok := requireUser(w, r)
 	if !ok {
 		return
 	}
-	db := d.secretsDB()
-	if db == nil {
+	if d.secretsDB() == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-
-	rows, err := db.Query(
-		`SELECT key, created_at FROM secrets
-		 WHERE scope_kind = 'user' AND scope_id = ?
-		 ORDER BY key`, sub)
+	items, err := d.listUserSecrets(sub)
 	if err != nil {
 		slog.Warn("me_secrets list", "sub", sub, "err", err)
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-	type item struct {
-		Key       string `json:"key"`
-		CreatedAt string `json:"created_at"`
-	}
-	var items []item
-	for rows.Next() {
-		var key, createdAt string
-		if err := rows.Scan(&key, &createdAt); err != nil {
-			slog.Warn("me_secrets scan", "err", err)
-			continue
-		}
-		items = append(items, item{Key: key, CreatedAt: createdAt})
+	if strings.Contains(r.Header.Get("Accept"), "text/html") {
+		d.renderSecretsPage(w, r, items)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if items == nil {
-		items = []item{}
-	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"secrets": items})
 }
+
+// renderSecretsPage renders the BYOA management page: a key/created table with a
+// per-row delete button + an add form. No values displayed. The delete button
+// fires DELETE /dash/me/secrets/{key} via fetch (same-origin → passes the CSRF
+// guard) and reloads. esc() guards every interpolated key.
+func (d *dash) renderSecretsPage(w http.ResponseWriter, r *http.Request, items []secretItem) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	pageTopFor(w, r, "API keys")
+	fmt.Fprint(w, `<p class="dim">Your personal API keys. They override the group's keys when the agent runs for you. Once saved, a key's value is hidden — you can replace it but never read it back.</p>`)
+
+	if len(items) == 0 {
+		fmt.Fprint(w, `<p class="empty">No API keys yet.</p>`)
+	} else {
+		var rows [][]string
+		for _, it := range items {
+			del := fmt.Sprintf(
+				`<button type="button" class="btn btn-danger" onclick="delSecret('%s')">delete</button>`,
+				esc(it.Key))
+			rows = append(rows, []string{`<code>` + esc(it.Key) + `</code>`, esc(it.CreatedAt), del})
+		}
+		// "Updated" not "Added": created_at is reset on every upsert (PutSecretRow
+		// ON CONFLICT), so it reflects the last write, not first-create.
+		fmt.Fprint(w, htmlTable([]string{"Key", "Updated", ""}, rows))
+	}
+
+	fmt.Fprint(w, htmlSection("Add a key",
+		`<form id="add-secret" onsubmit="return addSecret(event)">`+
+			htmlFormRow("Name", `<input type="text" name="key" placeholder="ANTHROPIC_API_KEY" pattern="[A-Z][A-Z0-9_]*" title="uppercase letters, digits, underscore" required size="40">`)+
+			htmlFormRow("Value", `<input type="password" name="value" autocomplete="off" required size="40">`)+
+			`<p><button type="submit">save</button></p>`+
+			`</form>`+
+			`<p id="secret-err" class="banner-err" style="display:none"></p>`))
+
+	fmt.Fprint(w, secretsPageScript)
+	pageClose(w, r)
+}
+
+// secretsPageScript drives the add/delete forms with fetch (same-origin → CSRF
+// guard passes). Keys are URL-encoded into the path; the server re-validates the
+// key pattern and the value, so the client checks are UX only.
+const secretsPageScript = `<script>
+async function addSecret(e){
+  e.preventDefault();
+  var f=e.target, err=document.getElementById('secret-err');
+  err.style.display='none';
+  var res=await fetch('/dash/me/secrets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:f.key.value,value:f.value.value})});
+  if(res.ok){location.reload();}
+  else{err.textContent=await res.text();err.style.display='block';}
+  return false;
+}
+async function delSecret(k){
+  if(!confirm('Delete '+k+'?'))return;
+  var res=await fetch('/dash/me/secrets/'+encodeURIComponent(k),{method:'DELETE'});
+  if(res.ok){location.reload();}
+  else{var err=document.getElementById('secret-err');err.textContent=await res.text();err.style.display='block';}
+}
+</script>`
 
 type secretWriteBody struct {
 	Key   string `json:"key"`
@@ -120,8 +192,8 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	db := d.secretsDB()
-	if db == nil {
+	ss := d.secretStore()
+	if ss == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -134,32 +206,31 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
-	if _, err := db.Exec(
-		`INSERT INTO secrets (scope_kind, scope_id, key, value, created_at)
-		 VALUES ('user', ?, ?, ?, ?)
-		 ON CONFLICT(scope_kind, scope_id, key) DO UPDATE SET
-		   value = excluded.value, created_at = excluded.created_at`,
-		sub, body.Key, body.Value, time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
+	// Seal at rest via secretStore (SECRETS_KEY keyring): PutSecretRow upserts the
+	// `v2:` ciphertext — the same encoding routd reads back through FolderSecrets.
+	if err := ss.PutSecretRow(store.ScopeUser, sub, body.Key, body.Value); err != nil {
 		slog.Warn("me_secrets create", "sub", sub, "key", body.Key, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
+	emitSecretSet(sub, body.Key)
+	slog.Info("me_secrets create", "sub", sub, "key", body.Key)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// emitSecretSet records a user-secret write in audit_log WITHOUT the plaintext
+// value (audit_log is at rest; the value must never land there).
+func emitSecretSet(sub, key string) {
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySecret,
 		Action:   "secret.set",
 		Actor:    "user:" + sub,
 		ActorSub: sub,
 		Surface:  audit.SurfaceREST,
-		Resource: "secrets/user/" + sub + "/" + body.Key,
+		Resource: "secrets/user/" + sub + "/" + key,
 		Scope:    "user",
 		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"value": body.Value,
-		},
 	})
-	slog.Info("me_secrets create", "sub", sub, "key", body.Key)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
@@ -189,33 +260,27 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: body key must match path", http.StatusBadRequest)
 		return
 	}
-	res, err := db.Exec(
-		`UPDATE secrets SET value = ?, created_at = ?
-		 WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
-		body.Value, time.Now().UTC().Format(time.RFC3339), sub, key)
-	if err != nil {
+	// PATCH is update-only: 404 when the key was never set (the create path is
+	// POST). Existence is checked on the raw handle; the reseal goes through
+	// secretStore so the new value lands as a `v2:` ciphertext.
+	var exists int
+	switch err := db.QueryRow(
+		`SELECT 1 FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
+		sub, key).Scan(&exists); {
+	case errors.Is(err, sql.ErrNoRows):
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	case err != nil:
+		slog.Warn("me_secrets update exists", "sub", sub, "key", key, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	if err := d.secretStore().PutSecretRow(store.ScopeUser, sub, key, body.Value); err != nil {
 		slog.Warn("me_secrets update", "sub", sub, "key", key, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategorySecret,
-		Action:   "secret.set",
-		Actor:    "user:" + sub,
-		ActorSub: sub,
-		Surface:  audit.SurfaceREST,
-		Resource: "secrets/user/" + sub + "/" + key,
-		Scope:    "user",
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"value": body.Value,
-		},
-	})
+	emitSecretSet(sub, key)
 	slog.Info("me_secrets update", "sub", sub, "key", key)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -228,8 +293,8 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	db := d.secretsDB()
-	if db == nil {
+	ss := d.secretStore()
+	if ss == nil {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -238,17 +303,16 @@ func (d *dash) handleMeSecretDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
-	res, err := db.Exec(
-		`DELETE FROM secrets WHERE scope_kind = 'user' AND scope_id = ? AND key = ?`,
-		sub, key)
-	if err != nil {
+	// One writer: DeleteSecretRow owns the WHERE clause + the 0-rows → 404 case
+	// (ErrSecretNotFound). No keyring needed to delete, but routing through the
+	// store keeps the delete SQL in one place with create/update.
+	switch err := ss.DeleteSecretRow(store.ScopeUser, sub, key); {
+	case errors.Is(err, store.ErrSecretNotFound):
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	case err != nil:
 		slog.Warn("me_secrets delete", "sub", sub, "key", key, "err", err)
 		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	audit.Emit(context.Background(), audit.Event{
