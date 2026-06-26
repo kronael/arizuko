@@ -169,9 +169,9 @@ type secretWriteBody struct {
 	Value string `json:"value"`
 }
 
-func parseSecretBody(r *http.Request) (secretWriteBody, error) {
+func parseSecretBody(w http.ResponseWriter, r *http.Request) (secretWriteBody, error) {
 	var body secretWriteBody
-	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxSecretValueBytes+1024)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSecretValueBytes+1024)).Decode(&body); err != nil {
 		return body, err
 	}
 	body.Key = strings.TrimSpace(body.Key)
@@ -197,7 +197,7 @@ func (d *dash) handleMeSecretCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "secrets store unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	body, err := parseSecretBody(r)
+	body, err := parseSecretBody(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -251,7 +251,7 @@ func (d *dash) handleMeSecretUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "key: must match ^[A-Z][A-Z0-9_]*$", http.StatusBadRequest)
 		return
 	}
-	body, err := parseSecretBody(r)
+	body, err := parseSecretBody(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

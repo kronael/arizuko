@@ -392,6 +392,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	ts := time.Now().Format("2006-01-02T15-04-05")
 	logFile := filepath.Join(logsDir, "container-"+ts+".log")
 	to := timedOut.Load()
+	in.Secrets = nil
 	writeLog(logFile, in, containerName, elapsed, code, to, stderrStr, mounts)
 
 	slog.Info("container exited",

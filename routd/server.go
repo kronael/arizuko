@@ -455,8 +455,8 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// 10/17) must NOT escalate to a mention this way — that would let a spoofed
 	// inbound drive an agent turn. gated guarded this; the split had dropped it.
 	if verb != "untrusted" &&
-		((m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo)) ||
-			s.threadHasBotMessage(m.ChatJID, m.Topic)) {
+		((m.ReplyTo != "" && s.db.ReplyTargetIsBot(m.ReplyTo)) ||
+			s.db.ThreadHasBotMessage(m.ChatJID, m.Topic)) {
 		verb = "mention"
 	}
 	row := buildMessageRow(m, ts, verb)
@@ -475,37 +475,6 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, apiv1.MessageAck{OK: true, ID: m.ID})
 }
 
-func (s *Server) replyTargetIsBot(id string) bool {
-	var bot int
-	s.db.db.QueryRow("SELECT is_bot_message FROM messages WHERE id=? OR platform_id=?", id, id).Scan(&bot)
-	return bot == 1
-}
-
-// threadHasBotMessage reports whether the bot has already posted in this thread
-// — a (chat_jid, topic) pair. Drives the reply-into-a-bot-thread → mention
-// promotion (spec 5/L): a reply landing in a thread the bot started OR
-// participated in is a mention even when the thread root is human-authored, so
-// the agent re-attends instead of going silent once its 5/G window closes.
-// Empty topic → false: the chat's main timeline is not a thread, and promoting
-// there would re-fire on every root message in a channel the bot once spoke in.
-// Keyed on chat_jid (not folder): the owning folder is unresolved at ingest and
-// the chat is the precise thread container anyway.
-func (s *Server) threadHasBotMessage(chatJID, topic string) bool {
-	if topic == "" {
-		return false
-	}
-	var bot int
-	// topic=? catches bot replies stored with the thread topic.
-	// turn_id=? catches the first bot reply to a root message: turn_id is set
-	// to the trigger message's ID, which equals the thread's topic (thread_ts)
-	// for all subsequent replies — but the first reply has topic="" because the
-	// trigger had topic="" (it was a root channel message, not a thread reply).
-	s.db.db.QueryRow(
-		"SELECT 1 FROM messages WHERE chat_jid=? AND (topic=? OR turn_id=?) AND is_bot_message=1 LIMIT 1",
-		chatJID, topic, topic,
-	).Scan(&bot)
-	return bot == 1
-}
 
 func (s *Server) handleOutbound(w http.ResponseWriter, r *http.Request) {
 	if !s.authed(w, r, "messages:write") {

@@ -84,7 +84,8 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetThreadReplies("demo", false); err != nil {
+	bFalse := false
+	if err := db.SetThreadReplies("demo", &bFalse); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-off", "demo", jid, "root-3")
@@ -94,7 +95,8 @@ func TestReplyThreadRootSuppressed(t *testing.T) {
 	}
 
 	// Preference on beats the DM default.
-	if err := db.SetThreadReplies("demo", true); err != nil {
+	bTrue := true
+	if err := db.SetThreadReplies("demo", &bTrue); err != nil {
 		t.Fatal(err)
 	}
 	threadTurn(t, db, "t-on", "demo", dm, "root-4")
@@ -166,13 +168,13 @@ func TestReplyStartsThreadSetsTopic(t *testing.T) {
 		apiv1.ReplyRequest{JID: jid, Text: "answer"})
 	// The bot message row must have Topic = threadRoot.
 	var topic string
-	db.db.QueryRow("SELECT COALESCE(topic,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").Scan(&topic)
+	db.SQL().QueryRow("SELECT COALESCE(topic,'') FROM messages WHERE turn_id='t1' AND is_bot_message=1").Scan(&topic)
 	if topic != "root-1" {
 		t.Errorf("bot message topic = %q, want root-1", topic)
 	}
-	// threadHasBotMessage must now find it.
-	if !srv.threadHasBotMessage(jid, "root-1") {
-		t.Error("threadHasBotMessage returned false, want true")
+	// ThreadHasBotMessage must now find it.
+	if !db.ThreadHasBotMessage(jid, "root-1") {
+		t.Error("ThreadHasBotMessage returned false, want true")
 	}
 }
 
@@ -186,7 +188,6 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	srv := NewServer(db, nil, nil, nil, 0, "")
 	jid := "slack:T/channel/C1"
 	threadTS := "1700000100.000100"
 
@@ -199,16 +200,16 @@ func TestThreadHasBotMessage_MatchesByTurnID(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !srv.threadHasBotMessage(jid, threadTS) {
-		t.Error("threadHasBotMessage must find bot reply matched by turn_id, got false")
+	if !db.ThreadHasBotMessage(jid, threadTS) {
+		t.Error("ThreadHasBotMessage must find bot reply matched by turn_id, got false")
 	}
 	// Must not fire for a different thread in the same chat.
-	if srv.threadHasBotMessage(jid, "1700000999.000100") {
-		t.Error("threadHasBotMessage must not match a different thread_ts")
+	if db.ThreadHasBotMessage(jid, "1700000999.000100") {
+		t.Error("ThreadHasBotMessage must not match a different thread_ts")
 	}
 	// Must not fire for a different chat with the same thread_ts.
-	if srv.threadHasBotMessage("slack:T/channel/C2", threadTS) {
-		t.Error("threadHasBotMessage must not match a different chat_jid")
+	if db.ThreadHasBotMessage("slack:T/channel/C2", threadTS) {
+		t.Error("ThreadHasBotMessage must not match a different chat_jid")
 	}
 }
 
@@ -228,7 +229,8 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	if err := db.PutGroup(core.Group{Folder: "atlas"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetThreadReplies("atlas", false); err != nil {
+	atlFalse := false
+	if err := db.SetThreadReplies("atlas", &atlFalse); err != nil {
 		t.Fatal(err)
 	}
 	// Turn is IN a thread: topic = existing thread_ts.

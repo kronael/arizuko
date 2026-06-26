@@ -13,6 +13,7 @@ import (
 
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
+	"github.com/kronael/arizuko/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -160,7 +161,7 @@ func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
 // AllGroups returns every registered group keyed by folder. Backs the agent's
 // get_groups MCP tool.
 func (d *DB) AllGroups() map[string]core.Group {
-	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), '') FROM groups")
+	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), ''), COALESCE(container_config, '{}') FROM groups")
 	if err != nil {
 		return nil
 	}
@@ -169,11 +170,15 @@ func (d *DB) AllGroups() map[string]core.Group {
 	for rows.Next() {
 		var g core.Group
 		var added string
-		if err := rows.Scan(&g.Folder, &added, &g.Product, &g.Model); err != nil {
+		var cfgJSON string
+		if err := rows.Scan(&g.Folder, &added, &g.Product, &g.Model, &cfgJSON); err != nil {
 			slog.Error("AllGroups scan failed; failing closed", "err", err)
 			return nil
 		}
 		g.AddedAt, _ = time.Parse(time.RFC3339Nano, added)
+		if cfgJSON != "" && cfgJSON != "{}" {
+			_ = json.Unmarshal([]byte(cfgJSON), &g.Config)
+		}
 		out[g.Folder] = g
 	}
 	if err := rows.Err(); err != nil {
@@ -185,19 +190,14 @@ func (d *DB) AllGroups() map[string]core.Group {
 
 // SetGroupOpen toggles the group's open flag (ambient turn admission).
 func (d *DB) SetGroupOpen(folder string, open bool) error {
-	_, err := d.db.Exec(
-		"UPDATE groups SET config=json_set(COALESCE(config, '{}'), '$.open', ?) WHERE folder=?",
-		b2i(open), folder)
-	return err
+	return store.New(d.db).SetGroupOpen(folder, open)
 }
 
 // SetThreadReplies sets the group's thread_replies preference: whether a
-// reply roots a new platform thread on its trigger message.
-func (d *DB) SetThreadReplies(folder string, on bool) error {
-	_, err := d.db.Exec(
-		"UPDATE groups SET config=json_set(COALESCE(config, '{}'), '$.thread_replies', ?) WHERE folder=?",
-		b2i(on), folder)
-	return err
+// reply roots a new platform thread on its trigger message. nil removes the
+// key (default: group chats thread, DMs do not).
+func (d *DB) SetThreadReplies(folder string, on *bool) error {
+	return store.New(d.db).SetThreadReplies(folder, on)
 }
 
 // ThreadReplies reads the group's thread_replies preference; an unset key
@@ -217,14 +217,7 @@ func (d *DB) ThreadReplies(folder string, dflt bool) bool {
 // SetGroupObserveWindow overrides the group's observe-window (messages, chars).
 // A negative value clears the key (json NULL) so the cfg default wins.
 func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
-	_, err := d.db.Exec(
-		`UPDATE groups SET config = json_set(
-		   json_set(COALESCE(config, '{}'),
-		     '$.observe_window_messages', CASE WHEN ? >= 0 THEN ? END),
-		   '$.observe_window_chars', CASE WHEN ? >= 0 THEN ? END)
-		 WHERE folder=?`,
-		msgs, msgs, chars, chars, folder)
-	return err
+	return store.New(d.db).SetGroupObserveWindow(folder, msgs, chars)
 }
 
 // AddGroupWatcher subscribes observer to source's ambient context (idempotent).
@@ -1160,6 +1153,28 @@ func (d *DB) ChatHasRunningTurn(jid string) bool {
 	var n int
 	d.db.QueryRow("SELECT 1 FROM turn_context WHERE chat_jid=? AND state='running' LIMIT 1", jid).Scan(&n)
 	return n == 1
+}
+
+// ReplyTargetIsBot reports whether the message with the given id (or platform_id)
+// is a bot-authored row — used to promote replies-to-bot to verb=mention.
+func (d *DB) ReplyTargetIsBot(id string) bool {
+	var bot int
+	d.db.QueryRow("SELECT is_bot_message FROM messages WHERE id=? OR platform_id=?", id, id).Scan(&bot)
+	return bot == 1
+}
+
+// ThreadHasBotMessage reports whether the bot has posted in (chatJID, topic).
+// Empty topic → false (main timeline is not a thread).
+func (d *DB) ThreadHasBotMessage(chatJID, topic string) bool {
+	if topic == "" {
+		return false
+	}
+	var bot int
+	d.db.QueryRow(
+		"SELECT 1 FROM messages WHERE chat_jid=? AND (topic=? OR turn_id=?) AND is_bot_message=1 LIMIT 1",
+		chatJID, topic, topic,
+	).Scan(&bot)
+	return bot == 1
 }
 
 func b2i(b bool) int {
