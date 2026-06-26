@@ -198,6 +198,41 @@ func TestSubmitTurnSessionWinsOverRunResponse(t *testing.T) {
 	}
 }
 
+// TestDispatchTimedTriggerNoUserSecrets: a timed-isolated trigger must NOT
+// ship user-scoped secrets (caller = "service:routd", not a real user sub).
+// Regression guard: if dispatchRun ever resolved the timed sender as a user
+// JID, alice's BYOA key would silently leak into every cron turn.
+func TestDispatchTimedTriggerNoUserSecrets(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetSecretKeys([]byte("byoa-timed-key"))
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.SetSecret(store.ScopeUser, "github:alice", "ANTHROPIC_API_KEY", "alice-key")
+
+	var got map[string]string
+	runner := runnerFn(func(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		got = req.Secrets
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=web", Target: "demo"}})
+	_ = db.PutMessage(core.Message{
+		ID: "t", ChatJID: "web:demo", Sender: "timed-isolated:compact-memories",
+		Content: "compact now", Timestamp: time.Now().UTC(), Verb: "message",
+	})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if got["ANTHROPIC_API_KEY"] == "alice-key" {
+		t.Error("timed trigger leaked alice's user-scoped BYOA key into RunRequest.Secrets")
+	}
+}
+
 // TestDispatchShipsUserSecrets is the BYOA wire test: a user's user-scoped
 // secret is resolved at dispatch (overriding the folder default) and set on
 // RunRequest.Secrets so runed injects it as container env. The web sender IS the

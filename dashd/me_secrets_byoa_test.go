@@ -160,3 +160,29 @@ func TestMeSecrets_JSONStillDefault(t *testing.T) {
 		t.Errorf("default Content-Type = %q, want application/json", ct)
 	}
 }
+
+// TestMeSecrets_CrossUserIsolation: user B's GET must not list user A's keys.
+// The SQL scope_id=? binds to the verified caller sub, so A's secrets are
+// invisible to B even when they share an instance.
+func TestMeSecrets_CrossUserIsolation(t *testing.T) {
+	d := meSecretsTestDB(t)
+	mux := newMux(d)
+
+	// Seed Alice's secret.
+	post := httptest.NewRequest("POST", "/dash/me/secrets",
+		strings.NewReader(`{"key":"ANTHROPIC_API_KEY","value":"alice-key"}`))
+	post.Header.Set("X-User-Sub", "github:alice")
+	mux.ServeHTTP(httptest.NewRecorder(), post)
+
+	// Bob GETs — must see nothing (no keys, empty list).
+	req := httptest.NewRequest("GET", "/dash/me/secrets", nil)
+	req.Header.Set("X-User-Sub", "github:bob")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET bob = %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "ANTHROPIC_API_KEY") {
+		t.Error("cross-user leak: Bob's GET returned Alice's key name")
+	}
+}
