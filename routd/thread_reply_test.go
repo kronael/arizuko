@@ -3,6 +3,7 @@ package routd
 import (
 	"testing"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
@@ -246,6 +247,56 @@ func TestReplyThreadPrefOffKeepsThreadID(t *testing.T) {
 	}
 	if dl.sends[0].threadID != "1700000100.000100" {
 		t.Errorf("threadID = %q, want 1700000100.000100 (in-thread trigger stays in thread)", dl.sends[0].threadID)
+	}
+}
+
+// A message typed in a Discord thread (no explicit replyTo) must still be
+// promoted to verb=mention when the bot has already spoken in that thread.
+// Discord only sets ReplyTo when the user hits the reply arrow; plain thread
+// messages have ReplyTo="". The promotion must not gate on ReplyTo != "".
+func TestThreadPromotionWithoutReplyTo(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	h := srv.Handler()
+	jid := "discord:guild1/channel1"
+	_ = db.SetChatIsGroup(jid, true)
+
+	// Seed a bot message in the thread (topic = thread channel ID).
+	threadID := "1234567890123456789"
+	if err := db.PutMessage(core.Message{
+		ID:      "bot-reply-1",
+		ChatJID: jid,
+		Topic:   threadID,
+		BotMsg:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// User types in the thread without using the reply arrow → ReplyTo = "".
+	in := chanlib.InboundMsg{
+		ID:      "user-msg-1",
+		ChatJID: jid,
+		Sender:  "discord:user/u1",
+		Content: "hello",
+		Topic:   threadID,
+		ReplyTo: "", // no explicit reply reference
+		IsGroup: true,
+	}
+	rec := doJSON(t, h, "POST", "/v1/messages", "", in)
+	if rec.Code != 200 {
+		t.Fatalf("inbound status %d", rec.Code)
+	}
+
+	// The stored message must have verb=mention (promoted by threadHasBotMessage).
+	var verb string
+	db.db.QueryRow("SELECT verb FROM messages WHERE id='user-msg-1'").Scan(&verb)
+	if verb != "mention" {
+		t.Errorf("verb = %q, want mention (thread promotion without replyTo)", verb)
 	}
 }
 

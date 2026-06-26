@@ -454,8 +454,9 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// An untrusted sender (emaid marks unverified senders verb=untrusted, spec
 	// 10/17) must NOT escalate to a mention this way — that would let a spoofed
 	// inbound drive an agent turn. gated guarded this; the split had dropped it.
-	if verb != "untrusted" && m.ReplyTo != "" &&
-		(s.replyTargetIsBot(m.ReplyTo) || s.threadHasBotMessage(m.ChatJID, m.Topic)) {
+	if verb != "untrusted" &&
+		((m.ReplyTo != "" && s.replyTargetIsBot(m.ReplyTo)) ||
+			s.threadHasBotMessage(m.ChatJID, m.Topic)) {
 		verb = "mention"
 	}
 	row := buildMessageRow(m, ts, verb)
