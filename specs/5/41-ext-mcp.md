@@ -48,27 +48,9 @@ agent MCP call
 
 ## Secrets table
 
-`secrets(scope_kind, scope_id, key, value, created_at)`
-PK `(scope_kind, scope_id, key)`.
-
-- `scope_kind ∈ {folder, user}`; `scope_id` = folder path or `auth_users.sub`
-- **Resolution**: folder-ancestry walk, deepest child wins. Per-user override
-  (`user` scope row beats `folder` scope row for same key) resolved by
-  `store/secrets.go:FolderSecretsResolvedForUser` (folder + user scope;
-  user wins).
-- **Encryption at rest**: plaintext by default; AES-256-GCM when `SECRETS_KEY`
-  set — stored `v2:base64(nonce‖ct)`, decrypted transparently on read.
-  Enabling runs a one-time idempotent encrypt-in-place migration.
-- Never injected into container env. `ANTHROPIC_API_KEY` and other operator
-  anchors are separate (container env, not this table).
-
-### Write paths
-
-| surface            | who      | how                                                           |
-| ------------------ | -------- | ------------------------------------------------------------- |
-| Operator CLI       | operator | `arizuko secret <inst> set <folder> KEY --value V`            |
-| dashd self-service | end user | `GET/POST/PATCH/DELETE /dash/me/secrets`                      |
-| OAuth dance        | platform | `specs/11/14-surrogate-oauth.md` — writes access+refresh here |
+Ownership model, resolution chain, and write paths moved to
+[`specs/5/42-credentials.md`](42-credentials.md). The handler shapes
+below remain here.
 
 ---
 

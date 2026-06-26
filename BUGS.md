@@ -1,5 +1,27 @@
 # BUGS.md — open issues queue
 
+## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
+
+**Severity**: medium
+**Found**: 2026-06-26
+**Location**: `routd/sibling_db.go:ConnectorSecrets` (calls `FolderSecrets(folder)`, not `FolderSecretsForUser`)
+
+A user who sets `GITHUB_TOKEN` in their user-scoped secrets (via `/dash/me/secrets`)
+expects it to be used when they invoke a GitHub MCP connector tool. It isn't.
+`ConnectorSecrets` reads folder scope only — the user-scoped override is invisible
+to the connector subprocess.
+
+Fix requires:
+1. `sibling_db.go:ConnectorSecrets(folder, callerSub string)` — add `callerSub` param,
+   call `FolderSecretsForUser(folder, callerSub)` instead of `FolderSecrets(folder)`.
+2. Thread `callerSub` (the turn's trigger sender) into `ipc/ipc.go:1027` where
+   `db.ResolveConnectorSecrets(folder, ...)` is called.
+3. `routd/mcp.go:569` pass `callerSub` alongside `folder` into the resolver.
+
+Spec: `specs/5/42-credentials.md § ConnectorSecrets user-scope`.
+
+- **Status:** open
+
 ## Slack threading ignored for in-thread triggers when thread_replies=false (2026-06-25, fixed)
 
 `routd/turns.go:deliverTurn` suppressed `threadRoot` (no new thread) when
