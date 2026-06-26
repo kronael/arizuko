@@ -60,8 +60,8 @@ type copySpec struct {
 var routdSpecs = []copySpec{
 	// straight copies (shared column intersection)
 	{dst: "groups", src: "groups",
-		cols: "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, open, observe_window_messages, observe_window_chars, model",
-		sel:  "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, open, observe_window_messages, observe_window_chars, model"},
+		cols: "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, config",
+		sel:  "folder, added_at, container_config, updated_at, product, cost_cap_cents_per_day, config"},
 	// messages.db chats has no `errored` column (dropped in store 0023);
 	// routd.db chats adds it → defaults to 0.
 	{dst: "chats", src: "chats",

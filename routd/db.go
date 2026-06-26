@@ -93,11 +93,16 @@ func nowTS() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // round-trip yields the same zero core.GroupConfig.
 func (d *DB) PutGroup(g core.Group) error {
 	cfgJSON, _ := json.Marshal(g.Config)
-	_, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, model, container_config)
-		VALUES(?,?,?,?,?)
-		ON CONFLICT(folder) DO UPDATE SET product=excluded.product, model=excluded.model,
+	var model any
+	if g.Model != "" {
+		model = g.Model
+	}
+	_, err := d.db.Exec(`INSERT INTO groups(folder, added_at, product, config, container_config)
+		VALUES(?,?,?, json_set('{}', '$.model', ?), ?)
+		ON CONFLICT(folder) DO UPDATE SET product=excluded.product,
+			config=json_set(COALESCE(groups.config, '{}'), '$.model', ?),
 			container_config=excluded.container_config, updated_at=?`,
-		g.Folder, nowTS(), g.Product, g.Model, string(cfgJSON), nowTS())
+		g.Folder, nowTS(), g.Product, model, string(cfgJSON), model, nowTS())
 	return err
 }
 
@@ -116,7 +121,7 @@ func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 	var added string
 	var c sql.NullString
 	err := d.db.QueryRow(
-		"SELECT folder, added_at, product, COALESCE(model,''), container_config FROM groups WHERE folder=?",
+		"SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), ''), container_config FROM groups WHERE folder=?",
 		folder).Scan(&g.Folder, &added, &g.Product, &g.Model, &c)
 	if err != nil {
 		return core.Group{}, false
@@ -142,7 +147,9 @@ func (d *DB) DeleteGroup(folder string) error {
 func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
 	var m sql.NullString
 	var c sql.NullString
-	d.db.QueryRow("SELECT model, container_config FROM groups WHERE folder=?", folder).Scan(&m, &c)
+	d.db.QueryRow(
+		"SELECT json_extract(config, '$.model'), container_config FROM groups WHERE folder=?",
+		folder).Scan(&m, &c)
 	model = m.String
 	if c.Valid && c.String != "" {
 		_ = json.Unmarshal([]byte(c.String), &cfg)
@@ -153,7 +160,7 @@ func (d *DB) GroupConfig(folder string) (model string, cfg map[string]any) {
 // AllGroups returns every registered group keyed by folder. Backs the agent's
 // get_groups MCP tool.
 func (d *DB) AllGroups() map[string]core.Group {
-	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(model,'') FROM groups")
+	rows, err := d.db.Query("SELECT folder, added_at, product, COALESCE(json_extract(config, '$.model'), '') FROM groups")
 	if err != nil {
 		return nil
 	}
@@ -178,23 +185,29 @@ func (d *DB) AllGroups() map[string]core.Group {
 
 // SetGroupOpen toggles the group's open flag (ambient turn admission).
 func (d *DB) SetGroupOpen(folder string, open bool) error {
-	_, err := d.db.Exec("UPDATE groups SET open=? WHERE folder=?", b2i(open), folder)
+	_, err := d.db.Exec(
+		"UPDATE groups SET config=json_set(COALESCE(config, '{}'), '$.open', ?) WHERE folder=?",
+		b2i(open), folder)
 	return err
 }
 
 // SetThreadReplies sets the group's thread_replies preference: whether a
 // reply roots a new platform thread on its trigger message.
 func (d *DB) SetThreadReplies(folder string, on bool) error {
-	_, err := d.db.Exec("UPDATE groups SET thread_replies=? WHERE folder=?", b2i(on), folder)
+	_, err := d.db.Exec(
+		"UPDATE groups SET config=json_set(COALESCE(config, '{}'), '$.thread_replies', ?) WHERE folder=?",
+		b2i(on), folder)
 	return err
 }
 
-// ThreadReplies reads the group's thread_replies preference; an unset column
+// ThreadReplies reads the group's thread_replies preference; an unset key
 // (NULL / unknown group) yields dflt (the caller passes the chat's multi-user
 // flag: group chats thread by default, DMs don't).
 func (d *DB) ThreadReplies(folder string, dflt bool) bool {
 	var v sql.NullInt64
-	d.db.QueryRow("SELECT thread_replies FROM groups WHERE folder=?", folder).Scan(&v)
+	d.db.QueryRow(
+		"SELECT json_extract(config, '$.thread_replies') FROM groups WHERE folder=?",
+		folder).Scan(&v)
 	if !v.Valid {
 		return dflt
 	}
@@ -202,18 +215,15 @@ func (d *DB) ThreadReplies(folder string, dflt bool) bool {
 }
 
 // SetGroupObserveWindow overrides the group's observe-window (messages, chars).
-// A negative value clears the column (NULL) so the cfg default wins.
+// A negative value clears the key (json NULL) so the cfg default wins.
 func (d *DB) SetGroupObserveWindow(folder string, msgs, chars int) error {
-	var mv, cv any
-	if msgs >= 0 {
-		mv = msgs
-	}
-	if chars >= 0 {
-		cv = chars
-	}
 	_, err := d.db.Exec(
-		"UPDATE groups SET observe_window_messages=?, observe_window_chars=? WHERE folder=?",
-		mv, cv, folder)
+		`UPDATE groups SET config = json_set(
+		   json_set(COALESCE(config, '{}'),
+		     '$.observe_window_messages', CASE WHEN ? >= 0 THEN ? END),
+		   '$.observe_window_chars', CASE WHEN ? >= 0 THEN ? END)
+		 WHERE folder=?`,
+		msgs, msgs, chars, chars, folder)
 	return err
 }
 

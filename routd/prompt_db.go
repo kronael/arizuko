@@ -106,12 +106,14 @@ func (d *DB) UpdateObservedCursor(folder, topic, ts string) error {
 }
 
 // GroupObserveWindow returns the group's stored observe-window override as
-// (messages, chars). A NULL column yields -1 so the cfg default wins (only a
+// (messages, chars). A NULL key yields -1 so the cfg default wins (only a
 // >= 0 value overrides). (-1,-1) when the group has no row.
 func (d *DB) GroupObserveWindow(folder string) (int, int) {
 	var n, c *int
 	err := d.db.QueryRow(
-		`SELECT observe_window_messages, observe_window_chars FROM groups WHERE folder = ?`,
+		`SELECT json_extract(config, '$.observe_window_messages'),
+		        json_extract(config, '$.observe_window_chars')
+		 FROM groups WHERE folder = ?`,
 		folder,
 	).Scan(&n, &c)
 	if err != nil {

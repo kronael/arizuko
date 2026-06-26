@@ -249,7 +249,7 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	var product, groupModel string
 	var cfgJSON *string
-	err := d.adminDB().QueryRow(`SELECT product, COALESCE(model,''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
+	err := d.adminDB().QueryRow(`SELECT product, COALESCE(json_extract(config, '$.model'), ''), container_config FROM groups WHERE folder = ?`, folder).Scan(&product, &groupModel, &cfgJSON)
 	if err != nil {
 		fmt.Fprint(w, htmlBanner("err", "group not found: "+err.Error()))
 		pageClose(w, r)

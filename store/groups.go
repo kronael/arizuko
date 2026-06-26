@@ -105,7 +105,8 @@ func (s *Store) DeleteGroup(folder string) error {
 	})
 }
 
-const groupCols = `folder, added_at, container_config, product, COALESCE(model,'')`
+const groupCols = `folder, added_at, container_config, product,
+	COALESCE(json_extract(config, '$.model'), '')`
 
 func (s *Store) AllGroups() map[string]core.Group {
 	rows, err := s.db.Query(`SELECT ` + groupCols + ` FROM groups`)
@@ -289,7 +290,9 @@ func (s *Store) GetStickyGroup(jid string) string {
 // siblings until an operator explicitly closes it. Spec 6/F.
 func (s *Store) IsGroupOpen(folder string) bool {
 	var open sql.NullInt64
-	s.db.QueryRow(`SELECT open FROM groups WHERE folder = ?`, folder).Scan(&open)
+	s.db.QueryRow(
+		`SELECT json_extract(config, '$.open') FROM groups WHERE folder = ?`,
+		folder).Scan(&open)
 	if !open.Valid {
 		return true
 	}
@@ -299,7 +302,10 @@ func (s *Store) IsGroupOpen(folder string) bool {
 // SetGroupOpen flips the visibility bit. The row must exist (groups are
 // created via SetupGroup/PutGroup before any caller can flip the flag).
 func (s *Store) SetGroupOpen(folder string, open bool) error {
-	_, err := s.db.Exec(`UPDATE groups SET open = ? WHERE folder = ?`,
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET config = json_set(COALESCE(config, '{}'), '$.open', ?)
+		 WHERE folder = ?`,
 		btoi(open), folder)
 	return err
 }
@@ -310,7 +316,9 @@ func (s *Store) SetGroupOpen(folder string, open bool) error {
 func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 	var m, c sql.NullInt64
 	s.db.QueryRow(
-		`SELECT observe_window_messages, observe_window_chars FROM groups WHERE folder = ?`,
+		`SELECT json_extract(config, '$.observe_window_messages'),
+		        json_extract(config, '$.observe_window_chars')
+		 FROM groups WHERE folder = ?`,
 		folder,
 	).Scan(&m, &c)
 	msgs = -1
@@ -325,20 +333,18 @@ func (s *Store) GroupObserveWindow(folder string) (msgs, chars int) {
 }
 
 // SetGroupObserveWindow writes per-group caps; pass -1 to clear (the
-// gateway then falls back to the env default for that field).
+// gateway then falls back to the env default for that field). A cleared
+// field is set to JSON null so json_extract yields NULL again.
 func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
-	var mv, cv any
-	if msgs >= 0 {
-		mv = msgs
-	}
-	if chars >= 0 {
-		cv = chars
-	}
 	_, err := s.db.Exec(
-		`UPDATE groups
-		   SET observe_window_messages = ?, observe_window_chars = ?
+		`UPDATE groups SET config = json_set(
+		   json_set(COALESCE(config, '{}'),
+		     '$.observe_window_messages',
+		     CASE WHEN ? >= 0 THEN ? END),
+		   '$.observe_window_chars',
+		   CASE WHEN ? >= 0 THEN ? END)
 		 WHERE folder = ?`,
-		mv, cv, folder,
+		msgs, msgs, chars, chars, folder,
 	)
 	return err
 }
@@ -347,11 +353,17 @@ func (s *Store) SetGroupObserveWindow(folder string, msgs, chars int) error {
 // NULL (default: group chats thread, DMs do not). true = always thread. false =
 // never thread (replies land inline regardless of chat kind).
 func (s *Store) SetThreadReplies(folder string, on *bool) error {
-	var v any
-	if on != nil {
-		v = btoi(*on)
+	if on == nil {
+		_, err := s.db.Exec(
+			`UPDATE groups SET config = json_remove(config, '$.thread_replies')
+			 WHERE folder = ?`, folder)
+		return err
 	}
-	_, err := s.db.Exec(`UPDATE groups SET thread_replies = ? WHERE folder = ?`, v, folder)
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET config = json_set(COALESCE(config, '{}'), '$.thread_replies', ?)
+		 WHERE folder = ?`,
+		btoi(*on), folder)
 	return err
 }
 
@@ -365,7 +377,8 @@ func (s *Store) SiblingFolders(folder string) []string {
 	}
 	rows, err := s.db.Query(
 		`SELECT folder FROM groups
-		 WHERE folder LIKE ? AND folder != ? AND open = 1`,
+		 WHERE folder LIKE ? AND folder != ?
+		   AND COALESCE(json_extract(config, '$.open'), 1) = 1`,
 		parent+"/%", folder,
 	)
 	if err != nil {
@@ -444,11 +457,17 @@ func (s *Store) GetStickyTopic(jid string) string {
 // SetGroupModel sets the per-group model override. Empty string clears it
 // (gateway then falls back to instance default).
 func (s *Store) SetGroupModel(folder, model string) error {
-	var v any
-	if model != "" {
-		v = model
+	if model == "" {
+		_, err := s.db.Exec(
+			`UPDATE groups SET config = json_remove(config, '$.model')
+			 WHERE folder = ?`, folder)
+		return err
 	}
-	_, err := s.db.Exec(`UPDATE groups SET model = ? WHERE folder = ?`, v, folder)
+	_, err := s.db.Exec(
+		`UPDATE groups
+		   SET config = json_set(COALESCE(config, '{}'), '$.model', ?)
+		 WHERE folder = ?`,
+		model, folder)
 	return err
 }
 

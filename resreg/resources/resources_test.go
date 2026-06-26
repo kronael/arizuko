@@ -111,8 +111,7 @@ func TestApply_Groups_WithJSONBlob(t *testing.T) {
 			Folder:             "atlas",
 			ContainerConfig:    `{"Mounts":null,"Timeout":0,"MaxChildren":3}`,
 			Product:            "assistant",
-			Model:              "claude-opus-4-7",
-			Open:               1,
+			Config:             `{"model":"claude-opus-4-7","open":1}`,
 			CostCapCentsPerDay: 5000,
 		},
 	}
@@ -127,8 +126,14 @@ func TestApply_Groups_WithJSONBlob(t *testing.T) {
 	if len(gotRows) != 1 {
 		t.Fatalf("after apply: %d rows, want 1", len(gotRows))
 	}
-	if gotRows[0].Model != "claude-opus-4-7" {
-		t.Errorf("model = %q, want claude-opus-4-7", gotRows[0].Model)
+	var cfg struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(gotRows[0].Config), &cfg); err != nil {
+		t.Fatalf("config not JSON: %q (%v)", gotRows[0].Config, err)
+	}
+	if cfg.Model != "claude-opus-4-7" {
+		t.Errorf("config.model = %q, want claude-opus-4-7", cfg.Model)
 	}
 	if gotRows[0].CostCapCentsPerDay != 5000 {
 		t.Errorf("cost_cap = %d, want 5000", gotRows[0].CostCapCentsPerDay)
