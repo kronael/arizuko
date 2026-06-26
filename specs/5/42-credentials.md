@@ -188,25 +188,25 @@ New endpoint or separate section within `/dash/me/secrets`. Writes to
 
 ## What's shipped
 
-| piece                                                     | location                                   | state |
-| --------------------------------------------------------- | ------------------------------------------ | ----- |
-| `secrets` table + AES-256-GCM                             | `store/secrets.go`                         | ✓     |
-| `FolderSecretsResolvedForUser`                            | `store/secrets.go`, `routd/dispatch.go`    | ✓     |
-| Spawn-time capability inject (interim: via container env) | `routd/dispatch.go`, `container/runner.go` | ✓     |
-| dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                      | ✓     |
-| Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                    | ✓     |
-| OAuth write path                                          | `specs/11/14-surrogate-oauth.md`           | ✓     |
+| piece                                                     | location                                              | state           |
+| --------------------------------------------------------- | ----------------------------------------------------- | --------------- |
+| `secrets` table + AES-256-GCM                             | `store/secrets.go`                                    | ✓               |
+| Env-profile key enforcement at store layer                | `store/secrets.go:EnvProfileKeys`, `validateScope`    | ✓               |
+| `FolderSecretsResolvedForUser`                            | `store/secrets.go`, `routd/dispatch.go`               | ✓               |
+| Spawn-time capability inject (interim: via container env) | `routd/dispatch.go`, `container/runner.go`            | ✓               |
+| `ConnectorSecrets` user-scope (callerSub threaded)        | `routd/sibling_db.go`, `routd/mcp.go:buildStoreFns`   | ✓               |
+| Grant-gated `tools/list`                                  | `ipc/ipc.go:1019` Authorize check before registration | ✓               |
+| dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓               |
+| dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓               |
+| Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓               |
+| OAuth write path                                          | `specs/11/14-surrogate-oauth.md`                      | ✓               |
+| Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓ (see spec 41) |
 
 ## What's not shipped
 
-| piece                         | gap                                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Env-profile key enforcement   | writing `ANTHROPIC_API_KEY` with `scope_kind='folder'` silently succeeds; store-layer reject not yet added                            |
-| `/dash/me/env` UI section     | no UI distinction between env-profile and capability keys in dashd                                                                    |
-| `ConnectorSecrets` user-scope | **bug**: `sibling_db.go:ConnectorSecrets` calls `FolderSecrets` (folder only) — user BYOA capability key never reaches MCP subprocess |
-| `callerSub` in connector path | not threaded into `ipc/ipc.go:1027` dispatch                                                                                          |
-| Grant-gated `tools/list`      | all connectors announced unconditionally                                                                                              |
-| Shape 3 REST descriptor       | `[[ext]]` TOML loader + HTTP dispatcher (see spec 41)                                                                                 |
+All credential-model pieces from this spec are shipped. Remaining gaps belong
+to spec 41 (`registerWithSecrets` for Go handlers, `secret_use_log` per-key
+audit rows).
 
 ---
 
