@@ -45,19 +45,25 @@ resreg.Resource  →  RowType + Handler per Action (list/get/create/update/delet
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.
 
-## The `routes` resource is served three ways
+## Two resources share the label `routes` (don't conflate them)
 
-`ipc/ipc.go` (`add_route`/`set_routes`/`list_routes`) + `dashd/routes_admin.go`
-
-- `webd/routes_mcp.go` (resreg forwarder). Same resource, three surfaces.
-  This is the pilot: collapse the three into one resreg-owned handler.
+- **message-routing** `routes` (routd's `routes` table: match→target folder):
+  served by `ipc/ipc.go` agent tools (`add_route`/`set_routes`/`list_routes`)
+  - `dashd/routes_admin.go` (direct DB). routd emits OpenAPI only — no
+    REST/MCP dispatch. **This is the pilot target.**
+- **HTTP-proxy** `proxyd_routes` (proxyd's table): proxyd resreg REST
+  `/v1/routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
+  dual-dispatch — the exemplar to replicate, not a surface to collapse.**
 
 ## Migration (pilot → replicate)
 
-1. **Pilot `routes`** — routd owns the table + registers it via `resreg`
-   (MCP face + REST face). `dashd/routes_admin` HTML calls routd `/v1/routes`.
-   Agent route tools become `resreg.MCPTools`. Delete the three bespoke
-   copies. Prove the pattern end-to-end.
+1. **Pilot message-routing `routes`** — routd already owns the table +
+   declares the resreg resource for OpenAPI; wire it to the REST + MCP faces
+   the way `proxyd_routes` already is. `dashd/routes_admin` calls routd's
+   REST face; agent route tools become `resreg.MCPTools`; delete the two
+   bespoke copies. First close the parity risks — `RoutesRow` vs full
+   `core.Route` columns, the folder-scope auth resolver, audit_log location.
+   Disambiguate the `routes`/`proxyd_routes` name collision. (`.ship/plan-mcp-rest-unification.md`)
 2. **Replicate** to `acl`, `network_rules`, `scheduled_tasks`, `groups`,
    `web_routes` — one resource per pass, same shape.
 3. **One owner + federation** — fold each resource's table to its owner
