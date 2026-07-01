@@ -1,7 +1,6 @@
 ---
 status: draft
 depends: [5/41-ext-mcp, 5/42-credentials, 5/1-auth-standalone]
-supersedes: [specs/11/14-surrogate-oauth]
 ---
 
 # specs/5/43 — surrogate OAuth
@@ -108,25 +107,57 @@ inspector.
 3. **Refresh on near-expiry** — force `expires_at=now+30s`; the next call
    hits the refresh endpoint, updates the row, calls with the new token.
 
+## Shared OAuth core
+
+Identity and surrogate are two callers of one provider-agnostic
+authorization-code engine in `auth/` — the same code that already backs
+login, generalized so both drive it:
+
+- `AuthorizeURL(provider, redirect, state)` — build the authorize URL + S256
+  `code_challenge`, stash the `code_verifier` keyed by `state`.
+- `Exchange(provider, code, verifier)` → `{access, refresh, expires, scope}`.
+- `Refresh(provider, refresh)` → same shape.
+
+The engine is provider-agnostic; per-provider URLs, scopes, and field quirks
+live in the registry. The two callers differ only in their registry and
+their **sink** for the resulting token:
+
+| caller    | registry      | sink                                  |
+| --------- | ------------- | ------------------------------------- |
+| identity  | login IdPs    | mint arizuko JWT + authd refresh row  |
+| surrogate | API providers | write a `secrets` capability-cred row |
+
+Today identity's exchange is per-provider (`auth/oauth.go` google/github/
+discord). Generalizing those into the registry-driven `Exchange` is the one
+refactor; surrogate then adds only its registry + the write-secret sink.
+
+## Usage is not special-cased
+
+Once written, the token is a **normal capability credential**
+([`5/42`](42-credentials.md)). Every consumer resolves it through 42's
+standard path — shape 2 env render, shape 3 bearer, or a future HTTP-MCP
+client transport ([`5/41`](41-ext-mcp.md)). Surrogate owns the **write +
+refresh** only; nothing downstream knows the row came from OAuth rather than
+a paste, except the refresh check on `expires_at`.
+
+## Grants stay orthogonal
+
+Connecting a provider does **not** grant anything. The token enables the
+capability; a separate ACL grant (`mcp:<p>:*` / `ext:<p>:*`) still decides
+whether the agent may call the tool — identical to a pasted PAT. Credential
+ownership and grant are orthogonal (42).
+
 ## Out of scope (v1)
 
 - Multi-account per provider — single `(user, provider)` row.
-- Public clients — confidential client_secret providers only; PKCE is
-  always on, but a client_secret is still required.
+- Public clients — confidential client_secret providers only; PKCE always
+  on, client_secret still required.
 - Multi-instance CSRF state — in-memory, single-process dashd; add a
   `surrogate_oauth_state` table if dashd goes multi-process.
+- Auto-opening crackbox egress to `allowed_domain` on connect — its own
+  future feature spec; here `allowed_domain` is an informational hint only,
+  egress stays a manual `network_rules` step.
 - Background refresh; provider revocation on internal cleanup.
-
-## Open — decide before build
-
-1. **Grant coupling** — does "Connect GitHub" imply the `mcp:github:*` /
-   `ext:github:*` grant, or is the grant a separate self/operator action?
-2. **Egress coupling** — does connecting auto-open crackbox egress to
-   `allowed_domain`, or stay a manual `network_rules` step?
-3. **Reuse boundary** — identity's token-exchange fns are per-provider
-   (google/github/discord). Extract a shared core, or copy the ~30 lines?
-4. **Hosted HTTP-MCP** — surrogate mints the token; the HTTP-MCP client
-   transport that consumes it is a `5/41` add. Confirm the seam.
 
 ## Cross-references
 
