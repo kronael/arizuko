@@ -45,6 +45,27 @@ resreg.Resource  →  RowType + Handler per Action (list/get/create/update/delet
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.
 
+## The deliverable: declare once, both faces auto-generated
+
+resreg already auto-derives three things from `RowType` for engine-managed
+resources (`resreg/resources/*.go` — `Register(Resource{RowType, Table})`):
+the SQL schema, the generic CRUD handler (`engine.go` reflection over `db:`
+tags), and OpenAPI. But the **face lists are still hand-written** —
+`RegisterREST` iterates `r.Endpoints`, `MCPTools` iterates `r.MCPTools`, both
+hand-declared (proxyd writes all ten by hand; the catalog resources declare
+neither, so they're OpenAPI-only, unserved).
+
+**5/44 closes that gap.** For an engine-managed resource (`RowType` + the
+standard `Actions`), resreg generates the two faces too — the five REST
+endpoints (`GET/POST /v1/<name>`, `GET/PATCH/DELETE /v1/<name>/{pk}`) and the
+five MCP tools (`<name>.list/get/create/update/delete`) — from the same
+declaration. Then a resource is declared **once** (`RowType`, `Table`,
+`Authz`) and yields: schema + CRUD handler + OpenAPI + REST face + MCP face,
+all reflection-derived, one auth gate. Hand-declared `Endpoints`/`MCPTools`
+stay as the **override** for custom/forwarder shapes (proxyd's stateless
+route handler) — the escape hatch, not the norm. This is the arizuko way:
+derive from the Go struct, no external DSL/codegen (CLAUDE.md Discoverability).
+
 ## Two resources share the label `routes` (don't conflate them)
 
 - **message-routing** `routes` (routd's `routes` table: match→target folder):
