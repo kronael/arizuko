@@ -1,6 +1,7 @@
 ---
 status: active
-depends: [5/5-uniform-mcp-rest, 5/41-ext-mcp, specs/4/9-acl-unified]
+depends:
+  [5/5-uniform-mcp-rest, 5/41-ext-mcp, 11/18-openapi-mcp, specs/4/9-acl-unified]
 moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5 as active work)
 ---
 
@@ -45,26 +46,35 @@ resreg.Resource  →  RowType + Handler per Action (list/get/create/update/delet
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.
 
-## The deliverable: declare once, both faces auto-generated
+## The deliverable: MCP management of the whole platform, written once
 
-resreg already auto-derives three things from `RowType` for engine-managed
-resources (`resreg/resources/*.go` — `Register(Resource{RowType, Table})`):
-the SQL schema, the generic CRUD handler (`engine.go` reflection over `db:`
-tags), and OpenAPI. But the **face lists are still hand-written** —
-`RegisterREST` iterates `r.Endpoints`, `MCPTools` iterates `r.MCPTools`, both
-hand-declared (proxyd writes all ten by hand; the catalog resources declare
-neither, so they're OpenAPI-only, unserved).
+The goal is **agent-first platform management** — every cold-tier management
+resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
+`network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
+`proxyd_routes`) reachable via **MCP** (agent, scope-gated) AND **REST**
+(human, OAuth-gated), one handler. That's `5/5`'s principle; this spec
+finishes the coverage and collapses the bespoke surfaces onto it.
 
-**5/44 closes that gap.** For an engine-managed resource (`RowType` + the
-standard `Actions`), resreg generates the two faces too — the five REST
-endpoints (`GET/POST /v1/<name>`, `GET/PATCH/DELETE /v1/<name>/{pk}`) and the
-five MCP tools (`<name>.list/get/create/update/delete`) — from the same
-declaration. Then a resource is declared **once** (`RowType`, `Table`,
-`Authz`) and yields: schema + CRUD handler + OpenAPI + REST face + MCP face,
-all reflection-derived, one auth gate. Hand-declared `Endpoints`/`MCPTools`
-stay as the **override** for custom/forwarder shapes (proxyd's stateless
-route handler) — the escape hatch, not the norm. This is the arizuko way:
-derive from the Go struct, no external DSL/codegen (CLAUDE.md Discoverability).
+**Written once, not twice.** The REST handler is authored; the **MCP face is
+derived** from the daemon's annotated `/openapi.json` (`x-mcp-*` fields carry
+the sharp tool name + when-to-use + scope mapping a naive bridge can't infer)
+by the generic gateway in [`11/18-openapi-mcp`](../11/18-openapi-mcp.md).
+No hand-authored `MCPTools` list per resource — shipping 11/18 is the
+mechanism this spec rides.
+
+**Two surfaces stay distinct — don't merge them:**
+
+- **Cold-tier management** (`/v1/*` resources) — REST-authored, MCP-derived.
+  `ipc/ipc.go`'s hand-rolled management tools (`list_routes`/`add_route`/…)
+  and `dashd`'s hand-rolled CRUD collapse onto this one handler per resource.
+- **Hot-tier agent actions** (`reply`, `send`, `engage`, `inspect_*`) —
+  **MCP-only by design**; no REST resource to derive from. They stay
+  hand-authored in `ipc/ipc.go`. So ipc.go doesn't disappear — it loses its
+  management tools, keeps the hot-tier tools + the unix-socket transport.
+
+CRUD-from-`RowType` (`engine.go`, spec `5/36`) is an orthogonal, optional
+handler-_producer_ for table-backed resources — sugar that feeds a handler
+into the interop, not the point of the interop itself.
 
 ## Two resources share the label `routes` (don't conflate them)
 
