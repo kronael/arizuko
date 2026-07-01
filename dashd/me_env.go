@@ -184,7 +184,7 @@ func (d *dash) handleMeEnvCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	emitEnvSet(sub, body.Key)
+	emitSecretSet(sub, body.Key)
 	slog.Info("me_env create", "sub", sub, "key", body.Key)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -234,7 +234,7 @@ func (d *dash) handleMeEnvUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
-	emitEnvSet(sub, key)
+	emitSecretSet(sub, key)
 	slog.Info("me_env update", "sub", sub, "key", key)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -281,15 +281,5 @@ func (d *dash) handleMeEnvDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func emitEnvSet(sub, key string) {
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategorySecret,
-		Action:   "secret.set",
-		Actor:    "user:" + sub,
-		ActorSub: sub,
-		Surface:  audit.SurfaceREST,
-		Resource: "secrets/user/" + sub + "/" + key,
-		Scope:    "user",
-		Outcome:  audit.OutcomeOK,
-	})
-}
+// secret.set audit for /dash/me/env writes is emitted via emitSecretSet
+// (dashd/me_secrets.go) — same user-scoped secrets/user/<sub>/<key> shape.

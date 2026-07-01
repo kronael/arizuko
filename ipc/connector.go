@@ -182,14 +182,7 @@ func expandSecret(s string, secrets map[string]string) string {
 // in the JSON text with "«redacted»". Cheap; the secret set is small per
 // call. Only acts on bytes — not on schema/structure.
 func scrubResult(b []byte, secrets map[string]string) []byte {
-	s := string(b)
-	for _, v := range secrets {
-		if v == "" {
-			continue
-		}
-		s = strings.ReplaceAll(s, v, "«redacted»")
-	}
-	return []byte(s)
+	return []byte(scrubSecrets(string(b), secrets))
 }
 
 // startStdio wires the subprocess pipes. stderr is line-buffered into
