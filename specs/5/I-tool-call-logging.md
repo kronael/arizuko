@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [5-uniform-mcp-rest]
+depends: [45-openapi-mcp]
 ---
 
 # specs/5/I — per-tool-call logging
@@ -153,7 +153,7 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 
 ## Non-goals
 
-- **OTLP export.** Defined in [`O-otlp-export.md`](O-otlp-export.md):
+- **OTLP export.** Defined in [`O-observability.md`](O-observability.md):
   slog stream tee'd to an OTLP exporter without changing the source
   of truth (`audit_log` stays SQLite-canonical).
 - **Replacing slog with audit_log as the only sink.** slog is the

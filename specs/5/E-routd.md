@@ -10,7 +10,7 @@ depends:
     W-webhook-routes,
     S-jid-format,
     1-auth-standalone,
-    5-uniform-mcp-rest,
+    45-openapi-mcp,
   ]
 ---
 
@@ -510,7 +510,7 @@ ordered view per `(chat, group)`**, serial within a folder.
 client), importing only `types/`
 (`ARCHITECTURE.md` § Daemon conventions — per-daemon api/v1).
 Every endpoint has an MCP twin where an agent needs it — one hand-written
-handler, two faces ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)).
+handler, two faces ([`5/45-openapi-mcp.md`](45-openapi-mcp.md)).
 
 All JSON errors use `{"error":"<code>","message":"<human>"}` with the
 HTTP status carrying the class. `GET /openapi.json` and `GET /health`
@@ -833,7 +833,7 @@ table lookup; webd never sees the hash or the table.
 
 routd is **agent-first**: MCP is canonical, REST is the impedance match.
 Every `/v1/*` handler has an MCP twin where an agent needs it — one
-handler, two faces ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)).
+handler, two faces ([`5/45-openapi-mcp.md`](45-openapi-mcp.md)).
 The conversation tools are **served to the agent by routd's in-process
 MCP socket** (`ServeTurnMCP` binds the per-folder unix socket and wires
 the tools to routd's own DB + Deliverer); routd is the **handler

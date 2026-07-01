@@ -146,7 +146,7 @@ split a daemon out only if a hosted always-on watch is needed.
 ## Orthogonality + neighbors
 
 Public surfaces only — the same ones a human or external tool uses. The
-parity case is a direct check of the uniform-MCP+REST invariant (`5/5`);
+parity case is a direct check of the uniform-MCP+REST invariant (`5/45`);
 webhook/chat-link cases lean on `5/W`; privilege cases on `4/9`. No
 arizuko Go imports; fs/sqlite reads are a non-gating `--debug` aid.
 

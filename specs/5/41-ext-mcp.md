@@ -1,7 +1,6 @@
 ---
 status: partial
-depends:
-  [5-uniform-mcp-rest, specs/4/9-acl-unified, specs/5/32-tenant-self-service]
+depends: [45-openapi-mcp, specs/4/9-acl-unified, specs/5/32-tenant-self-service]
 ---
 
 # specs/5/41 — external capability injection

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [5/5-uniform-mcp-rest, 5/35-proxyd-standalone, 1-auth-standalone]
+depends: [5/45-openapi-mcp, 5/35-proxyd-standalone, 1-auth-standalone]
 supersedes: [10/18-daemon-dashboards]
 ---
 
@@ -59,7 +59,7 @@ Consequences:
   daemon-owned read endpoint (`/v1/<thing>/status`). Each per-daemon
   spec lists the `/v1` additions it requires under "Required API work".
 - No new "dashboard API" separate from `/v1`. The HTML page is a third
-  face on the same handler set (`specs/5/5`), not a fourth surface.
+  face on the same handler set (`specs/5/45`), not a fourth surface.
 
 ## Routing
 
@@ -220,7 +220,7 @@ beyond "use theme" — point back to this spec.
 - [`auth/middleware.go`](../../auth/middleware.go) — `ProxydTransit`
   (service-bearer transit proof; gate the daemon-side dash check on it).
 - [`chanreg/health.go`](../../chanreg/health.go) — adapter health.
-- [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — the
+- [`specs/5/45-openapi-mcp.md`](../5/45-openapi-mcp.md) — the
   HTML page is a third face on the same `/v1` handler set.
 - [`specs/5/35-proxyd-standalone.md`](../5/35-proxyd-standalone.md) —
   `[[proxyd_route]]` registration in the service TOML.

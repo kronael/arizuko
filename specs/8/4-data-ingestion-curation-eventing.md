@@ -1,5 +1,5 @@
 ---
-status: open-questions
+status: draft
 depends: specs/8/2-data-model.md, specs/8/3-git-as-truth.md
 ---
 
@@ -8,7 +8,8 @@ depends: specs/8/2-data-model.md, specs/8/3-git-as-truth.md
 ## Why this exists
 
 Phase 8 lands the platform thesis: MCP+REST as the runtime surface
-(8/1), tiered entities (8/2), git as cold-tier truth (8/3). What it
+([`5/44`](../5/44-mcp-rest-unification.md)), tiered entities (8/2), git
+as cold-tier truth (8/3). What it
 does NOT say is what happens at the edges where data enters, gets
 curated, and triggers reactions across products. After 8/3 ships, an
 "agent product" is largely an entry in a git repo (`agents.toml`

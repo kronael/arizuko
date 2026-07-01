@@ -1,7 +1,7 @@
 ---
 status: superseded
 superseded_by: 6/1-cockpit-index
-depends: [5/5-uniform-mcp-rest, 5/35-proxyd-standalone]
+depends: [5/45-openapi-mcp, 5/35-proxyd-standalone]
 ---
 
 > **Superseded by [`specs/6/1-cockpit-index.md`](../6/1-cockpit-index.md)**
@@ -200,7 +200,7 @@ Backend, Auth}` shape; no schema change needed.
   `Page()` helpers every daemon imports.
 - [`auth/middleware.go:9-35`](../../auth/middleware.go) —
   `RequireSigned` / `StripUnsigned` verify identity headers.
-- [`specs/5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) —
+- [`specs/5/45-openapi-mcp.md`](../5/45-openapi-mcp.md) —
   resource handlers expose REST + MCP; this spec adds an HTML face
   ON THE SAME DAEMON, owned by the same handler set. The hub is a
   third face (navigation), not a fourth surface.

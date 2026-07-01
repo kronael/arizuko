@@ -1,5 +1,5 @@
 ---
-status: drafting
+status: draft
 ---
 
 # specs/8 — platform program: MCP+REST unification, data model, git-as-truth
@@ -103,12 +103,12 @@ Also composes with phase 7 hardening: `specs/7/F-audit-stream.md`
   `git worktree`; audit via `git log`.
 - [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
   — open questions: how ingestion, curation, and eventing fit the
-  agent-is-data + git-as-truth thesis. Status: open-questions; no
-  mechanism proposed.
+  agent-is-data + git-as-truth thesis. Status: draft (open questions;
+  no mechanism proposed).
 - [5/36-yaml-manifests.md](../5/36-yaml-manifests.md) — declarative YAML
   carrier for cold-tier intent; flat resource namespace dispatched
   through resreg; supersedes the `agents.toml` placeholder in
-  3/4. Status: draft.
+  3/4. Status: shipped.
 - [6-functions.md](6-functions.md) — lambda/function primitive:
   agent-authored scripts on host, triggered transiently by webhook /
   cron / function-chain / manual via `systemd-run --transient` under

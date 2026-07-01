@@ -120,7 +120,7 @@ not the platform's, and is bounded to its own slot by `set_web_route`.
 ### Discovery — `get_web_presence`
 
 A world derives its hostname but is never told it. `get_web_presence`
-(routd MCP tool + `GET /v1/web_presence?folder=<f>` REST twin, spec 5/5
+(routd MCP tool + `GET /v1/web_presence?folder=<f>` REST twin, spec 5/45
 uniform) is the read-only discovery surface that closes that gap. Given
 a folder (default: the caller's own), it reports:
 

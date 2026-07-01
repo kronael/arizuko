@@ -258,5 +258,5 @@ end(err) // sets outcome + duration
 
 - [`I-tool-call-logging.md`](I-tool-call-logging.md) — slog field schema
 - [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log (NOT exported)
-- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) — unified handlers that emit records
+- [`5/45-openapi-mcp.md`](45-openapi-mcp.md) — unified handlers that emit records
 - [`obs/README.md`](../../obs/README.md) — implementation reference

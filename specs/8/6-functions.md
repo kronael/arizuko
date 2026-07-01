@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/7/F-audit-stream.md, specs/5/5-uniform-mcp-rest.md, specs/8/3-git-as-truth.md, specs/5/36-yaml-manifests.md
+depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/7/F-audit-stream.md, specs/5/45-openapi-mcp.md, specs/8/3-git-as-truth.md, specs/5/36-yaml-manifests.md
 ---
 
 # specs/8/6 — functions: agent-authored lambda primitive
@@ -353,7 +353,7 @@ chain.
 | Delete          | `functions.delete` | `DELETE /v1/functions/{name}`      |
 | Invoke (manual) | `functions.invoke` | `POST /v1/functions/{name}:invoke` |
 
-One hand-rolled resreg handler per [`5/5`](../5/5-uniform-mcp-rest.md).
+One hand-rolled resreg handler per [`5/45`](../5/45-openapi-mcp.md).
 `state: absent` row in a YAML manifest deletes. Group delete
 cascades.
 
@@ -492,7 +492,7 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
 <callid>` escape hatch parked. v1 recovery is manual.
 8. **OTLP correlation across chain hops.** `turn_id` propagates,
    giving OTLP traces the same root span per
-   [`5/O`](../5/O-otlp-export.md). Per-hop span correlation is
+   [`5/O`](../5/O-observability.md). Per-hop span correlation is
    automatic via that propagation; no new spec work.
 
 ## Non-goals (v1)
@@ -508,7 +508,7 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
 - Service mesh / inter-fn discovery beyond `fn:<name>` chain.
 - Distributed tracing across fn calls beyond `turn_id` propagation —
   covered if operator opts into OTLP per
-  [`5/O`](../5/O-otlp-export.md).
+  [`5/O`](../5/O-observability.md).
 - WebSocket / bidirectional streaming response. v1 is
   request/response only; chunked transfer is fine, bidi is not.
 - High-QPS data-plane workloads. Operating envelope is ≤10
@@ -527,7 +527,7 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   field schema; this spec fills in the `tool` values listed above.
 - [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log
   table. New `tool` values only; no schema change.
-- [`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) — one
+- [`../5/45-openapi-mcp.md`](../5/45-openapi-mcp.md) — one
   resreg handler per resource; `functions` joins the unified surface.
 - [`../8/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
   row + script file are cold-tier state; per-turn commit picks them

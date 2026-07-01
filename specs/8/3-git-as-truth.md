@@ -1,6 +1,6 @@
 ---
-status: drafting
-depends: specs/5/5-uniform-mcp-rest.md, specs/8/2-data-model.md
+status: draft
+depends: specs/5/45-openapi-mcp.md, specs/8/2-data-model.md
 ---
 
 # specs/8/3 — git as the source of truth

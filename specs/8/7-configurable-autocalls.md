@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/31-autocalls.md, specs/5/36-yaml-manifests.md, specs/5/5-uniform-mcp-rest.md
+depends: specs/5/31-autocalls.md, specs/5/36-yaml-manifests.md, specs/5/45-openapi-mcp.md
 ---
 
 # specs/8/7 — Configurable autocalls
@@ -479,7 +479,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - `specs/5/36-yaml-manifests.md` — the DB-backed resreg substrate;
   `autocalls` is one more catalog resource, manifest-addressable,
   scoped by group nesting (`scope` implied like `acl`).
-- `specs/5/5-uniform-mcp-rest.md` — `resreg.Resource` wires one
+- `specs/5/45-openapi-mcp.md` — `resreg.Resource` wires one
   hand-rolled handler to REST + MCP + audit + the ACL gate;
   `autocalls:<action>` is the action key.
 - `specs/4/9-acl-unified.md` — `autocalls:*` actions; operator-owned

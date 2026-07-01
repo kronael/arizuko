@@ -2,7 +2,7 @@
 status: shipped
 shipped: 2026-05-27
 depends: [C-message-mcp, G-engagement, T-voice-synthesis]
-relates-to: [5/5-uniform-mcp-rest]
+relates-to: [5/45-openapi-mcp]
 ---
 
 # specs/5/Z — message actions: edit, delete, pin, unpin

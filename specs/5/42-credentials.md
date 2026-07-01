@@ -1,12 +1,7 @@
 ---
 status: shipped
 depends:
-  [
-    5-uniform-mcp-rest,
-    5/41-ext-mcp,
-    specs/4/9-acl-unified,
-    5/43-surrogate-oauth,
-  ]
+  [45-openapi-mcp, 5/41-ext-mcp, specs/4/9-acl-unified, 5/43-surrogate-oauth]
 supersedes:
   [
     specs/5/41 §Secrets-table,

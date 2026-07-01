@@ -9,7 +9,7 @@ Architecture, routing, auth, theme per [`6/1`](1-cockpit-index.md).
 This spec adds only proxyd's pages + show/control matrix.
 
 **What proxyd can actually mutate at runtime:** the `proxyd_routes`
-table — full CRUD already exists (`GET/POST/PATCH/DELETE /v1/routes`,
+table — full CRUD already exists (`GET/POST/PATCH/DELETE /v1/proxyd_routes`,
 `proxyd/resource.go:300` `routesResourceDecl`). Mutations are durable
 and visible to the next request without restart: there is **no route
 cache and therefore no "reload"** — every request reads the table
@@ -79,15 +79,15 @@ vhost aliases, `PUB_REDIRECT_URL` + its cached probe state
 
 ## Control
 
-| Affordance            | `/v1` verb                 | Status     | Danger                                                                                                                                          |
-| --------------------- | -------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| create route          | `POST /v1/routes`          | exists     | **`.btn-danger`** — a bad route shadows a daemon's surface                                                                                      |
-| edit route            | `PATCH /v1/routes/{path}`  | exists     | **`.btn-danger`** — flipping `auth` to `public` exposes a backend                                                                               |
-| delete route          | `DELETE /v1/routes/{path}` | exists     | **`.btn-danger`** — 404s a live surface; idempotent (204)                                                                                       |
-| reload routes         | —                          | —          | **non-goal**: nothing to reload — per-request DB read (spec 5/36) means every mutation is already live                                          |
-| enable/disable route  | —                          | —          | **non-goal**: no `enabled` column exists; the honest disable is DELETE (the route row IS the registration, per `6/1`). Don't invent a soft flag |
-| clear denial counters | `DELETE /v1/denials`       | **to add** | no — in-memory ring + counters only, nothing durable                                                                                            |
-| edit web_routes       | —                          | —          | **non-goal**: agent-owned via `set_web_route`; proxyd is a reader                                                                               |
+| Affordance            | `/v1` verb                        | Status     | Danger                                                                                                                                          |
+| --------------------- | --------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| create route          | `POST /v1/proxyd_routes`          | exists     | **`.btn-danger`** — a bad route shadows a daemon's surface                                                                                      |
+| edit route            | `PATCH /v1/proxyd_routes/{path}`  | exists     | **`.btn-danger`** — flipping `auth` to `public` exposes a backend                                                                               |
+| delete route          | `DELETE /v1/proxyd_routes/{path}` | exists     | **`.btn-danger`** — 404s a live surface; idempotent (204)                                                                                       |
+| reload routes         | —                                 | —          | **non-goal**: nothing to reload — per-request DB read (spec 5/36) means every mutation is already live                                          |
+| enable/disable route  | —                                 | —          | **non-goal**: no `enabled` column exists; the honest disable is DELETE (the route row IS the registration, per `6/1`). Don't invent a soft flag |
+| clear denial counters | `DELETE /v1/denials`              | **to add** | no — in-memory ring + counters only, nothing durable                                                                                            |
+| edit web_routes       | —                                 | —          | **non-goal**: agent-owned via `set_web_route`; proxyd is a reader                                                                               |
 
 Route mutations reuse the existing handler + validation verbatim
 (`routesResource.handle`, `proxyd/resource.go:178`; `validateRoute`,
@@ -118,10 +118,10 @@ No new dashboard API beyond these; the routes face already exists.
 
 Per `6/1`: proxyd carries its own `/dash/proxyd/` route (`auth:
 "user"`) and gates with `auth/dashauth.go` operator + same-origin CSRF
-on writes. Note the existing `/v1/routes` REST face is reachable only
+on writes. Note the existing `/v1/proxyd_routes` REST face is reachable only
 via webd's transit (caller pinned to `service:webd`,
 `channelTrusted`, `proxyd/resource.go:357`) — the dash pages do NOT
-go through that gate; they invoke the **same** registered `/v1/routes`
+go through that gate; they invoke the **same** registered `/v1/proxyd_routes`
 resource handler (`routesResource.handle`) and the new ring/probe
 helpers in-process — same validation, same semantics, one handler with
 two faces (`6/1` read-path), not a parallel non-`/v1` path — leaving
@@ -151,8 +151,8 @@ hand-wired surfaces (`/pub/`, `/dav/` policy, vhost derivation — code
 - `/dash/proxyd/` route registered in `compose.go`'s default route
   list (proxyd is a core daemon, no service TOML — `6/1` Routing);
   hub tile probes `GET /health` (`proxyd/main.go:494`).
-- Routes page matches `GET /v1/routes` exactly (same handler, third
-  face — spec 5/5); creating a route from the page makes the next
+- Routes page matches `GET /v1/proxyd_routes` exactly (same handler, third
+  face — spec 5/45); creating a route from the page makes the next
   request through proxyd honour it with **no restart**.
 - Editing a route to `auth: public` and deleting a route both demand
   the danger confirm.

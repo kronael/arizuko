@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [5-uniform-mcp-rest, 5/E-routd]
+depends: [5/45-openapi-mcp, 5/E-routd]
 supersedes-in-part: [4/19-action-grants.md]
 ---
 

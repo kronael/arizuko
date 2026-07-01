@@ -806,7 +806,8 @@ MCP-only by design.
 - [`proxyd/main.go:590-634`](../../proxyd/main.go) — signed-identity
   header path; the `Caller` builder for REST. OAuth login delegates to
   `authd`, which mints the scope-carrying token; proxyd verifies.
-- `routd`/`runed` (post-split, from today's [`gated/`](../../gated/)),
+- [`routd/`](../../routd/)/[`runed/`](../../runed/) (post-split; the
+  former `gated/` was deleted 2026-06-07),
   [`timed/`](../../timed/), [`onbod/`](../../onbod/),
   [`webd/`](../../webd/) — each gains a small `v1.go` for its owned
   resources; calls `RegisterResource` per owned resource.

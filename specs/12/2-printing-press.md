@@ -122,7 +122,7 @@ blocks and seed the matching directories.
 
 ### Layer 4 — generate `pp-arizuko` from `/v1/*`
 
-Once [5/5-uniform-mcp-rest.md](../5/5-uniform-mcp-rest.md) lands and each
+Once [5/45-openapi-mcp.md](../5/45-openapi-mcp.md) lands and each
 daemon serves OpenAPI at `/v1/openapi.json`, run:
 
 ```bash
@@ -220,7 +220,7 @@ Each independently shippable.
 3. **Layer 3** — `PRODUCT.md` `[[printing_press]]` block + seeding
    in `SetupGroup`. **(½ day)**
 4. **Layer 4** — `pp-arizuko` once OpenAPI specs land per
-   [5/5-uniform-mcp-rest.md](../5/5-uniform-mcp-rest.md). Phase-coupled
+   [5/45-openapi-mcp.md](../5/45-openapi-mcp.md). Phase-coupled
    to phase 6 progress. **(1 day after API ships)**
 5. **Layer 5** — on-demand generation as a documented pattern;
    janitor for disk; promotion to `/var/lib/share/`. **(1 day)**
@@ -252,5 +252,5 @@ generate` over a month, pre-bake the top hits.
 - `container/runner.go` — `seedSkills` extension to read
   `PRODUCT.md` `[[printing_press]]` blocks.
 - `ant/examples/<product>/PRODUCT.md` — per-product CLI manifests.
-- `specs/5/5-uniform-mcp-rest.md` — OpenAPI exposure prerequisite for
+- `specs/5/45-openapi-mcp.md` — OpenAPI exposure prerequisite for
   Layer 4.
