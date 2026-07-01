@@ -12,6 +12,37 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [v0.57.0] — 2026-07-01
+
+> arizuko v0.57.0 — credential model + external REST tools
+>
+> Model API keys now live in their own dashboard section, agents see only the tools they're granted, and arizuko can call REST APIs like DNS providers directly — with the token brokered so it never enters the container.
+>
+> • Model keys — `/dash/me/env`: set your `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `CODEX_API_KEY` in a dedicated section, kept user-scoped
+> • Grant-gated tools — an agent's tool list shows only what its folder is granted; ungranted connectors stay hidden
+> • External REST tools — `[[ext]]` descriptors let arizuko call Cloudflare / Porkbun / Gandi / Namecheap DNS APIs directly; the token never enters the container
+> • BYOA fix — your own capability key (e.g. `GITHUB_TOKEN`) now resolves for MCP connector calls, not just the folder default
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Env-profile key model + `/dash/me/env`.** Model API keys (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) get a dedicated dashboard section, distinct from capability tokens at `/dash/me/secrets`. The store rejects these keys at folder scope — user-scoped only. (`95f4ab6e`, `b52c0f81`)
+- **Grant-gated `tools/list`.** MCP connector and `[[ext]]` REST tools register into an agent's tool list only when `Authorize(folder, scope)` passes; default tier allows all, an explicit deny hides the tool. Call-time grant check stays as defense in depth. (`90a28180`)
+- **Shape-3 REST descriptor.** `[[ext]]` TOML blocks map tool names to REST endpoints; arizuko makes the HTTP call directly and injects the secret from the table — bearer / apikey-header / apikey-query / basic / json-body auth, path-param substitution, response scrubbing. Built-in providers: Cloudflare, Porkbun, Gandi, Namecheap. (`a528fbe1`, `0de4ef3c`)
+
+### Fixed
+
+- **BYOA key invisible to MCP connectors.** `ConnectorSecrets` resolved folder scope only, so a user's own capability key (e.g. `GITHUB_TOKEN`) never reached the connector subprocess. Now threads `callerSub` and resolves the triggering user's key via `FolderSecretsForUser`. (`0d244973`, `161ea01a`)
+- **`/dash/me/secrets` DELETE bypassed the env-profile guard.** DELETE accepted env-profile key names that CREATE and PATCH rejected. Guard added. (`0de4ef3c`)
+- **Ext provider descriptor correctness.** Porkbun `{record_id}`→`{id}`, Namecheap base/path split, Gandi `rrset_name`/`rrset_type` param names. (`0de4ef3c`)
+
+### Changed
+
+- **Credential model spec (`5/42`) shipped; surrogate OAuth (`5/43`, ex-`11/14`) drafted.** Three credential types — env-profile / capability / infra — resolution chain, and write paths consolidated; OAuth write-path split into its own design-complete spec; `5/41` reduced to handler shapes. (`659ead85`)
+
+---
+
 ## [v0.56.0] — 2026-06-26
 
 > arizuko v0.56.0 — BYOA secrets + Discord thread replies + groups config
