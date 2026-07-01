@@ -1,92 +1,90 @@
 ---
-status: draft
-depends: [1-auth-standalone, 5/E-routd, 36-yaml-manifests]
+status: active
+supersedes: 5/5-uniform-mcp-rest
+depends:
+  [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
 ---
 
-# specs/5/45 — openapi-mcp: annotated REST → well-behaved MCP
+# specs/5/45 — uniform REST+MCP: author REST, derive MCP
 
-> Annotate an OpenAPI doc with `x-mcp-*` fields; a generic gateway
-> serves it as an MCP server. The annotations carry the
-> agent-facing instructions — sharp tool names, when-to-use prose,
-> 1→N split, scope mapping — that a naive endpoint→tool bridge can't
-> infer. No folders, no grants. arizuko's `/v1/*` daemons annotate
-> their `/openapi.json`; openapi-mcp derives `5/5`'s MCP face from it.
+> The canonical "one handler, two faces" statement. Every cold-tier
+> management resource is authored **once** as a REST handler with an
+> annotated `/openapi.json` (`x-mcp-*` fields); the MCP face is
+> **derived** from that doc by a generic gateway. One `auth.Authorize`
+> gate, two identity sources (OAuth-gated REST, scope-gated MCP).
+> Hot-tier agent actions (`reply`, `send`, `inspect_*`) are MCP-only
+> by design — no REST resource to derive from. Supersedes
+> [`5/5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) for the mechanism;
+> [`5/44`](44-mcp-rest-unification.md) is the adoption program that
+> rolls this out.
 
-## Status
+## The model
 
-Draft / future. The CRUD half already ships: `resreg`'s reflective
-engine ([36-yaml-manifests.md](../5/36-yaml-manifests.md) §"OpenAPI
-emission") turns a `RowType` struct into REST + MCP + OpenAPI from one
-declaration. This spec extends the **derivation** from CRUD rows to
-**action verbs** (send/reply/escalate/…) by carrying their
-agent-facing description in the OpenAPI doc, and defines the generic
-gateway that renders any annotated doc as MCP. Gated on `authd`
-([1-auth-standalone.md](../5/1-auth-standalone.md), the REST JWT gate)
-and the per-daemon `/v1/*` structure (`ARCHITECTURE.md` § Daemon
-conventions). Cataloged here, not yet extracted.
+Two tiers, by design — not a pending migration:
 
-## Problem
+- **Cold-tier (operator config)** — `routes`, `acl`, `groups`,
+  `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`. Each is reachable
+  via **REST** (human, OAuth-gated) AND **MCP** (agent, scope-gated).
+  ONE REST handler per `(resource, action)`; the MCP tool is **derived**
+  from the annotated OpenAPI, never a second hand-written tree.
+- **Hot-tier (agent runtime)** — `reply`, `send`, `like`, `delete`,
+  `post`, `diary`, session control (`fork_topic`, `engage`, `disengage`,
+  `reset_session`, `inject_message`), inspect (`inspect_routing`,
+  `inspect_tasks`, `inspect_session`). **MCP-only by design**, authored
+  in `ipc/ipc.go`. These are agent-to-conversation primitives; an
+  operator REST mirror adds nothing (operators don't `reply` to chats).
+  NEVER fold them into the cold-tier interop.
 
-A "tool" as the model sees it is a schema (name + description + JSON
-args) plus a result channel. MCP is the transport, not a model
-capability — the model never learns it's talking MCP, only that it has
-tools with names and descriptions. So if a REST API already publishes
-its operations as an OpenAPI doc, and that doc carries the
-**agent-facing instructions**, a generic gateway can derive good MCP
-tools from it. No second tree, no hand-authored MCP wrappers.
+The only thing that differs between the two cold-tier faces is the
+identity source. The gate is the same.
 
-[`5/5`](../5/5-uniform-mcp-rest.md) today is "one handler, two faces":
-each resource action is reachable via REST (OAuth-gated) and MCP
-(scope-gated), but **both faces are hand-authored** — the `Endpoint`
-slice and the `MCPTool` slice are written side by side. For
-engine-managed CRUD resources, `resreg` already collapses this:
-`RowType` reflection emits both. For **action verbs** it does not —
-`send`, `reply`, `escalate_group` are still hand-registered in
-`ipc/ipc.go` with their descriptions written inline.
+## Why derive, not hand-author both
 
-The missing piece is a vocabulary that puts the agent-facing
-description **in the OpenAPI operation**, so the MCP face derives from
-the REST face instead of being maintained beside it. Once that exists,
-`5/5` stops hand-authoring the MCP tree for verbs too.
+Today the shipped exemplar (`proxyd/resource.go` `routesResourceDecl`
 
-## Why a naive bridge fails
+- `webd/routes_mcp.go`) authors both faces side by side: a
+  `resreg.Resource` carries a hand-written `Endpoints` slice AND a
+  hand-written `MCPTools` slice — literally duplicated across two files
+  that drift over time. `resreg` collapses this for schema-driven CRUD
+  (`RowType` reflection emits both — [36-yaml-manifests.md](36-yaml-manifests.md)
+  §"OpenAPI emission"), but action verbs are still hand-registered.
 
-Mechanical OpenAPI→MCP bridges exist in the ecosystem (one tool per
-operation, operationId as the name, summary as the description). They
-fail arizuko's load-bearing constraint — the `mcp_tool_naming` rule:
+The fix: put the agent-facing description **in the OpenAPI operation**,
+so the MCP face derives from the REST face instead of being maintained
+beside it. One renderer, many sinks — the OpenAPI doc is the single
+render, REST and MCP are two reads of it. This is the arizuko
+"one renderer, many sinks" rule applied to the surface itself.
 
-> different intents → different tool names + sharp descriptions; do
-> NOT overload with kind/mode params (UNIX `cp`/`mv`/`ln`, not
+## Why a naive OpenAPI→MCP bridge fails
+
+Mechanical bridges exist (one tool per operation, `operationId` as name,
+`summary` as description). They fail arizuko's `mcp_tool_naming` rule:
+
+> different intents → different tool names + sharp descriptions; do NOT
+> overload with kind/mode params (UNIX `cp`/`mv`/`ln`, not
 > `relocate(kind=...)`).
 
-A 1:1 bridge produces:
-
-- One tool per endpoint, named from `operationId` (`createMessage`),
-  not from intent. Two intents that share an endpoint get one tool.
-- The OpenAPI `summary` as the description — written for an SDK
-  consumer ("Create a message"), useless as agent "when to use this"
-  guidance.
-- Every path/query/body param flattened into the tool's input,
-  including params the agent must not set (the folder, which comes from
-  its scoped token).
-
-The differentiator of this standard is **not** the mechanical
-conversion — that's commodity. It's the **agent-ergonomics annotation
-layer**: sharp naming, 1→N split, scope/auth-lens mapping, param
-hiding. Don't overclaim novelty; claim the annotation vocabulary and
-the dual-gate model.
+A 1:1 bridge produces one tool per endpoint named from `operationId`
+(so two intents sharing an endpoint collapse to one tool), the SDK-facing
+`summary` as description (useless as agent "when to use this" guidance),
+and every path/query/body param flattened into the input (including the
+folder, which must come from the caller's scoped token, not a model-set
+value). The differentiator is NOT the mechanical conversion — that's
+commodity — it's the **annotation layer** that carries what the bridge
+can't infer.
 
 ## The annotation vocabulary (`x-mcp-*`)
 
-OpenAPI 3.1 allows vendor extensions (`x-*`) on any object. The
-gateway reads these on each operation; tooling that ignores them sees a
-normal OpenAPI doc.
+OpenAPI 3.1 allows vendor extensions (`x-*`) on any object. The gateway
+reads these per operation; tooling that ignores them sees a normal
+OpenAPI doc.
 
 | Field          | On        | Meaning                                                                                     |
 | -------------- | --------- | ------------------------------------------------------------------------------------------- |
 | `x-mcp-tool`   | operation | MCP tool name. Default: `operationId`. The intent-named verb, not the URL.                  |
 | `x-mcp-desc`   | operation | The load-bearing "when to use this" prose. **Without it the tool is not emitted** (strict). |
-| `x-mcp-scope`  | operation | Scope the MCP caller needs (`messages:send`). Maps to the auth lens (below).                |
+| `x-mcp-scope`  | operation | Scope the MCP caller needs (`messages:send`). Documented next to the op; not a gate.        |
 | `x-mcp-hidden` | operation | `true` → REST-only; no MCP tool emitted.                                                    |
 | `x-mcp-split`  | operation | List of tool variants derived from one operation (the 1→N case, below).                     |
 | `x-mcp-arg`    | parameter | Per-arg override: `hidden`, `default`, `desc`, `rename`. Hidden args never reach the model. |
@@ -94,157 +92,92 @@ normal OpenAPI doc.
 `x-mcp-desc` is strict-on-purpose: a tool with no agent-facing
 description is garbage to the model, so the gateway **refuses to emit
 it** rather than fall back to `summary`. This mirrors arizuko's
-"strict, not magical" rule — no silent fallback for missing
-agent-facing data. (REST-only operations declare `x-mcp-hidden: true`
-to opt out explicitly; absence of `x-mcp-desc` on a non-hidden op is a
-doc error the gateway reports.)
+"strict, not magical" rule — no silent fallback for missing agent-facing
+data. REST-only operations opt out explicitly with `x-mcp-hidden: true`;
+absence of `x-mcp-desc` on a non-hidden op is a doc error the gateway
+reports.
 
 ### Arg mapping
 
 A REST operation scatters inputs across `path`, `query`, and
 `requestBody`. An MCP tool has one flat JSON input schema. The gateway
-flattens all three into one object, keyed by parameter/property name;
-on `tools/call` it re-scatters them into the HTTP request (path
+flattens all three into one object, keyed by parameter/property name; on
+`tools/call` it re-scatters them into the HTTP request (path
 substitution, query string, JSON body) per the operation's original
 locations. `x-mcp-arg` overrides per arg:
 
-- `hidden: true` — the arg is omitted from the tool schema and supplied
-  by the gateway from request context (the folder from the caller's
-  scoped token, not a model-set value).
-- `default: <v>` — the arg is optional in the tool schema; the gateway
-  fills the default when the model omits it.
+- `hidden: true` — omitted from the tool schema; supplied by the gateway
+  from request context (the folder from the caller's scoped token, never
+  a model-set value).
+- `default: <v>` — optional in the tool schema; the gateway fills the
+  default when the model omits it.
 - `rename: <name>` / `desc: <text>` — surface a clearer name/description
-  to the model than the wire name carries.
+  than the wire name carries.
 
-`x-mcp-arg` is allowed in exactly two locations: on an OpenAPI
-`parameter` object (path/query) and on a top-level `requestBody` schema
-property. It is **not** read on nested object properties — see the
-flattening rule below.
+`x-mcp-arg` is read in exactly two locations: an OpenAPI `parameter`
+object (path/query) and a top-level `requestBody` schema property. It is
+NOT read on nested object properties — see the flattening rule.
 
 ## Derivation semantics (normative)
 
 The vocabulary is annotation-authored, not inferred: the gateway never
-guesses agent ergonomics from an un-annotated doc. The contract below
-is what makes the derivation deterministic and implementable.
+guesses agent ergonomics from an un-annotated doc.
 
-**Flattenable args only.** The gateway flattens an operation's args
-into a flat object of **scalars** (string/number/boolean/enum) and
+**Flattenable args only.** The gateway flattens an operation's args into
+a flat object of **scalars** (string/number/boolean/enum) and
 arrays-of-scalars, keyed by name. An operation whose flattened arg set
-would require a nested object, `oneOf`/`allOf` discriminator, free-form
+requires a nested object, `oneOf`/`allOf` discriminator, free-form
 `additionalProperties`, or a name collision (the same key from two of
 path/query/body, or two `x-mcp-split` variants deriving the same tool
-name) is a **doc error** — the gateway refuses to derive a tool for it
-rather than invent a shape. Operations needing rich bodies declare
-`x-mcp-hidden: true` (REST-only) or split the body into scalar fields
-in the annotated `/v1/*` doc. This bounds "general OpenAPI" to the
-subset arizuko's `resreg` already emits (scalar columns —
-[36-yaml-manifests.md](../5/36-yaml-manifests.md) §"Schema-driven
-CRUD").
+name) is a **doc error** — the gateway refuses to derive a tool rather
+than invent a shape. Operations needing rich bodies declare
+`x-mcp-hidden: true` or split the body into scalar fields. This bounds
+"general OpenAPI" to the subset `resreg` already emits (scalar columns —
+[36-yaml-manifests.md](36-yaml-manifests.md) §"Schema-driven CRUD").
 
-**Override merge order.** For a tool, `x-mcp-arg` overrides layer
-deterministically: base OpenAPI schema → operation-level `x-mcp-arg`
-→ `x-mcp-split` variant `args`. Last layer wins per field
-(`hidden`/`default`/`rename`/`desc`).
+**Override merge order.** For a tool, `x-mcp-arg` layers
+deterministically: base OpenAPI schema → operation-level `x-mcp-arg` →
+`x-mcp-split` variant `args`. Last layer wins per field.
 
 **Requiredness.** An arg that is `hidden`, or carries a `default` or a
-context reference, is dropped from the tool schema's `required` list
-(the model never supplies it). A required wire arg with none of these
-stays required.
+context reference, is dropped from the tool schema's `required` list. A
+required wire arg with none of these stays required.
 
-**Split semantics are authored, not inferred.** The reply-vs-send
-difference (omit `reply_to` → top-level; set it → threaded) is a
-property of the **backend**, surfaced by the annotation author who
-writes the two `x-mcp-split` descriptions and the `reply_to` override.
-The gateway does not infer threading from OpenAPI; it only renders the
-authored variants. A generic `openapi-mcp` deriving sharp tools
-requires a well-annotated doc, exactly as the §"Problem" framing says.
+**Context references.** `default` may be a literal or a reference from a
+small named set: `$caller.*` (identity fields the transport populates —
+`$caller.folder`, `$caller.sub`) and `$turn.*` (per-call routing context —
+`$turn.last_message_id`). The transport supplies these as **opaque string
+context keys** at call time; the gateway treats them as strings, never as
+folders or grants. An unrecognized `$`-reference is a load-time doc
+error; a recognized reference the transport leaves unset at call time is
+a call-time tool error (the gateway never sends an empty value silently).
+It is a small named set, not a template language.
 
-**Context references.** `default` (and the split `args.default`) may be
-a literal or a context reference from a small named set: `$caller.*`
-(identity fields the transport populates — `$caller.folder`,
-`$caller.sub`) and `$turn.*` (per-call routing context —
-`$turn.last_message_id`). The transport supplies these as **opaque
-string context keys** at call time; the gateway treats them as
-strings, never as folders or grants (this is how "no folders, no
-grants" holds — the gateway sees `$caller.folder`'s value as an opaque
-id, the same string-only discipline as the sibling components). An
-unrecognized `$`-reference is a load-time doc error. A recognized
-reference that the transport leaves unset at call time is a call-time
-tool error (the gateway does not silently send an empty value).
+**`x-mcp-scope` is documentation, not a gate.** It is surfaced in `tools`
+output and may inform a consumer's auth-lens mapping; the gateway never
+enforces it. The backend's `auth.Authorize` is the only gate.
 
-**`x-mcp-scope` is documentation, not a gate.** It is surfaced in
-`tools` output and may inform a consumer's auth-lens mapping, but the
-gateway never enforces it — the backend's `auth.Authorize` is the only
-gate. It is in the vocabulary because annotation authors want the
-required scope recorded next to the operation; it carries no gateway
-behavior.
-
-**Strict load, no partial surface.** `serve` **fails to start** if any
-non-hidden operation is missing `x-mcp-desc` or hits a doc error above;
-`tools` exits non-zero and lists the offending operations. The MCP
+**Strict load, no partial surface.** The gateway **fails to start** if
+any non-hidden operation is missing `x-mcp-desc` or hits a doc error;
+its dry-run mode exits non-zero listing the offending ops. The MCP
 surface never silently varies with doc quality — a doc either derives
-cleanly or the gateway refuses to serve it. This is the "derive, don't
-hand-roll" guarantee: there is no gap where a half-valid doc yields a
-partial, drifting tool set.
+cleanly or the gateway refuses to serve it.
 
-### Worked example — simple CRUD op
-
-`POST /v1/groups` (create a group) annotated:
-
-```yaml
-paths:
-  /v1/groups:
-    post:
-      operationId: createGroup
-      x-mcp-tool: register_group
-      x-mcp-desc: >
-        Register a new sub-group under a parent folder. Use when a
-        conversation needs its own isolated context, routing, and
-        grants. Not for renaming (use update_group) or for routing an
-        existing chat (use add_route).
-      x-mcp-scope: groups:write:own_group
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                parent: { type: string, x-mcp-arg: { hidden: true } }
-                name: { type: string }
-                model: { type: string, x-mcp-arg: { default: sonnet } }
-      responses: { '201': { ... } }
-```
-
-Derived MCP tool: `register_group(name, model?)` — `parent` is hidden
-(gateway fills it from the caller's folder), `model` defaults to
-`sonnet`, the description is agent-facing. One operation, one tool, no
-hand-authored MCP wrapper.
-
-## THE FEASIBILITY GATE — the sharp cases
-
-A naive 1:1 bridge fails the `mcp_tool_naming` rule. The vocabulary
-must express the three cases below. **The 1→N split is the go/no-go:**
-if it cannot render reply-vs-send cleanly (without param overloading),
-the whole standard is not worth building — `5/5` keeps hand-authoring
-the MCP tree.
-
-### 1→N split — reply vs send (the canonical case)
+## The 1→N split — reply vs send (the go/no-go case)
 
 arizuko's outbound message path is **one REST endpoint** (`POST
-/v1/messages` writes a `messages` row) but **two MCP tools** with
-sharply different descriptions and a different threading default. From
-the live registrations (`ipc/ipc.go`):
+/v1/messages` writes a `messages` row) but **two MCP tools** with sharply
+different descriptions and a different threading default (from the live
+registrations in `ipc/ipc.go`):
 
 - `reply` — THE DEFAULT response. Threads under the conversation being
-  answered (quote/reply UI; Slack thread, not channel root). `reply_to`
-  omitted → threads to the current turn automatically.
-- `send` — a FRESH top-level message that is NOT a reply. Use only for
-  a proactive notification or a message to a different chat.
+  answered. `reply_to` omitted → threads to the current turn.
+- `send` — a FRESH top-level message that is NOT a reply. Only for a
+  proactive notification or a message to a different chat.
 
 A 1:1 bridge collapses these into one `createMessage(reply_to?, ...)`
-tool and forces the model to reason about a `reply_to` param — exactly
-the overloading the `mcp_tool_naming` rule forbids (`relocate(kind=...)`
-shape). The split annotation:
+and forces the model to reason about `reply_to` — exactly the overloading
+`mcp_tool_naming` forbids. The split annotation:
 
 ```yaml
 paths:
@@ -255,28 +188,19 @@ paths:
       x-mcp-split:
         - tool: reply
           desc: >
-            THE DEFAULT way to respond — use for virtually every answer
-            to the user. Delivers your message threaded to the
-            conversation you're answering (quote/reply UI; on Slack it
-            lands in the thread, not the channel root). Omit reply_to to
-            thread to the current conversation automatically. Only reach
-            for `send` when you deliberately need a fresh top-level
-            message that is NOT a reply.
+            THE DEFAULT way to respond. Delivers your message threaded to
+            the conversation you're answering. Omit reply_to to thread to
+            the current conversation automatically. Only reach for `send`
+            when you deliberately need a fresh top-level message.
           args:
-            reply_to:
-              {
-                default: '$turn.last_message_id',
-                desc: 'earlier message to target; omit to auto-thread',
-              }
+            reply_to: { default: '$turn.last_message_id' }
         - tool: send
           desc: >
-            A fresh top-level message that is NOT a reply to the current
-            conversation. Use ONLY for a proactive/unprompted
-            notification or a message to a different chat. For
-            responding to the user (the normal case) use `reply`, which
-            threads.
+            A fresh top-level message that is NOT a reply. Use ONLY for a
+            proactive notification or a message to a different chat. For
+            responding to the user use `reply`, which threads.
           args:
-            reply_to: { hidden: true } # always top-level; never set
+            reply_to: { hidden: true } # always top-level
       requestBody:
         content:
           application/json:
@@ -286,56 +210,16 @@ paths:
                 jid: { type: string }
                 content: { type: string }
                 reply_to: { type: string }
-      responses: { '201': { ... } }
 ```
 
-`x-mcp-split` is a list of variants; each variant names one tool, its
-own `desc`, and per-arg overrides layered on the operation's base
-schema. The gateway emits **two distinct tools** from one operation:
-
-- `reply(jid, content, reply_to?)` — `reply_to` defaults to the
-  triggering message id (`$turn.last_message_id`, resolved by the
-  gateway from per-call context, not model-set).
-- `send(jid, content)` — `reply_to` hidden (always omitted → the
-  backend produces a top-level message).
-
-Both call the same `POST /v1/messages`; the backend behaves
-identically — threading is decided by whether `reply_to` is present.
-The split lives entirely in the annotation; the REST handler stays
-single. **This is the case `5/5` needs, and the vocabulary expresses it
-without a single overloaded param.** Verdict: the standard is worth
-building.
-
-(Resolution syntax for context-supplied defaults — `$turn.*`,
-`$caller.folder` — is a small named set the gateway documents; it is
-not a general template language. Strict: an unrecognized `$`-reference
-is a doc error, not a literal.)
-
-### Suppress — `x-mcp-hidden`
-
-REST-only operations get no agent tool:
-
-```yaml
-delete:
-  operationId: purgeMessages
-  x-mcp-hidden: true # operator REST surface; agents never purge
-```
-
-Internal/hot-path/operator-only operations (the
-[`5/5` anti-patterns](../5/5-uniform-mcp-rest.md) §"What should NOT go
-via MCP" — inbound ingestion, cost-log writes, migrations) carry
-`x-mcp-hidden: true`. The gateway never emits a tool; the REST face
-stays.
-
-### Param hiding / defaulting
-
-The folder is the recurring case: the agent operates within its scoped
-token's folder, so a `folder`/`parent` arg must come from context, not
-from a model-chosen value. `x-mcp-arg: { hidden: true }` removes it from
-the tool schema; the gateway fills it from the caller's identity (over
-the scoped socket, below). This prevents an agent from naming a folder
-outside its scope as a tool argument — the auth boundary is not
-expressible as a model-set param.
+The gateway emits **two distinct tools** from one operation: `reply(jid,
+content, reply_to?)` (default from `$turn.last_message_id`) and
+`send(jid, content)` (`reply_to` hidden → backend produces a top-level
+message). Both call the same `POST /v1/messages`; threading is decided by
+whether `reply_to` is present. The split lives entirely in the
+annotation; the REST handler stays single. This is the case the uniform
+surface needs, expressed without a single overloaded param — the mechanism
+is worth building.
 
 ## The gateway
 
@@ -343,188 +227,224 @@ expressible as a model-set param.
 
 1. **Load + validate.** Parse the doc, walk operations, build the tool
    table: for each non-hidden operation (or each `x-mcp-split` variant)
-   with `x-mcp-desc`, emit a tool `{name, description, inputSchema}`.
-   Reject ops missing `x-mcp-desc` (strict). Build the reverse map
-   `tool → (method, path, arg-locations, hidden-arg sources, defaults)`.
-2. **`tools/list`.** Return the derived tool table. The model sees
-   sharp names + agent-facing descriptions; it never sees the REST
-   shape.
-3. **`tools/call`.** Look up the tool, validate args against the
-   derived schema, fill defaults + context-supplied hidden args,
-   re-scatter into an HTTP request (path/query/body per the op),
-   forward to the backend, map the HTTP response into MCP content
-   (JSON body → text/structured content; non-2xx → MCP tool error
-   carrying the status + body).
-4. **Transport.** It bridges the same transports arizuko's `ipc/`
-   already uses — a unix socket / stdio pair into the container (the
-   socat bridge per [ipc/SECURITY.md](../../ipc/SECURITY.md)) and the
-   streamable-HTTP MCP endpoint from [J-sse.md](../5/J-sse.md) for
-   remote clients. The agent connects to the gateway socket; the
-   gateway dials the REST backend over HTTP.
-5. **Auth.** The gateway forwards the caller's identity/scope to the
-   REST backend, which enforces. It does **not** decide authorization —
-   `x-mcp-scope` is documentation of what the call needs, surfaced for
-   the consumer's lens mapping; the backend's `auth.Authorize`
+   with `x-mcp-desc`, emit `{name, description, inputSchema}`. Reject ops
+   missing `x-mcp-desc` (strict). Build the reverse map `tool → (method,
+path, arg-locations, hidden-arg sources, defaults)`.
+2. **`tools/list`.** Return the derived table. The model sees sharp names
+   - agent-facing descriptions; it never sees the REST shape.
+3. **`tools/call`.** Look up the tool, validate args, fill defaults +
+   context-supplied hidden args, re-scatter into an HTTP request, forward
+   to the backend, map the response into MCP content (JSON body →
+   text/structured; non-2xx → MCP tool error carrying status + body).
+4. **Auth.** The gateway forwards the caller's identity/scope to the REST
+   backend, which enforces. It does NOT decide authorization —
+   `x-mcp-scope` is documentation; the backend's `auth.Authorize`
    ([4/9](../4/9-acl-unified.md)) is the gate.
 
 ### Deny / error behavior
 
-- **Missing `x-mcp-desc` on a non-hidden op, or any doc error** (§
-  "Derivation semantics") — `serve` refuses to start; `tools` exits
-  non-zero listing the offending ops. Strict, no `summary` fallback, no
-  partial surface.
-- **Unknown tool on `tools/call`** — JSON-RPC method/params error; no
-  HTTP request made.
+- **Missing `x-mcp-desc` on a non-hidden op, or any doc error** — the
+  gateway refuses to start; dry-run exits non-zero. No `summary`
+  fallback, no partial surface.
+- **Unknown tool on `tools/call`** — JSON-RPC error; no HTTP request.
 - **Arg validation failure** — JSON-RPC error before any HTTP call.
-- **Backend non-2xx** — relayed as an MCP tool error with the status
-  code and response body; `401/403` pass through as denials (the
-  backend gated the call, the gateway reports it).
+- **Backend non-2xx** — relayed as an MCP tool error with the status +
+  body; `401/403` pass through as denials.
 - **Backend unreachable** — MCP tool error; the gateway never fabricates
   a success.
 
-## How arizuko consumes it
+## Auth model — one gate, two identity sources
 
-arizuko is the primary consumer and the reason the annotation layer
-exists:
+Both surfaces produce a surface-agnostic `Caller` consumed identically,
+and both run the SAME gate: `auth.Authorize` over the unified ACL row
+table ([4/9](../4/9-acl-unified.md)). It composes two checks:
 
-1. **arizuko annotates `/openapi.json`.** Extend the `resreg` emission
-   ([36-yaml-manifests.md](../5/36-yaml-manifests.md) §"OpenAPI
-   emission") to carry `x-mcp-*` on operations: CRUD ops get tool
-   name/desc/scope from the `resreg.Resource` (the engine already knows
-   the resource name + action); action-verb resources declare their
-   `x-mcp-desc` / `x-mcp-split` in the same registration that today
-   writes `MCPTool` slices by hand. One renderer, one doc.
-2. **openapi-mcp derives the agent's MCP surface from it.** The
-   in-container agent's tool list is rendered from the annotated
-   `/openapi.json`, not hand-rolled in `ipc/ipc.go`. This is `5/5`'s
-   MCP face — derived, not maintained beside the REST face.
-3. **The unix socket stays the security boundary.** The agent reaches
-   openapi-mcp over the scoped `ipc/` socket; the gateway forwards to
-   `/v1/*` carrying the agent's identity. **The container is not handed
-   a raw JWT** — the scoped socket is the capability, matching today's
-   model ([ipc/README.md](../../ipc/README.md) "Capability token";
-   [`5/5`](../5/5-uniform-mcp-rest.md) keeps the agent's token at the
-   socket/host, not in the container).
-4. **`5/5` simplifies.** The hand-written verb tools in `ipc/ipc.go`
-   (reply, send, escalate_group, …) are replaced by `x-mcp-*`
-   annotations on the corresponding `/v1/*` operations. The
-   "one handler, two faces" promise holds with one face **derived** —
-   the MCP tree is no longer a second authored artifact that can drift
-   from REST.
+1. **Scope / ACL** — "may this principal perform this action at this
+   scope". The canonical decision.
+2. **Folder containment** — for a subtree-bound resource, the caller's
+   folder must own the target's folder (target is the caller's folder or
+   a descendant). Empty caller folder = root / service token =
+   unrestricted (adapters and `service:routd` legitimately span folders).
 
-The split mirrors [A](A-orthogonal-components.md)'s
-domain/mechanism table: arizuko owns _which operations exist, what they
-mean, and which scope they need_ (it authors the annotations);
-openapi-mcp owns _render an annotated doc as MCP tools and forward
-tool calls to HTTP_. The gateway never learns what a folder or grant
-is.
+The two surfaces differ only in the IDENTITY SOURCE feeding the lens:
 
-## Public surface
+| Surface | Identity carrier                                              | Verifier           | Folder source                        |
+| ------- | ------------------------------------------------------------- | ------------------ | ------------------------------------ |
+| REST    | `Authorization: Bearer <jwt>` (OAuth session, proxyd-stamped) | `auth.VerifyHTTP`  | JWT `arz/folder` → `Extra["folder"]` |
+| MCP     | capability token at the agent socket bind (`ipc/README.md`)   | `auth.VerifyToken` | socket-bound token folder            |
 
-Three contracts, per
-[A-orthogonal-components.md](A-orthogonal-components.md) §7.
-Indicative shapes; exact names are the component's business.
+A platform token is an ES256 JWT signed by `authd` — the **sole signer**
+([1-auth-standalone.md](1-auth-standalone.md)). Every daemon verifies
+offline against `authd`'s JWKs (`/v1/keys`); none mint their own. The
+token carries `sub`, `scope`, and the namespaced folder claim
+`arz/folder` (`auth/` treats it opaquely, surfaced via
+`Identity.Extra["folder"]`; the folder-match helper lives in arizuko's
+`identity.go`, keeping `auth/` folder-agnostic). Folder bounds the
+subtree; scopes bound the verbs. There is no `tier` — authorization is
+scope-match (capability tokens via authd downscope).
 
-**CLI** — primary surface, runnable with no arizuko process:
+Scope vocabulary: `<resource>:<verb>[:own_group]`. `:own_group` scopes to
+the caller's folder subtree. `<resource>:*` covers all verbs on a
+resource; there is no `*:*` global wildcard — operators carry the
+enumerated list. The gate is `auth.Authorize` over the ACL rows; the
+scope string is the operator-token-minting shorthand over those rows,
+not a second authorization path.
 
-```
-openapi-mcp serve --spec <openapi.json|url> [--listen <sock-or-addr>] [--backend <base-url>]
-openapi-mcp tools --spec <openapi.json>      # dry-run: list derived tools + flag undescribed ops
-```
+**Containment binds per resource to its folder-bearing param:** a `jid`
+resolves to its routing-target folder before the check; a `run_id`
+resolves to its run's folder (a cross-folder run reads as absent, 404,
+not leaked); a bare `folder` param is contained directly. `POST
+/v1/messages` stays cross-folder by design (one adapter routes many
+folders); cost reporting uses a dedicated `cost:write` scope plus folder
+containment. A folder-scoped token MUST NOT read or act cross-folder over
+either face.
 
-`--listen` is a unix socket (stdio bridge) or HTTP address matching the
-MCP client's transport; `--backend` overrides the doc's `servers[]`
-base URL.
+## One owner per table; federation over HTTP
 
-**HTTP / MCP endpoint** — what an MCP client drives:
+Each table lives in exactly one daemon's DB; that daemon serves its
+`/v1/*` face. Cross-daemon MCP calls become **HTTP forwards** carrying
+the agent's capability token — the owner is resolved by compose service
+naming (`<DAEMON>_URL`, e.g. `PROXYD_URL=http://proxyd:8080`), NEVER a
+lookup registry (identity is configured, not derived — CLAUDE.md).
 
-- The MCP server itself over the chosen transport (`tools/list`,
-  `tools/call`, `initialize`, `ping`).
-- `GET /health`.
+| Daemon     | Owns / serves                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| **routd**  | groups, routes, messages, sessions, channels, web_routes, route_tokens, grants, acl, secrets, network_rules, tasks |
+| **runed**  | spawns, run history — control-plane REST only (`/v1/runs`), no resreg resource (see below)                         |
+| **authd**  | signing keys, JWKs, sessions — `/v1/tokens`, `/v1/keys`, `/auth/*` login (sole signer)                             |
+| **onbod**  | invites, admissions, auth_users, onboarding_gates                                                                  |
+| **proxyd** | proxyd_routes (`/v1/proxyd_routes`); login delegates to authd                                                      |
+| **dashd**  | nothing — FS-mounted, reads routd.db directly for display; writes via HTTP to owners                               |
 
-**Go imports** — `openapi-mcp/pkg/...`:
+The agent's per-turn MCP socket terminates in `routd`
+(`ServeTurnMCP` — hosted in-process, [`E-routd.md`](E-routd.md)). routd
+serves its own resources locally; a call to a resource another daemon
+owns forwards over HTTP with the agent's token (`invites.*` → onbod,
+etc.). The forwarder is a `Resource{Store: nil}` whose handler does an
+HTTP call downstream; the adapter skips the tx/audit dance and the
+destination daemon writes the audit row. `webd/routes_mcp.go` is the
+canonical example. `proxyd_routes` (proxyd's reverse-proxy table) and
+`routes` (routd's message-routing table) are two distinct resources with
+distinct names — never conflate them (renamed `aab3487a`).
 
-- `gateway.NewServer(Config) *Server` — what `serve` runs.
-- `derive.Tools(doc []byte) ([]Tool, error)` — the pure derivation:
-  annotated OpenAPI bytes → tool table. Exposed so a consumer can
-  inspect/validate the surface without serving.
-- `client.New(backendURL) *Client` — thin HTTP forwarder.
+## Resource name = wire identity
 
-## Layout
+The resreg `Name` becomes `/v1/<name>` AND the MCP tool prefix
+(`<name>.<action>`). Two daemons NEVER share a name — the name is
+globally unique wire identity. The composed `<name>.<action>` string is
+the operator-facing contract: OpenAPI `operationId`, MCP tool names,
+audit-log `action=` fields, metrics labels, permission-editor rows. URL
+renames and handler-function renames don't break it.
 
-The [A §_Layout pattern_](A-orthogonal-components.md) skeleton:
+## Audit contract
 
-```
-openapi-mcp/
-  README.md            public surface: CLI, MCP endpoint, Go imports
-  Makefile             build, test, lint, image
-  Dockerfile           ships its own image
-  CHANGELOG.md         its own version history
-  cmd/openapi-mcp/main.go
-  pkg/gateway/         MCP server + HTTP forward (public)
-  pkg/derive/          pure annotated-OpenAPI → tool-table (public)
-  pkg/client/          backend HTTP client (public)
-  internal/transport/  unix-socket / stdio / HTTP bridging (private)
-  testdata/            annotated OpenAPI docs + expected tool tables
-```
+Every state-changing handler MUST write exactly one `audit_log` row in
+the SAME transaction as the mutation; if the audit write fails, the
+mutation rolls back. Read-only handlers emit slog only — no audit row.
+Field shape: `caller=<sub> resource=<name> action=<verb>
+surface=rest|mcp target=<folder> result=<allowed|denied|error>`. `action`
+is the cross-surface stable correlator — one `grep 'resource=groups
+action=create'` returns work whether it arrived via `POST /v1/groups`,
+MCP `groups.create`, or `arizuko group add`. Forwarders (`Store == nil`)
+skip the row; the downstream daemon writes it (no double-log). Field
+schema: [`I-tool-call-logging.md`](I-tool-call-logging.md).
 
-## Orthogonality acceptance
+## Anti-patterns — what should NOT go via MCP
 
-Per [A §_Acceptance_](A-orthogonal-components.md):
+Same shape each: hot path, high-volume internal event, or stream rather
+than CRUD verb. All carry `x-mcp-hidden: true` (REST stays) or aren't
+resources at all:
 
-- The mechanical grep returns empty:
+- **Inbound message ingestion** — per-message hot path; the poll loops
+  write `messages` rows directly. (`inject_message` for synthetic sends
+  IS an MCP tool — audited, low-volume.)
+- **Cost-log writes** — per-Claude-call; direct store write from adapters
+  and `timed`. Not an operator action.
+- **Streaming surfaces** — slink stream, agent live output. Not CRUD/RPC;
+  SSE sits next to resreg ([J-sse.md](J-sse.md)), never inside it.
+- **Auth session creation** — minted by `authd`, verified by `auth/`.
+  Substrate, not a user tool.
+- **Migrations** — file-driven (`*/migrations/`), run by the owning
+  daemon at startup. Not a resource.
+- **runed run-control** (`POST /v1/runs`, `/v1/runs/stop`,
+  `GET`/`DELETE /v1/runs/{id}`) — REST-only BY DESIGN: the internal
+  routd→runed execution control plane. Agents never spawn or kill runs.
+  runed exposes no resreg resource (`OpenAPIHandler("runed", []string{})`
+  is empty by design — control verbs, not CRUD). The absence is correct,
+  not a uniformity gap.
 
-  ```
-  $ grep -rE 'github\.com/[^/]+/arizuko/(store|core|gateway|api|chanlib|chanreg|router|queue|ipc|grants|onbod|webd|gated|auth|audit|resreg|obs)' openapi-mcp/
-  <empty>
-  ```
+The rule: user-initiated, audit-worthy, allow/deny-shaped → resreg.
+High-rate side effect of normal operation → not.
 
-- `make -C openapi-mcp build && make -C openapi-mcp test` passes on a
-  host with **no arizuko process and no arizuko data directory**. Tests
-  drive `derive.Tools` against `testdata/` annotated docs and the
-  gateway against a stub HTTP backend.
-- Every signature takes the OpenAPI doc and plain strings (`tool
-string`, `backend string`) — never `core.Folder`, `core.Scope`,
-  `resreg.Resource`. The gateway knows nothing of folders or grants.
-- The component reads its own env vars / flags and owns no persistent
-  state beyond the loaded doc; it never opens `messages.db`.
+## How arizuko deploys the gateway
 
-## Out of scope
+The gateway is a **library invoked in-process by `routd`'s
+`ServeTurnMCP`**, not a separate daemon — the agent's MCP socket already
+lives in routd, and the derivation is a pure function over the annotated
+doc. At socket setup routd (a) fetches each owned/federated daemon's
+annotated `/openapi.json`, (b) derives the tool table, (c) serves it on
+the same per-turn socket. For a resource routd owns, the derived
+`tools/call` dispatches locally; for a federated resource it forwards
+over the owner's `<DAEMON>_URL`. The container is NEVER handed a raw JWT
+— the scoped socket is the capability ([`ipc/README.md`](../../ipc/README.md)
+"Capability token").
 
-- Authoring the annotations — arizuko writes `x-mcp-*` into its own
-  doc via `resreg`; the gateway only reads them.
-- Deciding authorization — the backend's `auth.Authorize` is the gate;
-  `x-mcp-scope` is documentation surfaced for the consumer's lens, not
-  an enforcement point.
-- Tool-call _filtering_ — allow/deny per call is
-  [17-mcp-firewall.md](17-mcp-firewall.md)'s job, a different layer that
-  sits between agent and MCP server. openapi-mcp _produces_ a tool
-  surface; mcp-firewall _gates_ one. Compose them: agent → firewall →
-  openapi-mcp → REST.
-- Streaming / SSE — openapi-mcp maps request/response operations; SSE
-  surfaces ([J-sse.md](../5/J-sse.md)) stay their own endpoints.
-- A general template language for context-supplied defaults — only a
-  small named `$turn.*` / `$caller.*` set, documented and strict.
+Hot-tier tools (`reply`, `send`, `inspect_*`) are hand-registered on the
+same socket from `ipc/ipc.go`; the derived cold-tier tools and the
+authored hot-tier tools coexist on one MCP server. `ipc/ipc.go` loses its
+hand-rolled **management** tools (they derive from OpenAPI) and keeps the
+hot-tier tools + the unix-socket transport.
+
+## Orthogonal specs (don't fold in)
+
+- [`5/44`](44-mcp-rest-unification.md) — the **adoption program** that
+  rolls this mechanism out resource-by-resource (pilot `routes`, then
+  replicate). 44 = roll it out; 45 = the mechanism. Migration steps live
+  in 44, not here.
+- [`5/36`](36-yaml-manifests.md) — the **same cold-tier resources as
+  declarative YAML** you `export`/`apply` (config-as-data). A different
+  front on the same tables; the row-level CRUD engine underneath both is
+  shared plumbing, not a concept named here.
+- [`11/17-mcp-firewall.md`](../11/17-mcp-firewall.md) — per-call
+  allow/deny **filtering** between agent and MCP server. openapi-mcp
+  _produces_ a tool surface; mcp-firewall _gates_ one. Compose: agent →
+  firewall → openapi-mcp → REST.
 
 ## Acceptance
 
-- `openapi-mcp serve --spec <doc>` where `<doc>` carries the reply/send
-  `x-mcp-split`: `tools/list` returns **two** tools `reply` and `send`
-  with distinct descriptions; calling `reply` forwards `POST
-/v1/messages` with `reply_to` defaulted, calling `send` forwards the
-  same path with `reply_to` omitted — against a stub backend, no
-  arizuko process running.
-- A doc operation without `x-mcp-desc` and without `x-mcp-hidden` makes
-  `serve` refuse to start and `tools` exit non-zero (strict load, no
-  partial surface, no `summary` fallback).
+- A resource is served by exactly one REST handler; its `/v1/<res>`
+  endpoint, its OpenAPI entry, and its MCP tool all derive from it —
+  no hand-authored `MCPTools` list.
+- A doc carrying the reply/send `x-mcp-split`: `tools/list` returns
+  **two** tools `reply` and `send` with distinct descriptions; calling
+  `reply` forwards `POST /v1/messages` with `reply_to` defaulted,
+  `send` forwards it omitted — against a stub backend, no arizuko process.
+- A non-hidden operation without `x-mcp-desc` makes the gateway refuse to
+  start and dry-run exit non-zero (strict, no `summary` fallback).
 - Two operations (or two `x-mcp-split` variants) deriving the same tool
-  name make `serve` refuse to start (name collision is a doc error).
-- An `x-mcp-hidden: true` operation produces no tool but is reachable
-  via its REST path on the backend.
+  name make the gateway refuse to start (name collision).
+- An `x-mcp-hidden: true` operation produces no tool but is reachable via
+  its REST path.
 - A hidden arg (`x-mcp-arg: { hidden: true }`) is absent from the tool
-  schema and is filled by the gateway from call context.
+  schema and filled by the gateway from call context.
 - A backend `403` becomes an MCP tool error carrying the status; the
   gateway fabricates no success.
-- `make -C openapi-mcp build && make -C openapi-mcp test` passes on a
-  host with no arizuko data directory.
-- The orthogonality grep above returns empty.
+- Auth parity: an agent token with `grants:write:own_group` and folder
+  `atlas/support` can `PATCH /v1/grants/{id}` under `atlas/support/*` AND
+  call `grants.update` over MCP — both 200; the same token cannot touch a
+  grant under `rhias/*` — both 403.
+- Hot-tier tools (`reply`, `send`, `inspect_*`) have no REST twin and no
+  OpenAPI entry — MCP-only, by design.
+
+## Open
+
+- **Gateway deployment shape.** This spec pins the arizuko answer:
+  in-process library inside routd's `ServeTurnMCP`. A standalone
+  `openapi-mcp` binary (own image, CLI `serve`/`tools`) is a valid future
+  extraction for reuse outside arizuko — the derivation is a pure
+  function — but not required to ship the mechanism. Extract only if a
+  non-arizuko consumer materializes.
+- **Token TTL & revocation.** Short TTL (1h) default; a revocation table
+  for long-lived dashd-issued keys is deferred until needed.
+- **Pagination shape.** MCP tools return arrays; REST uses cursor
+  pagination on some routes. Harmonize or leave per-resource.

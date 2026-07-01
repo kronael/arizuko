@@ -7,11 +7,11 @@ moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5 as a
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
 
-`5/5-uniform-mcp-rest.md` shipped the **mechanism** — `resreg`: one handler
-per `(Resource, Action)`, two faces (MCP for agents, REST for humans),
-OpenAPI reflected off `RowType`. This spec is the **adoption program**:
-migrate every resource onto that mechanism and delete the parallel
-hand-rolled surfaces. Orthogonal to `5/5` — mechanism vs rollout.
+[`5/45-openapi-mcp`](45-openapi-mcp.md) is the **mechanism** — one REST
+handler per `(resource, action)`, MCP derived from the annotated
+`/openapi.json`. This spec is the **adoption program**: migrate every
+resource onto that mechanism and delete the parallel hand-rolled surfaces.
+Orthogonal to `5/45` — mechanism vs rollout.
 
 ## The target
 
@@ -53,15 +53,13 @@ The goal is **agent-first platform management** — every cold-tier management
 resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
 `network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
 `proxyd_routes`) reachable via **MCP** (agent, scope-gated) AND **REST**
-(human, OAuth-gated), one handler. That's `5/5`'s principle; this spec
+(human, OAuth-gated), one handler. That's `5/45`'s principle; this spec
 finishes the coverage and collapses the bespoke surfaces onto it.
 
-**Written once, not twice.** The REST handler is authored; the **MCP face is
-derived** from the daemon's annotated `/openapi.json` (`x-mcp-*` fields carry
-the sharp tool name + when-to-use + scope mapping a naive bridge can't infer)
-by the generic gateway in [`5/45-openapi-mcp`](45-openapi-mcp.md).
-No hand-authored `MCPTools` list per resource — shipping 5/45 is the
-mechanism this spec rides.
+**Written once, not twice** — the REST handler is authored, the MCP face
+derived from the annotated `/openapi.json` by the `5/45` gateway. No
+hand-authored `MCPTools` list per resource; shipping 5/45 is the mechanism
+this spec rides.
 
 **Two surfaces stay distinct — don't merge them:**
 

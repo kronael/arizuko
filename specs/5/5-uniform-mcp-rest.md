@@ -1,20 +1,23 @@
 ---
-status: shipped
+status: superseded
+superseded_by: 5/45-openapi-mcp
 shipped: 2026-06-14
 depends: [1-auth-standalone, 35-proxyd-standalone]
 ---
 
-# Uniform REST + MCP per resource
+# Uniform REST + MCP per resource (superseded)
 
-> **Canonical principle + federation.** This is the canonical "one
-> handler, two faces" statement: it carries the coverage matrix,
-> per-resource handler pattern, audit contract, and acceptance criteria,
-> and defines the federated `/v1/*` surface. The phase-8 program
-> ([`specs/8/index.md`](../8/index.md)) is the downstream continuation
-> that finishes the unification across the data model + git-as-truth; it
-> does not relocate this spec's content. The MCP face is hand-authored
-> here; deriving it from annotated REST is a separate downstream followup
-> ([`5/45-openapi-mcp`](45-openapi-mcp.md)), not a dependency.
+> **Superseded by [`5/45-openapi-mcp`](45-openapi-mcp.md).** 5/45 is now
+> the canonical "one handler, two faces" statement — it carries the
+> two-tier model, the `x-mcp-*` derivation mechanism (REST authored, MCP
+> derived), the one-gate/two-identity-source auth model, federation, and
+> the acceptance criteria. This spec is kept as the **shipped-reality
+> record**: what was mounted as of 2026-06-14 (the hand-authored
+> dual-dispatch on proxyd, the `Caller`/`Resource`/`Execution` types, the
+> coverage matrix of actual endpoints, the phased rollout that landed).
+> Read it for what's live today; read 5/45 for the target and the
+> canonical principle. Where the two differ, 5/45 wins — 5/5 hand-authors
+> the MCP face; 5/45 derives it.
 
 **Cold-tier operator config resources accessible via both REST (outside,
 OAuth-gated) AND MCP (inside, scope-gated), wrapped over a single
