@@ -265,26 +265,8 @@ the calls. Every call appears in `audit_log`.
 
 ## What's shipped
 
-| piece                           | location                                              | state                                      |
-| ------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
-| `secrets` table + migrations    | `store/secrets.go`, `0034-secrets.sql`                | ✓ shipped                                  |
-| AES-256-GCM at rest             | `store/secrets.go` `seal`/`open`                      | ✓ shipped (opt-in)                         |
-| `FolderSecretsResolvedForUser`  | `store/secrets.go`, `routd/dispatch.go (dispatchRun)` | ✓ shipped (folder + user scope; user wins) |
-| Connector discovery + dispatch  | `ipc/connector.go`                                    | ✓ shipped                                  |
-| `ConnectorSecrets`              | `routd/sibling_db.go:119`                             | ✓ shipped                                  |
-| `ResolveConnectorSecrets` wired | `routd/mcp.go:569`                                    | ✓ shipped                                  |
-| `connectors.toml` loader        | `gateway/connectors.go`                               | ✓ shipped                                  |
-| dashd `/dash/me/secrets`        | `dashd/`                                              | ✓ shipped                                  |
-| Operator CLI                    | `cmd/arizuko/secret.go`                               | ✓ shipped                                  |
-
-## What's not yet shipped
-
-| piece                                 | gap                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------ |
-| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string` |
-| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                              |
-
-## What's shipped
+Handler shapes only — the credential model (secrets table, resolution,
+write paths) lives in [`5/42`](42-credentials.md).
 
 | piece                          | location                                                       | state |
 | ------------------------------ | -------------------------------------------------------------- | ----- |
@@ -293,6 +275,13 @@ the calls. Every call appears in `audit_log`.
 | Built-in provider definitions  | `routd/extproviders/{cloudflare,porkbun,gandi,namecheap}.toml` | ✓     |
 | `connectors.toml` loader       | `routd/connectors.go`                                          | ✓     |
 | `[[ext]]` loader               | `routd/ext.go:LoadExtProviders`                                | ✓     |
+
+## What's not yet shipped
+
+| piece                                 | gap                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------ |
+| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string` |
+| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                              |
 
 ---
 
