@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -50,7 +51,65 @@ func Open(dir string) (*DB, error) {
 		return nil, err
 	}
 	dsn := filepath.Join(dir, "routd.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
-	return open(dsn)
+	d, err := open(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.copyLegacyProxydTables(dir); err != nil {
+		d.Close()
+		return nil, err
+	}
+	return d, nil
+}
+
+// copyLegacyProxydTables is a one-release, idempotent backfill: it copies
+// auth_sessions + proxyd_routes rows from the pre-split messages.db into
+// routd.db (where proxyd now reads them, so login touches ONE DB). Runs in
+// autocommit AFTER migrations because the migration runner wraps each file in
+// BEGIN EXCLUSIVE, and modernc.org/sqlite locks an ATTACHed DB when a write
+// transaction is already open on the main. Absent messages.db (fresh install)
+// is a no-op. INSERT OR IGNORE keeps it idempotent across restarts; the
+// messages.db copies are left intact as a fallback (no DROP).
+func (d *DB) copyLegacyProxydTables(dir string) error {
+	legacy := filepath.Join(dir, "messages.db")
+	if _, err := os.Stat(legacy); err != nil {
+		return nil // no pre-split DB → nothing to backfill
+	}
+	// Pin to ONE connection: ATTACH is per-connection, so the INSERT must run on
+	// the same conn or it sees no `legacy` schema. Autocommit (no BEGIN) — an
+	// open write tx locks the ATTACHed DB under modernc.org/sqlite.
+	ctx := context.Background()
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx,
+		"ATTACH DATABASE ? AS legacy", "file:"+legacy+"?mode=ro"); err != nil {
+		return fmt.Errorf("attach legacy messages.db: %w", err)
+	}
+	defer conn.ExecContext(ctx, "DETACH DATABASE legacy")
+	// Explicit column lists (not SELECT *) so a divergent legacy column order
+	// can't silently misalign the copy. legacy may predate either table (an
+	// old messages.db without proxyd_routes); skip a table that isn't there.
+	copies := []struct{ table, cols string }{
+		{"auth_sessions", "token_hash, user_sub, expires_at, created_at"},
+		{"proxyd_routes", "path, backend, auth, gated_by, preserve_headers, strip_prefix, redirect_to"},
+	}
+	for _, c := range copies {
+		var n int
+		if err := conn.QueryRowContext(ctx,
+			"SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name=?", c.table,
+		).Scan(&n); err != nil {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf(
+			"INSERT OR IGNORE INTO %s (%s) SELECT %s FROM legacy.%s",
+			c.table, c.cols, c.cols, c.table)); err != nil {
+			return fmt.Errorf("backfill %s from messages.db: %w", c.table, err)
+		}
+	}
+	return nil
 }
 
 // OpenMem opens a fresh isolated in-memory routd.db for tests. The DB name

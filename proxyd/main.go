@@ -107,8 +107,7 @@ func proxy(target string) *httputil.ReverseProxy {
 
 type server struct {
 	cfg         config
-	st          *store.Store    // messages.db: proxyd_routes, auth_sessions
-	stRoutd     *store.Store    // routd.db: acl, auth_users, route_tokens (split ownership)
+	stRoutd     *store.Store    // routd.db: auth_sessions, proxyd_routes, acl, auth_users, route_tokens (split ownership; login reads one DB)
 	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
@@ -211,16 +210,15 @@ func (p *pubRedirect) reachable() bool {
 	return p.ok
 }
 
-func newServer(cfg config, st, stRoutd *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
-	routes := loadInitialRoutes(cfg.routesJSON, st)
-	rr := newRoutesResource(st, routes)
+func newServer(cfg config, stRoutd *store.Store, ks *auth.KeySet, svc *auth.TokenSource) *server {
+	routes := loadInitialRoutes(cfg.routesJSON, stRoutd)
+	rr := newRoutesResource(stRoutd, routes)
 	var ap *httputil.ReverseProxy
 	if cfg.authdURL != "" {
 		ap = proxy(cfg.authdURL)
 	}
 	return &server{
 		cfg:         cfg,
-		st:          st,
 		stRoutd:     stRoutd,
 		rr:          rr,
 		viteProxy:   proxy(cfg.viteAddr),
@@ -868,20 +866,17 @@ func (s *server) tryAuth(r *http.Request) *http.Request {
 			}
 		}
 	}
-	if s.st == nil {
+	if s.stRoutd == nil {
 		return nil
 	}
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
 		return nil
 	}
-	// auth_sessions lives in messages.db (st)
-	sess, ok := s.st.AuthSession(auth.HashToken(cookie.Value))
+	// auth_sessions + auth_users + acl all live in routd.db (stRoutd) — the
+	// whole cookie-login decision reads ONE DB post-split.
+	sess, ok := s.stRoutd.AuthSession(auth.HashToken(cookie.Value))
 	if !ok || !time.Now().Before(sess.ExpiresAt) {
-		return nil
-	}
-	// auth_users + acl live in routd.db (stRoutd) — split ownership
-	if s.stRoutd == nil {
 		return nil
 	}
 	// Resolve canonical at the cookie path too — refresh sessions are
@@ -993,6 +988,8 @@ func main() {
 	cfg := loadConfig()
 	cfg.authSecret = coreCfg.AuthSecret
 
+	// messages.db is opened only for the audit_log sink (audit.Init below);
+	// proxyd's routing + auth reads all moved to routd.db (stRoutd).
 	st, err := store.Open(coreCfg.StoreDir)
 	if err != nil {
 		slog.Error("open store", "err", err)
@@ -1000,9 +997,11 @@ func main() {
 	}
 	defer st.Close()
 
-	// routd.db owns acl/auth_users/route_tokens in the split topology (spec 5/5).
-	// proxyd reads those for scope stamping + route token resolution; a frozen
-	// messages.db twin would make post-cutover grants invisible to auth.
+	// routd.db owns auth_sessions/proxyd_routes/acl/auth_users/route_tokens in the
+	// split topology (spec 5/5). proxyd reads those for the whole login decision
+	// (cookie session → user → scopes) + route resolution; reading one DB removes
+	// the messages.db straddle. A frozen messages.db twin would make post-cutover
+	// grants + sessions invisible to auth.
 	stRoutd, err := store.OpenRoutd(coreCfg.StoreDir)
 	if err != nil {
 		slog.Error("open routd.db", "err", err)
@@ -1040,7 +1039,7 @@ func main() {
 		slog.Warn("AUTHD_URL/AUTHD_SERVICE_KEY unset; proxyd forwards identity unsigned (local dev)")
 	}
 
-	s := newServer(cfg, st, stRoutd, ks, svc)
+	s := newServer(cfg, stRoutd, ks, svc)
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 

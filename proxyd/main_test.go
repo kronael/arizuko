@@ -48,7 +48,6 @@ func testMintJWTGroups(secret []byte, sub string, groups []string) string {
 func testServer() *server {
 	return &server{
 		cfg:         config{authSecret: ""},
-		st:          nil,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 }
@@ -657,7 +656,7 @@ func TestProxydRequireAuthExpiredRefreshToken(t *testing.T) {
 
 	s := &server{
 		cfg:         config{authSecret: "testsecret"},
-		st:          st,
+		stRoutd:     st,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false
@@ -694,7 +693,7 @@ func TestProxydRequireAuthRefreshTokenUserMissing(t *testing.T) {
 
 	s := &server{
 		cfg:         config{authSecret: "testsecret"},
-		st:          st,
+		stRoutd:     st,
 		chatAnonDOS: newRateLimiter(10, time.Minute),
 	}
 	called := false
@@ -742,7 +741,6 @@ func testRouteServer(t *testing.T, st *store.Store, secret string) (*server, *ht
 	slinkRoute := Route{Path: "/slink/", Backend: up.URL, Auth: "public"}
 	s := &server{
 		cfg:         config{authSecret: secret},
-		st:          st,
 		stRoutd:     st, // tests use single in-memory DB with all tables
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(10, time.Minute),
@@ -1644,7 +1642,6 @@ func testDavFullServer(t *testing.T, st *store.Store, secret string) (*server, *
 	davRoute := Route{Path: "/dav/", Backend: up.URL, Auth: "user", StripPrefix: true}
 	s := &server{
 		cfg:         config{authSecret: secret},
-		st:          st,
 		stRoutd:     st, // tests use single in-memory DB
 		viteProxy:   httputil.NewSingleHostReverseProxy(u),
 		chatAnonDOS: newRateLimiter(10, time.Minute),

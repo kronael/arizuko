@@ -505,7 +505,7 @@ func TestTryAuth_ES256SubPrefixGrantLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, stRoutd: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, stRoutd: st, ks: ks}
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:123", Typ: "user"}, time.Hour)
 	if err != nil {
 		t.Fatal(err)
@@ -547,7 +547,7 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, ks := es256KeySet(t)
-	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, st: st, stRoutd: st, ks: ks}
+	s := &server{cfg: config{authSecret: "hs", authdURL: "http://authd"}, stRoutd: st, ks: ks}
 	// ES256 token carries NO groups claim — proxyd must source them from the DB.
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:999", Typ: "user"}, time.Hour)
 	if err != nil {
@@ -577,18 +577,10 @@ func TestTryAuth_ES256OperatorGroupsFromDB(t *testing.T) {
 	}
 }
 
-// Split-read proof: scopes must come from stRoutd (routd.db), not st (messages.db).
-// A grant in stRoutd but absent from st must still appear in X-User-Groups.
-// This guards against the frozen-messages.db bug where post-cutover grants are
-// invisible to scope stamping.
+// Split-read proof: scopes are stamped from stRoutd (routd.db). A grant added
+// to routd.db must appear in X-User-Groups. Guards the frozen-DB bug class where
+// post-cutover grants stay invisible to scope stamping.
 func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
-	// stMessages simulates the frozen messages.db — no grants.
-	stMessages, err := store.OpenMem()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { stMessages.Close() })
-
 	// stRoutd simulates the live routd.db — has grants.
 	stRoutd, err := store.OpenMem()
 	if err != nil {
@@ -604,8 +596,7 @@ func TestGroupsForSub_ReadsFromRoutdNotMessages(t *testing.T) {
 	k, ks := es256KeySet(t)
 	s := &server{
 		cfg:     config{authSecret: "hs", authdURL: "http://authd"},
-		st:      stMessages, // messages.db has no grants
-		stRoutd: stRoutd,    // routd.db has the grant
+		stRoutd: stRoutd, // routd.db has the grant
 		ks:      ks,
 	}
 	tok, err := k.Sign(auth.TokenClaims{Sub: "user:google:split", Typ: "user"}, time.Hour)
