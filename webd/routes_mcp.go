@@ -19,7 +19,7 @@ import (
 )
 
 // registerRoutesMCP attaches the five `routes.*` MCP tools to srv. The
-// tools are a thin operator surface over proxyd's `/v1/routes` REST API.
+// tools are a thin operator surface over proxyd's `/v1/proxyd_routes` REST API.
 // One handler in proxyd, two adapters: REST (proxyd's own mux) and MCP
 // (here, via webd). Spec 5/5 §"Single source of truth".
 //
@@ -74,7 +74,7 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		return json.RawMessage(raw), nil
 	}
 	return resreg.Resource{
-		Name:     "routes",
+		Name:     "proxyd_routes",
 		MCPTools: routesMCPTools(),
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
@@ -85,19 +85,19 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 }
 
 // routesRESTSpec maps a resreg action+args to the REST call shape that
-// proxyd's /v1/routes resource expects. Single point of translation.
+// proxyd's /v1/proxyd_routes resource expects. Single point of translation.
 func routesRESTSpec(action resreg.Action, args resreg.Args) (method, path string, body map[string]any, err error) {
 	switch action {
 	case resreg.ActionList:
-		return "GET", "/v1/routes", nil, nil
+		return "GET", "/v1/proxyd_routes", nil, nil
 	case resreg.ActionGet:
 		p, _ := args["path"].(string)
 		if strings.TrimSpace(p) == "" {
 			return "", "", nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		return "GET", "/v1/routes/" + url.PathEscape(p), nil, nil
+		return "GET", "/v1/proxyd_routes/" + url.PathEscape(p), nil, nil
 	case resreg.ActionCreate:
-		return "POST", "/v1/routes", argsToBody(args), nil
+		return "POST", "/v1/proxyd_routes", argsToBody(args), nil
 	case resreg.ActionUpdate:
 		p, _ := args["path"].(string)
 		if strings.TrimSpace(p) == "" {
@@ -105,13 +105,13 @@ func routesRESTSpec(action resreg.Action, args resreg.Args) (method, path string
 		}
 		b := argsToBody(args)
 		delete(b, "path")
-		return "PATCH", "/v1/routes/" + url.PathEscape(p), b, nil
+		return "PATCH", "/v1/proxyd_routes/" + url.PathEscape(p), b, nil
 	case resreg.ActionDelete:
 		p, _ := args["path"].(string)
 		if strings.TrimSpace(p) == "" {
 			return "", "", nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		return "DELETE", "/v1/routes/" + url.PathEscape(p), nil, nil
+		return "DELETE", "/v1/proxyd_routes/" + url.PathEscape(p), nil, nil
 	}
 	return "", "", nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", action)
 }
@@ -134,12 +134,12 @@ func argsToBody(args resreg.Args) map[string]any {
 
 func routesMCPTools() []resreg.MCPTool {
 	return []resreg.MCPTool{
-		{Name: "routes.list", Action: resreg.ActionList,
+		{Name: "proxyd_routes.list", Action: resreg.ActionList,
 			Description: "List proxyd's runtime route table."},
-		{Name: "routes.get", Action: resreg.ActionGet,
+		{Name: "proxyd_routes.get", Action: resreg.ActionGet,
 			Description: "Read one proxyd route by path.",
 			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-		{Name: "routes.create", Action: resreg.ActionCreate,
+		{Name: "proxyd_routes.create", Action: resreg.ActionCreate,
 			Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
 			Args: []resreg.MCPArg{
 				{Name: "path", Type: "string", Required: true},
@@ -149,7 +149,7 @@ func routesMCPTools() []resreg.MCPTool {
 				{Name: "preserve_headers", Type: "array"},
 				{Name: "strip_prefix", Type: "bool"},
 			}},
-		{Name: "routes.update", Action: resreg.ActionUpdate,
+		{Name: "proxyd_routes.update", Action: resreg.ActionUpdate,
 			Description: "Update fields on an existing proxyd route. Path is the key.",
 			Args: []resreg.MCPArg{
 				{Name: "path", Type: "string", Required: true},
@@ -159,7 +159,7 @@ func routesMCPTools() []resreg.MCPTool {
 				{Name: "preserve_headers", Type: "array"},
 				{Name: "strip_prefix", Type: "bool"},
 			}},
-		{Name: "routes.delete", Action: resreg.ActionDelete,
+		{Name: "proxyd_routes.delete", Action: resreg.ActionDelete,
 			Description: "Delete a proxyd route. Idempotent.",
 			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
 	}
@@ -176,7 +176,7 @@ func isOperator(groups []string) bool {
 	return false
 }
 
-// proxydClient is webd's tiny outbound HTTP client to proxyd's /v1/routes
+// proxydClient is webd's tiny outbound HTTP client to proxyd's /v1/proxyd_routes
 // resource. It forwards the caller's identity in X-User-* headers; the channel
 // proof is webd's own service:webd ES256 bearer. With no service token (local
 // dev, AUTHD_URL unset) it sends no bearer — proxyd's no-JWKS gate is open.

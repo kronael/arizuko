@@ -287,7 +287,7 @@ func normalisePath(v any) string {
 // routesAuthz derives the ACL scope/params for the routes resource. routes
 // is GLOBAL (no per-folder axis), so the derivation is genuinely empty:
 // scope="" and no params. This is NOT a bypass — resreg.invoke still runs
-// auth.Authorize(store, caller, "routes.<action>", "", nil), and an empty
+// auth.Authorize(store, caller, "proxyd_routes.<action>", "", nil), and an empty
 // scope is matched by an operator ACL row like `(google:op, '*', '**')`
 // (`**` covers scope "", `*` covers any action). A non-operator presents no
 // matching row and no mcp:* tier fallback applies, so the call is denied.
@@ -301,21 +301,21 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 // MCP tools, authz, single handler. Per spec 5/5.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return resreg.Resource{
-		Name: "routes",
+		Name: "proxyd_routes",
 		Endpoints: []resreg.Endpoint{
-			{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList, Status: http.StatusOK},
-			{Verb: "GET", Path: "/v1/routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
-			{Verb: "POST", Path: "/v1/routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
-			{Verb: "PATCH", Path: "/v1/routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
-			{Verb: "DELETE", Path: "/v1/routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
+			{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
+			{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
+			{Verb: "POST", Path: "/v1/proxyd_routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
+			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
+			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
 		},
 		MCPTools: []resreg.MCPTool{
-			{Name: "routes.list", Action: resreg.ActionList,
+			{Name: "proxyd_routes.list", Action: resreg.ActionList,
 				Description: "List proxyd's runtime route table."},
-			{Name: "routes.get", Action: resreg.ActionGet,
+			{Name: "proxyd_routes.get", Action: resreg.ActionGet,
 				Description: "Read one proxyd route by path.",
 				Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-			{Name: "routes.create", Action: resreg.ActionCreate,
+			{Name: "proxyd_routes.create", Action: resreg.ActionCreate,
 				Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
 				Args: []resreg.MCPArg{
 					{Name: "path", Type: "string", Required: true},
@@ -325,7 +325,7 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 					{Name: "preserve_headers", Type: "array"},
 					{Name: "strip_prefix", Type: "bool"},
 				}},
-			{Name: "routes.update", Action: resreg.ActionUpdate,
+			{Name: "proxyd_routes.update", Action: resreg.ActionUpdate,
 				Description: "Update fields on an existing proxyd route. Path is the key.",
 				Args: []resreg.MCPArg{
 					{Name: "path", Type: "string", Required: true},
@@ -335,7 +335,7 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 					{Name: "preserve_headers", Type: "array"},
 					{Name: "strip_prefix", Type: "bool"},
 				}},
-			{Name: "routes.delete", Action: resreg.ActionDelete,
+			{Name: "proxyd_routes.delete", Action: resreg.ActionDelete,
 				Description: "Delete a proxyd route. Idempotent.",
 				Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
 		},
@@ -345,7 +345,7 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 	}
 }
 
-// callerWebd is the sole legitimate forwarder to proxyd's /v1/routes resource:
+// callerWebd is the sole legitimate forwarder to proxyd's /v1/proxyd_routes resource:
 // webd's MCP route tools translate to this REST API and present webd's own
 // service:webd ES256 bearer as the transit proof for the X-User-* it forwards.
 const callerWebd = "service:webd"

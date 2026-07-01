@@ -17,7 +17,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// webdBearerKS mints the service:webd token webd presents to proxyd's /v1/routes
+// webdBearerKS mints the service:webd token webd presents to proxyd's /v1/proxyd_routes
 // resource (the channel proof for the X-User-* it forwards) plus the KeySet that
 // verifies it. The signing key is shared so a test can mint a NON-webd token
 // under the same trusted key and assert the sub pin still rejects it.
@@ -35,7 +35,7 @@ func webdBearerKS(t *testing.T) (ks *auth.KeySet, key *auth.SigningKey, webdTok 
 }
 
 // testResourceMux builds a stdlib mux with the routes resource mounted at
-// /v1/routes, backed by an in-memory store. callerBuild lets a test swap in a
+// /v1/proxyd_routes, backed by an in-memory store. callerBuild lets a test swap in a
 // custom caller; nil uses the ES256 service:webd-gated builder + attaches the
 // matching bearer via testWebdTok so doJSON/signOperator requests are admitted.
 var testWebdTok string
@@ -99,7 +99,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	mux, rr, _ := testResourceMux(t, nil)
 
 	// create
-	w := doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/slack/", "backend": "http://slakd:8080", "auth": "public",
 		"preserve_headers": []string{"X-Slack-Signature"},
 	})
@@ -113,7 +113,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	}
 
 	// list
-	w = doJSON(t, mux, "GET", "/v1/routes", nil)
+	w = doJSON(t, mux, "GET", "/v1/proxyd_routes", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET list = %d", w.Code)
 	}
@@ -128,13 +128,13 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	}
 
 	// get — `/slack/` urlencoded
-	w = doJSON(t, mux, "GET", "/v1/routes/"+url.PathEscape("/slack/"), nil)
+	w = doJSON(t, mux, "GET", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET one = %d body=%s", w.Code, w.Body.String())
 	}
 
 	// patch
-	w = doJSON(t, mux, "PATCH", "/v1/routes/"+url.PathEscape("/slack/"), map[string]any{
+	w = doJSON(t, mux, "PATCH", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), map[string]any{
 		"backend": "http://slakd2:8080",
 	})
 	if w.Code != http.StatusOK {
@@ -146,7 +146,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	}
 
 	// delete
-	w = doJSON(t, mux, "DELETE", "/v1/routes/"+url.PathEscape("/slack/"), nil)
+	w = doJSON(t, mux, "DELETE", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE = %d", w.Code)
 	}
@@ -155,7 +155,7 @@ func TestRoutesResource_EndToEnd(t *testing.T) {
 	}
 
 	// delete is idempotent
-	w = doJSON(t, mux, "DELETE", "/v1/routes/"+url.PathEscape("/slack/"), nil)
+	w = doJSON(t, mux, "DELETE", "/v1/proxyd_routes/"+url.PathEscape("/slack/"), nil)
 	if w.Code != http.StatusNoContent {
 		t.Errorf("DELETE idempotent = %d", w.Code)
 	}
@@ -165,7 +165,7 @@ func TestRoutesResource_Validation(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
 
 	// no leading slash
-	w := doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "slack/", "backend": "http://x", "auth": "public",
 	})
 	if w.Code != http.StatusBadRequest {
@@ -173,7 +173,7 @@ func TestRoutesResource_Validation(t *testing.T) {
 	}
 
 	// empty backend
-	w = doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w = doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/x/", "backend": "", "auth": "public",
 	})
 	if w.Code != http.StatusBadRequest {
@@ -181,7 +181,7 @@ func TestRoutesResource_Validation(t *testing.T) {
 	}
 
 	// unknown auth
-	w = doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w = doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/y/", "backend": "http://x", "auth": "admin",
 	})
 	if w.Code != http.StatusBadRequest {
@@ -189,13 +189,13 @@ func TestRoutesResource_Validation(t *testing.T) {
 	}
 
 	// duplicate
-	w = doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w = doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/z/", "backend": "http://x", "auth": "public",
 	})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("first POST = %d", w.Code)
 	}
-	w = doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w = doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/z/", "backend": "http://x", "auth": "public",
 	})
 	if w.Code != http.StatusConflict {
@@ -205,7 +205,7 @@ func TestRoutesResource_Validation(t *testing.T) {
 
 func TestRoutesResource_GetNotFound(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	w := doJSON(t, mux, "GET", "/v1/routes/"+url.PathEscape("/nope/"), nil)
+	w := doJSON(t, mux, "GET", "/v1/proxyd_routes/"+url.PathEscape("/nope/"), nil)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d", w.Code)
 	}
@@ -213,7 +213,7 @@ func TestRoutesResource_GetNotFound(t *testing.T) {
 
 func TestRoutesResource_PatchNotFound(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	w := doJSON(t, mux, "PATCH", "/v1/routes/"+url.PathEscape("/nope/"), map[string]any{
+	w := doJSON(t, mux, "PATCH", "/v1/proxyd_routes/"+url.PathEscape("/nope/"), map[string]any{
 		"backend": "http://x",
 	})
 	if w.Code != http.StatusNotFound {
@@ -223,7 +223,7 @@ func TestRoutesResource_PatchNotFound(t *testing.T) {
 
 func TestRoutesResource_Unauthorized(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	req := httptest.NewRequest("GET", "/v1/routes", nil)
+	req := httptest.NewRequest("GET", "/v1/proxyd_routes", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -235,7 +235,7 @@ func TestRoutesResource_Unauthorized(t *testing.T) {
 // channel gate but DENIED by the routes ACL (no operator `**` row) → 403.
 func TestRoutesResource_NonOperatorForbidden(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	req := httptest.NewRequest("GET", "/v1/routes", nil)
+	req := httptest.NewRequest("GET", "/v1/proxyd_routes", nil)
 	req.Header.Set("X-User-Sub", "user@example")
 	req.Header.Set("X-User-Name", "user")
 	req.Header.Set("X-User-Groups", `["atlas/support"]`)
@@ -253,7 +253,7 @@ func TestRoutesResource_NonOperatorForbidden(t *testing.T) {
 // request headers escalate to operator on the routes resource.
 func TestRoutesResource_NoBearerRejected(t *testing.T) {
 	mux, _, _ := testResourceMux(t, nil)
-	req := httptest.NewRequest("POST", "/v1/routes", strings.NewReader(`{"path":"/x/","backend":"http://x:8080","auth":"user"}`))
+	req := httptest.NewRequest("POST", "/v1/proxyd_routes", strings.NewReader(`{"path":"/x/","backend":"http://x:8080","auth":"user"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Sub", "op@example")
 	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim, no bearer
@@ -275,7 +275,7 @@ func TestRoutesResource_NonWebdBearerRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux, _, _ := testResourceMux(t, callerFromHTTP(ks))
-	req := httptest.NewRequest("GET", "/v1/routes", nil)
+	req := httptest.NewRequest("GET", "/v1/proxyd_routes", nil)
 	req.Header.Set("X-User-Sub", "op@example")
 	req.Header.Set("X-User-Groups", `["**"]`) // forged operator claim
 	req.Header.Set("Authorization", "Bearer "+userTok)
@@ -291,7 +291,7 @@ func TestRoutesResource_NonWebdBearerRejected(t *testing.T) {
 // invariant from spec 6/2 Phase-3.
 func TestRoutesResource_Durable(t *testing.T) {
 	mux, _, st := testResourceMux(t, nil)
-	w := doJSON(t, mux, "POST", "/v1/routes", map[string]any{
+	w := doJSON(t, mux, "POST", "/v1/proxyd_routes", map[string]any{
 		"path": "/api/", "backend": "http://api:8080", "auth": "user",
 	})
 	if w.Code != http.StatusCreated {

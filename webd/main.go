@@ -105,7 +105,7 @@ func main() {
 	}
 
 	// webd presents a service:webd ES256 bearer for both faces: to proxyd's
-	// /v1/routes resource (channel proof for the X-User-* it forwards) AND to
+	// /v1/proxyd_routes resource (channel proof for the X-User-* it forwards) AND to
 	// routd's register + side calls (the service token IS the register credential
 	// — HMAC retire step 5). Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL (same
 	// pattern as the channel adapters). Unset (local dev) → svc nil → no bearer;
