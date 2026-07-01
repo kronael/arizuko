@@ -807,7 +807,8 @@ Functional:
 - Every HTTP-serving daemon (routd, runed, authd, timed, onbod, proxyd,
   webd, dashd) exposes `GET /openapi.json` returning a valid OpenAPI 3.1
   doc for its owned resources. The document is engine-generated, public,
-  cached for the process lifetime. Subsumes spec `5/4-openapi-discoverable.md`.
+  cached for the process lifetime. Subsumes the former
+  openapi-discoverable spec (folded into this one).
 
 Testability:
 

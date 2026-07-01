@@ -7,7 +7,6 @@ depends:
     Q-unified-routing,
     E-routd,
     P-runed,
-    X-session-workflows,
     ../4/9-acl-unified,
     ../16/9-positioning,
   ]

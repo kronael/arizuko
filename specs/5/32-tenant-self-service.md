@@ -203,11 +203,11 @@ Specs already shipped or planned that this references (do not duplicate
 their content):
 
 - `4/9-acl-unified.md` — canonical unified ACL (shipped); subsumes the
-- `7/6-dynamic-channels.md` — channel adapter credentials (special case
+- `13/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/30-inspect-tools.md` — read-only introspection (shipped)
 - `GRANTS.md` (root) — composition mechanics
-- `7/7-auth-tunneling.md` — web-based credential capture; planned
+- `13/7-auth-tunneling.md` — web-based credential capture; planned
 - `7/8-cli-auth-helper.md` — CLI auth dispatcher; planned
 
 Channels become a _consumer_ of the secrets table (channel-creds-as-folder-scope-secrets-with-platform-validators). Auth-tunnel writes to the same secrets table.
