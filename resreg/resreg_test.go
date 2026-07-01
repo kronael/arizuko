@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -63,10 +64,12 @@ func fakeResource(st *store.Store, s *fakeState) Resource {
 			{Verb: "POST", Path: "/v1/routes", Action: ActionCreate, Status: http.StatusCreated},
 			{Verb: "GET", Path: "/v1/routes/{id}", Action: ActionGet, Status: http.StatusOK},
 		},
-		MCPTools: []MCPTool{
-			{Name: "routes.list", Action: ActionList, Description: "list"},
-			{Name: "routes.create", Action: ActionCreate, Description: "create",
-				Args: []MCPArg{{Name: "x", Type: "string", Required: true}}},
+		MCPDoc: map[Action]string{
+			ActionList:   "list",
+			ActionCreate: "create",
+		},
+		MCPArgs: map[Action][]MCPArg{
+			ActionCreate: {{Name: "x", Type: "string", Required: true}},
 		},
 		Authz: func(_ Caller, _ Action, _ Args) (string, map[string]string, error) {
 			return "**", nil, nil
@@ -365,6 +368,116 @@ func TestErrorf_StatusMapping(t *testing.T) {
 	}
 	if got := errStatus(context.Canceled); got != 500 {
 		t.Errorf("generic err mapped to %d", got)
+	}
+}
+
+// TestDeriveMCPTools_Golden pins deriveMCPTools against the retired
+// hand-authored proxyd_routes MCPTools list, byte-for-byte (name,
+// description, every arg's name/type/description/required). If this
+// fails, the derivation drifted from the operator-facing contract.
+func TestDeriveMCPTools_Golden(t *testing.T) {
+	r := Resource{
+		Name: "proxyd_routes",
+		Endpoints: []Endpoint{
+			{Verb: "GET", Path: "/v1/proxyd_routes", Action: ActionList, Status: http.StatusOK},
+			{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: ActionGet, Status: http.StatusOK},
+			{Verb: "POST", Path: "/v1/proxyd_routes", Action: ActionCreate, Status: http.StatusCreated},
+			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: ActionUpdate, Status: http.StatusOK},
+			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: ActionDelete, Status: http.StatusNoContent},
+		},
+		MCPDoc: map[Action]string{
+			ActionList:   "List proxyd's runtime route table.",
+			ActionGet:    "Read one proxyd route by path.",
+			ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+			ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
+			ActionDelete: "Delete a proxyd route. Idempotent.",
+		},
+		MCPArgs: map[Action][]MCPArg{
+			ActionGet: {{Name: "path", Type: "string", Required: true}},
+			ActionCreate: {
+				{Name: "path", Type: "string", Required: true},
+				{Name: "backend", Type: "string", Required: true},
+				{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
+				{Name: "gated_by", Type: "string"},
+				{Name: "preserve_headers", Type: "array"},
+				{Name: "strip_prefix", Type: "bool"},
+			},
+			ActionUpdate: {
+				{Name: "path", Type: "string", Required: true},
+				{Name: "backend", Type: "string"},
+				{Name: "auth", Type: "string"},
+				{Name: "gated_by", Type: "string"},
+				{Name: "preserve_headers", Type: "array"},
+				{Name: "strip_prefix", Type: "bool"},
+			},
+			ActionDelete: {{Name: "path", Type: "string", Required: true}},
+		},
+	}
+	want := []MCPTool{
+		{Name: "proxyd_routes.list", Action: ActionList,
+			Description: "List proxyd's runtime route table."},
+		{Name: "proxyd_routes.get", Action: ActionGet,
+			Description: "Read one proxyd route by path.",
+			Args:        []MCPArg{{Name: "path", Type: "string", Required: true}}},
+		{Name: "proxyd_routes.create", Action: ActionCreate,
+			Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+			Args: []MCPArg{
+				{Name: "path", Type: "string", Required: true},
+				{Name: "backend", Type: "string", Required: true},
+				{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
+				{Name: "gated_by", Type: "string"},
+				{Name: "preserve_headers", Type: "array"},
+				{Name: "strip_prefix", Type: "bool"},
+			}},
+		{Name: "proxyd_routes.update", Action: ActionUpdate,
+			Description: "Update fields on an existing proxyd route. Path is the key.",
+			Args: []MCPArg{
+				{Name: "path", Type: "string", Required: true},
+				{Name: "backend", Type: "string"},
+				{Name: "auth", Type: "string"},
+				{Name: "gated_by", Type: "string"},
+				{Name: "preserve_headers", Type: "array"},
+				{Name: "strip_prefix", Type: "bool"},
+			}},
+		{Name: "proxyd_routes.delete", Action: ActionDelete,
+			Description: "Delete a proxyd route. Idempotent.",
+			Args:        []MCPArg{{Name: "path", Type: "string", Required: true}}},
+	}
+	got := deriveMCPTools(r)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deriveMCPTools drifted from golden:\n got=%+v\nwant=%+v", got, want)
+	}
+}
+
+// TestDeriveMCPTools_ReflectsRowType — when RowType is set, args come
+// from struct reflection (not MCPArgs), and only actions in MCPDoc
+// surface as tools.
+func TestDeriveMCPTools_ReflectsRowType(t *testing.T) {
+	type row struct {
+		Path    string   `json:"path"`
+		Hits    int      `json:"hits"`
+		Enabled bool     `json:"enabled"`
+		Tags    []string `json:"tags,omitempty"`
+		Skip    string   `json:"-"`
+	}
+	r := Resource{
+		Name:      "thing",
+		RowType:   reflect.TypeOf(row{}),
+		Endpoints: []Endpoint{{Verb: "GET", Path: "/v1/thing", Action: ActionList}},
+		MCPDoc:    map[Action]string{ActionList: "list things"},
+	}
+	got := deriveMCPTools(r)
+	if len(got) != 1 || got[0].Name != "thing.list" {
+		t.Fatalf("tools = %+v", got)
+	}
+	want := []MCPArg{
+		{Name: "path", Type: "string", Required: true},
+		{Name: "hits", Type: "number", Required: true},
+		{Name: "enabled", Type: "bool", Required: true},
+		{Name: "tags", Type: "array", Required: false},
+	}
+	if !reflect.DeepEqual(got[0].Args, want) {
+		t.Fatalf("reflected args:\n got=%+v\nwant=%+v", got[0].Args, want)
 	}
 }
 

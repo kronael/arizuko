@@ -52,9 +52,13 @@ func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name stri
 }
 
 // routesForwarder is the resreg.Resource that forwards every action to
-// proxyd over HTTP. Same MCPTools shape as proxyd's local declaration
-// (parallel reaches drift over time — that's the cost; gain is one
-// audit row + one auth gate at the downstream daemon).
+// proxyd over HTTP. It carries the same Endpoints + MCPDoc + MCPArgs as
+// proxyd's local declaration and derives the tool list via resreg —
+// there is no hand-authored MCPTool list. These maps still duplicate
+// proxyd's (webd is a separate binary; it can't import proxyd's package
+// main). Fully collapsing the two copies needs the openapi-mcp gateway
+// (webd fetching proxyd's /openapi.json); until then the derivation
+// path guarantees the tool SHAPE matches even if the maps drift.
 func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.Resource {
 	handler := func(ctx context.Context, x resreg.Execution) (any, error) {
 		method, path, body, err := routesRESTSpec(x.Action, x.Args)
@@ -74,8 +78,16 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		return json.RawMessage(raw), nil
 	}
 	return resreg.Resource{
-		Name:     "proxyd_routes",
-		MCPTools: routesMCPTools(),
+		Name: "proxyd_routes",
+		Endpoints: []resreg.Endpoint{
+			{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
+			{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
+			{Verb: "POST", Path: "/v1/proxyd_routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
+			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
+			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
+		},
+		MCPDoc:  routesMCPDoc,
+		MCPArgs: routesMCPArgs,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},
@@ -132,37 +144,36 @@ func argsToBody(args resreg.Args) map[string]any {
 	return body
 }
 
-func routesMCPTools() []resreg.MCPTool {
-	return []resreg.MCPTool{
-		{Name: "proxyd_routes.list", Action: resreg.ActionList,
-			Description: "List proxyd's runtime route table."},
-		{Name: "proxyd_routes.get", Action: resreg.ActionGet,
-			Description: "Read one proxyd route by path.",
-			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-		{Name: "proxyd_routes.create", Action: resreg.ActionCreate,
-			Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
-			Args: []resreg.MCPArg{
-				{Name: "path", Type: "string", Required: true},
-				{Name: "backend", Type: "string", Required: true},
-				{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
-				{Name: "gated_by", Type: "string"},
-				{Name: "preserve_headers", Type: "array"},
-				{Name: "strip_prefix", Type: "bool"},
-			}},
-		{Name: "proxyd_routes.update", Action: resreg.ActionUpdate,
-			Description: "Update fields on an existing proxyd route. Path is the key.",
-			Args: []resreg.MCPArg{
-				{Name: "path", Type: "string", Required: true},
-				{Name: "backend", Type: "string"},
-				{Name: "auth", Type: "string"},
-				{Name: "gated_by", Type: "string"},
-				{Name: "preserve_headers", Type: "array"},
-				{Name: "strip_prefix", Type: "bool"},
-			}},
-		{Name: "proxyd_routes.delete", Action: resreg.ActionDelete,
-			Description: "Delete a proxyd route. Idempotent.",
-			Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-	}
+// routesMCPDoc + routesMCPArgs mirror proxyd's decl (see routesForwarder
+// comment on why the copy exists). resreg.deriveMCPTools turns them +
+// Endpoints into the tool list.
+var routesMCPDoc = map[resreg.Action]string{
+	resreg.ActionList:   "List proxyd's runtime route table.",
+	resreg.ActionGet:    "Read one proxyd route by path.",
+	resreg.ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+	resreg.ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
+	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
+}
+
+var routesMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
+	resreg.ActionCreate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string", Required: true},
+		{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionUpdate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string"},
+		{Name: "auth", Type: "string"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
 }
 
 // isOperator: the `**` marker in the caller's groups claim is the operator

@@ -298,7 +298,10 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 }
 
 // routesResourceDecl is the resreg.Resource literal: REST endpoints,
-// MCP tools, authz, single handler. Per spec 5/5.
+// MCP doc/args, authz, single handler. Per spec 5/5. proxyd_routes has
+// no RowType here (the schema half lives in resreg/resources), so the
+// MCP tools' args come from MCPArgs; resreg derives the tool list from
+// Endpoints ∩ MCPDoc.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return resreg.Resource{
 		Name: "proxyd_routes",
@@ -309,40 +312,46 @@ func routesResourceDecl(rr *routesResource) resreg.Resource {
 			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
 			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
 		},
-		MCPTools: []resreg.MCPTool{
-			{Name: "proxyd_routes.list", Action: resreg.ActionList,
-				Description: "List proxyd's runtime route table."},
-			{Name: "proxyd_routes.get", Action: resreg.ActionGet,
-				Description: "Read one proxyd route by path.",
-				Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-			{Name: "proxyd_routes.create", Action: resreg.ActionCreate,
-				Description: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
-				Args: []resreg.MCPArg{
-					{Name: "path", Type: "string", Required: true},
-					{Name: "backend", Type: "string", Required: true},
-					{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
-					{Name: "gated_by", Type: "string"},
-					{Name: "preserve_headers", Type: "array"},
-					{Name: "strip_prefix", Type: "bool"},
-				}},
-			{Name: "proxyd_routes.update", Action: resreg.ActionUpdate,
-				Description: "Update fields on an existing proxyd route. Path is the key.",
-				Args: []resreg.MCPArg{
-					{Name: "path", Type: "string", Required: true},
-					{Name: "backend", Type: "string"},
-					{Name: "auth", Type: "string"},
-					{Name: "gated_by", Type: "string"},
-					{Name: "preserve_headers", Type: "array"},
-					{Name: "strip_prefix", Type: "bool"},
-				}},
-			{Name: "proxyd_routes.delete", Action: resreg.ActionDelete,
-				Description: "Delete a proxyd route. Idempotent.",
-				Args:        []resreg.MCPArg{{Name: "path", Type: "string", Required: true}}},
-		},
+		MCPDoc:  routesMCPDoc,
+		MCPArgs: routesMCPArgs,
 		Authz:   routesAuthz,
 		Handler: rr.handle,
 		Store:   rr.st,
 	}
+}
+
+// routesMCPDoc + routesMCPArgs are the two irreducible MCP inputs for
+// proxyd_routes: the per-action agent-facing description and (since this
+// decl has no RowType) the explicit arg list. resreg.deriveMCPTools
+// turns these + Endpoints into the tool list; webd's forwarder reuses
+// them so the operator surface never drifts.
+var routesMCPDoc = map[resreg.Action]string{
+	resreg.ActionList:   "List proxyd's runtime route table.",
+	resreg.ActionGet:    "Read one proxyd route by path.",
+	resreg.ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+	resreg.ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
+	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
+}
+
+var routesMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
+	resreg.ActionCreate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string", Required: true},
+		{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionUpdate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string"},
+		{Name: "auth", Type: "string"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
 }
 
 // callerWebd is the sole legitimate forwarder to proxyd's /v1/proxyd_routes resource:

@@ -113,7 +113,8 @@ type Endpoint struct {
 	Status int
 }
 
-// MCPTool declares one MCP face. Name is the surfaced tool name
+// MCPTool is the DERIVED MCP face of one action — produced by
+// deriveMCPTools, never hand-authored. Name is the surfaced tool name
 // (`<resource>.<action>`); Description is the agent-facing one-liner;
 // Args is the JSON-Schema-shaped parameter list the auto-adapter
 // materialises into mcp.WithString/Number/etc.
@@ -132,7 +133,11 @@ type MCPArg struct {
 }
 
 // Resource ties identity (Name + Authz + Handler) to registration
-// metadata (Endpoints + MCPTools). One literal per resource per daemon.
+// metadata (Endpoints + MCP doc/args). One literal per resource per
+// daemon. MCP tools are DERIVED from Endpoints (deriveMCPTools), never
+// hand-authored — one tool per endpoint whose Action has an MCPDoc
+// entry, so the description map is also the "surface this action as a
+// tool" signal.
 //
 // Authz returns (scope, params, err). The adapter then calls
 // auth.Authorize(Store, authCaller, "<Name>:<action>", scope, params)
@@ -146,10 +151,20 @@ type MCPArg struct {
 type Resource struct {
 	Name      string
 	Endpoints []Endpoint
-	MCPTools  []MCPTool
 	Authz     func(c Caller, action Action, args Args) (scope string, params map[string]string, err error)
 	Handler   Handler
 	Store     *store.Store
+
+	// MCPDoc maps an Action to its agent-facing one-liner. An endpoint
+	// whose Action has an entry here surfaces as an MCP tool named
+	// `<Name>.<action>`; the description is the one irreducible bit
+	// reflection can't infer. Actions absent from the map get no tool.
+	MCPDoc map[Action]string
+
+	// MCPArgs supplies the tool's parameter list for resources that have
+	// NO RowType (forwarders, custom shapes). When RowType is set the
+	// args are reflected from it and MCPArgs is ignored.
+	MCPArgs map[Action][]MCPArg
 
 	// Schema half (spec 5/36). All optional. Resources that set
 	// RowType+Table are "engine-managed" and get generic CRUD via
@@ -256,10 +271,86 @@ func restHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler 
 	})
 }
 
+// deriveMCPTools produces the MCP tools of r from its Endpoints. One
+// tool per endpoint whose Action has an MCPDoc entry. Args come from
+// RowType reflection when set, else from MCPArgs. Name is
+// `<r.Name>.<action>`. This is the single renderer for a resource's
+// MCP surface — no hand-authored tool lists.
+func deriveMCPTools(r Resource) []MCPTool {
+	var reflected []MCPArg
+	if r.RowType != nil {
+		reflected = rowMCPArgs(r.RowType)
+	}
+	var out []MCPTool
+	for _, e := range r.Endpoints {
+		desc, ok := r.MCPDoc[e.Action]
+		if !ok {
+			continue
+		}
+		args := reflected
+		if r.RowType == nil {
+			args = r.MCPArgs[e.Action]
+		}
+		out = append(out, MCPTool{
+			Name:        r.Name + "." + string(e.Action),
+			Action:      e.Action,
+			Description: desc,
+			Args:        args,
+		})
+	}
+	return out
+}
+
+// rowMCPArgs reflects a RowType into the MCP arg list: one MCPArg per
+// exported field with a json/yaml name, typed via kindToMCPType.
+// omitempty → not required. Fields tagged `-` are skipped.
+func rowMCPArgs(rt reflect.Type) []MCPArg {
+	if rt.Kind() == reflect.Pointer {
+		rt = rt.Elem()
+	}
+	if rt.Kind() != reflect.Struct {
+		return nil
+	}
+	var args []MCPArg
+	for i := 0; i < rt.NumField(); i++ {
+		sf := rt.Field(i)
+		name, omit := parseJSONTag(sf)
+		if name == "" {
+			continue
+		}
+		args = append(args, MCPArg{
+			Name:     name,
+			Type:     kindToMCPType(sf.Type),
+			Required: !omit,
+		})
+	}
+	return args
+}
+
+// kindToMCPType maps a Go type to an MCPArg type string
+// ("string"|"number"|"bool"|"array").
+func kindToMCPType(t reflect.Type) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Bool:
+		return "bool"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	default:
+		return "string"
+	}
+}
+
 // MCPTools registers every MCP tool of r on srv. callerFor is invoked
 // per call (not at registration) to avoid privilege confusion.
 func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc) {
-	for _, t := range r.MCPTools {
+	for _, t := range deriveMCPTools(r) {
 		opts := []mcp.ToolOption{mcp.WithDescription(t.Description)}
 		for _, a := range t.Args {
 			opts = append(opts, mcpArgOption(a))
