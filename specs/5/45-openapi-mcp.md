@@ -5,18 +5,24 @@ depends:
   [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
 ---
 
-# specs/5/45 — uniform REST+MCP: author REST, derive MCP
+# specs/5/45 — one REST surface: author REST, annotate the OpenAPI
 
-> The canonical "one handler, two faces" statement. Every cold-tier
-> management resource is authored **once** as a REST handler with an
-> annotated `/openapi.json` (`x-mcp-*` fields); the MCP face is
-> **derived** from that doc by a generic gateway. One `auth.Authorize`
-> gate, two identity sources (OAuth-gated REST, scope-gated MCP).
-> Hot-tier agent actions (`reply`, `send`, `inspect_*`) are MCP-only
-> by design — no REST resource to derive from. Supersedes
-> [`5/5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) for the mechanism;
-> [`5/44`](44-mcp-rest-unification.md) is the adoption program that
-> rolls this out.
+> Every cold-tier management resource is authored **once** as a REST
+> handler; its `/openapi.json` is **annotated** (`x-mcp-*`: sharp name,
+> when-to-use) and **published**. The agent uses the REST endpoints
+> **directly**, guided by that doc — **no per-resource MCP tool, no
+> gateway**. Dashboard and agent hit the same REST surface; one
+> `auth.Authorize` gate, two identity sources (OAuth-gated browser,
+> folder-scoped service token for the agent). Hot-tier agent actions
+> (`reply`, `send`, `inspect_*`) stay MCP-only — no REST resource to
+> mirror. Supersedes [`5/5`](5-uniform-mcp-rest.md); [`5/44`](44-mcp-rest-unification.md) is the rollout.
+
+> **Pivot (2026-07-01).** Earlier drafts of this spec _derived_ an MCP
+> tool surface from the annotated OpenAPI via a generic gateway. That's
+> gone: the annotated OpenAPI **is** the agent's catalog, and the agent
+> calls REST — no derivation, no gateway, no `deriveMCPTools`. The
+> derivation/gateway sections below are **superseded** and slated for
+> deletion in the minimization pass; kept transiently for diff context.
 
 ## The model
 
@@ -24,10 +30,11 @@ Two tiers, by design — not a pending migration:
 
 - **Cold-tier (operator config)** — `routes`, `acl`, `groups`,
   `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
-  `route_tokens`, `onboarding_gates`, `proxyd_routes`. Each is reachable
-  via **REST** (human, OAuth-gated) AND **MCP** (agent, scope-gated).
-  ONE REST handler per `(resource, action)`; the MCP tool is **derived**
-  from the annotated OpenAPI, never a second hand-written tree.
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`. ONE REST handler
+  per `(resource, action)`, reached over **REST** by both the human
+  (OAuth-gated browser) and the agent (folder-scoped service token + the
+  published annotated OpenAPI as its catalog). No per-resource MCP tool —
+  the annotated `/openapi.json` IS the agent's catalog.
 - **Hot-tier (agent runtime)** — `reply`, `send`, `like`, `delete`,
   `post`, `diary`, session control (`fork_topic`, `engage`, `disengage`,
   `reset_session`, `inject_message`), inspect (`inspect_routing`,
