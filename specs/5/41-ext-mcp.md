@@ -122,7 +122,7 @@ tier-default grant derivation in `auth/authorize.go:102`.
 
 ---
 
-## Handler shape 3 — REST descriptor (UNSHIPPED)
+## Handler shape 3 — REST descriptor (SHIPPED)
 
 Declarative TOML mapping tool names to REST endpoints. No subprocess, no
 Go handler — arizuko makes the HTTP call directly. Targets providers that
@@ -134,11 +134,11 @@ name = "cloudflare"
 base = "https://api.cloudflare.com/client/v4"
 
   [ext.auth]
-  method = "bearer"        # bearer | apikey-header | apikey-query | basic | dual-key
+  method = "bearer"        # bearer | apikey-header | apikey-query | basic | json-body
   secret = "CF_API_TOKEN"  # key in secrets table (folder-scoped)
   # apikey-header: header = "X-Api-Key"
   # apikey-query:  param = "api_key"
-  # dual-key: secret2 = "CF_SECRET_KEY", header2 = "X-Secret-API-Key"
+  # json-body: secret2 = "PB_SECRET", header/header2 = JSON body field names
 
   [[ext.tool]]
   name   = "dns_list"
@@ -161,13 +161,13 @@ base = "https://api.cloudflare.com/client/v4"
 
 Auth wire forms:
 
-| method          | wire                                           |
-| --------------- | ---------------------------------------------- |
-| `bearer`        | `Authorization: Bearer <secret>`               |
-| `apikey-header` | configurable header name                       |
-| `apikey-query`  | configurable query param name                  |
-| `basic`         | `Authorization: Basic base64(user:secret)`     |
-| `dual-key`      | two secrets injected as separate named headers |
+| method          | wire                                          |
+| --------------- | --------------------------------------------- |
+| `bearer`        | `Authorization: Bearer <secret>`              |
+| `apikey-header` | configurable header name                      |
+| `apikey-query`  | configurable query param name                 |
+| `basic`         | `Authorization: Basic base64(user:secret)`    |
+| `json-body`     | secret(s) injected into the JSON request body |
 
 ### Built-in provider definitions
 
@@ -176,7 +176,7 @@ Operators supply only the API key; tool schemas ship with arizuko:
 | provider   | auth         | secret key(s)                      | notes                            |
 | ---------- | ------------ | ---------------------------------- | -------------------------------- |
 | Cloudflare | bearer       | `CF_API_TOKEN`                     | zone-scoped DNS, Workers, KV     |
-| Porkbun    | dual-key     | `PB_API_KEY` + `PB_SECRET`         | domain-scoped                    |
+| Porkbun    | json-body    | `PB_API_KEY` + `PB_SECRET`         | domain-scoped                    |
 | Gandi      | bearer       | `GANDI_PAT`                        | livedns API                      |
 | Namecheap  | apikey-query | `NAMECHEAP_KEY`                    | requires IP whitelist on account |
 | Route53    | AWS SigV4    | `AWS_ACCESS_KEY_ID` + `AWS_SECRET` | needs SigV4 — low priority       |
@@ -239,7 +239,7 @@ Three escape paths closed by the broker:
 1. **Tool result echoes the token** — broker scrubs known secret values from
    `mcp.CallToolResult` before returning to agent (exact-string match on
    the declared keys for that call).
-2. **Subprocess stderr** — routed to a gated-owned sink, never reaches agent.
+2. **Subprocess stderr** — routed to a broker-owned sink, never reaches agent.
    `slog.Debug` under connector name (`ipc/connector.go:196`).
 3. **Agent steers the tool to leak** — connector registration is
    operator-only; agents cannot add connectors or new REST descriptors.

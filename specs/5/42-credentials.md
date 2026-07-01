@@ -1,5 +1,5 @@
 ---
-status: draft
+status: shipped
 depends:
   [
     5-uniform-mcp-rest,
@@ -153,11 +153,10 @@ Target: a connector tool appears in `tools/list` only for sessions where
 can use. The user says "use GitHub" → tool is discoverable only because
 the grant exists.
 
-Current state: `ipc/ipc.go:1019` registers all connector tools
-unconditionally via `granted()`; the grant check fires only at call time.
-Tools are visible to agents even without a grant. Not yet fixed — requires
-per-session tool-list filtering at `ipc.ServeMCP` or a dynamic MCP
-tool-list hook.
+Shipped: `ipc/ipc.go` gates registration — connectors on `mcp:`+localName,
+ext tools on their declared `scope` — skipping the tool when `Authorize`
+denies. The default tier allows all; an explicit deny hides the tool. The
+call-time grant check remains as defense in depth.
 
 ---
 
