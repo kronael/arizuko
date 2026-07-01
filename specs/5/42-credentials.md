@@ -5,7 +5,7 @@ depends:
     5-uniform-mcp-rest,
     5/41-ext-mcp,
     specs/4/9-acl-unified,
-    specs/11/14-surrogate-oauth,
+    5/43-surrogate-oauth,
   ]
 supersedes:
   [
@@ -199,7 +199,7 @@ New endpoint or separate section within `/dash/me/secrets`. Writes to
 | dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓     |
 | dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓     |
 | Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓     |
-| OAuth write path                                          | `specs/11/14-surrogate-oauth.md`                      | ✓     |
+| OAuth write path (surrogate)                              | `specs/5/43-surrogate-oauth.md`                       | draft |
 | Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓     |
 
 ## What's not shipped

@@ -298,7 +298,7 @@ the calls. Every call appears in `audit_log`.
 
 ## Out of scope
 
-- OAuth token dance + refresh — `specs/11/14-surrogate-oauth.md` (writes
+- OAuth token dance + refresh — `specs/5/43-surrogate-oauth.md` (writes
   access token into the `secrets` table the broker reads)
 - Hosted-remote MCP servers (e.g. `mcp.linear.app/mcp`) — need HTTP
   upstream proxy mode, not stdio subprocess; design TBD
