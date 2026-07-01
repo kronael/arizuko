@@ -82,12 +82,12 @@ local:alice</code></pre>
     <ol>
       <li>The request arrives at <code>proxyd</code> on port 443. It looks for the <code>Authorization: Bearer</code> header (or, on web pages, the refresh-token cookie).</li>
       <li><code>proxyd.tryAuth</code> verifies the JWT &mdash; an ES256 signature checked offline against <code>authd</code>&rsquo;s JWKS. If valid, it extracts <code>sub</code>, <code>name</code>, and the user's <code>groups</code>. A bare <code>/auth/*</code> login request is instead 302&rsquo;d to <code>authd</code>, which owns the OAuth flow.</li>
-      <li><code>proxyd.setUserHeaders</code> clones the request and stamps four headers: <code>X-User-Sub</code>, <code>X-User-Name</code>, <code>X-User-Groups</code> (JSON), and <code>X-User-Sig</code> &mdash; an HMAC of the first three using <code>PROXYD_HMAC_SECRET</code>.</li>
+      <li><code>proxyd.setUserHeaders</code> clones the request, strips any client-supplied identity headers, and stamps three: <code>X-User-Sub</code>, <code>X-User-Name</code>, and <code>X-User-Groups</code> (JSON). It then attaches an <code>authd</code>-minted ES256 bearer whose subject is pinned to <code>service:proxyd</code> &mdash; the transit proof.</li>
       <li>The cloned request is proxied to <code>dashd</code> over the docker network.</li>
-      <li><code>dashd</code> wraps every <code>/dash/*</code> handler in <code>auth.RequireSigned(PROXYD_HMAC_SECRET)</code> from <code>auth/middleware.go</code>. The middleware recomputes the HMAC and compares to <code>X-User-Sig</code>. Mismatch &rarr; strip all four headers, redirect to <code>/auth/login</code>.</li>
+      <li><code>dashd</code> wraps every <code>/dash/*</code> handler in the middleware from <code>auth/middleware.go</code>. It calls <code>auth.ProxydTransit</code>, which verifies the bearer's signature, expiry, and issuer against <code>authd</code>'s JWKS, and checks the subject is <code>service:proxyd</code>. Only then does it trust the three stamped headers; a missing or wrong bearer &rarr; strip the headers, redirect to <code>/auth/login</code>.</li>
       <li>The handler reads <code>r.Header.Get("X-User-Sub")</code> and trusts it. That sub is what <code>auth.Authorize</code> uses to decide what the user may do.</li>
     </ol>
-    <div class="callout"><strong>Two boundaries, two keys.</strong> <code>authd</code>&rsquo;s ES256 private key signs the JWT the browser holds; every daemon verifies it against the public JWKS. <code>PROXYD_HMAC_SECRET</code> signs the identity header <code>proxyd</code> stamps for backends. Different boundaries: browser&hairsp;&harr;&hairsp;proxyd (JWT) vs proxyd&hairsp;&harr;&hairsp;backend (HMAC header).</div>
+    <div class="callout"><strong>Two boundaries, one signer.</strong> <code>authd</code> holds the only ES256 private key. It signs the JWT the browser carries (browser&hairsp;&harr;&hairsp;proxyd) and the <code>service:proxyd</code> transit bearer proxyd attaches for backends (proxyd&hairsp;&harr;&hairsp;backend). Both are verified the same way &mdash; ES256 against <code>authd</code>&rsquo;s public JWKS &mdash; so there is no separate shared HMAC secret to keep in sync. The <code>X-User-*</code> headers carry no signature of their own; the transit bearer is what makes them trustworthy.</div>
 
     <h2>collision &mdash; logged in as A, OAuth as B</h2>
     <p>You are logged in as <code>google:114alice</code> and you click "Link GitHub." The callback gets a fresh sub <code>github:48291744</code>. Three cases the code handles cleanly:</p>
@@ -107,7 +107,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -4,6 +4,11 @@ status: shipped
 
 # ipc
 
+> **Note.** The MCP socket is now hosted **in-process by routd**
+> (`ipc.ServeMCP` called from `routd.ServeTurnMCP`), not by a standalone
+> `gated.sock` daemon — see [`specs/5/E-routd.md`](../5/E-routd.md). The
+> tool surface and socket-path identity model below are unchanged.
+
 `ipc/` package: ipc.go, all 20 tools, runtime auth via auth.
 
 MCP daemon. Per-group MCP server on unix socket. Resolves caller

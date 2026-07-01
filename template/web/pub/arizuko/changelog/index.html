@@ -22,6 +22,92 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.57.0 <span class="date">&mdash; 1 July 2026</span></h2>
+    <p>Model API keys move into their own dashboard section, agents see only the tools they&rsquo;re granted, and arizuko can call REST APIs like DNS providers directly &mdash; with the token brokered so it never enters the container.</p>
+    <ul>
+      <li><strong>Model keys</strong> &mdash; <code>/dash/me/env</code>: set your <code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code> / <code>CODEX_API_KEY</code> in a dedicated section, kept user-scoped.</li>
+      <li><strong>Grant-gated tools</strong> &mdash; an agent&rsquo;s tool list shows only what its folder is granted; ungranted connectors stay hidden.</li>
+      <li><strong>External REST tools</strong> &mdash; <code>[[ext]]</code> descriptors let arizuko call Cloudflare / Porkbun / Gandi / Namecheap DNS APIs directly; the token never enters the container.</li>
+      <li><strong>BYOA fix</strong> &mdash; your own capability key (e.g. <code>GITHUB_TOKEN</code>) now resolves for MCP connector calls, not just the folder default.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0570--2026-07-01">CHANGELOG &sect; v0.57.0</a></p>
+
+    <h2>arizuko v0.56.0 <span class="date">&mdash; 26 June 2026</span></h2>
+    <p>Users can bring their own API keys via the dashboard, Discord threads stay live after the bot&rsquo;s first reply, and per-group settings are consolidated into one JSON config column.</p>
+    <ul>
+      <li><strong>BYOA</strong> &mdash; <code>/dash/me/secrets</code>: store personal API keys (e.g. <code>ANTHROPIC_API_KEY</code>) encrypted at rest; they override the group&rsquo;s keys for your spawns.</li>
+      <li><strong>Discord threads</strong> &mdash; the bot responds to follow-up messages in threads it started, without requiring <code>@mention</code>.</li>
+      <li><strong>Thread fix</strong> &mdash; <code>thread_replies=false</code> suppresses new thread creation only; in-thread replies still land in the thread.</li>
+      <li><strong>Groups config</strong> &mdash; behavioral settings migrated to a JSON config column; <code>arizuko group thread-replies</code> CLI.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0560--2026-06-26">CHANGELOG &sect; v0.56.0</a></p>
+
+    <h2>arizuko v0.55.0 <span class="date">&mdash; 19 June 2026</span></h2>
+    <p>Security, correctness, and reliability across the board: dashboard CSRF guards, XSS fixes, 14 codex-audit bugs resolved, status messages that thread with replies, and timed tasks that no longer lose their next-run.</p>
+    <ul>
+      <li><strong>Dashboard</strong> &mdash; CSRF guard on state-mutating forms, pair-status XSS fix, routes PATCH authz, label validation, nav/design polish.</li>
+      <li><strong>routd</strong> &mdash; <code>deliverTurn</code> centralizes threading policy; status messages thread with the triggering reply.</li>
+      <li><strong>timed</strong> &mdash; reschedule with <code>computeNextRun</code> on enqueue failure; tasks no longer drop to NULL <code>next_run</code>.</li>
+      <li><strong>chanlib</strong> &mdash; typing indicator starts even when eager send fails; stale-inbound is 200, not 503.</li>
+      <li><strong>codebase</strong> &mdash; 3-round dead-code sweep, 100+ lines removed.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0550--2026-06-19">CHANGELOG &sect; v0.55.0</a></p>
+
+    <h2>arizuko v0.54.0 <span class="date">&mdash; 17 June 2026</span></h2>
+    <p>The operator dashboard gains four control planes and a redesigned conversation view that works like ChatGPT &mdash; session history, continue links, and search.</p>
+    <ul>
+      <li><strong>routd control plane</strong> &mdash; errored chats with retry; <strong>runed control plane</strong> &mdash; active spawns with kill.</li>
+      <li><strong>Audit log browser</strong> &mdash; every operator action, filterable by category, actor, and folder.</li>
+      <li><strong>Usage analytics</strong> &mdash; 7-day instance totals, per-group breakdown, and daily volume chart.</li>
+      <li><strong>Chat session list</strong> &mdash; auto-titled sessions grouped Today/Yesterday/7 days/Older with continue links and search.</li>
+      <li><strong>Branding</strong> &mdash; <code>ASSISTANT_NAME</code> labels the nav and page titles; <code>DASH_ACCENT_COLOR</code> overrides the accent per instance.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0540--2026-06-17">CHANGELOG &sect; v0.54.0</a></p>
+
+    <h2>arizuko v0.53.0 <span class="date">&mdash; 16 June 2026</span></h2>
+    <p>The operator cockpit gains a live services grid and federated per-daemon control planes for onboarding and scheduled tasks. Includes the v0.53.1 / v0.53.2 sign-in fixes.</p>
+    <ul>
+      <li><strong>Services hub</strong> &mdash; <code>/dash/services/</code> probes all 8 core daemons concurrently; DNS failure = unknown, refused/timeout = err; linked tiles for built pages only.</li>
+      <li><strong>Onboarding queue</strong> &mdash; <code>GET /v1/onboarding</code> list + approve/deny/reprompt; <code>/dash/onbod/</code> control plane.</li>
+      <li><strong>Scheduled tasks control</strong> &mdash; <code>/dash/timed/</code> shows the task table, loop health, and lag/stuck flags via routd <code>/v1/tasks</code>.</li>
+      <li><strong>Portal alert banner</strong> &mdash; the landing page surfaces errored-chat and failed-task counts with a link to status.</li>
+      <li><strong>Sign-in fixed (v0.53.1/.2)</strong> &mdash; <code>/auth/*</code> proxies to authd instead of 302-ing to the internal URL; the refresh-token cookie is exchanged and identity headers stamped; branded login page.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0530--2026-06-16">CHANGELOG &sect; v0.53.0</a></p>
+
+    <h2>arizuko v0.52.0 <span class="date">&mdash; 15 June 2026</span></h2>
+    <p>Reply threading lands on every platform, Slack @mentions reliably reach the agent, and a whole class of silent failures got fixed.</p>
+    <ul>
+      <li><strong>Replies thread, sends don&rsquo;t</strong> &mdash; <code>reply</code> starts/joins the platform thread (Discord, Slack, Telegram); <code>send</code> is top-level; preference per group.</li>
+      <li><strong>Thread @mention promotion</strong> &mdash; replies inside a thread where the bot already posted auto-promote to mention, so the agent stays in the conversation.</li>
+      <li><strong>Slack @mentions delivered</strong> &mdash; <code>app_mention</code> events were silently dropped since launch; now wired; outbound converts CommonMark &rarr; mrkdwn.</li>
+      <li><strong>Turn retry on OOM/timeout</strong> &mdash; a run killed mid-flight reschedules with a 10s backoff instead of failing permanently.</li>
+      <li><strong>Observability</strong> &mdash; spans, 9 metric families, and HTTP middleware (OTLP-exportable); <code>ARIZUKO_DEFAULT_MODEL</code> sets the instance default model.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0520--2026-06-15">CHANGELOG &sect; v0.52.0</a></p>
+
+    <h2>arizuko v0.51.0 <span class="date">&mdash; 9 June 2026</span></h2>
+    <p>Every operator action is now reachable both ways (agent MCP and HTTP REST), each world gets its own web address, and a big internal cleanup makes each daemon own its surface.</p>
+    <ul>
+      <li><strong>Uniform MCP+REST</strong> &mdash; manage ACLs (<code>add_acl</code>/<code>remove_acl</code>), invites (<code>invite_create</code>/<code>list</code>/<code>revoke</code>), and post/forward/quote/repost/voice from agents OR HTTP, one handler each.</li>
+      <li><strong>Web virtual hosts</strong> &mdash; each world is reachable at its own derived hostname (e.g. <code>krons.fiu.wtf</code> &rarr; that world), no per-host config; <code>get_web_presence</code> reports the public URL.</li>
+      <li><strong>Slack stays put on quiet channels</strong> &mdash; the watchdog no longer restarts on silence, only on real auth failure.</li>
+      <li><strong>Directory URLs serve <code>index.html</code></strong> &mdash; <code>/pub/&lt;x&gt;/foo/</code> now resolves.</li>
+      <li><strong>Leaner core</strong> &mdash; removed ~900 lines of dead monolith-era code; each daemon owns its own auth/routes/groups surface.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0510--2026-06-09">CHANGELOG &sect; v0.51.0</a></p>
+
+    <h2>arizuko v0.50.0 <span class="date">&mdash; 7 June 2026</span></h2>
+    <p>The <code>gated</code> monolith is gone: arizuko now runs as three focused daemons instead of one &mdash; and Telegram replies that were silently failing are fixed.</p>
+    <ul>
+      <li><strong>The <code>gated</code> monolith is retired</strong> &mdash; auth, routing, and execution are now separate daemons (authd / routd / runed); the split is the only topology.</li>
+      <li><strong>Telegram replies work again</strong> &mdash; including second accounts that were silently dropping every outbound message.</li>
+      <li><strong>Tighter isolation</strong> &mdash; every action is bound to your folder, identically on the agent (MCP) and REST surfaces.</li>
+      <li><strong>Eight new creative skills</strong> &mdash; ASCII art, diagrams and more, auto-discovered on demand.</li>
+      <li><strong>Routing is self-documenting</strong> &mdash; the agent explains trigger / observe / mention-only correctly.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0500--2026-06-07">CHANGELOG &sect; v0.50.0</a></p>
+
     <h2>arizuko v0.49.0 <span class="date">&mdash; 1 June 2026</span></h2>
     <p>The agent now formats and threads replies correctly across Telegram, Slack and Discord, and the reference docs match the running code again.</p>
     <ul>

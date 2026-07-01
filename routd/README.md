@@ -148,7 +148,7 @@ unclaimed in the loop, or runed unreachable on dispatch.
 ## Observability
 
 slog → stderr (JSON) + journald. OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT`
-is set (see `obs/`, `specs/5/O-otlp-export.md`). Every slog event carrying
+is set (see `obs/`, `specs/5/O-observability.md`). Every slog event carrying
 `turn_id` gets a deterministic TraceID so the collector groups one turn's span.
 
 Audit events (mutating MCP tools) → `audit-system.jl` when `AUDIT_ENABLED=true`.

@@ -6,7 +6,7 @@ status: shipped
 
 - [1-channel-protocol.md](1-channel-protocol.md) — HTTP adapter protocol: register/send/health
 - [8-scheduler-service.md](8-scheduler-service.md) — timed daemon: cron poll, one-shot, schema
-- [9-gated.md](9-gated.md) — gateway daemon: loop, routing, templates, commands, output
+- [9-gated.md](9-gated.md) — **superseded** (gated split into `5/E-routd`, `5/P-runed`, `5/1-auth-standalone`)
 - [10-ipc.md](10-ipc.md) — MCP server: 20 tools inline, identity from socket path
 - [11-auth.md](11-auth.md) — authorization policy, tiers, web auth, OAuth, JWT
 - [13-message-ids.md](13-message-ids.md) — reply/forward metadata, channel coverage tables

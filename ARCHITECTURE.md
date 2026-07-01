@@ -374,7 +374,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
   `network_rules`, `web_routes`, `group_watchers`, `idempotency_keys`,
   `pane_sessions`.
 - **`runed.db`** (`runed/migrations/`): `spawns`, `session_log`,
-  `spawn_logs`, `mcp_tokens`.
+  `spawn_logs`, `mcp_tokens`, `circuit_breaker`.
 - **`authd.db`** (`authd/migrations/`): `signing_keys`, `auth_users`,
   `oauth_identities`, `refresh_tokens`, `identities`, `identity_claims`,
   `identity_codes`.
@@ -411,6 +411,7 @@ each daemon re-sequences its own `migrations/` from `0001`.
 | `spawns`           | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db) |
 | `spawn_logs`       | id (PK), run_id, ts, kind, line (runed.db)                                                                                              |
 | `mcp_tokens`       | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                           |
+| `circuit_breaker`  | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                |
 | `auth_users`       | user_id (PK), name, created_at (authd.db)                                                                                               |
 | `oauth_identities` | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                         |
 | `refresh_tokens`   | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                      |
@@ -511,7 +512,7 @@ cursor advances (partial work preserved).
 
 MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
 routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
-at `ipc/<folder>/arizuko.sock`. Tools filtered by grants for the
+at `ipc/<folder>/gated.sock`. Tools filtered by grants for the
 caller's group. Runtime auth via `auth.Authorize`. `list_acl` inspects
 the effective ACL rows for the caller's principal set.
 
@@ -634,7 +635,7 @@ ROUTER_URL = "http://routd:8080"
 CHANNEL_SECRET = "${CHANNEL_SECRET}"
 ```
 
-Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_REDACTED`).
+Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
 Operator copies desired TOMLs into `/srv/data/arizuko_<flavor>/services/`
 before start; Ansible via `arizuko_instances[].extra_services`.
 

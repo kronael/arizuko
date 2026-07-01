@@ -75,7 +75,7 @@ Metrics emitted when `METRICS_ENABLED=true`:
 - `arizuko_requests_total` — HTTP requests (daemon, method, status)
 
 Spans: `container_spawn`, `cross_daemon`.
-Spec: `specs/5/O-otlp-export.md`.
+Spec: `specs/5/O-observability.md`.
 
 ## Files
 

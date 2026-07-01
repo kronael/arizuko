@@ -171,17 +171,17 @@ Documents can be mounted or written into a group's workspace; agents can read th
 ## Security model
 
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
-- **Egress isolation**: `crackbox` (`egred` proxy daemon) enforces default-deny on agent outbound traffic. Agents receive proxy tokens; real credentials are swapped at the boundary.
+- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/7/Z-egred-mitm.md`) is planned, not shipped.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, tier defaults in code. MCP tools gated per-action per-principal.
 - **Secret injection**: folder secrets are AES-256-GCM encrypted at rest; injected into the container at spawn time, never written to disk in plaintext.
-- **Signed requests**: `proxyd` signs identity headers; every backend verifies via `auth/middleware.go`. Unsigned `X-User-Sub` headers are stripped.
+- **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.
 
 Full threat model in [SECURITY.md](SECURITY.md).
 
 ## What's planned
 
 - Uniform MCP+REST across the cold tier — one hand-rolled handler per resource, both faces ([spec](specs/5/5-uniform-mcp-rest.md))
-- End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/3-user-spawned-agents.md))
+- End-user agent provisioning — POST a definition, get a tenant + chat token ([spec](specs/5/32-tenant-self-service.md))
 
 ## Build & test
 

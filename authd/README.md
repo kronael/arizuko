@@ -76,7 +76,7 @@ DB-ownership rule).
 ## Observability
 
 slog → journald (always on). OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT` set
-(spec `specs/5/O-otlp-export.md`). Audit events written to `auth.db` audit_log.
+(spec `specs/5/O-observability.md`). Audit events written to `auth.db` audit_log.
 
 ## Files
 

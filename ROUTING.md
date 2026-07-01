@@ -516,7 +516,7 @@ A concrete walkthrough from user message to agent reply.
 ### Setup
 
 ```
-Instance: REDACTED
+Instance: krons
 Groups: atlas (root), atlas/content (tier 2), atlas/social (tier 2)
 Routes (in routes table):
   seq=0  match='platform=telegram'  target=atlas

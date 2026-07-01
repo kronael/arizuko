@@ -61,6 +61,7 @@
         <li><a href="#web">web routes &amp; web presence</a></li>
         <li><a href="#identity">identity</a></li>
         <li><a href="#cost">cost accounting</a></li>
+        <li><a href="#ext">external REST tools</a></li>
         <li><a href="#system">system / JSON-RPC</a></li>
       </ul>
     </div>
@@ -821,12 +822,53 @@
     </table>
     <p class="returns"><strong>Returns:</strong> JSON <code>{"ok": true, "cents": N}</code>.</p>
 
+    <h2 id="ext">external REST tools</h2>
+    <p>Beyond the hand-written MCP tools above, arizuko can expose a REST API as an MCP tool from a declarative <code>[[ext]]</code> TOML descriptor &mdash; no Go code per endpoint. A descriptor maps a tool name to one HTTP call; when the agent invokes it, <code>routd</code> makes the request directly on the host, injects the credential from the <code>secrets</code> table, and hands back only the response body. The token never enters the container. Loader: <a href="https://github.com/kronael/arizuko/blob/main/routd/ext.go"><code>routd/ext.go</code></a>; dispatcher: <a href="https://github.com/kronael/arizuko/blob/main/ipc/extcall.go"><code>ipc/extcall.go CallExtTool</code></a>.</p>
+
+    <h3 id="ext-descriptor">the descriptor</h3>
+    <p>Each provider is one <code>[[ext]]</code> block: a base URL, an <code>[ext.auth]</code> method that names the secret-store key to inject, and one <code>[[ext.tool]]</code> per endpoint. The tool's MCP name is <code>&lt;provider&gt;_&lt;tool&gt;</code> (e.g. <code>cloudflare_dns_list</code>). Path params in <code>{braces}</code> are filled from the call arguments; remaining args become the query string on GET/DELETE or the JSON body on POST/PUT/PATCH.</p>
+    <pre><code># connectors.toml (operator) or a built-in extproviders/*.toml
+[[ext]]
+name = "cloudflare"
+base = "https://api.cloudflare.com/client/v4"
+
+  [ext.auth]
+  method = "bearer"
+  secret = "CF_API_TOKEN"
+
+  [[ext.tool]]
+  name        = "dns_list"
+  description = "List DNS records for a Cloudflare zone."
+  scope       = "ext:cloudflare:dns:read"
+  method      = "GET"
+  path        = "/zones/{zone_id}/dns_records"</code></pre>
+
+    <h3 id="ext-auth">credential injection</h3>
+    <p>The <code>[ext.auth] method</code> decides how the resolved secret reaches the upstream. Five shapes, all in <code>CallExtTool</code>:</p>
+    <table class="params">
+      <thead><tr><th>method</th><th>where the secret goes</th></tr></thead>
+      <tbody>
+        <tr><td class="name">bearer</td><td><code>Authorization: Bearer &lt;secret&gt;</code></td></tr>
+        <tr><td class="name">apikey-header</td><td>a named header (<code>header = "X-Api-Key"</code>)</td></tr>
+        <tr><td class="name">apikey-query</td><td>a named query param (<code>param = "apikey"</code>)</td></tr>
+        <tr><td class="name">basic</td><td><code>Authorization: Basic base64(&lt;secret&gt;)</code></td></tr>
+        <tr><td class="name">json-body</td><td>injected into the request body under a named key (two keys via <code>secret2</code>/<code>header2</code>)</td></tr>
+      </tbody>
+    </table>
+    <p>The secret value is looked up per call for the triggering user (their own key overrides the folder default), never held in the descriptor, and scrubbed out of the response text before it returns to the agent.</p>
+
+    <h3 id="ext-providers">built-in DNS providers</h3>
+    <p>arizuko ships descriptors for four DNS registrars, ready to use once the operator sets the provider's token: <strong>Cloudflare</strong> (<code>CF_API_TOKEN</code>), <strong>Porkbun</strong>, <strong>Gandi</strong>, and <strong>Namecheap</strong>. Each covers the list/create/delete DNS operations. Operators add their own providers by dropping an <code>[[ext]]</code> block into <code>connectors.toml</code> in the instance dir.</p>
+
+    <h3 id="ext-grants">grant gating</h3>
+    <p>Every <code>[[ext.tool]]</code> carries a <code>scope</code> of the form <code>ext:&lt;service&gt;:&lt;operation&gt;</code> (e.g. <code>ext:cloudflare:dns:write</code>). Registration is grant-filtered like every other tool: the tool joins <code>tools/list</code> only when <code>Authorize(folder, scope)</code> passes, so an agent sees an external tool only where its folder is granted that scope. A call-time grant check stays as defense in depth.</p>
+
     <h2 id="notes">notes &amp; gotchas</h2>
     <ul>
       <li><strong>Registration is filtered by grants.</strong> <code>registerRaw</code> consults <code>grants.MatchingRules(rules, name)</code>; if no rule matches the tool name, the tool is never added to <code>tools/list</code>. The matched rules are appended to the tool description as <code>grants: [...]</code> so the agent sees what it has been granted.</li>
       <li><strong>Tier-gated registration on top of grants.</strong> <code>refresh_groups</code> (tier &le; 2), <code>set_work</code> (tier &le; 2), and <code>list_acl</code> (tier &le; 1) wrap the <code>AddTool</code> call in a tier check &mdash; even at tier 0 with rules <code>["*"]</code>, tier-bracketing trumps glob match.</li>
       <li><strong>Inline auth.Authorize past the grant filter.</strong> Most JID-targeted tools call <code>authorizeJID</code> after the grant check: a tier &ge; 1 caller cannot dispatch to a JID whose <code>DefaultFolderForJID</code> resolves outside the caller's folder subtree, even when grants would otherwise permit it.</li>
-      <li><strong>Spec 5/5 (uniform MCP/REST registry) is NOT shipped.</strong> Today, registration is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>. The <code>registerWithSecrets</code>/<code>injectSecretsAdapter</code> broker (spec 7/Y) is wired but no tool declares <code>requires=[...]</code> yet &mdash; lookup at <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L616"><code>ipc/ipc.go:616</code></a>.</li>
+      <li><strong>The secret broker is live.</strong> A connector or <code>[[ext]]</code> REST tool that needs a capability token has it resolved on the host at call time for the triggering user (their own key overrides the folder default), so the token never enters the container. Registration itself is per-call: <code>registerRaw</code>, <code>granted</code>, <code>regSocial</code>, raw <code>srv.AddTool</code>.</li>
       <li><strong>Optional registration paths.</strong> Several tools are nil-guarded on the backing store function and silently absent if not wired: <code>inspect_routing</code>, <code>inspect_tasks</code>, <code>inspect_session</code>, <code>inspect_identity</code>, <code>inspect_messages</code>, <code>find_messages</code> (requires <code>db.FindMessages</code>), <code>get_thread</code>, <code>fetch_history</code>, all <code>*_task</code> tools (require <code>db.GetTask</code>).</li>
       <li><strong>Cold-tier resources are a separate surface.</strong> Groups, <code>acl</code>, routes, <code>web_routes</code>, secrets, scheduled tasks and the like are not per-group MCP tools &mdash; they are CRUD resources driven by the <code>resreg</code> engine and reachable over REST, MCP, YAML manifests, and <code>/openapi.json</code> from one struct. The registry lives in <code>routd</code>. See <a href="openapi.html">OpenAPI</a>.</li>
       <li><strong>Route tools are granted at tier 1.</strong> <code>tier1FixedActions</code> lists <code>list_routes</code>, <code>set_routes</code>, <code>add_route</code>, <code>delete_route</code> &mdash; the names match the registered tools, so tier-1 callers get them by default. See <a href="https://github.com/kronael/arizuko/blob/main/grants/grants.go#L160"><code>grants/grants.go:160</code></a>.</li>
@@ -838,7 +880,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-09">2026-06-09</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

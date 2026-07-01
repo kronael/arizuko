@@ -101,23 +101,12 @@ See ARCHITECTURE.md for package graph, message flow, container model.
 
 ### Core vs integrations
 
-Two flavors of feature, kept distinct in the docs:
-
-- **System core** — always-present primitives that define the system
-  shape: `authd`, `routd`, `runed`, `store`, `ipc`, `auth`, `grants`,
-  `proxyd`, `webd`, `dashd`, `timed`, `onbod`, `vited`, `davd`, the
-  container runner, `chanlib`/`chanreg`.
-- **Integrations** — pluggable, deployments mix and match: per-platform
-  channel adapters (`teled`, `whapd`, `mastd`, `discd`, `slakd`, `bskyd`,
-  `reditd`, `emaid`, `twitd`, `linkd`); optional capability hooks
-  (Whisper transcription via `WHISPER_BASE_URL`, TTS via `ttsd` +
-  `TTS_BASE_URL`, oracle skill via `OPENAI_API_KEY` / `CODEX_API_KEY`
-  in folder secrets, crackbox egress isolation, sandbox backend
-  choice).
-
-A minimal deployment runs only core + one channel adapter; a maxed-out
-deployment runs all of them. Add new integrations via the extension
-points in `EXTENDING.md`; the core evolves as a unit.
+Two flavors of feature: always-present **core** primitives that define
+the system shape vs pluggable **integrations** (channel adapters +
+optional capability hooks) that deployments mix and match. A minimal
+deployment runs core + one channel adapter; a maxed-out one runs all.
+Canonical list: ARCHITECTURE.md "Core vs integrations". Add new
+integrations via `EXTENDING.md`; the core evolves as a unit.
 
 ### Discoverability
 
@@ -274,10 +263,11 @@ issues the prior one couldn't see.
 
 ### Trust boundaries
 
-`proxyd` signs identity headers; every backend verifies via
-`auth/middleware.go` (`RequireSigned` strict / `StripUnsigned` lenient).
-Never trust `X-User-Sub` without a sig check. Full trust model in
-`SECURITY.md`.
+`proxyd` proves identity with a `service:proxyd` ES256 bearer verified
+by `auth.ProxydTransit`, then trust-stamps `X-User-*` headers. Backends
+verify the bearer (`auth/middleware.go`), never a per-request signature;
+`X-User-*` is trusted only when that transit proof holds. Full trust
+model in `SECURITY.md` §"Identity header trust".
 
 ### Split write-discipline
 

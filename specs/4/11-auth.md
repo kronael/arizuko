@@ -4,6 +4,11 @@ status: shipped
 
 # auth
 
+> **Token model retired.** The HMAC-SHA256 JWT signing described here is
+> superseded by ES256 in [`specs/5/1-auth-standalone.md`](../5/1-auth-standalone.md)
+> (authd is the signer; backends verify offline against JWKs). The
+> policy-engine parts below (`Authorize`, tiers, ACL) remain valid.
+
 `auth/` package: identity.go, policy.go, acl.go, hmac.go, jwt.go,
 oauth.go, middleware.go, web.go, link.go, routes.go, collide.go.
 

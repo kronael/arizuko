@@ -85,6 +85,11 @@ Lifecycle:
 
 ## Secrets
 
+> **Superseded.** This §Secrets + §chats.kind resolution is superseded
+> by the credential model in [`specs/5/42-credentials.md`](42-credentials.md)
+> (env-profile vs capability vs infra scopes; grant-gated tools). Kept
+> for history; read 42 for the live model.
+
 `secrets` table — two scope kinds.
 
 ```sql
