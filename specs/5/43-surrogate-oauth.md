@@ -140,6 +140,22 @@ client transport ([`5/41`](41-ext-mcp.md)). Surrogate owns the **write +
 refresh** only; nothing downstream knows the row came from OAuth rather than
 a paste, except the refresh check on `expires_at`.
 
+## Also covers env-profile keys (Anthropic, OpenAI)
+
+`CLAUDE_CODE_OAUTH_TOKEN` is already an OAuth token, pasted by hand today;
+ChatGPT/codex is the same. Surrogate OAuth automates both — a "Connect
+Anthropic" / "Connect ChatGPT" button, the OAuth sibling of `/dash/me/env`.
+
+The write is identical; only injection differs. These are **env-profile
+keys** ([`5/42`](42-credentials.md) type 1) — resolved by
+`FolderSecretsForUser` and injected into the container env at spawn, not
+call-time-brokered. So the refresh check (`expires_at − now < 60s`) fires at
+that spawn-time resolution point, not the per-call broker path. Same `0049`
+columns, same registry, same dance — only the sink call site moves.
+
+Static API keys (`sk-ant-…`, `sk-…`) stay manual paste; there is no dance to
+run for a non-OAuth key.
+
 ## Grants stay orthogonal
 
 Connecting a provider does **not** grant anything. The token enables the

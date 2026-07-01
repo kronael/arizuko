@@ -164,24 +164,28 @@ call-time grant check remains as defense in depth.
 
 ### /dash/me/secrets — capability credentials
 
-Existing. `scope_kind='user'`, `scope_id=caller.sub`. Add:
+`scope_kind='user'`, `scope_id=caller.sub`. Rejects env-profile key names at
+the handler with an error pointing to `/dash/me/env`.
 
-- Reject env-profile key names at the handler with a clear error pointing to
-  `/dash/me/env`.
+### /dash/me/env — env-profile keys
 
-### /dash/me/env — env-profile keys (PROPOSED)
-
-New endpoint or separate section within `/dash/me/secrets`. Writes to
-`secrets(scope_kind='user')` with env-profile key names.
+Separate dashd endpoint. Writes `secrets(scope_kind='user')` with
+env-profile key names.
 
 - Keys allowed: `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
   `OPENAI_API_KEY`, `CODEX_API_KEY`.
-- UI: separate section in dashd profile — "Model API keys — injected into
-  your agent container at spawn".
+- UI: "Model API keys — injected into your agent container at spawn".
 - Operator fallback shown read-only: "Platform key active" when no user
   override exists.
 - Store layer rejects these key names at `scope_kind='folder'` regardless
   of call path.
+
+### Connect (surrogate OAuth) — either type
+
+[`5/43`](43-surrogate-oauth.md) is the OAuth-automated write path for both:
+capability creds (GitHub, Linear) and env-profile OAuth tokens
+(`CLAUDE_CODE_OAUTH_TOKEN`, ChatGPT/codex). A "Connect" button runs the
+dance and writes the same rows a paste would — plus `expires_at` + refresh.
 
 ---
 
