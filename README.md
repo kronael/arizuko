@@ -111,6 +111,8 @@ arizuko group foo add tg:-123456789 main   # register first group
 arizuko run foo                            # generate compose + docker compose up
 ```
 
+Full walkthrough — prerequisites, blocker fixes, per-adapter tokens, troubleshooting: [INSTALL.md](INSTALL.md).
+
 A first deployment runs the core plane — `authd` (token authority), `routd` (conversation/router), `runed` (agent execution) — plus one adapter (`teled`, `slakd`, `discd`, `webd`, or `emaid`). Add `dashd` for operator UI, `timed` for scheduled tasks, `onbod` for invite flows, `crackbox` for default-deny egress. Each adapter ships as a `template/services/<name>.toml` — no Go edits required. See [EXTENDING.md](EXTENDING.md) for wiring new channels.
 
 A tar of `/srv/data/arizuko_<name>/` is a complete instance backup — the per-daemon SQLite databases (`routd.db`, `runed.db`, `auth.db`, … WAL), group folders, per-user memory, secrets, agent files.
@@ -185,13 +187,7 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 ## Build & test
 
-```bash
-make build           # go build → ./arizuko + daemon binaries
-make test            # go test ./... -count=1 -short
-make images          # all docker images
-make agent           # agent image only (ant/)
-make smoke           # post-deploy health check (SMOKE_INSTANCE=krons)
-```
+Build, test, image, and smoke targets: [INSTALL.md](INSTALL.md).
 
 ## Docs
 

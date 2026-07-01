@@ -77,15 +77,13 @@ operator runbook + the philosophy.
 
 ## Build & Test
 
+Full target list (build/images/agent/smoke) in [INSTALL.md](INSTALL.md).
+Dev loop:
+
 ```bash
-make build             # go build → ./arizuko + all daemon binaries
 make lint              # go vet ./...
 make test              # go test ./... -count=1 -short (fast, skips long tests)
-make test-e2e          # end-to-end tests via webd route-token surface (≤5 min); run before tagging
-make smoke             # post-deploy health check on krons (default SMOKE_INSTANCE=krons)
-make smoke SMOKE_INSTANCE=foo  # target a different instance
-make images            # all docker images (router + adapters + agent)
-make agent             # agent docker image (make -C ant image)
+make test-e2e          # end-to-end via webd route-token surface (≤5 min); run before tagging
 
 # Run a single test package
 go test ./routd/... -count=1 -run TestName
@@ -124,25 +122,21 @@ daemon's `/openapi.json` URL with a one-line description. Spec:
 
 ### Observability
 
-Three pillars, all optional (off by default):
+Three substrates (audit_log / journald / OTLP), all opt-in: see
+[ARCHITECTURE.md](ARCHITECTURE.md) `## Observability`. Wiring rules for a
+daemon or when adding instrumentation:
 
-- **Logs**: slog → stderr (journald) + optional OTLP exporter
-- **Traces**: per-turn spans with W3C traceparent propagation
-- **Metrics**: Prometheus `/metrics` when `METRICS_ENABLED=true`
+- Every daemon calls `defer obs.Setup("name", instance)()` at top of `main()`.
+- Export env (unset → zero overhead): `OTEL_EXPORTER_OTLP_ENDPOINT` (logs),
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (spans), `METRICS_ENABLED`
+  (Prometheus `/metrics`).
+- Adding metrics: keep label cardinality bounded (folder, model, status — not
+  unbounded IDs). Adding spans: `obs.StartSpan`/`EndSpan` at the listed sites
+  (turn lifecycle, model calls, container spawns, cross-daemon HTTP).
+- `audit_log` stays SQLite-canonical; OTLP is observability only.
 
-Spec: [`specs/5/O-observability.md`](specs/5/O-observability.md).
-Library: [`obs/`](obs/).
-
-Every daemon calls `defer obs.Setup("name", instance)()` at top of `main()`.
-Env vars control export: `OTEL_EXPORTER_OTLP_ENDPOINT` for logs,
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` for spans, `METRICS_ENABLED` for metrics.
-Unset → zero overhead.
-
-When adding metrics: keep label cardinality bounded (folder, model, status —
-not unbounded IDs). When adding spans: use `obs.StartSpan`/`EndSpan` at the
-listed instrumentation sites (turn lifecycle, model calls, container spawns,
-cross-daemon HTTP). `audit_log` stays SQLite-canonical; OTLP is observability
-only.
+Spec [`specs/5/O-observability.md`](specs/5/O-observability.md), library
+[`obs/`](obs/).
 
 ## Docs layout
 
@@ -337,63 +331,17 @@ binaries (`authd`, `routd`, `runed`, `timed`, ...); see README for the full tabl
 
 ## Quick Setup
 
-**Full guide**: [`INSTALL.md`](INSTALL.md) — prerequisites checklist, blocker fixes,
-troubleshooting. Read that first when helping a user install arizuko.
+Full install walkthrough — prerequisites, build, `.env` vars, adapter tokens,
+register group, run, verify — lives in [`INSTALL.md`](INSTALL.md). Read that
+first when helping a user install arizuko.
 
-**Prerequisites**: Docker, Go 1.22+, make, git, write access to `/srv/data/`.
+Operator-specific here:
 
-```bash
-# 1. Build
-git clone https://github.com/kronael/arizuko && cd arizuko
-make build                  # ./arizuko + all daemon binaries
-sudo make images            # arizuko:latest (router + adapters)
-sudo make agent             # arizuko-ant:latest (Claude Code agent)
-
-# 2. Create instance
-./arizuko create <name>     # seeds /srv/data/arizuko_<name>/ + .env
-```
-
-Edit `/srv/data/arizuko_<name>/.env` — required vars:
-
-```bash
-ASSISTANT_NAME=             # display name of the agent
-AUTH_SECRET=                # openssl rand -hex 32
-SECRETS_KEY=                # openssl rand -hex 32
-CLAUDE_CODE_OAUTH_TOKEN=    # from claude.ai/settings → API → OAuth token
-CONTAINER_IMAGE=arizuko-ant:latest
-WEB_HOST=                   # public hostname (e.g. myhost.example.com)
-```
-
-Channel adapter tokens — add whichever you're deploying:
-
-| adapter | env vars needed                                                         |
-| ------- | ----------------------------------------------------------------------- |
-| teled   | `TELEGRAM_BOT_TOKEN`                                                    |
-| discd   | `DISCORD_BOT_TOKEN`                                                     |
-| slakd   | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                               |
-| mastd   | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                            |
-| bskyd   | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                |
-| emaid   | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_ACCOUNT`, `EMAIL_PASSWORD` |
-| whapd   | (none — pairs via QR or `arizuko pair <inst> whapd`)                    |
-
-```bash
-# 3. Register first group (example: Telegram group 123456789)
-./arizuko group <name> add telegram:group/123456789 main
-
-# 4. Run
-./arizuko run <name>        # generates docker-compose.yml + docker compose up
-```
-
-**Verify:**
-
-```bash
-sudo systemctl status arizuko_<name>
-sudo docker ps --filter "name=arizuko-" --format "{{.Names}} {{.Status}}"
-# All core containers (routd, authd, runed, <adapter>) should show (healthy).
-make smoke SMOKE_INSTANCE=<name>
-```
-
-If the agent doesn't reply, see "Nothing works" checklist below.
+- **Deploy = `sudo systemctl restart arizuko_<instance>`** — `arizuko run`
+  is initial setup only.
+- Docker requires `sudo` (`make images` / `make agent` fail without it).
+- If healthchecks are green but the agent doesn't reply, see the "Nothing
+  works" checklist below.
 
 ## Service Architecture
 
@@ -423,19 +371,13 @@ sudo curl -s -o /dev/null -w '%{http_code}\n' http://localhost:<port>/health
 
 ## OTLP export (operator observability)
 
-slog → journald is the default and always-on substrate. To also push
-events to an OTel-compatible collector (Grafana / Tempo / Datadog /
-Honeycomb), set `OTEL_EXPORTER_OTLP_ENDPOINT` in the instance `.env`.
-Spec: [`specs/5/O-observability.md`](specs/5/O-observability.md), library:
-[`obs/`](obs/).
-
-- Unset → zero overhead; stderr JSON handler only.
-- Set → every slog event fans out to stderr AND OTLP logs. Records
-  carrying `turn_id` get a deterministic TraceID (`sha256(instance +
-"/" + turn_id)[:16]`) so the collector groups one turn's events.
-- `audit_log` stays SQLite-canonical for forensics; OTLP is observability.
-- One `obs.Setup(daemonName, ARIZUKO_INSTANCE)` call per daemon at top
-  of `main()`. Zero per-emit changes.
+To push events to an OTel collector (Grafana / Tempo / Datadog / Honeycomb),
+set `OTEL_EXPORTER_OTLP_ENDPOINT` in the instance `.env`; unset → zero
+overhead, stderr JSON only. Set → every slog event fans to stderr AND OTLP,
+and records carrying `turn_id` get a deterministic TraceID
+(`sha256(instance + "/" + turn_id)[:16]`) so the collector groups one turn.
+Model + wiring in the `### Observability` runbook above and
+[ARCHITECTURE.md](ARCHITECTURE.md) `## Observability`.
 
 ## Shipping changes
 

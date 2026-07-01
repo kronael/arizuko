@@ -114,17 +114,17 @@ instructions; they do not automatically validate the env file.
 
 Products in `ant/examples/` (shipped):
 
-| Name       | Brand      | Tagline                                                      |
-| ---------- | ---------- | ------------------------------------------------------------ |
-| slack-team | slack-team | One agent per Slack channel; shared context, per-user memory |
-| personal   | fiu        | Personal assistant with persistent memory                    |
-| support    | atlas      | KB-backed support agent, escalates to human when stuck       |
-| trip       | may        | Multi-step travel research → structured itinerary            |
-| strategy   | prometheus | Domain tracker; weekly synthesis → team briefing             |
-| pm         | sloth      | Team task board + weekly digest                              |
-| reality    | rhias      | Ongoing life-context thread holder                           |
-| creator    | inari      | Content pipeline — draft, refine, publish on approval        |
-| socials    | phosphene  | Multi-platform distribution, schedule + engagement           |
+| Name       | Brand      | Tagline                                                      | facts/ seed                      |
+| ---------- | ---------- | ------------------------------------------------------------ | -------------------------------- |
+| slack-team | slack-team | One agent per Slack channel; shared context, per-user memory | —                                |
+| personal   | fiu        | Personal assistant with persistent memory                    | preferences.md (placeholder)     |
+| support    | atlas      | KB-backed support agent, escalates to human when stuck       | kb/ (empty, operator fills)      |
+| trip       | may        | Multi-step travel research → structured itinerary            | preferences.md (placeholder)     |
+| strategy   | prometheus | Domain tracker; weekly synthesis → team briefing             | domain.md, watchlist.md          |
+| pm         | sloth      | Team task board + weekly digest                              | tasks.md (empty board), team.md  |
+| reality    | rhias      | Ongoing life-context thread holder                           | threads/ (empty, operator seeds) |
+| creator    | inari      | Content pipeline — draft, refine, publish on approval        | style.md (placeholder)           |
+| socials    | phosphene  | Multi-platform distribution, schedule + engagement           | channels.md, voice.md            |
 
 Public pages at `/pub/products/<name>/` when the web layer is running.
 
@@ -167,3 +167,4 @@ No code changes are required — `cmdCreate` discovers products by scanning
   global skills are seeded regardless.
 - Third-party products: per-instance product dirs — defer.
 - `--product` accepting a URL or git repo — defer.
+- `arizuko product list` to enumerate known products — easy add-on.

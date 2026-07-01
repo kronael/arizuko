@@ -13,7 +13,7 @@ out of the box.
 | Spec                                             | Status      | Hook                                                                                    |
 | ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
 | [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
-| [P-product-templates.md](P-product-templates.md) | draft       | Template authoring conventions: persona, skills, seed files per product.                |
+| [P-product-templates.md](P-product-templates.md) | draft       | Pointer stub → R-products (merged).                                                     |
 | [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
 | [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
 | [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
