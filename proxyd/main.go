@@ -1043,7 +1043,10 @@ func main() {
 
 	aud := audit.New(audit.LoadConfig(coreCfg.HostProjectRoot, coreCfg.Name))
 
-	audit.Init(st.DB(), coreCfg.Name)
+	// audit_log lives in routd.db (its owner, routd migration 0015) — not the
+	// frozen messages.db. proxyd still opens messages.db (st) for auth_sessions/
+	// proxyd_routes/web_routes, but the audit sink writes to the owner DB.
+	audit.Init(stRoutd.DB(), coreCfg.Name)
 	audit.Emit(context.Background(), audit.Event{
 		Category: audit.CategorySystem,
 		Action:   "daemon.start",

@@ -19,7 +19,9 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	pageTopFor(w, r, "audit")
 
-	if d.db == nil {
+	// audit_log lives in routd.db (its owner) — read it from adminDB, the same
+	// handle dashd's audit.Init writes through.
+	if d.adminDB() == nil {
 		fmt.Fprint(w, htmlBanner("err", "audit store unavailable"))
 		pageClose(w, r)
 		return
@@ -55,7 +57,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := d.db.Query(
+	rows, err := d.adminDB().Query(
 		`SELECT id, created_at, category, action, actor, COALESCE(folder,''),
 		        outcome, COALESCE(resource,''), COALESCE(surface,''),
 		        COALESCE(params_summary,''), COALESCE(error_msg,'')
@@ -127,7 +129,7 @@ func (d *dash) handleAudit(w http.ResponseWriter, r *http.Request) {
 func (d *dash) auditFilterForm(cat, actor, folder string) string {
 	var opts strings.Builder
 	opts.WriteString(`<option value="">all categories</option>`)
-	rows, err := d.db.Query(`SELECT DISTINCT category FROM audit_log ORDER BY category`)
+	rows, err := d.adminDB().Query(`SELECT DISTINCT category FROM audit_log ORDER BY category`)
 	if err != nil {
 		slog.Warn("audit page: distinct categories", "err", err)
 	} else {

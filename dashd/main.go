@@ -166,19 +166,6 @@ func main() {
 	}
 	defer db.Close()
 
-	audit.Init(db, os.Getenv("ARIZUKO_INSTANCE"))
-	audit.Emit(context.Background(), audit.Event{
-		Category: audit.CategorySystem,
-		Action:   "daemon.start",
-		Actor:    "system",
-		Surface:  audit.SurfaceREST,
-		Resource: "daemons/dashd",
-		Outcome:  audit.OutcomeOK,
-		ParamsSummary: map[string]any{
-			"port": port,
-		},
-	})
-
 	slog.Info("dashd started", "db", dsn, "port", port)
 
 	appDir := os.Getenv("HOST_APP_DIR")
@@ -231,6 +218,24 @@ func main() {
 			slog.Warn("open routd.db for admin tables", "path", routdPath, "err", err)
 		}
 	}
+
+	// audit_log lives in routd.db (its owner, routd migration 0015) — not the
+	// frozen messages.db. dashd's admin mutations already target routd.db, so the
+	// audit sink + the /dash/audit/ reader share that handle. nil dbRoutd (routd.db
+	// unavailable) → audit.Init(nil) makes Emit a no-op (audit/log.go), which is a
+	// clean degradation, not a write to the wrong DB.
+	audit.Init(dbRoutd, os.Getenv("ARIZUKO_INSTANCE"))
+	audit.Emit(context.Background(), audit.Event{
+		Category: audit.CategorySystem,
+		Action:   "daemon.start",
+		Actor:    "system",
+		Surface:  audit.SurfaceREST,
+		Resource: "daemons/dashd",
+		Outcome:  audit.OutcomeOK,
+		ParamsSummary: map[string]any{
+			"port": port,
+		},
+	})
 
 	// onbod OWNS invites/onboarding_gates in the split topology (spec 5/5); the
 	// invites admin page writes there directly (same FS-access discipline).

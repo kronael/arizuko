@@ -11,7 +11,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// auditDB builds an in-memory messages.db with just the audit_log table.
+// auditDB builds an in-memory routd.db with just the audit_log table (audit_log
+// is owned by routd.db; dashd reads + writes it through adminDB/dbRoutd).
 func auditDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -44,7 +45,8 @@ func seedAudit(t *testing.T, db *sql.DB, category, action, actor, folder, outcom
 
 func auditGet(t *testing.T, db *sql.DB, url string) string {
 	t.Helper()
-	d := &dash{db: db}
+	// audit_log is read through adminDB (dbRoutd) now; point both at the seeded DB.
+	d := &dash{db: db, dbRoutd: db}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", url, nil))
@@ -134,24 +136,12 @@ func TestAuditPagination(t *testing.T) {
 	}
 }
 
-// TestAuditNilDB: when d.db is nil the page renders a "not available" banner
-// rather than panicking or returning 500.
+// TestAuditNilDB: when the audit store (adminDB/dbRoutd) is nil the page renders
+// a "not available" banner rather than panicking or returning 500. Operator
+// identity comes from the asOperator ["**"] header, so no dbRoutd ACL lookup is
+// needed — dbRoutd nil exercises the unavailable path cleanly.
 func TestAuditNilDB(t *testing.T) {
-	// dbRoutd is needed for requireOperator's callerScope fallback.
-	routd, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer routd.Close()
-	if _, err := routd.Exec(adminSchema); err != nil {
-		t.Fatalf("routd schema: %v", err)
-	}
-	if _, err := routd.Exec(
-		`INSERT INTO acl (principal, action, scope, effect, granted_at)
-		 VALUES ('op@x', 'admin', '**', 'allow', '')`); err != nil {
-		t.Fatal(err)
-	}
-	d := &dash{db: nil, dbRoutd: routd}
+	d := &dash{db: nil, dbRoutd: nil}
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 	req := asOperator(httptest.NewRequest("GET", "/dash/audit/", nil))

@@ -437,3 +437,37 @@ away (profile page). CTO audit criterion: auth trust signal always on screen.
 - **Source:** dashd/main.go:362-376
 - **Status:** resolved — name + ◆ operator badge added to nav as profile link (2026-06-16)
 - **Fix:** `dashNavFor` identity badge using X-User-Name/X-User-Sub + operator flag
+
+## `arizuko apply`/`plan`/`export`/`get` operate on the frozen messages.db post-split (2026-07-01, open)
+
+The resreg YAML-manifest CLI (`cmd/arizuko/apply.go`) opens `store.Open(dataDir+"/store")`
+= **messages.db** and drives `resreg.Apply`/`Plan`/`Export`/`ConfigVersion` against it. But
+the config resources it manages (groups/acl/acl_membership/routes/web_routes/scheduled_tasks/
+network_rules/proxyd_routes/onboarding_gates) all MOVED to routd.db/onbod.db in the split
+cutover. So `apply` reads + writes a frozen twin: its CAS counter (`config_meta`) and every
+resource DELETE+INSERT hit tables the live daemons no longer read. Effectively `arizuko apply`
+is a no-op against production config. `config_meta` is entangled with this — it cannot move to
+routd.db until the CLI is repointed at the owner DBs (a per-resource DB routing problem, since
+resources now span routd.db + onbod.db). Deferred out of the messages.db-retirement slice.
+
+- **Severity:** medium
+- **Scope:** cmd/arizuko resreg apply/plan/export/get, config_meta ownership
+- **Affected:** all instances (YAML-manifest config management dead post-split)
+- **Source:** cmd/arizuko/apply.go:45,94,128,204 (store.Open messages.db); store/migrations/0067-config-meta.sql
+- **Status:** open
+
+## dashd reads messages/chats/cost_log/task_run_logs from frozen messages.db (2026-07-01, open)
+
+Several dashd read paths still query the pre-split messages.db handle (`d.db`) for tables that
+moved to routd.db: `routd_page.go` reads `messages`/`chats` (errored + pending outbound counts,
+and UPDATEs `messages SET errored=0`), `usage_page.go` reads `cost_log` via `GroupUsageBulk(d.db)`,
+`chat.go` reads chat_sessions + messages. These render stale/empty because the live rows are in
+routd.db now. Separate concern from the audit_log move (which this pass fixed by repointing
+audit.Init + the audit reader to routd.db). These readers should be repointed to `d.adminDB()`
+(routd.db) / `d.dbRuned` respectively; after that dashd could drop `store.Open(messages.db)`.
+
+- **Severity:** medium
+- **Scope:** dashd routd_page.go / usage_page.go / chat.go direct messages.db reads
+- **Affected:** all instances (dashd status/usage/chat views show stale post-split data)
+- **Source:** dashd/routd_page.go:50,64,126; dashd/usage_page.go:38; dashd/chat.go:138,369
+- **Status:** open

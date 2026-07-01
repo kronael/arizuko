@@ -59,6 +59,10 @@ func Open(dir string) (*DB, error) {
 		d.Close()
 		return nil, err
 	}
+	if err := d.copyLegacyAuditLog(dir); err != nil {
+		d.Close()
+		return nil, err
+	}
 	return d, nil
 }
 
@@ -108,6 +112,48 @@ func (d *DB) copyLegacyProxydTables(dir string) error {
 			c.table, c.cols, c.cols, c.table)); err != nil {
 			return fmt.Errorf("backfill %s from messages.db: %w", c.table, err)
 		}
+	}
+	return nil
+}
+
+// copyLegacyAuditLog is a one-release, idempotent backfill: it copies audit_log
+// rows from the pre-split messages.db into routd.db (where dashd/proxyd/webd now
+// emit + read, so audit lands in the owner DB). Same autocommit + ATTACH shape
+// as copyLegacyProxydTables. Absent messages.db (fresh install) is a no-op. The
+// AUTOINCREMENT id PK is copied verbatim (routd.db had NO audit_log before this,
+// so no collisions); INSERT OR IGNORE keeps it idempotent across restarts and
+// the messages.db copy is left intact as a fallback (no DROP).
+func (d *DB) copyLegacyAuditLog(dir string) error {
+	legacy := filepath.Join(dir, "messages.db")
+	if _, err := os.Stat(legacy); err != nil {
+		return nil // no pre-split DB → nothing to backfill
+	}
+	ctx := context.Background()
+	conn, err := d.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx,
+		"ATTACH DATABASE ? AS legacy", "file:"+legacy+"?mode=ro"); err != nil {
+		return fmt.Errorf("attach legacy messages.db: %w", err)
+	}
+	defer conn.ExecContext(ctx, "DETACH DATABASE legacy")
+	// A pre-split messages.db predating store/0066 has no audit_log — skip then.
+	var present int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name='audit_log'",
+	).Scan(&present); err != nil {
+		return nil
+	}
+	// Explicit column list (not SELECT *) so a divergent legacy column order
+	// can't silently misalign the copy; id carried so forensic ids are stable.
+	const cols = "id, created_at, category, action, actor, actor_sub, resource, " +
+		"scope, surface, params_summary, outcome, error_msg, duration_ms, " +
+		"turn_id, folder, instance, request_id, source_ip"
+	if _, err := conn.ExecContext(ctx,
+		"INSERT OR IGNORE INTO audit_log ("+cols+") SELECT "+cols+" FROM legacy.audit_log"); err != nil {
+		return fmt.Errorf("backfill audit_log from messages.db: %w", err)
 	}
 	return nil
 }
