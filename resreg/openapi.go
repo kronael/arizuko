@@ -234,17 +234,17 @@ func resourcePaths(r *Resource) map[string]map[string]any {
 	collection := fmt.Sprintf("/v1/%s", r.Name)
 	out := map[string]map[string]any{
 		collection: {
-			"get": map[string]any{
+			"get": withMCPDoc(r, ActionList, map[string]any{
 				"summary":     fmt.Sprintf("List %s", r.Name),
 				"operationId": fmt.Sprintf("list_%s", r.Name),
 				"responses":   mergeResponses(map[string]any{"200": listResp}),
-			},
-			"post": map[string]any{
+			}),
+			"post": withMCPDoc(r, ActionCreate, map[string]any{
 				"summary":     fmt.Sprintf("Create %s", r.Name),
 				"operationId": fmt.Sprintf("create_%s", r.Name),
 				"requestBody": body,
 				"responses":   mergeResponses(map[string]any{"201": itemResp}),
-			},
+			}),
 		},
 	}
 
@@ -253,20 +253,37 @@ func resourcePaths(r *Resource) map[string]map[string]any {
 		params := pkParams(r)
 		out[item] = map[string]any{
 			"parameters": params,
-			"patch": map[string]any{
+			"patch": withMCPDoc(r, ActionUpdate, map[string]any{
 				"summary":     fmt.Sprintf("Update %s", r.Name),
 				"operationId": fmt.Sprintf("update_%s", r.Name),
 				"requestBody": body,
 				"responses":   mergeResponses(map[string]any{"200": itemResp}),
-			},
-			"delete": map[string]any{
+			}),
+			"delete": withMCPDoc(r, ActionDelete, map[string]any{
 				"summary":     fmt.Sprintf("Delete %s", r.Name),
 				"operationId": fmt.Sprintf("delete_%s", r.Name),
 				"responses":   mergeResponses(map[string]any{"204": noContent}),
-			},
+			}),
 		}
 	}
 	return out
+}
+
+// withMCPDoc folds a resource's per-action agent-facing one-liner
+// (Resource.MCPDoc[action]) into an OpenAPI operation — as both the
+// operation `description` (so any OpenAPI reader sees when-to-use text)
+// and a machine-findable `x-mcp-when` vendor extension (so an agent can
+// pick REST operations straight from the published doc without a
+// separate MCP tool list). No entry → operation unchanged. Additive:
+// the operation's existing summary/params/responses are untouched.
+func withMCPDoc(r *Resource, action Action, op map[string]any) map[string]any {
+	doc, ok := r.MCPDoc[action]
+	if !ok {
+		return op
+	}
+	op["description"] = doc
+	op["x-mcp-when"] = doc
+	return op
 }
 
 // pkPathTemplate returns the `{pk}` URL segment for a resource, or ""

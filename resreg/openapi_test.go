@@ -166,6 +166,42 @@ func TestOpenAPI_ResourceFilter(t *testing.T) {
 	}
 }
 
+func TestOpenAPI_MCPDoc(t *testing.T) {
+	reset()
+	Register(Resource{
+		Name:     "oapi_rows",
+		Table:    "oapi_rows",
+		RowType:  reflect.TypeOf(oapiTestRow{}),
+		PKFields: []string{"Seq"},
+		MCPDoc: map[Action]string{
+			ActionCreate: "Create a row. When to use: seeding.",
+			ActionList:   "List rows.",
+		},
+	})
+	out, _ := OpenAPI("testd", "/", nil)
+	var doc map[string]any
+	json.Unmarshal(out, &doc)
+	paths := doc["paths"].(map[string]any)
+	col := paths["/v1/oapi_rows"].(map[string]any)
+	post := col["post"].(map[string]any)
+	if post["description"] != "Create a row. When to use: seeding." {
+		t.Errorf("post description = %v", post["description"])
+	}
+	if post["x-mcp-when"] != "Create a row. When to use: seeding." {
+		t.Errorf("post x-mcp-when = %v", post["x-mcp-when"])
+	}
+	get := col["get"].(map[string]any)
+	if get["description"] != "List rows." {
+		t.Errorf("get description = %v", get["description"])
+	}
+	// Actions without an MCPDoc entry stay undocumented (delete has none).
+	item := paths["/v1/oapi_rows/{seq}"].(map[string]any)
+	del := item["delete"].(map[string]any)
+	if _, ok := del["description"]; ok {
+		t.Errorf("delete gained a description without an MCPDoc entry")
+	}
+}
+
 func TestOpenAPI_Deterministic(t *testing.T) {
 	registerOAPI(t)
 	a, _ := OpenAPI("testd", "/", nil)

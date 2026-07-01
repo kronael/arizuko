@@ -35,6 +35,18 @@ func init() {
 		Table:    "proxyd_routes",
 		RowType:  reflect.TypeOf(ProxydRoutesRow{}),
 		PKFields: []string{"Path"},
+		// Per-action agent-facing one-liners folded into the published
+		// /openapi.json (openapi.go withMCPDoc) so the annotated REST doc
+		// IS the agent's catalog. Mirrors proxyd's dispatch decl
+		// routesMCPDoc (proxyd/resource.go) — the dispatch decl carries the
+		// live handler; this catalog decl is what the registry-walking
+		// OpenAPI emitter reaches.
+		MCPDoc: map[resreg.Action]string{
+			resreg.ActionList:   "List proxyd's runtime route table.",
+			resreg.ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+			resreg.ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
+			resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
+		},
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ProxydRoutesRow)

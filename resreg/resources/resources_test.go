@@ -373,6 +373,29 @@ var daemonOwnership = map[string][]string{
 	"runed":  {},
 }
 
+// TestOpenAPI_ProxydRoutesCarriesMCPDoc: the registered proxyd_routes
+// catalog decl carries MCPDoc, so the emitted /openapi.json annotates the
+// REST create operation with the agent-facing when-to-use string — the
+// published doc IS the agent's REST catalog (no separate MCP tool needed).
+func TestOpenAPI_ProxydRoutesCarriesMCPDoc(t *testing.T) {
+	out, err := resreg.OpenAPI("proxyd", "/", []string{"proxyd_routes"})
+	if err != nil {
+		t.Fatalf("OpenAPI: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	post := doc["paths"].(map[string]any)["/v1/proxyd_routes"].(map[string]any)["post"].(map[string]any)
+	want := "Create a proxyd route. Body fields mirror the TOML proxyd_route block."
+	if post["description"] != want {
+		t.Errorf("post description = %v, want %q", post["description"], want)
+	}
+	if post["x-mcp-when"] != want {
+		t.Errorf("post x-mcp-when = %v, want %q", post["x-mcp-when"], want)
+	}
+}
+
 // TestOpenAPI_PerDaemonOwnership: each daemon's /openapi.json advertises
 // ONLY its owned resources — never a foreign one. Before the fix, routd
 // and runed passed nil (= all 10) and timed passed [] (= 0 owned paths).
