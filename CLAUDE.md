@@ -61,6 +61,15 @@ them on each request.
   derived. Cost: proxyd's live route resource drifted to `Name:
 "routes"` while its catalog + OpenAPI already said `proxyd_routes`
   (fixed 2026-07-01).
+- **Every cold-tier management entity is a resreg resource — no
+  exceptions**: a new operator/agent-managed table ALWAYS registers a
+  resreg `Resource` (REST handler + `x-mcp-*` annotations → MCP derived,
+  per `5/45`). NEVER hand-roll a bespoke `ipc/ipc.go` management tool +
+  `dashd` direct-DB CRUD for it — that drifts the agent and operator
+  surfaces apart (the ~45 hand-rolled ipc.go tools are the debt `5/44`
+  reverses). A management resource without a resreg registration is a
+  review-blocker. Only hot-tier agent actions (`reply`/`send`/`inspect_*`,
+  no REST twin) are MCP-only, hand-authored.
 - **Auth is a uniform middleware, bound to handler + params**: authn
   (who) and authz (may you do THIS to THESE params) are two orthogonal
   middleware layers every daemon applies identically. The authz gate
