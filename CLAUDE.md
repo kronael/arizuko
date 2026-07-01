@@ -51,6 +51,16 @@ them on each request.
   Spec: `specs/5/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions, the same scopes, the same auth gate.
+- **A resource's name IS its wire identity, globally unique**: the
+  resreg `Name` becomes the `/v1/<name>` REST path AND the MCP tool
+  prefix. Two daemons must NEVER register the same resource name —
+  routd's message-routing table is `routes`, proxyd's reverse-proxy
+  table is `proxyd_routes`; never both `routes`. Owner resolution is
+  compose service naming (`<daemon>:8080` via the `<DAEMON>_URL` env
+  compose writes) — NOT a lookup registry; identity is configured, not
+  derived. Cost: proxyd's live route resource drifted to `Name:
+"routes"` while its catalog + OpenAPI already said `proxyd_routes`
+  (fixed 2026-07-01).
 - **Auth is a uniform middleware, bound to handler + params**: authn
   (who) and authz (may you do THIS to THESE params) are two orthogonal
   middleware layers every daemon applies identically. The authz gate
