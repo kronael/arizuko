@@ -25,11 +25,13 @@ _agents as data_ — and agents managing agents on top of it.
 Each of the three actions is independently shippable. Together they
 are the platform thesis. Out of order they don't compose. Pre-ordered:
 
-1. **MCP+REST unification** — finish what `specs/5/5-uniform-mcp-rest.md`
-   started. One hand-rolled handler per resource, both protocols,
-   identical scopes + auth gate. Without this, the operator + agent
-   surfaces drift and the "git as truth" reconcile loop has two
-   masters to chase.
+1. **MCP+REST unification** — **pulled to active phase 5 as
+   [`5/44-mcp-rest-unification.md`](../5/44-mcp-rest-unification.md)**
+   (it's in flight now, not a future phase-8 item). Finish what
+   `specs/5/5-uniform-mcp-rest.md` started: one hand-rolled handler per
+   resource, both protocols, identical scopes + auth gate. Without this,
+   the operator + agent surfaces drift and the "git as truth" reconcile
+   loop has two masters to chase.
 2. **Data model improvements** — sharpen the entities (chats, routes,
    grants, secrets, products, deployments) so they can be cleanly
    serialized to git files. Many tables today are operational shapes,
