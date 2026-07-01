@@ -127,9 +127,10 @@ type Config struct {
 	MaxTurnRetry int
 
 	// SecretsKey is the AES-256-GCM keyring for the secrets table (spec 6/Y).
-	// Required by gated — secrets are encrypted at rest, no plaintext mode and no
-	// AUTH_SECRET fallback. Comma-separate to rotate: the first key seals new
-	// writes, the rest decrypt-only (retired). Parse with SecretKeyring.
+	// Required by routd (the secrets-table owner) — secrets are encrypted at
+	// rest, no plaintext mode and no AUTH_SECRET fallback. Comma-separate to
+	// rotate: the first key seals new writes, the rest decrypt-only (retired).
+	// Parse with SecretKeyring.
 	SecretsKey string
 }
 
@@ -231,9 +232,9 @@ func LoadConfig() (*Config, error) {
 		SecretsKey: envOr("SECRETS_KEY", ""),
 	}
 
-	// Validation of EgressNetworkPrefix / EgressCrackbox lives in gated
-	// (the only daemon that uses egress isolation), not here — other
-	// daemons call LoadConfig too and must not fail when egress is on.
+	// Validation of EgressNetworkPrefix / EgressCrackbox lives in runed
+	// (the only daemon that uses egress isolation, in docker.go), not here —
+	// other daemons call LoadConfig too and must not fail when egress is on.
 
 	// ASSISTANT_NAME and data dir basename end up in container_name and
 	// YAML scalars unquoted — reject anything that would break them.
