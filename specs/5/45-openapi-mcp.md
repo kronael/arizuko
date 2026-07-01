@@ -3,7 +3,7 @@ status: draft
 depends: [1-auth-standalone, 5/E-routd, 36-yaml-manifests]
 ---
 
-# openapi-mcp — annotated REST → well-behaved MCP
+# specs/5/45 — openapi-mcp: annotated REST → well-behaved MCP
 
 > Annotate an OpenAPI doc with `x-mcp-*` fields; a generic gateway
 > serves it as an MCP server. The annotations carry the

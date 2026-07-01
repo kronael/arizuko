@@ -1,7 +1,7 @@
 ---
 status: active
 depends:
-  [5/5-uniform-mcp-rest, 5/41-ext-mcp, 11/18-openapi-mcp, specs/4/9-acl-unified]
+  [5/5-uniform-mcp-rest, 5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
 moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5 as active work)
 ---
 
@@ -15,28 +15,29 @@ hand-rolled surfaces. Orthogonal to `5/5` — mechanism vs rollout.
 
 ## The target
 
-One resource, one declaration, three faces, one owner:
+One cold-tier handler, **authored as REST, MCP derived**, one owner:
 
 ```
-resreg.Resource  →  RowType + Handler per Action (list/get/create/update/delete)
-       │
-   ┌───┼───────────────┬──────────────┐
-   ▼   ▼               ▼              ▼
-  MCP (agent)     REST (human)     OpenAPI
-  ipc socket      /v1/<res>        (reflected)
-       │              │
-       ▼              ▼
-   the agent      dashd HTML + external CLIs
-                  (render pages; CALL the REST face — no hand-rolled CRUD)
+   REST handler  (/v1/<res>)  +  annotated /openapi.json  (x-mcp-*)
+        │                                     │
+        ▼                          5/45 openapi-mcp gateway
+   dashd HTML + external CLIs                 ▼
+   (call the REST face — no             MCP tools (agent, scope-gated)
+    hand-rolled CRUD)                         │
+                                              ▼
+                                          the agent
 ```
 
-- **MCP-first**: the `(Resource, Action)` handler is the agent contract;
-  REST is the same handler as the impedance match; OpenAPI is reflected.
-  One auth gate (`auth.Authorize`) bound at registration, both faces.
+- **REST is authored; MCP is derived.** One `/v1/<res>` handler per cold-tier
+  management resource, one `auth.Authorize` gate. The MCP face comes from the
+  annotated OpenAPI via the [`5/45`](45-openapi-mcp.md) gateway — never
+  a second hand-written tool list.
+- **Hot-tier stays MCP-only** in `ipc/ipc.go` (`reply`/`send`/`inspect_*`) —
+  no REST resource to derive from; hand-authored.
 - **One owner + federation**: each resource's table lives in exactly one
-  daemon's DB. Cross-daemon reads call the owner's face over HTTP —
-  never a second `store.Open` of a shared DB file. This is what retires
-  `messages.db` as a shared 8th database.
+  daemon's DB; cross-daemon reads call the owner's face over HTTP — the owner
+  resolves by compose service naming (`<DAEMON>_URL`), never a second
+  `store.Open`. This retires `messages.db` as a shared 8th DB.
 
 ## Current state (under-adopted)
 
@@ -58,8 +59,8 @@ finishes the coverage and collapses the bespoke surfaces onto it.
 **Written once, not twice.** The REST handler is authored; the **MCP face is
 derived** from the daemon's annotated `/openapi.json` (`x-mcp-*` fields carry
 the sharp tool name + when-to-use + scope mapping a naive bridge can't infer)
-by the generic gateway in [`11/18-openapi-mcp`](../11/18-openapi-mcp.md).
-No hand-authored `MCPTools` list per resource — shipping 11/18 is the
+by the generic gateway in [`5/45-openapi-mcp`](45-openapi-mcp.md).
+No hand-authored `MCPTools` list per resource — shipping 5/45 is the
 mechanism this spec rides.
 
 **Two surfaces stay distinct — don't merge them:**
@@ -72,9 +73,11 @@ mechanism this spec rides.
   hand-authored in `ipc/ipc.go`. So ipc.go doesn't disappear — it loses its
   management tools, keeps the hot-tier tools + the unix-socket transport.
 
-CRUD-from-`RowType` (`engine.go`, spec `5/36`) is an orthogonal, optional
-handler-_producer_ for table-backed resources — sugar that feeds a handler
-into the interop, not the point of the interop itself.
+The orthogonal sibling concern is `5/36` — the **same cold-tier resources as
+declarative YAML manifests** you `export`/`apply` (config-as-data). 5/44 is
+the runtime REST+MCP surface; 5/36 is the manifest transport. Same tables,
+two orthogonal fronts — the row-level plumbing underneath both is not a
+concept worth naming.
 
 ## Two resources share the label `routes` (don't conflate them)
 
@@ -83,18 +86,20 @@ into the interop, not the point of the interop itself.
   - `dashd/routes_admin.go` (direct DB). routd emits OpenAPI only — no
     REST/MCP dispatch. **This is the pilot target.**
 - **HTTP-proxy** `proxyd_routes` (proxyd's table): proxyd resreg REST
-  `/v1/routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
+  `/v1/proxyd_routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
   dual-dispatch — the exemplar to replicate, not a surface to collapse.**
 
 ## Migration (pilot → replicate)
 
-1. **Pilot message-routing `routes`** — routd already owns the table +
-   declares the resreg resource for OpenAPI; wire it to the REST + MCP faces
-   the way `proxyd_routes` already is. `dashd/routes_admin` calls routd's
-   REST face; agent route tools become `resreg.MCPTools`; delete the two
-   bespoke copies. First close the parity risks — `RoutesRow` vs full
-   `core.Route` columns, the folder-scope auth resolver, audit_log location.
-   Disambiguate the `routes`/`proxyd_routes` name collision. (`.ship/plan-mcp-rest-unification.md`)
+1. **Pilot message-routing `routes`** — routd owns the table + already
+   declares the resreg resource for OpenAPI. Author its REST face on routd's
+   mux (`/v1/routes`, one `auth.Authorize` gate) + annotate the OpenAPI
+   (`x-mcp-*`). `dashd/routes_admin` calls that REST face; the agent's `routes`
+   MCP tools come from the `5/45` gateway (derived from the annotated OpenAPI),
+   replacing ipc.go's bespoke `add_route`/`set_routes`. First close the parity
+   risks — `RoutesRow` vs full `core.Route` columns, the folder-scope auth
+   resolver, audit_log location. (Name collision already fixed: `proxyd_routes`,
+   `aab3487a`.) (`.ship/plan-mcp-rest-unification.md`)
 2. **Replicate** to `acl`, `network_rules`, `scheduled_tasks`, `groups`,
    `web_routes` — one resource per pass, same shape.
 3. **One owner + federation** — fold each resource's table to its owner

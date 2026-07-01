@@ -14,7 +14,7 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 > that finishes the unification across the data model + git-as-truth; it
 > does not relocate this spec's content. The MCP face is hand-authored
 > here; deriving it from annotated REST is a separate downstream followup
-> ([`11/18-openapi-mcp`](../11/18-openapi-mcp.md)), not a dependency.
+> ([`5/45-openapi-mcp`](45-openapi-mcp.md)), not a dependency.
 
 **Cold-tier operator config resources accessible via both REST (outside,
 OAuth-gated) AND MCP (inside, scope-gated), wrapped over a single
