@@ -29,24 +29,53 @@ type ProxydRoutesRow struct {
 	StripPrefix         bool     `db:"-"                yaml:"strip_prefix,omitempty"     json:"strip_prefix,omitempty"`
 }
 
+// ProxydRoutesMCPDoc is the single owner of proxyd_routes' per-action agent-
+// facing one-liners. Three decls consume it: this catalog registration (drives
+// /openapi.json via openapi.go withMCPDoc), proxyd's dispatch decl (the live
+// handler), and webd's forwarder decl. Exporting it here keeps the operator
+// surface from drifting across the three package-main copies (spec 5/5 §"Single
+// source of truth").
+var ProxydRoutesMCPDoc = map[resreg.Action]string{
+	resreg.ActionList:   "List proxyd's runtime route table.",
+	resreg.ActionGet:    "Read one proxyd route by path.",
+	resreg.ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
+	resreg.ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
+	resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
+}
+
+// ProxydRoutesMCPArgs is the explicit per-action arg list for the two proxyd_routes
+// decls that carry NO RowType (proxyd's dispatch decl + webd's forwarder), so their
+// derived MCP tools can't reflect args. This catalog decl DOES have a RowType and
+// reflects its own args; it doesn't consume this map. Single owner so proxyd + webd
+// don't drift.
+var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
+	resreg.ActionCreate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string", Required: true},
+		{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionUpdate: {
+		{Name: "path", Type: "string", Required: true},
+		{Name: "backend", Type: "string"},
+		{Name: "auth", Type: "string"},
+		{Name: "gated_by", Type: "string"},
+		{Name: "preserve_headers", Type: "array"},
+		{Name: "strip_prefix", Type: "bool"},
+	},
+	resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:     "proxyd_routes",
 		Table:    "proxyd_routes",
 		RowType:  reflect.TypeOf(ProxydRoutesRow{}),
 		PKFields: []string{"Path"},
-		// Per-action agent-facing one-liners folded into the published
-		// /openapi.json (openapi.go withMCPDoc) so the annotated REST doc
-		// IS the agent's catalog. Mirrors proxyd's dispatch decl
-		// routesMCPDoc (proxyd/resource.go) — the dispatch decl carries the
-		// live handler; this catalog decl is what the registry-walking
-		// OpenAPI emitter reaches.
-		MCPDoc: map[resreg.Action]string{
-			resreg.ActionList:   "List proxyd's runtime route table.",
-			resreg.ActionCreate: "Create a proxyd route. Body fields mirror the TOML proxyd_route block.",
-			resreg.ActionUpdate: "Update fields on an existing proxyd route. Path is the key.",
-			resreg.ActionDelete: "Delete a proxyd route. Idempotent.",
-		},
+		MCPDoc:   ProxydRoutesMCPDoc,
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ProxydRoutesRow)

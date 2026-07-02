@@ -38,6 +38,7 @@ import (
 //
 //	GET    /v1/<name>                 → list (200: array<Schema>)
 //	POST   /v1/<name>                 → create (201: Schema)
+//	GET    /v1/<name>/{pk...}         → get (200: Schema)
 //	PATCH  /v1/<name>/{pk...}         → update (200: Schema)
 //	DELETE /v1/<name>/{pk...}         → delete (204)
 //
@@ -201,7 +202,7 @@ func kindToSchema(t reflect.Type) map[string]any {
 	}
 }
 
-// resourcePaths builds the four `/v1/<name>` operations for one
+// resourcePaths builds the five `/v1/<name>` operations for one
 // resource. Returns a map[path]ops; ops is itself a map keyed by HTTP
 // method (lowercased per OpenAPI convention).
 func resourcePaths(r *Resource) map[string]map[string]any {
@@ -253,6 +254,11 @@ func resourcePaths(r *Resource) map[string]map[string]any {
 		params := pkParams(r)
 		out[item] = map[string]any{
 			"parameters": params,
+			"get": withMCPDoc(r, ActionGet, map[string]any{
+				"summary":     fmt.Sprintf("Get %s", r.Name),
+				"operationId": fmt.Sprintf("get_%s", r.Name),
+				"responses":   mergeResponses(map[string]any{"200": itemResp}),
+			}),
 			"patch": withMCPDoc(r, ActionUpdate, map[string]any{
 				"summary":     fmt.Sprintf("Update %s", r.Name),
 				"operationId": fmt.Sprintf("update_%s", r.Name),
