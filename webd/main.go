@@ -74,7 +74,7 @@ func main() {
 	}
 	defer stRoutd.Close()
 
-	// audit_log lives in routd.db (its owner, routd migration 0015) — not the
+	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
 	// frozen messages.db. webd's messages.db handle (st) is now unused by
 	// handlers; the audit sink writes to the owner DB.
 	audit.Init(stRoutd.DB(), os.Getenv("ARIZUKO_INSTANCE"))

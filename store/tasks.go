@@ -51,9 +51,8 @@ func (s *Store) CreateTask(t core.Task) error {
 const taskCols = `id, owner, chat_jid, prompt, cron, next_run, status, created_at, context_mode`
 
 // PutTaskRow inserts one scheduled task WITHOUT emitting an audit_log row — the
-// audit-free twin of CreateTask for a DB that has no audit_log table (routd.db,
-// which OWNS scheduled_tasks in the split topology — spec 5/5). Same INSERT as
-// CreateTask; callers that own messages.db keep using the audited CreateTask.
+// audit-free twin of CreateTask used by tests seeding routd.db directly. Same
+// INSERT as CreateTask; routd itself uses the audited CreateTask.
 func (s *Store) PutTaskRow(t core.Task) error {
 	var nextRun *string
 	if t.NextRun != nil {

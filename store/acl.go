@@ -105,10 +105,10 @@ func (s *Store) RemoveACLRow(row core.ACLRow) error {
 }
 
 // PutACLRow inserts an acl row idempotently WITHOUT emitting an audit_log row —
-// the audit-free twin of AddACLRow for a DB that has no audit_log table (routd.db,
-// which OWNS acl in the split topology — spec 5/5). Same INSERT OR IGNORE on the
-// (principal, action, scope, params, predicate, effect) key; callers that own
-// messages.db keep using the audited AddACLRow.
+// the audit-free twin of AddACLRow for the FS-mounted daemons that write acl into
+// routd.db directly (onbod invite-accept, dashd grants admin, the CLI) and don't
+// carry an audit context. routd itself uses the audited AddACLRow. Same INSERT OR
+// IGNORE on the (principal, action, scope, params, predicate, effect) key.
 func (s *Store) PutACLRow(row core.ACLRow) error {
 	if row.Effect == "" {
 		row.Effect = "allow"
@@ -130,7 +130,9 @@ func (s *Store) PutACLRow(row core.ACLRow) error {
 }
 
 // RemoveACLRowBare deletes an acl row WITHOUT emitting an audit_log row — the
-// audit-free twin of RemoveACLRow for an audit_log-less DB (routd.db).
+// audit-free twin of RemoveACLRow used by the FS-mounted daemons (dashd grants
+// admin, the CLI) that write acl into routd.db directly. routd itself uses the
+// audited RemoveACLRow.
 func (s *Store) RemoveACLRowBare(row core.ACLRow) error {
 	if row.Effect == "" {
 		row.Effect = "allow"

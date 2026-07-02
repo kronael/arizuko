@@ -1,12 +1,13 @@
--- routd owns routd.db and now emits audit events into it. Before this,
--- routd.db had NO audit_log table: routd's own mutation paths (acl/secrets/
--- routes/tasks) had to use audit-free store variants (PutACLRow,
--- RemoveACLRowBare, taskStore) or their audit.EmitInTx would fail "no such
--- table" and roll back the mutation. dashd/proxyd/webd routed their audit.Init
--- at the frozen pre-split messages.db instead, leaving it a live 8th DB purely
--- for this sink. Give routd.db the table (mirroring store/migrations/0066 +
--- authd 0003 + onbod 0002 exactly — audit.insertSQL writes every DB through one
--- shape) so audit lands in the owner DB and messages.db can retire.
+-- routd owns routd.db and emits audit events into it. Before this migration,
+-- routd.db had NO audit_log table, so routd's own mutation paths (acl/secrets/
+-- tasks) called audit-free store variants (PutACLRow, RemoveACLRowBare, taskStore)
+-- — their audit.EmitInTx would have failed "no such table" and rolled back the
+-- mutation. dashd/proxyd/webd routed their audit.Init at the frozen pre-split
+-- messages.db instead, leaving it a live 8th DB purely for this sink. This table
+-- (mirroring store/migrations/0066 + authd 0003 + onbod 0002 exactly —
+-- audit.insertSQL writes every DB through one shape) lets routd's ACL/secret/task
+-- mutations use the AUDITED store variants (AddACLRow, SetSecret, CreateTask), so
+-- audit lands in the owner DB and messages.db can retire.
 --
 -- Existing rows are copied from the sibling messages.db by routd.Open
 -- (copyLegacyAuditLog) in autocommit AFTER migrations — ATTACH can't run inside

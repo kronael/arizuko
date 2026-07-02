@@ -219,7 +219,7 @@ func main() {
 		}
 	}
 
-	// audit_log lives in routd.db (its owner, routd migration 0015) — not the
+	// audit_log lives in routd.db (its owner, routd migration 0016) — not the
 	// frozen messages.db. dashd's admin mutations already target routd.db, so the
 	// audit sink + the /dash/audit/ reader share that handle. nil dbRoutd (routd.db
 	// unavailable) → audit.Init(nil) makes Emit a no-op (audit/log.go), which is a

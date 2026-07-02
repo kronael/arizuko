@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -76,6 +77,57 @@ func TestMigration0016AuditLog(t *testing.T) {
 	if m != 1 {
 		t.Errorf("second open duplicated audit_log: got %d rows, want 1", m)
 	}
+}
+
+// TestRoutdMutationsAudit proves routd's OWN acl/secret mutations now emit an
+// audit_log row into routd.db (finding: the wrappers used the audit-free store
+// variants, so ACL/secret writes persisted with zero audit trail). One mutation
+// → exactly one row.
+func TestRoutdMutationsAudit(t *testing.T) {
+	d, err := OpenMem()
+	if err != nil {
+		t.Fatalf("OpenMem: %v", err)
+	}
+	defer d.Close()
+	// Route emissions into routd.db (EmitInTx writes the mutation's own tx; Init
+	// only stamps the instance column — set it so the row carries it).
+	audit.Init(d.SQL(), "test")
+	t.Cleanup(func() { audit.Init(nil, "") })
+
+	if err := d.AddACLRow(core.ACLRow{
+		Principal: "user:alice", Action: "admin", Scope: "atlas/eng", GrantedBy: "routd",
+	}); err != nil {
+		t.Fatalf("AddACLRow: %v", err)
+	}
+	if n := auditRows(t, d, "acl.add"); n != 1 {
+		t.Errorf("acl.add audit rows = %d, want 1", n)
+	}
+
+	if err := d.SetSecret(store.ScopeFolder, "atlas/eng", "GITHUB_TOKEN", "ghp_x"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	if n := auditRows(t, d, "secret.set"); n != 1 {
+		t.Errorf("secret.set audit rows = %d, want 1", n)
+	}
+	// The row carries the instance stamp Init supplied.
+	var inst string
+	if err := d.SQL().QueryRow(
+		`SELECT instance FROM audit_log WHERE action='secret.set'`).Scan(&inst); err != nil {
+		t.Fatalf("read instance: %v", err)
+	}
+	if inst != "test" {
+		t.Errorf("audit instance = %q, want test", inst)
+	}
+}
+
+func auditRows(t *testing.T, d *DB, action string) int {
+	t.Helper()
+	var n int
+	if err := d.SQL().QueryRow(
+		`SELECT COUNT(*) FROM audit_log WHERE action=?`, action).Scan(&n); err != nil {
+		t.Fatalf("count audit_log %s: %v", action, err)
+	}
+	return n
 }
 
 // TestMigration0016AuditLogNoLegacyDB proves routd.Open is a clean no-op when

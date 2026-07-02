@@ -52,10 +52,15 @@ func main() {
 	}
 	defer db.Close()
 
-	// SECRETS_KEY keyring: decrypt-only here. routd reads folder/user secrets RO
-	// from the sibling messages.db for connector + secret-requiring tool calls;
-	// it never writes the secrets table (gated/a future secrets daemon owns the
-	// encrypt-at-rest write path). Unset → secret reads stay ciphertext (no leak).
+	// audit_log sink: routd owns audit_log in routd.db (migration 0016), so its own
+	// ACL/secret/task mutations emit through the audited store variants. Init wires
+	// the instance name onto those rows (EmitInTx writes into the mutation's own tx).
+	audit.Init(db.SQL(), os.Getenv("ARIZUKO_INSTANCE"))
+
+	// SECRETS_KEY keyring: routd OWNS secrets in routd.db. It reads folder/user
+	// secrets for connector + secret-requiring tool calls and seals writes at rest
+	// (POST /v1/secrets → audited SetSecret). Unset → reads stay ciphertext (no
+	// leak) and writes store plaintext.
 	if kr := core.SecretKeyring(os.Getenv("SECRETS_KEY")); len(kr) > 0 {
 		db.SetSecretKeys(kr...)
 	} else {

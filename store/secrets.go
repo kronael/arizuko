@@ -179,12 +179,12 @@ func (s *Store) SetSecret(scope SecretScope, scopeID, key, value string) error {
 	return tx.Commit()
 }
 
-// PutSecretRow seals and upserts one secret WITHOUT emitting an audit_log row.
-// It is the write path for a *store.Store backed by a DB that has no audit_log
-// table (routd.db, which OWNS secrets in the split topology — spec 5/5). The
-// at-rest encoding is identical to SetSecret (storeValue → "v2:" seal when a
+// PutSecretRow seals and upserts one secret WITHOUT emitting an audit_log row —
+// the audit-free twin of SetSecret used by the FS-mounted daemons that write
+// secrets into routd.db directly (dashd's per-user env/secret pages, the CLI).
+// The at-rest encoding is identical to SetSecret (storeValue → "v2:" seal when a
 // keyring is set), so reads through FolderSecretsResolved decrypt the same way.
-// Callers that own messages.db keep using the audited SetSecret.
+// routd itself uses the audited SetSecret.
 func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err
@@ -204,8 +204,9 @@ func (s *Store) PutSecretRow(scope SecretScope, scopeID, key, value string) erro
 }
 
 // DeleteSecretRow removes one secret WITHOUT emitting an audit_log row — the
-// audit-free twin of DeleteSecret for an audit_log-less DB (routd.db). Returns
-// ErrSecretNotFound when no row matched so the HTTP layer can 404.
+// audit-free twin of DeleteSecret used by the FS-mounted daemons that delete
+// secrets from routd.db directly (dashd, the CLI). Returns ErrSecretNotFound when
+// no row matched so the HTTP layer can 404. routd itself uses DeleteSecret.
 func (s *Store) DeleteSecretRow(scope SecretScope, scopeID, key string) error {
 	if err := validateScope(scope, scopeID, key); err != nil {
 		return err

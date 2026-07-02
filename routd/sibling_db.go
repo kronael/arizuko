@@ -74,8 +74,7 @@ func (d *DB) secretStore() *store.Store {
 	return s
 }
 
-// taskStore wraps routd.db as a *store.Store for the task readers/writers. Writes
-// use the audit-free variants since routd.db has no audit_log table.
+// taskStore wraps routd.db as a *store.Store for the task readers/writers.
 func (d *DB) taskStore() *store.Store { return store.New(d.db) }
 
 // paneStore wraps routd.db as a *store.Store for the pane readers/writers.
@@ -118,13 +117,13 @@ func (d *DB) FolderSecretsForUser(folder, userSub string) map[string]string {
 // SetSecret seals + upserts one folder/user secret (the operator write path
 // behind POST /v1/secrets).
 func (d *DB) SetSecret(scope store.SecretScope, scopeID, key, value string) error {
-	return d.secretStore().PutSecretRow(scope, scopeID, key, value)
+	return d.secretStore().SetSecret(scope, scopeID, key, value)
 }
 
 // DeleteSecret removes one folder/user secret (behind DELETE /v1/secrets/{key}).
 // ErrSecretNotFound when no row matched.
 func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
-	return d.secretStore().DeleteSecretRow(scope, scopeID, key)
+	return d.secretStore().DeleteSecret(scope, scopeID, key)
 }
 
 // ConnectorSecrets narrows the resolved secrets to the `required` names a
@@ -159,10 +158,10 @@ func (d *DB) UserScopes(sub string) []string {
 }
 
 // AddACLRow inserts one acl row (behind POST /v1/acl).
-func (d *DB) AddACLRow(row core.ACLRow) error { return d.aclEval().PutACLRow(row) }
+func (d *DB) AddACLRow(row core.ACLRow) error { return d.aclEval().AddACLRow(row) }
 
 // RemoveACLRow deletes one acl row (behind DELETE /v1/acl).
-func (d *DB) RemoveACLRow(row core.ACLRow) error { return d.aclEval().RemoveACLRowBare(row) }
+func (d *DB) RemoveACLRow(row core.ACLRow) error { return d.aclEval().RemoveACLRow(row) }
 
 // AddMembership inserts one (child→parent) acl_membership edge (the operator `**`
 // grant maps to role:operator membership; same self/cycle rejection).
@@ -193,7 +192,7 @@ func (d *DB) GetTask(id string) (core.Task, bool) {
 }
 
 // CreateTask inserts one scheduled task (behind the schedule_task agent tool).
-func (d *DB) CreateTask(t core.Task) error { return d.taskStore().PutTaskRow(t) }
+func (d *DB) CreateTask(t core.Task) error { return d.taskStore().CreateTask(t) }
 
 // SetTaskStatus updates one task's status (behind pause_task/resume_task).
 func (d *DB) SetTaskStatus(id, status string) error { return d.taskStore().SetTaskStatus(id, status) }
