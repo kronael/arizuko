@@ -7,31 +7,34 @@ moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5 as a
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
 
-[`5/45-openapi-mcp`](45-openapi-mcp.md) is the **mechanism** — one REST
-handler per `(resource, action)`, MCP derived from the annotated
+[`5/45-openapi-mcp`](45-openapi-mcp.md) is the **mechanism** — one
+`resreg.Resource` per `(resource, action)` wearing two faces: the agent's
+MCP tools (derived by `deriveMCPTools`) and the human's annotated REST
 `/openapi.json`. This spec is the **adoption program**: migrate every
 resource onto that mechanism and delete the parallel hand-rolled surfaces.
 Orthogonal to `5/45` — mechanism vs rollout.
 
 ## The target
 
-One cold-tier handler, **authored as REST, MCP derived**, one owner:
+One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
 
 ```
-   REST handler  (/v1/<res>)  +  annotated /openapi.json  (x-mcp-*)
-        │                                     │
-        ▼                          5/45 openapi-mcp gateway
-   dashd HTML + external CLIs                 ▼
-   (call the REST face — no             MCP tools (agent, scope-gated)
-    hand-rolled CRUD)                         │
-                                              ▼
-                                          the agent
+              one resreg.Resource (Handler + Endpoints + MCPDoc)
+                    │                                  │
+       deriveMCPTools                         openapi.go (x-mcp-when)
+                    ▼                                  ▼
+     MCP tools (agent, scope-gated)     REST /v1/<res> + annotated doc
+                    │                                  │
+                    ▼                                  ▼
+                the agent                    dashd HTML + external CLIs
+                                             (call the REST face — no
+                                              hand-rolled CRUD)
 ```
 
-- **REST is authored; MCP is derived.** One `/v1/<res>` handler per cold-tier
-  management resource, one `auth.Authorize` gate. The MCP face comes from the
-  annotated OpenAPI via the [`5/45`](45-openapi-mcp.md) gateway — never
-  a second hand-written tool list.
+- **One handler, two faces.** One `resreg.Resource` per cold-tier
+  management resource, one `auth.Authorize` gate. The agent's MCP tools are
+  `deriveMCPTools`'d from its `Endpoints`+`MCPDoc`; the REST doc is emitted
+  from the same `MCPDoc` — never a second hand-written tool list.
 - **Hot-tier stays MCP-only** in `ipc/ipc.go` (`reply`/`send`/`inspect_*`) —
   no REST resource to derive from; hand-authored.
 - **One owner + federation**: each resource's table lives in exactly one
@@ -56,10 +59,10 @@ resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
 (human, OAuth-gated), one handler. That's `5/45`'s principle; this spec
 finishes the coverage and collapses the bespoke surfaces onto it.
 
-**Written once, not twice** — the REST handler is authored, the MCP face
-derived from the annotated `/openapi.json` by the `5/45` gateway. No
-hand-authored `MCPTools` list per resource; shipping 5/45 is the mechanism
-this spec rides.
+**Written once, not twice** — one `resreg.Resource` is authored; the agent's
+MCP tools are `deriveMCPTools`'d from its endpoints and the REST doc emitted
+from the same `MCPDoc`. No hand-authored `MCPTools` list per resource;
+shipping 5/45 is the mechanism this spec rides.
 
 **Two surfaces stay distinct — don't merge them:**
 
@@ -92,8 +95,8 @@ concept worth naming.
 1. **Pilot message-routing `routes`** — routd owns the table + already
    declares the resreg resource for OpenAPI. Author its REST face on routd's
    mux (`/v1/routes`, one `auth.Authorize` gate) + annotate the OpenAPI
-   (`x-mcp-*`). `dashd/routes_admin` calls that REST face; the agent's `routes`
-   MCP tools come from the `5/45` gateway (derived from the annotated OpenAPI),
+   (`x-mcp-when`). `dashd/routes_admin` calls that REST face; the agent's
+   `routes` MCP tools are `deriveMCPTools`'d from the resource's endpoints,
    replacing ipc.go's bespoke `add_route`/`set_routes`. First close the parity
    risks — `RoutesRow` vs full `core.Route` columns, the folder-scope auth
    resolver, audit_log location. (Name collision already fixed: `proxyd_routes`,

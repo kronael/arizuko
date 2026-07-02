@@ -5,17 +5,19 @@ depends:
   [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
 ---
 
-# specs/5/45 — one REST surface: author REST, annotate the OpenAPI
+# specs/5/45 — one handler, two faces: MCP for the agent, REST for humans
 
-> Every cold-tier management resource is authored **once** as a REST
-> handler; its `/openapi.json` is **annotated** (`x-mcp-*`: sharp name,
-> when-to-use) and **published**. The agent uses the REST endpoints
-> **directly**, guided by that doc — **no per-resource MCP tool, no
-> gateway, no `deriveMCPTools`**. Dashboard and agent hit the same REST
-> surface; one `auth.Authorize` gate, two identity sources (OAuth-gated
-> browser, folder-scoped service token for the agent). Hot-tier agent
-> actions (`reply`, `send`, `inspect_*`) stay MCP-only — no REST resource
-> to mirror. Supersedes [`5/5`](5-uniform-mcp-rest.md);
+> Every cold-tier management resource is authored **once** as one
+> `resreg.Resource` and wears **two faces from that one handler**: the
+> agent's **MCP tools** (derived from the resource's `Endpoints`+`MCPDoc`
+> by `resreg.deriveMCPTools`, SHIPPED `da0bc6a8`) reached over the
+> agent's unix-socket MCP transport, and the human/external **REST**
+> `/v1/*` surface whose `/openapi.json` is **annotated** (`x-mcp-when`,
+> SHIPPED `52f92004`) so browsers, CLIs, and external tools get a
+> self-describing doc. One `auth.Authorize` gate, two identity sources:
+> scope-gated MCP for the agent, OAuth-gated REST for the human. Hot-tier
+> agent actions (`reply`, `send`, `inspect_*`) stay MCP-only — no REST
+> resource to mirror. Supersedes [`5/5`](5-uniform-mcp-rest.md);
 > [`5/44`](44-mcp-rest-unification.md) is the rollout.
 
 ## The model
@@ -24,11 +26,14 @@ Two tiers, by design — not a pending migration:
 
 - **Cold-tier (operator config)** — `routes`, `acl`, `groups`,
   `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
-  `route_tokens`, `onboarding_gates`, `proxyd_routes`. ONE REST handler
-  per `(resource, action)`, reached over **REST** by both the human
-  (OAuth-gated browser) and the agent (folder-scoped service token + the
-  published annotated OpenAPI as its catalog). No per-resource MCP tool —
-  the annotated `/openapi.json` IS the agent's catalog.
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`. ONE handler per
+  `(resource, action)`, wearing two faces: the **agent** calls the
+  derived **MCP tools** over its MCP socket; the **human** calls the
+  **REST** `/v1/*` endpoints (OAuth-gated browser, external CLIs). Both
+  faces come from the one `resreg.Resource` — `deriveMCPTools` renders
+  the MCP tools from its `Endpoints`+`MCPDoc`, `openapi.go` emits the
+  annotated REST doc from the same `MCPDoc`. Never a second
+  hand-authored tool list.
 - **Hot-tier (agent runtime)** — `reply`, `send`, `like`, `delete`,
   `post`, `diary`, session control (`fork_topic`, `engage`, `disengage`,
   `reset_session`, `inject_message`), inspect (`inspect_routing`,
@@ -38,25 +43,29 @@ Two tiers, by design — not a pending migration:
   NEVER fold them into the cold-tier interop.
 
 The only thing that differs between the two cold-tier faces is the
-identity source. The gate is the same.
+identity source and the transport. The gate is the same, and both faces
+render from the one resource literal.
 
-## The annotation vocabulary (`x-mcp-*`)
+## One `MCPDoc`, both faces
 
-OpenAPI 3.1 allows vendor extensions (`x-*`) on any object. `resreg`
-folds the resource's `MCPDoc` into the emitted `openapi.json` as the
-operation `description` + `x-mcp-when` (commit `52f92004`). The agent
-reads these as its catalog; tooling that ignores them sees a normal
-OpenAPI doc.
+A resource's `MCPDoc` (per-action agent-facing prose) is the single
+source that feeds both faces:
 
-| Field          | On        | Meaning                                                                            |
-| -------------- | --------- | ---------------------------------------------------------------------------------- |
-| `x-mcp-desc`   | operation | The load-bearing "when to use this" prose. Emitted as the operation `description`. |
-| `x-mcp-when`   | operation | Sharp trigger for the agent — when to reach for this endpoint over another.        |
-| `x-mcp-hidden` | operation | `true` → keep the operation out of the agent's catalog (internal control plane).   |
+- **MCP face** — `deriveMCPTools` walks the resource's `Endpoints`; each
+  endpoint whose `Action` has an `MCPDoc` entry becomes one tool named
+  `<resource>.<action>`, with that prose as its description and args from
+  `RowType` reflection (SHIPPED `da0bc6a8`). No hand-authored tool list.
+- **REST doc face** — `openapi.go` folds the same `MCPDoc` into the
+  emitted `openapi.json` as the operation `description` +
+  `x-mcp-when` vendor extension (SHIPPED `52f92004`), so the published
+  doc is self-describing for browsers, CLIs, and external tools — and can
+  seed the MCP derivation without a second authoring pass.
 
-`x-mcp-desc` is strict-on-purpose: an operation with no agent-facing
-description is garbage to the model. This mirrors arizuko's "strict, not
-magical" rule — no silent fallback to the SDK-facing `summary`.
+OpenAPI 3.1 allows `x-*` extensions on any object; tooling that ignores
+`x-mcp-when` sees a normal OpenAPI doc. An action with no `MCPDoc` entry
+gets neither an MCP tool nor an `x-mcp-when` annotation — strict on
+purpose (arizuko's "strict, not magical" rule; no silent fallback to the
+SDK-facing `summary`), the way to keep an operation REST-only.
 
 ## Auth model — one gate, two identity sources
 
@@ -71,12 +80,13 @@ table ([4/9](../4/9-acl-unified.md)). It composes two checks:
    a descendant). Empty caller folder = root / service token =
    unrestricted (adapters and `service:routd` legitimately span folders).
 
-The two surfaces differ only in the IDENTITY SOURCE feeding the lens:
+The two surfaces differ only in the IDENTITY SOURCE (and transport)
+feeding the lens:
 
-| Surface | Identity carrier                                              | Verifier          | Folder source                        |
-| ------- | ------------------------------------------------------------- | ----------------- | ------------------------------------ |
-| Browser | `Authorization: Bearer <jwt>` (OAuth session, proxyd-stamped) | `auth.VerifyHTTP` | JWT `arz/folder` → `Extra["folder"]` |
-| Agent   | folder-scoped service token calling `/v1/*` directly          | `auth.VerifyHTTP` | token's `arz/folder`                 |
+| Surface    | Identity carrier                                              | Verifier          | Folder source                        |
+| ---------- | ------------------------------------------------------------- | ----------------- | ------------------------------------ |
+| Human/REST | `Authorization: Bearer <jwt>` (OAuth session, proxyd-stamped) | `auth.VerifyHTTP` | JWT `arz/folder` → `Extra["folder"]` |
+| Agent/MCP  | the per-turn scoped MCP socket (folder-bound at spawn)        | socket scope      | the socket's bound folder            |
 
 A platform token is an ES256 JWT signed by `authd` — the **sole signer**
 ([1-auth-standalone.md](1-auth-standalone.md)). Every daemon verifies
@@ -139,18 +149,19 @@ Every state-changing handler MUST write exactly one `audit_log` row in
 the SAME transaction as the mutation; if the audit write fails, the
 mutation rolls back. Read-only handlers emit slog only — no audit row.
 Field shape: `caller=<sub> resource=<name> action=<verb>
-surface=rest target=<folder> result=<allowed|denied|error>`. `action`
-is the stable correlator — one `grep 'resource=groups action=create'`
-returns work whether it arrived via `POST /v1/groups` (browser) or
-`arizuko group add`. Forwarders (`Store == nil`) skip the row; the
+surface=<mcp|rest> target=<folder> result=<allowed|denied|error>`.
+`action` is the stable correlator — one `grep 'resource=groups
+action=create'` returns work whether it arrived via the agent's
+`groups.create` MCP tool, `POST /v1/groups` (browser), or `arizuko group
+add`. Forwarders (`Store == nil`) skip the row; the
 downstream daemon writes it (no double-log). Field schema:
 [`I-tool-call-logging.md`](I-tool-call-logging.md).
 
 ## Anti-patterns — what should NOT be a resource
 
 Same shape each: hot path, high-volume internal event, or stream rather
-than CRUD verb. All carry `x-mcp-hidden: true` (REST stays) or aren't
-resources at all:
+than CRUD verb. These stay REST-only (no `MCPDoc` entry → no MCP tool) or
+aren't resources at all:
 
 - **Inbound message ingestion** — per-message hot path; the poll loops
   write `messages` rows directly. (`inject_message` for synthetic sends
@@ -185,33 +196,28 @@ High-rate side effect of normal operation → not.
   shared plumbing, not a concept named here.
 - [`11/17-mcp-firewall.md`](../11/17-mcp-firewall.md) — per-call
   allow/deny **filtering** between agent and MCP server. Gates the
-  hot-tier MCP surface; cold-tier goes over REST, not MCP.
+  agent's MCP surface — both the hot-tier tools and the derived
+  cold-tier ones; orthogonal to the `auth.Authorize` gate here.
 
 ## Acceptance
 
-- A cold-tier resource is served by exactly one REST handler; its
-  `/v1/<res>` endpoint and its OpenAPI entry both derive from it — no
+- A cold-tier resource is served by exactly one `resreg.Resource`; its
+  agent-facing MCP tool (`deriveMCPTools`) and its `/v1/<res>` REST
+  endpoint + OpenAPI entry all derive from that one handler — no
   hand-authored `MCPTools` list.
-- `GET /openapi.json` carries the annotated `description` + `x-mcp-when`
-  for each non-hidden operation; the published doc is the agent's catalog.
-- An `x-mcp-hidden: true` operation is absent from the published catalog
-  but reachable via its REST path.
-- Auth parity: a token with `grants:write:own_group` and folder
-  `atlas/support` can `PATCH /v1/grants/{id}` under `atlas/support/*`;
-  the same token cannot touch a grant under `rhias/*` (403) — whether the
-  caller is the browser or the agent's service token.
+- The agent reaches the resource via its derived `<res>.<action>` MCP
+  tools over its socket; the human reaches it via `/v1/<res>` REST.
+- `GET /openapi.json` carries the operation `description` + `x-mcp-when`
+  for each action that has an `MCPDoc` entry; the doc is self-describing
+  for browsers and external tools.
+- An action with no `MCPDoc` entry has no MCP tool and no `x-mcp-when`
+  annotation but stays reachable via its REST path (REST-only).
+- Auth parity: `grants:write:own_group` + folder `atlas/support`
+  authorizes `grants.update` under `atlas/support/*`; the same
+  scope+folder cannot touch a grant under `rhias/*` (denied) — whether
+  the caller is the browser's REST or the agent's MCP socket.
 - Hot-tier tools (`reply`, `send`, `inspect_*`) have no REST twin and no
   OpenAPI entry — MCP-only, by design.
-
-## Open — agent→REST auth
-
-The one unbuilt gap: the **folder-scoped service token** the agent uses
-to call internal `/v1/*` directly (guided by the published OpenAPI). The
-per-turn container gets a scoped MCP socket today; it needs the
-equivalent folder-scoped HTTP credential to reach the cold-tier REST
-surface (over `<DAEMON>_URL`, verified by `auth.VerifyHTTP`). This is the
-prerequisite for retiring the interim cold-tier MCP tools — until it
-lands, cold-tier stays reachable over the agent socket.
 
 Deferred: short token TTL (1h) + a revocation table for long-lived
 dashd-issued keys; pagination harmonization (MCP arrays vs REST cursor
