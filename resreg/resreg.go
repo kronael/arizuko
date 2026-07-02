@@ -277,19 +277,18 @@ func restHandler(r Resource, build CallerFromHTTPFunc, e Endpoint) http.Handler 
 // `<r.Name>.<action>`. This is the single renderer for a resource's
 // MCP surface — no hand-authored tool lists.
 func deriveMCPTools(r Resource) []MCPTool {
-	var reflected []MCPArg
-	if r.RowType != nil {
-		reflected = rowMCPArgs(r.RowType)
-	}
 	var out []MCPTool
 	for _, e := range r.Endpoints {
 		desc, ok := r.MCPDoc[e.Action]
 		if !ok {
 			continue
 		}
-		args := reflected
-		if r.RowType == nil {
-			args = r.MCPArgs[e.Action]
+		// An explicit per-action override always wins (forwarders, custom shapes).
+		// Otherwise derive per-action from the RowType so PK/read-only fields don't
+		// leak into delete/update as required args.
+		args, ok := r.MCPArgs[e.Action]
+		if !ok && r.RowType != nil {
+			args = rowMCPArgsFor(r, e.Action)
 		}
 		out = append(out, MCPTool{
 			Name:        r.Name + "." + string(e.Action),
@@ -301,22 +300,59 @@ func deriveMCPTools(r Resource) []MCPTool {
 	return out
 }
 
-// rowMCPArgs reflects a RowType into the MCP arg list: one MCPArg per
-// exported field with a json/yaml name, typed via kindToMCPType.
-// omitempty → not required. Fields tagged `-` are skipped.
-func rowMCPArgs(rt reflect.Type) []MCPArg {
+// rowMCPArgsFor reflects a RowType into the MCP arg list for ONE action:
+//
+//   - delete/get: PK fields only, all required (the key identifies the row).
+//   - update:     PK fields required + writable non-PK fields optional.
+//   - create:     writable non-PK fields (required per omitempty) + PK fields
+//     that aren't server-stamped (a client-supplied key like `path`).
+//   - list:       no args (the RowType models no filters).
+//
+// PK-ness is decided by Go field name membership in r.PKFields (the json arg
+// name and the db column can differ). Server-stamped fields (r.StampedFields)
+// are never a client arg on create or update.
+func rowMCPArgsFor(r Resource, action Action) []MCPArg {
+	rt := r.RowType
 	if rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 	if rt.Kind() != reflect.Struct {
 		return nil
 	}
+	pk := nameSet(r.PKFields)
+	stamped := nameSet(r.StampedFields)
 	var args []MCPArg
 	for i := 0; i < rt.NumField(); i++ {
 		sf := rt.Field(i)
 		name, omit := parseJSONTag(sf)
 		if name == "" {
 			continue
+		}
+		isPK := pk[sf.Name]
+		isStamped := stamped[sf.Name]
+		switch action {
+		case ActionList:
+			continue
+		case ActionGet, ActionDelete:
+			if !isPK {
+				continue
+			}
+			omit = false // the key is always required
+		case ActionUpdate:
+			if isPK {
+				omit = false // the key selects the row
+			} else if isStamped {
+				continue // server-stamped — not a client patch arg
+			} else {
+				omit = true // updatable fields are optional patches
+			}
+		case ActionCreate:
+			if isStamped {
+				continue // server assigns it — never a create arg
+			}
+			if isPK {
+				omit = false // client-supplied key required
+			}
 		}
 		args = append(args, MCPArg{
 			Name:     name,
@@ -325,6 +361,15 @@ func rowMCPArgs(rt reflect.Type) []MCPArg {
 		})
 	}
 	return args
+}
+
+// nameSet turns a list of Go field names into a membership set.
+func nameSet(names []string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
 }
 
 // kindToMCPType maps a Go type to an MCPArg type string

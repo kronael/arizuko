@@ -449,35 +449,68 @@ func TestDeriveMCPTools_Golden(t *testing.T) {
 	}
 }
 
-// TestDeriveMCPTools_ReflectsRowType — when RowType is set, args come
-// from struct reflection (not MCPArgs), and only actions in MCPDoc
-// surface as tools.
+// TestDeriveMCPTools_ReflectsRowType — when RowType is set (and no explicit
+// MCPArgs override), args are reflected PER ACTION so PK/read-only fields don't
+// leak into delete/update as required. list=no args, get/delete=PK only,
+// update=PK required + rest optional, create=writable non-PK (+ non-stamped PK).
 func TestDeriveMCPTools_ReflectsRowType(t *testing.T) {
 	type row struct {
-		Path    string   `json:"path"`
-		Hits    int      `json:"hits"`
-		Enabled bool     `json:"enabled"`
-		Tags    []string `json:"tags,omitempty"`
-		Skip    string   `json:"-"`
+		Path      string   `db:"path"       json:"path"`
+		Hits      int      `db:"hits"       json:"hits"`
+		Enabled   bool     `db:"enabled"    json:"enabled"`
+		Tags      []string `db:"tags"       json:"tags,omitempty"`
+		CreatedAt string   `db:"created_at" json:"created_at"`
+		Skip      string   `json:"-"`
 	}
 	r := Resource{
-		Name:      "thing",
-		RowType:   reflect.TypeOf(row{}),
-		Endpoints: []Endpoint{{Verb: "GET", Path: "/v1/thing", Action: ActionList}},
-		MCPDoc:    map[Action]string{ActionList: "list things"},
+		Name:     "thing",
+		Table:    "thing",
+		RowType:  reflect.TypeOf(row{}),
+		PKFields: []string{"Path"},
+		// created_at is server-stamped — never a create arg, never required.
+		StampedFields: []string{"CreatedAt"},
+		Endpoints: []Endpoint{
+			{Verb: "GET", Path: "/v1/thing", Action: ActionList},
+			{Verb: "GET", Path: "/v1/thing/{path}", Action: ActionGet},
+			{Verb: "POST", Path: "/v1/thing", Action: ActionCreate},
+			{Verb: "PATCH", Path: "/v1/thing/{path}", Action: ActionUpdate},
+			{Verb: "DELETE", Path: "/v1/thing/{path}", Action: ActionDelete},
+		},
+		MCPDoc: map[Action]string{
+			ActionList: "l", ActionGet: "g", ActionCreate: "c",
+			ActionUpdate: "u", ActionDelete: "d",
+		},
 	}
-	got := deriveMCPTools(r)
-	if len(got) != 1 || got[0].Name != "thing.list" {
-		t.Fatalf("tools = %+v", got)
+
+	byAction := map[Action][]MCPArg{}
+	for _, tool := range deriveMCPTools(r) {
+		byAction[tool.Action] = tool.Args
 	}
-	want := []MCPArg{
-		{Name: "path", Type: "string", Required: true},
-		{Name: "hits", Type: "number", Required: true},
-		{Name: "enabled", Type: "bool", Required: true},
-		{Name: "tags", Type: "array", Required: false},
+
+	pkOnly := []MCPArg{{Name: "path", Type: "string", Required: true}}
+	want := map[Action][]MCPArg{
+		ActionList:   nil,
+		ActionGet:    pkOnly,
+		ActionDelete: pkOnly,
+		ActionUpdate: {
+			{Name: "path", Type: "string", Required: true},
+			{Name: "hits", Type: "number", Required: false},
+			{Name: "enabled", Type: "bool", Required: false},
+			{Name: "tags", Type: "array", Required: false},
+			// created_at is stamped → not a client patch arg.
+		},
+		ActionCreate: {
+			{Name: "path", Type: "string", Required: true},
+			{Name: "hits", Type: "number", Required: true},
+			{Name: "enabled", Type: "bool", Required: true},
+			{Name: "tags", Type: "array", Required: false},
+			// created_at is stamped → absent from create.
+		},
 	}
-	if !reflect.DeepEqual(got[0].Args, want) {
-		t.Fatalf("reflected args:\n got=%+v\nwant=%+v", got[0].Args, want)
+	for action, w := range want {
+		if !reflect.DeepEqual(byAction[action], w) {
+			t.Errorf("%s args:\n got=%+v\nwant=%+v", action, byAction[action], w)
+		}
 	}
 }
 
