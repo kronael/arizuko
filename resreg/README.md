@@ -2,7 +2,10 @@
 
 Resource registry: one `Handler` per `(Resource, Action)`, wrapped by
 auto-adapters so REST, MCP, OpenAPI, and YAML reach the same code from
-one typed `Resource` literal + `RowType` struct. Spec:
+one typed `Resource` literal + `RowType` struct. resreg owns the
+handler, its tx + audit, argument derivation, and MCP tool-spec
+generation — plus one INJECTED authz `Gate` per surface. It decides no
+auth policy of its own: it is not a second authz server. Spec:
 [`specs/5/45-openapi-mcp.md`](../specs/5/45-openapi-mcp.md) (the canonical
 unified handler model — REST authored, MCP derived) and
 [`specs/5/36-yaml-manifests.md`](../specs/5/36-yaml-manifests.md) (the
@@ -85,8 +88,10 @@ register, so the two faces can't drift.
 
 ## Types
 
-- `Resource{Name, Endpoints, MCPDoc, MCPArgs, Authz, Handler, Store,
-RowType}` — one literal per resource per daemon. MCP tools are DERIVED
+- `Resource{Name, Endpoints, MCPDoc, MCPArgs, Authz, Gate, Handler,
+Store, RowType}` — one literal per resource per daemon. `Gate` is the
+  injected authz decision (nil → operator `defaultGate`; agent socket
+  overrides with the tier-aware gate). MCP tools are DERIVED
   from `Endpoints` (`deriveMCPTools`) using `MCPDoc` (per-action prose) +
   `MCPArgs` (per-action args); there is no hand-authored `MCPTools` list.
 - `Action` — short verb constant (`list`, `get`, `create`, `update`,
@@ -103,15 +108,24 @@ SourceIP, Surface, Tx}` — everything a handler needs. `Tx` is
 
 ## Authorization
 
-`Resource.Authz(c, action, args)` returns `(scope, params, err)`. The
-adapter then calls
-`auth.Authorize(Store, callerToAuth(c), "<Name>:<action>", scope, params)`
-— the canonical ACL gate from
-[`specs/4/9-acl-unified.md`](../specs/4/9-acl-unified.md). No parallel
-predicate machinery; the ACL rows are the source of truth.
+resreg owns the plumbing, never the policy. `Resource.Authz(c, action,
+args)` derives `(scope, params)` from the request — argument extraction,
+not an allow/deny decision. The decision belongs to the injected
+`Resource.Gate(x, scope, params)`:
 
-Returning `err` from `Authz` short-circuits the call (e.g. validation
-failure → 400) without touching `auth.Authorize`.
+- nil → `defaultGate`: the OPERATOR gate,
+  `auth.Authorize(Store, caller, "<Name>:<action>", scope, params)` over
+  the ACL rows ([`specs/4/9-acl-unified.md`](../specs/4/9-acl-unified.md))
+  — scope/ACL match, no tier. This is what operator REST mounts.
+- The daemon mounting the resource on the AGENT socket (routd) injects a
+  tier-aware gate — `db.Authorize(sub, folder, "mcp:"+tool, params)`, the
+  tier-default-grants path. Same handler, different gate; resreg is not a
+  second authz server.
+
+Forwarder resources (`Store == nil`) skip the gate — the downstream
+daemon authorizes. Returning `err` from `Authz` short-circuits (e.g.
+validation failure → 400) without reaching the gate. No parallel
+predicate machinery; the ACL rows remain the source of truth.
 
 ## Tx-bound audit
 

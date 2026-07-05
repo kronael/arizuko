@@ -224,14 +224,18 @@ both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 
 ## Cold tier vs hot tier
 
-Two management surfaces, one auth gate:
+Two management surfaces, one handler, an injected gate per surface:
 
 - **Cold tier** — operator config resources (`routes`, `acl`, `groups`,
   `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
-  `route_tokens`, `onboarding_gates`, `proxyd_routes`). One
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`). One in-process
   `resreg.Resource` per resource wears **two faces**: an annotated REST
-  `/v1/<name>` for humans + external tools, and the agent's MCP tools
-  **derived** from that same handler. Spec
+  `/v1/<name>` for humans + external tools, and a generated MCP facade
+  (flat tool specs via `deriveMCPTools`) for the agent. Both dispatch the
+  same handler in-process (`Store != nil`), so the audit row lands in the
+  mutation's tx. An HTTP forwarder (`Store == nil`, skips the local audit)
+  is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
+  the table, webd serves the MCP face). Spec
   [`5/45`](specs/5/45-openapi-mcp.md); rollout
   [`5/44`](specs/5/44-mcp-rest-unification.md) (adopted on `proxyd_routes`
   so far; the other nine still hand-rolled per `5/5`).
@@ -239,8 +243,13 @@ Two management surfaces, one auth gate:
   `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
   twin — an operator doesn't `reply` to a chat.
 
-Both run the SAME `auth.Authorize` gate; only the identity source differs
-(agent socket scope vs human JWT folder).
+`resreg` carries no auth policy — the authz gate is INJECTED per surface.
+Operator REST uses the default `auth.Authorize` (scope/ACL, no tier); the
+agent MCP socket injects `db.Authorize(sub, folder, "mcp:"+tool, params)`
+(the tier-default-grants path). Same folder-containment discipline, two
+identity sources (agent socket scope vs human JWT folder), two gates. Which
+tools a tier even sees is filtered by `grants.MatchingRules` at the agent
+socket, not by resreg.
 
 ## The three planes
 
@@ -543,9 +552,12 @@ cursor advances (partial work preserved).
 
 MCP server on a unix socket (`mark3labs/mcp-go`), hosted in-process by
 routd (`ipc.ServeMCP`, called from `routd.ServeTurnMCP`). One per turn
-at `ipc/<folder>/gated.sock`. Tools filtered by grants for the
-caller's group. Runtime auth via `auth.Authorize`. `list_acl` inspects
-the effective ACL rows for the caller's principal set.
+at `ipc/<folder>/gated.sock`. Tool visibility is filtered by
+`grants.MatchingRules` for the caller's group; each call is authorized by
+the agent gate `db.Authorize(sub, folder, "mcp:"+tool, params)` (the
+tier-default-grants path routd injects), not the plain operator
+`auth.Authorize`. `list_acl` inspects the effective ACL rows for the
+caller's principal set.
 
 socat bridges the host socket into the container; the agent configures
 the `arizuko` MCP server in `settings.json` with `socat UNIX-CONNECT`.
@@ -553,8 +565,9 @@ routd binds the socket before runed spawns the container and removes it
 when the run returns; runed sets `Input.ExternalMCP=true` and only
 mounts the ipc dir.
 
-Identity resolved from the socket path (folder, tier); authorization
-delegated to `auth.Authorize`.
+Identity resolved from the socket path (folder, tier); authorization runs
+the injected agent gate (`db.Authorize` with `mcp:`+tier), never a
+second hand-rolled check.
 
 ## Queue (queue package)
 

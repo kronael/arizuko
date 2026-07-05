@@ -50,7 +50,9 @@ them on each request.
   protocol; REST is the boundary impedance match for non-MCP callers.
   Spec: `specs/5/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
-  see the same actions, the same scopes, the same auth gate.
+  see the same actions and the same folder-containment discipline, each
+  checked by its own injected gate (agent tier-grants vs operator
+  scope/ACL — see "Auth is a uniform middleware").
 - **A resource's name IS its wire identity, globally unique**: the
   resreg `Name` becomes the `/v1/<name>` REST path AND the MCP tool
   prefix. Two daemons must NEVER register the same resource name —
@@ -72,14 +74,18 @@ them on each request.
   no REST twin) are MCP-only, hand-authored.
 - **Auth is a uniform middleware, bound to handler + params**: authn
   (who) and authz (may you do THIS to THESE params) are two orthogonal
-  middleware layers every daemon applies identically. The authz gate
+  middleware layers every daemon applies identically. The authz gate is
+  INJECTED per surface — `resreg` carries no auth policy of its own — and
   binds `(action, required-scopes, target-resolver)` at route/tool
-  registration and runs ONE structural folder/scope decision — so MCP
-  and REST are the same gate seen through a different identity source
-  (socket-folder vs JWT-folder), never a second hand-rolled check. A
-  handler that resolves a `jid`/`folder`/`run_id` param MUST bind it to
-  the caller's folder. Drift = cross-folder access (cost a krons split
-  review 2026-06-07). Spec: `specs/5/5-uniform-mcp-rest.md`.
+  registration. Operator REST uses the default `auth.Authorize` (scope/ACL,
+  no tier); the agent MCP socket (routd) injects
+  `db.Authorize(sub, folder, "mcp:"+tool, params)` — the tier-default-grants
+  path. Same handler, same folder-containment discipline, two identity
+  sources (socket-folder vs JWT-folder) and two injected gates — never a
+  second hand-rolled check inside the handler. A handler that resolves a
+  `jid`/`folder`/`run_id` param MUST bind it to the caller's folder. Drift =
+  cross-folder access (cost a krons split review 2026-06-07). Spec:
+  `specs/5/5-uniform-mcp-rest.md`.
 
 (Spec-first change discipline lives in the `specs` skill.)
 

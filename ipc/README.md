@@ -10,9 +10,23 @@ One MCP server per group at `ipc/<folder>/gated.sock`, JSON-RPC over a
 unix socket, one connection per agent container. Concurrent connections
 bounded to 8 per socket. Action tools (send/reply/post/like/…,
 `schedule_task`, `register_group`, `set_routes`, …) mutate state; the
-`inspect_*` family is read-only introspection. Tools are filtered by
-grant rules; identity (folder, tier) is resolved from the socket path;
-the kernel-attested peer uid (`SO_PEERCRED`) gates every connection.
+`inspect_*` family is read-only introspection. Identity (folder, tier)
+is resolved from the socket path; the kernel-attested peer uid
+(`SO_PEERCRED`) gates every connection. Tool visibility is filtered by
+`grants.MatchingRules` (a tool whose name matches no rule is never
+registered); each call is then authorized by the agent gate
+`db.Authorize(sub, folder, "mcp:"+tool, params)` — the tier-default-grants
+path routd injects.
+
+Hot vs cold tier: the **hot-tier** runtime actions (`reply`/`send`/
+`like`/`inspect_*`/`engage`/`fork_topic`) are MCP-only, hand-authored,
+and stay here — no REST twin. The **cold-tier** management tools
+(`add_route`/`set_routes`/`set_secret`/`network_allow`/…) migrate onto
+shared `resreg` handlers — one in-process handler serving both the REST
+`/v1/*` face and this socket's generated MCP facade (`5/44`). ipc keeps
+the unix-socket transport, the hot-tier tools, and the shared authz +
+visibility closures (`authorizeCall`, `registerRaw`/`granted`); it loses
+only the cold-tier per-tool bodies.
 
 ## Capability token (planned, per `specs/5/45-openapi-mcp.md` §"Auth model")
 

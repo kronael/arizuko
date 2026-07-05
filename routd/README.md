@@ -21,7 +21,11 @@ Spec: `specs/5/E`.
 - Host the in-process per-turn MCP socket: derive folder grant rules
   (`grants.DeriveRules`), wire `ipc.ServeMCP` to routd's DB + Deliverer,
   and forward the agent's conversation tools (`reply`/`send`/`like`/…)
-  back through `/v1/turns/{turn_id}/*`.
+  back through `/v1/turns/{turn_id}/*`. routd injects the agent authz
+  gate here — `db.Authorize(sub, folder, "mcp:"+tool, params)` (the
+  tier-default-grants path) — and gates tool visibility via
+  `grants.MatchingRules`; resreg-served cold-tier resources reuse that
+  injected gate instead of their default operator gate.
 - Channel egress via the `chanreg` Deliverer (adapters register their
   egress URL + owned JID prefixes).
 

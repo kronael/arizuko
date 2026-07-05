@@ -24,9 +24,12 @@ checklist because new impl is exactly where they get violated.
   `x-mcp-when`). One renderer, many sinks — never a second hand-rolled
   shape.
 - **Auth is uniform middleware.** authn (who) + authz `(action,
-required-scopes, target-resolver)` bound at registration. A handler
-  resolving a `jid`/`folder`/`run_id` param binds it to the caller's
-  folder — same gate for MCP and REST.
+required-scopes, target-resolver)` bound at registration as an injected
+  `Gate` — resreg owns no auth policy. Operator REST uses the default
+  `auth.Authorize` (scope/ACL, no tier); the agent MCP socket injects
+  `db.Authorize(sub, folder, "mcp:"+tool, params)` (tier-default grants).
+  A handler resolving a `jid`/`folder`/`run_id` param binds it to the
+  caller's folder under whichever gate is mounted.
 - **Per-daemon `audit_log`; correlation IDs flow across (APM).**
   Mutations write audit rows in their own tx. Each daemon owns + migrates
   its own DB and its own `audit_log`.
