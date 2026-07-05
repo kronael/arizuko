@@ -19,11 +19,11 @@ Orthogonal to `5/45` — mechanism vs rollout.
 One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
 
 ```
-              one resreg.Resource (Handler + Endpoints + MCPDoc)
+       one in-process resreg.Resource (Handler + Endpoints + MCPDoc)
                     │                                  │
-       deriveMCPTools                         openapi.go (x-mcp-when)
+       deriveMCPTools + injected Gate         openapi.go (x-mcp-when)
                     ▼                                  ▼
-     MCP tools (agent, scope-gated)     REST /v1/<res> + annotated doc
+      MCP tools (agent, tier-gated)     REST /v1/<res> + annotated doc
                     │                                  │
                     ▼                                  ▼
                 the agent                    dashd HTML + external CLIs
@@ -31,10 +31,13 @@ One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
                                               hand-rolled CRUD)
 ```
 
-- **One handler, two faces.** One `resreg.Resource` per cold-tier
-  management resource, one `auth.Authorize` gate. The agent's MCP tools are
-  `deriveMCPTools`'d from its `Endpoints`+`MCPDoc`; the REST doc is emitted
-  from the same `MCPDoc` — never a second hand-written tool list.
+- **One handler, two faces.** One in-process `resreg.Resource` per
+  cold-tier management resource; authorization is an **injected `Gate`**,
+  not resreg policy — operator REST defaults to `auth.Authorize`, the
+  agent socket injects its `mcp:`+tier `db.Authorize`. The agent's MCP
+  tools are `deriveMCPTools`'d from its `Endpoints`+`MCPDoc`; the REST doc
+  is emitted from the same `MCPDoc` — never a second hand-written tool
+  list.
 - **Hot-tier stays MCP-only** in `ipc/ipc.go` (`reply`/`send`/`inspect_*`) —
   no REST resource to derive from; hand-authored.
 - **One owner + federation**: each resource's table lives in exactly one
@@ -48,49 +51,68 @@ One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
 - One resource has real dual-dispatch from a single `resreg.Resource`:
   **`proxyd_routes`** (proxyd's REST `/v1/proxyd_routes` + `webd/routes_mcp.go`
   MCP forwarder + `MCPDoc` — the only `resreg/resources/*.go` with an `MCPDoc`).
-  Message-routing `routes` is NOT unified: it still runs two hand-rolled
-  surfaces — REST in `routd/routes_http.go` and MCP tools in `ipc/ipc.go`.
-  The rollout (pilot `routes`, then replicate) has not started.
+  Message-routing `routes` is NOT unified: it still runs three hand-rolled
+  surfaces — REST (`routd/routes_http.go`), agent MCP tools (`ipc/ipc.go`),
+  and dashd direct-DB. The rollout has not started.
 - Everything else: agent tools hand-rolled in `ipc/ipc.go` (~45),
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.
 
-## Blocker: resreg does not model the AGENT socket (found by the web_routes pilot, 2026-07-05)
+## Why the agent socket needs work resreg doesn't yet do
 
-The two-face mechanism is proven ONLY on the OPERATOR socket. `proxyd_routes`
-works because its MCP face lives on **webd's operator socket**, where callers
-carry `**`/operator ACL rows. The **agent socket** (`ipc.buildMCPServer`,
-per-folder in-container agent) authorizes differently, and `resreg.invoke`
-does not model it:
+`proxyd_routes` proves the two-face mechanism ONLY on the OPERATOR socket:
+its MCP face lives on **webd's operator socket**, callers carry a `**` ACL
+row, and it is a GLOBAL forwarder with no folder-containment. The **agent
+socket** (`ipc.buildMCPServer`, per-folder in-container agent) authorizes
+on a different axis than `resreg.invoke` models today:
 
-- **Authz gap**: the agent path keys `mcp:<tool>` with
-  `AuthorizeOpts{Folder,WorldFolder,Tier}` → gets the TIER-DEFAULT-GRANTS
-  fallback (`grants/grants.go`). `resreg.invoke` hardcodes
-  `auth.Authorize("<name>:<action>", …)` with EMPTY opts → no fallback →
-  DENIES every folder agent. (Proven: current path allows `mcp:set_web_route`
-  for a tier-0 folder; resreg path denies `web_routes:create`.)
-- **Visibility gap**: `granted()`/`MatchingRules` gate which tools a tier even
-  SEES in `tools/list`. `resreg.MCPTools` `AddTool`s unconditionally → widens
-  visibility.
-- **Layering**: `ipc` doesn't import `store`/`resreg` by design — driving
-  registration from routd needs a new `ipc.ServeMCP` post-build seam.
+- **Tier, not scope.** The agent path keys `mcp:<tool>` with
+  `AuthorizeOpts{Folder,WorldFolder,Tier}` → the tier-default-grants
+  fallback (`auth/authorize.go`, `grants/grants.go`). `resreg.invoke`
+  hardcodes `auth.Authorize("<name>:<action>", …)` with EMPTY opts → no
+  fallback → it DENIES every folder agent (current path allows
+  `mcp:set_web_route` for a tier-0 folder; a naive resreg path denies
+  `web_routes:create`).
+- **Visibility is a separate firewall.** `granted()`/`MatchingRules`
+  (`ipc/ipc.go`) gate which tools a tier even SEES in `tools/list`. An
+  unconditional `resreg.MCPTools` `AddTool` would WIDEN visibility.
 
-Opposite failure modes; no `Authz`/`MCPNames` tweak satisfies both. This is
-THE work of 5/44 for agent-facing resources — a resreg framework enhancement,
-not a mechanical migration. Decision (A: make `invoke` MCP-surface-aware +
-`MCPTools` consult `MatchingRules`; vs B: share only the Handler, keep agent
-MCP registration hand-rolled behind `granted()`) is recorded in
-`.ship/plan-5-44-rollout.md`. `MCPNames` override (flat agent tool names)
-shipped as the first enabler (`443dc4d3`).
+## Resolution — the injected `Gate` seam (not "bake agent policy into resreg")
+
+resreg does NOT re-implement `granted()` or tier logic. Instead resreg
+gains a **`Gate` seam** on the `Resource` and stays policy-free:
+
+- **resreg** owns the handler, tx, audit, arg-derivation, and tool-spec
+  generation, and CALLS an injected `Gate`. The `Gate` DEFAULTS to today's
+  operator `auth.Authorize` — so proxyd/webd and every REST mount are
+  unchanged.
+- **routd** mounts the agent tools and OVERRIDES the `Gate` with the
+  proven agent closure: `db.Authorize(sub, folder, "mcp:"+tool, params)`
+  (`routd/sibling_db.go`) — the tier-default-grants path intact.
+- **In-process, not a second server.** The agent MCP tool is a GENERATED
+  thin facade over the SAME in-process handler (`Store` non-nil), so the
+  one-audit-row-in-the-mutation's-tx invariant holds. It is neither an
+  HTTP forward nor a second authz server.
+- **Visibility stays in the socket filter.** `resreg.MCPTools` does not
+  decide tier visibility; agent-tool registration stays driven by the
+  socket's `MatchingRules` filter (or a `visible(name)` predicate).
+
+This supersedes the earlier open A/B choice (A: re-implement the
+tier/`granted()` decision inside `resreg.invoke`; B: share only the
+handler, keep agent MCP fully hand-rolled). The `Gate` is the third path —
+resreg stays policy-free (A's flaw avoided) while the agent tool bodies
+still collapse onto the shared handler (B's duplication removed). Enabler
+already shipped: the `MCPNames` override that keeps flat agent tool names
+(`add_route`, `set_web_route`) across the migration (`443dc4d3`).
 
 ## The deliverable: MCP management of the whole platform, written once
 
 The goal is **agent-first platform management** — every cold-tier management
 resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
 `network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
-`proxyd_routes`) reachable via **MCP** (agent, scope-gated) AND **REST**
-(human, OAuth-gated), one handler. That's `5/45`'s principle; this spec
-finishes the coverage and collapses the bespoke surfaces onto it.
+`proxyd_routes`) reachable via **MCP** (agent, tier-gated) AND **REST**
+(human, OAuth-gated), one in-process handler. That's `5/45`'s principle;
+this spec finishes the coverage and collapses the bespoke surfaces onto it.
 
 **Written once, not twice** — one `resreg.Resource` is authored; the agent's
 MCP tools are `deriveMCPTools`'d from its endpoints and the REST doc emitted
@@ -116,38 +138,72 @@ concept worth naming.
 ## Two resources share the label `routes` (don't conflate them)
 
 - **message-routing** `routes` (routd's `routes` table: match→target folder):
-  served by `ipc/ipc.go` agent tools (`add_route`/`set_routes`/`list_routes`)
-  - `dashd/routes_admin.go` (direct DB). routd emits OpenAPI only — no
-    REST/MCP dispatch. **This is the pilot target.**
+  THREE hand-rolled surfaces — REST (`routd/routes_http.go`, mounted at
+  `routd/server.go` `GET/PUT/POST/DELETE /v1/routes`), agent MCP tools
+  (`ipc/ipc.go` `add_route`/`set_routes`/`list_routes`), and
+  `dashd/routes_admin.go` (direct DB). **Collapse onto one handler; its
+  `{id}` REST addressing vs `(seq,match,target)` PK and the seq-0
+  self-default guard make it a design-call, held behind the tractable
+  resources.**
 - **HTTP-proxy** `proxyd_routes` (proxyd's table): proxyd resreg REST
   `/v1/proxyd_routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
   dual-dispatch — the exemplar to replicate, not a surface to collapse.**
 
-## Migration (pilot → replicate)
+## Migration recipe (per resource)
 
-1. **Pilot message-routing `routes`** — routd owns the table + already
-   declares the resreg resource for OpenAPI. Author its REST face on routd's
-   mux (`/v1/routes`, one `auth.Authorize` gate) + annotate the OpenAPI
-   (`x-mcp-when`). `dashd/routes_admin` calls that REST face; the agent's
-   `routes` MCP tools are `deriveMCPTools`'d from the resource's endpoints,
-   replacing ipc.go's bespoke `add_route`/`set_routes`. First close the parity
-   risks — `RoutesRow` vs full `core.Route` columns, the folder-scope auth
-   resolver, audit_log location. (Name collision already fixed: `proxyd_routes`,
-   `aab3487a`.) (`.ship/plan-mcp-rest-unification.md`)
-2. **Replicate** to `acl`, `network_rules`, `scheduled_tasks`, `groups`,
-   `web_routes` — one resource per pass, same shape.
-3. **One owner + federation** — fold each resource's table to its owner
-   daemon; repoint non-owner reads to the owner's face; retire
-   `messages.db` and the `store/migrations` twin once no reader remains.
+Every cold-tier resource migrates the same shape; each step ships and
+reverts independently:
 
-Each step is independently shippable and independently revertible.
+1. **Extract the shared in-process handler** — one handler holding the
+   resource's logic, tx, and arg-derivation, folding in the bespoke
+   semantics the hand-rolled agent tool carried: `set_routes`' seq-0
+   self-default guard, `del_web_route`'s tier-0 delete widening, a
+   resource's self-slot / path-claim rule. This handler is the single
+   renderer both faces sink to.
+2. **Mount REST** via `resreg.RegisterREST` with the DEFAULT `Gate`
+   (operator `auth.Authorize`) + `x-mcp-when` OpenAPI annotation; `dashd`'s
+   admin page calls this face instead of its direct-DB CRUD.
+3. **Keep the agent tool's socket registration** — it stays registered
+   through `buildMCPServer` so the tier visibility filter
+   (`MatchingRules`) and the `mcp:`+tier authz (`db.Authorize`, via the
+   injected `Gate`) stay intact; only its BODY changes to delegate into
+   the shared handler. Nothing of the agent's proven auth path moves into
+   resreg.
+4. **Reconcile the audit shape** — the agent path's `emitSys` /
+   `LogIPCAudit` and resreg's `audit.EmitInTx` must write the SAME row for
+   the same action, so `grep 'action=<verb>'` returns work regardless of
+   surface. Drift here re-splits the surfaces the migration just merged.
+5. **Delete only the per-tool BODY.** The shared closures — `registerRaw`,
+   `granted`, `authorizeCall`, `authzStructural`, `emitSys` — and every
+   hot-tier tool (`reply`/`send`/`inspect_*`) STAY; `ipc.go` keeps the
+   unix-socket transport plus the agent's auth/visibility scaffolding.
+
+**Order** — tractable first (both faces already mirror one writer, parity
+provable): `web_routes` (where the `Gate` blocker surfaced),
+`network_rules` (MCP-only → add a REST face), `onboarding_gates` (near-pure
+CRUD on onbod), `scheduled_tasks` (cron parsing in the handler), `secrets`
+(write-only: create + delete, no list/get). Then the design-call resources
+that need an addressing/scope decision first: `routes` (`{id}` REST key vs
+`(seq,match,target)` PK + seq-0 guard), `acl` (`**`→membership branch,
+body-DELETE — take the stricter MCP scope-containment, closing a REST
+cross-folder hole), `groups` + `acl_membership` (cross-daemon writers,
+spawn side-effects — highest risk).
+
+**One owner + federation** (final) — fold each resource's table to its
+owner daemon, repoint non-owner reads to the owner's face, and retire
+`messages.db` + its `store/migrations` twin once no reader remains.
 
 ## Acceptance
 
-- A resource is served by exactly one `resreg` handler; its MCP tool,
-  its `/v1/<res>` REST endpoint, and its OpenAPI entry all derive from it.
+- A resource is served by exactly one in-process `resreg` handler; its
+  agent MCP tool, its `/v1/<res>` REST endpoint, and its OpenAPI entry all
+  route through it — REST under the default `Gate`, agent under the
+  injected `mcp:`+tier `Gate`.
 - `dashd` admin page for that resource has no CRUD SQL — it calls the face.
-- `ipc/ipc.go` has no bespoke tool for that resource.
+- `ipc/ipc.go` has no bespoke handler BODY for that resource — its agent
+  tool delegates to the shared handler; only the socket registration + the
+  tier authz/visibility scaffolding remain.
+- Agent and REST write the same-shape `audit_log` row for the same action.
 - Its table lives in one DB; no second daemon `store.Open`s it.
 - `make test` green per step; `arizuko apply` round-trips the resource.
 

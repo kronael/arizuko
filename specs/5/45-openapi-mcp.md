@@ -8,26 +8,36 @@ depends:
 # specs/5/45 — one handler, two faces: MCP for the agent, REST for humans
 
 > Every cold-tier management resource is authored **once** as one
-> `resreg.Resource` and wears **two faces from that one handler**: the
+> in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in
+> a single handler — and wears **two faces from that one handler**: the
 > agent's **MCP tools** (derived from the resource's `Endpoints`+`MCPDoc`
-> by `resreg.deriveMCPTools`, SHIPPED `da0bc6a8`) reached over the
-> agent's unix-socket MCP transport, and the human/external **REST**
-> `/v1/*` surface whose `/openapi.json` is **annotated** (`x-mcp-when`,
-> SHIPPED `52f92004`) so browsers, CLIs, and external tools get a
-> self-describing doc. One `auth.Authorize` gate, two identity sources:
-> scope-gated MCP for the agent, OAuth-gated REST for the human. Hot-tier
-> agent actions (`reply`, `send`, `inspect_*`) stay MCP-only — no REST
-> resource to mirror. Supersedes [`5/5`](5-uniform-mcp-rest.md);
-> [`5/44`](44-mcp-rest-unification.md) is the rollout.
+> by `resreg.deriveMCPTools`, flat names via `MCPNames`, SHIPPED
+> `da0bc6a8`/`443dc4d3`) reached over the in-container per-folder socket,
+> and the human/external **REST** `/v1/*` surface whose `/openapi.json`
+> is **annotated** (`x-mcp-when`, SHIPPED `52f92004`) so browsers, CLIs,
+> and external tools get a self-describing doc. resreg owns the plumbing
+> and the tool-spec generation but carries **zero auth policy**:
+> authorization is an **injected `Gate`** the mounting daemon binds per
+> surface — operator REST defaults to scope-based `auth.Authorize` (no
+> tier); the agent socket injects a tier-aware `mcp:`+`db.Authorize`
+> gate. Hot-tier agent actions (`reply`, `send`, `inspect_*`) stay
+> MCP-only — no REST resource to mirror. Supersedes
+> [`5/5`](5-uniform-mcp-rest.md); [`5/44`](44-mcp-rest-unification.md) is
+> the rollout.
 
-**Adoption (`partial`):** the mechanism ships (`deriveMCPTools`,
-`x-mcp-when`), but exactly **one** of the ten resources carries an
-`MCPDoc` and rides it — `proxyd_routes` (`grep 'MCPDoc:'
-resreg/resources/*.go` → only that file). The other nine (`routes`,
-`acl`, `groups`, `secrets`, `scheduled_tasks`, `network_rules`,
-`web_routes`, `route_tokens`, `onboarding_gates`) are still hand-rolled
-per [`5/5`](5-uniform-mcp-rest.md) and await the [`5/44`](44-mcp-rest-unification.md)
-rollout.
+**Adoption (`partial`):** the REST-side mechanism ships
+(`deriveMCPTools`, `MCPNames`, `x-mcp-when`) and one resource rides it —
+`proxyd_routes`. But that exemplar proves ONLY the OPERATOR path: it is a
+forwarder (`Store: nil`) whose MCP face lives on webd's operator socket
+(callers carry a `**` ACL row), and it is a GLOBAL resource with no
+folder-containment. The seam the AGENT surface needs — an injected `Gate`
+carrying `mcp:`+tier (so a folder agent gets the tier-default grant) and
+per-resource folder-containment — is NOT built: `resreg.invoke` still
+hardcodes the operator `auth.Authorize` with empty opts. The other nine
+resources (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
+`network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`) stay
+hand-rolled per [`5/5`](5-uniform-mcp-rest.md) pending the
+[`5/44`](44-mcp-rest-unification.md) rollout that builds the `Gate` seam.
 
 ## The model
 
@@ -51,9 +61,10 @@ Two tiers, by design — not a pending migration:
   operator REST mirror adds nothing (operators don't `reply` to chats).
   NEVER fold them into the cold-tier interop.
 
-The only thing that differs between the two cold-tier faces is the
-identity source and the transport. The gate is the same, and both faces
-render from the one resource literal.
+Both cold-tier faces render from the one resource literal. What differs
+is the identity source, the transport, AND the injected authorization
+gate — resreg supplies the handler; the mounting daemon supplies the
+gate (see "Auth model" below).
 
 ## One `MCPDoc`, both faces
 
@@ -76,26 +87,32 @@ gets neither an MCP tool nor an `x-mcp-when` annotation — strict on
 purpose (arizuko's "strict, not magical" rule; no silent fallback to the
 SDK-facing `summary`), the way to keep an operation REST-only.
 
-## Auth model — one gate, two identity sources
+## Auth model — resreg holds no policy; each surface injects its gate
 
-Both surfaces produce a surface-agnostic `Caller` consumed identically,
-and both run the SAME gate: `auth.Authorize` over the unified ACL row
-table ([4/9](../4/9-acl-unified.md)). It composes two checks:
+resreg owns the handler, tx, audit, and arg-derivation plumbing — but
+**no authorization policy**. Authorization is an **injected `Gate`** on
+the `Resource`: resreg calls it; the mounting daemon binds it per
+surface. The `Gate` DEFAULTS to today's operator check — `auth.Authorize`
+over the unified ACL rows ([4/9](../4/9-acl-unified.md)) — so the
+operator REST path is unchanged and proxyd/webd need no edit; the agent
+socket OVERRIDES it. Both surfaces still produce a surface-agnostic
+`Caller`; the difference is which gate the mounting daemon injects, not
+two authorization servers.
 
-1. **Scope / ACL** — "may this principal perform this action at this
-   scope". The canonical decision.
-2. **Folder containment** — for a subtree-bound resource, the caller's
-   folder must own the target's folder (target is the caller's folder or
-   a descendant). Empty caller folder = root / service token =
-   unrestricted (adapters and `service:routd` legitimately span folders).
+| Surface                         | Identity source                                                            | Injected gate                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Human / REST (`/v1/<name>`)     | `Authorization: Bearer <jwt>` (OAuth session, proxyd-stamped folder claim) | default `auth.Authorize("<name>:<action>", scope, params)` — scope/ACL match, **no tier** |
+| Agent / MCP (per-folder socket) | the in-container socket, folder-bound at spawn                             | `db.Authorize(sub, folder, "mcp:"+tool, params)` — the tier-default-grants path           |
 
-The two surfaces differ only in the IDENTITY SOURCE (and transport)
-feeding the lens:
-
-| Surface    | Identity carrier                                              | Verifier          | Folder source                        |
-| ---------- | ------------------------------------------------------------- | ----------------- | ------------------------------------ |
-| Human/REST | `Authorization: Bearer <jwt>` (OAuth session, proxyd-stamped) | `auth.VerifyHTTP` | JWT `arz/folder` → `Extra["folder"]` |
-| Agent/MCP  | the per-turn scoped MCP socket (folder-bound at spawn)        | socket scope      | the socket's bound folder            |
+**"No tier" is true of the OPERATOR surface only.** Its decision is pure
+scope/ACL match. The **agent surface is tier-based by design**:
+`auth.AuthorizeWith` falls back to the tier-default grants
+(`grants.DeriveRules` + `CheckAction`) for `mcp:*` actions at the agent's
+own folder when no explicit ACL row matches (`auth/authorize.go`,
+`routd/sibling_db.go`). The `mcp:` action prefix and
+`AuthorizeOpts{Folder, WorldFolder, Tier}` are what select that fallback;
+the operator gate passes neither, so it never fires. One ACL substrate,
+two decisions — chosen by the injected gate.
 
 A platform token is an ES256 JWT signed by `authd` — the **sole signer**
 ([1-auth-standalone.md](1-auth-standalone.md)). Every daemon verifies
@@ -103,32 +120,65 @@ offline against `authd`'s JWKs (`/v1/keys`); none mint their own. The
 token carries `sub`, `scope`, and the namespaced folder claim
 `arz/folder` (`auth/` treats it opaquely, surfaced via
 `Identity.Extra["folder"]`; the folder-match helper lives in arizuko's
-`identity.go`, keeping `auth/` folder-agnostic). Folder bounds the
-subtree; scopes bound the verbs. There is no `tier` — authorization is
-scope-match (capability tokens via authd downscope).
+`identity.go`, keeping `auth/` folder-agnostic).
 
-Scope vocabulary: `<resource>:<verb>[:own_group]`. `:own_group` scopes to
-the caller's folder subtree. `<resource>:*` covers all verbs on a
-resource; there is no `*:*` global wildcard — operators carry the
-enumerated list. The gate is `auth.Authorize` over the ACL rows; the
-scope string is the operator-token-minting shorthand over those rows,
-not a second authorization path.
+Scope vocabulary (operator surface): `<resource>:<verb>[:own_group]`.
+`:own_group` scopes to the caller's folder subtree. `<resource>:*` covers
+all verbs on a resource; there is no `*:*` global wildcard — operators
+carry the enumerated list. The scope string is the operator-token-minting
+shorthand over the ACL rows, not a second authorization path.
 
-**Containment binds per resource to its folder-bearing param:** a `jid`
-resolves to its routing-target folder before the check; a `run_id`
-resolves to its run's folder (a cross-folder run reads as absent, 404,
-not leaked); a bare `folder` param is contained directly. `POST
+**Folder containment is per-resource, not a resreg primitive.** A
+folder-scoped caller MUST NOT read or act cross-folder: a handler that
+resolves a `jid`/`folder`/`run_id` param binds it to the caller's folder
+(a `jid` resolves to its routing-target folder; a `run_id` to its run's
+folder — a cross-folder run reads as absent, 404, not leaked; a bare
+`folder` param is contained directly). The one shipped exemplar carries
+NO precedent for this — `proxyd_routes` is a GLOBAL resource on a `**`
+ACL row with no folder-bearing param — so containment is folded into each
+resource's handler as the [`5/44`](44-mcp-rest-unification.md) rollout
+reaches it; there is no resreg-level containment to inherit. `POST
 /v1/messages` stays cross-folder by design (one adapter routes many
-folders); cost reporting uses a dedicated `cost:write` scope plus folder
-containment. A folder-scoped token MUST NOT read or act cross-folder.
+folders); cost reporting uses a dedicated `cost:write` scope plus
+containment.
 
-## One owner per table; federation over HTTP
+## Visibility is a separate tier firewall, outside resreg
+
+Which tools a tier even SEES in `tools/list` is a tier concern the
+per-call gate does not cover. On the agent socket it is enforced by
+`grants.MatchingRules` (`ipc/ipc.go`): a tool whose rules don't match the
+folder's tier is never registered on that socket — the menu is filtered,
+not just the call. A naive `resreg.MCPTools` mount that `AddTool`s
+unconditionally would WIDEN visibility (lower tiers seeing tools they
+never had), so agent-tool registration stays driven by the socket's rule
+filter (or a `visible(name)` predicate) — never by resreg policy. This is
+orthogonal to the injected authorization gate above and to the per-call
+firewall of [`11/17`](../11/17-mcp-firewall.md).
+
+## One owner per table; in-process handler vs cross-daemon forwarder
 
 Each table lives in exactly one daemon's DB; that daemon serves its
-`/v1/*` face. Cross-daemon calls are **HTTP forwards** carrying the
-caller's capability token — the owner is resolved by compose service
-naming (`<DAEMON>_URL`, e.g. `PROXYD_URL=http://proxyd:8080`), NEVER a
-lookup registry (identity is configured, not derived — CLAUDE.md).
+`/v1/*` face. `Resource.Store` picks the dispatch shape:
+
+- **In-process handler (`Store` non-nil)** — the owning daemon serves its
+  OWN table. resreg opens the tx, the handler mutates, and the single
+  `audit_log` row lands in the SAME tx (`audit.EmitInTx`). This is every
+  same-daemon resource (routd serving `routes`/`acl`/`groups`, onbod
+  serving `onboarding_gates`). The agent-MCP facade is this shape too — a
+  GENERATED thin front over the same in-process handler, NOT an HTTP hop —
+  so the "one audit row in the mutation's tx" invariant holds for the
+  agent exactly as for REST.
+- **Cross-daemon forwarder (`Store: nil`)** — a resource whose table
+  lives in ANOTHER daemon. resreg skips both the local tx and the local
+  authorization/audit; the handler HTTP-forwards the caller's capability
+  token to the owner, which runs the in-process handler and writes the
+  one audit row (no double-log). `proxyd_routes`'s MCP face on webd is
+  this shape: webd forwards to proxyd.
+
+Never conflate them — the forwarder is for genuinely cross-daemon
+resources only. The owner is resolved by compose service naming
+(`<DAEMON>_URL`, e.g. `PROXYD_URL=http://proxyd:8080`), NEVER a lookup
+registry (identity is configured, not derived — CLAUDE.md).
 
 | Daemon     | Owns / serves                                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -206,7 +256,8 @@ High-rate side effect of normal operation → not.
 - [`11/17-mcp-firewall.md`](../11/17-mcp-firewall.md) — per-call
   allow/deny **filtering** between agent and MCP server. Gates the
   agent's MCP surface — both the hot-tier tools and the derived
-  cold-tier ones; orthogonal to the `auth.Authorize` gate here.
+  cold-tier ones; orthogonal to the injected authorization gate here and
+  to the tier visibility firewall above.
 
 ## Acceptance
 
@@ -221,10 +272,10 @@ High-rate side effect of normal operation → not.
   for browsers and external tools.
 - An action with no `MCPDoc` entry has no MCP tool and no `x-mcp-when`
   annotation but stays reachable via its REST path (REST-only).
-- Auth parity: `grants:write:own_group` + folder `atlas/support`
-  authorizes `grants.update` under `atlas/support/*`; the same
-  scope+folder cannot touch a grant under `rhias/*` (denied) — whether
-  the caller is the browser's REST or the agent's MCP socket.
+- Injected gate: the operator REST `Gate` defaults to `auth.Authorize`
+  (scope/ACL, no tier); the agent socket injects `db.Authorize` with
+  `mcp:`+tier. Both deny cross-folder — `atlas/support` cannot touch a
+  target under `rhias/*` — through the same handler, different gate.
 - Hot-tier tools (`reply`, `send`, `inspect_*`) have no REST twin and no
   OpenAPI entry — MCP-only, by design.
 
