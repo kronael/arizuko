@@ -193,6 +193,35 @@ spawn side-effects — highest risk).
 owner daemon, repoint non-owner reads to the owner's face, and retire
 `messages.db` + its `store/migrations` twin once no reader remains.
 
+## REST-face reconciliation (finding — 2026-07-05)
+
+The agent MCP face of all five cold-tier resources (`web_routes`,
+`routes`, `network_rules`, `scheduled_tasks`, `acl`) now rides one shared
+`resreg.Resource` handler with an injected tier `Gate`. Folding each
+resource's **REST** face onto that same handler is blocked not by auth —
+the scoped self-service check maps cleanly onto an injected REST `Gate`
+(`s.verify.Verify` → `hasAnyScope` + `ownsFolder`, reproduced verbatim) —
+but by **wire-contract drift** the current hand-rolled REST handlers carry
+that resreg's conventions do not match. Concretely, on `web_routes`:
+
+1. `GET /v1/web_routes` is entangled with the `?path_prefix=` owner-lookup
+   (same method+path; `ServeMux` can't branch on query) — the aux must move
+   to its own endpoint before the resreg list can own that path.
+2. `DELETE` changes response (`{deleted:bool}` → `{ok:true}`/404) **and**
+   would adopt the shared handler's tier-0 widening — a _new_ cross-folder
+   delete for tier-0 REST callers (any top-level folder is tier-0).
+3. error body differs (`{error}` vs `{error,message}`); 4. list JSON
+   differs (`redirect_to` omitempty); 5. the shared handler acts on
+   `Caller.Folder`, but the REST face acts on the client-supplied target
+   bounded to the subtree — reconciling needs a body-read in `CallerFromHTTP`.
+
+So the REST-face fold is a **contract decision on a security surface**, not
+a mechanical cleanup: adopt resreg's REST conventions (error/list/delete
+shapes + tier-0 delete widening + relocate `?path_prefix=`) as the new
+`web_routes` REST contract, or keep REST hand-rolled — consistent with
+every resource today. Deferred pending that call; the agent-face + the
+deprecated-cold-tier-body cleanup shipped independently.
+
 ## Acceptance
 
 - A resource is served by exactly one in-process `resreg` handler; its
