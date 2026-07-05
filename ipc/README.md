@@ -90,23 +90,29 @@ Social verbs (chanreg-backed, `*UnsupportedError`-aware):
   `quote`, `repost`, `edit`, `pin_message`, `unpin_message`,
   `unpin_all`, `send_file`, `send_voice`
 
-Routing / groups: `register_group`, `escalate_group`, `delegate_group`,
-`list_routes`, `set_routes`, `add_route`, `delete_route`, `add_acl`,
-`remove_acl`, `inject_message`, `fork_topic`, `reset_session`,
+Groups (hot-tier, hand-authored here): `register_group`, `escalate_group`,
+`delegate_group`, `inject_message`, `fork_topic`, `reset_session`,
 `observe_group`, `unobserve_group`, `set_observe_window`,
 `set_group_open`, `engage`, `disengage`.
 
-Tasks: `schedule_task`, `list_tasks` (plus `inspect_tasks` in read-only).
+Read-only: `inspect_tasks`, `get_web_presence` (a presence report, not
+web_routes CRUD).
 
 Invites: `invite_create`, `invite_list`, `invite_revoke`.
 
 Route tokens: `issue_chat_link`, `issue_webhook`, `list_tokens`,
 `revoke_token`.
 
-Network: `network_allow`, `network_deny`, `network_list`.
-
-Web routes: `set_web_route`, `del_web_route`, `list_web_routes`,
-`get_web_presence`.
+**Cold-tier management (resreg-served, NOT hand-rolled here) — spec 5/44:**
+the `routes` (`add_route`/`set_routes`/`list_routes`/`delete_route`),
+`web_routes` (`set_web_route`/`del_web_route`/`list_web_routes`),
+`network_rules` (`network_allow`/`network_deny`/`network_list`),
+`scheduled_tasks` (`schedule_task`/`pause_task`/`resume_task`/`cancel_task`/
+`list_tasks`), and `acl` (`add_acl`/`remove_acl`/`list_acl`) tools each ride
+one `resreg.Resource`. routd owns the shared handler + tx/audit and mounts
+them on this server through the `ServeMCP` postBuild seam, injecting a
+tier-aware `Gate` + `MatchingRules` visibility. ipc keeps the transport +
+the hot-tier tools above, not these bodies.
 
 Slack pane controls: `pane_set_prompts`, `pane_set_title`.
 
@@ -149,7 +155,7 @@ post-fetch `JIDRoutedToFolder` per row.
 - `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)
 - `TurnResult`, `ModelUsage` — turn submission payloads
 - `RouteTokenInfo` — route token metadata
-- `PlatformHistory`, `ErroredChat`, `TaskRunLog`, `NetworkRule` — DTO types
+- `PlatformHistory`, `ErroredChat`, `TaskRunLog` — DTO types
 
 ## Dependencies
 
