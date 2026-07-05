@@ -81,14 +81,6 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			h.EditCalls = append(h.EditCalls, socialCall{jid, target, content})
 			return nil
 		},
-		GrantACL: func(p, sc, a, e string) error {
-			h.GrantCalls = append(h.GrantCalls, aclCall{p, sc, a, e})
-			return nil
-		},
-		RevokeACL: func(p, sc, a, e string) error {
-			h.RevokeCalls = append(h.RevokeCalls, aclCall{p, sc, a, e})
-			return nil
-		},
 		CreateInvite: func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (ipc.InviteInfo, error) {
 			inv, err := s.CreateInvite(targetGlob, issuedBySub, maxUses, expiresAt)
 			if err != nil {
@@ -134,7 +126,6 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			}
 			return out, nil
 		},
-		ListACL: s.ListACL,
 	}
 
 	sock := filepath.Join(tmp, "mcp.sock")
