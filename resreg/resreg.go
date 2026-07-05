@@ -413,9 +413,18 @@ func kindToMCPType(t reflect.Type) string {
 }
 
 // MCPTools registers every MCP tool of r on srv. callerFor is invoked
-// per call (not at registration) to avoid privilege confusion.
-func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc) {
+// per call (not at registration) to avoid privilege confusion. visible,
+// when non-nil, gates which tools are ADDED to the server at all: it
+// returns false for a tool the caller's tier may not even see in
+// tools/list. The agent socket supplies a MatchingRules predicate so a
+// tier that couldn't see a tool before still can't — visibility policy
+// stays in the mounting daemon, never in resreg. nil → always visible
+// (operator sockets, forwarders).
+func MCPTools(srv *mcpserver.MCPServer, r Resource, callerFor CallerFromMCPFunc, visible func(name string) bool) {
 	for _, t := range deriveMCPTools(r) {
+		if visible != nil && !visible(t.Name) {
+			continue
+		}
 		opts := []mcp.ToolOption{mcp.WithDescription(t.Description)}
 		for _, a := range t.Args {
 			opts = append(opts, mcpArgOption(a))

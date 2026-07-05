@@ -537,26 +537,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		SetEngagement:  setEngagement,
 		BumpEngagement: setEngagement,
 		EngagedFolder:   func(jid, topic string) string { f, _ := s.db.Engaged(jid, topic); return f },
-		LogExternalCost: s.db.LogExternalCost,
-		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {
-			return s.db.PutWebRoute(WebRouteRow{PathPrefix: pathPrefix, Access: access, RedirectTo: redirectTo, Folder: folder})
-		},
-		DelWebRoute:   s.db.DeleteWebRoute,
-		WebRouteOwner: s.db.WebRouteOwner,
-		ListWebRoutes: func(folder string) []ipc.WebRoute {
-			rows, err := s.db.WebRoutes(folder)
-			if err != nil {
-				return nil
-			}
-			out := make([]ipc.WebRoute, len(rows))
-			for i, r := range rows {
-				out[i] = ipc.WebRoute{
-					PathPrefix: r.PathPrefix, Access: r.Access, RedirectTo: r.RedirectTo,
-					Folder: r.Folder, CreatedAt: r.CreatedAt,
-				}
-			}
-			return out
-		},
+		LogExternalCost:      s.db.LogExternalCost,
 		CurrentTriggerSender: func(_ string) string { return t.trigger },
 		CurrentTopic:         func(_ string) string { return t.topic },
 		CurrentTurnID:        func(_ string) string { return t.turnID },
@@ -654,5 +635,8 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// ListACL key in deriveFolderGrants). With no acl rows, Authorize returns false
 	// only on an explicit deny; tier-default fallback covers the no-row case.
 	callerSub := "folder:" + t.folder
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub)
+	// spec 5/44 pilot: mount web_route management tools via resreg (shared
+	// handler + tx/audit) with the agent's tier-aware Gate + visibility.
+	postBuild := s.webRoutesPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, postBuild)
 }

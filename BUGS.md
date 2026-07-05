@@ -1,5 +1,34 @@
 # BUGS.md — open issues queue
 
+## web_routes 5/44 pilot: agent face migrated, REST face + follow-ons open (2026-07-05)
+
+The agent-MCP face of web_routes now rides one resreg.Resource via the injected
+Gate seam (set_web_route/del_web_route/list_web_routes; `routd/web_routes_resource.go`).
+Follow-ons the pilot deliberately did NOT do:
+
+1. **REST `/v1/web_routes` NOT migrated (open).** Its auth is scoped self-service
+   (`routes:write:own_group` + `ownsFolder` containment, `routd/authz_containment_test.go`)
+   — different from the operator-default Gate — and resreg's REST adapter can't decode
+   the `?path_prefix=`/`?folder=` query params `GET /v1/web_routes` uses. Unifying the
+   REST face needs: resreg REST query-param decoding + routd injecting a scoped-containment
+   REST Gate (preserve the self-service model). Until then, create-validation stays
+   duplicated between `handleWebRoutePut` and the shared handler (no worse than before).
+2. **Tool-browser drift (open).** `dashd/tools_admin.go` renders the schema browser via
+   `ipc.ListTools`→`buildMCPServer` directly (no postBuild seam), so the three web_route
+   tools no longer appear in the dashd tool browser. The LIVE agent still sees + calls them
+   (via the seam) — discovery-only. Fix: ListTools must also render resreg facade tools.
+3. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path (`!ExternalMCP`)
+   gets no postBuild → no web_route tools there. Production (split, `ExternalMCP: true`, routd
+   hosts the socket) is unaffected.
+4. **del_web_route widening: bug→fixed (ratified).** Production `del_web_route`→`routd.DeleteWebRoute`
+   used `folder=?` exact-match, so tier-0 widening (`scopedFolder=""`) matched only `folder=''`
+   rows (impossible under the groups FK) — a tier-0 folder could NEVER delete its own route.
+   The migrated `deleteWebRouteTx` adopts `store.DelWebRoute`'s `(folder=? OR ?='')` widening
+   (the tested intent). Broken→working, ratified 2026-07-05.
+
+- **Status:** #1/#2 open (the "two faces" completion for web_routes); #3 minor; #4 resolved.
+
+
 ## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
 
 Spec 5/42 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`

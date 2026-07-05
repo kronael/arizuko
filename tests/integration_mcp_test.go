@@ -144,25 +144,6 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 			}
 			return out, nil
 		},
-		SetWebRoute: func(pathPrefix, access, redirectTo, folder string) error {
-			return s.SetWebRoute(store.WebRoute{
-				PathPrefix: pathPrefix, Access: access, RedirectTo: redirectTo,
-				Folder: folder, CreatedAt: time.Now(),
-			})
-		},
-		DelWebRoute:   s.DelWebRoute,
-		WebRouteOwner: s.WebRouteOwner,
-		ListWebRoutes: func(folder string) []ipc.WebRoute {
-			rows := s.ListWebRoutes(folder)
-			out := make([]ipc.WebRoute, len(rows))
-			for i, r := range rows {
-				out[i] = ipc.WebRoute{
-					PathPrefix: r.PathPrefix, Access: r.Access, RedirectTo: r.RedirectTo,
-					Folder: r.Folder, CreatedAt: r.CreatedAt.Format(time.RFC3339),
-				}
-			}
-			return out
-		},
 		ListACL: s.ListACL,
 	}
 
@@ -408,32 +389,8 @@ func TestMCP_MessageInspection(t *testing.T) {
 	})
 }
 
-func TestMCP_WebRouteTools(t *testing.T) {
-	h := newFullMCPHarness(t, "hq")
-
-	t.Run("set_web_route", func(t *testing.T) {
-		h.call(t, "set_web_route", map[string]any{
-			"path": "/pub/hq/docs", "access": "public",
-		})
-		if len(h.S.ListWebRoutes("hq")) != 1 {
-			t.Fatalf("web route not persisted: %+v", h.S.ListWebRoutes("hq"))
-		}
-	})
-
-	t.Run("list_web_routes", func(t *testing.T) {
-		res := h.call(t, "list_web_routes", nil)
-		if !contentContains(res, "/pub/hq/docs") {
-			t.Fatalf("list_web_routes missing route: %v", res.Content)
-		}
-	})
-
-	t.Run("del_web_route", func(t *testing.T) {
-		h.call(t, "del_web_route", map[string]any{"path": "/pub/hq/docs"})
-		if len(h.S.ListWebRoutes("hq")) != 0 {
-			t.Fatalf("web route still present after delete: %+v", h.S.ListWebRoutes("hq"))
-		}
-	})
-}
+// web_route MCP tools moved to routd's resreg resource (spec 5/44 pilot);
+// coverage lives in routd/web_routes_resource_test.go (real socket + seam).
 
 func TestMCP_GroupObservation(t *testing.T) {
 	h := newFullMCPHarness(t, "hq")

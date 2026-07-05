@@ -325,7 +325,7 @@ func TestMCPTools_PerInvocationCallerResolver(t *testing.T) {
 		idx++
 		return Caller{Sub: sub}, nil
 	}
-	MCPTools(srv, fakeResource(st, s), resolver)
+	MCPTools(srv, fakeResource(st, s), resolver, nil)
 	// Drive the handler through invoke twice with distinct resolver outputs.
 	// (mcp.ServeHTTP setup is heavy for a unit test — invoke directly.)
 	x1 := Execution{Caller: Caller{Sub: "alice"}, Action: ActionList, Resource: "routes", Args: Args{}, Surface: audit.SurfaceMCP}

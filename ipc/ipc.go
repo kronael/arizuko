@@ -204,13 +204,6 @@ type StoreFns struct {
 	RecentSessions      func(folder string, n int) []core.SessionRecord
 	GetSession          func(folder, topic string) (string, bool)
 	GetIdentityForSub   func(sub string) (Identity, []string, bool)
-	SetWebRoute         func(pathPrefix, access, redirectTo, folder string) error
-	DelWebRoute         func(pathPrefix, folder string) (bool, error)
-	ListWebRoutes       func(folder string) []WebRoute
-	// WebRouteOwner reports which folder already owns an exact path_prefix
-	// row, if any. Used by set_web_route to enforce first-claim ownership
-	// of top-level prefixes outside the caller's own slot (spec 5/V §4).
-	WebRouteOwner func(pathPrefix string) (folder string, ok bool)
 
 	// Spec 5/G engagement primitives. SetEngagement is used by the
 	// engage/disengage MCP tools and by api.handleMessage (verb=mention).
@@ -346,7 +339,13 @@ const maxMCPConns = 8
 // callerSub, when non-empty, enables row-based grants checks via
 // db.Authorize for every tool call (ARIZUKO_LOCAL_SUB). Empty = full
 // operator access (default behavior).
-func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string) (func(), error) {
+//
+// postBuild runs on the built *server.MCPServer before the accept loop
+// starts. It is the layering seam for resreg-driven tool registration:
+// ipc must not import store/resreg, so routd (which imports both) passes
+// a closure that calls resreg.MCPTools to mount cold-tier management
+// tools (spec 5/44 web_routes pilot). Empty in every non-routd caller.
+func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -360,6 +359,11 @@ func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules
 		"folder", folder, "sock", sockPath, "peer_uid", expectedUID)
 
 	srv := buildMCPServer(gated, db, folder, rules, callerSub)
+	for _, pb := range postBuild {
+		if pb != nil {
+			pb(srv)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sem := make(chan struct{}, maxMCPConns)
@@ -2906,106 +2910,13 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 	}
 
-	granted("set_web_route",
-		"Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. "+
-			"`path` must start with `/`. `access` is one of public|auth|deny|redirect. "+
-			"When access=redirect, `redirect_to` is required and must point into this folder's own "+
-			"slot (/pub/<folder>/... or /priv/<folder>/...) — no external URLs or other folders. "+
-			"Route is scoped to this folder.",
-		[]mcp.ToolOption{
-			mcp.WithString("path", mcp.Required()),
-			mcp.WithString("access", mcp.Required()),
-			mcp.WithString("redirect_to"),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.SetWebRoute == nil {
-				return toolErr("set_web_route not configured")
-			}
-			p := req.GetString("path", "")
-			if p == "" || p[0] != '/' {
-				return toolErr("path must start with /")
-			}
-			access := req.GetString("access", "")
-			switch access {
-			case "public", "auth", "deny", "redirect":
-			default:
-				return toolErr("access must be one of: public, auth, deny, redirect")
-			}
-			redirectTo := req.GetString("redirect_to", "")
-			if access == "redirect" {
-				if redirectTo == "" {
-					return toolErr("redirect_to required when access=redirect")
-				}
-				// Self-slot constraint: redirect_to must point into this
-				// folder's own /pub/<folder>/ or /priv/<folder>/ slot. No
-				// external URLs, no other folders' slots — prevents
-				// open-redirect and cross-folder impersonation.
-				if !strings.HasPrefix(redirectTo, "/pub/"+folder+"/") &&
-					!strings.HasPrefix(redirectTo, "/priv/"+folder+"/") {
-					return toolErr("redirect_to must point into this folder's own slot: /pub/" +
-						folder + "/... or /priv/" + folder + "/...")
-				}
-			}
-			// Path-claim enforcement (spec 5/V §4): a path inside the caller's
-			// own /pub/<folder>/ or /priv/<folder>/ slot is always allowed. A
-			// top-level / other prefix is allowed only if unclaimed — reject if
-			// an existing row already owns it for a different folder.
-			inOwnSlot := strings.HasPrefix(p, "/pub/"+folder+"/") ||
-				strings.HasPrefix(p, "/priv/"+folder+"/")
-			if !inOwnSlot && db.WebRouteOwner != nil {
-				if owner, ok := db.WebRouteOwner(p); ok && owner != folder {
-					return toolErr("path prefix already claimed by folder: " + owner)
-				}
-			}
-			if err := db.SetWebRoute(p, access, redirectTo, folder); err != nil {
-				emitSys("set_web_route", folder, callerSub,
-					map[string]any{"path": p, "access": access}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("set_web_route", folder, callerSub,
-				map[string]any{"path": p, "access": access}, nil)
-			slog.Info("set_web_route", "folder", folder, "path", p, "access", access)
-			return toolOK()
-		})
-
-	granted("del_web_route",
-		"Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).",
-		[]mcp.ToolOption{mcp.WithString("path", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.DelWebRoute == nil {
-				return toolErr("del_web_route not configured")
-			}
-			p := req.GetString("path", "")
-			if p == "" {
-				return toolErr("path required")
-			}
-			scopedFolder := folder
-			if identity.Tier == 0 {
-				scopedFolder = ""
-			}
-			ok, err := db.DelWebRoute(p, scopedFolder)
-			if err != nil {
-				emitSys("del_web_route", folder, callerSub, map[string]any{"path": p}, err)
-				return toolErr(err.Error())
-			}
-			if !ok {
-				return toolErr("route not found or not owned by this folder")
-			}
-			emitSys("del_web_route", folder, callerSub, map[string]any{"path": p}, nil)
-			slog.Info("del_web_route", "folder", folder, "path", p)
-			return toolOK()
-		})
-
-	granted("list_web_routes",
-		"List all web routes owned by this folder. Returns a JSON array of {path_prefix, access, redirect_to, folder, created_at}.",
-		nil,
-		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.ListWebRoutes == nil {
-				return toolErr("list_web_routes not configured")
-			}
-			return toolJSON(db.ListWebRoutes(folder))
-		})
-
+	// web_routes management tools (set_web_route/del_web_route/list_web_routes)
+	// are no longer hand-rolled here. They ride resreg's two-face mechanism
+	// (spec 5/44 pilot): routd owns the shared handler + tx/audit and mounts
+	// them on this server via the ServeMCP postBuild seam, with the agent's
+	// tier-aware Gate + MatchingRules visibility injected. get_web_presence
+	// stays hand-authored — it is a read-only presence report, not web_routes
+	// CRUD, and has no resreg REST twin.
 	granted("get_web_presence",
 		"Report this folder's public web presence: its canonical hostname (derived <folder>.<HOSTING_DOMAIN> or an operator alias), the /pub/<folder>/ path that always works, and the OAuth /priv base. Use to tell a user where your site is. Read-only.",
 		[]mcp.ToolOption{mcp.WithString("folder")},
