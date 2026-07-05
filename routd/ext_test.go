@@ -119,6 +119,40 @@ func TestCallExtTool_Scrub(t *testing.T) {
 	}
 }
 
+// TestCallExtTool_ScrubsTransportError guards the leak where an apikey-query
+// secret rides in the request URL: on a dial/DNS/TLS failure, *url.Error
+// embeds the full URL (incl. RawQuery), so an unscrubbed transport-error
+// result would expose the key.
+func TestCallExtTool_ScrubsTransportError(t *testing.T) {
+	// A started-then-closed server yields a definitely-dead address, forcing
+	// http.DefaultClient.Do to return a *url.Error over the request URL.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := srv.URL
+	srv.Close()
+
+	tool := ipc.ExtTool{
+		LocalName:  "test_qkey",
+		Method:     "GET",
+		BaseURL:    deadURL,
+		Path:       "/dns",
+		AuthMethod: "apikey-query",
+		Param:      "ApiKey",
+		SecretKey:  "NC_KEY",
+	}
+	secrets := map[string]string{"NC_KEY": "supersecretkey"}
+	result, err := ipc.CallExtTool(context.Background(), tool, nil, secrets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		t.Fatal("content[0] is not TextContent")
+	}
+	if strings.Contains(tc.Text, "supersecretkey") {
+		t.Errorf("secret leaked in transport-error result: %s", tc.Text)
+	}
+}
+
 func TestCallExtTool_JsonBody(t *testing.T) {
 	var gotKey, gotSecret string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

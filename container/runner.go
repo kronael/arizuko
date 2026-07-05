@@ -27,6 +27,7 @@ import (
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
 )
 
 const (
@@ -704,14 +705,17 @@ func hp(cfg *core.Config, local string) string {
 	return filepath.Join(cfg.HostProjectRoot, rel)
 }
 
+// readSecrets is the operator platform fallback: every env-profile model
+// key set in the host .env is passed through to the container. Iterating
+// store.EnvProfileKeys (the canonical set) instead of a local literal keeps
+// it from drifting — the list previously carried only 2 of the 4 keys, so a
+// platform OPENAI_API_KEY / CODEX_API_KEY in .env never reached the agent.
 func readSecrets() map[string]string {
 	var s map[string]string
-	for _, k := range []string{
-		"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
-	} {
+	for k := range store.EnvProfileKeys {
 		if v := os.Getenv(k); v != "" {
 			if s == nil {
-				s = make(map[string]string, 2)
+				s = make(map[string]string, len(store.EnvProfileKeys))
 			}
 			s[k] = v
 		}

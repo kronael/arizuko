@@ -88,11 +88,11 @@ func CallExtTool(
 			bodyMap[k] = v
 		}
 		if tool.AuthMethod == "json-body" {
-			if tool.Header != "" && tool.SecretKey != "" {
-				bodyMap[tool.Header] = secrets[tool.SecretKey]
+			if v := secrets[tool.SecretKey]; tool.Header != "" && v != "" {
+				bodyMap[tool.Header] = v
 			}
-			if tool.Header2 != "" && tool.SecretKey2 != "" {
-				bodyMap[tool.Header2] = secrets[tool.SecretKey2]
+			if v := secrets[tool.SecretKey2]; tool.Header2 != "" && v != "" {
+				bodyMap[tool.Header2] = v
 			}
 		}
 		b, err := json.Marshal(bodyMap)
@@ -123,9 +123,9 @@ func CallExtTool(
 			}
 		}
 	case "apikey-query":
-		if tool.Param != "" {
+		if v := secrets[tool.SecretKey]; tool.Param != "" && v != "" {
 			q := req.URL.Query()
-			q.Set(tool.Param, secrets[tool.SecretKey])
+			q.Set(tool.Param, v)
 			req.URL.RawQuery = q.Encode()
 		}
 	case "basic":
@@ -139,7 +139,9 @@ func CallExtTool(
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return mcp.NewToolResultError("http: " + err.Error()), nil
+		// *url.Error.Error() embeds the full request URL, which for
+		// apikey-query carries the secret in RawQuery — scrub before returning.
+		return mcp.NewToolResultError(scrubSecrets("http: "+err.Error(), secrets)), nil
 	}
 	defer resp.Body.Close()
 

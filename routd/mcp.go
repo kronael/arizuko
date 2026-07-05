@@ -569,8 +569,16 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ExtTools:   s.extTools,
 		// Capture the trigger sender so ConnectorSecrets resolves the triggering
 		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
+		// Normalize the caller the same way dispatchRun does (spec 5/42
+		// resolution chain): timed/system triggers resolve as service:routd, so
+		// a stray timed-<id> scope_id can't diverge connector-secret resolution
+		// from spawn-time resolution.
 		ResolveConnectorSecrets: func(folder string, required []string) map[string]string {
-			return s.db.ConnectorSecrets(folder, t.trigger, required)
+			callerSub := t.trigger
+			if callerSub == "" || strings.HasPrefix(callerSub, "timed-") || strings.HasPrefix(callerSub, "system") {
+				callerSub = "service:routd"
+			}
+			return s.db.ConnectorSecrets(folder, callerSub, required)
 		},
 		// ACL: list_acl reads the operator rows; Authorize is the per-call row-ACL
 		// check ServeMCP runs when callerSub is set. Both nil-safe.

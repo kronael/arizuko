@@ -1,5 +1,25 @@
 # BUGS.md — open issues queue
 
+## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
+
+Spec 5/42 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
+(`store/secrets.go:128`) rejects them at `scope_kind='folder'` — model creds are user-only (BYOA)
+or platform (host `.env`). But `ant/skills/oracle/SKILL.md` "Path B" and several
+`ant/examples/*/PRODUCT.md` still show `[[secret]] key = "CODEX_API_KEY"` at **folder** scope.
+Under 5/42 enforcement that write 400s.
+
+**Design call needed** (do not silently change either side): (a) keep the model — codex/openai are
+user-only like Anthropic — and fix the oracle docs/examples to user-scope or platform `.env`; or
+(b) carve `CODEX_API_KEY`/`OPENAI_API_KEY` OUT of the folder-reject as a shared *team* capability
+(a folder pays for codex for everyone), keeping only the Anthropic keys user-only. The platform
+`.env` fallback for all four now works (`container/runner.go:readSecrets` fixed 2026-07-02); this
+is purely about whether folder-scope is allowed. Fixing the docs also requires an ant image rebuild.
+
+- **Severity:** medium (breaks documented operator flow)
+- **Scope:** store/secrets.go:128 EnvProfileKeys; ant/skills/oracle/SKILL.md, ant/examples/*/PRODUCT.md
+- **Source:** credential refine-review 2026-07-02
+- **Status:** open (needs user design decision)
+
 ## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
 
 `resreg/openapi.go:resourcePaths` synthesizes the 5/36 CRUD convention (`/v1/<name>`
