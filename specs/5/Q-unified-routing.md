@@ -34,7 +34,7 @@ Agent messages (sender without `:`) never get content-based routing.
   inbound / suppressed), `'pending'` (outbound queued), `'failed'`
   (terminal). `MarkMessageDelivered`/`MarkMessageStatus`/
   `PendingOutboundOlderThan` form the poll-based delivery API.
-- Outbound delivery is poll-driven: gateway writes the bot row as
+- Outbound delivery is poll-driven: routd writes the bot row as
   `pending`, attempts delivery in line, marks `sent` on success.
   An `outboundRetryLoop` scans `pending` rows older than 30s and
   retries; rows older than 24h are marked `failed` and stopped.

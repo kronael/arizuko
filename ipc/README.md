@@ -1,7 +1,7 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `routd` process; per `specs/5/5-uniform-mcp-rest.md`
+subsystem inside the `routd` process; per `specs/5/45-openapi-mcp.md`
 this is the **MCP host** issuer in the platform-token model.
 
 ## Purpose
@@ -14,7 +14,7 @@ bounded to 8 per socket. Action tools (send/reply/post/like/…,
 grant rules; identity (folder, tier) is resolved from the socket path;
 the kernel-attested peer uid (`SO_PEERCRED`) gates every connection.
 
-## Capability token (planned, per `specs/5/5-uniform-mcp-rest.md` §"Issuance sites")
+## Capability token (planned, per `specs/5/45-openapi-mcp.md` §"Auth model")
 
 At agent socket bind, the MCP host mints a capability token via
 `auth.Mint(...)` carrying:
@@ -99,6 +99,13 @@ Slack pane controls: `pane_set_prompts`, `pane_set_title`.
 Cost tracking: `log_external_cost`.
 
 MCP-subprocess connectors: dynamically registered from catalog (spec 7/Y).
+
+External REST tools (`extcall.go` `ExtTool`): loaded from `[[ext]]` TOML
+blocks as REST-backed MCP tools. Each maps a tool call to one outbound
+HTTP request with path-param substitution and auth injected from folder
+secrets (bearer / apikey-header / apikey-query / basic / json-body); the
+secret is scrubbed from the response before return. Grant-gated on
+`ext:<service>:<operation>`. Spec 5/41.
 
 Per-turn agent output flows back over the same socket via the
 `submit_turn` JSON-RPC method (hidden from `tools/list`);

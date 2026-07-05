@@ -250,6 +250,54 @@ scope        = "per_call"
 Operator writes per-user tokens via `arizuko user-secret <inst> set
 <sub> KEY --value V` or by handing the user `/dash/me/secrets`.
 
+## Adding an `[[ext]]` REST provider
+
+An external HTTP API with no MCP server of its own (Cloudflare, Porkbun,
+Gandi, Namecheap…) plugs in as a REST descriptor. An operator declares one
+`[[ext]]` block; `routd/ext.go:LoadExtProviders` reads them at boot and each
+`[[ext.tool]]` becomes one REST-backed MCP tool (`ipc/extcall.go` `ExtTool`)
+that maps a tool call to one outbound HTTP request. This is **shape 3** of
+the credential model (`specs/5/41-ext-mcp.md`); the MCP connector above is
+shape 2.
+
+```toml
+[[ext]]
+name = "cloudflare"
+base = "https://api.cloudflare.com/client/v4"
+
+  [ext.auth]
+  method = "bearer"        # bearer | apikey-header | apikey-query | basic | json-body
+  secret = "CF_API_TOKEN"  # key in the secrets table (user- or folder-scoped)
+  # apikey-header: header = "X-Api-Key"
+  # apikey-query:  param  = "api_key"      (scrubbed from the URL in the response)
+  # basic:         secret = user, secret2 = pass
+  # json-body:     header/header2 = JSON body field names, secret/secret2 = values
+
+  [[ext.tool]]
+  name   = "dns_set"
+  scope  = "ext:cloudflare:dns:write"
+  method = "POST"
+  path   = "/zones/{zone_id}/dns_records"
+```
+
+- **Auth method** (`[ext.auth].method`) — one of `bearer`, `apikey-header`,
+  `apikey-query`, `basic`, `json-body`. The credential comes from `secret`
+  (plus `secret2` for two-part auth like basic or a paired key). Resolved
+  from the `secrets` table at call time (user rows win over folder), on the
+  host — never injected into the container. The resolved value is
+  exact-string-scrubbed from the HTTP response before the agent sees it,
+  including the query string for `apikey-query`.
+- **Path-param substitution** — `{name}` segments in `path` are filled from
+  the tool call's arguments (`{zone_id}` ← the `zone_id` arg); consumed args
+  are removed before the rest become the query/body.
+- **Grant scope** — each tool's `scope` (`ext:<service>:<operation>`) is the
+  ACL scope an agent must hold to call it. Grant it like any other:
+  `ext:cloudflare:*` or the exact `ext:cloudflare:dns:write`.
+
+Operator sets the credential via `arizuko secret <inst> set <folder> KEY
+--value V` (folder) or the user via `/dash/me/secrets` (user). Spec
+`specs/5/41-ext-mcp.md`.
+
 ## Adding a slink-driven page
 
 Third-party pages talk to a slink via the embedded JS SDK at

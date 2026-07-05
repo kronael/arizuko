@@ -1039,13 +1039,16 @@ and a duplicate `submit_turn` is dropped.
 > and **6/6c** (HTTP `groupScope` factor out of `davRoute`). Factor them as
 > the loop/ingress are built; `5/6` is the design reference.
 
-- `gateway/gateway.go` — the loop (`pollOnce`, `processGroupMessages`,
-  `processSenderBatch`, `resolveOrEngaged`, `handleSubmitTurn`,
-  `publishRoundDone`, `issueRouteToken`). The `GatedFns`/`StoreFns` seams
-  become routd's `/v1/*` + MCP handlers; `runAgentWithOpts` becomes the
-  `POST /v1/runs` call to runed.
-- `api/api.go` — `handleMessage` (ingress), `handleOutbound`, route-token
-  REST handlers, the 5/L promotion + 5/G engagement-on-mention block.
+- `routd/loop.go` + `routd/dispatch.go` — the loop (`pollOnce`,
+  `processGroupMessages`, `processSenderBatch`, `resolveOrEngaged`,
+  `handleSubmitTurn`, `publishRoundDone`). The former `GatedFns`/`StoreFns`
+  seams are routd's `/v1/*` + MCP handlers; `runAgentWithOpts` is the
+  `POST /v1/runs` call to runed. (Loop extracted verbatim from the deleted
+  `gateway/gateway.go`.)
+- `routd/server.go` + `routd/tokens_http.go` — `handleMessages` (ingress),
+  `handleOutbound`, the route-token REST handlers, the 5/L promotion (5/G
+  engagement is deferred to dispatch, not ingress). Extracted from the
+  deleted `api/api.go`.
 - `router/router.go` + `core.ParseRouteTarget` — route resolution,
   `RouteMatches`, `#observe`/`#topic` fragment parsing, formatters.
 - `store/` — every table above; the access methods become routd's DB

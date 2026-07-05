@@ -1,5 +1,5 @@
 ---
-status: active
+status: partial
 supersedes: 5/5-uniform-mcp-rest
 depends:
   [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
@@ -19,6 +19,15 @@ depends:
 > agent actions (`reply`, `send`, `inspect_*`) stay MCP-only — no REST
 > resource to mirror. Supersedes [`5/5`](5-uniform-mcp-rest.md);
 > [`5/44`](44-mcp-rest-unification.md) is the rollout.
+
+**Adoption (`partial`):** the mechanism ships (`deriveMCPTools`,
+`x-mcp-when`), but exactly **one** of the ten resources carries an
+`MCPDoc` and rides it — `proxyd_routes` (`grep 'MCPDoc:'
+resreg/resources/*.go` → only that file). The other nine (`routes`,
+`acl`, `groups`, `secrets`, `scheduled_tasks`, `network_rules`,
+`web_routes`, `route_tokens`, `onboarding_gates`) are still hand-rolled
+per [`5/5`](5-uniform-mcp-rest.md) and await the [`5/44`](44-mcp-rest-unification.md)
+rollout.
 
 ## The model
 

@@ -188,17 +188,18 @@ conversations via `disengage()` or wait for TTL.
 
 ## Thread-by-default on Slack channels
 
-Today `slakd/bot.go:Send` already threads on `ReplyTo`
-(`threadTS := cmp.Or(req.ThreadID, req.ReplyTo)`). Engagement does
-not modify `Send()`. Instead the gateway ensures `ReplyTo` is set on
-conversational outbounds — already done at `gateway.go:1009-1011`
-where `replyTo = sentID` chains successive turns into the same
-thread.
+Today `slakd/bot.go:Send` threads on the existing thread or a new root
+(`threadTS := cmp.Or(req.ThreadID, req.ThreadRoot)`, `slakd/bot.go:903`).
+`ReplyTo` is **deliberately excluded** — it is often a prior bot row, and
+rooting a thread there buries it. Engagement does not modify `Send()`;
+routd's loop chains successive turns into the same thread by setting
+`ThreadRoot`/`ReplyTo` on conversational outbounds so the reply lands under
+the trigger message.
 
 **Broadcast discriminator.** `m.Sender` prefix `timed-` is the
-existing convention for scheduled / autonomous outbounds
-(`gateway.go:1884, 1957`). Broadcast detection in the gateway
-engagement bump: `strings.HasPrefix(triggerSender, "timed-")` →
+existing convention for scheduled / autonomous outbounds. Broadcast
+detection in routd's engagement bump:
+`strings.HasPrefix(triggerSender, "timed-")` →
 no bump, no auto-thread. Conversational turns (any non-timed
 trigger) bump. (`TurnID != ""` is **not** a valid discriminator
 because timed/scheduled outbounds also carry non-empty TurnIDs.)

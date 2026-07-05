@@ -216,11 +216,31 @@ Every HTTP-serving daemon mounts `GET /openapi.json` returning an
 OpenAPI 3.1 doc generated from `resreg.Resource.RowType` reflection.
 One walk over the registry produces `components.schemas` (struct field
 → property name via `json:` tag, Go kind → JSON Schema type) and
-`paths./v1/<name>` (list / create / update / delete). Public — no auth
-gate. Cached for the process lifetime; reflection is one-time at first
-hit. Drift between handler + doc is structurally impossible because
+`paths./v1/<name>` (list / read-one / create / update / delete). Public —
+no auth gate. Cached for the process lifetime; reflection is one-time at
+first hit. Drift between handler + doc is structurally impossible because
 both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
 §"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
+
+## Cold tier vs hot tier
+
+Two management surfaces, one auth gate:
+
+- **Cold tier** — operator config resources (`routes`, `acl`, `groups`,
+  `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
+  `route_tokens`, `onboarding_gates`, `proxyd_routes`). One
+  `resreg.Resource` per resource wears **two faces**: an annotated REST
+  `/v1/<name>` for humans + external tools, and the agent's MCP tools
+  **derived** from that same handler. Spec
+  [`5/45`](specs/5/45-openapi-mcp.md); rollout
+  [`5/44`](specs/5/44-mcp-rest-unification.md) (adopted on `proxyd_routes`
+  so far; the other nine still hand-rolled per `5/5`).
+- **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
+  `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
+  twin — an operator doesn't `reply` to a chat.
+
+Both run the SAME `auth.Authorize` gate; only the identity source differs
+(agent socket scope vs human JWT folder).
 
 ## The three planes
 
@@ -381,47 +401,48 @@ each daemon re-sequences its own `migrations/` from `0001`.
 - **`onbod.db`** (`onbod/migrations/`): `onboarding`, `onboarding_gates`,
   `invites`.
 
-| Table              | Key columns                                                                                                                             |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group (routd.db)                                                                 |
-| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed, turn_id (routd.db)               |
-| `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (routd.db)                  |
-| `groups`           | folder (PK), name, container_config, parent, model, cost_cap_cents_per_day, open, observe_window (routd.db)                             |
-| `route_tokens`     | token_hash (PK), jid, owner_folder (FK → groups), created_at (routd.db)                                                                 |
-| `routes`           | id (PK), seq, match, target, observe_window_messages, observe_window_chars (routd.db)                                                   |
-| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (routd.db)                                              |
-| `system_messages`  | id, folder, source, kind, body, created (routd.db)                                                                                      |
-| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode (routd.db, migration 0009)                                       |
-| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, result, error (routd.db, migration 0009)                                                 |
-| `channels`         | name (PK), url, jid_prefixes, capabilities (routd.db)                                                                                   |
-| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at (routd.db, migration 0007)                        |
-| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims (routd.db, migration 0007)                                  |
-| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder (routd.db)                                                               |
-| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted), created_at (routd.db, migration 0008)                                  |
-| `secret_use_log`   | ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms (routd.db, migration 0008)                                       |
-| `turn_context`     | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state (routd.db)                                             |
-| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at (routd.db)                                                                       |
-| `cost_log`         | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at (routd.db)                                          |
-| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist (routd.db, migration 0005)                                     |
-| `web_routes`       | path_prefix (PK), access, redirect_to, folder (FK → groups), created_at (routd.db)                                                      |
-| `group_watchers`   | observer + source (PK) (routd.db)                                                                                                       |
-| `idempotency_keys` | endpoint + key (PK), request_hash, status, response, created_at, expires_at (routd.db)                                                  |
-| `pane_sessions`    | team_id + user_id + thread_ts (PK), channel_id, context_jid, opened_at, last_status_at (routd.db, migration 0010)                       |
-| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                             |
-| `spawns`           | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db) |
-| `spawn_logs`       | id (PK), run_id, ts, kind, line (runed.db)                                                                                              |
-| `mcp_tokens`       | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                           |
-| `circuit_breaker`  | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                |
-| `auth_users`       | user_id (PK), name, created_at (authd.db)                                                                                               |
-| `oauth_identities` | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                         |
-| `refresh_tokens`   | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                      |
-| `signing_keys`     | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (authd.db)                                                                  |
-| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9) (authd.db, migration 0004)                                |
-| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge (authd.db, migration 0004)                                              |
-| `identity_codes`   | code (PK), identity_id, expires_at — short-lived link codes (authd.db, migration 0004)                                                  |
-| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at (onbod.db)                                               |
-| `onboarding_gates` | gate (PK), limit_per_day, enabled (onbod.db)                                                                                            |
-| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod.db)                                          |
+| Table              | Key columns                                                                                                                                                                                                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chats`            | jid (PK), agent_cursor, sticky_group, sticky_topic, is_group (routd.db)                                                                                                                                                                                                    |
+| `messages`         | id (PK), chat_jid, sender, content, timestamp, verb, source, attachments, topic, errored, is_observed, turn_id (routd.db)                                                                                                                                                  |
+| `messages_fts`     | FTS5 virtual table over `messages.content` (+ sync triggers), backs `find_messages`; bm25 ranking + snippet (routd.db)                                                                                                                                                     |
+| `groups`           | folder (PK), name, container_config, parent, model, cost_cap_cents_per_day, open, observe_window (routd.db)                                                                                                                                                                |
+| `route_tokens`     | token_hash (PK), jid, owner_folder (FK → groups), created_at (routd.db)                                                                                                                                                                                                    |
+| `routes`           | id (PK), seq, match, target, observe_window_messages, observe_window_chars (routd.db)                                                                                                                                                                                      |
+| `sessions`         | group_folder + topic (PK), session_id, parent_topic, forked_at, observed_cursor (routd.db)                                                                                                                                                                                 |
+| `system_messages`  | id, folder, source, kind, body, created (routd.db)                                                                                                                                                                                                                         |
+| `scheduled_tasks`  | id (PK), owner, chat_jid, prompt, cron, next_run, status, context_mode (routd.db, migration 0009)                                                                                                                                                                          |
+| `task_run_logs`    | id (PK), task_id, run_at, duration_ms, status, result, error (routd.db, migration 0009)                                                                                                                                                                                    |
+| `channels`         | name (PK), url, jid_prefixes, capabilities (routd.db)                                                                                                                                                                                                                      |
+| `acl`              | principal + action + scope + params + predicate + effect (PK), granted_by, granted_at (routd.db, migration 0007)                                                                                                                                                           |
+| `acl_membership`   | child + parent (PK), added_by, added_at — role memberships + JID→sub claims (routd.db, migration 0007)                                                                                                                                                                     |
+| `chat_reply_state` | jid + topic (PK), last_reply_id, engaged_until, engaged_folder (routd.db)                                                                                                                                                                                                  |
+| `secrets`          | scope_kind + scope_id + key (PK), value (AES-256-GCM encrypted), created_at (routd.db, migration 0008)                                                                                                                                                                     |
+| `secret_use_log`   | ts, spawn_id, caller_sub, folder, tool, key, scope, status, latency_ms (routd.db, migration 0008)                                                                                                                                                                          |
+| `turn_context`     | turn_id (PK), folder, topic, chat_jid, trigger_sender, started_at, run_id, state (routd.db)                                                                                                                                                                                |
+| `turn_results`     | folder + turn_id (PK), session_id, status, recorded_at (routd.db)                                                                                                                                                                                                          |
+| `cost_log`         | folder + turn_id + model (PK), input_tokens, output_tokens, cost_cents, recorded_at (routd.db)                                                                                                                                                                             |
+| `network_rules`    | folder + target (PK), created_at, created_by — crackbox egress allowlist (routd.db, migration 0005)                                                                                                                                                                        |
+| `web_routes`       | path_prefix (PK), access, redirect_to, folder (FK → groups), created_at (routd.db)                                                                                                                                                                                         |
+| `group_watchers`   | observer + source (PK) (routd.db)                                                                                                                                                                                                                                          |
+| `idempotency_keys` | endpoint + key (PK), request_hash, status, response, created_at, expires_at (routd.db)                                                                                                                                                                                     |
+| `pane_sessions`    | team_id + user_id + thread_ts (PK), channel_id, context_jid, opened_at, last_status_at (routd.db, migration 0010)                                                                                                                                                          |
+| `audit_log`        | id (PK), created_at, category, action, actor, actor_sub, resource, scope, surface, outcome, duration_ms, turn_id, folder, instance (routd.db, migration 0016) — tx-bound source of truth; proxyd/webd/dashd own no audit DB and write here via a sibling `routd.db` handle |
+| `session_log`      | id, group_folder, session_id, started_at, ended_at, result, error, message_count (runed.db)                                                                                                                                                                                |
+| `spawns`           | run_id (PK), folder, topic, container_name, session_log_id, mcp_token_jti, session_id, state, outcome, exit_code, created_at (runed.db)                                                                                                                                    |
+| `spawn_logs`       | id (PK), run_id, ts, kind, line (runed.db)                                                                                                                                                                                                                                 |
+| `mcp_tokens`       | jti (PK), run_id, parent_jti, folder, scope, issued_at, expires_at (runed.db)                                                                                                                                                                                              |
+| `circuit_breaker`  | folder (PK), failures, last_failure — per-folder consecutive-failure count, survives restarts (runed.db)                                                                                                                                                                   |
+| `auth_users`       | user_id (PK), name, created_at (authd.db)                                                                                                                                                                                                                                  |
+| `oauth_identities` | user_id + provider (unique), provider_sub, linked_at (authd.db)                                                                                                                                                                                                            |
+| `refresh_tokens`   | token_hash (PK), family_id, sub, scope, aud, issued_at, expires_at, used_at, revoked_at (authd.db)                                                                                                                                                                         |
+| `signing_keys`     | kid (PK), priv_pem, pub_pem, active, created_at, retired_at (authd.db)                                                                                                                                                                                                     |
+| `identities`       | id (PK), name, created_at — canonical cross-channel user (advisory, spec 5/9) (authd.db, migration 0004)                                                                                                                                                                   |
+| `identity_claims`  | sub (PK), identity_id, claimed_at — sender-sub → identity merge (authd.db, migration 0004)                                                                                                                                                                                 |
+| `identity_codes`   | code (PK), identity_id, expires_at — short-lived link codes (authd.db, migration 0004)                                                                                                                                                                                     |
+| `onboarding`       | jid (PK), status, prompted_at, token, token_expires, user_sub, gate, queued_at (onbod.db)                                                                                                                                                                                  |
+| `onboarding_gates` | gate (PK), limit_per_day, enabled (onbod.db)                                                                                                                                                                                                                               |
+| `invites`          | token (PK), target_glob, issued_by_sub, issued_at, expires_at, max_uses, used_count (onbod.db)                                                                                                                                                                             |
 
 `route_tokens.owner_folder` carries an FK → `groups.folder` ON DELETE
 CASCADE; `web_routes.folder` likewise. WAL mode, 5s busy timeout, FK
@@ -488,21 +509,31 @@ runed (`POST /v1/runs`). runed performs the spawn:
 
 ### Secret injection
 
-Two tiers combine before the container starts:
+Three credential types (spec [`5/42`](specs/5/42-credentials.md)), two
+delivery paths:
 
-- **Operator anchors** (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
-  `OPENAI_API_KEY`, `CODEX_API_KEY`): read from the host `.env` by
-  `container/runner.go:readSecrets()`. Per-instance, never in the
-  `secrets` table.
-- **Broker secrets** (everything else): resolved from the `secrets`
-  table by `routd/dispatch.go:FolderSecretsForUser(folder, callerSub)`.
-  User-scoped rows win over folder-scoped for real user triggers;
-  timed/system triggers use `caller="service:routd"` → folder scope
-  only.
+- **Env-profile keys** (model creds: `ANTHROPIC_API_KEY`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) — pick which
+  model a spawn talks to. The operator default lives in the host `.env`
+  (`container/runner.go:readSecrets()`); a user's own key (BYOA) at user
+  scope in the `secrets` table overrides it. **Spawn-inject** — merged into
+  the container env at start.
+- **Capability credentials** (per-service tokens like `GITHUB_TOKEN`) —
+  resolved from the `secrets` table by
+  `routd/dispatch.go:FolderSecretsForUser(folder, callerSub)` (user rows win
+  over folder for real user triggers; timed/system use `service:routd` →
+  folder scope). Folder-scoped rows spawn-inject into the container env;
+  user-scoped capability creds for an external-tool call are **brokered on
+  the host at call-time** (`ipc/extcall.go`) and never enter the container.
+  Grant-gated.
+- **Infra / platform anchors** (`CHANNEL_SECRET`, `SECRETS_KEY`, bot
+  credentials) — instance-wide, host `.env` only, never in the `secrets`
+  table.
 
-Both are merged by `mergeSecrets(anchors, tableSecrets)` into the
-container env. See `SECURITY.md § Secret injection` and
-`specs/5/41-ext-mcp.md`.
+Env-profile + folder-scoped rows are merged by
+`mergeSecrets(anchors, tableSecrets)` into the container env; user-scoped
+capability creds stay on the host. See `SECURITY.md § Secret injection`,
+[`5/42`](specs/5/42-credentials.md), and [`5/41`](specs/5/41-ext-mcp.md).
 
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →

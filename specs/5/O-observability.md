@@ -95,7 +95,7 @@ Exported by `I-tool-call-logging.md`. Fields ride as OTLP attributes under
 
 ---
 
-## Traces (✗ not implemented)
+## Traces (✓ shipped)
 
 ### Spans
 
@@ -137,7 +137,7 @@ stamps outbound tool calls. Not v1 — routd-side rebuild suffices for now.
 
 ---
 
-## Metrics (✗ not implemented)
+## Metrics (✓ shipped)
 
 Prometheus-style metrics exposed at `GET /metrics` per daemon when
 `METRICS_ENABLED=true`.
@@ -215,15 +215,12 @@ Use standard OTel defaults or:
 
 ## Implementation notes
 
-### `obs/` package additions
+### `obs/` package
 
-Current: `Setup`, `WithTurn`, `InjectRequest`, `ExtractRequest`, fanout handler.
-
-Add:
-
+- `obs/obs.go` — `Setup`, `WithTurn`, `InjectRequest`, `ExtractRequest`, fanout handler
 - `obs/metrics.go` — Prometheus registry, metric descriptors, `MetricsHandler()`
-- `obs/spans.go` — `StartSpan(ctx, name, attrs)`, `EndSpan(ctx, outcome)`
-- `obs/middleware.go` — HTTP middleware for request metrics + spans
+- `obs/spans.go` — `SetupTraces`, `StartSpan(ctx, name, attrs...)`, `EndOutcome(ctx, outcome)`
+- `obs/middleware.go` — `HTTPMiddleware(daemon)` for request metrics + spans
 
 ### Per-daemon `/metrics` handler
 
@@ -242,15 +239,6 @@ ctx, end := obs.StartSpan(ctx, "model_call", "model", model, "folder", folder)
 resp, err := client.CreateMessage(ctx, req)
 end(err) // sets outcome + duration
 ```
-
-### Migration path
-
-1. Merge spec (this file)
-2. Add `obs/metrics.go`, `obs/spans.go`, `obs/middleware.go`
-3. Wire `/metrics` in each daemon's main.go
-4. Add span instrumentation at listed sites
-5. Update daemon READMEs with metrics emitted
-6. Document in CLAUDE.md observability section
 
 ---
 

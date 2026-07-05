@@ -12,7 +12,7 @@ an ACL row-grant gate (`Authorize`), (4) **the canonical platform-token
 format** — authd signs, every backend verifies through this library. No
 daemon implements its own JWT format.
 
-## Platform token (per `specs/5/5-uniform-mcp-rest.md`, `specs/5/1`)
+## Platform token (per `specs/5/45-openapi-mcp.md`, `specs/5/1`)
 
 ES256 signed JWT for all federated `/v1/*` calls and agent capability
 tokens. authd is the **sole signer**; backends only verify against the

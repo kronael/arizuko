@@ -27,7 +27,8 @@ those tables directly via the `store` package; it never migrates.
 - **Read pages** (6): `GET /dash/status/`, `/dash/tasks/`, `/dash/activity/`, `/dash/groups/`, `/dash/memory/`, `/dash/profile/`. Scope-filtered to caller's visible folders.
 - **HTMX partials** (2): `GET /dash/tasks/x/list`, `GET /dash/activity/x/recent` — 10s-polled `<tbody>` fragments.
 - **Memory edits** (2): `PUT|DELETE /dash/memory/` — admin-gated writes to allow-listed group files (`MEMORY.md`, `.claude/CLAUDE.md`, flat `*.md` under `diary/`, `facts/`, `users/`, `episodes/`). Symlink-escape hardened.
-- **Per-user secrets** (4): `GET|POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}` — identity-bound to `X-User-Sub`; writes require same-origin and are sealed at rest under `SECRETS_KEY`. `GET` serves an HTML management page (Accept `text/html`) and JSON otherwise. (`me_secrets.go`)
+- **Per-user secrets** (4): `GET|POST /dash/me/secrets`, `PATCH|DELETE /dash/me/secrets/{key}` — capability credentials (e.g. `GITHUB_TOKEN`); identity-bound to `X-User-Sub`; writes require same-origin and are sealed at rest under `SECRETS_KEY`. `GET` serves an HTML management page (Accept `text/html`) and JSON otherwise. (`me_secrets.go`)
+- **Per-user env-profile keys** (4): `GET|POST /dash/me/env`, `PATCH|DELETE /dash/me/env/{key}` — the model credentials (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`); user-scoped only, a user's key overrides the operator default for their spawns. Same identity-bound + sealed-at-rest treatment as secrets. (`me_env.go`)
 - **Tasks** (3): `GET /dash/tasks/{id}`, `POST /dash/tasks/`, `POST /dash/tasks/{id}/{action}` — detail, create, pause/resume. (`tasks_admin.go`)
 - **Routes editor** (5): `GET|POST /dash/routes/`, `PATCH|DELETE /dash/routes/{id}`, `POST /dash/routes/{id}/delete` — admin-gated CRUD. (`routes_admin.go`)
 - **Groups CRUD** (8): `GET|POST /dash/groups/new`, `GET|POST /dash/groups/{folder...}` (dispatchers to settings/delete/grants), `DELETE /dash/groups/{folder...}`, `GET /dash/groups/{folder}/tools|grants`, `POST /dash/groups/{folder}/grants|grants/revoke` — admin-gated. Model selector dropdown writes `groups.model`; skill toggles create/remove `.disabled` markers. (`groups_admin.go`, `grants_admin.go`, `tools_admin.go`)
@@ -102,4 +103,4 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 
 ## Future work
 
-Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/5-uniform-mcp-rest.md`). Read scoping already implemented.
+Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/45-openapi-mcp.md`, rolled out by `specs/5/44-mcp-rest-unification.md`). Read scoping already implemented.

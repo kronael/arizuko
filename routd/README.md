@@ -138,7 +138,7 @@ Integrations:
 - `ONBOARDING_ENABLED` — chat-initiated onboarding (default "false")
 - `ONBOARDING_PLATFORMS` — CSV prefixes allowing auto-onboarding
 - `CONNECTORS_TOML` — MCP connector catalog path (default `DATA_DIR/connectors.toml`)
-- `AUDIT_ENABLED` — audit-system.jl emission (default "false")
+- `AUDIT_ENABLED` — optional `audit-system.jl` observability webhook (default "false"); the canonical `audit_log` table is always on
 
 ## Health signal
 
@@ -151,7 +151,12 @@ slog → stderr (JSON) + journald. OTLP export when `OTEL_EXPORTER_OTLP_ENDPOINT
 is set (see `obs/`, `specs/5/O-observability.md`). Every slog event carrying
 `turn_id` gets a deterministic TraceID so the collector groups one turn's span.
 
-Audit events (mutating MCP tools) → `audit-system.jl` when `AUDIT_ENABLED=true`.
+Audit source of truth is the `audit_log` SQLite table in `routd.db`
+(migration `0016-audit-log.sql`): every state-changing MCP tool + REST
+handler writes one row via `audit.EmitInTx` in the SAME transaction as the
+mutation, so the row IS the mutation (audit-insert failure rolls the
+mutation back). `audit-system.jl` (gated by `AUDIT_ENABLED`) is a separate,
+optional observability webhook — not the source of truth.
 
 ## Files
 

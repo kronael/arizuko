@@ -7,17 +7,22 @@ depends: [1-auth-standalone, 35-proxyd-standalone]
 
 # Uniform REST + MCP per resource (superseded)
 
-> **Superseded by [`5/45-openapi-mcp`](45-openapi-mcp.md).** 5/45 is now
+> **Superseded for the MECHANISM by [`5/45-openapi-mcp`](45-openapi-mcp.md);
+> still the accurate record for the 9 hand-rolled resources.** 5/45 is now
 > the canonical "one handler, two faces" statement — it carries the
 > two-tier model, the `x-mcp-*` derivation mechanism (REST authored, MCP
 > derived), the one-gate/two-identity-source auth model, federation, and
-> the acceptance criteria. This spec is kept as the **shipped-reality
-> record**: what was mounted as of 2026-06-14 (the hand-authored
-> dual-dispatch on proxyd, the `Caller`/`Resource`/`Execution` types, the
-> coverage matrix of actual endpoints, the phased rollout that landed).
-> Read it for what's live today; read 5/45 for the target and the
-> canonical principle. Where the two differ, 5/45 wins — 5/5 hand-authors
-> the MCP face; 5/45 derives it.
+> the acceptance criteria. But only `proxyd_routes` actually rides that
+> derivation; the other nine cold-tier resources (`routes`, `acl`,
+> `groups`, `secrets`, `scheduled_tasks`, `network_rules`, `web_routes`,
+> `route_tokens`, `onboarding_gates`) are still hand-rolled exactly as this
+> spec records. So this remains the **shipped-reality record**: what was
+> mounted as of 2026-06-14 (the hand-authored dual-dispatch, the
+> `Caller`/`Resource`/`Execution` types, the coverage matrix of actual
+> endpoints, the phased rollout that landed). Read it for what's live
+> today; read 5/45 for the target and the canonical principle. Where the
+> two differ, 5/45 wins — 5/5 hand-authors the MCP face; 5/45 derives it
+> (for the one resource that has migrated).
 
 **Cold-tier operator config resources accessible via both REST (outside,
 OAuth-gated) AND MCP (inside, scope-gated), wrapped over a single

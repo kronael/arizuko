@@ -12,6 +12,23 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Per-daemon `audit_log` in `routd.db`.** routd's own mutation paths (acl / secrets / tasks) now write tx-bound audit rows into `routd.db`'s own `audit_log` (migration `0016-audit-log.sql`) via `audit.EmitInTx`, and proxyd / webd / dashd write there through a sibling `routd.db` handle. Retires the frozen pre-split `messages.db` as a live audit sink; in-tx rollback fixed so an audit-insert failure rolls the mutation back. (`19b2c383`, `67496732`)
+- **resreg read-one + per-action MCP args.** OpenAPI now emits a fifth operation, `GET /v1/<name>/{pk}` (read one), and MCP tool args are reflected **per action** (`MCPArgs`) so a read-one tool doesn't carry create-body fields. (`ecfb48a2`, `8b612a1d`)
+- **`proxyd_routes` single-sourced.** `MCPDoc` / `MCPArgs` / the REST endpoint set (`resources.ProxydRoutesEndpoints`) are authored once and shared by proxyd and the webd MCP forwarder, so the two faces can't drift. (`ecfb48a2`)
+
+### Fixed
+
+- **`proxyd_routes` `redirect_to` data loss.** The `redirect_to` field was dropped on export/apply; now round-trips. (`a8b3c17d`)
+- **Secrets read surface removed from OpenAPI.** The `secrets` resource no longer advertises a read/list operation — secret values are write-only over the API. (`a8b3c17d`)
+- **`[[ext]]` apikey-query secret leak.** The query-string credential is now scrubbed from the response even on a transport error; `json-body` and `apikey-query` guard against an empty resolved secret. (`2813d545`)
+- **Env-profile `.env` fallback carried only one model key.** The operator-default fallback now carries all four model keys (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`). (`2813d545`)
+
+---
+
 ## [v0.57.0] — 2026-07-01
 
 > arizuko v0.57.0 — credential model + external REST tools

@@ -32,7 +32,8 @@ fresh.
 `secrets` (from `0034-secrets.sql`) gains four optional columns:
 
 ```sql
--- 0049-surrogate-oauth.sql
+-- <next free migration>-surrogate-oauth.sql (pick the next free number at
+-- implementation time; 0049 is taken by cost-log)
 ALTER TABLE secrets ADD COLUMN provider    TEXT;      -- "github" | "linear"; NULL for PAT
 ALTER TABLE secrets ADD COLUMN refresh_val BLOB;      -- refresh_token, sealed; NULL for PAT
 ALTER TABLE secrets ADD COLUMN expires_at  DATETIME;  -- access_token expiry; NULL = non-expiring
@@ -94,7 +95,7 @@ Refresh failure (revoked refresh_token → 400) nulls `expires_at` +
 
 Reuse `auth/`'s existing authorize/exchange/refresh + S256 PKCE — no
 from-scratch OAuth core. New work: a provider-registry loader, the three
-dashd handlers, the `0049` columns, the broker's near-expiry refresh check,
+dashd handlers, the four `secrets` columns, the broker's near-expiry refresh check,
 one built-in provider + e2e test, and a `cmd/arizuko/surrogate.go` operator
 inspector.
 
@@ -150,8 +151,8 @@ The write is identical; only injection differs. These are **env-profile
 keys** ([`5/42`](42-credentials.md) type 1) — resolved by
 `FolderSecretsForUser` and injected into the container env at spawn, not
 call-time-brokered. So the refresh check (`expires_at − now < 60s`) fires at
-that spawn-time resolution point, not the per-call broker path. Same `0049`
-columns, same registry, same dance — only the sink call site moves.
+that spawn-time resolution point, not the per-call broker path. Same new
+`secrets` columns, same registry, same dance — only the sink call site moves.
 
 Static API keys (`sk-ant-…`, `sk-…`) stay manual paste; there is no dance to
 run for a non-OAuth key.

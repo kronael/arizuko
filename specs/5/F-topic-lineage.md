@@ -91,7 +91,7 @@ The function is one; only the parent argument differs.
 
 `sessions.observed_cursor` (RFC3339Nano UTC). `ObservedSince(folder,
 cursor, maxMsgs, maxChars)` reads `is_observed=1` rows strictly
-after cursor. Gateway advances cursor after rendering. At-least-once
+after cursor. routd advances cursor after rendering. At-least-once
 on crash recovery; the agent's existing "observed are context, not
 requests" rule handles dupes.
 
@@ -114,15 +114,15 @@ metadata only.
 
 ## Code surface
 
-| File                  | Change                                                                                                                                                                 | LOC  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| `container/runner.go` | `CopySession(srcUUID, dstUUID, folder)` — pure cp                                                                                                                      | ~30  |
-| `store/sessions.go`   | `ForkTopic` calls `CopySession` after insert                                                                                                                           | ~5   |
-| `gateway/gateway.go`  | `EnsureTopicLineage` callsite triggers cp when parent session exists; **remove** `<inherited>` block rendering in `buildAgentPrompt`; emit `<topic>` envelope per turn | ~−30 |
-| `store/messages.go`   | **remove** `TopicHistoryThrough` (unused after this rev)                                                                                                               | ~−45 |
-| `core/config.go`      | **remove** `InheritWindowMessages`/`InheritWindowChars` env vars (unused)                                                                                              | ~−10 |
-| `ant/CLAUDE.md`       | one-line `<topic>` envelope rule                                                                                                                                       | 3    |
-| Tests                 | full coverage (see below)                                                                                                                                              | ~150 |
+| File                    | Change                                                                                                                                                                 | LOC  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| `container/runner.go`   | `CopySession(srcUUID, dstUUID, folder)` — pure cp                                                                                                                      | ~30  |
+| `store/sessions.go`     | `ForkTopic` calls `CopySession` after insert                                                                                                                           | ~5   |
+| `routd` (loop + prompt) | `EnsureTopicLineage` callsite triggers cp when parent session exists; **remove** `<inherited>` block rendering in `buildAgentPrompt`; emit `<topic>` envelope per turn | ~−30 |
+| `store/messages.go`     | **remove** `TopicHistoryThrough` (unused after this rev)                                                                                                               | ~−45 |
+| `core/config.go`        | **remove** `InheritWindowMessages`/`InheritWindowChars` env vars (unused)                                                                                              | ~−10 |
+| `ant/CLAUDE.md`         | one-line `<topic>` envelope rule                                                                                                                                       | 3    |
+| Tests                   | full coverage (see below)                                                                                                                                              | ~150 |
 
 **Net: ~+100 LOC including tests.** Production code shrinks by
 ~80 LOC vs the inherited-block implementation just removed.

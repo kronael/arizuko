@@ -3,8 +3,8 @@
 Resource registry: one `Handler` per `(Resource, Action)`, wrapped by
 auto-adapters so REST, MCP, OpenAPI, and YAML reach the same code from
 one typed `Resource` literal + `RowType` struct. Spec:
-[`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md) (the
-unified handler model) and
+[`specs/5/45-openapi-mcp.md`](../specs/5/45-openapi-mcp.md) (the canonical
+unified handler model — REST authored, MCP derived) and
 [`specs/5/36-yaml-manifests.md`](../specs/5/36-yaml-manifests.md) (the
 reflective engine + manifests).
 
@@ -47,20 +47,32 @@ and excluded from the `config_version` count per spec.
 
 `ipc/ipc.go` migration of the agent-facing tool surface is pending — a
 larger surgical pass tracked under
-[`specs/5/5-uniform-mcp-rest.md`](../specs/5/5-uniform-mcp-rest.md).
+[`specs/5/44-mcp-rest-unification.md`](../specs/5/44-mcp-rest-unification.md).
 
 ## OpenAPI emission
 
 `OpenAPI(daemon, baseURL, resources)` / `OpenAPIHandler(daemon,
 resources)` (`openapi.go`) walk the registry and emit an OpenAPI 3.1
 JSON doc off the same `RowType` reflection — struct field → schema
-property, resource → `/v1/<name>` list/create/update/delete paths. No
-`huma`, no `swag`, no codegen. Handler is public (mount before auth)
-and caches the blob for the process lifetime. Mounted at
-`/openapi.json` on `routd`, `runed`, `authd`, timed, onbod, webd, proxyd,
-dashd. Drift between handler and doc is impossible because both read
-the same struct. Aggregator landing:
+property, resource → `/v1/<name>` **five** paths: list, **read-one**
+(`GET /v1/<name>/{pk}`), create, update, delete. No `huma`, no `swag`,
+no codegen. Handler is public (mount before auth) and caches the blob
+for the process lifetime. Mounted at `/openapi.json` on `routd`, `runed`,
+`authd`, timed, onbod, webd, proxyd, dashd. Drift between handler and doc
+is impossible because both read the same struct. Aggregator landing:
 `/pub/arizuko/reference/openapi.html`.
+
+Per-action derivation: MCP tools are `deriveMCPTools`'d from the
+`Endpoints` whose `Action` has an `MCPDoc` entry, and each tool's args
+are reflected **per action** (via `MCPArgs`) so a read-one tool doesn't
+carry create-body fields and vice-versa. Each such operation's OpenAPI
+`description` carries the same `MCPDoc` prose + the `x-mcp-when`
+annotation. `proxyd_routes` is the first resource to ride this end to
+end: it exports a `redirect_to` field (a redirect target as an
+alternative to `backend`), and its REST endpoint set is single-sourced
+as `resources.ProxydRoutesEndpoints` — the one list both `proxyd`
+(`proxyd/resource.go`) and the `webd` MCP forwarder (`webd/routes_mcp.go`)
+register, so the two faces can't drift.
 
 ## Surface
 
@@ -73,8 +85,10 @@ the same struct. Aggregator landing:
 
 ## Types
 
-- `Resource{Name, Endpoints, MCPTools, Authz, Handler, Store}` — one
-  literal per resource per daemon.
+- `Resource{Name, Endpoints, MCPDoc, MCPArgs, Authz, Handler, Store,
+RowType}` — one literal per resource per daemon. MCP tools are DERIVED
+  from `Endpoints` (`deriveMCPTools`) using `MCPDoc` (per-action prose) +
+  `MCPArgs` (per-action args); there is no hand-authored `MCPTools` list.
 - `Action` — short verb constant (`list`, `get`, `create`, `update`,
   `delete`, or resource-specific). `Action.Mutates() bool` is the
   read-vs-write classifier.
@@ -123,7 +137,7 @@ Table: [`specs/7/F-audit-stream.md`](../specs/7/F-audit-stream.md).
 ## Adding a resource
 
 1. Declare typed `Resource` literal in your daemon: `Name`,
-   `Endpoints`, `MCPTools`, `Authz`, `Handler`, `Store`.
+   `Endpoints`, `MCPDoc`, `MCPArgs`, `Authz`, `Handler`, `Store`.
 2. Implement one `Handler` that switches on `x.Action`. Run mutations
    via `x.Tx` when `Store` is set.
 3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and

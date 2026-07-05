@@ -47,7 +47,7 @@ GitHub webhook end-to-end. Agent at `acme/eng` calls:
 { "method": "issue_webhook", "params": { "source_label": "github" } }
 ```
 
-gated authorizes (`acme/eng` tier 1, mints for self), inserts a row
+routd authorizes (`acme/eng` tier 1, mints for self), inserts a row
 with `jid="hook:acme/eng/github"`, `owner_folder="acme/eng"`, returns:
 
 ```json
@@ -161,8 +161,9 @@ context, never a parameter. Token returned once.
 
 ## Where this runs
 
-`gated` owns the schema, MCP handlers, and REST handlers. Per
-`9-acl-unified`, gated applies the ACL gate at issue, list, and
+`routd` owns the schema (`routd/tokens_http.go` + `tokens.go`, migration
+`0059-route-tokens.sql`), the MCP handlers, and the REST handlers. Per
+`9-acl-unified`, routd applies the ACL gate at issue, list, and
 revoke.
 
 `webd` reads `route_tokens` at the URL boundary:

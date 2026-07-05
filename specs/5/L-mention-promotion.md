@@ -37,33 +37,38 @@ text-reply directed at the bot.
 Each adapter would need its own ring buffer of sent message IDs +
 register-on-Send + check-on-receive. That's 4× the maintenance, and
 the ring buffer races container restarts (loses recently-sent IDs).
-The information already lives in `messages.is_bot_message` — gateway
-writes it on every outbound (`gateway/gateway.go:955`). Adapter-side
-duplication is the wrong layer.
+The information already lives in `messages.is_bot_message` — routd
+writes it on every outbound. Adapter-side duplication is the wrong
+layer.
 
 ## What ships
 
-One renderer at the right ring: **gateway** promotes verb at inbound
+One renderer at the right ring: **routd** promotes verb at inbound
 ingest, BEFORE PutMessage and routing. Adapters stay dumb; they ship
-the raw verb (`like` / `dislike` / `message`) and the gateway upgrades
+the raw verb (`like` / `dislike` / `message`) and routd upgrades
 to `mention` when the parent is bot-authored.
 
 ### Promotion rule
 
 ```
-if msg.Verb != "mention" && msg.ReplyToID != "" &&
-   store.IsBotMessageByID(msg.ReplyToID) {
-    msg.Verb = "mention"
+if verb != "untrusted" && m.ReplyTo != "" &&
+   store.ReplyTargetIsBot(m.ReplyTo) {
+    verb = "mention"
 }
 ```
 
-Three terms; all already present today.
+The guard is `verb != "untrusted"`, not `!= "mention"`: an untrusted
+sender (emaid marks unverified senders `verb=untrusted`, spec 10/17)
+must NOT escalate to a mention this way — that would let a spoofed
+inbound drive an agent turn. Re-promoting an already-`mention` inbound
+is a harmless no-op, so no anti-double-promotion guard is needed.
 
 ### Where in code
 
-`api/api.go` `handleMessage` immediately before `s.store.PutMessage`.
-The store row carries the promoted verb so all downstream paths
-(routing, observed-window, agent prompt) see one truth.
+`routd/server.go` `handleMessages` immediately before `PutMessage`
+(guard at `routd/server.go:465`). The store row carries the promoted
+verb so all downstream paths (routing, observed-window, agent prompt)
+see one truth.
 
 ### Adapter cleanup
 
@@ -78,7 +83,7 @@ The store row carries the promoted verb so all downstream paths
 - `botMsgs` ring buffer becomes vestigial; remove it.
 
 `teled`, `whapd`, `slakd`: no change. They already emit
-`ReplyTo: <bot-msg-id>` correctly; gateway now promotes uniformly.
+`ReplyTo: <bot-msg-id>` correctly; routd now promotes uniformly.
 
 ## Tests
 

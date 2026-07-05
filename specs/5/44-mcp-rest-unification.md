@@ -1,8 +1,8 @@
 ---
-status: active
+status: draft
 depends:
   [5/5-uniform-mcp-rest, 5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
-moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5 as active work)
+moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
@@ -45,7 +45,12 @@ One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
 ## Current state (under-adopted)
 
 - `resreg` OpenAPI + `apply` + 10 resource declarations: live. ✓
-- Dual-dispatch faces wired for `routes`/`proxyd_routes` only.
+- One resource has real dual-dispatch from a single `resreg.Resource`:
+  **`proxyd_routes`** (proxyd's REST `/v1/proxyd_routes` + `webd/routes_mcp.go`
+  MCP forwarder + `MCPDoc` — the only `resreg/resources/*.go` with an `MCPDoc`).
+  Message-routing `routes` is NOT unified: it still runs two hand-rolled
+  surfaces — REST in `routd/routes_http.go` and MCP tools in `ipc/ipc.go`.
+  The rollout (pilot `routes`, then replicate) has not started.
 - Everything else: agent tools hand-rolled in `ipc/ipc.go` (~45),
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.

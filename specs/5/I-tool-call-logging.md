@@ -10,7 +10,7 @@ depends: [45-openapi-mcp]
 ## What this solves
 
 Both the platform surface (every MCP tool + every REST endpoint served by
-gateway, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
+routd, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
 Edit, Read, Write, Task, ...) produce a torrent of calls per turn. Today
 there is no uniform record — `resreg` emits a structured slog line per
 dispatch (see `5/5-uniform-mcp-rest.md` audit emit contract), `cli_audit` covers CLI writes
@@ -29,13 +29,13 @@ operator sees one shape no matter who initiated the call.
 
 - **Layer A — platform-side.** Every MCP tool invocation (via `resreg`
   dispatch or hand-rolled `ipc/ipc.go` handler) AND every REST endpoint
-  hit (gateway, proxyd, dashd, onbod, webd, davd) emits one slog line.
+  hit (routd, proxyd, dashd, onbod, webd, davd) emits one slog line.
   State-changing calls additionally write one `audit_log` row in the
   same DB transaction as the resource mutation.
 - **Layer B — inside the container.** The agent's own tool use is
   captured via Claude Code SDK `PreToolUse` / `PostToolUse` hooks. The
-  hook emits one JSON line per phase to stdout; gateway's container
-  log capture picks it up. No DB write — agent-internal tool use is
+  agent surfaces one `[ant] [tool]` line per phase on **stderr**; runed's
+  container-log tap (`container/runner.go`) picks it up. No DB write — agent-internal tool use is
   operational, not platform audit (the platform-side mutations the agent
   reaches through MCP are already covered by Layer A).
 
@@ -117,15 +117,15 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 - **Configuration.** Wired in the in-tree agent settings
   (`ant/.claude/settings.json` or its template) so every spawned
   container picks it up without per-folder configuration.
-- **Output format.** One line per phase, on the container's stdout,
-  picked up by gateway's container-log tap:
+- **Output format.** One line per phase, on the container's stderr,
+  picked up by runed's container-log tap (`container/runner.go`):
 
   ```
   [ant] [tool] {"phase":"pre","tool":"Bash","turn_id":"t-abc","args_summary":"<truncated>","folder":"atlas/support"}
   [ant] [tool] {"phase":"post","tool":"Bash","turn_id":"t-abc","duration_ms":42,"outcome":"ok","folder":"atlas/support"}
   ```
 
-  Same field names as the slog schema; gateway translates the line
+  Same field names as the slog schema; runed translates the line
   into a slog event when it lifts it out of the container log.
 
 - **Performance budget.** <10 ms overhead per tool call. The hook

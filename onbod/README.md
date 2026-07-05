@@ -69,7 +69,7 @@ and invite redemption (FS-mounted, no federation).
 
 ## `/v1/*` surface
 
-Per `specs/5/5-uniform-mcp-rest.md`:
+Per `specs/5/45-openapi-mcp.md`:
 
 - `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
   routd's poll loop calls this on route miss. Scope: `invites:write`.

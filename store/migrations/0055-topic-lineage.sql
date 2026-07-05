@@ -1,5 +1,5 @@
 -- v0.40.0: topic lineage — fork primitive + per-topic observed cursor.
--- Spec: specs/6/F-topic-lineage.md.
+-- Spec: specs/5/F-topic-lineage.md.
 --
 -- Three nullable columns on sessions. Format invariant: RFC3339Nano
 -- UTC for every timestamp arizuko writes to the schema. Go layer

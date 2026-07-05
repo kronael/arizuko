@@ -1,5 +1,5 @@
 ---
-status: shipped
+status: partial
 shipped: 2026-06-14
 depends:
   [
@@ -12,12 +12,15 @@ depends:
 
 # runed — the execution plane
 
-> **Shipped (2026-06-14).** runed is the sole container-spawner, owns
-> per-folder serialization / circuit-breaker / runTTL / steer, brokers
+> **Live since 2026-06-14; `partial`.** runed is the sole container-spawner,
+> owns per-folder serialization / circuit-breaker / runTTL / steer, brokers
 > capability tokens, and records runs in `runed.db`. The DB-stateless
-> executor refactor is complete: `manager.go` reads `spawns` per
-> admission (no in-memory maps), `circuit_breaker` table persists failure
-> counts across restarts.
+> admission has largely landed: `manager.go` reads the `spawns` table for
+> exclusivity + the concurrency cap (`GetActiveSpawn`/`ActiveCount`) and the
+> `circuit_breaker` table (`0002`) persists failure counts across restarts.
+> The one piece still in-memory is the FIFO `waiting` queue (`manager.go`) —
+> the "drop the internal queue" goal below is the open gap that keeps this
+> spec `partial`.
 
 **Decided.** `runed` is the **execution plane** — the daemon that runs the
 agent container per turn. It owns the **container execution envelope**:
@@ -36,9 +39,10 @@ appends a message and never signs. The companion spec is
 _whether/where_ a batch runs, renders the prompt, hosts the socket;
 `runed` _runs_ the container.
 
-`status: partial` = the DB-stateless refactor below is design-led and not
-yet built, not design-open. The wire-level `POST /v1/runs` +
-`/v1/turns/*` contract is PINNED identical with
+`status: partial` = the daemon ships and runs, but the § Run state design
+below is only mostly built — DB-backed admission has landed; the in-memory
+FIFO `waiting` queue has not yet been dropped. The wire-level
+`POST /v1/runs` + `/v1/turns/*` contract is PINNED identical with
 [`E-routd.md`](E-routd.md) § The routd↔runed interface.
 
 ## Boundaries — owns / brokers / never
@@ -86,12 +90,14 @@ BEGIN IMMEDIATE
        ROLLBACK → return busy to routd
 ```
 
-If the folder is busy or the cap is hit, runed returns **busy** to `routd`,
-which already re-feeds the batch on its own queue. `runed` keeps **no
-internal admission queue** — that duplicated routd's queue. `runed` is a
-**pure claim-or-reject executor**; `routd` owns all queueing. (Exception:
-the steer-into-running path below — a busy folder with a live container
-takes the new batch as a steer, not a reject.)
+If the folder is busy or the cap is hit, the design target is for runed to
+return **busy** to `routd`, which already re-feeds the batch on its own
+queue, making `runed` a **pure claim-or-reject executor**. As built,
+`runed` still keeps an in-memory FIFO `waiting` queue (`manager.go`) that
+holds over-cap / busy-folder waiters and retries once a slot frees —
+dropping that queue (so routd owns all queueing) is the open § Run state
+gap. (Exception: the steer-into-running path below — a busy folder with a
+live container takes the new batch as a steer, not a reject.)
 
 **Steer addresses the live container deterministically.** No stored
 closure: from the `spawns` row for the busy folder, runed derives the
@@ -105,9 +111,11 @@ clean teardown) and marks them `killed`. After reconciliation the `running`
 set reflects only live containers, so the atomic claim is correct from the
 first request.
 
-> **Implementation gap (open).** The current `manager.go` still holds
-> in-memory `active` / `failures` / `activeCount` / `waiting` maps. The
-> refactor to this DB-stateless design (atomic spawns-table admission,
+> **Implementation gap (open).** `manager.go` now reads `active` /
+> `activeCount` / `failures` from the DB (`GetActiveSpawn` / `ActiveCount` /
+> `GetFailures` over the `spawns` + `circuit_breaker` tables), so those are
+> no longer cached. The remaining in-memory piece is the FIFO `waiting`
+> queue; finishing the DB-stateless design (atomic spawns-table admission,
 > deterministic steer, boot reconciliation, drop the internal queue) is
 > tracked in bugs.md.
 
@@ -157,18 +165,29 @@ CREATE TABLE spawns (
   session_id     TEXT,                  -- runtime ECHO of the harness session id this spawn ran/resumed;
                                         --   resolved at step 3 (resume value or freshly minted UUID).
                                         --   NOT lineage-authoritative — routd.sessions owns lineage.
-  state          TEXT NOT NULL,         -- queued|running|ended|killed
-                                        --   ended subsumes natural exit / timeout / error (see outcome).
+  state          TEXT NOT NULL,         -- queued|running|exited|error|killed
+                                        --   exited = natural exit / timeout; error = failed run;
+                                        --   killed = explicit kill or boot-reconcile of a dead container.
   outcome        TEXT,                  -- ok|error|silent (set at end; NULL while running)
   exit_code      INTEGER,
   steered        INTEGER NOT NULL DEFAULT 0, -- 1 if any steer-into-running write happened
-  failures       INTEGER NOT NULL DEFAULT 0, -- consecutive-failure count for the breaker (§ Run state)
   created_at     TEXT NOT NULL,
   started_at     TEXT,                  -- container start
   ended_at       TEXT
 );
 CREATE INDEX idx_spawns_folder ON spawns(folder, created_at DESC);
 CREATE INDEX idx_spawns_state ON spawns(state);
+
+-- spawn_logs: per-line container log capture (kind + line) for run history.
+CREATE TABLE spawn_logs (
+  id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL REFERENCES spawns(run_id) ON DELETE CASCADE,
+  ts     TEXT NOT NULL, kind TEXT NOT NULL, line TEXT NOT NULL
+);
+
+-- circuit_breaker (migration 0002): the consecutive-failure count is its OWN
+-- per-folder table, read per admission (GetFailures) — NOT a spawns column.
+CREATE TABLE circuit_breaker (folder TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0, last_failure TEXT);
 
 -- mcp_tokens: the downscoped tokens runed BROKERS from authd per spawn.
 -- runed does not sign — it persists the REF to correlate audit, enforce
@@ -189,10 +208,12 @@ CREATE TABLE mcp_tokens (
 CREATE INDEX idx_mcp_tokens_expiry ON mcp_tokens(expires_at);
 ```
 
-An hourly GC goroutine deletes `spawns` rows (cascading `mcp_tokens`) older
-than `RUNED_SPAWN_RETENTION` (default 7 days) and any `mcp_tokens` past
-`expires_at`. `runed` never stores a raw token; the agent receives the JWS
-once at spawn (§ envelope step 2) and `runed` keeps only the `jti`.
+`db.SweepExpired(retention)` deletes `spawns` rows older than the given
+retention (cascading `spawn_logs` + `mcp_tokens`); the retention is a
+caller-supplied `time.Duration`, not a `RUNED_SPAWN_RETENTION` env var, and
+the periodic-GC goroutine that would call it on a timer is not yet wired.
+`runed` never stores a raw token; the agent receives the JWS once at spawn
+(§ envelope step 2) and `runed` keeps only the `jti`.
 
 ## The execution-session envelope (the critical section)
 
@@ -266,8 +287,9 @@ POST authd /v1/tokens   Authorization: Bearer <runed service token>
 
 - `runed` holds a `service:runed` token, exchanged at boot via
   `auth.ServiceToken` (`AUTHD_SERVICE_KEY`). Its declared `service_scope`
-  (`template/services/runed.toml`) is the **ceiling** for any agent token
-  it brokers — the downscope guarantees scope ⊆ parent. `service_scope`
+  (seeded by `compose/compose.go` — runed is a core daemon, not a
+  `template/services/*.toml` channel adapter) is the **ceiling** for any
+  agent token it brokers — the downscope guarantees scope ⊆ parent. `service_scope`
   **MUST include `tokens:mint`**: brokering an agent token under a
   user/service `sub` is an **issuer-mint** (the caller is not the subject),
   legal only for an issuer-mint-authorized service per
