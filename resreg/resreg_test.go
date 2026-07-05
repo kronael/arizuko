@@ -176,6 +176,46 @@ func TestRESTHandler_AuthorizeDenied(t *testing.T) {
 	assertAudit(t, st, "denied", 1)
 }
 
+// TestGate_OverridesDefault — a custom Resource.Gate replaces the default
+// operator auth.Authorize: it can DENY an otherwise-allowed operator and ALLOW
+// an otherwise-denied caller. This is the agent-socket seam (routd injects a
+// tier-aware gate); resreg delegates auth, owns none.
+func TestGate_OverridesDefault(t *testing.T) {
+	st := withAuditDB(t)
+
+	// Deny gate → even the seeded operator is refused.
+	deny := fakeResource(st, &fakeState{})
+	deny.Gate = func(Execution, string, map[string]string) error {
+		return Errorf(http.StatusForbidden, "gate says no")
+	}
+	xop := Execution{
+		Caller:   Caller{Sub: "google:op", Claims: map[string]string{"operator": "1"}},
+		Action:   ActionCreate,
+		Resource: "routes",
+		Args:     Args{"x": "y"},
+	}
+	if _, status, err := invoke(context.Background(), deny, xop); err == nil || status != http.StatusForbidden {
+		t.Errorf("deny gate: status=%d err=%v, want 403+error", status, err)
+	}
+
+	// Allow gate → an anon caller with no ACL row gets through to the handler.
+	s := &fakeState{}
+	allow := fakeResource(st, s)
+	allow.Gate = func(Execution, string, map[string]string) error { return nil }
+	xanon := Execution{
+		Caller:   Caller{Sub: "google:anon"},
+		Action:   ActionCreate,
+		Resource: "routes",
+		Args:     Args{"x": "y"},
+	}
+	if _, _, err := invoke(context.Background(), allow, xanon); err != nil {
+		t.Errorf("allow gate: unexpected err %v", err)
+	}
+	if atomic.LoadInt32(&s.seen) != 1 {
+		t.Errorf("allow gate: handler not invoked (seen=%d)", atomic.LoadInt32(&s.seen))
+	}
+}
+
 // TestAuthz_ErrorShortCircuits — Authz returning a 400 prevents
 // auth.Authorize from being consulted and the handler from running.
 func TestAuthz_ErrorShortCircuits(t *testing.T) {

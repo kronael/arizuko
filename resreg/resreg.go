@@ -174,6 +174,14 @@ type Resource struct {
 	// agent's tools. nil / absent action → dotted default.
 	MCPNames map[Action]string
 
+	// Gate authorizes one Execution after Authz derives (scope, params). nil →
+	// defaultGate: the OPERATOR gate, auth.Authorize over the ACL rows
+	// (scope/ACL match, no tier). A daemon mounting the resource on the AGENT
+	// socket injects the agent's tier-aware gate (db.Authorize with mcp:+tier)
+	// — resreg owns the handler/tx/audit plumbing, never the auth policy.
+	// Skipped for forwarders (Store == nil); the downstream daemon gates.
+	Gate func(x Execution, scope string, params map[string]string) error
+
 	// Schema half (spec 5/36). All optional. Resources that set
 	// RowType+Table are "engine-managed" and get generic CRUD via
 	// engine.go. Resources without RowType are forwarders or custom-
@@ -458,10 +466,13 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 		return nil, errStatus(err), err
 	}
 	if !forward {
-		if !auth.Authorize(r.Store, authCaller(x.Caller), actionKey(r.Name, x.Action), scope, params) {
-			derr := Errorf(http.StatusForbidden, "forbidden")
-			emitAudit(ctx, nil, x, scope, params, audit.OutcomeDenied, "forbidden", start, false)
-			return nil, http.StatusForbidden, derr
+		gate := r.Gate
+		if gate == nil {
+			gate = r.defaultGate
+		}
+		if gerr := gate(x, scope, params); gerr != nil {
+			emitAudit(ctx, nil, x, scope, params, audit.OutcomeDenied, gerr.Error(), start, false)
+			return nil, errStatus(gerr), gerr
 		}
 	}
 	if !x.Action.Mutates() || forward {
@@ -500,6 +511,17 @@ func invoke(ctx context.Context, r Resource, x Execution) (any, int, error) {
 
 func actionKey(resource string, action Action) string {
 	return resource + ":" + string(action)
+}
+
+// defaultGate is the operator authorization used when Resource.Gate is nil:
+// auth.Authorize over the resource's ACL rows (scope/ACL match, no tier). The
+// agent socket overrides Gate with a tier-aware closure; resreg itself owns no
+// auth policy beyond this default.
+func (r Resource) defaultGate(x Execution, scope string, params map[string]string) error {
+	if auth.Authorize(r.Store, authCaller(x.Caller), actionKey(r.Name, x.Action), scope, params) {
+		return nil
+	}
+	return Errorf(http.StatusForbidden, "forbidden")
 }
 
 func authCaller(c Caller) auth.Caller {
