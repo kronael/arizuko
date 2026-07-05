@@ -610,6 +610,13 @@ func outcomeFor(err error) string {
 // The path wins (URL is authoritative for {path...}).
 func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 	args := Args{}
+	// Query params are the base layer (GET filters/scoping like ?folder=);
+	// a JSON body and path placeholders below override on key collision.
+	for k, vs := range req.URL.Query() {
+		if len(vs) > 0 {
+			args[k] = vs[0]
+		}
+	}
 	if req.Body != nil && (req.Method == "POST" || req.Method == "PATCH" || req.Method == "PUT") {
 		var raw map[string]any
 		dec := json.NewDecoder(req.Body)

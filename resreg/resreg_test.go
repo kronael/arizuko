@@ -157,6 +157,34 @@ func TestRESTHandler_PathParamBoundToArgs(t *testing.T) {
 	}
 }
 
+// TestRESTHandler_QueryParamBoundToArgs — ?key=v flows into Args (GET
+// filters/scoping); a JSON body overrides the same key.
+func TestRESTHandler_QueryParamBoundToArgs(t *testing.T) {
+	st := withAuditDB(t)
+	s := &fakeState{}
+	r := fakeResource(st, s)
+	var got Args
+	r.Handler = func(_ context.Context, x Execution) (any, error) {
+		got = x.Args
+		return x.Args, nil
+	}
+	mux := http.NewServeMux()
+	RegisterREST(mux, r, operatorBuilder)
+	// GET with query params → Args.
+	req := httptest.NewRequest("GET", "/v1/routes?folder=hq&limit=5", nil)
+	mux.ServeHTTP(httptest.NewRecorder(), req)
+	if got["folder"] != "hq" || got["limit"] != "5" {
+		t.Errorf("query args not bound: %+v", got)
+	}
+	// Body overrides a query key on POST.
+	req = httptest.NewRequest("POST", "/v1/routes?x=fromquery", bytes.NewReader([]byte(`{"x":"frombody"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	mux.ServeHTTP(httptest.NewRecorder(), req)
+	if got["x"] != "frombody" {
+		t.Errorf("body should override query: x=%v", got["x"])
+	}
+}
+
 // TestRESTHandler_AuthorizeDenied — operator lacks ACL row → 403,
 // handler not invoked, audit row recorded with outcome=denied.
 func TestRESTHandler_AuthorizeDenied(t *testing.T) {
