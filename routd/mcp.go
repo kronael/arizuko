@@ -468,16 +468,13 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		return s.db.SetEngagement(jid, topic, folder, time.Until(until))
 	}
 	return ipc.StoreFns{
-		// Task reads + writes: schedule_task → CreateTask; pause/resume →
-		// UpdateTaskStatus; cancel → DeleteTask.
+		// Task reads for inspect_tasks (the write tools schedule/pause/resume/
+		// cancel/list moved to the scheduled_tasks resreg seam — spec 5/44).
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
 			return s.db.TaskRunLogs(taskID, limit)
 		},
-		CreateTask:       s.db.CreateTask,
-		UpdateTaskStatus: s.db.SetTaskStatus,
-		DeleteTask:       s.db.DeleteTask,
 		// Session reads: current session_id from routd.db; recent session_log rows
 		// federated from runed's GET /v1/sessions/recent.
 		GetSession:     s.db.GetSession,
@@ -626,5 +623,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// per migrated resource; ServeMCP applies them all.
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules)
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules)
+	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks)
 }

@@ -106,10 +106,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		WebDir:              "/tmp/web",
 	}
 	db := StoreFns{
-		CreateTask:          func(t core.Task) error { return nil },
 		GetTask:             func(id string) (core.Task, bool) { return core.Task{}, false },
-		UpdateTaskStatus:    func(id, s string) error { return nil },
-		DeleteTask:          func(id string) error { return nil },
 		ListTasks:           func(f string, r bool) []core.Task { return nil },
 		ListRoutes:          func(f string, r bool) []core.Route { return nil },
 		SetRoutes:           func(f string, r []core.Route) error { return nil },

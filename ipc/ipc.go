@@ -12,12 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/chanlib"
@@ -28,7 +26,6 @@ import (
 	"github.com/kronael/arizuko/router"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/robfig/cron/v3"
 	"golang.org/x/sys/unix"
 )
 
@@ -172,10 +169,7 @@ type PlatformHistory struct {
 }
 
 type StoreFns struct {
-	CreateTask          func(t core.Task) error
 	GetTask             func(id string) (core.Task, bool)
-	UpdateTaskStatus    func(id, status string) error
-	DeleteTask          func(id string) error
 	ListTasks           func(folder string, isRoot bool) []core.Task
 	ListRoutes          func(folder string, isRoot bool) []core.Route
 	SetRoutes           func(folder string, routes []core.Route) error
@@ -2085,133 +2079,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				map[string]any{"id": rid, "target": route.Target}, nil)
 			slog.Info("route deleted", "id", rid)
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
-		})
-
-	granted("schedule_task",
-		"Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
-		[]mcp.ToolOption{
-			mcp.WithString("targetJid", mcp.Required()),
-			mcp.WithString("prompt", mcp.Required()),
-			mcp.WithString("cron"),
-			mcp.WithString("contextMode"),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.CreateTask == nil {
-				return toolErr("schedule_task not configured")
-			}
-			targetJid := req.GetString("targetJid", "")
-			cronExpr := req.GetString("cron", "")
-			contextMode := req.GetString("contextMode", "group")
-			if contextMode != "isolated" {
-				contextMode = "group"
-			}
-
-			targetFolder := ""
-			if db.DefaultFolderForJID != nil {
-				targetFolder = db.DefaultFolderForJID(targetJid)
-			}
-			if targetFolder == "" {
-				return toolErr("target group not registered")
-			}
-
-			if err := authzStructural("schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
-				return toolErr(err.Error())
-			}
-
-			var nextRun *time.Time
-			var cronStore string
-			if cronExpr != "" {
-				if ms, err := strconv.ParseInt(cronExpr, 10, 64); err == nil && ms > 0 {
-					t := time.Now().Add(time.Duration(ms) * time.Millisecond)
-					nextRun = &t
-					cronStore = cronExpr
-				} else if t, err := time.Parse(time.RFC3339, cronExpr); err == nil {
-					nextRun = &t
-					cronStore = "" // empty cron → timed marks completed after one firing
-				} else {
-					p := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-					sched, err := p.Parse(cronExpr)
-					if err != nil {
-						return toolErr(fmt.Sprintf("invalid cron %q: %v", cronExpr, err))
-					}
-					t := sched.Next(time.Now())
-					nextRun = &t
-					cronStore = cronExpr
-				}
-			}
-
-			prompt := req.GetString("prompt", "")
-			if db.ListTasks != nil && cronStore != "" {
-				for _, t := range db.ListTasks(targetFolder, false) {
-					if t.Status == core.TaskActive && t.Cron == cronStore && t.Prompt == prompt {
-						slog.Info("schedule_task: returning existing task (dedup)",
-							"taskId", t.ID, "folder", targetFolder)
-						return toolJSON(map[string]any{"taskId": t.ID})
-					}
-				}
-			}
-			taskID := fmt.Sprintf("task-%d-%s", time.Now().UnixMilli(), uuid.New().String()[:8])
-			task := core.Task{
-				ID: taskID, Owner: targetFolder, ChatJID: targetJid,
-				Prompt: prompt, Cron: cronStore,
-				NextRun: nextRun, Status: core.TaskActive, Created: time.Now(),
-				ContextMode: contextMode,
-			}
-			if err := db.CreateTask(task); err != nil {
-				emitSys("schedule_task", targetFolder, callerSub,
-					map[string]any{"task_id": taskID, "target_jid": targetJid}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("schedule_task", targetFolder, callerSub,
-				map[string]any{"task_id": taskID, "target_jid": targetJid}, nil)
-			slog.Info("task created via mcp", "taskId", taskID, "sourceGroup", folder,
-				"targetFolder", targetFolder, "contextMode", contextMode)
-			return toolJSON(map[string]any{"taskId": taskID})
-		})
-
-	taskOps := []struct {
-		name string
-		desc string
-		exec func(taskID string) error
-	}{
-		{"pause_task", "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).", func(tid string) error {
-			return db.UpdateTaskStatus(tid, core.TaskPaused)
-		}},
-		{"resume_task", "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.", func(tid string) error {
-			return db.UpdateTaskStatus(tid, core.TaskActive)
-		}},
-		{"cancel_task", "Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (pause_task) — this cannot be undone.", func(tid string) error {
-			return db.DeleteTask(tid)
-		}},
-	}
-	if db.GetTask != nil {
-		for _, op := range taskOps {
-			granted(op.name, op.desc,
-				[]mcp.ToolOption{mcp.WithString("taskId", mcp.Required())},
-				func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-					taskID := req.GetString("taskId", "")
-					task, ok := db.GetTask(taskID)
-					if !ok {
-						return toolErr("task not found")
-					}
-					if err := authzStructural(op.name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-						return toolErr(err.Error())
-					}
-					if err := op.exec(taskID); err != nil {
-						return toolErr(err.Error())
-					}
-					slog.Info("task op via mcp", "op", op.name, "taskId", taskID, "sourceGroup", folder)
-					return toolJSON(map[string]any{"ok": true})
-				})
-		}
-	}
-
-	granted("list_tasks", "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.", nil,
-		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.ListTasks == nil {
-				return toolErr("list_tasks not configured")
-			}
-			return toolJSON(db.ListTasks(folder, identity.Tier == 0))
 		})
 
 	if identity.Tier <= 1 {

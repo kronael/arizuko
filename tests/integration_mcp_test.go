@@ -115,11 +115,8 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 	db := ipc.StoreFns{
 		PutMessage:          s.PutMessage,
 		DefaultFolderForJID: defaultFolder,
-		CreateTask:          s.CreateTask,
 		GetTask:             s.GetTask,
 		ListTasks:           s.ListTasks,
-		UpdateTaskStatus:    s.SetTaskStatus,
-		DeleteTask:          s.DeleteTask,
 		ListRoutes:          s.ListRoutes,
 		AddRoute:            s.AddRoute,
 		GetRoute:            s.GetRoute,
@@ -276,29 +273,6 @@ func TestMCP_RouteManagement(t *testing.T) {
 			if r.ID == rid {
 				t.Fatalf("route %d still present after delete", rid)
 			}
-		}
-	})
-}
-
-func TestMCP_TaskManagement(t *testing.T) {
-	h := newFullMCPHarness(t, "hq")
-
-	t.Run("schedule_task", func(t *testing.T) {
-		res := h.call(t, "schedule_task", map[string]any{
-			"targetJid": "telegram:42", "prompt": "standup", "cron": "0 9 * * *",
-		})
-		if !contentContains(res, "taskId") {
-			t.Fatalf("schedule_task missing taskId: %v", res.Content)
-		}
-		if len(h.S.ListTasks("hq", true)) == 0 {
-			t.Fatal("task not persisted")
-		}
-	})
-
-	t.Run("list_tasks", func(t *testing.T) {
-		res := h.call(t, "list_tasks", nil)
-		if !contentContains(res, "standup") {
-			t.Fatalf("list_tasks missing scheduled task: %v", res.Content)
 		}
 	})
 }
