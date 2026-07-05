@@ -12,8 +12,9 @@ import (
 
 // handleRoutd renders GET /dash/routd/ — the message-router cockpit: errored
 // chats (with a per-chat retry), a pending-outbound count, and route/group
-// totals. Errored messages + pending outbound come from messages.db (d.db);
-// the route/group totals come from routd.db (d.dbRoutd). Operator-only.
+// totals — all from routd.db (d.dbRoutd), which owns the messages table in the
+// split topology. Reading from the frozen messages.db showed stale/empty
+// counts. Operator-only.
 func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 	if !d.requireOperator(w, r) {
 		return
@@ -24,8 +25,8 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		struct{ Href, Label string }{"", "routd"},
 	)
 
-	if d.db == nil {
-		fmt.Fprint(w, htmlBanner("err", "messages store unavailable"))
+	if d.dbRoutd == nil {
+		fmt.Fprint(w, htmlBanner("err", "routd store unavailable"))
 		pageClose(w, r)
 		return
 	}
@@ -34,20 +35,18 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, htmlBanner("ok", "errored messages cleared — they will be re-dispatched"))
 	}
 
-	// Stats — route + group totals from routd.db.
+	// Stats — route + group + message totals all from routd.db (its owner).
 	routeCount, groupCount := -1, -1
-	if d.dbRoutd != nil {
-		if err := d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeCount); err != nil {
-			slog.Warn("routd page: route count", "err", err)
-		}
-		if err := d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount); err != nil {
-			slog.Warn("routd page: group count", "err", err)
-		}
+	if err := d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM routes`).Scan(&routeCount); err != nil {
+		slog.Warn("routd page: route count", "err", err)
+	}
+	if err := d.dbRoutd.QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&groupCount); err != nil {
+		slog.Warn("routd page: group count", "err", err)
 	}
 
 	// Pending outbound — bot messages still queued for delivery.
 	pending := -1
-	if err := d.db.QueryRow(
+	if err := d.dbRoutd.QueryRow(
 		`SELECT COUNT(*) FROM messages WHERE status='pending' AND is_bot_message=1`,
 	).Scan(&pending); err != nil {
 		slog.Warn("routd page: pending count", "err", err)
@@ -61,7 +60,7 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 
 	// Errored chats — group by chat, newest error first.
 	fmt.Fprint(w, `<h2>Errored chats</h2>`)
-	rows, err := d.db.Query(
+	rows, err := d.dbRoutd.Query(
 		`SELECT chat_jid, COUNT(*) AS cnt, MAX(timestamp) AS last_err
 		 FROM messages WHERE errored=1
 		 GROUP BY chat_jid ORDER BY last_err DESC LIMIT 50`)
@@ -110,8 +109,8 @@ func (d *dash) handleRoutdRetry(w http.ResponseWriter, r *http.Request) {
 	if !requireSameOrigin(w, r) {
 		return
 	}
-	if d.db == nil {
-		http.Error(w, "messages store unavailable", http.StatusServiceUnavailable)
+	if d.dbRoutd == nil {
+		http.Error(w, "routd store unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -123,7 +122,7 @@ func (d *dash) handleRoutdRetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "chat_jid required", http.StatusBadRequest)
 		return
 	}
-	res, err := d.db.Exec(`UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, chatJID)
+	res, err := d.dbRoutd.Exec(`UPDATE messages SET errored=0 WHERE chat_jid=? AND errored=1`, chatJID)
 	if err != nil {
 		slog.Warn("routd retry: update", "chat_jid", chatJID, "err", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)

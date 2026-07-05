@@ -35,6 +35,11 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 	var summaries []store.GroupUsageSummary
 	if len(folders) > 0 && d.db != nil {
+		// cost_log has DIVERGENT schemas: messages.db (store 0049: ts/cents/
+		// input_tok) vs routd.db (routd 0001: recorded_at/cost_cents/input_tokens).
+		// GroupUsageBulk's SQL matches the store schema, so usage still reads the
+		// frozen messages.db copy — repointing needs a query rewrite, not a handle
+		// swap (BUGS.md: usage cost stale post-split).
 		summaries, err = store.New(d.db).GroupUsageBulk(folders)
 		if err != nil {
 			slog.Warn("usage page: bulk", "err", err)
@@ -78,6 +83,8 @@ func (d *dash) handleUsage(w http.ResponseWriter, r *http.Request) {
 		[]string{"Group", "Msgs", "Tokens/7d", "$/7d", "Last active"}, groupRows))
 
 	// 7-day daily message volume from messages.db (human messages only).
+	// Left on messages.db alongside GroupUsageBulk so the whole usage page reads
+	// one store consistently until the cost_log schema reconciliation lands.
 	fmt.Fprint(w, `<h2>7-day volume</h2>`)
 	fmt.Fprint(w, d.usageVolumeTable())
 

@@ -539,4 +539,10 @@ audit.Init + the audit reader to routd.db). These readers should be repointed to
 - **Scope:** dashd routd_page.go / usage_page.go / chat.go direct messages.db reads
 - **Affected:** all instances (dashd status/usage/chat views show stale post-split data)
 - **Source:** dashd/routd_page.go:50,64,126; dashd/usage_page.go:38; dashd/chat.go:138,369
-- **Status:** open
+- **Status:** PARTIAL (2026-07-05) — `routd_page.go` errored/pending counts + retry UPDATE
+  repointed to routd.db (live). STILL OPEN: (1) `usage_page.go` GroupUsageBulk + volume — NOT
+  a handle swap: cost_log has divergent schemas across messages.db (store 0049: `ts/cents/
+  input_tok`) and routd.db (routd 0001: `recorded_at/cost_cents/input_tokens`); GroupUsageBulk's
+  SQL matches the store schema, so it needs a query rewrite to read routd.db's live cost_log.
+  (2) `chat.go` chat_sessions is dashd-owned in messages.db (no external writer) — moving it needs
+  the mint-write path repointed too. Until both land, dashd still holds `store.Open(messages.db)`.
