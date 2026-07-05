@@ -52,47 +52,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 }
 
 
-func TestIsSelfDefault(t *testing.T) {
-	cases := []struct {
-		seq    int
-		target string
-		owner  string
-		want   bool
-	}{
-		{0, "world/a", "world/a", true},
-		{0, "folder:world/a", "world/a", true},
-		{1, "world/a", "world/a", false},
-		{0, "world/a/child", "world/a", false},
-		{0, "world/b", "world/a", false},
-	}
-	for _, c := range cases {
-		got := isSelfDefault(core.Route{Seq: c.seq, Target: c.target}, c.owner)
-		if got != c.want {
-			t.Errorf("isSelfDefault({Seq:%d,Target:%q},%q) = %v, want %v",
-				c.seq, c.target, c.owner, got, c.want)
-		}
-	}
-}
-
-func TestRouteTargetWithin(t *testing.T) {
-	cases := []struct {
-		target, owner string
-		want          bool
-	}{
-		{"world/a", "world/a", true},
-		{"world/a/child", "world/a", true},
-		{"folder:world/a/child", "world/a", true},
-		{"world/b", "world/a", false},
-		{"daemon:timed", "world/a", false},
-		{"builtin:stop", "world/a", false},
-	}
-	for _, c := range cases {
-		if got := routeTargetWithin(c.target, c.owner); got != c.want {
-			t.Errorf("routeTargetWithin(%q, %q) = %v, want %v", c.target, c.owner, got, c.want)
-		}
-	}
-}
-
 func TestAllToolsRegistered(t *testing.T) {
 	gated := GatedFns{
 		SendMessage:         func(jid, text string) (string, error) { return "", nil },
@@ -109,10 +68,6 @@ func TestAllToolsRegistered(t *testing.T) {
 		GetTask:             func(id string) (core.Task, bool) { return core.Task{}, false },
 		ListTasks:           func(f string, r bool) []core.Task { return nil },
 		ListRoutes:          func(f string, r bool) []core.Route { return nil },
-		SetRoutes:           func(f string, r []core.Route) error { return nil },
-		AddRoute:            func(r core.Route) (int64, error) { return 0, nil },
-		DeleteRoute:         func(id int64) error { return nil },
-		GetRoute:            func(id int64) (core.Route, bool) { return core.Route{}, false },
 		DefaultFolderForJID: func(j string) string { return "" },
 		ListACL:             func(p string) []core.ACLRow { return nil },
 	}

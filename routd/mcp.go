@@ -482,16 +482,11 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// Identity reads: authd's GET /v1/identities/{sub}, snapshotted over HTTP.
 		// nil resolver → unclaimed shape.
 		GetIdentityForSub: s.resolveIdentity,
+		// list_routes/add_route/set_routes/delete_route moved to the routes resreg
+		// seam (spec 5/44); ListRoutes stays — inspect_routing still reads it.
 		ListRoutes: func(_ string, _ bool) []core.Route {
 			r, _ := s.db.Routes()
 			return r
-		},
-		SetRoutes:   func(folder string, r []core.Route) error { _, e := s.db.SetRoutes(folder, r); return e },
-		AddRoute:    s.db.AddRoute,
-		DeleteRoute: s.db.DeleteRoute,
-		GetRoute: func(id int64) (core.Route, bool) {
-			rt, err := s.db.GetRoute(id)
-			return rt, err == nil
 		},
 		DefaultFolderForJID: s.db.DefaultFolderForJID,
 		JIDRoutedToFolder:   s.db.JIDRoutedToFolder,
@@ -624,5 +619,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules)
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
 	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks)
+	routes := s.routesPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes)
 }

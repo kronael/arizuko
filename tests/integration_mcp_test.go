@@ -117,13 +117,6 @@ func newFullMCPHarness(t *testing.T, folder string) *fullMCPHarness {
 		DefaultFolderForJID: defaultFolder,
 		GetTask:             s.GetTask,
 		ListTasks:           s.ListTasks,
-		ListRoutes:          s.ListRoutes,
-		AddRoute:            s.AddRoute,
-		GetRoute:            s.GetRoute,
-		DeleteRoute: func(id int64) error {
-			_, err := s.DeleteRouteRow(id)
-			return err
-		},
 		MessagesBefore:   s.MessagesBefore,
 		MessagesByThread: s.MessagesByThread,
 		FindMessages: func(q, scope, sender, since string, limit int) ([]ipc.FoundMessage, error) {
@@ -229,53 +222,9 @@ func TestMCP_SocialActions(t *testing.T) {
 	})
 }
 
-func TestMCP_RouteManagement(t *testing.T) {
-	h := newFullMCPHarness(t, "hq")
-
-	t.Run("add_route", func(t *testing.T) {
-		res := h.call(t, "add_route", map[string]any{
-			"route": `{"match":"room=42","target":"hq/sub","seq":10}`,
-		})
-		if !contentContains(res, `"id"`) {
-			t.Fatalf("add_route result missing id: %v", res.Content)
-		}
-		rows := h.S.ListRoutes("hq", true)
-		found := false
-		for _, r := range rows {
-			if r.Target == "hq/sub" && r.Match == "room=42" {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("route not persisted: %+v", rows)
-		}
-	})
-
-	t.Run("list_routes", func(t *testing.T) {
-		res := h.call(t, "list_routes", nil)
-		if !contentContains(res, "hq/sub") {
-			t.Fatalf("list_routes missing added route: %v", res.Content)
-		}
-	})
-
-	t.Run("delete_route", func(t *testing.T) {
-		var rid int64
-		for _, r := range h.S.ListRoutes("hq", true) {
-			if r.Target == "hq/sub" {
-				rid = r.ID
-			}
-		}
-		if rid == 0 {
-			t.Fatal("route id not found before delete")
-		}
-		h.call(t, "delete_route", map[string]any{"id": float64(rid)})
-		for _, r := range h.S.ListRoutes("hq", true) {
-			if r.ID == rid {
-				t.Fatalf("route %d still present after delete", rid)
-			}
-		}
-	})
-}
+// Route management (add_route/list_routes/delete_route) moved from the ipc
+// ServeMCP surface to the routd routes resreg seam (spec 5/44); parity is covered
+// by routd/routes_resource_test.go. This ipc-level harness no longer serves them.
 
 func TestMCP_InviteTools(t *testing.T) {
 	h := newFullMCPHarness(t, "hq")

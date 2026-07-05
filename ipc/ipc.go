@@ -172,10 +172,6 @@ type StoreFns struct {
 	GetTask             func(id string) (core.Task, bool)
 	ListTasks           func(folder string, isRoot bool) []core.Task
 	ListRoutes          func(folder string, isRoot bool) []core.Route
-	SetRoutes           func(folder string, routes []core.Route) error
-	AddRoute            func(r core.Route) (int64, error)
-	DeleteRoute         func(id int64) error
-	GetRoute            func(id int64) (core.Route, bool)
 	DefaultFolderForJID func(jid string) string
 	PutMessage          func(m core.Message) error
 	GetLastReplyID      func(jid, topic string) string
@@ -782,22 +778,6 @@ func authorizeJID(id auth.Identity, action, jid string, db StoreFns) error {
 	}
 	return fmt.Errorf("forbidden: chat %s belongs to folder %s, not in subtree of %s",
 		jid, target, id.Folder)
-}
-
-func routeTargetWithin(target, owner string) bool {
-	switch {
-	case strings.HasPrefix(target, "folder:"):
-		target = strings.TrimPrefix(target, "folder:")
-	case strings.HasPrefix(target, "daemon:"), strings.HasPrefix(target, "builtin:"):
-		return false
-	}
-	return target == owner || strings.HasPrefix(target, owner+"/")
-}
-
-// isSelfDefault: seq=0 routes pointing at the owner's own folder must not be deleted.
-func isSelfDefault(r core.Route, owner string) bool {
-	target := strings.TrimPrefix(r.Target, "folder:")
-	return r.Seq == 0 && target == owner
 }
 
 func workspaceRel(fp string) (string, error) {
@@ -1960,126 +1940,8 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"queued": true})
 		})
 
-	granted("list_routes", "Return the routing table rows this group can see, each annotated with mode (trigger/observe), fires_turn, triggers_on, a plain explain, and shadowed_by (earlier rule that intercepts it). Prefer inspect_routing when you also want JID→folder resolution or errored-chat context.", nil,
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.ListRoutes == nil {
-				return toolErr("list_routes not configured")
-			}
-			return toolJSON(map[string]any{"routes": router.Describe(db.ListRoutes(folder, identity.Tier == 0))})
-		})
-
-	granted("set_routes",
-		"Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. "+
-			"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
-		[]mcp.ToolOption{mcp.WithString("routes", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.SetRoutes == nil {
-				return toolErr("set_routes not configured")
-			}
-			if err := authzStructural("set_routes", auth.AuthzTarget{RouteTarget: identity.Folder}); err != nil {
-				return toolErr(err.Error())
-			}
-			var routes []core.Route
-			if err := json.Unmarshal([]byte(req.GetString("routes", "")), &routes); err != nil {
-				return toolErr("invalid routes json: " + err.Error())
-			}
-			for _, r := range routes {
-				if !routeTargetWithin(r.Target, identity.Folder) {
-					return toolErr("route target outside own folder: " + r.Target)
-				}
-			}
-			if db.ListRoutes != nil {
-				hadDefault := false
-				for _, r := range db.ListRoutes(identity.Folder, false) {
-					if isSelfDefault(r, identity.Folder) {
-						hadDefault = true
-						break
-					}
-				}
-				if hadDefault {
-					keepsDefault := false
-					for _, r := range routes {
-						if isSelfDefault(r, identity.Folder) {
-							keepsDefault = true
-							break
-						}
-					}
-					if !keepsDefault {
-						return toolErr("cannot delete own default route")
-					}
-				}
-			}
-			if err := db.SetRoutes(identity.Folder, routes); err != nil {
-				emitSys("set_routes", identity.Folder, callerSub,
-					map[string]any{"count": len(routes)}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("set_routes", identity.Folder, callerSub,
-				map[string]any{"count": len(routes)}, nil)
-			slog.Info("routes set", "folder", identity.Folder, "count", len(routes))
-			return toolJSON(map[string]any{"updated": true, "count": len(routes)})
-		})
-
-	granted("add_route",
-		"Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. "+
-			"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
-		[]mcp.ToolOption{mcp.WithString("route", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.AddRoute == nil {
-				return toolErr("add_route not configured")
-			}
-			var route core.Route
-			if err := json.Unmarshal([]byte(req.GetString("route", "")), &route); err != nil {
-				return toolErr("invalid route json")
-			}
-			if route.Target == "" {
-				return toolErr("route.target required")
-			}
-			if err := authzStructural("add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-				return toolErr(err.Error())
-			}
-			rid, err := db.AddRoute(route)
-			if err != nil {
-				emitSys("add_route", identity.Folder, callerSub,
-					map[string]any{"target": route.Target}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("add_route", identity.Folder, callerSub,
-				map[string]any{"target": route.Target, "id": rid}, nil)
-			slog.Info("route added", "id", rid, "target", route.Target, "match", route.Match)
-			return toolJSON(map[string]any{"id": rid})
-		})
-
-	granted("delete_route", "Remove one routing rule by id. Use after list_routes/inspect_routing to surgically drop a rule. Not for bulk clear (set_routes with empty array).",
-		[]mcp.ToolOption{mcp.WithNumber("id", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.DeleteRoute == nil || db.GetRoute == nil {
-				return toolErr("delete_route not configured")
-			}
-			rid := int64(req.GetInt("id", 0))
-			if rid == 0 {
-				return toolErr("id required")
-			}
-			route, ok := db.GetRoute(rid)
-			if !ok {
-				return toolErr(fmt.Sprintf("route not found: %d", rid))
-			}
-			if isSelfDefault(route, identity.Folder) {
-				return toolErr("cannot delete own default route")
-			}
-			if err := authzStructural("delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := db.DeleteRoute(rid); err != nil {
-				emitSys("delete_route", identity.Folder, callerSub,
-					map[string]any{"id": rid}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("delete_route", identity.Folder, callerSub,
-				map[string]any{"id": rid, "target": route.Target}, nil)
-			slog.Info("route deleted", "id", rid)
-			return toolJSON(map[string]any{"deleted": true, "id": rid})
-		})
+	// add_route/set_routes/list_routes/delete_route moved to the routes resreg
+	// seam (spec 5/44); inspect_routing (inspect.go) still reads db.ListRoutes.
 
 	if identity.Tier <= 1 {
 		// Unified ACL inspection. Reads acl rows scoped to folder; subsumes

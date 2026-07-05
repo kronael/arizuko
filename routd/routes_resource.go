@@ -1,0 +1,339 @@
+package routd
+
+// routes_resource.go is the spec 5/44 step after web_routes + network_rules +
+// scheduled_tasks: the agent's message-routing tools (add_route/set_routes/
+// list_routes/delete_route) ride ONE resreg.Resource instead of four hand-rolled
+// ipc/ipc.go tool bodies. Routing is security-critical — a route's TARGET folder
+// decides which group a chat's turns fire in — so the two invariants the deleted
+// ipc bodies enforced are preserved EXACTLY:
+//
+//   1. TARGET CONTAINMENT. A route's target folder must be within the caller's
+//      reach. add/set carry the target(s) in the JSON args; delete resolves the
+//      target from the route id. All three run auth.AuthorizeStructural (the route
+//      tier cap: tier 2+ can't manage routes, tier 1 confined to strict
+//      descendants, tier 0 unrestricted). set ALSO runs the per-route
+//      routeTargetWithin containment (own folder or a descendant) — the tier cap
+//      binds set only to the OWN folder, so it's this per-route check that stops a
+//      tier-0 bulk write from targeting another folder.
+//   2. SELF-DEFAULT GUARD. A folder must not delete — or replace-away via set —
+//      its own seq-0 default route (isSelfDefault). Without it a group routes its
+//      own inbound traffic into the void and can't be respawned.
+//
+// resreg owns the plumbing (handler dispatch + one tx wrapping each mutation AND
+// its audit_log row); routd owns the auth POLICY. Like scheduled_tasks (and unlike
+// network_rules), BOTH invariants live in the HANDLER, not the injected Gate: add's
+// target needs a JSON unmarshal, set's needs a read of the live table, and delete's
+// needs a GetRoute read — all of which the handler already performs. Resolving them
+// again in the Gate would duplicate the work AND reorder validation ahead of the
+// tier decision, diverging from the ipc bodies. The Gate does only the TOOL grant
+// (grants.CheckAction + db.Authorize); the handler's caps run before any store
+// write and roll the tx back on denial, so an operator ACL grant can open the TOOL
+// but never widen the tier/containment/self-default cap.
+//
+// The operator REST face (/v1/routes, routes_http.go) is NOT mounted from this
+// resource (agent-only, like the pilots); its routes:read/write scope + ownsFolder
+// containment is a separate 5/44 step. Endpoints here exist only to drive
+// deriveMCPTools.
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
+	grantslib "github.com/kronael/arizuko/grants"
+	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/router"
+	"github.com/kronael/arizuko/store"
+)
+
+// Route actions are resource-specific verbs, not the CRUD shape. list reuses
+// resreg.ActionList (== "list") so it stays read-only (Mutates() false, no tx);
+// add/set/delete are custom strings so Mutates() is true and each opens the
+// mutation+audit tx. delete addresses a row by the autoincrement `id` arg (a
+// number), NOT a PK path — matching the deleted ipc body.
+const (
+	routesActionAdd    = resreg.Action("add")
+	routesActionSet    = resreg.Action("set")
+	routesActionDelete = resreg.Action("delete")
+)
+
+// routesMCPNames maps each resreg action to the flat tool name the live agent
+// already calls; keeping them avoids renaming an in-container tool. It is also the
+// Gate's action→policy-name lookup.
+var routesMCPNames = map[resreg.Action]string{
+	routesActionAdd:    "add_route",
+	routesActionSet:    "set_routes",
+	routesActionDelete: "delete_route",
+	resreg.ActionList:  "list_routes",
+}
+
+// routesResource is the single renderer for the agent's four routing tools.
+// Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
+// (/v1/routes) is NOT mounted from this resource (see file header). There is NO
+// RowType (args come from MCPArgs as raw JSON strings + the numeric id, preserving
+// the exact wire arg names the agent already sends). Store is a store.Store over
+// routd.db so resreg.invoke opens the mutation+audit tx there.
+func (s *Server) routesResource() resreg.Resource {
+	return resreg.Resource{
+		Name: "routes",
+		Endpoints: []resreg.Endpoint{
+			{Verb: "POST", Path: "/v1/routes", Action: routesActionAdd},
+			{Verb: "PUT", Path: "/v1/routes", Action: routesActionSet},
+			{Verb: "DELETE", Path: "/v1/routes", Action: routesActionDelete},
+			{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
+		},
+		MCPDoc: map[resreg.Action]string{
+			routesActionAdd: "Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. " +
+				"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
+			routesActionSet: "Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. " +
+				"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
+			routesActionDelete: "Remove one routing rule by id. Use after list_routes/inspect_routing to surgically drop a rule. Not for bulk clear (set_routes with empty array).",
+			resreg.ActionList:  "Return the routing table rows this group can see, each annotated with mode (trigger/observe), fires_turn, triggers_on, a plain explain, and shadowed_by (earlier rule that intercepts it). Prefer inspect_routing when you also want JID→folder resolution or errored-chat context.",
+		},
+		MCPArgs: map[resreg.Action][]resreg.MCPArg{
+			routesActionAdd:    {{Name: "route", Type: "string", Required: true}},
+			routesActionSet:    {{Name: "routes", Type: "string", Required: true}},
+			routesActionDelete: {{Name: "id", Type: "number", Required: true}},
+		},
+		MCPNames: routesMCPNames,
+		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
+		Handler:  s.routesHandler,
+		Store:    store.New(s.db.SQL()),
+	}
+}
+
+// routesHandler runs add/set/delete/list against routd.db, folding in the two
+// security invariants the deleted ipc bodies enforced (see file header). The socket
+// folder (x.Caller.Folder) is the caller's own folder; the tier is resolved from it.
+func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, error) {
+	folder := x.Caller.Folder
+	id := auth.Resolve(folder)
+	switch x.Action {
+	case resreg.ActionList:
+		// routd's ListRoutes wiring ignored (folder, isRoot) and returned the whole
+		// table (mcp.go buildStoreFns), so list_routes always described every route;
+		// read them all here too. The error is swallowed, matching that closure.
+		routes, _ := s.db.Routes()
+		return map[string]any{"routes": router.Describe(routes)}, nil
+
+	case routesActionAdd:
+		var route core.Route
+		if err := json.Unmarshal([]byte(argString(x.Args, "route")), &route); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "invalid route json")
+		}
+		if route.Target == "" {
+			return nil, resreg.Errorf(http.StatusBadRequest, "route.target required")
+		}
+		// Invariant 1 (target containment): the route tier cap on the arg-carried
+		// target — tier 2+ denied, tier 1 confined to strict descendants, tier 0
+		// unrestricted. Exactly the deleted body's authzStructural(add_route,
+		// RouteTarget: route.Target).
+		if err := auth.AuthorizeStructural(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		rid, err := addRouteTx(ctx, x.Tx, route)
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		slog.Info("route added", "id", rid, "target", route.Target, "match", route.Match)
+		return map[string]any{"id": rid}, nil
+
+	case routesActionSet:
+		// Invariant 1 (tier cap): set_routes rewrites the caller's own subtree, so
+		// the tier gate binds the OWN folder (in practice tier 0 only — a tier-1
+		// caller fails HasPrefix(folder, folder+"/")). Exactly the deleted body's
+		// authzStructural(set_routes, RouteTarget: identity.Folder).
+		if err := auth.AuthorizeStructural(id, "set_routes", auth.AuthzTarget{RouteTarget: folder}); err != nil {
+			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		var routes []core.Route
+		if err := json.Unmarshal([]byte(argString(x.Args, "routes")), &routes); err != nil {
+			return nil, resreg.Errorf(http.StatusBadRequest, "invalid routes json: %v", err)
+		}
+		// Invariant 1 (per-route containment): every target must be the own folder
+		// or a descendant — the tier cap above binds only the own folder, so this is
+		// what stops a bulk write from targeting another folder.
+		for _, r := range routes {
+			if !routeTargetWithin(r.Target, folder) {
+				return nil, resreg.Errorf(http.StatusForbidden, "route target outside own folder: %s", r.Target)
+			}
+		}
+		// Invariant 2 (self-default guard): if the live table holds a seq-0 route
+		// pointing at this folder, the replacement must keep one — else the folder
+		// orphans its own inbound traffic. s.db.Routes() is the whole table (routd's
+		// ListRoutes returned all), matching the deleted body's ListRoutes read.
+		existing, _ := s.db.Routes()
+		hadDefault := false
+		for _, r := range existing {
+			if isSelfDefault(r, folder) {
+				hadDefault = true
+				break
+			}
+		}
+		if hadDefault {
+			keepsDefault := false
+			for _, r := range routes {
+				if isSelfDefault(r, folder) {
+					keepsDefault = true
+					break
+				}
+			}
+			if !keepsDefault {
+				return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
+			}
+		}
+		if err := setRoutesTx(ctx, x.Tx, folder, routes); err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		slog.Info("routes set", "folder", folder, "count", len(routes))
+		return map[string]any{"updated": true, "count": len(routes)}, nil
+
+	case routesActionDelete:
+		rid := argInt64(x.Args, "id")
+		if rid == 0 {
+			return nil, resreg.Errorf(http.StatusBadRequest, "id required")
+		}
+		route, err := s.db.GetRoute(rid)
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
+		}
+		// Invariant 2 (self-default guard): a folder can't delete its own seq-0
+		// default route. Checked before the containment cap, matching the ipc order.
+		if isSelfDefault(route, folder) {
+			return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
+		}
+		// Invariant 1 (target containment): resolve the route's target from the id
+		// (like scheduled_tasks resolves GetTask.Owner) and bind it to the caller's
+		// tier — a folder must not delete a route whose target is another folder.
+		if err := auth.AuthorizeStructural(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
+			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		if err := deleteRouteTx(ctx, x.Tx, rid); err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		slog.Info("route deleted", "id", rid)
+		return map[string]any{"deleted": true, "id": rid}, nil
+	}
+	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
+}
+
+// routesPostBuild returns the ServeMCP seam that mounts the routing tools on the
+// agent socket, with the tier-aware Gate + MatchingRules visibility for this
+// folder's grant rules injected. The Gate does the TOOL grant (CheckAction +
+// db.Authorize); the containment + self-default caps live in the handler (see
+// header). Only rules the socket already carries can widen visibility, so a denied
+// tier still sees nothing new.
+func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+	res := s.routesResource()
+	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
+		name := routesMCPNames[x.Action]
+		if !grantslib.CheckAction(rules, name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+		}
+		if callerSub != "" && !s.db.Authorize(callerSub, folder, "mcp:"+name, nil) {
+			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+		}
+		return nil
+	}
+	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
+		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
+	}
+	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
+	return func(srv *mcpserver.MCPServer) {
+		resreg.MCPTools(srv, res, callerFor, visible)
+	}
+}
+
+// argInt64 reads a numeric arg from a resreg.Args map. MCP number args decode to
+// float64 (resreg.decodeMCPArgs); an absent arg is 0 (the "id required" sentinel
+// the delete handler checks, mirroring int64(req.GetInt("id", 0))).
+func argInt64(args resreg.Args, key string) int64 {
+	switch v := args[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	}
+	return 0
+}
+
+// addRouteTx appends one route row on tx (mirrors DB.AddRoute so the mutation lands
+// in resreg.invoke's tx alongside its audit_log row), returning the new id.
+func addRouteTx(ctx context.Context, tx *sql.Tx, r core.Route) (int64, error) {
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars) VALUES(?,?,?,?,?)`,
+		r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars))
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// setRoutesTx replaces the routes whose target (sans #fragment) is `folder` or under
+// `folder/`, then inserts `routes`, on tx (mirrors DB.SetRoutes). An empty folder
+// replaces the whole table; the folder-scoped delete keeps a scoped caller from
+// wiping another folder's routes.
+func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.Route) error {
+	if folder == "" {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM routes"); err != nil {
+			return err
+		}
+	} else if _, err := tx.ExecContext(ctx,
+		`DELETE FROM routes WHERE target = ? OR target LIKE ?||'#%' OR target LIKE ?||'/%'`,
+		folder, folder, folder); err != nil {
+		return err
+	}
+	for _, r := range routes {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO routes(seq, match, target, observe_window_messages, observe_window_chars) VALUES(?,?,?,?,?)`,
+			r.Seq, r.Match, r.Target, nz(r.ObserveWindowMessages), nz(r.ObserveWindowChars)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteRouteTx removes one route by id on tx (mirrors DB.DeleteRoute); ErrNotFound
+// when the row is absent.
+func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	res, err := tx.ExecContext(ctx, "DELETE FROM routes WHERE id=?", id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// routeTargetWithin reports whether a route's target folder is the caller's own
+// folder or a descendant. A folder:-prefixed target is compared after stripping the
+// prefix; daemon:/builtin: targets are never "within" a folder. Moved here from ipc
+// when the route tools migrated to resreg (set_routes was its only caller).
+func routeTargetWithin(target, owner string) bool {
+	switch {
+	case strings.HasPrefix(target, "folder:"):
+		target = strings.TrimPrefix(target, "folder:")
+	case strings.HasPrefix(target, "daemon:"), strings.HasPrefix(target, "builtin:"):
+		return false
+	}
+	return target == owner || strings.HasPrefix(target, owner+"/")
+}
+
+// isSelfDefault reports whether r is a folder's seq-0 default route (target == the
+// owner's own folder) — the route a group can't delete without orphaning its own
+// inbound traffic. Moved here from ipc with the route tools.
+func isSelfDefault(r core.Route, owner string) bool {
+	target := strings.TrimPrefix(r.Target, "folder:")
+	return r.Seq == 0 && target == owner
+}

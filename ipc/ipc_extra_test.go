@@ -357,28 +357,3 @@ func TestServeMCP_FetchHistory_HappyPath(t *testing.T) {
 		t.Errorf("count = %v, want 1", payload["count"])
 	}
 }
-
-// --- routeTargetWithin additional cases ---
-
-func TestRouteTargetWithin_ExtraEdgeCases(t *testing.T) {
-	cases := []struct {
-		target, owner string
-		want          bool
-	}{
-		{"folder:world/a", "world/a", true},
-		{"folder:world/a/child", "world/a", true},
-		{"folder:world/b", "world/a", false},
-		{"daemon:x", "world/a", false},
-		{"builtin:y", "world/a", false},
-		// Plain path without prefix is also accepted by the switch default.
-		{"world/a", "world/a", true},
-		{"world/a/deep/nested", "world/a", true},
-		{"world/ab", "world/a", false}, // must not prefix-match world/a in world/ab
-	}
-	for _, c := range cases {
-		got := routeTargetWithin(c.target, c.owner)
-		if got != c.want {
-			t.Errorf("routeTargetWithin(%q, %q) = %v, want %v", c.target, c.owner, got, c.want)
-		}
-	}
-}
