@@ -53,7 +53,7 @@
 
     <h1>grants</h1>
 
-    <p class="lede">Auth minted the principal; a grant decides what that principal may <em>do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> for the rules and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
+    <p class="lede">Auth minted the principal; a grant decides what that principal may <em>do</em>. Every permission check asks the same question: <em>may principal P do action A on scope S?</em> &mdash; for example, may <code>google:114alice</code> send a message in <code>eng/oncall</code>? Two tables hold the answer: <code>acl</code> &mdash; ACL, Access Control List, the permission rows &mdash; for the rules, and <code>acl_membership</code> for &ldquo;this id belongs to that group.&rdquo; One <code>auth.Authorize()</code> call walks both. Get those two tables right and there is nothing else to learn.</p>
 
     <h2>the four words</h2>
     <p>Four words name everything in that question. Get these right and the rest is rows.</p>
@@ -121,7 +121,7 @@ INSERT INTO acl_membership (child, parent, added_at) VALUES
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/grants.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

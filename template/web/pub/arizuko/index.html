@@ -58,6 +58,10 @@
         never becomes a black box you can&rsquo;t audit.
       </p>
       <p>
+        These are daemons: small programs that run in the background all the
+        time &mdash; the trailing &ldquo;d&rdquo; is the naming convention.
+      </p>
+      <p>
         And every change lands as files you own. The config is text you can
         diff, review in a PR, and roll back with <code>git revert</code>, on
         your own server. Language makes it easy to shape; the compartments keep
@@ -172,13 +176,16 @@
       <h2>how it works</h2>
       <p>
         A folder is an agent: <code>PERSONA.md</code>, <code>skills/</code>,
-        memory files, and an ACL row. When a message arrives, arizuko starts
+        memory files, and a row in the ACL (Access Control List &mdash; the
+        permission rows). When a message arrives, arizuko starts
         a Docker container for that folder. The container connects to
-        <code>routd</code> over MCP on a unix socket. Every tool call goes
-        through that socket; the host controls what the agent can reach. Every
-        platform operation is an MCP tool and a REST endpoint &mdash; no
-        separate agent API. All state is in SQLite WAL; the container is
-        stateless.
+        <code>routd</code> over MCP (Model Context Protocol &mdash; the
+        standard channel an AI agent uses to call a tool) on a unix socket.
+        Every tool call goes through that socket; the host controls what the
+        agent can reach. Every platform operation is an MCP tool and a REST
+        endpoint &mdash; no separate agent API. All state is in SQLite WAL
+        (write-ahead logging &mdash; SQLite's durable-write mode); the
+        container is stateless.
       </p>
       <p>
         The stack is for agent teams: dozens of messages a day, not
@@ -427,7 +434,7 @@ curl -X POST https://example.com/chat/&lt;token&gt;/ \
         <code>krons</code>, <code>marinade</code>, <code>sloth</code>.
         &middot; <a href="/pub/krons/arizuko/">research &amp; strategy &rarr;</a>
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>

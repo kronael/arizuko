@@ -53,6 +53,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 	rows := s.ListACLByScope(folder)
 
 	fmt.Fprintf(w, `<p class="dim">ACL rows scoped to <code>%s</code>.</p>`, esc(folder))
+	fmt.Fprint(w, `<p>Each row is a permission: who may do what, and when.</p>`)
 
 	tableRows := make([][]string, len(rows))
 	for i, row := range rows {
@@ -83,7 +84,7 @@ func (d *dash) handleGroupGrants(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fmt.Fprint(w, htmlTable(
-		[]string{"principal", "action", "effect", "params", "predicate", "granted_by", "granted_at", ""},
+		[]string{"who", "can do what", "allow or deny", "only these", "only when", "granted by", "granted", ""},
 		tableRows,
 		"No grants for this group.",
 	))

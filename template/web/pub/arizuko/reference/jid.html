@@ -43,6 +43,8 @@
 
     <h2>1. Wire form &amp; grammar</h2>
 
+    <p>A JID is arizuko&rsquo;s universal address for who and where &mdash; one string that works across Telegram, Discord, or the web, so routing rules never need per-platform logic.</p>
+
     <pre><code>jid      := platform &quot;:&quot; rest
 platform := lowercase adapter name (everything before the first &quot;:&quot;)
 rest     := opaque platform-owned path (everything after the first &quot;:&quot;)
@@ -219,7 +221,7 @@ match='chat_jid=telegram:group/*'  # route: only telegram groups (path.Match: * 
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/jid.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-29">2026-05-29</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

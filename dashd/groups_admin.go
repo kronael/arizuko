@@ -293,11 +293,11 @@ func (d *dash) handleGroupSettings(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<form method="post" action="/dash/groups/%s/settings">`, folderPath(folder))
 	fmt.Fprint(w, htmlFormRow("Model", modelSelect.String()))
 	fmt.Fprintf(w, `<p><label><input type="checkbox" name="open" value="1"%s> open <span class="dim">— sibling groups can see messages sent here</span></label></p>`, openChecked)
-	fmt.Fprint(w, htmlFormRow("observe_window_messages",
+	fmt.Fprint(w, htmlFormRow("Messages a nearby group can peek at",
 		fmt.Sprintf(`<input type="number" name="observe_window_messages" value="%s" min="0"> <span class="dim">max messages a sibling sees (blank = default 50)</span>`, numOrBlank(owMsgs))))
 	fmt.Fprint(w, htmlFormRow("observe_window_chars",
 		fmt.Sprintf(`<input type="number" name="observe_window_chars" value="%s" min="0"> <span class="dim">max chars per observation (blank = default 2000)</span>`, numOrBlank(owChars))))
-	fmt.Fprint(w, htmlFormRow("max_children",
+	fmt.Fprint(w, htmlFormRow("Most sub-groups allowed",
 		fmt.Sprintf(`<input type="number" name="max_children" value="%s" min="-1"> <span class="dim">blank = default, 0 = disabled, -1 = unlimited</span>`, numOrBlank(groupCfg.MaxChildren))))
 
 	fmt.Fprintf(w, `<h2>Agent files</h2>`+

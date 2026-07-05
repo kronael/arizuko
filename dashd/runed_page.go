@@ -48,6 +48,8 @@ func (d *dash) handleRuned(w http.ResponseWriter, r *http.Request) {
 // renderActiveRuns writes the queued/running runs table with a per-folder kill.
 func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 	fmt.Fprint(w, `<h2>Active runs</h2>`)
+	fmt.Fprint(w, `<p class="dim">queued — waiting to start. running — the agent is working now. `+
+		`exited — finished normally. error — finished with a failure. killed — stopped by an operator.</p>`)
 	rows, err := d.dbRuned.Query(
 		`SELECT run_id, folder, state, created_at, COALESCE(started_at,'')
 		 FROM spawns WHERE state IN ('queued','running')
@@ -72,7 +74,7 @@ func (d *dash) renderActiveRuns(w http.ResponseWriter) {
 		}
 		kill := fmt.Sprintf(
 			`<form method="post" action="/dash/runed/kill" class="form-inline"`+
-				` onsubmit="return confirm('kill active runs for %s?')">`+
+				` onsubmit="return confirm('Stop the agent currently working for %s? Any reply it hasn\'t sent yet will be lost.')">`+
 				`<input type="hidden" name="folder" value="%s">`+
 				`<button class="btn-danger" type="submit">kill</button></form>`,
 			esc(folder), esc(folder))

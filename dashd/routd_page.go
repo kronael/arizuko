@@ -81,7 +81,8 @@ func (d *dash) handleRoutd(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		retry := fmt.Sprintf(
-			`<form method="post" action="/dash/routd/retry" class="form-inline">`+
+			`<form method="post" action="/dash/routd/retry" class="form-inline" `+
+				`onsubmit="return confirm('Retry all errored messages for this chat? They will be re-sent to the agent.')">`+
 				`<input type="hidden" name="chat_jid" value="%s">`+
 				`<button class="btn" type="submit">retry</button></form>`,
 			esc(chatJID))

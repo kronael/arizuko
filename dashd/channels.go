@@ -79,6 +79,7 @@ func (d *dash) handleWhatsappPair(w http.ResponseWriter, r *http.Request) {
 	if d.svc == nil {
 		fmt.Fprint(w, `<p class="dim">Pair proxy unavailable (local dev)</p>`)
 	} else {
+		fmt.Fprint(w, `<p class="dim">Starting a new pairing disconnects the phone currently linked until you finish scanning the new code — the bot goes offline on WhatsApp in the meantime.</p>`)
 		fmt.Fprintf(w, `<form method="post" action="/dash/channels/whatsapp/pair/start" hx-post="/dash/channels/whatsapp/pair/start" hx-target="#pair-result" hx-swap="innerHTML">
 <p><label>Phone <input type="text" name="phone" value="%s" placeholder="+420..." required size="20"></label></p>
 <p><button type="submit">Start pairing</button></p>

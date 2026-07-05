@@ -53,7 +53,7 @@
 
     <h1>auth</h1>
 
-    <p class="lede">A persona is how the agent <em>sounds</em>; auth is how the platform knows who is actually <em>calling</em>. Before anything can authorize a principal, something has to mint it &mdash; and that one job belongs to <code>authd</code>, the sole token authority. <code>authd</code> turns a browser login (GitHub, Google, Discord, Telegram, or a local password) into one canonical user id and an ES256-signed JWT. Every other daemon verifies that token offline against <code>authd</code>&rsquo;s published JWKS &mdash; nobody else signs. The id every later permission check reads is the id this token carries.</p>
+    <p class="lede">A persona is how the agent <em>sounds</em>; auth is how the platform knows who is actually <em>calling</em>. Before anything can authorize a principal, something has to mint it &mdash; and that one job belongs to <code>authd</code>, the sole token authority. <code>authd</code> turns a browser login (GitHub, Google, Discord, Telegram, or a local password) into one canonical user id and a signed login-pass &mdash; a JWT, a stamped ticket proving who you are. Backends check that stamp against <code>authd</code>&rsquo;s public-key list, its JWKS &mdash; nobody else signs. The id every later permission check reads is the id this token carries.</p>
 
     <h2>why identity at all</h2>
     <p>arizuko is a bunch of small Go daemons (<code>routd</code>, <code>runed</code>, <code>webd</code>, <code>dashd</code>, <code>proxyd</code>, more) that talk over HTTP. None of them owns the login session by itself. When <code>dashd</code> serves your operator page or <code>routd</code> decides whether to deliver a message, it needs an answer to one question: <em>who is this request from?</em> If each daemon re-implemented login, every one would be a place to get it wrong. Instead exactly one daemon (<code>authd</code>) runs OAuth and mints the token; <code>proxyd</code> sits in front, verifies it, and writes the answer into headers the backends trust.</p>
@@ -107,7 +107,7 @@ local:alice</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/auth.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-01">2026-07-01</time>
       </div>
     </main>
 

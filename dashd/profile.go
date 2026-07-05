@@ -38,7 +38,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 	_ = d.adminDB().QueryRow(
 		`SELECT name FROM auth_users WHERE sub = ?`, sub).Scan(&name)
 	fmt.Fprint(w, `<p class="dim">Your canonical identity and linked providers.</p>`)
-	identity := `<table>` + htmlDetail("Canonical sub", `<code>`+esc(sub)+`</code>`)
+	identity := `<table>` + htmlDetail("Your account ID", `<code>`+esc(sub)+`</code>`)
 	if name != "" {
 		identity += htmlDetail("Name", esc(name))
 	}
@@ -51,7 +51,7 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 		linkedRows = append(linkedRows, []string{fmt.Sprintf(`<code>%s</code>`, esc(ls))})
 		prefixes[providerPrefix(ls)] = true
 	}
-	fmt.Fprint(w, htmlSection("Linked accounts", htmlTable([]string{"Sub"}, linkedRows)))
+	fmt.Fprint(w, htmlSection("Linked accounts", htmlTable([]string{"Linked login"}, linkedRows)))
 
 	var providerLinks string
 	for _, p := range supportedProviders {
