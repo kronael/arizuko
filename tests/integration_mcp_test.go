@@ -260,29 +260,6 @@ func TestMCP_InviteTools(t *testing.T) {
 	})
 }
 
-func TestMCP_ACLTools(t *testing.T) {
-	h := newFullMCPHarness(t, "hq")
-
-	t.Run("add_acl", func(t *testing.T) {
-		h.call(t, "add_acl", map[string]any{
-			"principal": "alice@x", "scope": "hq/sub",
-			"action": "admin", "effect": "allow",
-		})
-		if len(h.GrantCalls) != 1 || h.GrantCalls[0].Principal != "alice@x" {
-			t.Fatalf("GrantCalls = %+v", h.GrantCalls)
-		}
-	})
-
-	t.Run("remove_acl", func(t *testing.T) {
-		h.call(t, "remove_acl", map[string]any{
-			"principal": "alice@x", "scope": "hq/sub",
-			"action": "admin", "effect": "allow",
-		})
-		if len(h.RevokeCalls) != 1 || h.RevokeCalls[0].Scope != "hq/sub" {
-			t.Fatalf("RevokeCalls = %+v", h.RevokeCalls)
-		}
-	})
-}
 
 func TestMCP_MessageInspection(t *testing.T) {
 	h := newFullMCPHarness(t, "hq")

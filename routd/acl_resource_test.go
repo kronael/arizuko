@@ -1,0 +1,183 @@
+package routd
+
+// Parity tests for the spec 5/44 acl migration: the agent's
+// add_acl/remove_acl/list_acl now ride resreg's MCP mechanism through the
+// ServeMCP postBuild seam instead of three hand-rolled ipc bodies. Each test
+// drives the REAL unix socket so the seam + injected Gate (grants.CheckAction +
+// db.Authorize + AuthorizeStructural scope-containment) + the handler's tx-aware
+// grant/revoke (incl. the scope=="**"→membership overload with cycle check) +
+// the Visible predicate are all exercised.
+//
+// ACL is permissions, so the scope-containment is security-critical:
+// TestACLMCP_ContainmentDenied fails if the Gate's AuthorizeStructural is
+// dropped (a folder would grant/revoke outside its authority, incl. "**").
+
+import (
+	"testing"
+	"time"
+
+	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/ipc"
+)
+
+func serveACLMCP(t *testing.T, db *DB, folder, callerSub string, rules []string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	sock := groupfolder.IpcSocket(t.TempDir())
+	pb := srv.aclPostBuild(folder, callerSub, rules)
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
+func aclRowCount(t *testing.T, db *DB, scope string) int {
+	t.Helper()
+	n := 0
+	for _, r := range db.ListACL("") {
+		if r.Scope == scope {
+			n++
+		}
+	}
+	return n
+}
+
+func operatorMembershipExists(t *testing.T, db *DB, child string) bool {
+	t.Helper()
+	var n int
+	if err := db.SQL().QueryRow(
+		`SELECT COUNT(*) FROM acl_membership WHERE child=? AND parent='role:operator'`, child).Scan(&n); err != nil {
+		t.Fatalf("membership query: %v", err)
+	}
+	return n > 0
+}
+
+// TestACLMCP_AddListRemove — happy path for a tier-0 folder (rules ["*"]):
+// add_acl writes an acl row, list_acl shows it (tier 0-1 only), remove_acl drops
+// it. Exercises the seam + handler end-to-end.
+func TestACLMCP_AddListRemove(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"root", "world"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	sock := serveACLMCP(t, db, "root", "folder:root", deriveFolderGrants(db, "root"))
+
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:bob", "scope": "world", "action": "read",
+	}); e != "" {
+		t.Fatalf("add_acl: %s", e)
+	}
+	if aclRowCount(t, db, "world") != 1 {
+		t.Fatalf("add_acl did not write a row (world rows=%d)", aclRowCount(t, db, "world"))
+	}
+	res, e := callToolOverSock(t, sock, "list_acl", map[string]any{"folder": "world"})
+	if e != "" {
+		t.Fatalf("list_acl: %s", e)
+	}
+	if res["folder"] != "world" {
+		t.Fatalf("list_acl returned unexpected shape: %v", res)
+	}
+	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
+		"principal": "google:bob", "scope": "world", "action": "read",
+	}); e != "" {
+		t.Fatalf("remove_acl: %s", e)
+	}
+	if aclRowCount(t, db, "world") != 0 {
+		t.Fatal("remove_acl did not drop the row")
+	}
+}
+
+// TestACLMCP_OperatorMembership — the scope=="**" overload: a tier-0 caller
+// grants "**" and it writes an acl_membership operator edge (NOT an acl row);
+// remove_acl "**" drops the edge. This is the trickiest preserved semantic.
+func TestACLMCP_OperatorMembership(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "root"})
+	sock := serveACLMCP(t, db, "root", "folder:root", deriveFolderGrants(db, "root"))
+
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:carol", "scope": "**",
+	}); e != "" {
+		t.Fatalf("add_acl **: %s", e)
+	}
+	if !operatorMembershipExists(t, db, "google:carol") {
+		t.Fatal("add_acl ** did not write an operator membership edge")
+	}
+	if aclRowCount(t, db, "**") != 0 {
+		t.Fatal("add_acl ** wrote an acl row instead of a membership edge")
+	}
+	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
+		"principal": "google:carol", "scope": "**",
+	}); e != "" {
+		t.Fatalf("remove_acl **: %s", e)
+	}
+	if operatorMembershipExists(t, db, "google:carol") {
+		t.Fatal("remove_acl ** did not drop the membership edge")
+	}
+}
+
+// TestACLMCP_ContainmentDenied — the security invariant. A TIER-1 folder
+// ("world/a", one slash) granted add_acl via an operator ACL row (so CheckAction
+// passes) is world-confined by the Gate's AuthorizeStructural (add_acl case):
+// an own-world scope is allowed, but a CROSS-WORLD scope AND "**" are denied,
+// nothing written. Fails if the containment is dropped.
+func TestACLMCP_ContainmentDenied(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"world", "world/a", "world/b", "other", "other/x"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	// Grant folder:world/a the add_acl tool. The scope must cover the caller's own
+	// folder (the db.Authorize socket-folder check); the tool's `scope` arg is what
+	// the containment (AuthorizeStructural) rules on.
+	if _, err := db.SQL().Exec(
+		`INSERT INTO acl (principal, action, scope, effect, params, predicate, granted_by, granted_at)
+		 VALUES ('folder:world/a', 'mcp:add_acl', 'world/a', 'allow', '', '', 'test', ?)`, nowTS()); err != nil {
+		t.Fatal(err)
+	}
+	sock := serveACLMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"))
+
+	// Own world: allowed.
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:x", "scope": "world/b", "action": "read",
+	}); e != "" {
+		t.Fatalf("add_acl within own world should be allowed: %s", e)
+	}
+	// Cross-world: denied, nothing written.
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:x", "scope": "other/x", "action": "read",
+	}); e == "" {
+		t.Fatal("add_acl on a different world must be denied")
+	}
+	if aclRowCount(t, db, "other/x") != 0 {
+		t.Fatal("denied add_acl still wrote a cross-world row")
+	}
+	// "**" operator role: denied (a tier-1 folder does not own **).
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:x", "scope": "**",
+	}); e == "" {
+		t.Fatal("add_acl ** by a non-tier-0 folder must be denied")
+	}
+	if operatorMembershipExists(t, db, "google:x") {
+		t.Fatal("denied ** grant still wrote an operator membership edge")
+	}
+}

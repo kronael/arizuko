@@ -620,5 +620,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
 	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules)
 	routes := s.routesPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes)
+	acl := s.aclPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl)
 }
