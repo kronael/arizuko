@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
 	"reflect"
 
 	"github.com/kronael/arizuko/resreg"
@@ -23,6 +24,7 @@ type ProxydRoutesRow struct {
 	Backend             string   `db:"backend"          yaml:"backend"          json:"backend"`
 	Auth                string   `db:"auth"             yaml:"auth"             json:"auth"`
 	GatedBy             string   `db:"gated_by"         yaml:"gated_by,omitempty"         json:"gated_by,omitempty"`
+	RedirectTo          string   `db:"redirect_to"      yaml:"redirect_to,omitempty"      json:"redirect_to,omitempty"`
 	PreserveHeadersRaw  string   `db:"preserve_headers" yaml:"-"                json:"-"`
 	StripPrefixRaw      int      `db:"strip_prefix"     yaml:"-"                json:"-"`
 	PreserveHeaders     []string `db:"-"                yaml:"preserve_headers,omitempty" json:"preserve_headers,omitempty"`
@@ -52,7 +54,8 @@ var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionGet: {{Name: "path", Type: "string", Required: true}},
 	resreg.ActionCreate: {
 		{Name: "path", Type: "string", Required: true},
-		{Name: "backend", Type: "string", Required: true},
+		{Name: "backend", Type: "string", Description: "proxy target; backend OR redirect_to is required"},
+		{Name: "redirect_to", Type: "string", Description: "redirect target; alternative to backend"},
 		{Name: "auth", Type: "string", Required: true, Description: "public | user | operator"},
 		{Name: "gated_by", Type: "string"},
 		{Name: "preserve_headers", Type: "array"},
@@ -61,12 +64,25 @@ var ProxydRoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
 	resreg.ActionUpdate: {
 		{Name: "path", Type: "string", Required: true},
 		{Name: "backend", Type: "string"},
+		{Name: "redirect_to", Type: "string"},
 		{Name: "auth", Type: "string"},
 		{Name: "gated_by", Type: "string"},
 		{Name: "preserve_headers", Type: "array"},
 		{Name: "strip_prefix", Type: "bool"},
 	},
 	resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
+}
+
+// ProxydRoutesEndpoints is the single owner of the REST endpoint set for
+// proxyd_routes. proxyd's live dispatch decl and webd's forwarder decl both
+// reference this so the mounted routes + the derived MCP action set never
+// drift (the last drift-able copy after MCPDoc/MCPArgs were single-sourced).
+var ProxydRoutesEndpoints = []resreg.Endpoint{
+	{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
+	{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
+	{Verb: "POST", Path: "/v1/proxyd_routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
+	{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
+	{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
 }
 
 func init() {

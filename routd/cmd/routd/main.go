@@ -246,8 +246,11 @@ func main() {
 	// advertise phantom 404 endpoints — these names must match the mounted /v1
 	// handlers below. (groups/acl_membership are dashd-FS-managed; network_rules
 	// is MCP-only via network_allow/deny/list — none are routd REST resources.)
+	// secrets is deliberately EXCLUDED: the convention emits a GET read/list op,
+	// but secret enc_value blobs must never appear in any read surface (spec
+	// 5/36 §"Secret safety"). Its set/delete is documented in the web docs.
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
-		"routes", "web_routes", "acl", "secrets",
+		"routes", "web_routes", "acl",
 	}))
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())

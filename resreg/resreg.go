@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -571,7 +572,7 @@ func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 		var raw map[string]any
 		dec := json.NewDecoder(req.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&raw); err != nil && err.Error() != "EOF" {
+		if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("invalid JSON: %w", err)
 		}
 		for k, v := range raw {

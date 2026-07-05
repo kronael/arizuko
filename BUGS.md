@@ -1,5 +1,54 @@
 # BUGS.md — open issues queue
 
+## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
+
+`resreg/openapi.go:resourcePaths` synthesizes the 5/36 CRUD convention (`/v1/<name>`
+GET/POST/GET-one/PATCH/DELETE) from `(RowType, PKFields)`, ignoring each resource's real
+`Endpoints`. Truthful only for `proxyd_routes` (the one resource whose live RegisterREST
+matches the convention). The others advertise paths their daemons don't serve or serve with
+different shapes:
+
+- `timed` advertises `/v1/scheduled_tasks` CRUD — serves none (only `/health`,`/dash`,`/openapi.json`).
+- `onbod` advertises `/v1/onboarding_gates` CRUD — actually serves `/v1/onboarding`.
+- `routd` advertises `routes`/`web_routes`/`acl` — hand-rolled `server.go` diverges on method/param
+  (routes `{id}` not `{seq}`, has `PUT` + no `PATCH`; acl remove is body-`DELETE /v1/acl`; etc).
+
+The `secrets` read-surface leak (convention emitted `GET /v1/secrets/{scope_kind}`) is FIXED by
+dropping `secrets` from routd's OpenAPI list (2026-07-02). The rest is the 5/44 ipc→resreg
+migration: when each becomes a real resreg resource served via RegisterREST with true `Endpoints`,
+change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the drift closes for good.
+
+- **Severity:** medium (public API doc misleads; not a live leak — phantom paths 404)
+- **Scope:** resreg/openapi.go:resourcePaths; timed/split.go, onbod/main.go, routd/cmd/routd/main.go
+- **Source:** resreg refine-review 2026-07-02
+- **Status:** open (blocked on the 5/44 per-resource resreg migration)
+
+## proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02, open)
+
+`proxyd/resource.go:187` returns `map[string]any{"routes": out}` but `resreg/openapi.go` documents
+list `200` as a bare `array<ProxydRoutes>`. The one resource whose paths are correct still serves a
+body shape its own doc contradicts. Fix: return the bare `[]Route` (matches the engine convention;
+no in-tree consumer indexes the `routes` key) or document the envelope. Deferred: needs a consumer
+sweep (webd forwarder relays the body) to confirm the bare-array change is safe.
+
+- **Severity:** low-medium (doc/handler drift on one resource)
+- **Scope:** proxyd/resource.go:187
+- **Source:** resreg refine-review 2026-07-02
+- **Status:** open
+
+## resreg.Caller.Name is write-only (2026-07-02, open)
+
+`resreg/resreg.go:76` `Caller.Name` is set by both adapters (`proxyd/resource.go:366`,
+`webd/routes_mcp.go:50`) but read by nobody — `buildEvent` uses `Sub` for both audit `Actor` and
+`ActorSub`. Either drop the field + its two assignments, or use it as the human-readable audit
+`Actor`. Left this round (the drop cascades through the two call sites' `name` computations; the
+use-as-Actor changes audit semantics — neither is a pure cleanup).
+
+- **Severity:** minor
+- **Scope:** resreg/resreg.go:76
+- **Source:** resreg refine-review 2026-07-02
+- **Status:** open
+
 ## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
 
 **Severity**: medium

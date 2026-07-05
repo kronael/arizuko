@@ -307,15 +307,9 @@ func routesAuthz(_ resreg.Caller, _ resreg.Action, _ resreg.Args) (string, map[s
 // and the OpenAPI emitter never drift.
 func routesResourceDecl(rr *routesResource) resreg.Resource {
 	return resreg.Resource{
-		Name: "proxyd_routes",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
-			{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
-			{Verb: "POST", Path: "/v1/proxyd_routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
-			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
-			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
-		},
-		MCPDoc:  resources.ProxydRoutesMCPDoc,
+		Name:      "proxyd_routes",
+		Endpoints: resources.ProxydRoutesEndpoints,
+		MCPDoc:    resources.ProxydRoutesMCPDoc,
 		MCPArgs: resources.ProxydRoutesMCPArgs,
 		Authz:   routesAuthz,
 		Handler: rr.handle,

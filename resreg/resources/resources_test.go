@@ -79,6 +79,40 @@ func TestApply_RoundTrip_Routes(t *testing.T) {
 	}
 }
 
+// TestApply_RoundTrip_ProxydRoutes_PreservesRedirectTo guards the data-loss
+// regression where ProxydRoutesRow omitted the redirect_to column: an
+// export→apply round-trip did DELETE+INSERT through the RowType and silently
+// wiped redirect_to from every redirect route.
+func TestApply_RoundTrip_ProxydRoutes_PreservesRedirectTo(t *testing.T) {
+	db := openMem(t)
+	v0, _ := resreg.ConfigVersion(db)
+	rows := []ProxydRoutesRow{
+		{Path: "/go", RedirectTo: "https://example.com/dest", Auth: "public"},
+		{Path: "/api/", Backend: "http://svc:8080", Auth: "user"},
+	}
+	if _, err := resreg.Apply(context.Background(), db, v0, false, map[string]any{
+		"proxyd_routes": rows,
+	}, nil); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, err := resreg.Lookup("proxyd_routes").ScanAll(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, g := range got.([]ProxydRoutesRow) {
+		if g.Path == "/go" {
+			found = true
+			if g.RedirectTo != "https://example.com/dest" {
+				t.Errorf("redirect_to = %q, want it preserved through apply", g.RedirectTo)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("redirect route /go missing after apply")
+	}
+}
+
 func TestApply_RoundTrip_NetworkRules(t *testing.T) {
 	db := openMem(t)
 	v0, _ := resreg.ConfigVersion(db)

@@ -78,15 +78,9 @@ func routesForwarder(c *proxydClient, sub, name string, groups []string) resreg.
 		return json.RawMessage(raw), nil
 	}
 	return resreg.Resource{
-		Name: "proxyd_routes",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "GET", Path: "/v1/proxyd_routes", Action: resreg.ActionList, Status: http.StatusOK},
-			{Verb: "GET", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionGet, Status: http.StatusOK},
-			{Verb: "POST", Path: "/v1/proxyd_routes", Action: resreg.ActionCreate, Status: http.StatusCreated},
-			{Verb: "PATCH", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionUpdate, Status: http.StatusOK},
-			{Verb: "DELETE", Path: "/v1/proxyd_routes/{path...}", Action: resreg.ActionDelete, Status: http.StatusNoContent},
-		},
-		MCPDoc:  resources.ProxydRoutesMCPDoc,
+		Name:      "proxyd_routes",
+		Endpoints: resources.ProxydRoutesEndpoints,
+		MCPDoc:    resources.ProxydRoutesMCPDoc,
 		MCPArgs: resources.ProxydRoutesMCPArgs,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil

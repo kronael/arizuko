@@ -9,8 +9,11 @@ package resreg
 //
 // Subsumes spec 5/4 (`openapi-discoverable`): no `huma`, no `swag`, no
 // codegen — `encoding/json` + `reflect` + the existing per-resource
-// catalog. Drift between handler and doc is structurally impossible
-// because both read the same struct.
+// catalog. Schemas can't drift — both handler and doc read the same
+// struct. Paths follow the 5/36 CRUD convention; a resource still
+// hand-rolling divergent shapes (routd's routes/acl) is the migration
+// gap, not a doc bug — tracked in BUGS.md until it becomes a resreg
+// resource with real Endpoints.
 
 import (
 	"encoding/json"
