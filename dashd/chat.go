@@ -93,12 +93,21 @@ func (d *dash) handleChatPortal(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
-	writeConvGroups(w, sessions)
+	// Continue links carry the raw (reusable) chat token — expose them only for
+	// folders the caller admins, matching the mint gate on handleChatNew.
+	admin := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		admin[f] = d.callerAdmins(r, f)
+	}
+	writeConvGroups(w, sessions, admin)
 	pageClose(w, r)
 }
 
 // visibleFolders lists the folders the caller may chat with (operator → all).
 func (d *dash) visibleFolders(allowed []string, operator bool) []string {
+	if d.adminDB() == nil {
+		return nil
+	}
 	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("chat: groups query", "err", err)
@@ -130,14 +139,20 @@ func (d *dash) loadChatSessions(folders []string, q, groupFilter string) []chatS
 		slog.Warn("chat: ensure sessions table", "err", err)
 		return nil
 	}
-	allow := make(map[string]bool, len(folders))
-	for _, f := range folders {
-		allow[f] = true
-	}
 
+	// Restrict to the visible folders IN SQL so the LIMIT counts only rows the
+	// caller may see — filtering visibility after the LIMIT would drop visible
+	// sessions whenever invisible ones fill the newest 200.
+	ph := make([]string, len(folders))
+	args := make([]any, len(folders))
+	for i, f := range folders {
+		ph[i] = "?"
+		args[i] = f
+	}
 	rows, err := d.db.Query(
 		`SELECT folder, token, label, created_at FROM chat_sessions
-		 ORDER BY created_at DESC LIMIT 200`)
+		 WHERE folder IN (`+strings.Join(ph, ",")+`)
+		 ORDER BY created_at DESC LIMIT 200`, args...)
 	if err != nil {
 		slog.Warn("chat: sessions query", "err", err)
 		return nil
@@ -148,9 +163,6 @@ func (d *dash) loadChatSessions(folders []string, q, groupFilter string) []chatS
 		var s chatSession
 		if err := rows.Scan(&s.folder, &s.token, &s.label, &s.createdAt); err != nil {
 			continue
-		}
-		if !allow[s.folder] {
-			continue // not visible to this caller
 		}
 		if groupFilter != "" && s.folder != groupFilter {
 			continue
@@ -244,8 +256,10 @@ func writeConvSearch(w http.ResponseWriter, q, groupFilter string, folders []str
 }
 
 // writeConvGroups renders sessions (already newest-first) under date-group
-// headers: Today / Yesterday / Past 7 days / Older.
-func writeConvGroups(w http.ResponseWriter, sessions []chatSession) {
+// headers: Today / Yesterday / Past 7 days / Older. A row links to its raw
+// continue token only when admin[folder] holds; a read-only viewer sees the
+// conversation as a non-clickable row (no reusable token).
+func writeConvGroups(w http.ResponseWriter, sessions []chatSession, admin map[string]bool) {
 	var cur string
 	open := false
 	for _, s := range sessions {
@@ -258,12 +272,16 @@ func writeConvGroups(w http.ResponseWriter, sessions []chatSession) {
 			cur = g
 			open = true
 		}
-		fmt.Fprintf(w,
-			`<a class="conv-row" href="/chat/%s/">`+
-				`<div class="conv-meta"><span class="conv-folder dim"><code>%s</code></span>`+
+		meta := fmt.Sprintf(
+			`<div class="conv-meta"><span class="conv-folder dim"><code>%s</code></span>`+
 				`<span class="conv-time dim"><abbr title="%s">%s</abbr></span></div>`+
-				`<div class="conv-title">%s</div></a>`,
-			esc(s.token), esc(s.folder), esc(s.createdAt), esc(relativeTS(s.createdAt)), esc(s.title))
+				`<div class="conv-title">%s</div>`,
+			esc(s.folder), esc(s.createdAt), esc(relativeTS(s.createdAt)), esc(s.title))
+		if admin[s.folder] {
+			fmt.Fprintf(w, `<a class="conv-row" href="/chat/%s/">%s</a>`, esc(s.token), meta)
+		} else {
+			fmt.Fprintf(w, `<div class="conv-row">%s</div>`, meta)
+		}
 	}
 	if open {
 		fmt.Fprint(w, `</div>`)
@@ -315,7 +333,7 @@ func (d *dash) handleChatGroup(w http.ResponseWriter, r *http.Request) {
 			`</form>`+
 			`<p class="dim">Opens the chat widget in a new session. Share the link to let others join.</p>`))
 
-	d.writeFolderConversations(w, folder)
+	d.writeFolderConversations(w, folder, d.callerAdmins(r, folder))
 	d.writeRecentWebMessages(w, folder)
 	pageClose(w, r)
 }
@@ -323,7 +341,9 @@ func (d *dash) handleChatGroup(w http.ResponseWriter, r *http.Request) {
 // writeFolderConversations lists the folder's web-chat conversations grouped by
 // topic (newest first), plus a "continue" link when a chat_sessions row exists.
 // Topics from before chat_sessions existed still show — without a continue link.
-func (d *dash) writeFolderConversations(w http.ResponseWriter, folder string) {
+// The continue link exposes the raw chat token, so it renders only for an admin
+// viewer (same gate as minting); a read-only viewer sees the topics without it.
+func (d *dash) writeFolderConversations(w http.ResponseWriter, folder string, admin bool) {
 	topics, err := store.New(d.adminDB()).Topics(folder)
 	if err != nil {
 		slog.Warn("chat: topics", "folder", folder, "err", err)
@@ -333,7 +353,10 @@ func (d *dash) writeFolderConversations(w http.ResponseWriter, folder string) {
 		fmt.Fprint(w, htmlSection("Conversations", `<p class="empty">No conversations yet. Start one above.</p>`))
 		return
 	}
-	tokens := d.folderSessionTokens(folder)
+	var tokens map[string]string
+	if admin {
+		tokens = d.folderSessionTokens(folder)
+	}
 	var rows [][]string
 	for _, t := range topics {
 		title := t.Preview

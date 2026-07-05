@@ -313,7 +313,7 @@ type dash struct {
 	appDir    string                                // HOST_APP_DIR; used to enumerate stock skills
 	ks        *auth.KeySet                          // authd JWKS; verifies proxyd's ES256 transit bearer (nil → local dev open)
 	svc       func(context.Context) (string, error) // service:dashd token for the whapd re-pair proxy (nil → local dev)
-	runedURL      string   // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
+	runedURL  string                                // RUNED_URL; target of the /dash/runed/kill operator-kill proxy ("" → kill disabled)
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte
@@ -465,7 +465,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	// Invite management — operator-gated.
 	mux.HandleFunc("GET /dash/invites/", g(d.handleInvites))
 	mux.HandleFunc("POST /dash/invites/", g(d.handleInviteCreate))
-	mux.HandleFunc("POST /dash/invites/{token}/revoke", g(d.handleInviteRevoke))
+	mux.HandleFunc("POST /dash/invites/{ref}/revoke", g(d.handleInviteRevoke))
 }
 
 func (d *dash) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -698,7 +698,7 @@ func (d *dash) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sessions breakdown — operator-only; group_folder → session count.
-	if operator {
+	if operator && d.adminDB() != nil {
 		rows, err := d.adminDB().Query(
 			`SELECT group_folder, COUNT(*) FROM sessions GROUP BY group_folder ORDER BY group_folder`)
 		if err != nil {
@@ -764,10 +764,50 @@ func (d *dash) handleTasksPartial(w http.ResponseWriter, r *http.Request) {
 	d.writeTaskRows(w, allowed, operator)
 }
 
+// ownerVisibleSQL builds a WHERE predicate restricting a folder-valued column to
+// the caller's granted folders (direct row or subtree), mirroring visible() so a
+// LIMIT counts only visible rows. ok is false when a grant carries a glob ('*')
+// SQL can't express — the caller then over-fetches and lets visible() filter.
+func ownerVisibleSQL(col string, allowed []string) (where string, args []any, ok bool) {
+	var terms []string
+	for _, a := range allowed {
+		if a == "" {
+			continue
+		}
+		if strings.ContainsRune(a, '*') {
+			return "", nil, false
+		}
+		terms = append(terms, col+" = ? OR "+col+" LIKE ?")
+		args = append(args, a, a+"/%")
+	}
+	if len(terms) == 0 {
+		return "0", nil, true // no concrete grants → nothing visible
+	}
+	return "(" + strings.Join(terms, " OR ") + ")", args, true
+}
+
 func (d *dash) writeTaskRows(w http.ResponseWriter, allowed []string, operator bool) {
-	rows, err := d.adminDB().Query(
-		`SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
-		 FROM scheduled_tasks ORDER BY owner, id LIMIT 500`)
+	if d.adminDB() == nil {
+		fmt.Fprint(w, `<tr><td colspan=7 class="empty">backend unavailable</td></tr>`)
+		return
+	}
+	// Scope the query for non-operators so the LIMIT counts only visible rows —
+	// filtering owner in Go after a plain LIMIT 500 drops a scoped user's tasks
+	// whenever 500 other-owner rows sort ahead of them. A glob grant that SQL
+	// can't express falls back to an over-fetch (visible() below stays the gate).
+	q := `SELECT id, owner, COALESCE(prompt,''), cron, status, created_at, next_run
+	      FROM scheduled_tasks`
+	var args []any
+	tail := ` ORDER BY owner, id LIMIT 500`
+	if !operator {
+		if where, wargs, ok := ownerVisibleSQL("owner", allowed); ok {
+			q += ` WHERE ` + where
+			args = wargs
+		} else {
+			tail = ` ORDER BY owner, id LIMIT 5000`
+		}
+	}
+	rows, err := d.adminDB().Query(q+tail, args...)
 	if err != nil {
 		slog.Warn("tasks: query", "err", err)
 		fmt.Fprintf(w, `<tr><td colspan=7 class="empty">error: %s</td></tr>`, esc(err.Error()))
@@ -843,6 +883,10 @@ func (d *dash) handleActivityPartial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dash) writeActivityRows(w http.ResponseWriter, allowed []string, operator bool) {
+	if d.adminDB() == nil {
+		fmt.Fprint(w, `<tr><td colspan=6 class="empty">backend unavailable</td></tr>`)
+		return
+	}
 	// Non-operators may filter out most of the newest 50; over-fetch so a
 	// scoped view still fills the table. Operators read exactly 50.
 	limit := 50
@@ -957,6 +1001,11 @@ func (d *dash) handleGroups(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<p class="dim">Group hierarchy. Expand a row to see routing rules and links.</p>`+
 		`<p><a href="/dash/groups/new">+ New group</a></p>`)
 
+	if d.adminDB() == nil {
+		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		pageClose(w, r)
+		return
+	}
 	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("groups: query", "err", err)
@@ -1255,6 +1304,11 @@ func (d *dash) handleMemory(w http.ResponseWriter, r *http.Request) {
 	pageTopFor(w, r, "Memory")
 	fmt.Fprint(w, `<p class="dim">Browse per-group MEMORY.md, CLAUDE.md, diary, episodes, users, facts.</p>`)
 
+	if d.adminDB() == nil {
+		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		pageClose(w, r)
+		return
+	}
 	rows, err := d.adminDB().Query(`SELECT folder FROM groups ORDER BY folder LIMIT 500`)
 	if err != nil {
 		slog.Warn("memory: groups query", "err", err)

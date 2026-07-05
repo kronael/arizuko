@@ -42,7 +42,7 @@ func callerGroups(r *http.Request) []string {
 func (d *dash) callerScope(r *http.Request) (allowed []string, operator bool) {
 	allowed = callerGroups(r)
 	if len(allowed) == 0 {
-		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" {
+		if sub := strings.TrimSpace(r.Header.Get("X-User-Sub")); sub != "" && d.adminDB() != nil {
 			allowed = store.New(d.adminDB()).UserScopes(strings.TrimPrefix(sub, "user:"))
 		}
 	}
@@ -88,6 +88,10 @@ func (d *dash) requireVisible(w http.ResponseWriter, r *http.Request, folder str
 	if _, ok := requireUser(w, r); !ok {
 		return false
 	}
+	if d.adminDB() == nil {
+		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
+		return false
+	}
 	allowed, operator := d.callerScope(r)
 	if !visible(allowed, operator, folder) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -125,6 +129,9 @@ func (d *dash) jidFolder(jid string) string {
 // countVisibleGroups counts groups the caller may see. Operators get the raw
 // COUNT(*); non-operators get the number of group folders that pass `visible`.
 func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
+	if d.adminDB() == nil {
+		return 0
+	}
 	if operator {
 		var n int
 		if err := d.adminDB().QueryRow(`SELECT COUNT(*) FROM groups`).Scan(&n); err != nil {
@@ -155,6 +162,9 @@ func (d *dash) countVisibleGroups(allowed []string, operator bool) int {
 // routing-target folder the caller may see. Operators get the raw distinct
 // count.
 func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
+	if d.adminDB() == nil {
+		return 0
+	}
 	if operator {
 		var n int
 		if err := d.adminDB().QueryRow(`SELECT COUNT(DISTINCT chat_jid) FROM messages WHERE errored=1`).Scan(&n); err != nil {
@@ -184,6 +194,9 @@ func (d *dash) countVisibleErroredChats(allowed []string, operator bool) int {
 // countVisibleFailedTasks counts task runs that errored in the last day whose
 // owning group folder the caller may see. Operators get the raw count.
 func (d *dash) countVisibleFailedTasks(allowed []string, operator bool) int {
+	if d.adminDB() == nil {
+		return 0
+	}
 	if operator {
 		var n int
 		if err := d.adminDB().QueryRow(
@@ -229,6 +242,10 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 	}
 	// ES256 subs carry a "user:" prefix; acl_membership keys on bare subs.
 	sub = strings.TrimPrefix(sub, "user:")
+	if d.adminDB() == nil {
+		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
+		return "", false
+	}
 	s := store.New(d.adminDB())
 	caller := auth.Caller{Principal: sub, Extra: callerGroups(r)}
 	if !auth.Authorize(s, caller, "admin", scope, nil) {
@@ -236,4 +253,24 @@ func (d *dash) requireAdmin(w http.ResponseWriter, r *http.Request, scope string
 		return "", false
 	}
 	return sub, true
+}
+
+// callerAdmins is the non-writing twin of requireAdmin: it reports the same
+// admin decision without emitting a 403. Read views use it to gate exposure of
+// write-capable data (raw chat tokens), so a caller with only read visibility
+// on a folder never sees a reusable bearer for it. Operators (`**` header) pass
+// via the same shortcut callerScope uses; everyone else needs an admin grant.
+func (d *dash) callerAdmins(r *http.Request, folder string) bool {
+	if _, operator := d.callerScope(r); operator {
+		return true
+	}
+	if d.adminDB() == nil {
+		return false
+	}
+	sub := strings.TrimPrefix(strings.TrimSpace(r.Header.Get("X-User-Sub")), "user:")
+	if sub == "" {
+		return false
+	}
+	caller := auth.Caller{Principal: sub, Extra: callerGroups(r)}
+	return auth.Authorize(store.New(d.adminDB()), caller, "admin", folder, nil)
 }

@@ -61,6 +61,10 @@ func (d *dash) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if _, ok := requireUser(w, r); !ok {
 		return
 	}
+	if d.adminDB() == nil {
+		http.Error(w, "backend unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
 	var owner, chatJID, prompt, status, createdAt string
 	var cron, nextRun, contextMode sql.NullString

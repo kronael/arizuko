@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -427,5 +428,85 @@ func TestHandleChatNew_forbidden(t *testing.T) {
 	}
 	if len(inst.Store.ListRouteTokens(folder)) != 0 {
 		t.Errorf("forbidden POST must not mint a token")
+	}
+}
+
+// A read-only viewer (visibility on the folder but no admin grant) sees the
+// conversation in the portal list but NOT its raw continue token — the token is
+// a reusable write-capable bearer, gated to admins like minting is.
+func TestHandleChatPortal_hidesTokenFromNonAdmin(t *testing.T) {
+	inst, mux := chatTestDash(t)
+	addGroup(t, inst, "eng")
+	now := time.Now().Format(time.RFC3339Nano)
+	seedChatSession(t, inst, "eng", "tok-secret", "eng thread", now)
+
+	req := httptest.NewRequest("GET", "/dash/chat/", nil)
+	req.Header.Set("X-User-Sub", "reader@x")
+	req.Header.Set("X-User-Groups", `["eng"]`) // read visibility, no admin ACL
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "eng thread") {
+		t.Errorf("read-only viewer should still see the conversation title: %q", body)
+	}
+	if strings.Contains(body, "tok-secret") || strings.Contains(body, `/chat/tok-secret/`) {
+		t.Errorf("raw chat token leaked to non-admin viewer")
+	}
+}
+
+// The group page gates continue tokens on admin too: an operator sees the
+// continue link, a read-only viewer does not.
+func TestHandleChatGroup_tokenAdminOnly(t *testing.T) {
+	inst, mux := chatTestDash(t)
+	folder := "eng"
+	addGroup(t, inst, folder)
+	now := time.Now().Format(time.RFC3339Nano)
+	seedChatSession(t, inst, folder, "tok-x", "", now)
+	seedWebTopic(t, inst, folder, "t1", "design review")
+
+	wOp := httptest.NewRecorder()
+	mux.ServeHTTP(wOp, asOperator(httptest.NewRequest("GET", "/dash/chat/"+folder+"/", nil)))
+	if !strings.Contains(wOp.Body.String(), "/chat/tok-x/") {
+		t.Fatalf("operator should see the continue token: %q", wOp.Body.String())
+	}
+
+	req := httptest.NewRequest("GET", "/dash/chat/"+folder+"/", nil)
+	req.Header.Set("X-User-Sub", "reader@x")
+	req.Header.Set("X-User-Groups", `["eng"]`)
+	wRd := httptest.NewRecorder()
+	mux.ServeHTTP(wRd, req)
+	if strings.Contains(wRd.Body.String(), "tok-x") {
+		t.Errorf("continue token leaked to non-admin viewer of the group page")
+	}
+}
+
+// loadChatSessions must filter to visible folders IN SQL, before the LIMIT —
+// otherwise a wall of newer invisible sessions buries the caller's own older one.
+func TestHandleChatPortal_visibleBeyondLimit(t *testing.T) {
+	inst, mux := chatTestDash(t)
+	addGroup(t, inst, "eng")
+	// One visible (older) session for the scoped caller.
+	old := time.Now().Add(-time.Hour).Format(time.RFC3339Nano)
+	seedChatSession(t, inst, "eng", "tok-eng", "eng thread", old)
+	// 250 newer sessions in a folder the caller cannot see — enough to overrun
+	// the LIMIT 200 if visibility were filtered in Go after the fetch.
+	for i := 0; i < 250; i++ {
+		ts := time.Now().Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano)
+		seedChatSession(t, inst, "secret", fmt.Sprintf("tok-s%03d", i), fmt.Sprintf("secret %d", i), ts)
+	}
+
+	req := httptest.NewRequest("GET", "/dash/chat/", nil)
+	req.Header.Set("X-User-Sub", "member@x")
+	req.Header.Set("X-User-Groups", `["eng"]`)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "eng thread") {
+		t.Errorf("visible session buried by newer invisible ones (filter-after-limit)")
 	}
 }

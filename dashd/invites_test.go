@@ -151,10 +151,11 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	// Seed one invite directly.
+	// Seed one invite directly (token long enough for the [:8] display slice).
+	const token = "tok-abcdef0123456789abcdef0123456789"
 	if _, err := db.Exec(
 		`INSERT INTO invites (token, target_glob, issued_by_sub, issued_at, max_uses, used_count)
-		 VALUES ('tok123', 'carol', 'github:operator', datetime('now'), 1, 0)`,
+		 VALUES (?, 'carol', 'github:operator', datetime('now'), 1, 0)`, token,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +164,22 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	mux := http.NewServeMux()
 	d.registerRoutes(mux)
 
-	req := httptest.NewRequest("POST", "/dash/invites/tok123/revoke", nil)
+	// The revoke form must address the opaque ref, never the raw bearer token —
+	// the token in a URL would leak to request / proxy logs.
+	req0 := httptest.NewRequest("GET", "/dash/invites/", nil)
+	req0.Header.Set("X-User-Sub", "github:operator")
+	w0 := httptest.NewRecorder()
+	mux.ServeHTTP(w0, req0)
+	ref := inviteRef(token)
+	list := w0.Body.String()
+	if !strings.Contains(list, `action="/dash/invites/`+ref+`/revoke"`) {
+		t.Errorf("revoke form does not use the opaque ref: %q", list)
+	}
+	if strings.Contains(list, `action="/dash/invites/`+token+`/revoke"`) {
+		t.Errorf("raw token leaked into the revoke form action")
+	}
+
+	req := httptest.NewRequest("POST", "/dash/invites/"+ref+"/revoke", nil)
 	req.Header.Set("X-User-Sub", "github:operator")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -178,7 +194,7 @@ func TestHandleInviteRevokeAndGone(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	mux.ServeHTTP(w2, req2)
 	body := w2.Body.String()
-	if strings.Contains(body, "tok123") {
+	if strings.Contains(body, token) {
 		t.Errorf("revoked token still visible: %q", body)
 	}
 	if !strings.Contains(body, "No invites") {

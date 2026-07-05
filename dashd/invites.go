@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +12,14 @@ import (
 
 	"github.com/kronael/arizuko/store"
 )
+
+// inviteRef is an opaque, stable handle for an invite used in the revoke URL.
+// The live token is a bearer, so putting it in a path leaks it to request /
+// proxy logs; its sha256 identifies the row without being redeemable.
+func inviteRef(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
 
 // handleInvites renders the full invites page.
 // GET lists all pending invites with an inline create form.
@@ -56,7 +66,7 @@ func (d *dash) handleInvites(w http.ResponseWriter, r *http.Request) {
 					`<form method="post" action="/dash/invites/%s/revoke" class="form-inline"`+
 						` onsubmit="return confirm('revoke invite %s?')">`+
 						`<button type="submit">revoke</button></form>`,
-					esc(inv.Token), esc(inv.Token[:8]),
+					inviteRef(inv.Token), esc(inv.Token[:8]),
 				)
 			}
 			tableRows[i] = []string{
@@ -138,17 +148,36 @@ func (d *dash) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
 	if _, ok := d.requireAdmin(w, r, "**"); !ok {
 		return
 	}
-	token := r.PathValue("token")
-	if token == "" {
-		http.Error(w, "token required", http.StatusBadRequest)
+	ref := r.PathValue("ref")
+	if ref == "" {
+		http.Error(w, "ref required", http.StatusBadRequest)
 		return
 	}
 	s := store.New(d.invitesDB())
-	if err := s.RevokeInvite(token); err != nil {
-		slog.Warn("invites: revoke", "token_prefix", token[:min(8, len(token))], "err", err)
+	// Resolve the opaque ref back to a token: the URL carries sha256(token), not
+	// the bearer, so match it against the current invite set.
+	invites, err := s.ListInvites("")
+	if err != nil {
+		slog.Warn("invites: revoke list", "err", err)
 		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("invite revoked", "token_prefix", token[:min(8, len(token))])
+	token := ""
+	for _, inv := range invites {
+		if inviteRef(inv.Token) == ref {
+			token = inv.Token
+			break
+		}
+	}
+	if token == "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err := s.RevokeInvite(token); err != nil {
+		slog.Warn("invites: revoke", "ref", ref, "err", err)
+		http.Error(w, "revoke failed", http.StatusInternalServerError)
+		return
+	}
+	slog.Info("invite revoked", "ref", ref)
 	http.Redirect(w, r, "/dash/invites/", http.StatusSeeOther)
 }

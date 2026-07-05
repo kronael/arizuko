@@ -28,6 +28,11 @@ func (d *dash) handleProfile(w http.ResponseWriter, r *http.Request) {
 		pageClose(w, r)
 		return
 	}
+	if d.adminDB() == nil {
+		fmt.Fprint(w, htmlBanner("err", "backend unavailable"))
+		pageClose(w, r)
+		return
+	}
 
 	var name string
 	_ = d.adminDB().QueryRow(

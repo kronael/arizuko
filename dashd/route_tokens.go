@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/store"
@@ -110,8 +110,9 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 
 func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	folder := r.PathValue("folder")
-	jidEnc := r.PathValue("jid")
-	jid := decodeJID(jidEnc)
+	// The {jid} segment was url.PathEscape'd into the revoke link; Go's mux
+	// unescapes it back to the raw JID here (same as folderPath/{folder}).
+	jid := r.PathValue("jid")
 
 	if _, ok := d.requireAdmin(w, r, folder); !ok {
 		return
@@ -134,11 +135,9 @@ func (d *dash) handleTokensRevoke(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dash/tokens/"+folderPath(folder)+"/", http.StatusSeeOther)
 }
 
-// encodeJID replaces / with - for use in URL path segments.
+// encodeJID escapes a JID into a single URL path segment. url.PathEscape is
+// reversible (Go's mux unescapes it back in PathValue), unlike the old "/"→"--"
+// scheme, which collided with labels containing "--" (labels allow "-").
 func encodeJID(jid string) string {
-	return strings.ReplaceAll(jid, "/", "--")
-}
-
-func decodeJID(enc string) string {
-	return strings.ReplaceAll(enc, "--", "/")
+	return url.PathEscape(jid)
 }
