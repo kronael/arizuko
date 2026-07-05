@@ -69,7 +69,6 @@ func TestAllToolsRegistered(t *testing.T) {
 		ListTasks:           func(f string, r bool) []core.Task { return nil },
 		ListRoutes:          func(f string, r bool) []core.Route { return nil },
 		DefaultFolderForJID: func(j string) string { return "" },
-		ListACL:             func(p string) []core.ACLRow { return nil },
 	}
 
 	// tier-0 with all rules — all tools should be present

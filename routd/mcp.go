@@ -167,12 +167,6 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			}
 			return oc.RevokeInvite(token)
 		},
-		GrantACL: func(p, sc, a, e string) error {
-			return s.grantACL(p, sc, a, e, "agent:"+t.folder)
-		},
-		RevokeACL: func(p, sc, a, e string) error {
-			return s.revokeACL(p, sc, a, e, "agent:"+t.folder)
-		},
 	}
 }
 
@@ -553,9 +547,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			}
 			return s.db.ConnectorSecrets(folder, callerSub, required)
 		},
-		// ACL: list_acl reads the operator rows; Authorize is the per-call row-ACL
-		// check ServeMCP runs when callerSub is set. Both nil-safe.
-		ListACL:   s.db.ListACL,
+		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub is
+		// set. nil-safe.
 		Authorize: s.db.Authorize,
 	}
 }

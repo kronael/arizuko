@@ -56,8 +56,6 @@ type GatedFns struct {
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
 	RevokeInvite         func(token string) error
-	GrantACL             func(principal, scope, action, effect string) error
-	RevokeACL            func(principal, scope, action, effect string) error
 	SubmitTurn           func(folder string, t TurnResult) error
 	// SubmitStatus delivers a mid-turn progress notice immediately as an interim
 	// "⏳ ..." message without ending the turn. Nil = method unconfigured.
@@ -183,7 +181,6 @@ type StoreFns struct {
 	// skip the call when the triggering inbound sender is timed-* (spec
 	// 5/G: scheduled / autonomous turns do not extend engagement).
 	BumpEngagement      func(jid, topic, folder string, until time.Time) error
-	ListACL             func(principal string) []core.ACLRow
 	MessagesBefore      func(jid string, before time.Time, limit int) ([]core.Message, error)
 	MessagesByThread    func(jid, topic string, before time.Time, limit int) ([]core.Message, error)
 	FindMessages        func(query, scope, sender, since string, limit int) ([]FoundMessage, error)
@@ -2060,8 +2057,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"ok": true, "token": token})
 		})
 
-	// add_acl/remove_acl: the MCP write-face of REST POST/DELETE /v1/acl.
-	// Both funnel through gated.GrantACL/RevokeACL — one writer, MCP and REST
 	// add_acl / remove_acl migrated to routd/acl_resource.go (see the comment at
 	// the former list_acl site above).
 
