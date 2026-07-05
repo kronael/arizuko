@@ -55,6 +55,34 @@ One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
   dashd CRUD hand-rolled per admin page, resource read via direct DB open.
 - No federation: `proxyd` opens two DB files; `messages.db` is shared.
 
+## Blocker: resreg does not model the AGENT socket (found by the web_routes pilot, 2026-07-05)
+
+The two-face mechanism is proven ONLY on the OPERATOR socket. `proxyd_routes`
+works because its MCP face lives on **webd's operator socket**, where callers
+carry `**`/operator ACL rows. The **agent socket** (`ipc.buildMCPServer`,
+per-folder in-container agent) authorizes differently, and `resreg.invoke`
+does not model it:
+
+- **Authz gap**: the agent path keys `mcp:<tool>` with
+  `AuthorizeOpts{Folder,WorldFolder,Tier}` → gets the TIER-DEFAULT-GRANTS
+  fallback (`grants/grants.go`). `resreg.invoke` hardcodes
+  `auth.Authorize("<name>:<action>", …)` with EMPTY opts → no fallback →
+  DENIES every folder agent. (Proven: current path allows `mcp:set_web_route`
+  for a tier-0 folder; resreg path denies `web_routes:create`.)
+- **Visibility gap**: `granted()`/`MatchingRules` gate which tools a tier even
+  SEES in `tools/list`. `resreg.MCPTools` `AddTool`s unconditionally → widens
+  visibility.
+- **Layering**: `ipc` doesn't import `store`/`resreg` by design — driving
+  registration from routd needs a new `ipc.ServeMCP` post-build seam.
+
+Opposite failure modes; no `Authz`/`MCPNames` tweak satisfies both. This is
+THE work of 5/44 for agent-facing resources — a resreg framework enhancement,
+not a mechanical migration. Decision (A: make `invoke` MCP-surface-aware +
+`MCPTools` consult `MatchingRules`; vs B: share only the Handler, keep agent
+MCP registration hand-rolled behind `granted()`) is recorded in
+`.ship/plan-5-44-rollout.md`. `MCPNames` override (flat agent tool names)
+shipped as the first enabler (`443dc4d3`).
+
 ## The deliverable: MCP management of the whole platform, written once
 
 The goal is **agent-first platform management** — every cold-tier management
