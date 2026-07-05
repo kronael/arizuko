@@ -514,6 +514,45 @@ func TestDeriveMCPTools_ReflectsRowType(t *testing.T) {
 	}
 }
 
+// TestDeriveMCPTools_MCPNames pins the flat-name override: a migrated resource
+// keeps its agent tool names (set_web_route) instead of the dotted default,
+// while actions with no override fall back to <name>.<action>.
+func TestDeriveMCPTools_MCPNames(t *testing.T) {
+	r := Resource{
+		Name: "web_routes",
+		Endpoints: []Endpoint{
+			{Verb: "POST", Path: "/v1/web_routes", Action: ActionCreate},
+			{Verb: "DELETE", Path: "/v1/web_routes", Action: ActionDelete},
+			{Verb: "GET", Path: "/v1/web_routes", Action: ActionList},
+		},
+		MCPDoc: map[Action]string{
+			ActionCreate: "c", ActionDelete: "d", ActionList: "l",
+		},
+		MCPArgs: map[Action][]MCPArg{
+			ActionCreate: {{Name: "path_prefix", Type: "string", Required: true}},
+		},
+		MCPNames: map[Action]string{
+			ActionCreate: "set_web_route",
+			ActionDelete: "del_web_route",
+			// ActionList intentionally omitted → dotted default.
+		},
+	}
+	got := map[Action]string{}
+	for _, tool := range deriveMCPTools(r) {
+		got[tool.Action] = tool.Name
+	}
+	want := map[Action]string{
+		ActionCreate: "set_web_route",
+		ActionDelete: "del_web_route",
+		ActionList:   "web_routes.list",
+	}
+	for a, w := range want {
+		if got[a] != w {
+			t.Errorf("%s tool name = %q, want %q", a, got[a], w)
+		}
+	}
+}
+
 func TestAction_Mutates(t *testing.T) {
 	for _, a := range []Action{ActionCreate, ActionUpdate, ActionDelete} {
 		if !a.Mutates() {

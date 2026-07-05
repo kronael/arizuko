@@ -167,6 +167,13 @@ type Resource struct {
 	// args are reflected from it and MCPArgs is ignored.
 	MCPArgs map[Action][]MCPArg
 
+	// MCPNames overrides the derived MCP tool name per action. Default is
+	// "<Name>.<action>" (the dotted convention). A migration that must keep
+	// an agent's existing flat tool name (add_route, set_web_route) sets it
+	// here so unifying REST+MCP onto one handler doesn't rename the live
+	// agent's tools. nil / absent action → dotted default.
+	MCPNames map[Action]string
+
 	// Schema half (spec 5/36). All optional. Resources that set
 	// RowType+Table are "engine-managed" and get generic CRUD via
 	// engine.go. Resources without RowType are forwarders or custom-
@@ -291,8 +298,12 @@ func deriveMCPTools(r Resource) []MCPTool {
 		if !ok && r.RowType != nil {
 			args = rowMCPArgsFor(r, e.Action)
 		}
+		name := r.Name + "." + string(e.Action)
+		if custom := r.MCPNames[e.Action]; custom != "" {
+			name = custom
+		}
 		out = append(out, MCPTool{
-			Name:        r.Name + "." + string(e.Action),
+			Name:        name,
 			Action:      e.Action,
 			Description: desc,
 			Args:        args,
