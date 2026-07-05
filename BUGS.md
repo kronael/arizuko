@@ -18,7 +18,11 @@ is purely about whether folder-scope is allowed. Fixing the docs also requires a
 - **Severity:** medium (breaks documented operator flow)
 - **Scope:** store/secrets.go:128 EnvProfileKeys; ant/skills/oracle/SKILL.md, ant/examples/*/PRODUCT.md
 - **Source:** credential refine-review 2026-07-02
-- **Status:** open (needs user design decision)
+- **Status:** RESOLVED 2026-07-05 — user decided codex scopes like Claude: one global (platform
+  `.env`) + BYOC (user-scoped), NEVER folder. Code already enforced this (store rejects folder;
+  readSecrets carries all 4 keys). Only `oracle/SKILL.md` Path B claimed "folder secret" — fixed to
+  env-profile. The `PRODUCT.md` examples were already correct (they use `[[env]]` = platform, not
+  `[[secret]]` folder). NOTE: the SKILL.md fix reaches live agents only after an ant image rebuild.
 
 ## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
 
