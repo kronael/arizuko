@@ -41,31 +41,6 @@ func TestNumArg(t *testing.T) {
 	}
 }
 
-// --- validHostname helper ---
-
-func TestValidHostname(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"example.com", true},
-		{"localhost", true},
-		{"my-host.example.org", true},
-		{"host:8080", true},
-		{"", false},
-		{strings.Repeat("a", 254), false},
-		{"has space", false},
-		{"has/slash", false},
-		{"has@at", false},
-	}
-	for _, c := range cases {
-		got := validHostname(c.in)
-		if got != c.want {
-			t.Errorf("validHostname(%q) = %v, want %v", c.in, got, c.want)
-		}
-	}
-}
-
 // --- renderEnv / expandSecret / scrubResult ---
 
 func TestRenderEnv(t *testing.T) {

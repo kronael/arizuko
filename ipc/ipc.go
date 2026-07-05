@@ -261,23 +261,6 @@ type StoreFns struct {
 
 	// LogIPCAudit persists one ipc_audit row. Nil = no-op.
 	LogIPCAudit func(folder, sub, tool, params, outcome string) error
-
-	// Egress allowlist (network_rules). AddNetworkRule appends one target for
-	// folder; RemoveNetworkRule drops it; ResolveAllowlist returns the inherited
-	// set (folder + ancestors + base); ListNetworkRules returns folder's own
-	// explicit rows. Spec 5/5 egress_allowlist.
-	AddNetworkRule    func(folder, target, by string) error
-	RemoveNetworkRule func(folder, target string) error
-	ResolveAllowlist  func(folder string) ([]string, error)
-	ListNetworkRules  func(folder string) ([]NetworkRule, error)
-}
-
-// NetworkRule mirrors store/routd NetworkRule for the ipc layer (ipc must not
-// import store). One explicit egress allowlist row.
-type NetworkRule struct {
-	Folder    string `json:"folder"`
-	Target    string `json:"target"`
-	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // FoundMessage mirrors store.FoundMessage for the ipc layer
@@ -719,23 +702,6 @@ type internalSendFile struct {
 	Filename  string
 	ReplyTo   string
 	ThreadID  string
-}
-
-func validHostname(h string) bool {
-	if h == "" || len(h) > 253 {
-		return false
-	}
-	for _, r := range h {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= 'A' && r <= 'Z':
-		case r >= '0' && r <= '9':
-		case r == '.' || r == '-' || r == ':':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // WebPresence is a folder's public web presence (spec 5/V get_web_presence):
@@ -2119,87 +2085,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				map[string]any{"id": rid, "target": route.Target}, nil)
 			slog.Info("route deleted", "id", rid)
 			return toolJSON(map[string]any{"deleted": true, "id": rid})
-		})
-
-	granted("network_allow",
-		"Open egress to `host` for `folder` and every descendant by appending an allowlist rule. "+
-			"Use when an agent needs to reach a host the default-deny proxy blocks (e.g. a vendor API). "+
-			"`host` is a bare domain (no scheme/port), e.g. 'example.com'. A rule at a parent folder cascades to all children.",
-		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required()), mcp.WithString("host", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.AddNetworkRule == nil {
-				return toolErr("network_allow not configured")
-			}
-			target := req.GetString("folder", "")
-			// Accept *.example.com — crackbox already suffix-matches a bare domain
-			// to all its subdomains, so normalize the glob to the apex and store
-			// that. Bare * (allow-all) stays rejected: opening all egress is an
-			// operator decision, not an agent grant.
-			host := strings.TrimPrefix(req.GetString("host", ""), "*.")
-			if !validHostname(host) {
-				return toolErr("host must be a bare domain (example.com) or subdomain glob " +
-					"(*.example.com); no scheme/port/path. A bare domain already covers its subdomains.")
-			}
-			if err := authzStructural("network_allow", auth.AuthzTarget{TargetFolder: target}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := db.AddNetworkRule(target, host, callerSub); err != nil {
-				emitSys("network_allow", target, callerSub, map[string]any{"host": host}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("network_allow", target, callerSub, map[string]any{"host": host}, nil)
-			slog.Info("egress allowed", "folder", target, "host", host)
-			return toolJSON(map[string]any{"allowed": true, "folder": target, "host": host})
-		})
-
-	granted("network_deny",
-		"Remove an egress allowlist rule: close access to `host` for `folder`. "+
-			"Only drops a rule set on `folder` itself; a host inherited from an ancestor must be removed at that ancestor.",
-		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required()), mcp.WithString("host", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.RemoveNetworkRule == nil {
-				return toolErr("network_deny not configured")
-			}
-			target := req.GetString("folder", "")
-			// Normalize the *.example.com glob the same way network_allow stores it,
-			// so a rule added as *.example.com can be removed by the same syntax.
-			host := strings.TrimPrefix(req.GetString("host", ""), "*.")
-			if host == "" {
-				return toolErr("host required")
-			}
-			if err := authzStructural("network_deny", auth.AuthzTarget{TargetFolder: target}); err != nil {
-				return toolErr(err.Error())
-			}
-			if err := db.RemoveNetworkRule(target, host); err != nil {
-				emitSys("network_deny", target, callerSub, map[string]any{"host": host}, err)
-				return toolErr(err.Error())
-			}
-			emitSys("network_deny", target, callerSub, map[string]any{"host": host}, nil)
-			slog.Info("egress denied", "folder", target, "host", host)
-			return toolJSON(map[string]any{"denied": true, "folder": target, "host": host})
-		})
-
-	granted("network_list",
-		"List the egress allowlist for `folder`: `resolved` is every host the folder can reach "+
-			"(its own rules plus those inherited from ancestors and the instance base); `own` is only the rules set on `folder` itself.",
-		[]mcp.ToolOption{mcp.WithString("folder", mcp.Required())},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if db.ResolveAllowlist == nil || db.ListNetworkRules == nil {
-				return toolErr("network_list not configured")
-			}
-			target := req.GetString("folder", "")
-			if err := authzStructural("network_list", auth.AuthzTarget{TargetFolder: target}); err != nil {
-				return toolErr(err.Error())
-			}
-			resolved, err := db.ResolveAllowlist(target)
-			if err != nil {
-				return toolErr(err.Error())
-			}
-			own, err := db.ListNetworkRules(target)
-			if err != nil {
-				return toolErr(err.Error())
-			}
-			return toolJSON(map[string]any{"folder": target, "resolved": resolved, "own": own})
 		})
 
 	granted("schedule_task",

@@ -563,22 +563,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		},
 		// ACL: list_acl reads the operator rows; Authorize is the per-call row-ACL
 		// check ServeMCP runs when callerSub is set. Both nil-safe.
-		ListACL:           s.db.ListACL,
-		Authorize:         s.db.Authorize,
-		AddNetworkRule:    s.db.AddNetworkRule,
-		RemoveNetworkRule: s.db.RemoveNetworkRule,
-		ResolveAllowlist:  s.db.ResolveAllowlist,
-		ListNetworkRules: func(folder string) ([]ipc.NetworkRule, error) {
-			rows, err := s.db.ListNetworkRules(folder)
-			if err != nil {
-				return nil, err
-			}
-			out := make([]ipc.NetworkRule, len(rows))
-			for i, r := range rows {
-				out[i] = ipc.NetworkRule{Folder: r.Folder, Target: r.Target, CreatedBy: r.CreatedBy}
-			}
-			return out, nil
-		},
+		ListACL:   s.db.ListACL,
+		Authorize: s.db.Authorize,
 	}
 }
 
@@ -635,8 +621,10 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// ListACL key in deriveFolderGrants). With no acl rows, Authorize returns false
 	// only on an explicit deny; tier-default fallback covers the no-row case.
 	callerSub := "folder:" + t.folder
-	// spec 5/44 pilot: mount web_route management tools via resreg (shared
-	// handler + tx/audit) with the agent's tier-aware Gate + visibility.
-	postBuild := s.webRoutesPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, postBuild)
+	// spec 5/44: mount the agent's management tools via resreg (shared handler +
+	// tx/audit) with the agent's tier-aware Gate + visibility. One postBuild seam
+	// per migrated resource; ServeMCP applies them all.
+	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules)
+	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules)
 }

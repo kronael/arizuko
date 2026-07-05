@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-// NetworkRule is one explicit egress allowlist row.
+// NetworkRule is one explicit egress allowlist row. JSON tags match the shape
+// network_list's `own` array returns to the agent (was ipc.NetworkRule).
 type NetworkRule struct {
-	Folder    string
-	Target    string
-	CreatedBy string
+	Folder    string `json:"folder"`
+	Target    string `json:"target"`
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // AddNetworkRule appends one egress allowlist target for folder (idempotent).
