@@ -2,12 +2,15 @@ package routd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -31,11 +34,68 @@ type extAuthConfig struct {
 }
 
 type extToolConfig struct {
+	Name        string           `toml:"name"`
+	Description string           `toml:"description"`
+	Scope       string           `toml:"scope"`
+	Method      string           `toml:"method"`
+	Path        string           `toml:"path"`
+	Params      []extParamConfig `toml:"param"`
+}
+
+// extParamConfig is an optional [[ext.tool.param]] entry declaring a body/query
+// argument. Path placeholders ({zone_id}) are schema'd automatically; this is
+// for the extra fields a descriptor wants to surface to the agent as typed.
+type extParamConfig struct {
 	Name        string `toml:"name"`
+	Type        string `toml:"type"`
+	Required    bool   `toml:"required"`
 	Description string `toml:"description"`
-	Scope       string `toml:"scope"`
-	Method      string `toml:"method"`
-	Path        string `toml:"path"`
+}
+
+var extPathParam = regexp.MustCompile(`\{([^}]+)\}`)
+
+// extInputSchema builds the MCP input schema for one ext tool. Path
+// placeholders become required string properties (the URL can't render without
+// them); declared params add typed fields. additionalProperties stays true so
+// the agent may still pass body fields the descriptor doesn't enumerate — which
+// is how CallExtTool forwards remaining args. Flat by design: nested tool
+// schemas degrade LLM tool-calling (see reference_tool_schema_bias).
+func extInputSchema(path string, params []extParamConfig) json.RawMessage {
+	props := map[string]any{}
+	var required []string
+	seen := map[string]bool{}
+	add := func(name string, prop map[string]any, req bool) {
+		props[name] = prop
+		if req && !seen[name] {
+			required = append(required, name)
+			seen[name] = true
+		}
+	}
+	for _, m := range extPathParam.FindAllStringSubmatch(path, -1) {
+		name := strings.TrimSuffix(m[1], "...")
+		add(name, map[string]any{"type": "string"}, true)
+	}
+	for _, p := range params {
+		typ := p.Type
+		if typ == "" {
+			typ = "string"
+		}
+		prop := map[string]any{"type": typ}
+		if p.Description != "" {
+			prop["description"] = p.Description
+		}
+		add(p.Name, prop, p.Required)
+	}
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           props,
+		"additionalProperties": true,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	b, _ := json.Marshal(schema)
+	return b
 }
 
 type extFile struct {
@@ -94,6 +154,7 @@ func LoadExtProviders(_ context.Context, dir string) ([]ipc.ExtTool, error) {
 				LocalName:   p.Name + "_" + t.Name,
 				Description: t.Description,
 				Scope:       t.Scope,
+				InputSchema: extInputSchema(t.Path, t.Params),
 				BaseURL:     p.Base,
 				Method:      t.Method,
 				Path:        t.Path,

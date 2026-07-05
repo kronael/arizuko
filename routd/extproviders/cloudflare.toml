@@ -20,6 +20,21 @@ base = "https://api.cloudflare.com/client/v4"
   method      = "POST"
   path        = "/zones/{zone_id}/dns_records"
 
+    [[ext.tool.param]]
+    name        = "type"
+    required    = true
+    description = "Record type: A, AAAA, CNAME, TXT, MX, ..."
+
+    [[ext.tool.param]]
+    name        = "name"
+    required    = true
+    description = "Record name, e.g. www.example.com"
+
+    [[ext.tool.param]]
+    name        = "content"
+    required    = true
+    description = "Record value, e.g. 203.0.113.10"
+
   [[ext.tool]]
   name        = "dns_delete"
   description = "Delete a DNS record from a Cloudflare zone."

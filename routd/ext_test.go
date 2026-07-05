@@ -34,6 +34,49 @@ func TestLoadExtProviders_BuiltinCloudflare(t *testing.T) {
 	}
 }
 
+func TestLoadExtProviders_InputSchema(t *testing.T) {
+	tools, err := LoadExtProviders(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ipc.ExtTool{}
+	for _, x := range tools {
+		byName[x.LocalName] = x
+	}
+	parse := func(name string) (map[string]any, map[string]bool) {
+		raw := byName[name].InputSchema
+		if len(raw) == 0 {
+			t.Fatalf("%s: no InputSchema", name)
+		}
+		var s struct {
+			Properties map[string]any `json:"properties"`
+			Required   []string       `json:"required"`
+		}
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		req := map[string]bool{}
+		for _, r := range s.Required {
+			req[r] = true
+		}
+		return s.Properties, req
+	}
+	// Path placeholders → required string props.
+	props, req := parse("cloudflare_dns_delete")
+	for _, want := range []string{"zone_id", "record_id"} {
+		if _, ok := props[want]; !ok || !req[want] {
+			t.Errorf("dns_delete: %s should be a required property", want)
+		}
+	}
+	// Declared [[param]] fields merge with the path param.
+	props, req = parse("cloudflare_dns_create")
+	for _, want := range []string{"zone_id", "type", "name", "content"} {
+		if _, ok := props[want]; !ok || !req[want] {
+			t.Errorf("dns_create: %s should be a required property", want)
+		}
+	}
+}
+
 func TestCallExtTool_Bearer(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
