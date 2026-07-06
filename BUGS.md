@@ -22,10 +22,14 @@ routes (3195f867), tasks (0b6ca53e). Open:
      operator can cancel/patch any same-world sibling's task (`isInWorld`). Uncovered
      (`TestRESTTaskScopedSelfService` uses tier-2, where exact-own ≈ ownsFolder). Present on
      main since the tasks fold (0b6ca53e).
-   Fix (option 2, user-chosen 2026-07-06): decouple containment into a routd-internal
+   **RESOLVED 2026-07-06 (0d25b687).** Decoupled containment into a routd-internal
    per-face `containFn(caller,action,target)` — agent→tier `AuthorizeStructural`,
-   REST→`ownsFolder` — dropping the baked tier check from the handler (resreg untouched).
-   TDD'd: the two tasks guards fail on main (prove the leak), pass after. In progress.
+   REST→`ownsFolder` — dropping the baked tier check from the handler (resreg untouched;
+   set_routes keeps its face-agnostic `routeTargetWithin` loop). TDD'd: the two tasks
+   guards returned 200+deleted pre-fix (leak confirmed), 403 post-fix. Guards:
+   `TestRESTTask{Tier0NoCrossTenant,Tier1NoWorldLeak,Tier2Descendant}`,
+   `TestRESTRoute{Tier1OwnSubtree,Tier2OperatorOwnSubtree}`. Agent tier semantics
+   (`TestRoutesMCP_*`/`TestScheduledTasksMCP_*`) unchanged.
 2. **network_rules: already clean, out of scope.** Its `AuthorizeStructural` lives in the
    injected Gate (network_rules_resource.go:187), the handler is auth-agnostic, and it has
    NO REST twin — the model the decouple brings routes/tasks to. Adopt the same containFn
