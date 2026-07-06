@@ -117,7 +117,9 @@ export INSTANCE_NAME=demo
     <ul>
       <li><code>/dash/routes/</code> &mdash; routes editor: list, create, edit, delete rules.</li>
       <li><code>/dash/groups/new</code> + <code>/dash/groups/{folder}/settings</code> &mdash; group create / settings / delete.</li>
-      <li><code>/dash/me/secrets</code> &mdash; per-user secret set, list, delete.</li>
+      <li><code>/dash/me/secrets</code> &mdash; per-user capability token set, list, delete.</li>
+      <li><code>/dash/me/env</code> &mdash; per-user model API keys (<code>ANTHROPIC_API_KEY</code> and the like), kept separate from capability tokens.</li>
+      <li><code>/dash/me/connections</code> &mdash; surrogate OAuth: &ldquo;Connect GitHub&rdquo; writes an access + refresh token into the same <code>secrets</code> row a pasted <code>GITHUB_TOKEN</code> would, without the user minting a PAT by hand.</li>
       <li><code>/dash/channels/whatsapp/pair</code> &mdash; self-service WhatsApp re-pair page. Requires the <code>**</code> operator super-grant. Calls whapd <code>/v1/pair/start</code>; the pairing code is returned once, expires in 60s, rate-limited to 5/hr. Every start writes an audit row in <code>messages</code>.</li>
     </ul>
 
@@ -151,7 +153,7 @@ export INSTANCE_NAME=demo
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/components/dashd.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-13">2026-06-13</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

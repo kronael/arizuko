@@ -532,7 +532,7 @@
 
     <h3 id="cancel_task"><code>cancel_task</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (<code>pause_task</code>) &mdash; this cannot be undone.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2117"><code>ipc/ipc.go:2117</code></a> &middot; Grant action: <code>cancel_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on the task's owner folder.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2117"><code>ipc/ipc.go:2117</code></a> &middot; Grant action: <code>cancel_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on the task's owner folder. REST twin: <code>DELETE /v1/scheduled_tasks</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -543,12 +543,12 @@
 
     <h3 id="list_tasks"><code>list_tasks</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Return scheduled tasks visible to this group. Use for a plain task dump; prefer <code>inspect_tasks</code> when you also want task_run_logs or per-task history.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2143"><code>ipc/ipc.go:2143</code></a> &middot; Grant action: <code>list_tasks</code> (in <code>tier1FixedActions</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2143"><code>ipc/ipc.go:2143</code></a> &middot; Grant action: <code>list_tasks</code> (in <code>tier1FixedActions</code>). REST twin: <code>GET /v1/scheduled_tasks</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON array of <code>core.Task</code>.</p>
 
     <h3 id="pause_task"><code>pause_task</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2111"><code>ipc/ipc.go:2111</code></a> &middot; Grant action: <code>pause_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on task owner.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2111"><code>ipc/ipc.go:2111</code></a> &middot; Grant action: <code>pause_task</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> on task owner. REST twin: <code>POST /v1/scheduled_tasks/pause</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -559,7 +559,7 @@
 
     <h3 id="resume_task"><code>resume_task</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Re-activate a paused task so it resumes firing on its schedule. Use to undo <code>pause_task</code>. No effect on already-active or cancelled tasks.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2114"><code>ipc/ipc.go:2114</code></a> &middot; Grant action: <code>resume_task</code> (in <code>tier1FixedActions</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2114"><code>ipc/ipc.go:2114</code></a> &middot; Grant action: <code>resume_task</code> (in <code>tier1FixedActions</code>). REST twin: <code>POST /v1/scheduled_tasks/resume</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -570,7 +570,7 @@
 
     <h3 id="schedule_task"><code>schedule_task</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Create a scheduled prompt that fires against a target chat. <code>cron</code> accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 one-shot timestamp.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2024"><code>ipc/ipc.go:2024</code></a> &middot; Grant action: <code>schedule_task</code> (in <code>tier1FixedActions</code>) &middot; Deduplicates against existing active tasks with same <code>(folder, cron, prompt)</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L2024"><code>ipc/ipc.go:2024</code></a> &middot; Grant action: <code>schedule_task</code> (in <code>tier1FixedActions</code>) &middot; Deduplicates against existing active tasks with same <code>(folder, cron, prompt)</code>. REST twin: <code>POST /v1/scheduled_tasks</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -586,7 +586,7 @@
 
     <h3 id="add_route"><code>add_route</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Append one routing rule. Preferred over <code>set_routes</code> for everything except full rewrites.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1889"><code>ipc/ipc.go:1889</code></a> &middot; Grant action: <code>add_route</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> with <code>RouteTarget</code>.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1889"><code>ipc/ipc.go:1889</code></a> &middot; Grant action: <code>add_route</code> (in <code>tier1FixedActions</code>) &middot; <code>auth.Authorize</code> with <code>RouteTarget</code>. REST twin: <code>POST /v1/routes</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -597,7 +597,7 @@
 
     <h3 id="delete_route"><code>delete_route</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Remove one routing rule by id. Use after <code>list_routes</code>/<code>inspect_routing</code> to surgically drop a rule. Cannot delete the caller's own default route (<code>seq=0</code>, target=own folder).</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1919"><code>ipc/ipc.go:1919</code></a> &middot; Grant action: <code>delete_route</code> (in <code>tier1FixedActions</code>).</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1919"><code>ipc/ipc.go:1919</code></a> &middot; Grant action: <code>delete_route</code> (in <code>tier1FixedActions</code>). REST twin: <code>DELETE /v1/routes/{id}</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -608,12 +608,12 @@
 
     <h3 id="list_routes"><code>list_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Return the routing table rows this group can see. Use for a raw route dump; prefer <code>inspect_routing</code> when you also want JID&rarr;folder resolution or errored-chat context.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1829"><code>ipc/ipc.go:1829</code></a> &middot; Grant action: <code>list_routes</code> (in <code>tier1FixedActions</code>) &middot; granted by default at tier 1.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1829"><code>ipc/ipc.go:1829</code></a> &middot; Grant action: <code>list_routes</code> (in <code>tier1FixedActions</code>) &middot; granted by default at tier 1. REST twin: <code>GET /v1/routes</code>.</p>
     <p class="returns"><strong>Params:</strong> none. <strong>Returns:</strong> JSON <code>{"routes": [...]}</code>.</p>
 
     <h3 id="set_routes"><code>set_routes</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration; prefer <code>add_route</code>/<code>delete_route</code> for targeted edits.</p>
-    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1837"><code>ipc/ipc.go:1837</code></a> &middot; Grant action: <code>set_routes</code> (in <code>tier1FixedActions</code>) &middot; Rejects targets outside the caller's folder subtree; refuses to drop the caller's <code>seq=0</code> self-default.</p>
+    <p class="meta">Source: <a href="https://github.com/kronael/arizuko/blob/main/ipc/ipc.go#L1837"><code>ipc/ipc.go:1837</code></a> &middot; Grant action: <code>set_routes</code> (in <code>tier1FixedActions</code>) &middot; Rejects targets outside the caller's folder subtree; refuses to drop the caller's <code>seq=0</code> self-default. REST twin: <code>PUT /v1/routes</code>.</p>
     <table class="params">
       <thead><tr><th>name</th><th>type</th><th>req</th><th>description</th></tr></thead>
       <tbody>
@@ -623,7 +623,7 @@
     <p class="returns"><strong>Returns:</strong> JSON <code>{"updated": true, "count": &lt;n&gt;}</code>.</p>
 
     <h2 id="egress">egress</h2>
-    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three gate on <code>auth.AuthorizeStructural</code>: tier 0 (root) is unrestricted; tier 1 is confined to its own folder and descendants; tier 2+ cannot manage egress. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md">5/5</a> (<code>egress_allowlist</code>). A REST <code>/v1/network_rules</code> twin is documented in the OpenAPI doc but not yet mounted &mdash; only the MCP tools work today.</p>
+    <p>Manage the egress allowlist crackbox enforces. The proxy is default-deny &mdash; a folder only reaches hosts it (or an ancestor) has been allowed. Rules cascade down the tree: a rule at a parent folder opens the host for every descendant. All three gate on <code>auth.AuthorizeStructural</code>: tier 0 (root) is unrestricted; tier 1 is confined to its own folder and descendants; tier 2+ cannot manage egress. Backed by the <code>network_rules</code> table. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/5-uniform-mcp-rest.md">5/5</a> (<code>egress_allowlist</code>). Agent-only by design &mdash; there is no REST twin, and <code>network_rules</code> isn&rsquo;t mounted at <code>/v1/network_rules</code> or listed in routd&rsquo;s <code>/openapi.json</code>.</p>
 
     <h3 id="network_allow"><code>network_allow</code> <span class="tier">tier 0&ndash;1</span></h3>
     <p>Append an allowlist rule so <code>folder</code> and every descendant can reach <code>host</code>. Use when an agent needs a host the default-deny proxy blocks &mdash; a vendor API, say. <code>host</code> is a bare hostname (no scheme, no path), e.g. <code>example.com</code>. The rule cascades to all children.</p>
@@ -880,7 +880,7 @@ base = "https://api.cloudflare.com/client/v4"
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/mcp.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-01">2026-07-01</time>
       </div>
     </main>
 

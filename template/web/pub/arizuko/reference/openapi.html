@@ -54,7 +54,7 @@
         <tr>
           <td><code>routd</code></td>
           <td><code>https://&lt;host&gt;/openapi.json</code> via proxyd, or <code>http://routd:8080/openapi.json</code> intra-container</td>
-          <td>groups, acl, acl_membership, routes, web_routes, scheduled_tasks, secrets, network_rules</td>
+          <td>routes, web_routes, acl</td>
         </tr>
         <tr>
           <td><code>proxyd</code></td>
@@ -85,6 +85,8 @@
     </table>
 
     <p>Daemons that own no resources still emit a valid OpenAPI document so external tooling can introspect them uniformly. The schemas + paths blocks are empty but <code>info</code>, <code>servers</code>, and the standard <code>components/responses</code> (400, 401, 403, 404, 409, 500) are present.</p>
+
+    <p>routd's own <code>/openapi.json</code> lists only the resources it actually mounts over REST. <code>groups</code>, <code>acl_membership</code>, <code>scheduled_tasks</code>, <code>secrets</code>, and <code>network_rules</code> live in the same registry and drive the <code>arizuko export</code>/<code>apply</code> YAML surface (see <a href="cli.html">CLI reference</a>), but each has a reason it's off routd's REST doc: <code>network_rules</code> is agent-MCP-only by design, <code>secrets</code> never exposes a read op so it's excluded to keep enc_value blobs off any read surface, and <code>groups</code>/<code>acl_membership</code> are dashd-FS-managed rather than routd-REST-managed. <code>scheduled_tasks</code> does have a REST face mounted on routd (<a href="mcp.html#scheduling">MCP reference</a> lists the REST twins) but isn&rsquo;t in this name list, so it's missing from routd's <code>/openapi.json</code> even though the endpoints work &mdash; a doc gap, not a missing feature.</p>
 
     <h2>How it works</h2>
 
@@ -126,7 +128,7 @@ curl -s https://&lt;host&gt;/openapi.json | jq '.components.schemas.Routes'</cod
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/openapi.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-05">2026-07-05</time>
       </div>
     </main>
 
