@@ -50,11 +50,16 @@ func TestRESTReadFolderBound(t *testing.T) {
 	if c := getCode(t, "alice", "/v1/routing/errored?folder=alice", "routes:read:own_group"); c != 200 {
 		t.Fatalf("own errored = %d want 200", c)
 	}
-	// web_routes list rides the shared handler through the REST Gate: a tier-0
-	// (top-level) token lists every folder's routes, a scoped one only its own
-	// subtree (?folder= must stay inside it).
+	// web_routes list rides the shared handler through the REST Gate. Only an
+	// empty-folder (root/service) token is unrestricted; a folder-scoped token —
+	// even one at a top-level folder, which is tier-0 — lists only its own subtree
+	// (the leak guard: keying list-all on tier-0 would let a top-level TENANT read
+	// every folder's routes; TestRESTWebRouteScopedListNoLeak asserts the content).
+	if c := getCode(t, "", "/v1/web_routes", "routes:read"); c != 200 {
+		t.Fatalf("root web_routes list = %d want 200", c)
+	}
 	if c := getCode(t, "alice", "/v1/web_routes", "routes:read:own_group"); c != 200 {
-		t.Fatalf("tier-0 web_routes list = %d want 200", c)
+		t.Fatalf("own-folder web_routes list = %d want 200", c)
 	}
 	if c := getCode(t, "alice/eng", "/v1/web_routes?folder=alice/ops", "routes:read:own_group"); c != 403 {
 		t.Fatalf("cross-folder web_routes list = %d want 403", c)

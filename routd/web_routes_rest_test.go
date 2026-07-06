@@ -123,6 +123,32 @@ func TestRESTWebRouteTier0DeleteWidens(t *testing.T) {
 	}
 }
 
+// TestRESTWebRouteScopedListNoLeak is the leak guard for webRoutesTarget: a
+// top-level folder is tier-0, but a folder-SCOPED token there must list only its
+// own routes, never a sibling's. Keying list-all on tier-0 (instead of an empty
+// folder claim = root/service token) would leak every folder's routes to any
+// top-level tenant. Content-level, because a status-only check can't tell
+// "own-only, 200" from "all, 200".
+func TestRESTWebRouteScopedListNoLeak(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:read:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "bob"})
+	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/alice/a", Access: "public", Folder: "alice"})
+	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/bob/b", Access: "public", Folder: "bob"})
+
+	g := doJSON(t, h, "GET", "/v1/web_routes", "", nil)
+	if g.Code != 200 {
+		t.Fatalf("alice list = %d want 200 body=%s", g.Code, g.Body.String())
+	}
+	var listed []ipc.WebRoute
+	if err := json.Unmarshal(g.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("alice list body %s: %v", g.Body.String(), err)
+	}
+	if len(listed) != 1 || listed[0].PathPrefix != "/pub/alice/a" {
+		t.Fatalf("alice (tier-0 scoped) list = %+v want ONLY /pub/alice/a — bob's route leaked", listed)
+	}
+}
+
 // TestRESTWebRouteOwnerLookup: the first-claim owner lookup, relocated off GET
 // /v1/web_routes to GET /v1/web_routes/owner, still resolves an exact path_prefix
 // to its owning folder (or "" when unclaimed).

@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/resreg"
 )
 
@@ -60,10 +59,12 @@ func (s *Server) webRoutesRESTCaller(r *http.Request) (resreg.Caller, error) {
 }
 
 // webRoutesTarget resolves the folder the shared handler acts on. GET reads
-// ?folder= (empty → "" for a tier-0 caller so the list spans every folder, else
-// the caller's own JWT folder — the old handleWebRoutesList scoping). PUT/DELETE
-// take the body's folder (empty → the JWT folder; the create self-slot + delete
-// scoping need a real folder, never ""). resreg builds the Caller before
+// ?folder= (empty → "" ONLY for a root/service token with no folder claim so the
+// list spans every folder, else the caller's own JWT folder — the old
+// handleWebRoutesList scoping, which keys on folder=="" NOT tier: a scoped tenant
+// at a top-level folder is tier-0 yet must still see only its own routes).
+// PUT/DELETE take the body's folder (empty → the JWT folder; the create self-slot
+// + delete scoping need a real folder, never ""). resreg builds the Caller before
 // decoding Args, so the body is read then restored (peekBodyFolder) for resreg's
 // own decode.
 func webRoutesTarget(r *http.Request, jwtFolder string) string {
@@ -71,10 +72,10 @@ func webRoutesTarget(r *http.Request, jwtFolder string) string {
 		if q := r.URL.Query().Get("folder"); q != "" {
 			return q
 		}
-		if auth.Resolve(jwtFolder).Tier == 0 {
-			return "" // tier-0 (operator / any top-level folder) lists all
+		if jwtFolder == "" {
+			return "" // root/service token (no folder claim) is unrestricted
 		}
-		return jwtFolder
+		return jwtFolder // a folder-scoped token (any tier) lists only its own
 	}
 	if f := peekBodyFolder(r); f != "" {
 		return f
