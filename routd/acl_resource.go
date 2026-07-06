@@ -3,27 +3,33 @@ package routd
 // acl_resource.go — 5/44 agent-face migration of the acl tools
 // (add_acl/remove_acl/list_acl) onto one resreg.Resource + the injected Gate.
 // resreg owns handler dispatch + the mutation's tx + its audit_log row; routd
-// owns the auth POLICY (spec 5/44). Three semantics preserved from the deleted
-// ipc bodies + s.grantACL/revokeACL:
+// owns the auth POLICY (spec 5/44). Three semantics the shared handler preserves:
 //
 //   - scope-containment (the stricter MCP gate): a caller may only grant/revoke
 //     within its own authority — the Gate runs auth.AuthorizeStructural on the
 //     `scope` arg (add/remove) or `folder` arg (list). scope "**" (operator
 //     role) is thus tier-0-only by containment, exactly as before.
 //   - the scope=="**" overload: grant/revoke write an acl_membership operator
-//     edge, not an acl row. Done tx-aware here (calling s.grantACL would open
-//     its own BeginTx and DEADLOCK inside invoke's tx) while PRESERVING the
+//     edge, not an acl row. Done tx-aware here (calling s.db.AddMembership would
+//     open its own BeginTx and DEADLOCK inside invoke's tx) while PRESERVING the
 //     recursive cycle check store.AddMembership does.
 //   - list_acl is tier 0-1 only (Visible predicate) and returns only rows whose
 //     scope == the queried folder.
 //
-// The REST face (/v1/acl POST + body-DELETE, routd/server.go) is untouched —
-// agent-face only; unifying its scope model is a separate 5/44 step.
+// The REST face (/v1/acl POST=add + body-DELETE=remove) rides the SAME shared
+// handler via mountACL (below): resreg.RegisterREST on an add/remove-only copy of
+// aclResource() with a REST Caller + Gate injected. list_acl has NO REST twin —
+// it stays agent-only. The REST Gate re-runs the MCP scope-containment
+// (AuthorizeStructural on the body scope, tier from the JWT folder), so the
+// operator/human face can no longer grant/revoke outside its authority ("**"
+// needs tier-0/root) — closing the pre-fold hole where handleACLAdd/Remove gated
+// on the acl:write bearer scope ALONE and never bound the body scope.
 
 import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -86,6 +92,62 @@ func (s *Server) aclResource() resreg.Resource {
 		Handler: s.aclHandler,
 		Store:   store.New(s.db.SQL()),
 	}
+}
+
+// mountACL wires the /v1/acl operator/human REST face onto the SAME shared
+// aclHandler the agent's add_acl/remove_acl MCP tools use (spec 5/44 REST fold).
+// Only POST(add) + DELETE(remove) are REST-exposed — list_acl stays agent-only
+// (no REST twin). The injected aclRESTGate re-runs the MCP scope-containment, so
+// a REST caller can only grant/revoke within its own authority.
+func (s *Server) mountACL(mux *http.ServeMux) {
+	res := s.aclResource()
+	res.Endpoints = []resreg.Endpoint{
+		{Verb: "POST", Path: "/v1/acl", Action: resreg.Action("add")},
+		{Verb: "DELETE", Path: "/v1/acl", Action: resreg.Action("remove")},
+	}
+	res.Gate = s.aclRESTGate
+	resreg.RegisterREST(mux, res, s.aclRESTCaller)
+}
+
+// aclRESTCaller builds the REST Caller for the shared acl handler: identity via
+// the Verifier, Caller.Folder = the caller's JWT folder (the handler stamps grant
+// provenance from it; aclRESTGate resolves its tier from it). Held scopes ride in
+// Claims for the Gate. A nil Verifier is open (local-dev), mirroring s.authz.
+func (s *Server) aclRESTCaller(r *http.Request) (resreg.Caller, error) {
+	var sub, folder string
+	var scope []string
+	if s.verify != nil {
+		var err error
+		sub, scope, folder, err = s.verify.Verify(r)
+		if err != nil {
+			return resreg.Caller{}, err
+		}
+	}
+	return resreg.Caller{
+		Sub:    sub,
+		Folder: folder,
+		Claims: map[string]string{"scopes": strings.Join(scope, " ")},
+	}, nil
+}
+
+// aclRESTGate is the operator/human REST twin of aclPostBuild's tier Gate: the
+// acl:write bearer scope, then the SAME MCP scope-containment — AuthorizeStructural
+// on the body `scope`, tier resolved from the caller's JWT folder. This binds the
+// granted/revoked scope to the caller's authority (scope "**" → tier-0/root only),
+// closing the pre-fold REST hole where handleACLAdd/Remove gated on acl:write ALONE
+// and never bound the body scope. A nil Verifier is open (mirrors s.authz).
+func (s *Server) aclRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
+	if s.verify == nil {
+		return nil
+	}
+	if !hasAnyScope(strings.Fields(x.Caller.Claims["scopes"]), []string{"acl:write"}) {
+		return resreg.Errorf(http.StatusForbidden, "missing scope acl:write")
+	}
+	if err := auth.AuthorizeStructural(auth.Resolve(x.Caller.Folder), aclMCPNames[x.Action],
+		auth.AuthzTarget{TargetFolder: argString(x.Args, "scope")}); err != nil {
+		return resreg.Errorf(http.StatusForbidden, "%v", err)
+	}
+	return nil
 }
 
 func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error) {
@@ -179,9 +241,10 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string) func(*mc
 	}
 }
 
-// grantACLTx mirrors s.grantACL but writes via tx so the mutation + invoke's
-// audit row commit as one unit. scope "**" → operator-role membership (with the
-// same recursive cycle check store.AddMembership runs); else one acl row.
+// grantACLTx grants via tx so the mutation + invoke's audit row commit as one
+// unit. scope "**" → operator-role membership (with the same recursive cycle
+// check store.AddMembership runs); else one acl row. action/effect default to
+// admin/allow (the grant shape).
 func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect, grantedBy string) error {
 	if grantedBy == "" {
 		grantedBy = "routd"
@@ -202,7 +265,7 @@ func grantACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effec
 	return err
 }
 
-// revokeACLTx mirrors s.revokeACL on tx.
+// revokeACLTx is the remove_acl/DELETE twin of grantACLTx: revoke via tx.
 func revokeACLTx(ctx context.Context, tx *sql.Tx, principal, scope, action, effect string) error {
 	if scope == "**" {
 		_, err := tx.ExecContext(ctx,

@@ -255,8 +255,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/engagement", s.handleEngagementSet)
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
-	mux.HandleFunc("POST /v1/acl", s.handleACLAdd)
-	mux.HandleFunc("DELETE /v1/acl", s.handleACLRemove)
+	s.mountACL(mux)
 	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
 	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
@@ -523,102 +522,6 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		folder = scope[0]
 	}
 	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
-}
-
-// aclWriteBody is the POST/DELETE /v1/acl payload: grant or revoke one
-// principal's access to a scope. The operator `**` pattern maps to role:operator
-// membership, so one principal, one scope covers both per-folder admin rows AND
-// the operator role. action/effect default to admin/allow (the grant shape); set
-// them for a non-default rule.
-type aclWriteBody struct {
-	Principal string `json:"principal"`
-	Scope     string `json:"scope"`
-	Action    string `json:"action"`
-	Effect    string `json:"effect"`
-	GrantedBy string `json:"granted_by"`
-}
-
-// grantACL is the single ACL-grant writer behind both REST (handleACLAdd) and
-// MCP (add_acl). Defaults action/effect/grantedBy; scope "**" → operator-role
-// membership, else one acl row. One renderer, many sinks (CLAUDE.md).
-func (s *Server) grantACL(principal, scope, action, effect, grantedBy string) error {
-	if grantedBy == "" {
-		grantedBy = "routd"
-	}
-	if scope == "**" {
-		return s.db.AddMembership(principal, "role:operator", grantedBy)
-	}
-	if action == "" {
-		action = "admin"
-	}
-	if effect == "" {
-		effect = "allow"
-	}
-	return s.db.AddACLRow(core.ACLRow{
-		Principal: principal, Action: action, Scope: scope,
-		Effect: effect, GrantedBy: grantedBy,
-	})
-}
-
-// revokeACL is the single ACL-revoke writer behind both REST (handleACLRemove)
-// and MCP (remove_acl). Mirrors grantACL.
-func (s *Server) revokeACL(principal, scope, action, effect, grantedBy string) error {
-	if scope == "**" {
-		return s.db.RemoveMembership(principal, "role:operator")
-	}
-	if action == "" {
-		action = "admin"
-	}
-	if effect == "" {
-		effect = "allow"
-	}
-	return s.db.RemoveACLRow(core.ACLRow{
-		Principal: principal, Action: action, Scope: scope, Effect: effect,
-	})
-}
-
-// handleACLAdd grants one acl row (or operator membership for scope=="**").
-// Bearer-gated by acl:write. Shares grantACL with the MCP add_acl tool.
-func (s *Server) handleACLAdd(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "acl:write") {
-		return
-	}
-	var body aclWriteBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if body.Principal == "" || body.Scope == "" {
-		writeErr(w, 400, "missing_field", "principal and scope required")
-		return
-	}
-	if err := s.grantACL(body.Principal, body.Scope, body.Action, body.Effect, body.GrantedBy); err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
-}
-
-// handleACLRemove revokes one acl row (or operator membership for scope=="**").
-// Bearer-gated by acl:write. Shares revokeACL with the MCP remove_acl tool.
-func (s *Server) handleACLRemove(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "acl:write") {
-		return
-	}
-	var body aclWriteBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if body.Principal == "" || body.Scope == "" {
-		writeErr(w, 400, "missing_field", "principal and scope required")
-		return
-	}
-	if err := s.revokeACL(body.Principal, body.Scope, body.Action, body.Effect, body.GrantedBy); err != nil {
-		writeErr(w, 500, "db_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
 // secretWriteBody is the POST /v1/secrets payload: the operator sets one
