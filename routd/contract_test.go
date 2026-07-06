@@ -68,7 +68,7 @@ func TestContractRoundTrip(t *testing.T) {
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatalf("put group: %v", err)
 	}
-	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}})
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
 
 	// (1) ingest an inbound via POST /v1/messages. The adapter sends a stable
 	// platform id and no X-Idempotency-Key (the id is the dedup key).

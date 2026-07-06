@@ -712,7 +712,7 @@ func TestRoutesReplaceScopedToSubtree(t *testing.T) {
 	}
 	// Folder A replaces ITS routes.
 	rec := doJSON(t, h, "PUT", "/v1/routes", "",
-		[]apiv1.Route{{Seq: 2, Match: "platform=tg", Target: "a"}})
+		map[string]any{"routes": []apiv1.Route{{Seq: 2, Match: "platform=tg", Target: "a"}}})
 	if rec.Code != 200 {
 		t.Fatalf("scoped replace = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}

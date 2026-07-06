@@ -18,7 +18,7 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 		tok := f.authd.mintService(t, "service:dashd", "routes:write")
-		body := routdv1.Route{Seq: 10, Match: "room=42", Target: "world/sub"}
+		body := map[string]any{"route": routdv1.Route{Seq: 10, Match: "room=42", Target: "world/sub"}}
 		rec := postBearer(t, f.routdTS.URL, "POST", "/v1/routes", tok, "", body)
 		if rec.StatusCode != 200 && rec.StatusCode != 201 {
 			t.Fatalf("route create = %d, want 2xx", rec.StatusCode)
@@ -45,7 +45,7 @@ func TestFeature_DashdAdminPlane(t *testing.T) {
 			t.Fatal(err)
 		}
 		weak := f.authd.mintService(t, "service:rogue", "chats:read")
-		body := routdv1.Route{Seq: 1, Match: "room=1", Target: "world/sub"}
+		body := map[string]any{"route": routdv1.Route{Seq: 1, Match: "room=1", Target: "world/sub"}}
 		if rec := postBearer(t, f.routdTS.URL, "POST", "/v1/routes", weak, "", body); rec.StatusCode != 403 {
 			t.Fatalf("route without routes:write = %d, want 403", rec.StatusCode)
 		}

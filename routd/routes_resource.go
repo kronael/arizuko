@@ -30,10 +30,13 @@ package routd
 // write and roll the tx back on denial, so an operator ACL grant can open the TOOL
 // but never widen the tier/containment/self-default cap.
 //
-// The operator REST face (/v1/routes, routes_http.go) is NOT mounted from this
-// resource (agent-only, like the pilots); its routes:read/write scope + ownsFolder
-// containment is a separate 5/44 step. Endpoints here exist only to drive
-// deriveMCPTools.
+// Both faces ride this one resource: the agent's MCP tools via routesPostBuild,
+// and the operator REST face (/v1/routes) via routes_http.go's mountRoutes, which
+// mounts the SAME Endpoints on a copy with a REST caller + gate injected
+// (routes:read/write scope + ownsFolder containment) — the spec 5/44 REST-face
+// fold. All REST-only policy lives in routes_http.go; the handler stays surface-
+// agnostic EXCEPT list, which the agent needs whole-table (cross-folder shadow
+// analysis) while the operator needs subtree-scoped — the one x.Surface branch below.
 
 import (
 	"context"
@@ -41,11 +44,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	grantslib "github.com/kronael/arizuko/grants"
@@ -75,9 +80,10 @@ var routesMCPNames = map[resreg.Action]string{
 	resreg.ActionList:  "list_routes",
 }
 
-// routesResource is the single renderer for the agent's four routing tools.
-// Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
-// (/v1/routes) is NOT mounted from this resource (see file header). There is NO
+// routesResource is the single renderer for the four routing verbs — mounted on
+// the agent socket (routesPostBuild) AND the operator REST face (mountRoutes). The
+// DELETE endpoint's /v1/routes/{id} path is the REST addressing (deriveMCPTools
+// ignores the path; the agent's delete_route reads the `id` arg). There is NO
 // RowType (args come from MCPArgs as raw JSON strings + the numeric id, preserving
 // the exact wire arg names the agent already sends). Store is a store.Store over
 // routd.db so resreg.invoke opens the mutation+audit tx there.
@@ -87,7 +93,7 @@ func (s *Server) routesResource() resreg.Resource {
 		Endpoints: []resreg.Endpoint{
 			{Verb: "POST", Path: "/v1/routes", Action: routesActionAdd},
 			{Verb: "PUT", Path: "/v1/routes", Action: routesActionSet},
-			{Verb: "DELETE", Path: "/v1/routes", Action: routesActionDelete},
+			{Verb: "DELETE", Path: "/v1/routes/{id}", Action: routesActionDelete},
 			{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
 		},
 		MCPDoc: map[resreg.Action]string{
@@ -118,15 +124,33 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 	id := auth.Resolve(folder)
 	switch x.Action {
 	case resreg.ActionList:
-		// routd's ListRoutes wiring ignored (folder, isRoot) and returned the whole
-		// table (mcp.go buildStoreFns), so list_routes always described every route;
-		// read them all here too. The error is swallowed, matching that closure.
-		routes, _ := s.db.Routes()
-		return map[string]any{"routes": router.Describe(routes)}, nil
+		routes, err := s.db.Routes()
+		if x.Surface != audit.SurfaceREST {
+			// Agent (MCP): the whole table, annotated — list_routes describes every
+			// route so the agent can reason about cross-folder shadowing (unchanged
+			// from the pre-fold ipc body; the error is swallowed as it always was).
+			return map[string]any{"routes": router.Describe(routes)}, nil
+		}
+		// Operator (REST): the same rows scoped to the caller's subtree. An EMPTY
+		// folder claim (root / service token) sees everything; a folder-scoped token —
+		// even a top-level tenant, which is tier 0 — sees only its own. The leak guard
+		// keys on the empty folder claim, never the tier. shadowed_by is computed over
+		// the full table first, so cross-folder shadows still surface.
+		if err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
+		views := router.Describe(routes)
+		out := make([]router.RouteView, 0, len(views))
+		for _, v := range views {
+			if routeTargetOwned(folder, v.Target) {
+				out = append(out, v)
+			}
+		}
+		return out, nil
 
 	case routesActionAdd:
 		var route core.Route
-		if err := json.Unmarshal([]byte(argString(x.Args, "route")), &route); err != nil {
+		if err := json.Unmarshal([]byte(argJSONString(x.Args, "route")), &route); err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "invalid route json")
 		}
 		if route.Target == "" {
@@ -155,15 +179,20 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		var routes []core.Route
-		if err := json.Unmarshal([]byte(argString(x.Args, "routes")), &routes); err != nil {
+		if err := json.Unmarshal([]byte(argJSONString(x.Args, "routes")), &routes); err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "invalid routes json: %v", err)
 		}
 		// Invariant 1 (per-route containment): every target must be the own folder
 		// or a descendant — the tier cap above binds only the own folder, so this is
-		// what stops a bulk write from targeting another folder.
-		for _, r := range routes {
-			if !routeTargetWithin(r.Target, folder) {
-				return nil, resreg.Errorf(http.StatusForbidden, "route target outside own folder: %s", r.Target)
+		// what stops a bulk write from targeting another folder. Skipped for the empty
+		// folder (root / operator via REST): it replaces the whole table unrestricted,
+		// matching the retired handleRoutesReplace. The agent socket folder is never
+		// empty, so this only ever loosens the REST root path.
+		if folder != "" {
+			for _, r := range routes {
+				if !routeTargetWithin(r.Target, folder) {
+					return nil, resreg.Errorf(http.StatusForbidden, "route target outside own folder: %s", r.Target)
+				}
 			}
 		}
 		// Invariant 2 (self-default guard): if the live table holds a seq-0 route
@@ -253,7 +282,8 @@ func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(
 }
 
 // argInt64 reads a numeric arg from a resreg.Args map. MCP number args decode to
-// float64 (resreg.decodeMCPArgs); an absent arg is 0 (the "id required" sentinel
+// float64 (resreg.decodeMCPArgs); the REST `{id}` path placeholder arrives as a
+// string (decodeRESTArgs); an absent/other arg is 0 (the "id required" sentinel
 // the delete handler checks, mirroring int64(req.GetInt("id", 0))).
 func argInt64(args resreg.Args, key string) int64 {
 	switch v := args[key].(type) {
@@ -263,8 +293,30 @@ func argInt64(args resreg.Args, key string) int64 {
 		return v
 	case int:
 		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
 	}
 	return 0
+}
+
+// argJSONString reads a route/routes arg that arrives either as a JSON string (the
+// MCP contract — the agent sends `route`/`routes` serialized) or as a decoded
+// object/array (the REST body, which resreg.decodeRESTArgs unmarshals to
+// map/[]any). Both feed the SAME json.Unmarshal in the handler, so one renderer
+// serves both faces. A missing/other-typed arg yields "".
+func argJSONString(args resreg.Args, key string) string {
+	switch v := args[key].(type) {
+	case string:
+		return v
+	case []any, map[string]any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	return ""
 }
 
 // addRouteTx appends one route row on tx (mirrors DB.AddRoute so the mutation lands

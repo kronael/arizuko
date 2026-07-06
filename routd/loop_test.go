@@ -17,7 +17,7 @@ import (
 func TestAtomicAppendRouteTurn(t *testing.T) {
 	db, srv, runner := newTestRoutd(t)
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	doJSON(t, srv.Handler(), "PUT", "/v1/routes", "", []apiv1.Route{{Match: "platform=slack", Target: "demo"}})
+	doJSON(t, srv.Handler(), "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Match: "platform=slack", Target: "demo"}}})
 
 	// append two inbound rows on one chat.
 	now := time.Now().UTC()

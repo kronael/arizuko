@@ -6,9 +6,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	"github.com/kronael/arizuko/resreg"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 )
 
@@ -50,33 +52,97 @@ func toWireRoute(r core.Route) apiv1.Route {
 	}
 }
 
-func fromWireRoute(r apiv1.Route) core.Route {
-	return core.Route{
-		ID: r.ID, Seq: r.Seq, Match: r.Match, Target: r.Target,
-		ObserveWindowMessages: r.ObserveWindowMessages, ObserveWindowChars: r.ObserveWindowChars,
-	}
+// mountRoutes wires the /v1/routes operator REST face onto the SAME routesResource
+// handler the agent's four routing tools use (spec 5/44 fold): add/set/list/delete
+// ride resreg.RegisterREST with a REST caller + gate injected; get-one stays a thin
+// read (handleRouteGet — no agent twin, its own folder scoping).
+func (s *Server) mountRoutes(mux *http.ServeMux) {
+	res := s.routesResource()
+	res.Gate = s.routesRESTGate
+	resreg.RegisterREST(mux, res, s.routesRESTCaller)
+	mux.HandleFunc("GET /v1/routes/{id}", s.handleRouteGet)
 }
 
-func (s *Server) handleRoutesList(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
-	if !ok {
-		return
-	}
-	routes, err := s.db.Routes()
-	if err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
-	}
-	out := make([]apiv1.Route, 0, len(routes))
-	for _, rt := range routes {
-		if !ownsFolder(folder, rt.Target) { // scoped caller sees only its subtree
-			continue
+// routesRESTCaller builds the REST Caller for the shared routes handler. That
+// handler reads x.Caller.Folder as the caller's OWN folder (tier source + set/list
+// scoping); for the operator that IS the JWT folder. Held scopes ride in Claims for
+// routesRESTGate. A nil Verifier is open (local-dev/tests): empty principal + empty
+// folder (root — unrestricted, list spans all), mirroring s.authz.
+func (s *Server) routesRESTCaller(r *http.Request) (resreg.Caller, error) {
+	var sub, folder string
+	var scope []string
+	if s.verify != nil {
+		var err error
+		sub, scope, folder, err = s.verify.Verify(r)
+		if err != nil {
+			return resreg.Caller{}, err
 		}
-		out = append(out, toWireRoute(rt))
 	}
-	writeJSON(w, 200, out)
+	return resreg.Caller{
+		Sub:    sub,
+		Folder: folder,
+		Claims: map[string]string{"scopes": strings.Join(scope, " ")},
+	}, nil
 }
 
+// routesRESTGate is the operator/human REST twin of the agent socket's grant Gate:
+// an any-of scope check, then ownsFolder containment on the route TARGET — the
+// retired REST's per-target check. The shared handler ALSO runs its tier model
+// (AuthorizeStructural), but that is a no-op for a top-level tenant (tier 0), so
+// this ownsFolder is what confines a tier-0 tenant to its own subtree (the known
+// REST leak class). set binds its targets in the handler (routeTargetWithin) and
+// list/get scope in the read paths, so only add (arg target) and delete
+// (id-resolved target) carry a single target bound here. A nil Verifier is open.
+func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
+	if s.verify == nil {
+		return nil
+	}
+	held := strings.Fields(x.Caller.Claims["scopes"])
+	want := []string{"routes:read", "routes:read:own_group"}
+	if x.Action.Mutates() {
+		want = []string{"routes:write", "routes:write:own_group"}
+	}
+	if !hasAnyScope(held, want) {
+		return resreg.Errorf(http.StatusForbidden, "missing scope %s", strings.Join(want, " or "))
+	}
+	jwtFolder := x.Caller.Folder
+	switch x.Action {
+	case routesActionAdd:
+		var rt core.Route
+		if err := json.Unmarshal([]byte(argJSONString(x.Args, "route")), &rt); err != nil {
+			return resreg.Errorf(http.StatusBadRequest, "invalid route json")
+		}
+		if !routeTargetOwned(jwtFolder, rt.Target) {
+			return resreg.Errorf(http.StatusForbidden, "route target outside caller subtree: %s", rt.Target)
+		}
+	case routesActionDelete:
+		route, err := s.db.GetRoute(argInt64(x.Args, "id"))
+		if errors.Is(err, sql.ErrNoRows) {
+			return resreg.Errorf(http.StatusNotFound, "route not found")
+		}
+		if err != nil {
+			return resreg.Errorf(http.StatusInternalServerError, "store_error")
+		}
+		if !routeTargetOwned(jwtFolder, route.Target) {
+			return resreg.Errorf(http.StatusForbidden, "route target outside caller subtree: %s", route.Target)
+		}
+	}
+	return nil
+}
+
+// routeTargetOwned reports whether an operator whose JWT folder is jwtFolder may
+// manage a route pointing at target. Empty jwtFolder (root / service token) owns
+// everything; otherwise target's folder (a leading `folder:` prefix stripped) must
+// be jwtFolder or a descendant — the retired REST's ownsFolder containment. A
+// daemon:/builtin: target is owned only by root.
+func routeTargetOwned(jwtFolder, target string) bool {
+	return ownsFolder(jwtFolder, strings.TrimPrefix(target, "folder:"))
+}
+
+// handleRouteGet is the thin get-one REST read (GET /v1/routes/{id}); it has no
+// agent twin, so it stays hand-rolled with its own routes:read scope + folder
+// containment (a scoped caller can't read a route outside its subtree — 404, no
+// existence leak).
 func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 	_, folder, ok := s.authz(w, r, "routes:read", "routes:read:own_group")
 	if !ok {
@@ -102,83 +168,4 @@ func (s *Server) handleRouteGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, toWireRoute(rt))
-}
-
-func (s *Server) handleRoutesReplace(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
-	if !ok {
-		return
-	}
-	var body []apiv1.Route
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	routes := make([]core.Route, 0, len(body))
-	for _, rt := range body {
-		if !ownsFolder(folder, rt.Target) {
-			writeErr(w, 403, "forbidden", "route target outside caller folder: "+rt.Target)
-			return
-		}
-		routes = append(routes, fromWireRoute(rt))
-	}
-	n, err := s.db.SetRoutes(folder, routes)
-	if err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]int{"count": n})
-}
-
-func (s *Server) handleRouteAdd(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
-	if !ok {
-		return
-	}
-	var body apiv1.Route
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if !ownsFolder(folder, body.Target) {
-		writeErr(w, 403, "forbidden", "route target outside caller folder: "+body.Target)
-		return
-	}
-	id, err := s.db.AddRoute(fromWireRoute(body))
-	if err != nil {
-		writeErr(w, 500, "store_error", err.Error())
-		return
-	}
-	body.ID = id
-	writeJSON(w, 201, body)
-}
-
-func (s *Server) handleRouteDelete(w http.ResponseWriter, r *http.Request) {
-	_, folder, ok := s.authz(w, r, "routes:write", "routes:write:own_group")
-	if !ok {
-		return
-	}
-	id, ok := atoi64(r.PathValue("id"))
-	if !ok {
-		writeErr(w, 400, "bad_request", "non-numeric id")
-		return
-	}
-	if folder != "" { // scoped caller: the route's target must be in its subtree
-		routes, err := s.db.Routes()
-		if err != nil {
-			writeErr(w, 500, "store_error", err.Error())
-			return
-		}
-		for _, rt := range routes {
-			if rt.ID == id && !ownsFolder(folder, rt.Target) {
-				writeErr(w, 403, "forbidden", "route target outside caller folder: "+rt.Target)
-				return
-			}
-		}
-	}
-	if err := s.db.DeleteRoute(id); err != nil {
-		writeErr(w, 404, "not_found", "route not found")
-		return
-	}
-	w.WriteHeader(204)
 }

@@ -295,7 +295,7 @@ func TestNoEngagementOnMentionIngress(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
 	h := srv.Handler()
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Match: "platform=slack", Target: "demo"}})
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Match: "platform=slack", Target: "demo"}}})
 	in := apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "mention"}
 	if rec := doJSON(t, h, "POST", "/v1/messages", "", in); rec.Code != 200 {
 		t.Fatalf("ingest=%d", rec.Code)
@@ -320,7 +320,7 @@ func TestThreadParticipationPromotion(t *testing.T) {
 	db, srv, _ := newTestRoutd(t)
 	h := srv.Handler()
 	_ = db.PutGroup(core.Group{Folder: "demo"})
-	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Match: "platform=slack", Target: "demo"}})
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Match: "platform=slack", Target: "demo"}}})
 	now := time.Now().UTC()
 	// Bot participated in thread "th1" of chat C1; the thread root is a HUMAN msg
 	// (so promotion can only come from participation, not reply-to-bot). "dm-human"

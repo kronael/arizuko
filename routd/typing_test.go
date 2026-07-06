@@ -118,7 +118,7 @@ func seedTypingMsg(t *testing.T, db *DB, srv *Server, jid string) {
 	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
 		t.Fatalf("put group: %v", err)
 	}
-	doJSON(t, h, "PUT", "/v1/routes", "", []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}})
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
 	in := apiv1.Message{ID: "tm1", ChatJID: jid, Sender: "u1", Content: "hello", Verb: "message"}
 	rec := doJSON(t, h, "POST", "/v1/messages", "", in)
 	if rec.Code != 200 {
