@@ -178,6 +178,65 @@ func TestRESTRouteSelfDefaultGuard(t *testing.T) {
 	}
 }
 
+// TestRESTRouteTier1OwnSubtree: a tier-1 folder "alice/team" manages routes in its
+// OWN subtree over REST. The baked route tier cap allowed only STRICT descendants
+// (HasPrefix target, folder+"/"), so an add pointing at the folder's OWN name was
+// wrongly 403. Post-decouple the REST face uses ownsFolder (own-or-descendant): own
+// + descendant are 200 while a sibling or the parent is 403.
+func TestRESTRouteTier1OwnSubtree(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"routes:write:own_group", "routes:read:own_group"}, folder: "alice/team"})
+	for _, f := range []string{"alice", "alice/team", "alice/team/sub", "alice/other"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	add := func(seq int, target string) int {
+		return doJSON(t, h, "POST", "/v1/routes", "",
+			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
+	}
+	if c := add(1, "alice/team"); c != 200 { // own folder (was 403 under the strict-descendant cap)
+		t.Fatalf("own-folder add = %d want 200", c)
+	}
+	if c := add(2, "alice/team/sub"); c != 200 {
+		t.Fatalf("descendant add = %d want 200", c)
+	}
+	if c := add(3, "alice/other"); c != 403 { // same-world sibling
+		t.Fatalf("sibling add = %d want 403", c)
+	}
+	if c := add(4, "alice"); c != 403 { // parent
+		t.Fatalf("parent add = %d want 403", c)
+	}
+	for _, rt := range mustRoutes(t, db) {
+		if rt.Target == "alice/other" || rt.Target == "alice" {
+			t.Fatalf("denied add wrote a cross-subtree route: %+v", rt)
+		}
+	}
+}
+
+// TestRESTRouteTier2OperatorOwnSubtree: an operator at a tier-2 folder manages
+// routes in its own subtree over REST. The baked route cap denied tier 2+ ALL route
+// management (403), so even an own-folder add failed. Post-decouple the REST face
+// uses ownsFolder: own + descendant are 200 while a sibling is 403.
+func TestRESTRouteTier2OperatorOwnSubtree(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"routes:write:own_group"}, folder: "alice/team/sub"})
+	for _, f := range []string{"alice/team/sub", "alice/team/sub/deep", "alice/team/other"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	add := func(seq int, target string) int {
+		return doJSON(t, h, "POST", "/v1/routes", "",
+			map[string]any{"route": apiv1.Route{Seq: seq, Match: "m", Target: target}}).Code
+	}
+	if c := add(1, "alice/team/sub"); c != 200 { // own (was 403 — tier 2 blanket-denied)
+		t.Fatalf("own add = %d want 200", c)
+	}
+	if c := add(2, "alice/team/sub/deep"); c != 200 {
+		t.Fatalf("descendant add = %d want 200", c)
+	}
+	if c := add(3, "alice/team/other"); c != 403 { // sibling
+		t.Fatalf("sibling add = %d want 403", c)
+	}
+}
+
 func mustRoutes(t *testing.T, db *DB) []core.Route {
 	t.Helper()
 	rows, err := db.Routes()

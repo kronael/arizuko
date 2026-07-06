@@ -24,7 +24,19 @@ import (
 // Caller injected; the id path placeholder is named {taskId} so it merges into
 // Args under the same key the shared handler reads for the MCP tools.
 func (s *Server) mountTasks(mux *http.ServeMux) {
-	res := s.scheduledTasksResource()
+	// Operator/human REST face: per-task containment is ownsFolder on the caller's
+	// JWT folder (own-or-descendant), NOT the agent tier model — this is what closes
+	// the live cross-tenant leak (a tier-0 tenant / same-world tier-1 folder could
+	// delete another folder's task) and lets an operator manage its whole subtree
+	// (which the exact-match tier-2 cap wrongly denied). tasksRESTGate keeps the
+	// coarse scope + JWT-folder guard; contain does the per-target decision.
+	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
+		if ownsFolder(c.Folder, target) {
+			return nil
+		}
+		return resreg.Errorf(http.StatusForbidden, "task owner outside caller subtree: %s", target)
+	}
+	res := s.scheduledTasksResource(contain)
 	res.Endpoints = []resreg.Endpoint{
 		{Verb: "GET", Path: "/v1/tasks", Action: resreg.ActionList},
 		{Verb: "GET", Path: "/v1/tasks/{taskId}", Action: resreg.ActionGet},

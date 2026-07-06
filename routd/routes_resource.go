@@ -42,6 +42,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -80,15 +81,27 @@ var routesMCPNames = map[resreg.Action]string{
 	resreg.ActionList:  "list_routes",
 }
 
+// containFn is the routd-internal per-face containment seam the shared routes/
+// scheduled_tasks handlers call to authorize one (action, target) against the
+// caller. resreg carries no auth policy of its own (CLAUDE.md "auth is a uniform
+// middleware, INJECTED per surface"); each face closes over its own rule — the
+// agent MCP face over the tier model (auth.AuthorizeStructural), the operator REST
+// face over folder containment (ownsFolder) — and passes it into the resource
+// constructor. A nil return means allowed; a non-nil error is a resreg.Errorf the
+// handler returns verbatim.
+type containFn func(c resreg.Caller, a resreg.Action, target string) error
+
 // routesResource is the single renderer for the four routing verbs — mounted on
 // the agent socket (routesPostBuild) AND the operator REST face (mountRoutes). The
 // DELETE endpoint's /v1/routes/{id} path is the REST addressing (deriveMCPTools
 // ignores the path; the agent's delete_route reads the `id` arg). There is NO
 // RowType (args come from MCPArgs as raw JSON strings + the numeric id, preserving
 // the exact wire arg names the agent already sends). Store is a store.Store over
-// routd.db so resreg.invoke opens the mutation+audit tx there.
-func (s *Server) routesResource() resreg.Resource {
-	return resreg.Resource{
+// routd.db so resreg.invoke opens the mutation+audit tx there. contain is the
+// per-face target-containment seam (tier model for the agent, ownsFolder for REST)
+// closed into the handler — see containFn.
+func (s *Server) routesResource(contain containFn) resreg.Resource {
+	r := resreg.Resource{
 		Name: "routes",
 		Endpoints: []resreg.Endpoint{
 			{Verb: "POST", Path: "/v1/routes", Action: routesActionAdd},
@@ -111,17 +124,22 @@ func (s *Server) routesResource() resreg.Resource {
 		},
 		MCPNames: routesMCPNames,
 		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Handler:  s.routesHandler,
 		Store:    store.New(s.db.SQL()),
 	}
+	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
+		return s.routesHandler(ctx, x, contain)
+	}
+	return r
 }
 
 // routesHandler runs add/set/delete/list against routd.db, folding in the two
 // security invariants the deleted ipc bodies enforced (see file header). The socket
-// folder (x.Caller.Folder) is the caller's own folder; the tier is resolved from it.
-func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, error) {
+// folder (x.Caller.Folder) is the caller's own folder. Per-target containment (the
+// route tier cap for the agent, ownsFolder for REST) is the injected contain seam;
+// the self-default + per-route routeTargetWithin invariants are face-agnostic and
+// stay in the handler.
+func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain containFn) (any, error) {
 	folder := x.Caller.Folder
-	id := auth.Resolve(folder)
 	switch x.Action {
 	case resreg.ActionList:
 		routes, err := s.db.Routes()
@@ -156,12 +174,11 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 		if route.Target == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "route.target required")
 		}
-		// Invariant 1 (target containment): the route tier cap on the arg-carried
-		// target — tier 2+ denied, tier 1 confined to strict descendants, tier 0
-		// unrestricted. Exactly the deleted body's authzStructural(add_route,
-		// RouteTarget: route.Target).
-		if err := auth.AuthorizeStructural(id, "add_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// Invariant 1 (target containment): the arg-carried target must be within
+		// the caller's reach — the per-face contain seam (agent tier cap /
+		// REST ownsFolder).
+		if err := contain(x.Caller, routesActionAdd, route.Target); err != nil {
+			return nil, err
 		}
 		rid, err := addRouteTx(ctx, x.Tx, route)
 		if err != nil {
@@ -171,12 +188,12 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 		return map[string]any{"id": rid}, nil
 
 	case routesActionSet:
-		// Invariant 1 (tier cap): set_routes rewrites the caller's own subtree, so
-		// the tier gate binds the OWN folder (in practice tier 0 only — a tier-1
-		// caller fails HasPrefix(folder, folder+"/")). Exactly the deleted body's
-		// authzStructural(set_routes, RouteTarget: identity.Folder).
-		if err := auth.AuthorizeStructural(id, "set_routes", auth.AuthzTarget{RouteTarget: folder}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// Invariant 1 (own-folder cap): set_routes rewrites the caller's own subtree,
+		// so contain binds the caller's OWN folder (agent tier cap → in practice tier
+		// 0 only; REST ownsFolder → own folder always passes). The per-route
+		// routeTargetWithin loop below is what actually confines each target.
+		if err := contain(x.Caller, routesActionSet, folder); err != nil {
+			return nil, err
 		}
 		var routes []core.Route
 		if err := json.Unmarshal([]byte(argJSONString(x.Args, "routes")), &routes); err != nil {
@@ -231,8 +248,14 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 			return nil, resreg.Errorf(http.StatusBadRequest, "id required")
 		}
 		route, err := s.db.GetRoute(rid)
-		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, resreg.Errorf(http.StatusNotFound, "route not found: %d", rid)
+		}
+		if err != nil {
+			// A genuine store error must surface as 500, not mask as 404 — the
+			// discrimination the retired routesRESTGate.GetRoute performed before
+			// its per-target check moved into contain.
+			return nil, resreg.Errorf(http.StatusInternalServerError, "store_error")
 		}
 		// Invariant 2 (self-default guard): a folder can't delete its own seq-0
 		// default route. Checked before the containment cap, matching the ipc order.
@@ -240,10 +263,10 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 			return nil, resreg.Errorf(http.StatusForbidden, "cannot delete own default route")
 		}
 		// Invariant 1 (target containment): resolve the route's target from the id
-		// (like scheduled_tasks resolves GetTask.Owner) and bind it to the caller's
-		// tier — a folder must not delete a route whose target is another folder.
-		if err := auth.AuthorizeStructural(id, "delete_route", auth.AuthzTarget{RouteTarget: route.Target}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// (like scheduled_tasks resolves GetTask.Owner) and bind it via contain — a
+		// folder must not delete a route whose target is outside its reach.
+		if err := contain(x.Caller, routesActionDelete, route.Target); err != nil {
+			return nil, err
 		}
 		if err := deleteRouteTx(ctx, x.Tx, rid); err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
@@ -261,7 +284,17 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution) (any, er
 // header). Only rules the socket already carries can widen visibility, so a denied
 // tier still sees nothing new.
 func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
-	res := s.routesResource()
+	// Agent face: the route tier cap on the arg/id-resolved target — tier 2+ denied,
+	// tier 1 confined to strict descendants, tier 0 unrestricted (auth.Resolve over
+	// the socket folder). Exactly the deleted ipc bodies' authzStructural.
+	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
+		if err := auth.AuthorizeStructural(auth.Resolve(folder), routesMCPNames[a],
+			auth.AuthzTarget{RouteTarget: target}); err != nil {
+			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		return nil
+	}
+	res := s.routesResource(contain)
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := routesMCPNames[x.Action]
 		if !grantslib.CheckAction(rules, name, nil) {

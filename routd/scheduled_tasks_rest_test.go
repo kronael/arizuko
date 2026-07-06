@@ -102,6 +102,113 @@ func TestRESTTaskScopedListNoLeak(t *testing.T) {
 	}
 }
 
+// TestRESTTaskTier0NoCrossTenant is the cross-tenant hole the 5/44 containment
+// decouple closes: "alice" is a top-level tenant (tier 0), so the baked
+// AuthorizeStructural tier cap is a no-op for it — tier 0 passes for ANY task
+// owner. Before the decouple a DELETE of "bob"'s task returned 200 and deleted it.
+// The REST face must contain on ownsFolder, not the tier: a sibling tenant's task
+// is 403 and untouched, while the caller's own task still cancels.
+func TestRESTTaskTier0NoCrossTenant(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"tasks:write:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "bob"})
+	seedTask(t, db, "alice-1", "alice", "web:alice", "mine")
+	seedTask(t, db, "bob-1", "bob", "web:bob", "theirs")
+
+	// cross-tenant DELETE → 403, bob's task untouched (was 200 + deleted).
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/bob-1", "", nil); r.Code != 403 {
+		t.Fatalf("cross-tenant cancel = %d want 403 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.GetTask("bob-1"); !ok {
+		t.Fatal("cross-tenant cancel deleted another tenant's task")
+	}
+	// own DELETE → 200, gone.
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/alice-1", "", nil); r.Code != 200 {
+		t.Fatalf("own cancel = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.GetTask("alice-1"); ok {
+		t.Fatal("own task not cancelled")
+	}
+}
+
+// TestRESTTaskTier1NoWorldLeak: "alice/team" (tier 1) shares world "alice" with
+// "alice/other" but does NOT contain it. The baked cap authorized tier 1 for ANY
+// task in its WORLD (isInWorld), so DELETE/PATCH of "alice/other"'s task returned
+// 200 — a same-world over-permission. Post-decouple the REST face uses ownsFolder
+// (own-or-descendant): a same-world sibling is 403 and untouched, while the
+// caller's own and a descendant's task still work.
+func TestRESTTaskTier1NoWorldLeak(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"tasks:write:own_group"}, folder: "alice/team"})
+	for _, f := range []string{"alice", "alice/team", "alice/team/sub", "alice/other"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	seedTask(t, db, "own", "alice/team", "web:own", "mine")
+	seedTask(t, db, "child", "alice/team/sub", "web:child", "descendant")
+	seedTask(t, db, "world-sib", "alice/other", "web:sib", "same world, not mine")
+
+	// same-world sibling DELETE → 403, untouched (was 200 + deleted).
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/world-sib", "", nil); r.Code != 403 {
+		t.Fatalf("world-sibling cancel = %d want 403 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.GetTask("world-sib"); !ok {
+		t.Fatal("world-sibling cancel deleted a same-world task outside the subtree")
+	}
+	// same-world sibling PATCH → 403, status untouched.
+	if r := doJSON(t, h, "PATCH", "/v1/tasks/world-sib", "",
+		map[string]string{"status": core.TaskPaused}); r.Code != 403 {
+		t.Fatalf("world-sibling patch = %d want 403 body=%s", r.Code, r.Body.String())
+	}
+	if got, _ := db.GetTask("world-sib"); got.Status != core.TaskActive {
+		t.Fatalf("world-sibling patch changed status to %q", got.Status)
+	}
+	// own DELETE → 200.
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/own", "", nil); r.Code != 200 {
+		t.Fatalf("own cancel = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	// descendant PATCH → 200.
+	if r := doJSON(t, h, "PATCH", "/v1/tasks/child", "",
+		map[string]string{"status": core.TaskPaused}); r.Code != 200 {
+		t.Fatalf("descendant patch = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+}
+
+// TestRESTTaskTier2Descendant: a tier-2 folder "world/a/b" manages its OWN and its
+// DESCENDANTS' tasks over REST. The baked cap denied tier 2 anything but an EXACT
+// owner match (task.Owner != id.Folder → 403), so a descendant's task was wrongly
+// 403. Post-decouple the REST face uses ownsFolder: own + descendant are 200 while
+// a sibling is 403.
+func TestRESTTaskTier2Descendant(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"tasks:write:own_group"}, folder: "world/a/b"})
+	for _, f := range []string{"world/a/b", "world/a/b/child", "world/a/c"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	seedTask(t, db, "own", "world/a/b", "web:own", "mine")
+	seedTask(t, db, "child", "world/a/b/child", "web:child", "descendant")
+	seedTask(t, db, "sibling", "world/a/c", "web:sib", "not mine")
+
+	// descendant cancel → 200 (was 403 under the exact-match cap).
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/child", "", nil); r.Code != 200 {
+		t.Fatalf("descendant cancel = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.GetTask("child"); ok {
+		t.Fatal("descendant task not cancelled")
+	}
+	// sibling cancel → 403, untouched.
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/sibling", "", nil); r.Code != 403 {
+		t.Fatalf("sibling cancel = %d want 403 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.GetTask("sibling"); !ok {
+		t.Fatal("sibling cancel deleted a task outside the subtree")
+	}
+	// own cancel → 200.
+	if r := doJSON(t, h, "DELETE", "/v1/tasks/own", "", nil); r.Code != 200 {
+		t.Fatalf("own cancel = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+}
+
 // TestRESTTaskRootListsAll: the root/service token (empty JWT folder) still sees
 // every folder's tasks — the other side of the list-all guard.
 func TestRESTTaskRootListsAll(t *testing.T) {

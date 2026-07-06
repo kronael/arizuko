@@ -57,7 +57,19 @@ func toWireRoute(r core.Route) apiv1.Route {
 // ride resreg.RegisterREST with a REST caller + gate injected; get-one stays a thin
 // read (handleRouteGet — no agent twin, its own folder scoping).
 func (s *Server) mountRoutes(mux *http.ServeMux) {
-	res := s.routesResource()
+	// Operator/human REST face: per-target containment is ownsFolder on the caller's
+	// JWT folder (own-or-descendant) — NOT the agent tier model. This is what confines
+	// a top-level tenant (tier 0, for which the tier cap is a no-op) to its own subtree
+	// and lets an operator manage its whole subtree (which the strict-descendant tier
+	// cap wrongly denied). The route's own-folder / self-default invariants stay in the
+	// handler.
+	contain := func(c resreg.Caller, _ resreg.Action, target string) error {
+		if routeTargetOwned(c.Folder, target) {
+			return nil
+		}
+		return resreg.Errorf(http.StatusForbidden, "route target outside caller subtree: %s", target)
+	}
+	res := s.routesResource(contain)
 	res.Gate = s.routesRESTGate
 	resreg.RegisterREST(mux, res, s.routesRESTCaller)
 	mux.HandleFunc("GET /v1/routes/{id}", s.handleRouteGet)
@@ -86,13 +98,9 @@ func (s *Server) routesRESTCaller(r *http.Request) (resreg.Caller, error) {
 }
 
 // routesRESTGate is the operator/human REST twin of the agent socket's grant Gate:
-// an any-of scope check, then ownsFolder containment on the route TARGET — the
-// retired REST's per-target check. The shared handler ALSO runs its tier model
-// (AuthorizeStructural), but that is a no-op for a top-level tenant (tier 0), so
-// this ownsFolder is what confines a tier-0 tenant to its own subtree (the known
-// REST leak class). set binds its targets in the handler (routeTargetWithin) and
-// list/get scope in the read paths, so only add (arg target) and delete
-// (id-resolved target) carry a single target bound here. A nil Verifier is open.
+// an any-of scope check (routes:read for GET, routes:write for mutations). Per-target
+// ownsFolder containment now lives in the handler's injected contain seam (mountRoutes),
+// so this gate carries only the scope decision. A nil Verifier is open.
 func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]string) error {
 	if s.verify == nil {
 		return nil
@@ -104,28 +112,6 @@ func (s *Server) routesRESTGate(x resreg.Execution, _ string, _ map[string]strin
 	}
 	if !hasAnyScope(held, want) {
 		return resreg.Errorf(http.StatusForbidden, "missing scope %s", strings.Join(want, " or "))
-	}
-	jwtFolder := x.Caller.Folder
-	switch x.Action {
-	case routesActionAdd:
-		var rt core.Route
-		if err := json.Unmarshal([]byte(argJSONString(x.Args, "route")), &rt); err != nil {
-			return resreg.Errorf(http.StatusBadRequest, "invalid route json")
-		}
-		if !routeTargetOwned(jwtFolder, rt.Target) {
-			return resreg.Errorf(http.StatusForbidden, "route target outside caller subtree: %s", rt.Target)
-		}
-	case routesActionDelete:
-		route, err := s.db.GetRoute(argInt64(x.Args, "id"))
-		if errors.Is(err, sql.ErrNoRows) {
-			return resreg.Errorf(http.StatusNotFound, "route not found")
-		}
-		if err != nil {
-			return resreg.Errorf(http.StatusInternalServerError, "store_error")
-		}
-		if !routeTargetOwned(jwtFolder, route.Target) {
-			return resreg.Errorf(http.StatusForbidden, "route target outside caller subtree: %s", route.Target)
-		}
 	}
 	return nil
 }

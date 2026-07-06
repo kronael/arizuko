@@ -89,8 +89,10 @@ var tasksMCPNames = map[resreg.Action]string{
 // Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
 // (/v1/tasks) is NOT mounted from this resource (see file header). Store is a
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
-func (s *Server) scheduledTasksResource() resreg.Resource {
-	return resreg.Resource{
+// contain is the per-face target-containment seam (tier model for the agent,
+// ownsFolder for REST) closed into the handler — see containFn.
+func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
+	r := resreg.Resource{
 		Name: "scheduled_tasks",
 		Endpoints: []resreg.Endpoint{
 			{Verb: "POST", Path: "/v1/scheduled_tasks", Action: tasksActionSchedule},
@@ -119,16 +121,21 @@ func (s *Server) scheduledTasksResource() resreg.Resource {
 		},
 		MCPNames: tasksMCPNames,
 		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Handler:  s.scheduledTasksHandler,
 		Store:    store.New(s.db.SQL()),
 	}
+	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
+		return s.scheduledTasksHandler(ctx, x, contain)
+	}
+	return r
 }
 
 // scheduledTasksHandler runs schedule/pause/resume/cancel/list against routd.db,
 // folding in the bespoke semantics the deleted ipc bodies enforced: cron/interval/
-// one-shot parsing, active-task dedup, DefaultFolderForJID target resolution,
-// contextMode normalization, and the PER-TASK-ID structural authz (see header).
-func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) (any, error) {
+// one-shot parsing, active-task dedup, DefaultFolderForJID target resolution, and
+// contextMode normalization. Per-task/target containment is the injected contain
+// seam (tier model for the agent, ownsFolder for REST). id is resolved only for the
+// list-all tier-0 widening (agent face).
+func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, contain containFn) (any, error) {
 	id := auth.Resolve(x.Caller.Folder)
 	switch x.Action {
 	case resreg.ActionList:
@@ -169,8 +176,8 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 		if targetFolder == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "target group not registered")
 		}
-		if err := auth.AuthorizeStructural(id, "schedule_task", auth.AuthzTarget{TaskOwner: targetFolder}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		if err := contain(x.Caller, tasksActionSchedule, targetFolder); err != nil {
+			return nil, err
 		}
 		nextRun, cronStore, err := parseTaskSchedule(argString(x.Args, "cron"))
 		if err != nil {
@@ -203,13 +210,12 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
 		}
-		// PER-TASK-ID cap: resolve the task's owner and require the caller's tier
-		// contain it (tier 0 any, tier 1 own world, tier 2 own folder, tier 3
-		// none) — a folder must not pause/resume/cancel another folder's task.
-		// Mirrors the deleted ipc body + inspect_tasks.
-		name := tasksMCPNames[x.Action]
-		if err := auth.AuthorizeStructural(id, name, auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		// PER-TASK-ID cap: resolve the task's owner and require the caller contain it
+		// — a folder must not pause/resume/cancel a task outside its reach. The
+		// per-face rule is the injected contain seam (agent tier model / REST
+		// ownsFolder).
+		if err := contain(x.Caller, x.Action, task.Owner); err != nil {
+			return nil, err
 		}
 		var err error
 		switch x.Action {
@@ -238,15 +244,15 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 	case tasksActionPatch:
 		// PATCH (REST only) folds the retired handleTaskPatch: {status}
 		// pause/resume + {next_run} run-now, one or both. Per-task containment is
-		// the SAME tier cap as pause/resume/cancel (AuthorizeStructural's rule is
-		// identical across the four task verbs) resolved on the task's owner.
+		// the injected contain seam resolved on the task's owner — the same seam
+		// pause/resume/cancel use.
 		taskID := argString(x.Args, "taskId")
 		task, ok := s.db.GetTask(taskID)
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
 		}
-		if err := auth.AuthorizeStructural(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
-			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		if err := contain(x.Caller, tasksActionPatch, task.Owner); err != nil {
+			return nil, err
 		}
 		status := argString(x.Args, "status")
 		nextRun := argString(x.Args, "next_run")
@@ -278,7 +284,17 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 // header). Only rules the socket already carries can widen visibility, so a
 // denied tier still sees nothing new.
 func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
-	res := s.scheduledTasksResource()
+	// Agent face: the task tier cap on the resolved owner (tier 0 any, tier 1 own
+	// world, tier 2 own folder, tier 3 none) — auth.Resolve over the socket folder.
+	// Exactly the deleted ipc bodies' + inspect_tasks' authzStructural.
+	contain := func(_ resreg.Caller, a resreg.Action, target string) error {
+		if err := auth.AuthorizeStructural(auth.Resolve(folder), tasksMCPNames[a],
+			auth.AuthzTarget{TaskOwner: target}); err != nil {
+			return resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		return nil
+	}
+	res := s.scheduledTasksResource(contain)
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := tasksMCPNames[x.Action]
 		if !grantslib.CheckAction(rules, name, nil) {
