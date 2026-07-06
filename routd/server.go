@@ -255,14 +255,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
 	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
-	mux.HandleFunc("GET /v1/tasks", s.handleTaskList)
+	// /v1/tasks CRUD (list/get/patch/delete) rides the shared scheduled_tasks
+	// handler via resreg — the 5/44 REST fold (mountTasks, tasks_http.go). The
+	// fire-loop control plane (due/runlog/reschedule) + run-log readers stay
+	// hand-rolled: they serve timed, not resource CRUD.
+	s.mountTasks(mux)
 	mux.HandleFunc("GET /v1/tasks/runs", s.handleAllRunLogs)
 	mux.HandleFunc("GET /v1/tasks/due", s.handleTasksDue)
 	mux.HandleFunc("POST /v1/tasks/runlog", s.handleTaskRunLog)
-	mux.HandleFunc("GET /v1/tasks/{id}", s.handleTaskGet)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs", s.handleTaskRunLogs)
-	mux.HandleFunc("PATCH /v1/tasks/{id}", s.handleTaskPatch)
-	mux.HandleFunc("DELETE /v1/tasks/{id}", s.handleTaskDelete)
 	mux.HandleFunc("POST /v1/tasks/{id}/reschedule", s.handleTaskReschedule)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
 	// turn callbacks (the sole-appender surface)

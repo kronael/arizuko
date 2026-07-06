@@ -197,26 +197,23 @@ func TestTaskListEndpoint(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("GET /v1/tasks = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	var all struct {
-		Tasks []core.Task `json:"tasks"`
-	}
+	// Bare []core.Task after the 5/44 REST fold (one shape with the MCP list).
+	var all []core.Task
 	if err := json.Unmarshal(rec.Body.Bytes(), &all); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(all.Tasks) != 2 {
-		t.Fatalf("tasks = %d want 2 (%+v)", len(all.Tasks), all.Tasks)
+	if len(all) != 2 {
+		t.Fatalf("tasks = %d want 2 (%+v)", len(all), all)
 	}
 
 	// ?status=active filters to just the active task.
 	recA := doGet(t, h, "/v1/tasks?status=active")
-	var act struct {
-		Tasks []core.Task `json:"tasks"`
-	}
+	var act []core.Task
 	if err := json.Unmarshal(recA.Body.Bytes(), &act); err != nil {
 		t.Fatalf("decode active: %v", err)
 	}
-	if len(act.Tasks) != 1 || act.Tasks[0].ID != "tl-active" {
-		t.Fatalf("active filter = %+v want [tl-active]", act.Tasks)
+	if len(act) != 1 || act[0].ID != "tl-active" {
+		t.Fatalf("active filter = %+v want [tl-active]", act)
 	}
 
 	// Gated by tasks:read.
@@ -371,7 +368,8 @@ func TestTaskPatchEndpoint(t *testing.T) {
 }
 
 // TestTaskDeleteEndpoint: DELETE /v1/tasks/{id} (tasks:write) removes the task
-// and returns 204; a token without tasks:write is 403.
+// and returns 200 {ok:true} (the shared cancel action's resreg shape); a token
+// without tasks:write is 403.
 func TestTaskDeleteEndpoint(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "service:dashd", scope: []string{"tasks:write"}})
 	seedTask(t, db, "td-1", "main", "web:main", "delete me")
@@ -379,8 +377,8 @@ func TestTaskDeleteEndpoint(t *testing.T) {
 	req := httptest.NewRequest("DELETE", "/v1/tasks/td-1", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 204 {
-		t.Fatalf("DELETE /v1/tasks/td-1 = %d want 204 body=%s", rec.Code, rec.Body.String())
+	if rec.Code != 200 {
+		t.Fatalf("DELETE /v1/tasks/td-1 = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
 	if _, ok := db.GetTask("td-1"); ok {
 		t.Fatal("task still present after DELETE")

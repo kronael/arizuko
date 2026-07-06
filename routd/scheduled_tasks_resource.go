@@ -28,9 +28,15 @@ package routd
 //     store write and rolls the tx back on denial, so an operator ACL grant can
 //     open the TOOL but never widen the tier/containment cap.
 //
-// The operator REST face (/v1/tasks, tasks_http.go) is NOT mounted from this
-// resource (agent-only, like the pilots); its tasks:read/write scope model is a
-// separate 5/44 step. Endpoints here exist only to drive deriveMCPTools.
+// The operator REST face (/v1/tasks CRUD) now ALSO rides this handler — the
+// 5/44 REST fold: mountTasks REST-mounts list/get/patch/cancel with a
+// tasks:read/write + JWT-folder Gate + Caller injected (verify → hasAnyScope +
+// ownsFolder), exactly as web_routes folded its REST twin. The Endpoints on the
+// resource literal below still exist only to drive deriveMCPTools (the agent
+// tools); the REST mount overrides them with the /v1/tasks CRUD verbs. The
+// fire-loop endpoints (/v1/tasks/due, /runs, /{id}/reschedule, run-logs) stay
+// hand-rolled in tasks_http.go — they are timed's internal control plane, not
+// resource CRUD.
 
 import (
 	"context"
@@ -61,6 +67,10 @@ const (
 	tasksActionPause    = resreg.Action("pause")
 	tasksActionResume   = resreg.Action("resume")
 	tasksActionCancel   = resreg.Action("cancel")
+	// tasksActionPatch is the REST-only PATCH verb: {status} pause/resume +
+	// {next_run} run-now. It has NO MCPDoc entry, so deriveMCPTools never
+	// surfaces it as an agent tool; it exists only for the mountTasks REST face.
+	tasksActionPatch = resreg.Action("patch")
 )
 
 // tasksMCPNames maps each resreg action to the flat tool name the live agent
@@ -122,9 +132,32 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 	id := auth.Resolve(x.Caller.Folder)
 	switch x.Action {
 	case resreg.ActionList:
-		// Root (tier 0) sees every task (owner filter empty); a child sees only
-		// its own — exactly the deleted list_tasks body.
-		return s.db.Tasks(x.Caller.Folder, id.Tier == 0), nil
+		// The list-all key differs by surface, both through this one handler:
+		//   agent (MCP): a tier-0 (root) folder sees every task — the deleted
+		//     list_tasks body's isRoot widening.
+		//   operator (REST): only a root/service token (empty jwt_folder claim,
+		//     for which tasksTarget resolved Caller.Folder to "") sees all. A
+		//     folder-SCOPED token — even a tier-0 top-level one — resolves to
+		//     its own non-empty folder, so it lists ONLY its own tasks, never a
+		//     sibling's (the 5/44 list-all leak guard). The REST caller is
+		//     detected by the jwt_folder claim it always sets; the agent sets
+		//     none, so it keeps the tier-based widening.
+		all := id.Tier == 0
+		if _, rest := x.Caller.Claims["jwt_folder"]; rest {
+			all = x.Caller.Folder == ""
+		}
+		tasks := s.db.Tasks(x.Caller.Folder, all)
+		// REST ?status= filter (inert for MCP: list_tasks declares no status arg).
+		if st := argString(x.Args, "status"); st != "" {
+			kept := tasks[:0]
+			for _, t := range tasks {
+				if t.Status == st {
+					kept = append(kept, t)
+				}
+			}
+			tasks = kept
+		}
+		return tasks, nil
 
 	case tasksActionSchedule:
 		targetJid := argString(x.Args, "targetJid")
@@ -191,6 +224,49 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution) 
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
 		return map[string]any{"ok": true}, nil
+
+	case resreg.ActionGet:
+		// Get-one (REST only): scope-gated read. The REST Gate already checked
+		// tasks:read + ownsFolder on the JWT folder; no per-task structural cap,
+		// matching the retired handleTaskGet the operator dashboard relies on.
+		task, ok := s.db.GetTask(argString(x.Args, "taskId"))
+		if !ok {
+			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
+		}
+		return task, nil
+
+	case tasksActionPatch:
+		// PATCH (REST only) folds the retired handleTaskPatch: {status}
+		// pause/resume + {next_run} run-now, one or both. Per-task containment is
+		// the SAME tier cap as pause/resume/cancel (AuthorizeStructural's rule is
+		// identical across the four task verbs) resolved on the task's owner.
+		taskID := argString(x.Args, "taskId")
+		task, ok := s.db.GetTask(taskID)
+		if !ok {
+			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
+		}
+		if err := auth.AuthorizeStructural(id, "pause_task", auth.AuthzTarget{TaskOwner: task.Owner}); err != nil {
+			return nil, resreg.Errorf(http.StatusForbidden, "%v", err)
+		}
+		status := argString(x.Args, "status")
+		nextRun := argString(x.Args, "next_run")
+		if status == "" && nextRun == "" {
+			return nil, resreg.Errorf(http.StatusBadRequest, "status or next_run required")
+		}
+		if err := patchTaskTx(ctx, x.Tx, taskID, status, nextRun); err != nil {
+			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
+		}
+		// Echo the updated task (the tx has not committed, so a plain GetTask
+		// would read the pre-patch row — mirror the write onto the fetched row).
+		if status != "" {
+			task.Status = status
+		}
+		if nextRun != "" {
+			if t, perr := time.Parse(time.RFC3339, nextRun); perr == nil {
+				task.NextRun = &t
+			}
+		}
+		return task, nil
 	}
 	return nil, resreg.Errorf(http.StatusBadRequest, "unknown action %q", x.Action)
 }
@@ -279,6 +355,25 @@ func setTaskStatusTx(ctx context.Context, tx *sql.Tx, id, status string) error {
 func deleteTaskTx(ctx context.Context, tx *sql.Tx, id string) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id = ?`, id)
 	return err
+}
+
+// patchTaskTx applies the REST PATCH partial update on tx (mirrors
+// store.PatchTask): status and/or next_run, at least one non-empty. next_run is
+// stored verbatim (RFC3339). Backs the tasksActionPatch handler branch so the
+// mutation lands in resreg.invoke's tx alongside its audit_log row.
+func patchTaskTx(ctx context.Context, tx *sql.Tx, id, status, nextRun string) error {
+	switch {
+	case status != "" && nextRun != "":
+		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET status=?, next_run=? WHERE id=?`, status, nextRun, id)
+		return err
+	case status != "":
+		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET status=? WHERE id=?`, status, id)
+		return err
+	case nextRun != "":
+		_, err := tx.ExecContext(ctx, `UPDATE scheduled_tasks SET next_run=? WHERE id=?`, nextRun, id)
+		return err
+	}
+	return nil
 }
 
 // nilIfEmptyStr returns nil for an empty string (SQL NULL) else the string,

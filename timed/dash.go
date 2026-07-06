@@ -76,10 +76,11 @@ func (d *dashServer) handleDash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var out struct {
-		Tasks []taskRow `json:"tasks"`
-	}
-	if err := d.r.call(r.Context(), "GET", "/v1/tasks", nil, &out); err != nil {
+	// GET /v1/tasks is a bare []Task array after the 5/44 REST fold (one shape
+	// across the agent MCP list_tasks + this operator face), not a {tasks:[]}
+	// envelope.
+	var tasks []taskRow
+	if err := d.r.call(r.Context(), "GET", "/v1/tasks", nil, &tasks); err != nil {
 		slog.Error("dash: list tasks", "err", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
@@ -89,7 +90,7 @@ func (d *dashServer) handleDash(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, theme.Page("timed", renderDash(out.Tasks, d.r.loopHealth(), time.Now())))
+	fmt.Fprint(w, theme.Page("timed", renderDash(tasks, d.r.loopHealth(), time.Now())))
 }
 
 // renderDash builds the overview body: a loop-health line, a per-status count

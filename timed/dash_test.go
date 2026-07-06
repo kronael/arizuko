@@ -27,7 +27,7 @@ func stubRoutd(t *testing.T, tasksJSON string) *router {
 }
 
 func TestDashOperatorOK(t *testing.T) {
-	r := stubRoutd(t, `{"tasks":[{"ID":"main/daily","Owner":"alice","ChatJID":"web:main","Prompt":"summarize","Cron":"0 9 * * *","Status":"active"}]}`)
+	r := stubRoutd(t, `[{"ID":"main/daily","Owner":"alice","ChatJID":"web:main","Prompt":"summarize","Cron":"0 9 * * *","Status":"active"}]`)
 	d := &dashServer{r: r, ks: nil} // nil ks → open, local-dev path
 
 	req := httptest.NewRequest("GET", "/dash/timed/", nil)
@@ -47,7 +47,7 @@ func TestDashOperatorOK(t *testing.T) {
 }
 
 func TestDashNonOperatorForbidden(t *testing.T) {
-	r := stubRoutd(t, `{"tasks":[]}`)
+	r := stubRoutd(t, `[]`)
 	d := &dashServer{r: r, ks: auth.NewKeySet(nil)} // non-nil ks → gate enforced
 
 	req := httptest.NewRequest("GET", "/dash/timed/", nil)
@@ -61,7 +61,7 @@ func TestDashNonOperatorForbidden(t *testing.T) {
 }
 
 func TestDashOperatorGroupAdmitted(t *testing.T) {
-	r := stubRoutd(t, `{"tasks":[]}`)
+	r := stubRoutd(t, `[]`)
 	d := &dashServer{r: r, ks: auth.NewKeySet(nil)} // gate enforced
 
 	req := httptest.NewRequest("GET", "/dash/timed/", nil)
