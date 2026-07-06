@@ -41,6 +41,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -67,12 +68,8 @@ var networkMCPNames = map[resreg.Action]string{
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) networkRulesResource() resreg.Resource {
 	return resreg.Resource{
-		Name: "network_rules",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "POST", Path: "/v1/network_rules", Action: networkActionAllow},
-			{Verb: "DELETE", Path: "/v1/network_rules", Action: networkActionDeny},
-			{Verb: "GET", Path: "/v1/network_rules", Action: resreg.ActionList},
-		},
+		Name:      "network_rules",
+		Endpoints: resources.NetworkRulesEndpoints, // single source: doc + MCP read one list
 		MCPDoc: map[resreg.Action]string{
 			networkActionAllow: "Open egress to `host` for `folder` and every descendant by appending an allowlist rule. " +
 				"Use when an agent needs to reach a host the default-deny proxy blocks (e.g. a vendor API). " +
@@ -90,9 +87,11 @@ func (s *Server) networkRulesResource() resreg.Resource {
 			networkActionDeny:  {{Name: "host", Type: "string", Required: true}, {Name: "folder", Type: "string"}},
 		},
 		MCPNames: networkMCPNames,
-		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Handler:  s.networkRulesHandler,
-		Store:    store.New(s.db.SQL()),
+		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+			return "", nil, nil
+		},
+		Handler: s.networkRulesHandler,
+		Store:   store.New(s.db.SQL()),
 	}
 }
 

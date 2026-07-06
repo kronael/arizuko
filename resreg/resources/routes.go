@@ -18,12 +18,26 @@ type RoutesRow struct {
 	ObserveWindowChars    int    `db:"observe_window_chars"     yaml:"observe_window_chars,omitempty"     json:"observe_window_chars,omitempty"`
 }
 
+// RoutesEndpoints is the single owner of the routes REST endpoint set: routd's
+// mounted routing tools (routes_resource.go) reference it so the mounted faces,
+// the derived MCP tools, and /openapi.json read one list and can't drift. Routes
+// are addressed by the autoincrement `id` on delete (add/set carry the row in
+// the body), NOT the (seq,match,target) PK — hence the explicit set over the
+// PK-CRUD convention.
+var RoutesEndpoints = []resreg.Endpoint{
+	{Verb: "POST", Path: "/v1/routes", Action: resreg.Action("add")},
+	{Verb: "PUT", Path: "/v1/routes", Action: resreg.Action("set")},
+	{Verb: "DELETE", Path: "/v1/routes/{id}", Action: resreg.ActionDelete},
+	{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "routes",
-		Table:    "routes",
-		RowType:  reflect.TypeOf(RoutesRow{}),
-		PKFields: []string{"Seq", "Match", "Target"},
+		Name:      "routes",
+		Table:     "routes",
+		RowType:   reflect.TypeOf(RoutesRow{}),
+		PKFields:  []string{"Seq", "Match", "Target"},
+		Endpoints: RoutesEndpoints,
 		// No folder scope: routes.target carries #observe/#topic fragments
 		// (spec 5/36 §"FK posture") — not column-equal to a folder, so Apply
 		// rebuilds routes wholesale rather than per-folder.

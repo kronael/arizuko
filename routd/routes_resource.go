@@ -56,6 +56,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/router"
 	"github.com/kronael/arizuko/store"
 )
@@ -102,13 +103,8 @@ type containFn func(c resreg.Caller, a resreg.Action, target string) error
 // closed into the handler — see containFn.
 func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
-		Name: "routes",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "POST", Path: "/v1/routes", Action: routesActionAdd},
-			{Verb: "PUT", Path: "/v1/routes", Action: routesActionSet},
-			{Verb: "DELETE", Path: "/v1/routes/{id}", Action: routesActionDelete},
-			{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
-		},
+		Name:      "routes",
+		Endpoints: resources.RoutesEndpoints, // single source: doc + mount + MCP read one list
 		MCPDoc: map[resreg.Action]string{
 			routesActionAdd: "Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. " +
 				"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
@@ -123,8 +119,10 @@ func (s *Server) routesResource(contain containFn) resreg.Resource {
 			routesActionDelete: {{Name: "id", Type: "number", Required: true}},
 		},
 		MCPNames: routesMCPNames,
-		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Store:    store.New(s.db.SQL()),
+		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+			return "", nil, nil
+		},
+		Store: store.New(s.db.SQL()),
 	}
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.routesHandler(ctx, x, contain)

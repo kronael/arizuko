@@ -9,7 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -435,34 +435,133 @@ func TestOpenAPI_ProxydRoutesCarriesMCPDoc(t *testing.T) {
 // and runed passed nil (= all 10) and timed passed [] (= 0 owned paths).
 func TestOpenAPI_PerDaemonOwnership(t *testing.T) {
 	for daemon, owned := range daemonOwnership {
-		out, err := resreg.OpenAPI(daemon, "/", owned)
-		if err != nil {
-			t.Fatalf("%s OpenAPI: %v", daemon, err)
-		}
-		var doc map[string]any
-		if err := json.Unmarshal(out, &doc); err != nil {
-			t.Fatalf("%s: not JSON: %v", daemon, err)
-		}
-		paths := doc["paths"].(map[string]any)
-		ownedSet := map[string]bool{}
-		for _, o := range owned {
-			ownedSet[o] = true
-		}
-		for path := range paths {
-			// path is "/v1/<name>" or "/v1/<name>/{pk}"; pull the <name>.
-			name := strings.SplitN(strings.TrimPrefix(path, "/v1/"), "/", 2)[0]
-			if !ownedSet[name] {
-				t.Errorf("%s advertises foreign resource %q (path %q)", daemon, name, path)
-			}
-		}
-		// Owned resources that exist in the registry must each appear.
+		daemonPaths := openAPIPaths(t, daemon, owned)
+		// The doc must advertise exactly the union of its owned resources' own
+		// path sets: no foreign path, and every owned resource contributes ≥1.
+		// A path prefix need NOT equal the resource name — onboarding_gates is
+		// served at /v1/gates — so compare against each resource's real emitted
+		// paths, not a name-from-path heuristic.
+		expected := map[string]bool{}
 		for _, o := range owned {
 			if resreg.Lookup(o) == nil {
 				continue
 			}
-			if _, ok := paths["/v1/"+o]; !ok {
-				t.Errorf("%s missing owned resource path /v1/%s", daemon, o)
+			own := openAPIPaths(t, daemon, []string{o})
+			if len(own) == 0 {
+				t.Errorf("%s: owned resource %q emits no path", daemon, o)
 			}
+			for p := range own {
+				expected[p] = true
+				if !daemonPaths[p] {
+					t.Errorf("%s: missing owned path %q (resource %q)", daemon, p, o)
+				}
+			}
+		}
+		for p := range daemonPaths {
+			if !expected[p] {
+				t.Errorf("%s advertises foreign path %q", daemon, p)
+			}
+		}
+	}
+}
+
+// openAPIPaths emits the daemon's /openapi.json for the given owned resources
+// and returns the set of path keys.
+func openAPIPaths(t *testing.T, daemon string, owned []string) map[string]bool {
+	t.Helper()
+	out, err := resreg.OpenAPI(daemon, "/", owned)
+	if err != nil {
+		t.Fatalf("%s OpenAPI: %v", daemon, err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("%s: not JSON: %v", daemon, err)
+	}
+	set := map[string]bool{}
+	for p := range doc["paths"].(map[string]any) {
+		set[p] = true
+	}
+	return set
+}
+
+// TestOpenAPI_RoutesTruthful: routd's /openapi.json for routes advertises the
+// REAL mounted faces — PUT /v1/routes and DELETE /v1/routes/{id} — and NOT the
+// PK-convention phantoms (PATCH/DELETE on /v1/routes/{seq}) it invented before
+// the resource carried explicit Endpoints. This is the task #32 core assertion.
+func TestOpenAPI_RoutesTruthful(t *testing.T) {
+	out, err := resreg.OpenAPI("routd", "/", []string{"routes"})
+	if err != nil {
+		t.Fatalf("OpenAPI: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	paths := doc["paths"].(map[string]any)
+	col, ok := paths["/v1/routes"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing /v1/routes: %v", paths)
+	}
+	for _, m := range []string{"get", "post", "put"} {
+		if _, ok := col[m]; !ok {
+			t.Errorf("/v1/routes missing %s", m)
+		}
+	}
+	item, ok := paths["/v1/routes/{id}"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing real delete path /v1/routes/{id}: %v", paths)
+	}
+	if _, ok := item["delete"]; !ok {
+		t.Errorf("/v1/routes/{id} missing delete")
+	}
+	// Phantom PK-convention paths must be gone.
+	if _, ok := paths["/v1/routes/{seq}"]; ok {
+		t.Errorf("phantom /v1/routes/{seq} still advertised")
+	}
+	if _, ok := item["patch"]; ok {
+		t.Errorf("phantom PATCH on /v1/routes/{id}")
+	}
+}
+
+// TestOpenAPI_OnboardingGatesTruthful: onbod serves the gate table at /v1/gates
+// (hand-rolled), so the doc must too — never the resource-name path
+// /v1/onboarding_gates the PK convention would guess.
+func TestOpenAPI_OnboardingGatesTruthful(t *testing.T) {
+	paths := openAPIPaths(t, "onbod", []string{"onboarding_gates"})
+	if !paths["/v1/gates"] {
+		t.Error("onboarding_gates: missing real GET /v1/gates")
+	}
+	if !paths["/v1/gates/{gate}"] {
+		t.Error("onboarding_gates: missing real /v1/gates/{gate}")
+	}
+	if paths["/v1/onboarding_gates"] {
+		t.Error("onboarding_gates: phantom /v1/onboarding_gates advertised")
+	}
+}
+
+// TestFoldedEndpoints_RegistrySingleSource: the registered resource the doc
+// walks carries the SAME exported Endpoints slice routd mounts, so the doc and
+// the mount cannot drift.
+func TestFoldedEndpoints_RegistrySingleSource(t *testing.T) {
+	cases := []struct {
+		name string
+		want []resreg.Endpoint
+	}{
+		{"routes", RoutesEndpoints},
+		{"web_routes", WebRoutesEndpoints},
+		{"scheduled_tasks", ScheduledTasksEndpoints},
+		{"acl", ACLEndpoints},
+		{"network_rules", NetworkRulesEndpoints},
+		{"onboarding_gates", OnboardingGatesEndpoints},
+	}
+	for _, c := range cases {
+		got := resreg.Lookup(c.name)
+		if got == nil {
+			t.Errorf("%s not registered", c.name)
+			continue
+		}
+		if !reflect.DeepEqual(got.Endpoints, c.want) {
+			t.Errorf("%s: registered Endpoints != exported var (doc drift)", c.name)
 		}
 	}
 }

@@ -18,12 +18,23 @@ type WebRoutesRow struct {
 	CreatedAt  string `db:"created_at"  yaml:"created_at,omitempty" json:"created_at,omitempty"`
 }
 
+// WebRoutesEndpoints is the single owner of the web_routes REST endpoint set:
+// routd's web_route tools (web_routes_resource.go) reference it. create is a PUT
+// upsert on the collection and delete addresses the row by `path` in the body
+// (no {pk} path), so the real faces diverge from the PK-CRUD convention.
+var WebRoutesEndpoints = []resreg.Endpoint{
+	{Verb: "PUT", Path: "/v1/web_routes", Action: resreg.ActionCreate},
+	{Verb: "DELETE", Path: "/v1/web_routes", Action: resreg.ActionDelete},
+	{Verb: "GET", Path: "/v1/web_routes", Action: resreg.ActionList},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "web_routes",
-		Table:    "web_routes",
-		RowType:  reflect.TypeOf(WebRoutesRow{}),
+		Name:          "web_routes",
+		Table:         "web_routes",
+		RowType:       reflect.TypeOf(WebRoutesRow{}),
 		PKFields:      []string{"PathPrefix"},
+		Endpoints:     WebRoutesEndpoints,
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"CreatedAt"},
 		Hooks: resreg.Hooks{

@@ -33,6 +33,7 @@ import (
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -51,12 +52,8 @@ var webRoutesMCPNames = map[resreg.Action]string{
 // store.Store over routd.db so resreg.invoke opens the mutation+audit tx there.
 func (s *Server) webRoutesResource() resreg.Resource {
 	return resreg.Resource{
-		Name: "web_routes",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "PUT", Path: "/v1/web_routes", Action: resreg.ActionCreate},
-			{Verb: "DELETE", Path: "/v1/web_routes", Action: resreg.ActionDelete},
-			{Verb: "GET", Path: "/v1/web_routes", Action: resreg.ActionList},
-		},
+		Name:      "web_routes",
+		Endpoints: resources.WebRoutesEndpoints, // single source: doc + MCP read one list
 		MCPDoc: map[resreg.Action]string{
 			resreg.ActionCreate: "Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. " +
 				"`path` must start with `/`. `access` is one of public|auth|deny|redirect. " +
@@ -75,9 +72,11 @@ func (s *Server) webRoutesResource() resreg.Resource {
 			resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
 		},
 		MCPNames: webRoutesMCPNames,
-		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Handler:  s.webRoutesHandler,
-		Store:    store.New(s.db.SQL()),
+		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+			return "", nil, nil
+		},
+		Handler: s.webRoutesHandler,
+		Store:   store.New(s.db.SQL()),
 	}
 }
 
@@ -215,7 +214,7 @@ func putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
 }
 
 // deleteWebRouteTx removes a web_routes row on tx. It mirrors store.DelWebRoute's
-// widening predicate `(folder=? OR ?='')` so the tier-0 widening (scopedFolder="")
+// widening predicate `(folder=? OR ?=”)` so the tier-0 widening (scopedFolder="")
 // deletes any folder's route — the "operators can delete any" promise the tool
 // description makes and the removed integration test asserted. A non-tier-0 caller
 // passes its own folder, so the OR arm is false and the match is exact (own only).

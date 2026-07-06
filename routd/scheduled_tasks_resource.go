@@ -55,6 +55,7 @@ import (
 	"github.com/kronael/arizuko/core"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/store"
 )
 
@@ -93,14 +94,8 @@ var tasksMCPNames = map[resreg.Action]string{
 // ownsFolder for REST) closed into the handler — see containFn.
 func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
-		Name: "scheduled_tasks",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "POST", Path: "/v1/scheduled_tasks", Action: tasksActionSchedule},
-			{Verb: "POST", Path: "/v1/scheduled_tasks/pause", Action: tasksActionPause},
-			{Verb: "POST", Path: "/v1/scheduled_tasks/resume", Action: tasksActionResume},
-			{Verb: "DELETE", Path: "/v1/scheduled_tasks", Action: tasksActionCancel},
-			{Verb: "GET", Path: "/v1/scheduled_tasks", Action: resreg.ActionList},
-		},
+		Name:      "scheduled_tasks",
+		Endpoints: resources.ScheduledTasksEndpoints, // single source: doc + MCP read one list
 		MCPDoc: map[resreg.Action]string{
 			tasksActionSchedule: "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
 			tasksActionPause:    "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).",
@@ -120,8 +115,10 @@ func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
 			tasksActionCancel: {{Name: "taskId", Type: "string", Required: true}},
 		},
 		MCPNames: tasksMCPNames,
-		Authz:    func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) { return "", nil, nil },
-		Store:    store.New(s.db.SQL()),
+		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
+			return "", nil, nil
+		},
+		Store: store.New(s.db.SQL()),
 	}
 	r.Handler = func(ctx context.Context, x resreg.Execution) (any, error) {
 		return s.scheduledTasksHandler(ctx, x, contain)

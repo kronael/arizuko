@@ -24,17 +24,31 @@ type ScheduledTasksRow struct {
 	ContextMode string `db:"context_mode" yaml:"context_mode,omitempty" json:"context_mode,omitempty"`
 }
 
+// ScheduledTasksEndpoints is the single owner of the scheduled_tasks endpoint
+// set that drives the agent's task tools (routd scheduled_tasks_resource.go
+// references it). schedule/pause/resume are custom POST verbs and cancel is a
+// body-addressed DELETE, so the real faces diverge from the PK-CRUD convention.
+// (The operator /v1/tasks REST CRUD is a separate mount that overrides these.)
+var ScheduledTasksEndpoints = []resreg.Endpoint{
+	{Verb: "POST", Path: "/v1/scheduled_tasks", Action: resreg.Action("schedule")},
+	{Verb: "POST", Path: "/v1/scheduled_tasks/pause", Action: resreg.Action("pause")},
+	{Verb: "POST", Path: "/v1/scheduled_tasks/resume", Action: resreg.Action("resume")},
+	{Verb: "DELETE", Path: "/v1/scheduled_tasks", Action: resreg.Action("cancel")},
+	{Verb: "GET", Path: "/v1/scheduled_tasks", Action: resreg.ActionList},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "scheduled_tasks",
-		Table:    "scheduled_tasks",
-		RowType:  reflect.TypeOf(ScheduledTasksRow{}),
-		PKFields: []string{"ID"},
+		Name:      "scheduled_tasks",
+		Table:     "scheduled_tasks",
+		RowType:   reflect.TypeOf(ScheduledTasksRow{}),
+		PKFields:  []string{"ID"},
+		Endpoints: ScheduledTasksEndpoints,
 		// No folder scope: owner is system/user:sub and chat_jid is
 		// polymorphic (folder OR typed JID, spec 5/36 §"FK posture") —
 		// neither is column-equal to a folder. Apply rebuilds wholesale.
 		StampedFields: []string{"Created"},
-		Hooks:         resreg.Hooks{
+		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ScheduledTasksRow)
 				if r.Status == "" {

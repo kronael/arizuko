@@ -38,6 +38,7 @@ import (
 	"github.com/kronael/arizuko/auth"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
+	"github.com/kronael/arizuko/resreg/resources"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	"github.com/kronael/arizuko/store"
 )
@@ -55,12 +56,8 @@ var aclMCPNames = map[resreg.Action]string{
 func (s *Server) aclResource() resreg.Resource {
 	arg := func(req ...resreg.MCPArg) []resreg.MCPArg { return req }
 	return resreg.Resource{
-		Name: "acl",
-		Endpoints: []resreg.Endpoint{
-			{Verb: "POST", Path: "/v1/acl", Action: resreg.Action("add")},
-			{Verb: "DELETE", Path: "/v1/acl", Action: resreg.Action("remove")},
-			{Verb: "GET", Path: "/v1/acl", Action: resreg.ActionList},
-		},
+		Name:      "acl",
+		Endpoints: resources.ACLEndpoints, // single source: doc + REST(add/remove) read one list
 		MCPDoc: map[resreg.Action]string{
 			resreg.Action("add"):    "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Defaults action=admin, effect=allow.",
 			resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority.",

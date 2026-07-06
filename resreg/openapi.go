@@ -10,10 +10,10 @@ package resreg
 // Subsumes spec 5/4 (`openapi-discoverable`): no `huma`, no `swag`, no
 // codegen — `encoding/json` + `reflect` + the existing per-resource
 // catalog. Schemas can't drift — both handler and doc read the same
-// struct. Paths follow the 5/36 CRUD convention; a resource still
-// hand-rolling divergent shapes (routd's routes/acl) is the migration
-// gap, not a doc bug — tracked in BUGS.md until it becomes a resreg
-// resource with real Endpoints.
+// struct. Paths can't drift either: when a resource declares its real
+// mounted faces in `Endpoints` (the same slice RegisterREST mounts), the
+// doc emits exactly those verbs+paths. A resource with no Endpoints
+// (engine-managed CRUD tables) falls back to the 5/36 PK-CRUD convention.
 
 import (
 	"encoding/json"
@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -37,7 +38,9 @@ import (
 // emitted via the same map-key sort `encoding/json` applies. Resources
 // without `RowType` (forwarders, MCP-only) contribute nothing.
 //
-// Endpoints follow the convention from spec 5/5 + 5/36:
+// A resource that declares `Endpoints` emits exactly those (one operation
+// per endpoint — its real mounted verb+path). A resource with no Endpoints
+// falls back to the PK-CRUD convention from spec 5/5 + 5/36:
 //
 //	GET    /v1/<name>                 → list (200: array<Schema>)
 //	POST   /v1/<name>                 → create (201: Schema)
@@ -205,77 +208,180 @@ func kindToSchema(t reflect.Type) map[string]any {
 	}
 }
 
-// resourcePaths builds the five `/v1/<name>` operations for one
-// resource. Returns a map[path]ops; ops is itself a map keyed by HTTP
-// method (lowercased per OpenAPI convention).
+// resourcePaths builds the OpenAPI operations for one resource. A resource
+// that declares Endpoints (its real mounted REST faces) emits exactly those;
+// one with none falls back to the spec 5/36 PK-CRUD convention. Returns a
+// map[path]ops; ops is keyed by HTTP method (lowercased per OpenAPI).
 func resourcePaths(r *Resource) map[string]map[string]any {
-	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
-	listResp := map[string]any{
-		"description": "OK",
-		"content": map[string]any{
-			"application/json": map[string]any{
-				"schema": map[string]any{
-					"type":  "array",
-					"items": schemaRef,
-				},
-			},
-		},
+	if len(r.Endpoints) > 0 {
+		return endpointPaths(r)
 	}
-	itemResp := map[string]any{
-		"description": "OK",
-		"content": map[string]any{
-			"application/json": map[string]any{"schema": schemaRef},
-		},
-	}
-	noContent := map[string]any{"description": "No Content"}
-	body := map[string]any{
-		"required": true,
-		"content": map[string]any{
-			"application/json": map[string]any{"schema": schemaRef},
-		},
-	}
+	return conventionPaths(r)
+}
 
+// endpointPaths renders one operation per declared Endpoint — the doc mirrors
+// what RegisterREST mounts, so the two cannot drift. The path key + parameters
+// come from the stdlib-mux Path (placeholders {id}/{path...} → OpenAPI {param});
+// request/response shape is picked from the verb + action so the doc matches
+// what the handler actually accepts and returns. withMCPDoc adds the agent-
+// facing x-mcp-when per operation when the resource carries an MCPDoc entry.
+func endpointPaths(r *Resource) map[string]map[string]any {
+	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
+	out := map[string]map[string]any{}
+	for _, e := range r.Endpoints {
+		pathKey, params := openAPIPath(e.Path)
+		item := out[pathKey]
+		if item == nil {
+			item = map[string]any{}
+			if len(params) > 0 {
+				item["parameters"] = params
+			}
+			out[pathKey] = item
+		}
+		item[strings.ToLower(e.Verb)] = endpointOp(r, e, schemaRef, len(params) > 0)
+	}
+	return out
+}
+
+// endpointOp builds one operation for an Endpoint. Read actions (list/get) get
+// their read shapes; mutations carry a request body (a body-addressed DELETE —
+// one with no path placeholder — also reads the target from the JSON body); the
+// success status is Endpoint.Status when set, else 200 (matching restHandler).
+func endpointOp(r *Resource, e Endpoint, schemaRef map[string]any, hasPathParam bool) map[string]any {
+	status := e.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	code := strconv.Itoa(status)
+	op := map[string]any{
+		"summary":     fmt.Sprintf("%s %s", titleAction(e.Action), r.Name),
+		"operationId": fmt.Sprintf("%s_%s", e.Action, r.Name),
+	}
+	var success map[string]any
+	switch {
+	case e.Action == ActionList:
+		success = map[string]any{code: listResponse(schemaRef)}
+	case e.Verb == http.MethodGet:
+		success = map[string]any{code: itemResponse(schemaRef)}
+	case e.Verb == http.MethodDelete:
+		if !hasPathParam { // body-addressed delete reads the key from the body
+			op["requestBody"] = requestBody(schemaRef)
+		}
+		if status == http.StatusNoContent {
+			success = map[string]any{code: map[string]any{"description": "No Content"}}
+		} else {
+			success = map[string]any{code: map[string]any{"description": "OK"}}
+		}
+	default: // POST / PUT / PATCH
+		op["requestBody"] = requestBody(schemaRef)
+		success = map[string]any{code: itemResponse(schemaRef)}
+	}
+	op["responses"] = mergeResponses(success)
+	return withMCPDoc(r, e.Action, op)
+}
+
+// openAPIPath converts a stdlib-mux path to an OpenAPI path key plus its path
+// parameters. Placeholders {id} and the catch-all {path...} both become {name}
+// in the key (OpenAPI has no catch-all syntax) plus one string path parameter.
+func openAPIPath(p string) (string, []any) {
+	var params []any
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		if !strings.HasPrefix(seg, "{") || !strings.HasSuffix(seg, "}") {
+			continue
+		}
+		name := strings.TrimSuffix(strings.Trim(seg, "{}"), "...")
+		segs[i] = "{" + name + "}"
+		params = append(params, map[string]any{
+			"name":     name,
+			"in":       "path",
+			"required": true,
+			"schema":   map[string]any{"type": "string"},
+		})
+	}
+	return strings.Join(segs, "/"), params
+}
+
+// conventionPaths is the PK-CRUD fallback for engine-managed resources that
+// declare no Endpoints (their REST face IS the generic 5/36 CRUD).
+func conventionPaths(r *Resource) map[string]map[string]any {
+	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
 	collection := fmt.Sprintf("/v1/%s", r.Name)
 	out := map[string]map[string]any{
 		collection: {
 			"get": withMCPDoc(r, ActionList, map[string]any{
 				"summary":     fmt.Sprintf("List %s", r.Name),
 				"operationId": fmt.Sprintf("list_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"200": listResp}),
+				"responses":   mergeResponses(map[string]any{"200": listResponse(schemaRef)}),
 			}),
 			"post": withMCPDoc(r, ActionCreate, map[string]any{
 				"summary":     fmt.Sprintf("Create %s", r.Name),
 				"operationId": fmt.Sprintf("create_%s", r.Name),
-				"requestBody": body,
-				"responses":   mergeResponses(map[string]any{"201": itemResp}),
+				"requestBody": requestBody(schemaRef),
+				"responses":   mergeResponses(map[string]any{"201": itemResponse(schemaRef)}),
 			}),
 		},
 	}
-
 	if pkPath := pkPathTemplate(r); pkPath != "" {
 		item := collection + "/" + pkPath
-		params := pkParams(r)
 		out[item] = map[string]any{
-			"parameters": params,
+			"parameters": pkParams(r),
 			"get": withMCPDoc(r, ActionGet, map[string]any{
 				"summary":     fmt.Sprintf("Get %s", r.Name),
 				"operationId": fmt.Sprintf("get_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"200": itemResp}),
+				"responses":   mergeResponses(map[string]any{"200": itemResponse(schemaRef)}),
 			}),
 			"patch": withMCPDoc(r, ActionUpdate, map[string]any{
 				"summary":     fmt.Sprintf("Update %s", r.Name),
 				"operationId": fmt.Sprintf("update_%s", r.Name),
-				"requestBody": body,
-				"responses":   mergeResponses(map[string]any{"200": itemResp}),
+				"requestBody": requestBody(schemaRef),
+				"responses":   mergeResponses(map[string]any{"200": itemResponse(schemaRef)}),
 			}),
 			"delete": withMCPDoc(r, ActionDelete, map[string]any{
 				"summary":     fmt.Sprintf("Delete %s", r.Name),
 				"operationId": fmt.Sprintf("delete_%s", r.Name),
-				"responses":   mergeResponses(map[string]any{"204": noContent}),
+				"responses":   mergeResponses(map[string]any{"204": map[string]any{"description": "No Content"}}),
 			}),
 		}
 	}
 	return out
+}
+
+// listResponse / itemResponse / requestBody are the shared JSON shapes for a
+// collection read, a single-item read/write, and a mutation body.
+func listResponse(schemaRef map[string]any) map[string]any {
+	return map[string]any{
+		"description": "OK",
+		"content": map[string]any{
+			"application/json": map[string]any{
+				"schema": map[string]any{"type": "array", "items": schemaRef},
+			},
+		},
+	}
+}
+
+func itemResponse(schemaRef map[string]any) map[string]any {
+	return map[string]any{
+		"description": "OK",
+		"content":     map[string]any{"application/json": map[string]any{"schema": schemaRef}},
+	}
+}
+
+func requestBody(schemaRef map[string]any) map[string]any {
+	return map[string]any{
+		"required": true,
+		"content":  map[string]any{"application/json": map[string]any{"schema": schemaRef}},
+	}
+}
+
+// titleAction capitalizes an action verb for an operation summary
+// ("add" → "Add").
+func titleAction(a Action) string {
+	s := string(a)
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // withMCPDoc folds a resource's per-action agent-facing one-liner

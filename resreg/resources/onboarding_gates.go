@@ -18,11 +18,24 @@ type OnboardingGatesRow struct {
 	Enabled     int    `db:"enabled"       yaml:"enabled"       json:"enabled"`
 }
 
+// OnboardingGatesEndpoints mirrors onbod's hand-rolled gate REST face
+// (onbod/admin.go handleGate{List,Put,Delete}): the table is served at /v1/gates
+// (GET list, PUT/DELETE by {gate}), NOT the resource-name path /v1/gates would be
+// under the PK-CRUD convention (/v1/onboarding_gates). onbod mounts these with
+// raw mux handlers, so this list is the doc's single declaration of the shape —
+// keep it in sync with onbod/main.go if those routes change.
+var OnboardingGatesEndpoints = []resreg.Endpoint{
+	{Verb: "GET", Path: "/v1/gates", Action: resreg.ActionList},
+	{Verb: "PUT", Path: "/v1/gates/{gate}", Action: resreg.ActionUpdate},
+	{Verb: "DELETE", Path: "/v1/gates/{gate}", Action: resreg.ActionDelete},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "onboarding_gates",
-		Table:    "onboarding_gates",
-		RowType:  reflect.TypeOf(OnboardingGatesRow{}),
-		PKFields: []string{"Gate"},
+		Name:      "onboarding_gates",
+		Table:     "onboarding_gates",
+		RowType:   reflect.TypeOf(OnboardingGatesRow{}),
+		PKFields:  []string{"Gate"},
+		Endpoints: OnboardingGatesEndpoints,
 	})
 }

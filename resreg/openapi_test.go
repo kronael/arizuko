@@ -210,3 +210,95 @@ func TestOpenAPI_Deterministic(t *testing.T) {
 		t.Errorf("non-deterministic emit")
 	}
 }
+
+// TestOpenAPI_EndpointsDriven: a resource that declares Endpoints (custom verbs,
+// a non-PK {id} delete path) emits exactly those faces — no PK-convention
+// phantom /{seq} path, no PATCH the resource never mounts — and withMCPDoc still
+// rides the annotated operation.
+func TestOpenAPI_EndpointsDriven(t *testing.T) {
+	reset()
+	Register(Resource{
+		Name:     "ep_rows",
+		Table:    "ep_rows",
+		RowType:  reflect.TypeOf(oapiTestRow{}),
+		PKFields: []string{"Seq", "Match", "Target"},
+		Endpoints: []Endpoint{
+			{Verb: "POST", Path: "/v1/ep_rows", Action: Action("add")},
+			{Verb: "PUT", Path: "/v1/ep_rows", Action: Action("set")},
+			{Verb: "DELETE", Path: "/v1/ep_rows/{id}", Action: ActionDelete},
+			{Verb: "GET", Path: "/v1/ep_rows", Action: ActionList},
+		},
+		MCPDoc: map[Action]string{
+			Action("set"): "Rewrite the table. When to use: full reconfiguration.",
+		},
+	})
+	out, _ := OpenAPI("testd", "/", nil)
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	paths := doc["paths"].(map[string]any)
+
+	col, ok := paths["/v1/ep_rows"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing /v1/ep_rows: %v", paths)
+	}
+	for _, m := range []string{"get", "post", "put"} {
+		if _, ok := col[m]; !ok {
+			t.Errorf("collection missing %s", m)
+		}
+	}
+	if _, ok := col["patch"]; ok {
+		t.Errorf("collection gained a phantom patch")
+	}
+	item, ok := paths["/v1/ep_rows/{id}"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing /v1/ep_rows/{id}: %v", paths)
+	}
+	if _, ok := item["delete"]; !ok {
+		t.Errorf("item missing delete")
+	}
+	// The PK-convention phantom path must NOT exist.
+	if _, ok := paths["/v1/ep_rows/{seq}"]; ok {
+		t.Errorf("phantom PK path /v1/ep_rows/{seq} present")
+	}
+	// The {id} path parameter is described.
+	params, _ := item["parameters"].([]any)
+	if len(params) != 1 || params[0].(map[string]any)["name"] != "id" {
+		t.Errorf("item parameters = %v, want one {id}", params)
+	}
+	// x-mcp-when rides the annotated op only.
+	put := col["put"].(map[string]any)
+	if put["x-mcp-when"] != "Rewrite the table. When to use: full reconfiguration." {
+		t.Errorf("put x-mcp-when = %v", put["x-mcp-when"])
+	}
+	if _, ok := col["post"].(map[string]any)["x-mcp-when"]; ok {
+		t.Errorf("post gained x-mcp-when without an MCPDoc entry")
+	}
+}
+
+// TestOpenAPI_ConventionFallback: a resource with NO Endpoints still emits the
+// full 5-op PK-CRUD convention (list/create on the collection; get/update/delete
+// on the {pk} item) — the fallback engine-managed tables rely on.
+func TestOpenAPI_ConventionFallback(t *testing.T) {
+	registerOAPI(t) // oapi_rows declares no Endpoints
+	out, _ := OpenAPI("testd", "/", nil)
+	var doc map[string]any
+	json.Unmarshal(out, &doc)
+	paths := doc["paths"].(map[string]any)
+	col := paths["/v1/oapi_rows"].(map[string]any)
+	for _, m := range []string{"get", "post"} {
+		if _, ok := col[m]; !ok {
+			t.Errorf("fallback collection missing %s", m)
+		}
+	}
+	item, ok := paths["/v1/oapi_rows/{seq}"].(map[string]any)
+	if !ok {
+		t.Fatalf("fallback missing item path /v1/oapi_rows/{seq}: %v", paths)
+	}
+	for _, m := range []string{"get", "patch", "delete"} {
+		if _, ok := item[m]; !ok {
+			t.Errorf("fallback item missing %s", m)
+		}
+	}
+}
