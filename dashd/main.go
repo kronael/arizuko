@@ -20,6 +20,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/diary"
@@ -274,8 +275,25 @@ func main() {
 		slog.Warn("SECRETS_KEY unset in dashd — user secrets stored plaintext at rest")
 	}
 
+	// Surrogate OAuth (spec 5/43): the "Connect <provider>" dance under
+	// /dash/me/connections. Engine loads the embedded provider registry; creds
+	// come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). stateSecret HMAC-
+	// signs the CSRF state cookie (AUTH_SECRET); connBaseURL is the configured
+	// callback base (AUTH_BASE_URL, then WEB_HOST).
+	surrogateEng, serr := surrogate.NewEngine(map[string]surrogate.ClientCreds{
+		"github": {ID: os.Getenv("SURROGATE_GITHUB_CLIENT_ID"), Secret: os.Getenv("SURROGATE_GITHUB_CLIENT_SECRET")},
+	})
+	if serr != nil {
+		slog.Error("build surrogate engine", "err", serr)
+		os.Exit(1)
+	}
+	connBaseURL := strings.TrimRight(os.Getenv("AUTH_BASE_URL"), "/")
+	if connBaseURL == "" {
+		connBaseURL = strings.TrimRight(os.Getenv("WEB_HOST"), "/")
+	}
+
 	mux := http.NewServeMux()
-	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring}
+	d := &dash{db: db, dbRW: db, dbRoutd: dbRoutd, dbOnbod: dbOnbod, dbRuned: dbRuned, dbPath: dsn, groupsDir: groupsDir, appDir: appDir, ks: ks, svc: svcSrc, runedURL: strings.TrimRight(os.Getenv("RUNED_URL"), "/"), secretKeyring: secretKeyring, surrogate: surrogateEng, stateSecret: []byte(os.Getenv("AUTH_SECRET")), connBaseURL: connBaseURL}
 	d.registerRoutes(mux)
 	if obs.MetricsEnabled() {
 		mux.Handle("GET /metrics", obs.MetricsHandler())
@@ -317,6 +335,15 @@ type dash struct {
 	// secretKeyring is the SECRETS_KEY material handed to secretStore so user-secret
 	// writes seal at rest under the same key routd reads with. Empty → plaintext.
 	secretKeyring [][]byte
+
+	// surrogate drives the /dash/me/connections "Connect <provider>" OAuth dance
+	// (spec 5/43); nil in read-only tests / when no engine is wired. stateSecret
+	// HMAC-signs the dance's CSRF state cookie (reuses auth.SignState). connBaseURL
+	// is the absolute base the provider redirects the callback to — configured
+	// (must match the provider app), never derived from the request.
+	surrogate   *surrogate.Engine
+	stateSecret []byte
+	connBaseURL string
 }
 
 // adminDB returns the handle the admin paths (grants/groups/routes/route_tokens)
@@ -423,6 +450,14 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /dash/me/env", g(d.handleMeEnvCreate))
 	mux.HandleFunc("PATCH /dash/me/env/{key}", g(d.handleMeEnvUpdate))
 	mux.HandleFunc("DELETE /dash/me/env/{key}", g(d.handleMeEnvDelete))
+
+	// /dash/me/connections — surrogate OAuth (spec 5/43). "Connect <provider>"
+	// runs the outbound dance and writes the token to the same secrets row a PAT
+	// lands in. start/callback/disconnect; identity-bound to X-User-Sub.
+	mux.HandleFunc("GET /dash/me/connections", g(d.handleMeConnections))
+	mux.HandleFunc("POST /dash/me/connections/{provider}/start", g(d.handleMeConnectionStart))
+	mux.HandleFunc("GET /dash/me/connections/{provider}/callback", g(d.handleMeConnectionCallback))
+	mux.HandleFunc("DELETE /dash/me/connections/{provider}", g(d.handleMeConnectionDelete))
 
 	// WhatsApp re-pair — operator-only (** super-grant). Spec 8/15.
 	mux.HandleFunc("GET /dash/channels/whatsapp/pair", g(d.handleWhatsappPair))
