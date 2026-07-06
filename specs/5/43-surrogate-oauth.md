@@ -1,9 +1,40 @@
 ---
-status: draft
+status: partial
 depends: [5/41-ext-mcp, 5/42-credentials, 5/1-auth-standalone]
 ---
 
 # specs/5/43 — surrogate OAuth
+
+## Status — GitHub pilot shipped
+
+Shipped (this pilot):
+
+- `secrets` gains `provider`/`refresh_val`/`expires_at`/`scope_list`
+  (routd migration `0017`; PAT rows leave them NULL).
+- `auth/surrogate/` — a standalone registry-driven engine
+  (`AuthorizeURL`/`Exchange`/`Refresh`/`Revoke`) with one built-in provider
+  (`providers/github.toml`, `go:embed`). It is DISTINCT from identity's login
+  OAuth: it reuses only the low-level `auth` primitives — `auth.PostForm`
+  (added, exported), `auth.WritePKCE`/`ConsumePKCE` (the shipped S256 PKCE),
+  `auth.SignState`/`VerifyState` (the shipped CSRF-state cookie). PKCE stays at
+  the dashd layer (cookie stash), so the engine's `AuthorizeURL` takes the
+  challenge rather than returning a verifier-stash — the callback is already
+  authenticated (X-User-Sub), so state is CSRF-only, sub read from the header.
+- dashd `/dash/me/connections/` — `POST /<p>/start`, `GET /<p>/callback`,
+  `DELETE /<p>`, plus a list page beside `/dash/me/secrets`.
+- Broker near-expiry refresh in `routd` `ConnectorSecrets` (signature became
+  `(map, error)`): refresh when `expires_at−now < 60s`; a revoked refresh nulls
+  `expires_at`+`refresh_val` and returns a "reconnect" error the agent sees.
+  `SURROGATE_GITHUB_CLIENT_ID`/`_SECRET` in `core.Config`.
+
+Deferred (follow-ups, not this pilot):
+
+- Generalizing identity's per-provider `exchangeGitHub`/`exchangeGoogle` into
+  the registry-driven engine ("the one refactor" below) — DEFERRED; it risks
+  the shipped login path. Surrogate carries its own engine for now.
+- Spawn-time env-profile refresh (Anthropic/ChatGPT via `FolderSecretsForUser`)
+  — the refresh check fires only at the per-call broker path today.
+- `cmd/arizuko/surrogate.go` operator inspector; providers beyond github.
 
 > The user clicks "Connect GitHub" in their dashboard; arizuko runs the
 > OAuth dance and writes the access + refresh token into the `secrets`
@@ -131,6 +162,9 @@ their **sink** for the resulting token:
 Today identity's exchange is per-provider (`auth/oauth.go` google/github/
 discord). Generalizing those into the registry-driven `Exchange` is the one
 refactor; surrogate then adds only its registry + the write-secret sink.
+**DEFERRED (pilot):** the refactor risks the shipped login path, so surrogate
+ships with its OWN engine (`auth/surrogate/`) reusing only the low-level `auth`
+primitives; identity's per-provider exchange is untouched.
 
 ## Usage is not special-cased
 

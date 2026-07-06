@@ -38,6 +38,23 @@ func postForm(ctx context.Context, url string, data url.Values) (*http.Response,
 	return httpClient.Do(req)
 }
 
+// PostForm exposes the low-level form POST (shared 15s httpClient) for the
+// surrogate engine's token/refresh/revoke calls (auth/surrogate, spec 5/43).
+// accept sets the Accept header — surrogate wants "application/json" so GitHub
+// returns JSON; "" leaves it unset (login's private postForm shape). The login
+// exchange path is untouched; this is an additive exported primitive.
+func PostForm(ctx context.Context, endpoint string, data url.Values, accept string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	return httpClient.Do(req)
+}
+
 func consumePKCE(w http.ResponseWriter, r *http.Request, secure bool) string {
 	c, err := r.Cookie("oauth_pkce")
 	if err != nil || c.Value == "" {

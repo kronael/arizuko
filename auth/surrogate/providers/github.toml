@@ -1,0 +1,13 @@
+# Surrogate OAuth provider (spec 5/43). arizuko authenticates AS the user to the
+# GitHub API and writes the access+refresh token into the `secrets` table the
+# broker reads. Client id/secret are operator-owned in .env as
+# SURROGATE_GITHUB_CLIENT_ID / SURROGATE_GITHUB_CLIENT_SECRET.
+auth_url       = "https://github.com/login/oauth/authorize"
+token_url      = "https://github.com/login/oauth/access_token"
+revoke_url     = "https://api.github.com/applications/{client_id}/token"
+scopes         = ["repo", "read:user"]
+secret_key     = "GITHUB_TOKEN"
+allowed_domain = "api.github.com"
+# access_type is appended to the authorize URL for providers that need it to
+# return a refresh_token (google/microsoft = "offline"). GitHub does not.
+access_type    = ""

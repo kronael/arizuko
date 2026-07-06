@@ -46,6 +46,13 @@ type Config struct {
 	GoogleAllowedEmails string
 	GitHubAllowedOrg    string
 
+	// Surrogate OAuth (spec 5/43): operator-owned confidential-client creds for
+	// the outbound "Connect GitHub" dance. Distinct from GitHubClientID/Secret,
+	// which authenticate a USER TO arizuko (login); these authenticate arizuko
+	// AS the user to the GitHub API. Empty → the dance can't run (no creds).
+	SurrogateGitHubClientID string
+	SurrogateGitHubSecret   string
+
 	ProjectRoot     string
 	HostProjectRoot string
 	HostAppDir      string
@@ -181,6 +188,9 @@ func LoadConfig() (*Config, error) {
 		GoogleSecret:        envOr("GOOGLE_CLIENT_SECRET", ""),
 		GoogleAllowedEmails: envOr("GOOGLE_ALLOWED_EMAILS", ""),
 		GitHubAllowedOrg:    envOr("GITHUB_ALLOWED_ORG", ""),
+
+		SurrogateGitHubClientID: envOr("SURROGATE_GITHUB_CLIENT_ID", ""),
+		SurrogateGitHubSecret:   envOr("SURROGATE_GITHUB_CLIENT_SECRET", ""),
 
 		ProjectRoot:     root,
 		HostProjectRoot: hostRoot,
