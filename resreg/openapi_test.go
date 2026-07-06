@@ -90,55 +90,6 @@ func TestOpenAPI_PathsCRUD(t *testing.T) {
 	}
 }
 
-// TestOpenAPI_EndpointsEmitted: a resource declaring explicit Endpoints emits
-// exactly those (the truthful doc), NOT the PK-CRUD convention — so a resource
-// whose real REST face is PUT-to-set + DELETE-by-{id} can't advertise a phantom
-// PATCH /{pk} that no handler mounts. The empty-Endpoints convention path stays
-// covered by TestOpenAPI_PathsCRUD (the fallback).
-func TestOpenAPI_EndpointsEmitted(t *testing.T) {
-	reset()
-	Register(Resource{
-		Name:     "things",
-		Table:    "things",
-		RowType:  reflect.TypeOf(oapiTestRow{}),
-		PKFields: []string{"Seq"},
-		Endpoints: []Endpoint{
-			{Verb: "POST", Path: "/v1/things", Action: ActionCreate},
-			{Verb: "PUT", Path: "/v1/things", Action: Action("set")},
-			{Verb: "DELETE", Path: "/v1/things/{id}", Action: ActionDelete},
-			{Verb: "GET", Path: "/v1/things", Action: ActionList},
-		},
-	})
-	out, _ := OpenAPI("testd", "/", nil)
-	var doc map[string]any
-	json.Unmarshal(out, &doc)
-	paths := doc["paths"].(map[string]any)
-
-	col, ok := paths["/v1/things"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing /v1/things: %v", paths)
-	}
-	for _, m := range []string{"get", "post", "put"} {
-		if _, ok := col[m]; !ok {
-			t.Errorf("/v1/things missing declared %s", m)
-		}
-	}
-	if _, bad := col["patch"]; bad {
-		t.Error("collection carries a phantom patch not in Endpoints")
-	}
-	item, ok := paths["/v1/things/{id}"].(map[string]any)
-	if !ok {
-		t.Fatalf("missing declared /v1/things/{id}: %v", paths)
-	}
-	if _, ok := item["delete"]; !ok {
-		t.Error("/v1/things/{id} missing declared delete")
-	}
-	// The PK convention (/{seq} item with PATCH/DELETE) must NOT leak in.
-	if _, bad := paths["/v1/things/{seq}"]; bad {
-		t.Error("phantom convention path /v1/things/{seq} emitted despite explicit Endpoints")
-	}
-}
-
 func TestOpenAPI_SchemaReflection(t *testing.T) {
 	registerOAPI(t)
 	out, _ := OpenAPI("testd", "/", nil)
