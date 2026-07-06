@@ -7,18 +7,29 @@ seam. REST faces folded onto their shared handlers: web_routes (27537500 +
 9d649e59 list-all leak fix), acl (44c53cef, closed a cross-folder scope hole),
 routes (3195f867), tasks (0b6ca53e). Open:
 
-1. **Tier-1+ REST own-folder regression in routes/tasks/network_rules (open,
-   being fixed).** These handlers BAKE the agent tier model
-   (`auth.AuthorizeStructural(auth.Resolve(Caller.Folder), …)`) instead of keeping
-   containment in the injected Gate (as web_routes/acl do). The REST fold works for
-   tier-0 callers (ownsFolder Gate + tier-0-unrestricted handler) but a tier-1+ REST
-   token managing its OWN folder gets 403 (strict descendant) where ownsFolder allows
-   200 — latent, untested. Fix: the containment-predicate decouple (option 2,
-   user-chosen 2026-07-06) — inject a per-target `Contain(caller,action,target)`
-   (agent→tier AuthorizeStructural, REST→ownsFolder), drop the baked AuthorizeStructural
-   + the `x.Surface` branch. In progress.
-2. **network_rules REST face not yet folded (open).** Same tier-in-handler shape;
-   fold after the containment predicate lands.
+1. **routes/tasks REST bake the agent tier model in the handler — two failure modes
+   (being fixed by the containment decouple).** These handlers run
+   `auth.AuthorizeStructural(auth.Resolve(Caller.Folder), …)` — a predicate written for
+   the agent tier identity — against a REST operator whose real authority is `ownsFolder`
+   (own-or-descendant, tier-independent). The two diverge in BOTH directions:
+   - **routes — over-restrictive (no leak).** A tier-1+ REST token managing its OWN
+     folder gets 403 (tier-1 needs a STRICT descendant); a tier-2 REST token can't manage
+     routes at all. Latent (existing tests use tier-0 folders where the tier cap is a no-op).
+   - **tasks — LIVE CROSS-TENANT LEAK (security).** `tasksRESTGate` keys `ownsFolder(jwt,
+     Caller.Folder)` where `Caller.Folder==jwt` for per-task ops → a no-op; the only per-task
+     check is the handler's tier cap, which is LOOSER than ownsFolder: a **tier-0 REST
+     operator can `DELETE /v1/tasks/{anyId}` and cancel ANOTHER tenant's task**; a tier-1
+     operator can cancel/patch any same-world sibling's task (`isInWorld`). Uncovered
+     (`TestRESTTaskScopedSelfService` uses tier-2, where exact-own ≈ ownsFolder). Present on
+     main since the tasks fold (0b6ca53e).
+   Fix (option 2, user-chosen 2026-07-06): decouple containment into a routd-internal
+   per-face `containFn(caller,action,target)` — agent→tier `AuthorizeStructural`,
+   REST→`ownsFolder` — dropping the baked tier check from the handler (resreg untouched).
+   TDD'd: the two tasks guards fail on main (prove the leak), pass after. In progress.
+2. **network_rules: already clean, out of scope.** Its `AuthorizeStructural` lives in the
+   injected Gate (network_rules_resource.go:187), the handler is auth-agnostic, and it has
+   NO REST twin — the model the decouple brings routes/tasks to. Adopt the same containFn
+   only if/when a REST face lands.
 3. **Tool-browser drift (open, task #40).** `dashd` renders the schema browser via
    `ipc.ListTools`→`buildMCPServer` directly (no postBuild seam), so the migrated
    cold-tier facade tools don't appear. The LIVE agent still sees + calls them via the
