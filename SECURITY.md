@@ -64,6 +64,21 @@ is the same-group cross-turn surface; stronger per-turn isolation (a
 KVM micro-VM) is the opt-in posture for it. Per-group isolation is what
 makes the cross-tenant threat go away.
 
+The cold-tier **management** surface is a second cross-tenant vector, and
+folder-contained the same way. Routing rules and scheduled tasks name a
+_target_ folder — the tenant whose turns fire, or whose task is
+cancelled — so their shared handler (agent MCP tool + operator REST
+`/v1/routes`, `/v1/tasks`) binds every target to the caller's folder
+before mutating. Containment is an injected per-face predicate: the agent
+socket applies the tier model (`auth.AuthorizeStructural`), the operator
+REST face own-or-descendant folder containment (`ownsFolder`,
+tier-independent). A folder-scoped REST operator is thus confined to its
+own subtree — it cannot re-target or cancel another tenant's routes or
+tasks. A prior gap, where the REST task fold baked the agent tier cap into
+the handler (looser than folder containment — a top-level operator could
+delete any tenant's task), was closed by decoupling containment into that
+per-face predicate (`0d25b687`).
+
 ## Boundaries
 
 | Boundary            | Mechanism                                                                                                                                                                                                                                                                                                                                     | Location                                                                                          |

@@ -237,8 +237,13 @@ Two management surfaces, one handler, an injected gate per surface:
   is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
   the table, webd serves the MCP face). Spec
   [`5/45`](specs/5/45-openapi-mcp.md); rollout
-  [`5/44`](specs/5/44-mcp-rest-unification.md) (adopted on `proxyd_routes`
-  so far; the other nine still hand-rolled per `5/5`).
+  [`5/44`](specs/5/44-mcp-rest-unification.md). Migrated so far: all five
+  agent-MCP faces (`web_routes`, `acl`, `routes`, `scheduled_tasks`,
+  `network_rules`) ride one `resreg.Resource`; the REST second face is
+  folded onto the same handler for `web_routes`, `acl`, `routes`, and
+  `scheduled_tasks` (`network_rules` is agent-only, no REST twin).
+  `onboarding_gates`, `groups`, and `route_tokens`, plus one-owner +
+  federation, are still pending.
 - **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
   `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
   twin — an operator doesn't `reply` to a chat.
@@ -250,6 +255,17 @@ agent MCP socket injects `db.Authorize(sub, folder, "mcp:"+tool, params)`
 identity sources (agent socket scope vs human JWT folder), two gates. Which
 tools a tier even sees is filtered by `grants.MatchingRules` at the agent
 socket, not by resreg.
+
+For the tier-structural resources (`routes`, `scheduled_tasks`) whose
+_target_ folder is what a mutation acts on, per-target containment is a
+routd-internal per-face predicate (`containFn`) closed into the shared
+handler rather than the `Gate`: the agent face uses the tier model
+(`auth.AuthorizeStructural`), the REST face uses own-or-descendant folder
+containment (`ownsFolder`, tier-independent). Decoupling it from the
+handler's former baked tier cap closed a cross-tenant task-management leak
+on the REST fold (`0d25b687`). `web_routes` and `acl` need no such seam —
+the caller acts on its own folder's row / scope, so their containment stays
+in the injected `Gate`.
 
 ## The three planes
 
@@ -534,7 +550,12 @@ delivery paths:
   folder scope). Folder-scoped rows spawn-inject into the container env;
   user-scoped capability creds for an external-tool call are **brokered on
   the host at call-time** (`ipc/extcall.go`) and never enter the container.
-  Grant-gated.
+  Grant-gated. A capability row is written either by a pasted PAT
+  (`/dash/me/secrets`) or via **surrogate OAuth** — the dashboard's
+  "Connect GitHub" button (`/dash/me/connections`, `auth/surrogate/`, spec
+  [`5/43`](specs/5/43-surrogate-oauth.md)) runs the OAuth dance and writes
+  access + refresh tokens into the same `secrets` row; the broker refreshes
+  near-expiry tokens at call time (`ConnectorSecrets`).
 - **Infra / platform anchors** (`CHANNEL_SECRET`, `SECRETS_KEY`, bot
   credentials) — instance-wide, host `.env` only, never in the `secrets`
   table.
