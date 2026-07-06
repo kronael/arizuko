@@ -617,7 +617,7 @@ func decodeRESTArgs(req *http.Request, e Endpoint) (Args, error) {
 			args[k] = vs[0]
 		}
 	}
-	if req.Body != nil && (req.Method == "POST" || req.Method == "PATCH" || req.Method == "PUT") {
+	if req.Body != nil && (req.Method == "POST" || req.Method == "PATCH" || req.Method == "PUT" || req.Method == "DELETE") {
 		var raw map[string]any
 		dec := json.NewDecoder(req.Body)
 		dec.DisallowUnknownFields()
