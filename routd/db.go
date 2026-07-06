@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/db_utils"
 	"github.com/kronael/arizuko/store"
@@ -34,7 +35,16 @@ type DB struct {
 	// writes seal them. Empty → no key set → reads stay ciphertext (no plaintext
 	// leak; the connector just gets nothing usable) and writes store plaintext.
 	secretKeyring [][]byte
+
+	// surrogate refreshes near-expiry OAuth secret rows at broker call time
+	// (spec 5/43). nil → no refresh (PAT-only path); ConnectorSecrets then reads
+	// the stored value unchanged. Wired in routd main from auth/surrogate.
+	surrogate *surrogate.Engine
 }
+
+// SetSurrogate wires the surrogate-OAuth engine used by ConnectorSecrets to
+// refresh near-expiry capability credentials at call time. nil-safe (no refresh).
+func (d *DB) SetSurrogate(e *surrogate.Engine) { d.surrogate = e }
 
 // SetSecretKeys supplies the SECRETS_KEY keyring (raw values; the active seal
 // key first, retired keys after) so secret reads off routd's own secrets table

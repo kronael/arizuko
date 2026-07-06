@@ -124,12 +124,13 @@ func TestFolderSecrets_DecryptsV2(t *testing.T) {
 	}
 
 	// ConnectorSecrets narrows to the declared set and decrypts.
-	cs := db.ConnectorSecrets("main/trading", "", []string{"GITHUB_TOKEN"})
+	cs, _ := db.ConnectorSecrets("main/trading", "", []string{"GITHUB_TOKEN"})
 	if cs["GITHUB_TOKEN"] != "ghp_plaintext42" {
 		t.Errorf("ConnectorSecrets = %q, want ghp_plaintext42", cs["GITHUB_TOKEN"])
 	}
 	// A non-declared key never surfaces even if present in the folder set.
-	if _, ok := db.ConnectorSecrets("main/trading", "", []string{"OTHER"})["GITHUB_TOKEN"]; ok {
+	other, _ := db.ConnectorSecrets("main/trading", "", []string{"OTHER"})
+	if _, ok := other["GITHUB_TOKEN"]; ok {
 		t.Error("ConnectorSecrets leaked an undeclared key")
 	}
 }
@@ -257,7 +258,7 @@ func TestConnectorSecrets_GracefulWhenUnset(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	// Arm 1: empty secrets table, no keyring → empty.
-	if got := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"}); len(got) != 0 {
+	if got, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"}); len(got) != 0 {
 		t.Errorf("empty table: want empty, got %v", got)
 	}
 	if got := db.FolderSecrets("main"); len(got) != 0 {
@@ -308,19 +309,19 @@ func TestConnectorSecrets_UserBYOAWins(t *testing.T) {
 	}
 
 	// alice's callerSub → her key wins
-	got := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
+	got, _ := db.ConnectorSecrets("main", "github:alice", []string{"GITHUB_TOKEN"})
 	if got["GITHUB_TOKEN"] != "ghp_alice" {
 		t.Errorf("alice callerSub: GITHUB_TOKEN = %q, want ghp_alice (BYOA override)", got["GITHUB_TOKEN"])
 	}
 
 	// bob has no override → falls back to folder default
-	got2 := db.ConnectorSecrets("main", "github:bob", []string{"GITHUB_TOKEN"})
+	got2, _ := db.ConnectorSecrets("main", "github:bob", []string{"GITHUB_TOKEN"})
 	if got2["GITHUB_TOKEN"] != "ghp_folder" {
 		t.Errorf("bob callerSub: GITHUB_TOKEN = %q, want ghp_folder (folder fallback)", got2["GITHUB_TOKEN"])
 	}
 
 	// empty callerSub (service:routd / cron) → folder default
-	got3 := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"})
+	got3, _ := db.ConnectorSecrets("main", "", []string{"GITHUB_TOKEN"})
 	if got3["GITHUB_TOKEN"] != "ghp_folder" {
 		t.Errorf("empty callerSub: GITHUB_TOKEN = %q, want ghp_folder", got3["GITHUB_TOKEN"])
 	}

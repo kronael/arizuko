@@ -540,7 +540,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// resolution chain): timed/system triggers resolve as service:routd, so
 		// a stray timed-<id> scope_id can't diverge connector-secret resolution
 		// from spawn-time resolution.
-		ResolveConnectorSecrets: func(folder string, required []string) map[string]string {
+		ResolveConnectorSecrets: func(folder string, required []string) (map[string]string, error) {
 			callerSub := t.trigger
 			if callerSub == "" || strings.HasPrefix(callerSub, "timed-") || strings.HasPrefix(callerSub, "system") {
 				callerSub = "service:routd"

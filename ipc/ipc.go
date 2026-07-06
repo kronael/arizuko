@@ -238,8 +238,10 @@ type StoreFns struct {
 	// result to CallConnectorTool — which expands `{secret:KEY}` into the
 	// subprocess env AND scrubs those values from the result. Nil → no
 	// injection (the connector sees the placeholders literally), matching the
-	// pre-injection behaviour. Spec 7/Y.
-	ResolveConnectorSecrets func(folder string, required []string) map[string]string
+	// pre-injection behaviour. Spec 7/Y. A non-nil error is a surrogate-OAuth
+	// "reconnect" signal (spec 5/43): a required credential's refresh_token was
+	// revoked; the handler returns it to the agent as the tool result.
+	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
 
 	// Authorize checks whether sub may call action (e.g. "mcp:send") with
 	// params in the context of folder. Used by ServeMCP when callerSub != ""
@@ -977,7 +979,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				var secrets map[string]string
 				if db.ResolveConnectorSecrets != nil && tool.Connector != nil {
-					secrets = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
+					var rerr error
+					secrets, rerr = db.ResolveConnectorSecrets(folder, tool.Connector.Secrets)
+					if rerr != nil {
+						return mcp.NewToolResultError(rerr.Error()), nil
+					}
 				}
 				return CallConnectorTool(ctx, tool, req.GetArguments(), secrets)
 			})
@@ -1002,7 +1008,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 					if tool.SecretKey2 != "" {
 						needed = append(needed, tool.SecretKey2)
 					}
-					secrets = db.ResolveConnectorSecrets(folder, needed)
+					var rerr error
+					secrets, rerr = db.ResolveConnectorSecrets(folder, needed)
+					if rerr != nil {
+						return mcp.NewToolResultError(rerr.Error()), nil
+					}
 				}
 				return CallExtTool(ctx, tool, req.GetArguments(), secrets)
 			})

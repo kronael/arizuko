@@ -19,6 +19,7 @@ import (
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/auth/surrogate"
 	"github.com/kronael/arizuko/chanreg"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
@@ -65,6 +66,21 @@ func main() {
 		db.SetSecretKeys(kr...)
 	} else {
 		slog.Warn("SECRETS_KEY unset; connector/scoped secrets will not decrypt")
+	}
+
+	// Surrogate OAuth (spec 5/43): the broker refreshes near-expiry capability
+	// credentials at call time. The engine loads the embedded provider registry;
+	// creds come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). Always wired —
+	// refresh only fires for user rows carrying provider metadata (written by the
+	// dashd Connect dance, itself gated on creds), so an unconfigured instance is
+	// inert.
+	if eng, err := surrogate.NewEngine(map[string]surrogate.ClientCreds{
+		"github": {ID: os.Getenv("SURROGATE_GITHUB_CLIENT_ID"), Secret: os.Getenv("SURROGATE_GITHUB_CLIENT_SECRET")},
+	}); err != nil {
+		slog.Error("build surrogate engine", "err", err)
+		os.Exit(1)
+	} else {
+		db.SetSurrogate(eng)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

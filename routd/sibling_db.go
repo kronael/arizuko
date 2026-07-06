@@ -131,9 +131,16 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 // secrets on top of the folder defaults (BYOA: user's own GITHUB_TOKEN wins
 // over a shared folder token). Empty callerSub → folder scope only.
 // Missing keys are omitted. nil/empty required → empty map.
-func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) map[string]string {
+//
+// A required key backed by a user-scoped surrogate-OAuth row (spec 5/43) is
+// refreshed in place when within 60s of expiry before it is returned, so the
+// connector always gets a live token. A DEFINITIVE refresh rejection (revoked
+// refresh_token) nulls the row's oauth columns, drops the key, and returns a
+// non-nil "reconnect" error the caller surfaces to the agent — the other keys
+// still resolve. A transient refresh failure keeps the stale token and no error.
+func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) (map[string]string, error) {
 	if len(required) == 0 {
-		return map[string]string{}
+		return map[string]string{}, nil
 	}
 	all := d.FolderSecretsForUser(folder, callerSub)
 	out := make(map[string]string, len(required))
@@ -142,7 +149,10 @@ func (d *DB) ConnectorSecrets(folder, callerSub string, required []string) map[s
 			out[k] = v
 		}
 	}
-	return out
+	if d.surrogate == nil || callerSub == "" {
+		return out, nil
+	}
+	return out, d.refreshNearExpiry(callerSub, required, out)
 }
 
 // ListACL returns acl rows, optionally filtered by principal. Used for the
