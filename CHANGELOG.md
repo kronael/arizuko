@@ -19,6 +19,13 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Per-daemon `audit_log` in `routd.db`.** routd's own mutation paths (acl / secrets / tasks) now write tx-bound audit rows into `routd.db`'s own `audit_log` (migration `0016-audit-log.sql`) via `audit.EmitInTx`, and proxyd / webd / dashd write there through a sibling `routd.db` handle. Retires the frozen pre-split `messages.db` as a live audit sink; in-tx rollback fixed so an audit-insert failure rolls the mutation back. (`19b2c383`, `67496732`)
 - **resreg read-one + per-action MCP args.** OpenAPI now emits a fifth operation, `GET /v1/<name>/{pk}` (read one), and MCP tool args are reflected **per action** (`MCPArgs`) so a read-one tool doesn't carry create-body fields. (`ecfb48a2`, `8b612a1d`)
 - **`proxyd_routes` single-sourced.** `MCPDoc` / `MCPArgs` / the REST endpoint set (`resources.ProxydRoutesEndpoints`) are authored once and shared by proxyd and the webd MCP forwarder, so the two faces can't drift. (`ecfb48a2`)
+- **5/44 MCP+REST unification — REST faces on the shared handler.** `web_routes`, `acl`, `routes`, and `scheduled_tasks` now serve their operator `/v1/*` REST face from the SAME in-process handler as the agent MCP tool, with authz injected per surface — operator scope + `ownsFolder` for REST, tier grants for the agent. One renderer, two faces, no drift; the hand-rolled REST handlers are retired. (`27537500`, `44c53cef`, `3195f867`, `0b6ca53e`)
+- **Surrogate OAuth (spec 5/43, GitHub pilot).** "Connect GitHub" in the dashboard runs the OAuth dance and writes access + refresh tokens into the same `secrets` row a pasted PAT lands in; the broker refreshes near-expiry tokens at call time. Standalone `auth/surrogate` engine + TOML provider registry + `/dash/me/connections`; reuses the shipped login PKCE/state primitives, never touches login OAuth. (`9bc6b499`, `4c45d132`, `db845980`)
+
+### Security
+
+- **Cross-tenant scheduled-task management over REST (fixed).** A folder-scoped REST operator token could cancel/patch scheduled tasks OUTSIDE its own subtree: the tasks REST gate's folder check was a no-op for per-task ops, and the handler's tier cap was looser than folder containment — a tier-0 operator could delete ANY tenant's task, a tier-1 any same-world sibling's. Fixed by decoupling containment into a routd-internal per-face predicate (agent → tier `AuthorizeStructural`, REST → `ownsFolder`); TDD-confirmed the leak and its close. (`0d25b687`)
+- **routes REST tier-1 over-restriction (fixed).** The same tier-in-handler bug denied a tier-1+ REST token management of its OWN folder's routes (403). The decouple corrects it — REST containment is now own-or-descendant, tier-independent. (`0d25b687`)
 
 ### Fixed
 

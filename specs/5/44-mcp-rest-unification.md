@@ -1,9 +1,20 @@
 ---
-status: draft
+status: partial
 depends:
   [5/5-uniform-mcp-rest, 5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
 moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
+
+> **Status (2026-07-06).** Agent-MCP faces: all 5 cold-tier resources migrated
+> onto one `resreg.Resource` via the injected Gate. REST second faces folded onto
+> the shared handler: `web_routes`, `acl`, `routes`, `scheduled_tasks`.
+> Containment for the tier-structural handlers (`routes`, `scheduled_tasks`) is
+> decoupled into a routd-internal per-face `containFn` (agent → tier
+> `AuthorizeStructural`, REST → `ownsFolder`), which closed a live cross-tenant
+> task-management leak (`0d25b687`). `network_rules` keeps containment in its
+> Gate already and is agent-only (no REST twin) — the clean model, nothing to
+> fold. Remaining: OpenAPI truthfulness (5/45), the dashd tool-browser, and the
+> one-owner + federation phase.
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
 
