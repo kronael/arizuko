@@ -1,32 +1,35 @@
 # BUGS.md — open issues queue
 
-## web_routes 5/44 pilot: agent face migrated, REST face + follow-ons open (2026-07-05)
+## 5/44 two-faces rollout — status (updated 2026-07-06)
 
-The agent-MCP face of web_routes now rides one resreg.Resource via the injected
-Gate seam (set_web_route/del_web_route/list_web_routes; `routd/web_routes_resource.go`).
-Follow-ons the pilot deliberately did NOT do:
+All 5 cold-tier agent-MCP faces ride one resreg.Resource via the injected Gate
+seam. REST faces folded onto their shared handlers: web_routes (27537500 +
+9d649e59 list-all leak fix), acl (44c53cef, closed a cross-folder scope hole),
+routes (3195f867), tasks (0b6ca53e). Open:
 
-1. **REST `/v1/web_routes` NOT migrated (open).** Its auth is scoped self-service
-   (`routes:write:own_group` + `ownsFolder` containment, `routd/authz_containment_test.go`)
-   — different from the operator-default Gate — and resreg's REST adapter can't decode
-   the `?path_prefix=`/`?folder=` query params `GET /v1/web_routes` uses. Unifying the
-   REST face needs: resreg REST query-param decoding + routd injecting a scoped-containment
-   REST Gate (preserve the self-service model). Until then, create-validation stays
-   duplicated between `handleWebRoutePut` and the shared handler (no worse than before).
-2. **Tool-browser drift (open).** `dashd/tools_admin.go` renders the schema browser via
-   `ipc.ListTools`→`buildMCPServer` directly (no postBuild seam), so the three web_route
-   tools no longer appear in the dashd tool browser. The LIVE agent still sees + calls them
-   (via the seam) — discovery-only. Fix: ListTools must also render resreg facade tools.
-3. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path (`!ExternalMCP`)
-   gets no postBuild → no web_route tools there. Production (split, `ExternalMCP: true`, routd
-   hosts the socket) is unaffected.
-4. **del_web_route widening: bug→fixed (ratified).** Production `del_web_route`→`routd.DeleteWebRoute`
-   used `folder=?` exact-match, so tier-0 widening (`scopedFolder=""`) matched only `folder=''`
-   rows (impossible under the groups FK) — a tier-0 folder could NEVER delete its own route.
-   The migrated `deleteWebRouteTx` adopts `store.DelWebRoute`'s `(folder=? OR ?='')` widening
-   (the tested intent). Broken→working, ratified 2026-07-05.
-
-- **Status:** #1/#2 open (the "two faces" completion for web_routes); #3 minor; #4 resolved.
+1. **Tier-1+ REST own-folder regression in routes/tasks/network_rules (open,
+   being fixed).** These handlers BAKE the agent tier model
+   (`auth.AuthorizeStructural(auth.Resolve(Caller.Folder), …)`) instead of keeping
+   containment in the injected Gate (as web_routes/acl do). The REST fold works for
+   tier-0 callers (ownsFolder Gate + tier-0-unrestricted handler) but a tier-1+ REST
+   token managing its OWN folder gets 403 (strict descendant) where ownsFolder allows
+   200 — latent, untested. Fix: the containment-predicate decouple (option 2,
+   user-chosen 2026-07-06) — inject a per-target `Contain(caller,action,target)`
+   (agent→tier AuthorizeStructural, REST→ownsFolder), drop the baked AuthorizeStructural
+   + the `x.Surface` branch. In progress.
+2. **network_rules REST face not yet folded (open).** Same tier-in-handler shape;
+   fold after the containment predicate lands.
+3. **Tool-browser drift (open, task #40).** `dashd` renders the schema browser via
+   `ipc.ListTools`→`buildMCPServer` directly (no postBuild seam), so the migrated
+   cold-tier facade tools don't appear. The LIVE agent still sees + calls them via the
+   seam — discovery-only. Fix: ListTools must render resreg facade tools.
+4. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path
+   (`!ExternalMCP`) gets no postBuild → no facade tools there. Production (split, routd
+   hosts the socket) unaffected.
+5. **surrogate refresh: bodyless-4xx nulls the row (minor, 5/43).** `auth/surrogate`
+   `Engine.Refresh` maps a 4xx with no parseable OAuth error body (empty AccessToken) to
+   `ErrReconnect`, which nulls the credential. A transient bodyless 429/4xx would force a
+   needless reconnect. Rare (providers return error bodies); keep-stale would be safer.
 
 
 ## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
