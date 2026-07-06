@@ -50,6 +50,18 @@ func TestRESTReadFolderBound(t *testing.T) {
 	if c := getCode(t, "alice", "/v1/routing/errored?folder=alice", "routes:read:own_group"); c != 200 {
 		t.Fatalf("own errored = %d want 200", c)
 	}
+	// web_routes list rides the shared handler through the REST Gate: a tier-0
+	// (top-level) token lists every folder's routes, a scoped one only its own
+	// subtree (?folder= must stay inside it).
+	if c := getCode(t, "alice", "/v1/web_routes", "routes:read:own_group"); c != 200 {
+		t.Fatalf("tier-0 web_routes list = %d want 200", c)
+	}
+	if c := getCode(t, "alice/eng", "/v1/web_routes?folder=alice/ops", "routes:read:own_group"); c != 403 {
+		t.Fatalf("cross-folder web_routes list = %d want 403", c)
+	}
+	if c := getCode(t, "alice/eng", "/v1/web_routes?folder=alice/eng", "routes:read:own_group"); c != 200 {
+		t.Fatalf("own web_routes list = %d want 200", c)
+	}
 }
 
 func TestRESTCostFolderBound(t *testing.T) {
@@ -71,28 +83,41 @@ func TestRESTCostFolderBound(t *testing.T) {
 	}
 }
 
+// webRouteReq is the REST create/delete request body after the 5/44 REST-face
+// fold: the shared handler reads the flat MCP arg names (path/access/redirect_to)
+// plus the REST-only target `folder` (bound to the caller's subtree by the Gate).
+// This replaces the old apiv1.WebRoute (`path_prefix`) request shape.
+type webRouteReq struct {
+	Folder     string `json:"folder"`
+	Path       string `json:"path"`
+	Access     string `json:"access,omitempty"`
+	RedirectTo string `json:"redirect_to,omitempty"`
+}
+
 // The REST web_route PUT must enforce the SAME path-claim + redirect-self-slot
 // containment as its set_web_route MCP twin (2026-06-07 bug sweep): a scoped
 // caller cannot hijack another folder's web path or set a cross-folder redirect.
+// Post 5/44 fold both faces run the ONE shared handler, so the redirect-self-slot
+// violation now surfaces the handler's 400 (was the old REST's 403).
 func TestRESTWebRoutePutContainment(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "alice"})
 	_ = db.PutGroup(core.Group{Folder: "alice"}) // web_routes.folder FKs groups
 	_ = db.PutGroup(core.Group{Folder: "bob"})
 	// own-slot public route: allowed.
-	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/pub/alice/app", Access: "public"}); r.Code != 200 {
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{Folder: "alice", Path: "/pub/alice/app", Access: "public"}); r.Code != 200 {
 		t.Fatalf("own-slot public = %d want 200 body=%s", r.Code, r.Body.String())
 	}
-	// redirect into another folder's slot: forbidden (open-redirect / impersonation).
-	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/pub/alice/r", Access: "redirect", RedirectTo: "/pub/bob/x"}); r.Code != 403 {
-		t.Fatalf("cross-folder redirect = %d want 403", r.Code)
+	// redirect into another folder's slot: rejected by the shared handler (400).
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{Folder: "alice", Path: "/pub/alice/r", Access: "redirect", RedirectTo: "/pub/bob/x"}); r.Code != 400 {
+		t.Fatalf("cross-folder redirect = %d want 400 body=%s", r.Code, r.Body.String())
 	}
 	// first-claim: a top-level path bob already owns cannot be hijacked by alice.
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "bob"})
-	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "alice", PathPrefix: "/shared", Access: "public"}); r.Code != 403 {
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{Folder: "alice", Path: "/shared", Access: "public"}); r.Code != 403 {
 		t.Fatalf("claim hijack = %d want 403", r.Code)
 	}
-	// cross-folder target folder is still rejected by ownsFolder.
-	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", apiv1.WebRoute{Folder: "bob", PathPrefix: "/pub/bob/x", Access: "public"}); r.Code != 403 {
+	// cross-folder target folder is still rejected by the Gate's ownsFolder.
+	if r := doJSON(t, h, "PUT", "/v1/web_routes", "", webRouteReq{Folder: "bob", Path: "/pub/bob/x", Access: "public"}); r.Code != 403 {
 		t.Fatalf("cross-folder folder = %d want 403", r.Code)
 	}
 }
