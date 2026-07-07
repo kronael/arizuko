@@ -22,7 +22,6 @@ func TestBuildMCPServer(t *testing.T) {
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
-		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
@@ -39,7 +38,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
-		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
@@ -57,10 +55,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		SendMessage:         func(jid, text string) (string, error) { return "", nil },
 		SendDocument:        func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:        func(f string) {},
-		GetGroups:           func() map[string]core.Group { return nil },
 		EnqueueMessageCheck: func(jid string) {},
 		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
-		RegisterGroup:       func(j string, g core.Group) error { return nil },
 		GroupsDir:           "/tmp/groups",
 		WebDir:              "/tmp/web",
 	}
@@ -124,7 +120,6 @@ func TestSendReply(t *testing.T) {
 		SendMessage:   func(jid, text string) (string, error) { return "", nil },
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
-		GetGroups:     func() map[string]core.Group { return nil },
 		GroupsDir:     "/tmp/groups",
 		WebDir:        "/tmp/web",
 	}
@@ -146,25 +141,6 @@ func TestRecordOutboundStampsTurnID(t *testing.T) {
 	recordOutbound(GatedFns{}, db, "slack:T/C/U", "hi", "pid-1", "demo")
 	if got.TurnID != "turn-xyz" {
 		t.Fatalf("recordOutbound did not stamp turn_id: got %q", got.TurnID)
-	}
-}
-
-func TestRefreshGroups(t *testing.T) {
-	groups := map[string]core.Group{
-		"world/a": {Folder: "world/a"},
-	}
-	gated := GatedFns{
-		SendMessage:   func(jid, text string) (string, error) { return "", nil },
-		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
-		GetGroups:     func() map[string]core.Group { return groups },
-		GroupsDir:     "/tmp/groups",
-		WebDir:        "/tmp/web",
-	}
-	db := StoreFns{}
-	// tier ≤ 2 gets refresh_groups
-	srv := buildMCPServer(gated, db, "world/a", []string{"*"}, "")
-	if srv == nil {
-		t.Fatal("expected non-nil server")
 	}
 }
 

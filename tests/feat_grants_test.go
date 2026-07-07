@@ -61,8 +61,21 @@ func TestFeature_Grants(t *testing.T) {
 		if grants.CheckAction(deep, "register_group", nil) {
 			t.Fatal("deep tier must NOT have register_group")
 		}
+		if grants.CheckAction(deep, "refresh_groups", nil) {
+			t.Fatal("deep tier must NOT have refresh_groups")
+		}
 		if !grants.CheckAction(deep, "reply", nil) {
 			t.Fatal("deep tier should still reply")
+		}
+		// refresh_groups is the read counterpart of register_group: tier 2 keeps
+		// it (its former tier≤2 gate, now grant-derived so the facade browser sees
+		// it) even though register_group is tier 0/1 only (spec 5/44 groups fold).
+		t2 := grants.DeriveRules(nil, "a/b", 2, "a")
+		if !grants.CheckAction(t2, "refresh_groups", nil) {
+			t.Fatal("tier 2 must have refresh_groups")
+		}
+		if grants.CheckAction(t2, "register_group", nil) {
+			t.Fatal("tier 2 must NOT have register_group")
 		}
 	})
 

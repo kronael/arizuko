@@ -48,11 +48,7 @@ type GatedFns struct {
 	ClearSession         func(folder string)
 	ForkTopic            func(folder, parent, child string, force bool) error
 	InjectMessage        func(jid, content, sender, senderName string) (string, error)
-	RegisterGroup        func(jid string, group core.Group) error
-	SetupGroup           func(folder string) error
-	GetGroups            func() map[string]core.Group
 	EnqueueMessageCheck  func(jid string)
-	SpawnGroup           func(parentFolder, childJID string) (core.Group, error)
 	FetchPlatformHistory func(jid string, before time.Time, limit int) (PlatformHistory, error)
 	CreateInvite         func(targetGlob, issuedBySub string, maxUses int, expiresAt *time.Time) (InviteInfo, error)
 	ListInvites          func(issuedBy string) ([]InviteInfo, error)
@@ -1770,72 +1766,11 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"injected": true, "id": mid})
 		})
 
-	granted("register_group",
-		"Create a child agent group and route a jid to it. Use when onboarding a new chat into its own isolated workspace/session, or when spinning up a sub-agent from this group's prototype/ (fromPrototype=true). Not for promoting work up (escalate_group) or handing a task to an existing child (delegate_group).",
-		[]mcp.ToolOption{
-			mcp.WithString("jid", mcp.Required()),
-			mcp.WithBoolean("fromPrototype"),
-			mcp.WithString("folder"),
-		},
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.RegisterGroup == nil {
-				return toolErr("register_group not configured")
-			}
-			jid := req.GetString("jid", "")
-
-			if req.GetBool("fromPrototype", false) {
-				if gated.SpawnGroup == nil {
-					return toolErr("register_group: fromPrototype not configured")
-				}
-				child, err := gated.SpawnGroup(folder, jid)
-				if err != nil {
-					emitSys("register_group", "", callerSub,
-						map[string]any{"jid": jid, "fromPrototype": true}, err)
-					return toolErr(err.Error())
-				}
-				if gated.SetupGroup != nil {
-					if err := gated.SetupGroup(child.Folder); err != nil {
-						slog.Warn("register_group: seed group dir", "folder", child.Folder, "err", err)
-					}
-				}
-				emitSys("register_group", child.Folder, callerSub,
-					map[string]any{"jid": jid, "fromPrototype": true}, nil)
-				slog.Info("group registered from prototype", "jid", jid, "folder", child.Folder, "sourceGroup", folder)
-				return toolJSON(map[string]any{"registered": true, "folder": child.Folder, "jid": jid})
-			}
-
-			gfld := req.GetString("folder", "")
-			if gfld == "" {
-				return toolErr("folder required when fromPrototype is false")
-			}
-			if err := authzStructural("register_group", auth.AuthzTarget{TargetFolder: gfld}); err != nil {
-				return toolErr(err.Error())
-			}
-			groups := gated.GetGroups()
-			if pg, ok := groups[folder]; ok {
-				if err := auth.CheckSpawnAllowed(pg, groups); err != nil {
-					return toolErr(err.Error())
-				}
-			}
-			gr := core.Group{
-				Folder:  gfld,
-				AddedAt: time.Now(),
-			}
-			if err := gated.RegisterGroup(jid, gr); err != nil {
-				emitSys("register_group", gfld, callerSub,
-					map[string]any{"jid": jid, "fromPrototype": false}, err)
-				return toolErr(err.Error())
-			}
-			if gated.SetupGroup != nil {
-				if err := gated.SetupGroup(gfld); err != nil {
-					slog.Warn("register_group: seed group dir", "folder", gfld, "err", err)
-				}
-			}
-			emitSys("register_group", gfld, callerSub,
-				map[string]any{"jid": jid, "fromPrototype": false}, nil)
-			slog.Info("group registered", "jid", jid, "folder", gfld, "sourceGroup", folder)
-			return toolJSON(map[string]any{"registered": true, "folder": gfld, "jid": jid})
-		})
+	// register_group + refresh_groups moved to the groups resreg seam (spec 5/44,
+	// the last agent-face fold): routd owns the shared handler and mounts them on
+	// this server via the ServeMCP postBuild seam. register_group is a FORWARDER
+	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
+	// ride a resreg tx), so its auth + audit live in routd/groups_resource.go.
 
 	granted("escalate_group", "Hand a prompt up to this group's parent folder; the parent responds back through this child. Use when the request exceeds this group's authority/tier or needs operator review. Not for peer/child handoff (delegate_group) or creating a new group (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{
@@ -1885,25 +1820,6 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			gated.EnqueueMessageCheck(parent)
 			return toolJSON(map[string]any{"queued": true, "parent": parent})
 		})
-
-	if identity.Tier <= 2 {
-		srv.AddTool(mcp.NewTool("refresh_groups",
-			mcp.WithDescription("Return folder for every registered group. Use to discover delegation targets or audit the group tree. Not for routing details (inspect_routing) or per-group tasks (inspect_tasks)."),
-		), func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if gated.GetGroups == nil {
-				return toolErr("refresh_groups not configured")
-			}
-			groups := gated.GetGroups()
-			type groupInfo struct {
-				Folder string `json:"folder"`
-			}
-			out := make([]groupInfo, 0, len(groups))
-			for _, g := range groups {
-				out = append(out, groupInfo{Folder: g.Folder})
-			}
-			return toolJSON(out)
-		})
-	}
 
 	granted("delegate_group", "Hand a prompt down to a specific child group for async execution; the child runs in its own session and workspace. Use to offload specialist work to an existing child without blocking this chat. Not for parent handoff (escalate_group) or creating the child (register_group). Depth capped at 1.",
 		[]mcp.ToolOption{

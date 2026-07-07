@@ -97,8 +97,6 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		GroupObserveWindow:    s.db.GroupObserveWindow,
 		AddGroupWatcher:       s.db.AddGroupWatcher,
 		RemoveGroupWatcher:    s.db.RemoveGroupWatcher,
-		GetGroups:             s.db.AllGroups,
-		RegisterGroup:         s.registerGroup,
 		InjectMessage: func(jid, content, sender, senderName string) (string, error) {
 			id := "in-" + randHex(8)
 			err := s.db.PutMessage(core.Message{
@@ -545,5 +543,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	routes := s.routesPostBuild(t.folder, callerSub, rules)
 	acl := s.aclPostBuild(t.folder, callerSub, rules)
 	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens)
+	groups := s.groupsPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups)
 }

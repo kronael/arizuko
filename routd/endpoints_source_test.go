@@ -39,4 +39,7 @@ func TestResourceEndpoints_SingleSource(t *testing.T) {
 	if !reflect.DeepEqual(srv.routeTokensResource().Endpoints, resources.RouteTokensEndpoints) {
 		t.Error("route_tokens: mounted Endpoints != resources.RouteTokensEndpoints")
 	}
+	if !reflect.DeepEqual(srv.groupsResource(nil).Endpoints, resources.GroupsAgentEndpoints) {
+		t.Error("groups: mounted Endpoints != resources.GroupsAgentEndpoints")
+	}
 }

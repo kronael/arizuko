@@ -159,6 +159,7 @@ var platformActions = []string{
 
 var tier1FixedActions = []string{
 	"schedule_task", "register_group", "escalate_group", "delegate_group",
+	"refresh_groups",
 	"list_routes", "set_routes", "add_route", "delete_route",
 	"list_tasks", "pause_task", "resume_task", "cancel_task",
 	"set_group_open", "set_observe_window",
@@ -182,6 +183,10 @@ func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []s
 		return append(r, "share_mount(readonly=false)")
 	case 2:
 		r := append(append([]string{}, basicSendActions...), platformRules(jids(folder))...)
+		// refresh_groups is a read tool tier 2 keeps (register_group is tier 0/1
+		// only); its former tier≤2 hard gate in ipc is now this grant so the facade
+		// browser + agent socket share one visibility source.
+		r = append(r, "refresh_groups")
 		return append(r, "share_mount(readonly=true)")
 	default:
 		return []string{"reply", "send_file", "like", "edit"}

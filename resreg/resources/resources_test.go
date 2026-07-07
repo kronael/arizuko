@@ -590,6 +590,7 @@ func TestFoldedEndpoints_RegistrySingleSource(t *testing.T) {
 		{"network_rules", NetworkRulesEndpoints},
 		{"onboarding_gates", OnboardingGatesEndpoints},
 		{"route_tokens", RouteTokensEndpoints},
+		{"groups", GroupsAgentEndpoints},
 	}
 	for _, c := range cases {
 		got := resreg.Lookup(c.name)
@@ -620,6 +621,7 @@ func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 		{"acl", ACLMCPDoc, ACLMCPArgs, ACLMCPNames},
 		{"network_rules", NetworkRulesMCPDoc, NetworkRulesMCPArgs, NetworkRulesMCPNames},
 		{"route_tokens", RouteTokensMCPDoc, RouteTokensMCPArgs, RouteTokensMCPNames},
+		{"groups", GroupsMCPDoc, GroupsMCPArgs, GroupsMCPNames},
 	}
 	for _, c := range cases {
 		got := resreg.Lookup(c.name)
