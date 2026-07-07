@@ -42,7 +42,7 @@ func TestInspectToolsRegistered(t *testing.T) {
 			return Identity{}, nil, false
 		},
 	}
-	gated := GatedFns{GroupsDir: "/tmp/groups", WebDir: "/tmp/web"}
+	gated := GatedFns{GroupsDir: "/tmp/groups"}
 
 	// tier-0 (root) — sees all
 	if srv := buildMCPServer(gated, db, "world", []string{"*"}, ""); srv == nil {

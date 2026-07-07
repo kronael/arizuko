@@ -41,7 +41,6 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 		VhostAliases:         s.vhostAliases,
 		EngagementTTL:        s.engagementT,
 		GroupsDir:            s.groupsDir,
-		WebDir:               s.webDir,
 		Audit:                s.audit,
 		FetchPlatformHistory: s.fetchPlatformHistory,
 		SendMessage: func(jid, text string) (string, error) {

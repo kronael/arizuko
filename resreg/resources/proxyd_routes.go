@@ -87,11 +87,12 @@ var ProxydRoutesEndpoints = []resreg.Endpoint{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "proxyd_routes",
-		Table:    "proxyd_routes",
-		RowType:  reflect.TypeOf(ProxydRoutesRow{}),
-		PKFields: []string{"Path"},
-		MCPDoc:   ProxydRoutesMCPDoc,
+		Name:      "proxyd_routes",
+		Table:     "proxyd_routes",
+		RowType:   reflect.TypeOf(ProxydRoutesRow{}),
+		PKFields:  []string{"Path"},
+		Endpoints: ProxydRoutesEndpoints,
+		MCPDoc:    ProxydRoutesMCPDoc,
 		Hooks: resreg.Hooks{
 			BeforeInsert: func(_ context.Context, _ *sql.Tx, row any) error {
 				r := row.(*ProxydRoutesRow)

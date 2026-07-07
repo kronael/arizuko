@@ -23,7 +23,6 @@ func TestBuildMCPServer(t *testing.T) {
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
 		GroupsDir:     "/tmp/groups",
-		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	// tier-0 gets all tools via ["*"] rules
@@ -39,7 +38,6 @@ func TestBuildMCPServer_NoTools(t *testing.T) {
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		ClearSession:  func(f string) {},
 		GroupsDir:     "/tmp/groups",
-		WebDir:        "/tmp/web",
 	}
 	db := StoreFns{}
 	// empty rules → no tools registered (except get/set_grants for tier 0-1)
@@ -58,7 +56,6 @@ func TestAllToolsRegistered(t *testing.T) {
 		EnqueueMessageCheck: func(jid string) {},
 		InjectMessage:       func(j, c, s, n string) (string, error) { return "", nil },
 		GroupsDir:           "/tmp/groups",
-		WebDir:              "/tmp/web",
 	}
 	db := StoreFns{
 		GetTask:             func(id string) (core.Task, bool) { return core.Task{}, false },
@@ -96,7 +93,6 @@ func TestSocialActionsRegistered(t *testing.T) {
 			return nil
 		},
 		GroupsDir: "/tmp/groups",
-		WebDir:    "/tmp/web",
 	}
 	// Rules permit all three actions for mastodon only. Tier-0 (folder="world").
 	rules := []string{
@@ -121,7 +117,6 @@ func TestSendReply(t *testing.T) {
 		SendDocument:  func(jid, path, fn, caption, replyTo, threadID string) (string, error) { return "", nil },
 		SendReply:     func(jid, text, rid string) (string, error) { return "", nil },
 		GroupsDir:     "/tmp/groups",
-		WebDir:        "/tmp/web",
 	}
 	srv := buildMCPServer(gated, StoreFns{}, "world", []string{"reply"}, "")
 	if srv == nil {
@@ -180,7 +175,7 @@ func TestWorkspaceRel(t *testing.T) {
 // and build without error.
 func TestWorkToolsRegistered(t *testing.T) {
 	dir := t.TempDir()
-	gated := GatedFns{GroupsDir: dir, WebDir: dir}
+	gated := GatedFns{GroupsDir: dir}
 	// tier-0 with no rules: get_work always registers, set_work gated on tier
 	if srv := buildMCPServer(gated, StoreFns{}, "world", nil, ""); srv == nil {
 		t.Fatal("tier-0 build failed")

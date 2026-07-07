@@ -66,7 +66,6 @@ type GatedFns struct {
 	RemoveGroupWatcher func(observer, source string) error
 	AcceptURLBase      string // base URL where /invite/<token> is served (e.g. https://app.example.com)
 	GroupsDir          string
-	WebDir             string
 
 	// Web-presence discovery (spec 5/V get_web_presence). WebHost is the
 	// instance's canonical host (WEB_HOST); HostingDomain derives per-world
