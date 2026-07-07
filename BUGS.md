@@ -30,6 +30,16 @@ routes (3195f867), tasks (0b6ca53e). Open:
    `TestRESTTask{Tier0NoCrossTenant,Tier1NoWorldLeak,Tier2Descendant}`,
    `TestRESTRoute{Tier1OwnSubtree,Tier2OperatorOwnSubtree}`. Agent tier semantics
    (`TestRoutesMCP_*`/`TestScheduledTasksMCP_*`) unchanged.
+1b. **scheduled_tasks REST (`/v1/tasks`) not OpenAPI-discoverable (minor, follow-on).**
+   OpenAPI truthfulness shipped (7c14efd6 — docs emit real Endpoints, no phantom paths).
+   But `scheduled_tasks`'s REST face is mounted at `/v1/tasks/{taskId}` (`mountTasks`
+   override) with a DIFFERENT action set (list/get/patch/cancel) than its agent tools
+   (schedule/pause/resume/cancel/list), so it can't share the resource's registered
+   `ScheduledTasksEndpoints` (`/v1/scheduled_tasks`, agent-derivation) — and advertising
+   the resource would emit the wrong paths. So it's correctly LEFT OUT of routd's
+   `/openapi.json` list (`[routes, web_routes, acl]`). Truthfully advertising `/v1/tasks`
+   needs a separate REST resource declaration for the tasks operator face — a follow-on,
+   not a phantom.
 2. **network_rules: already clean, out of scope.** Its `AuthorizeStructural` lives in the
    injected Gate (network_rules_resource.go:187), the handler is auth-agnostic, and it has
    NO REST twin — the model the decouple brings routes/tasks to. Adopt the same containFn
