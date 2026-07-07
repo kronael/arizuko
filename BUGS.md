@@ -51,10 +51,14 @@ routes (3195f867), tasks (0b6ca53e). Open:
 4. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path
    (`!ExternalMCP`) gets no postBuild → no facade tools there. Production (split, routd
    hosts the socket) unaffected.
-5. **surrogate refresh: bodyless-4xx nulls the row (minor, 5/43).** `auth/surrogate`
-   `Engine.Refresh` maps a 4xx with no parseable OAuth error body (empty AccessToken) to
-   `ErrReconnect`, which nulls the credential. A transient bodyless 429/4xx would force a
-   needless reconnect. Rare (providers return error bodies); keep-stale would be safer.
+5. **surrogate refresh: bodyless-4xx nulls the row (5/43).** RESOLVED 2026-07-07 (e813efd5):
+   `Engine.Refresh` now signals `ErrReconnect` ONLY on a definitive OAuth error body
+   (`tr.Error` set); a bodyless/unparseable non-2xx is a transient error that keeps the
+   credential. Test `TestRefresh_BodylessErrorIsNotReconnect`.
+6. **flaky test: `TestRefreshRotationRaceSingleWinner` (authd/bugfix_test.go:131).** A
+   refresh-rotation concurrency race test that intermittently fails under full-suite parallel
+   load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/44/5/43 work. Needs a
+   sync point or serialization in the test harness. Low priority (not a product bug).
 
 
 ## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
