@@ -57,18 +57,9 @@ One cold-tier handler, **two faces from one `resreg.Resource`**, one owner:
   resolves by compose service naming (`<DAEMON>_URL`), never a second
   `store.Open`. This retires `messages.db` as a shared 8th DB.
 
-## Current state (under-adopted)
-
-- `resreg` OpenAPI + `apply` + 10 resource declarations: live. ✓
-- One resource has real dual-dispatch from a single `resreg.Resource`:
-  **`proxyd_routes`** (proxyd's REST `/v1/proxyd_routes` + `webd/routes_mcp.go`
-  MCP forwarder + `MCPDoc` — the only `resreg/resources/*.go` with an `MCPDoc`).
-  Message-routing `routes` is NOT unified: it still runs three hand-rolled
-  surfaces — REST (`routd/routes_http.go`), agent MCP tools (`ipc/ipc.go`),
-  and dashd direct-DB. The rollout has not started.
-- Everything else: agent tools hand-rolled in `ipc/ipc.go` (~45),
-  dashd CRUD hand-rolled per admin page, resource read via direct DB open.
-- No federation: `proxyd` opens two DB files; `messages.db` is shared.
+(Current state is the **Status** blockquote at the top — one source, no drift.
+What follows is the design rationale: why the agent socket needs work resreg
+doesn't do, and the `Gate` seam that resolved it.)
 
 ## Why the agent socket needs work resreg doesn't yet do
 
@@ -150,13 +141,13 @@ concept worth naming.
 ## Two resources share the label `routes` (don't conflate them)
 
 - **message-routing** `routes` (routd's `routes` table: match→target folder):
-  THREE hand-rolled surfaces — REST (`routd/routes_http.go`, mounted at
-  `routd/server.go` `GET/PUT/POST/DELETE /v1/routes`), agent MCP tools
-  (`ipc/ipc.go` `add_route`/`set_routes`/`list_routes`), and
-  `dashd/routes_admin.go` (direct DB). **Collapse onto one handler; its
-  `{id}` REST addressing vs `(seq,match,target)` PK and the seq-0
-  self-default guard make it a design-call, held behind the tractable
-  resources.**
+  COLLAPSED onto one `routesResource` handler (`routd/routes_resource.go`)
+  serving both faces — agent MCP (`add_route`/`set_routes`/`list_routes`) and
+  operator REST `/v1/routes` (`routd/routes_http.go` via `resreg.RegisterREST`).
+  The design-call that held it back — `{id}` REST addressing vs
+  `(seq,match,target)` PK + the seq-0 self-default guard — resolved in the
+  shared handler; containment is the per-face `containFn` (agent → tier
+  `AuthorizeStructural`, REST → `ownsFolder`).
 - **HTTP-proxy** `proxyd_routes` (proxyd's table): proxyd resreg REST
   `/v1/proxyd_routes` + `webd/routes_mcp.go` MCP forwarder. **Already full
   dual-dispatch — the exemplar to replicate, not a surface to collapse.**
@@ -205,16 +196,17 @@ spawn side-effects — highest risk).
 owner daemon, repoint non-owner reads to the owner's face, and retire
 `messages.db` + its `store/migrations` twin once no reader remains.
 
-## REST-face reconciliation (finding — 2026-07-05)
+## REST-face reconciliation (resolved — 2026-07-06)
 
 The agent MCP face of all five cold-tier resources (`web_routes`,
-`routes`, `network_rules`, `scheduled_tasks`, `acl`) now rides one shared
+`routes`, `network_rules`, `scheduled_tasks`, `acl`) rides one shared
 `resreg.Resource` handler with an injected tier `Gate`. Folding each
-resource's **REST** face onto that same handler is blocked not by auth —
+resource's **REST** face onto that same handler was blocked not by auth —
 the scoped self-service check maps cleanly onto an injected REST `Gate`
 (`s.verify.Verify` → `hasAnyScope` + `ownsFolder`, reproduced verbatim) —
-but by **wire-contract drift** the current hand-rolled REST handlers carry
-that resreg's conventions do not match. Concretely, on `web_routes`:
+but by **wire-contract drift** the then-hand-rolled REST handlers carried
+that resreg's conventions did not match. Concretely, on `web_routes` the
+fold had to reconcile:
 
 1. `GET /v1/web_routes` is entangled with the `?path_prefix=` owner-lookup
    (same method+path; `ServeMux` can't branch on query) — the aux must move
@@ -227,12 +219,15 @@ that resreg's conventions do not match. Concretely, on `web_routes`:
    `Caller.Folder`, but the REST face acts on the client-supplied target
    bounded to the subtree — reconciling needs a body-read in `CallerFromHTTP`.
 
-So the REST-face fold is a **contract decision on a security surface**, not
-a mechanical cleanup: adopt resreg's REST conventions (error/list/delete
-shapes + tier-0 delete widening + relocate `?path_prefix=`) as the new
-`web_routes` REST contract, or keep REST hand-rolled — consistent with
-every resource today. Deferred pending that call; the agent-face + the
-deprecated-cold-tier-body cleanup shipped independently.
+So the REST-face fold was a **contract decision on a security surface**, not
+a mechanical cleanup. **Resolved — full-unify shipped.** The user took the
+full-unify call, so `web_routes`/`routes`/`scheduled_tasks`/`acl` adopted
+resreg's REST conventions (error/list/delete shapes + tier-0 delete widening +
+`?path_prefix=` relocated to `/v1/web_routes/owner`) as the new REST contract;
+the tier-structural handlers (`routes`, `scheduled_tasks`) got the per-face
+`containFn` decouple (agent → tier `AuthorizeStructural`, REST → `ownsFolder`),
+which also closed a live cross-tenant task leak (`0d25b687`). `network_rules`
+stays agent-only — no REST twin to fold.
 
 ## Acceptance
 
