@@ -346,6 +346,42 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 	}
 }
 
+// TestSecretsOpenAPIWriteOnly: the secrets resource declares explicit write-only
+// Endpoints, so OpenAPI emits exactly POST /v1/secrets + DELETE /v1/secrets/{key}
+// — NO read op (get/list) on either path. A sealed value must never surface in a
+// read (spec 5/36 §"Secret safety"); this proves the doc can't drift into one.
+func TestSecretsOpenAPIWriteOnly(t *testing.T) {
+	out, err := resreg.OpenAPI("routd", "/", []string{"secrets"})
+	if err != nil {
+		t.Fatalf("OpenAPI: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("output is not JSON: %v", err)
+	}
+	paths, _ := doc["paths"].(map[string]any)
+	coll, ok := paths["/v1/secrets"].(map[string]any)
+	if !ok {
+		t.Fatalf("no /v1/secrets path in OpenAPI (paths=%v)", paths)
+	}
+	if _, has := coll["post"]; !has {
+		t.Error("/v1/secrets missing POST create op")
+	}
+	if _, has := coll["get"]; has {
+		t.Error("/v1/secrets exposes a GET read op — a sealed value must never be readable")
+	}
+	item, _ := paths["/v1/secrets/{key}"].(map[string]any)
+	if item == nil {
+		t.Fatalf("no /v1/secrets/{key} path in OpenAPI")
+	}
+	if _, has := item["delete"]; !has {
+		t.Error("/v1/secrets/{key} missing DELETE op")
+	}
+	if _, has := item["get"]; has {
+		t.Error("/v1/secrets/{key} exposes a GET read op")
+	}
+}
+
 // TestApply_WritesOneAuditRow: an apply with ApplyOpts writes exactly one
 // audit_log summary row (actor + manifest digest + final config_version),
 // not one per resource (spec 5/36 §"CAS implementation" (3)).

@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -252,8 +251,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/sessions", s.handleSessionGet)
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
-	mux.HandleFunc("POST /v1/secrets", s.handleSecretSet)
-	mux.HandleFunc("DELETE /v1/secrets/{key}", s.handleSecretDelete)
+	// /v1/secrets write surface (POST set/seal + key-DELETE) rides the shared
+	// secretsHandler via resreg — the 5/44 REST fold (secrets_resource.go). Forwarder
+	// (no resreg tx/audit) so the plaintext value never lands in audit_log; the
+	// existing sealing, audited s.db.SetSecret/DeleteSecret own the write. NO read
+	// twin — a sealed value must never appear in any read surface.
+	s.mountSecrets(mux)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
 	// /v1/tasks CRUD (list/get/patch/delete) rides the shared scheduled_tasks
 	// handler via resreg — the 5/44 REST fold (mountTasks, tasks_http.go). The
@@ -519,63 +522,6 @@ func (s *Server) handleUserScopes(w http.ResponseWriter, r *http.Request) {
 		folder = scope[0]
 	}
 	writeJSON(w, 200, map[string]any{"scope": scope, "folder": folder})
-}
-
-// secretWriteBody is the POST /v1/secrets payload: the operator sets one
-// folder- or user-scoped secret. scope is "folder" or "user"; scope_id is the
-// folder path or user sub; key is an ENV-style name; value is the plaintext
-// (sealed at rest under SECRETS_KEY before it lands in routd.db).
-type secretWriteBody struct {
-	Scope   string `json:"scope"`
-	ScopeID string `json:"scope_id"`
-	Key     string `json:"key"`
-	Value   string `json:"value"`
-}
-
-// handleSecretSet seals + upserts one secret (the operator write path).
-// Bearer-gated by secrets:write. Validates scope kind + scope_id + key non-empty;
-// the at-rest encoding is v2: sealed when a keyring is set, so connector injection
-// reads it back through FolderSecrets.
-func (s *Server) handleSecretSet(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "secrets:write") {
-		return
-	}
-	var body secretWriteBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, 400, "bad_request", err.Error())
-		return
-	}
-	if body.Value == "" {
-		writeErr(w, 400, "missing_field", "value required")
-		return
-	}
-	if err := s.db.SetSecret(store.SecretScope(body.Scope), body.ScopeID, body.Key, body.Value); err != nil {
-		writeErr(w, 400, "invalid", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
-}
-
-// handleSecretDelete removes one secret. Bearer-gated by secrets:write. The scope
-// + scope_id come from the query (?scope=&scope_id=); the key is the path segment.
-// 404 when no row matched.
-func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.authed(w, r, "secrets:write") {
-		return
-	}
-	scope := r.URL.Query().Get("scope")
-	scopeID := r.URL.Query().Get("scope_id")
-	key := r.PathValue("key")
-	err := s.db.DeleteSecret(store.SecretScope(scope), scopeID, key)
-	if errors.Is(err, store.ErrSecretNotFound) {
-		writeErr(w, 404, "not_found", "no such secret")
-		return
-	}
-	if err != nil {
-		writeErr(w, 400, "invalid", err.Error())
-		return
-	}
-	writeJSON(w, 200, apiv1.OK{OK: true})
 }
 
 // paneSetBody is the POST /v1/pane payload: slakd's three Slack-pane writes. op

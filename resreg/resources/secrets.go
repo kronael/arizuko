@@ -27,12 +27,26 @@ type SecretsRow struct {
 	CreatedAt string `db:"created_at" yaml:"created_at,omitempty" json:"created_at,omitempty"`
 }
 
+// SecretsEndpoints is the single owner of the secret REST endpoint set: routd's
+// mountSecrets (secrets_resource.go) references it, and OpenAPI emits exactly
+// these two operations. WRITE-ONLY by construction — create (seal + upsert) and
+// a key-addressed delete, NO list/get. A secret's sealed value must never appear
+// in any read surface (spec 5/36 §"Secret safety"); declaring these explicit
+// Endpoints keeps OpenAPI on endpointPaths, so the convention's phantom GET read
+// op can never surface. No MCPDoc entry → deriveMCPTools surfaces no agent tool
+// (the agent never sets secrets).
+var SecretsEndpoints = []resreg.Endpoint{
+	{Verb: "POST", Path: "/v1/secrets", Action: resreg.ActionCreate},
+	{Verb: "DELETE", Path: "/v1/secrets/{key}", Action: resreg.ActionDelete},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:             "secrets",
 		Table:            "secrets",
 		RowType:          reflect.TypeOf(SecretsRow{}),
-		PKFields: []string{"ScopeKind", "ScopeID", "Key"},
+		Endpoints:        SecretsEndpoints,
+		PKFields:         []string{"ScopeKind", "ScopeID", "Key"},
 		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
 		// user, spec 5/36 §"FK posture"). Moot for apply anyway —
 		// SkipApplyRebuild means apply never DELETE+INSERTs this table.
