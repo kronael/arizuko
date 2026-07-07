@@ -74,17 +74,11 @@ const (
 	tasksActionPatch = resreg.Action("patch")
 )
 
-// tasksMCPNames maps each resreg action to the flat tool name the live agent
-// already calls; keeping them avoids renaming an in-container tool. It is also
-// the Gate's action→policy-name lookup and the handler's pause/resume/cancel
-// policy-name source.
-var tasksMCPNames = map[resreg.Action]string{
-	tasksActionSchedule: "schedule_task",
-	tasksActionPause:    "pause_task",
-	tasksActionResume:   "resume_task",
-	tasksActionCancel:   "cancel_task",
-	resreg.ActionList:   "list_tasks",
-}
+// tasksMCPNames is the action→flat-tool-name map, single-sourced in resreg/
+// resources (ScheduledTasksMCPNames). Aliased here for the Gate's action→policy-
+// name lookup and the handler's pause/resume/cancel policy-name source. The
+// REST-only `patch` verb has no entry (no agent tool).
+var tasksMCPNames = resources.ScheduledTasksMCPNames
 
 // scheduledTasksResource is the single renderer for the agent's five task tools.
 // Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
@@ -96,25 +90,9 @@ func (s *Server) scheduledTasksResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "scheduled_tasks",
 		Endpoints: resources.ScheduledTasksEndpoints, // single source: doc + MCP read one list
-		MCPDoc: map[resreg.Action]string{
-			tasksActionSchedule: "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
-			tasksActionPause:    "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).",
-			tasksActionResume:   "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.",
-			tasksActionCancel:   "Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (pause_task) — this cannot be undone.",
-			resreg.ActionList:   "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.",
-		},
-		MCPArgs: map[resreg.Action][]resreg.MCPArg{
-			tasksActionSchedule: {
-				{Name: "targetJid", Type: "string", Required: true},
-				{Name: "prompt", Type: "string", Required: true},
-				{Name: "cron", Type: "string"},
-				{Name: "contextMode", Type: "string"},
-			},
-			tasksActionPause:  {{Name: "taskId", Type: "string", Required: true}},
-			tasksActionResume: {{Name: "taskId", Type: "string", Required: true}},
-			tasksActionCancel: {{Name: "taskId", Type: "string", Required: true}},
-		},
-		MCPNames: tasksMCPNames,
+		MCPDoc:    resources.ScheduledTasksMCPDoc,      // single source (resreg/resources)
+		MCPArgs:   resources.ScheduledTasksMCPArgs,
+		MCPNames:  tasksMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},

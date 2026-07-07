@@ -72,15 +72,11 @@ const (
 	routesActionDelete = resreg.Action("delete")
 )
 
-// routesMCPNames maps each resreg action to the flat tool name the live agent
-// already calls; keeping them avoids renaming an in-container tool. It is also the
-// Gate's action→policy-name lookup.
-var routesMCPNames = map[resreg.Action]string{
-	routesActionAdd:    "add_route",
-	routesActionSet:    "set_routes",
-	routesActionDelete: "delete_route",
-	resreg.ActionList:  "list_routes",
-}
+// routesMCPNames is the action→flat-tool-name map, single-sourced in resreg/
+// resources (RoutesMCPNames) so the agent socket derivation, the /openapi.json
+// walk, and dashd's tool browser read one owner. Aliased here for the Gate's
+// action→policy-name lookup + the contain closures below.
+var routesMCPNames = resources.RoutesMCPNames
 
 // containFn is the routd-internal per-face containment seam the shared routes/
 // scheduled_tasks handlers call to authorize one (action, target) against the
@@ -105,20 +101,9 @@ func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "routes",
 		Endpoints: resources.RoutesEndpoints, // single source: doc + mount + MCP read one list
-		MCPDoc: map[resreg.Action]string{
-			routesActionAdd: "Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. " +
-				"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
-			routesActionSet: "Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. " +
-				"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
-			routesActionDelete: "Remove one routing rule by id. Use after list_routes/inspect_routing to surgically drop a rule. Not for bulk clear (set_routes with empty array).",
-			resreg.ActionList:  "Return the routing table rows this group can see, each annotated with mode (trigger/observe), fires_turn, triggers_on, a plain explain, and shadowed_by (earlier rule that intercepts it). Prefer inspect_routing when you also want JID→folder resolution or errored-chat context.",
-		},
-		MCPArgs: map[resreg.Action][]resreg.MCPArg{
-			routesActionAdd:    {{Name: "route", Type: "string", Required: true}},
-			routesActionSet:    {{Name: "routes", Type: "string", Required: true}},
-			routesActionDelete: {{Name: "id", Type: "number", Required: true}},
-		},
-		MCPNames: routesMCPNames,
+		MCPDoc:    resources.RoutesMCPDoc,     // single source (resreg/resources)
+		MCPArgs:   resources.RoutesMCPArgs,
+		MCPNames:  routesMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},

@@ -31,6 +31,39 @@ var RoutesEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/routes", Action: resreg.ActionList},
 }
 
+// RoutesMCPNames maps each action to the flat tool name the live agent already
+// calls; routd's routes_resource.go references it (agent socket derivation) and
+// ipc.ListTools reads it via the registry walk, so the tool wire contract has one
+// owner. delete addresses the row by the autoincrement `id` arg, not the
+// (seq,match,target) PK. Spec 5/44.
+var RoutesMCPNames = map[resreg.Action]string{
+	resreg.Action("add"): "add_route",
+	resreg.Action("set"): "set_routes",
+	resreg.ActionDelete:  "delete_route",
+	resreg.ActionList:    "list_routes",
+}
+
+// RoutesMCPDoc is the single owner of the routing tools' agent-facing one-liners
+// (routd derives the agent socket tools from it; dashd's tool browser reads it via
+// ipc.ListTools). Copy verbatim — the agent wire contract.
+var RoutesMCPDoc = map[resreg.Action]string{
+	resreg.Action("add"): "Append one routing rule. Use for targeted routing changes (route one chat, one platform pattern) — preferred over set_routes for everything except full rewrites. " +
+		"Fields: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
+	resreg.Action("set"): "Bulk-overwrite the full routing table for this folder subtree. Use only for wholesale reconfiguration where you've already read the current set. Prefer add_route/delete_route for targeted edits — this clobbers everything else. " +
+		"Each route: seq (int), match ('key=glob' pairs; keys: platform, room, chat_jid, sender, verb), target (folder path, or folder:/daemon:/builtin: prefix). A bare target fires a turn on every match; append #observe to ingest silently with no turn (e.g. atlas/general#observe). Mention-only channel = a verb=mention trigger row stacked above a #observe catch-all; lower seq wins (first match).",
+	resreg.ActionDelete: "Remove one routing rule by id. Use after list_routes/inspect_routing to surgically drop a rule. Not for bulk clear (set_routes with empty array).",
+	resreg.ActionList:   "Return the routing table rows this group can see, each annotated with mode (trigger/observe), fires_turn, triggers_on, a plain explain, and shadowed_by (earlier rule that intercepts it). Prefer inspect_routing when you also want JID→folder resolution or errored-chat context.",
+}
+
+// RoutesMCPArgs is the explicit per-action arg list. The agent face carries raw
+// JSON strings + the numeric id, NOT the RowType-reflected columns, so this
+// overrides RowType reflection for the derived agent/browser tools.
+var RoutesMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.Action("add"): {{Name: "route", Type: "string", Required: true}},
+	resreg.Action("set"): {{Name: "routes", Type: "string", Required: true}},
+	resreg.ActionDelete:  {{Name: "id", Type: "number", Required: true}},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "routes",
@@ -38,6 +71,9 @@ func init() {
 		RowType:   reflect.TypeOf(RoutesRow{}),
 		PKFields:  []string{"Seq", "Match", "Target"},
 		Endpoints: RoutesEndpoints,
+		MCPDoc:    RoutesMCPDoc,
+		MCPArgs:   RoutesMCPArgs,
+		MCPNames:  RoutesMCPNames,
 		// No folder scope: routes.target carries #observe/#topic fragments
 		// (spec 5/36 §"FK posture") — not column-equal to a folder, so Apply
 		// rebuilds routes wholesale rather than per-folder.

@@ -54,13 +54,10 @@ const (
 	networkActionDeny  = resreg.Action("deny")
 )
 
-// networkMCPNames maps each resreg action to the flat tool name the live agent
-// already calls; keeping them avoids renaming an in-container tool.
-var networkMCPNames = map[resreg.Action]string{
-	networkActionAllow: "network_allow",
-	networkActionDeny:  "network_deny",
-	resreg.ActionList:  "network_list",
-}
+// networkMCPNames is the action→flat-tool-name map, single-sourced in resreg/
+// resources (NetworkRulesMCPNames). Aliased here for the Gate's action→policy-name
+// lookup.
+var networkMCPNames = resources.NetworkRulesMCPNames
 
 // networkRulesResource is the single renderer for the agent's three egress tools.
 // Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the REST face
@@ -70,23 +67,9 @@ func (s *Server) networkRulesResource() resreg.Resource {
 	return resreg.Resource{
 		Name:      "network_rules",
 		Endpoints: resources.NetworkRulesEndpoints, // single source: doc + MCP read one list
-		MCPDoc: map[resreg.Action]string{
-			networkActionAllow: "Open egress to `host` for `folder` and every descendant by appending an allowlist rule. " +
-				"Use when an agent needs to reach a host the default-deny proxy blocks (e.g. a vendor API). " +
-				"`host` is a bare domain (no scheme/port), e.g. 'example.com', or a `*.example.com` subdomain glob. " +
-				"`folder` is the target folder — your own folder (the default when omitted) or any folder in your subtree, " +
-				"e.g. network_allow(folder='atlas/search', host='krons.fiu.wtf'). A rule at a parent folder cascades to all children.",
-			networkActionDeny: "Remove an egress allowlist rule: close access to `host` for `folder`. " +
-				"`folder` defaults to your own folder and may be any folder in your subtree. " +
-				"Only drops a rule set on `folder` itself; a host inherited from an ancestor must be removed at that ancestor.",
-			resreg.ActionList: "List the egress allowlist for THIS folder: `resolved` is every host the folder can reach " +
-				"(its own rules plus those inherited from ancestors and the instance base); `own` is only the rules set on this folder itself.",
-		},
-		MCPArgs: map[resreg.Action][]resreg.MCPArg{
-			networkActionAllow: {{Name: "host", Type: "string", Required: true}, {Name: "folder", Type: "string"}},
-			networkActionDeny:  {{Name: "host", Type: "string", Required: true}, {Name: "folder", Type: "string"}},
-		},
-		MCPNames: networkMCPNames,
+		MCPDoc:    resources.NetworkRulesMCPDoc,      // single source (resreg/resources)
+		MCPArgs:   resources.NetworkRulesMCPArgs,
+		MCPNames:  networkMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},

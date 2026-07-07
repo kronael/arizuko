@@ -38,13 +38,10 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// webRoutesMCPNames maps the resreg action to the flat tool name the live
-// agent already calls; keeping them avoids renaming an in-container tool.
-var webRoutesMCPNames = map[resreg.Action]string{
-	resreg.ActionCreate: "set_web_route",
-	resreg.ActionDelete: "del_web_route",
-	resreg.ActionList:   "list_web_routes",
-}
+// webRoutesMCPNames is the action→flat-tool-name map, single-sourced in resreg/
+// resources (WebRoutesMCPNames). Aliased here for the Gate's action→policy-name
+// lookup below.
+var webRoutesMCPNames = resources.WebRoutesMCPNames
 
 // webRoutesResource is the single renderer for the agent's three web_route
 // tools. Endpoints exist only to drive deriveMCPTools (Action ∩ MCPDoc) — the
@@ -54,24 +51,9 @@ func (s *Server) webRoutesResource() resreg.Resource {
 	return resreg.Resource{
 		Name:      "web_routes",
 		Endpoints: resources.WebRoutesEndpoints, // single source: doc + MCP read one list
-		MCPDoc: map[resreg.Action]string{
-			resreg.ActionCreate: "Upsert a web route: control whether a URL path is public, auth-gated, denied, or redirected. " +
-				"`path` must start with `/`. `access` is one of public|auth|deny|redirect. " +
-				"When access=redirect, `redirect_to` is required and must point into this folder's own " +
-				"slot (/pub/<folder>/... or /priv/<folder>/...) — no external URLs or other folders. " +
-				"Route is scoped to this folder.",
-			resreg.ActionDelete: "Delete a web route by path. Only routes owned by this folder may be deleted (operators can delete any).",
-			resreg.ActionList:   "List all web routes owned by this folder. Returns a JSON array of {path_prefix, access, redirect_to, folder, created_at}.",
-		},
-		MCPArgs: map[resreg.Action][]resreg.MCPArg{
-			resreg.ActionCreate: {
-				{Name: "path", Type: "string", Required: true},
-				{Name: "access", Type: "string", Required: true},
-				{Name: "redirect_to", Type: "string"},
-			},
-			resreg.ActionDelete: {{Name: "path", Type: "string", Required: true}},
-		},
-		MCPNames: webRoutesMCPNames,
+		MCPDoc:    resources.WebRoutesMCPDoc,     // single source (resreg/resources)
+		MCPArgs:   resources.WebRoutesMCPArgs,
+		MCPNames:  webRoutesMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
 			return "", nil, nil
 		},

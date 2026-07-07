@@ -565,3 +565,41 @@ func TestFoldedEndpoints_RegistrySingleSource(t *testing.T) {
 		}
 	}
 }
+
+// TestFacadeMCP_RegistrySingleSource: each cold-tier facade resource the registry
+// walk feeds ipc.ListTools (dashd's tool browser) carries the SAME exported
+// MCPDoc/MCPArgs/MCPNames maps routd's *_resource.go feeds the agent socket, so the
+// browser and the live agent read one owner and can't drift (spec 5/44, task #40).
+func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
+	cases := []struct {
+		name  string
+		doc   map[resreg.Action]string
+		args  map[resreg.Action][]resreg.MCPArg
+		names map[resreg.Action]string
+	}{
+		{"routes", RoutesMCPDoc, RoutesMCPArgs, RoutesMCPNames},
+		{"web_routes", WebRoutesMCPDoc, WebRoutesMCPArgs, WebRoutesMCPNames},
+		{"scheduled_tasks", ScheduledTasksMCPDoc, ScheduledTasksMCPArgs, ScheduledTasksMCPNames},
+		{"acl", ACLMCPDoc, ACLMCPArgs, ACLMCPNames},
+		{"network_rules", NetworkRulesMCPDoc, NetworkRulesMCPArgs, NetworkRulesMCPNames},
+	}
+	for _, c := range cases {
+		got := resreg.Lookup(c.name)
+		if got == nil {
+			t.Errorf("%s not registered", c.name)
+			continue
+		}
+		if len(got.MCPNames) == 0 {
+			t.Errorf("%s: registered resource carries no MCPNames — the ListTools facade discriminator", c.name)
+		}
+		if !reflect.DeepEqual(got.MCPDoc, c.doc) {
+			t.Errorf("%s: registered MCPDoc != exported var", c.name)
+		}
+		if !reflect.DeepEqual(got.MCPArgs, c.args) {
+			t.Errorf("%s: registered MCPArgs != exported var", c.name)
+		}
+		if !reflect.DeepEqual(got.MCPNames, c.names) {
+			t.Errorf("%s: registered MCPNames != exported var", c.name)
+		}
+	}
+}

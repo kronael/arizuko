@@ -37,6 +37,43 @@ var ScheduledTasksEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/scheduled_tasks", Action: resreg.ActionList},
 }
 
+// ScheduledTasksMCPNames maps each action to the flat tool name the live agent
+// already calls; routd's scheduled_tasks_resource.go references it (agent socket
+// derivation) and ipc.ListTools reads it via the registry walk. The REST-only
+// `patch` verb has no entry here (no agent tool). Spec 5/44.
+var ScheduledTasksMCPNames = map[resreg.Action]string{
+	resreg.Action("schedule"): "schedule_task",
+	resreg.Action("pause"):    "pause_task",
+	resreg.Action("resume"):   "resume_task",
+	resreg.Action("cancel"):   "cancel_task",
+	resreg.ActionList:         "list_tasks",
+}
+
+// ScheduledTasksMCPDoc is the single owner of the task tools' agent-facing
+// one-liners. Copy verbatim — the agent wire contract.
+var ScheduledTasksMCPDoc = map[resreg.Action]string{
+	resreg.Action("schedule"): "Create a scheduled prompt that fires against a target chat. Use when the user asks for reminders, recurring checks, or deferred work. `cron` accepts a 5-field cron expression, an integer millisecond interval, or an RFC3339 timestamp for a one-shot. Not for immediate execution (`send`/inject_message).",
+	resreg.Action("pause"):    "Mark a scheduled task paused so it stops firing but is preserved. Use when suspending a task temporarily. Not for permanent removal (cancel_task).",
+	resreg.Action("resume"):   "Re-activate a paused task so it resumes firing on its schedule. Use to undo pause_task. No effect on already-active or cancelled tasks.",
+	resreg.Action("cancel"):   "Permanently delete a scheduled task. Use when the task is no longer wanted. Not for temporary suspension (pause_task) — this cannot be undone.",
+	resreg.ActionList:         "Return scheduled tasks visible to this group. Use for a plain task dump; prefer inspect_tasks when you also want task_run_logs or per-task history.",
+}
+
+// ScheduledTasksMCPArgs is the explicit per-action arg list. The agent face carries
+// {targetJid, prompt, cron, contextMode} / {taskId}, NOT the RowType-reflected
+// columns, so this overrides RowType reflection for the derived agent/browser tools.
+var ScheduledTasksMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.Action("schedule"): {
+		{Name: "targetJid", Type: "string", Required: true},
+		{Name: "prompt", Type: "string", Required: true},
+		{Name: "cron", Type: "string"},
+		{Name: "contextMode", Type: "string"},
+	},
+	resreg.Action("pause"):  {{Name: "taskId", Type: "string", Required: true}},
+	resreg.Action("resume"): {{Name: "taskId", Type: "string", Required: true}},
+	resreg.Action("cancel"): {{Name: "taskId", Type: "string", Required: true}},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "scheduled_tasks",
@@ -44,6 +81,9 @@ func init() {
 		RowType:   reflect.TypeOf(ScheduledTasksRow{}),
 		PKFields:  []string{"ID"},
 		Endpoints: ScheduledTasksEndpoints,
+		MCPDoc:    ScheduledTasksMCPDoc,
+		MCPArgs:   ScheduledTasksMCPArgs,
+		MCPNames:  ScheduledTasksMCPNames,
 		// No folder scope: owner is system/user:sub and chat_jid is
 		// polymorphic (folder OR typed JID, spec 5/36 §"FK posture") —
 		// neither is column-equal to a folder. Apply rebuilds wholesale.

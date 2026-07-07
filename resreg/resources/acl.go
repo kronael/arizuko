@@ -34,6 +34,44 @@ var ACLEndpoints = []resreg.Endpoint{
 	{Verb: "GET", Path: "/v1/acl", Action: resreg.ActionList},
 }
 
+// ACLMCPNames maps each action to the flat tool name the live agent already calls;
+// routd's acl_resource.go references it (agent socket derivation) and ipc.ListTools
+// reads it via the registry walk. Spec 5/44.
+var ACLMCPNames = map[resreg.Action]string{
+	resreg.Action("add"):    "add_acl",
+	resreg.Action("remove"): "remove_acl",
+	resreg.ActionList:       "list_acl",
+}
+
+// ACLMCPDoc is the single owner of the acl tools' agent-facing one-liners. Copy
+// verbatim — the agent wire contract.
+var ACLMCPDoc = map[resreg.Action]string{
+	resreg.Action("add"):    "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Defaults action=admin, effect=allow.",
+	resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority.",
+	resreg.ActionList:       "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing. Tier 0-1 only.",
+}
+
+// ACLMCPArgs is the explicit per-action arg list. The agent face carries the exact
+// wire shapes (principal/scope/action/effect; folder for list), NOT the RowType-
+// reflected columns, so this overrides RowType reflection for the derived tools.
+var ACLMCPArgs = map[resreg.Action][]resreg.MCPArg{
+	resreg.Action("add"): {
+		{Name: "principal", Type: "string", Required: true},
+		{Name: "scope", Type: "string", Required: true},
+		{Name: "action", Type: "string"},
+		{Name: "effect", Type: "string"},
+	},
+	resreg.Action("remove"): {
+		{Name: "principal", Type: "string", Required: true},
+		{Name: "scope", Type: "string", Required: true},
+		{Name: "action", Type: "string"},
+		{Name: "effect", Type: "string"},
+	},
+	resreg.ActionList: {
+		{Name: "folder", Type: "string", Required: true},
+	},
+}
+
 func init() {
 	resreg.Register(resreg.Resource{
 		Name:      "acl",
@@ -41,6 +79,9 @@ func init() {
 		RowType:   reflect.TypeOf(ACLRow{}),
 		PKFields:  []string{"Principal", "Action", "Scope", "Params", "Predicate", "Effect"},
 		Endpoints: ACLEndpoints,
+		MCPDoc:    ACLMCPDoc,
+		MCPArgs:   ACLMCPArgs,
+		MCPNames:  ACLMCPNames,
 		// No folder scope: acl.scope is a glob (`atlas/`, `**`), not column-
 		// equal to a folder (spec 5/36 §"Schema-driven CRUD"/"FK posture").
 		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.

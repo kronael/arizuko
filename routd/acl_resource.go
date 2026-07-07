@@ -43,44 +43,20 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// aclMCPNames maps the resreg actions to the flat live tool names so the
-// in-container agent's tools are not renamed.
-var aclMCPNames = map[resreg.Action]string{
-	resreg.Action("add"):    "add_acl",
-	resreg.Action("remove"): "remove_acl",
-	resreg.ActionList:       "list_acl",
-}
+// aclMCPNames is the action→flat-tool-name map, single-sourced in resreg/
+// resources (ACLMCPNames). Aliased here for the Gate's action→policy-name lookup.
+var aclMCPNames = resources.ACLMCPNames
 
 // webRoutesResource sibling: the acl agent-face Resource. No RowType — args are
-// the exact wire shapes (principal/scope/action/effect; folder for list).
+// the exact wire shapes (principal/scope/action/effect; folder for list),
+// single-sourced in resreg/resources.
 func (s *Server) aclResource() resreg.Resource {
-	arg := func(req ...resreg.MCPArg) []resreg.MCPArg { return req }
 	return resreg.Resource{
 		Name:      "acl",
 		Endpoints: resources.ACLEndpoints, // single source: doc + REST(add/remove) read one list
-		MCPDoc: map[resreg.Action]string{
-			resreg.Action("add"):    "Grant a principal access to a folder scope (an acl row); scope '**' grants the operator role. You can only grant within your own authority. Defaults action=admin, effect=allow.",
-			resreg.Action("remove"): "Revoke a principal's access to a folder scope (drop an acl row); scope '**' revokes the operator role. You can only revoke within your own authority.",
-			resreg.ActionList:       "List acl rows for a folder (scope matches the folder). Audit what's permitted before changing. Tier 0-1 only.",
-		},
-		MCPArgs: map[resreg.Action][]resreg.MCPArg{
-			resreg.Action("add"): arg(
-				resreg.MCPArg{Name: "principal", Type: "string", Required: true},
-				resreg.MCPArg{Name: "scope", Type: "string", Required: true},
-				resreg.MCPArg{Name: "action", Type: "string"},
-				resreg.MCPArg{Name: "effect", Type: "string"},
-			),
-			resreg.Action("remove"): arg(
-				resreg.MCPArg{Name: "principal", Type: "string", Required: true},
-				resreg.MCPArg{Name: "scope", Type: "string", Required: true},
-				resreg.MCPArg{Name: "action", Type: "string"},
-				resreg.MCPArg{Name: "effect", Type: "string"},
-			),
-			resreg.ActionList: arg(
-				resreg.MCPArg{Name: "folder", Type: "string", Required: true},
-			),
-		},
-		MCPNames: aclMCPNames,
+		MCPDoc:    resources.ACLMCPDoc,     // single source (resreg/resources)
+		MCPArgs:   resources.ACLMCPArgs,
+		MCPNames:  aclMCPNames,
 		// Authz derives (scope, params) for the gate; acl's containment is done
 		// in the injected Gate against the scope arg, so this is a no-op.
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
