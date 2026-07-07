@@ -23,6 +23,7 @@ import (
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/mountsec"
 	"github.com/kronael/arizuko/obs"
+	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/router"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -2474,8 +2475,16 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 // and returns the tool schemas. Safe to call without a running container —
 // GatedFns and StoreFns are zero-valued (handlers are never invoked).
 // Used by dashd and /v1/tools to render the tool browser without duplication.
+//
+// The result is hot-tier tools (buildMCPServer) PLUS the grant-visible cold-tier
+// facade tools (routes/web_routes/scheduled_tasks/acl/network_rules management),
+// which the live agent socket mounts via routd's resreg postBuild seam, not here.
+// addFacadeTools derives them from the SAME resreg specs routd uses, so the
+// browser shows exactly the agent's surface. The mcp-go server keys tools by name,
+// so the two sets are deduped; sort keeps output stable.
 func ListTools(folder string, rules []string) []mcp.Tool {
 	srv := buildMCPServer(GatedFns{}, StoreFns{}, folder, rules, "")
+	addFacadeTools(srv, rules)
 	m := srv.ListTools()
 	out := make([]mcp.Tool, 0, len(m))
 	for _, st := range m {
@@ -2483,4 +2492,24 @@ func ListTools(folder string, rules []string) []mcp.Tool {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// addFacadeTools registers the cold-tier facade tools onto srv for DISPLAY only.
+// It walks the resreg registry (populated by a blank import of resreg/resources in
+// the daemon binary) and derives every resource carrying MCP metadata — MCPNames
+// set is the agent-facade discriminator, so pure-REST resources (secrets/groups)
+// and dotted-name ones (proxyd_routes) are skipped. visible mirrors the agent
+// socket's filter EXACTLY: a tool whose name no grant rule matches is not shown.
+// The stub caller is never invoked — ListTools reads schemas, never calls handlers.
+func addFacadeTools(srv *server.MCPServer, rules []string) {
+	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
+	stub := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
+		return resreg.Caller{}, nil
+	}
+	for _, res := range resreg.All() {
+		if len(res.MCPNames) == 0 {
+			continue
+		}
+		resreg.MCPTools(srv, *res, stub, visible)
+	}
 }
