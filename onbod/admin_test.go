@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/resreg"
 	_ "modernc.org/sqlite"
 )
 
@@ -108,7 +110,10 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 	}
 }
 
-// admin gate lifecycle: put (limit) → list → disable → delete.
+// admin gate lifecycle through the resreg /v1/gates face (spec 5/44 fold):
+// put (limit) → list → disable → re-put limit → delete. Drives a real mux so
+// {gate} path binding + resreg dispatch are exercised end-to-end; ks=nil (open)
+// so no bearer needed.
 func TestAdminGatePutListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustMkdir(t, filepath.Dir(path))
@@ -117,53 +122,98 @@ func TestAdminGatePutListDelete(t *testing.T) {
 		t.Fatalf("openOwnedDB: %v", err)
 	}
 	defer db.Close()
-	a := &admin{db: db, ks: nil}
+	mux := http.NewServeMux()
+	(&admin{db: db, ks: nil}).mountGates(mux)
 
-	put := func(gate, body string) {
-		req := httptest.NewRequest("PUT", "/v1/gates/"+gate, strings.NewReader(body))
-		req.SetPathValue("gate", gate)
+	do := func(method, target, body string) *httptest.ResponseRecorder {
+		var rdr *strings.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		} else {
+			rdr = strings.NewReader("")
+		}
+		req := httptest.NewRequest(method, target, rdr)
 		w := httptest.NewRecorder()
-		a.handleGatePut(w, req)
+		mux.ServeHTTP(w, req)
+		return w
+	}
+	list := func() []gateJSON {
+		w := do("GET", "/v1/gates", "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("list status=%d body=%s", w.Code, w.Body.String())
+		}
+		var listed struct {
+			Gates []gateJSON `json:"gates"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("decode gates: %v", err)
+		}
+		return listed.Gates
+	}
+	put := func(gate, body string) {
+		w := do("PUT", "/v1/gates/"+gate, body)
 		if w.Code != http.StatusOK {
 			t.Fatalf("put gate %s status=%d body=%s", gate, w.Code, w.Body.String())
 		}
 	}
+
 	put("github:org=acme", `{"limit_per_day":25}`)
-
-	w := httptest.NewRecorder()
-	a.handleGateList(w, httptest.NewRequest("GET", "/v1/gates", nil))
-	var listed struct {
-		Gates []gateJSON `json:"gates"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
-		t.Fatalf("decode gates: %v", err)
-	}
-	if len(listed.Gates) != 1 || listed.Gates[0].Gate != "github:org=acme" ||
-		listed.Gates[0].LimitPerDay != 25 || !listed.Gates[0].Enabled {
-		t.Fatalf("gate list wrong: %+v", listed.Gates)
+	if g := list(); len(g) != 1 || g[0].Gate != "github:org=acme" ||
+		g[0].LimitPerDay != 25 || !g[0].Enabled {
+		t.Fatalf("gate list wrong: %+v", g)
 	}
 
-	// disable
+	// tri-state: enabled-only PUT flips the flag and leaves the limit untouched.
 	put("github:org=acme", `{"enabled":false}`)
-	w = httptest.NewRecorder()
-	a.handleGateList(w, httptest.NewRequest("GET", "/v1/gates", nil))
-	_ = json.Unmarshal(w.Body.Bytes(), &listed)
-	if listed.Gates[0].Enabled {
-		t.Fatalf("gate still enabled after disable")
+	if g := list(); g[0].Enabled || g[0].LimitPerDay != 25 {
+		t.Fatalf("enabled-only put should disable but keep limit 25: %+v", g)
 	}
 
-	// delete
-	req := httptest.NewRequest("DELETE", "/v1/gates/github:org=acme", nil)
-	req.SetPathValue("gate", "github:org=acme")
-	w = httptest.NewRecorder()
-	a.handleGateDelete(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("delete gate status=%d", w.Code)
+	// tri-state: limit-only PUT upserts the limit and leaves enablement untouched.
+	put("github:org=acme", `{"limit_per_day":40}`)
+	if g := list(); g[0].Enabled || g[0].LimitPerDay != 40 {
+		t.Fatalf("limit-only put should keep disabled but set limit 40: %+v", g)
 	}
-	w = httptest.NewRecorder()
-	a.handleGateList(w, httptest.NewRequest("GET", "/v1/gates", nil))
-	_ = json.Unmarshal(w.Body.Bytes(), &listed)
-	if len(listed.Gates) != 0 {
-		t.Fatalf("gate not deleted: %+v", listed.Gates)
+
+	// delete → {ok:true}, then gone.
+	if w := do("DELETE", "/v1/gates/github:org=acme", ""); w.Code != http.StatusOK {
+		t.Fatalf("delete gate status=%d body=%s", w.Code, w.Body.String())
+	}
+	if g := list(); len(g) != 0 {
+		t.Fatalf("gate not deleted: %+v", g)
+	}
+}
+
+// gatesRESTGate reproduces the retired handlers' any-of scope check: gates:read
+// OR gates:write lists; only gates:write mutates. Non-nil ks makes it enforce
+// (the gate itself never touches ks, so an empty KeySet suffices). nil ks is
+// covered by TestAdminGatePutListDelete (open path).
+func TestGatesRESTGateScopes(t *testing.T) {
+	a := &admin{ks: &auth.KeySet{}}
+	call := func(action resreg.Action, scopes string) error {
+		return a.gatesRESTGate(resreg.Execution{
+			Action: action,
+			Caller: resreg.Caller{Claims: map[string]string{"scopes": scopes}},
+		}, "", nil)
+	}
+	cases := []struct {
+		action resreg.Action
+		scopes string
+		ok     bool
+	}{
+		{resreg.ActionList, "gates:read", true},
+		{resreg.ActionList, "gates:write", true}, // write covers read
+		{resreg.ActionList, "invites:read", false},
+		{resreg.ActionUpdate, "gates:write", true},
+		{resreg.ActionUpdate, "gates:read", false}, // read cannot mutate
+		{resreg.ActionUpdate, "", false},
+		{resreg.ActionDelete, "gates:write", true},
+		{resreg.ActionDelete, "gates:read", false},
+	}
+	for _, c := range cases {
+		err := call(c.action, c.scopes)
+		if (err == nil) != c.ok {
+			t.Errorf("%s scopes=%q: got err=%v, want ok=%v", c.action, c.scopes, err, c.ok)
+		}
 	}
 }

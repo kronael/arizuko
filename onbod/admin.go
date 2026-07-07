@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -241,90 +240,5 @@ func (a *admin) handleOnboardingReprompt(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "reprompt_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-type gateJSON struct {
-	Gate        string `json:"gate"`
-	LimitPerDay int    `json:"limit_per_day"`
-	Enabled     bool   `json:"enabled"`
-}
-
-// handleGateList is GET /v1/gates — list onboarding gates. Bearer scope
-// gates:read (write covers read).
-func (a *admin) handleGateList(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "gates:read", "gates:write") {
-		return
-	}
-	gates, err := store.New(a.db).ListGates()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
-		return
-	}
-	out := make([]gateJSON, len(gates))
-	for i, g := range gates {
-		out[i] = gateJSON{Gate: g.Gate, LimitPerDay: g.LimitPerDay, Enabled: g.Enabled}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"gates": out})
-}
-
-type putGateBody struct {
-	LimitPerDay int   `json:"limit_per_day"`
-	Enabled     *bool `json:"enabled"` // nil → leave enablement untouched (upsert limit only)
-}
-
-// handleGatePut is PUT /v1/gates/{gate} — upsert a gate's daily limit and/or
-// flip its enabled flag. Bearer scope gates:write. A body with only enabled set
-// toggles; with limit_per_day set upserts the limit; both does both.
-func (a *admin) handleGatePut(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "gates:write") {
-		return
-	}
-	gateName := r.PathValue("gate")
-	if gateName == "" {
-		writeErr(w, http.StatusBadRequest, "missing_field", "gate required")
-		return
-	}
-	var body putGateBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		// empty body is allowed (enable-only via the flag); a malformed body is not
-		if body == (putGateBody{}) {
-			writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
-			return
-		}
-	}
-	st := store.New(a.db)
-	if body.LimitPerDay > 0 {
-		if err := st.PutGate(gateName, body.LimitPerDay); err != nil {
-			writeErr(w, http.StatusInternalServerError, "put_failed", err.Error())
-			return
-		}
-	}
-	if body.Enabled != nil {
-		if err := st.EnableGate(gateName, *body.Enabled); err != nil {
-			writeErr(w, http.StatusInternalServerError, "enable_failed", err.Error())
-			return
-		}
-	}
-	slog.Info("gate set", "gate", gateName, "limit", body.LimitPerDay)
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-// handleGateDelete is DELETE /v1/gates/{gate} — remove a gate. Bearer scope
-// gates:write.
-func (a *admin) handleGateDelete(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "gates:write") {
-		return
-	}
-	gateName := r.PathValue("gate")
-	if gateName == "" {
-		writeErr(w, http.StatusBadRequest, "missing_field", "gate required")
-		return
-	}
-	if err := store.New(a.db).DeleteGate(gateName); err != nil {
-		writeErr(w, http.StatusInternalServerError, "delete_failed", err.Error())
-		return
-	}
-	slog.Info("gate deleted", "gate", gateName)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
