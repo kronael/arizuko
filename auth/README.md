@@ -63,7 +63,6 @@ header for rotation):
 - Session JWT (legacy HS256, `sub, name, groups`): `Claims`, `VerifyJWT(secret, token)`.
 - OAuth: GitHub, Google, Discord, Telegram widget — pure exchange/userinfo
   wrappers; authd mounts and issues the session.
-- HMAC: `SignHMAC`, `VerifyHMAC`, `UserSigMessage`, `ChatSigMessage`, `VerifyUserSig`, `VerifyChatSig`.
 - Token hash: `HashToken`.
 - OAuth wrappers (authd drives `/auth/*`, this lib has no mount layer):
   `ExchangeGitHub`/`FetchGitHubUser`, `ExchangeGoogle`/`FetchGoogleUser`,
@@ -71,10 +70,10 @@ header for rotation):
   `SignState`/`VerifyState`/`StateIntent`, `WritePKCE`/`ConsumePKCE`,
   `WriteStateCookie`, `SafeReturn`, `JSSafe`, `MatchEmailAllowlist`,
   `CheckGitHubOrgMember`, `AuthBaseURL`.
-- Middleware: `RequireSigned(secret)` / `StripUnsigned(secret)` for proxyd-signed
-  identity headers; `RequireSignedOrBearer(secret, ks)` /
-  `StripUnsignedOrBearer(secret, ks)` accept either a proxyd signature
-  or a Bearer ES256 token.
+- Middleware: `ProxydTransit(r, ks)` — reports whether the request carries
+  a valid `service:proxyd` ES256 bearer, the transit proof that lets a
+  backend trust proxyd's stamped `X-User-*` headers. `ks==nil` (local dev,
+  `AUTHD_URL` unset) → false.
 
 Per-request shape on a `/v1/*` handler:
 
@@ -109,10 +108,11 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `scope.go` — `HasScope`, scope intersection/coverage helpers
 - `service.go` — daemon service-token bootstrap (`ServiceToken`, `TokenSource`)
 - `acl.go` — `MatchGroups`, glob ACL
-- `jwt.go`, `middleware.go` — legacy session JWT + signed-header middleware
+- `jwt.go` — legacy session JWT (HS256)
+- `middleware.go` — `ProxydTransit` (proxyd bearer transit proof)
 - `web.go` — `HashToken` + `safeReturn`/`jsSafe` (token/url helpers)
 - `oauth.go` — provider exchange/userinfo + state/PKCE wrappers (authd owns the routes)
-- `hmac.go` — inter-daemon header signing
+- `surrogate/` — outbound `Connect <provider>` OAuth (spec 5/43): arizuko acts AS the user against a third-party API, writing the token into the user-scoped `secrets` row
 
 ## Related docs
 

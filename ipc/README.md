@@ -8,9 +8,11 @@ this is the **MCP host** issuer in the platform-token model.
 
 One MCP server per group at `ipc/<folder>/gated.sock`, JSON-RPC over a
 unix socket, one connection per agent container. Concurrent connections
-bounded to 8 per socket. Action tools (send/reply/post/like/…,
-`schedule_task`, `register_group`, `set_routes`, …) mutate state; the
-`inspect_*` family is read-only introspection. Identity (folder, tier)
+bounded to 8 per socket. Hot-tier action tools (send/reply/post/like/…,
+`register_group`, `inject_message`, `engage`, …) mutate state; the
+`inspect_*` family is read-only introspection. Cold-tier management
+tools (`set_routes`/`schedule_task`/`network_allow`/…) are resreg-served,
+not hand-rolled here — see "Tool surface" below. Identity (folder, tier)
 is resolved from the socket path; the kernel-attested peer uid
 (`SO_PEERCRED`) gates every connection. Tool visibility is filtered by
 `grants.MatchingRules` (a tool whose name matches no rule is never
@@ -145,11 +147,13 @@ post-fetch `JIDRoutedToFolder` per row.
 
 ## Public API
 
-- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string) (stop func(), err error)`
+- `ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (stop func(), err error)`
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = ant image's `node` user in prod; ≤0 disables the check for
   tests). `callerSub` is the agent's auth subject, stamped into audit
-  rows as the actor. Returns a stop func that tears down the listener.
+  rows as the actor. `postBuild` are routd's spec 5/44 resreg seams that
+  mount the cold-tier resource tools onto the server. Returns a stop func
+  that tears down the listener.
 - `GatedFns` — callbacks into the host daemon, routd (enqueue, register
   channel, run container, social verbs).
 - `StoreFns` — callbacks into store (typed subset, not the full `*store.Store`)

@@ -213,7 +213,6 @@ func (s *Server) registerGroup(jid string, g core.Group) error {
 
 // ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither
 // exists. Non-fatal: a missing git binary or dir leaves the group untracked.
-// ensureGroupGitRepo git-inits groupDir + seeds a .gitignore when neither exists.
 func ensureGroupGitRepo(groupDir string) {
 	if _, err := os.Stat(filepath.Join(groupDir, ".git")); err == nil {
 		return

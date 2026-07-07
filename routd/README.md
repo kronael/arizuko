@@ -45,8 +45,10 @@ Spec: `specs/5/E`.
 Migrations: `routd/migrations/`. routd opens NO sibling DB — cross-daemon
 data arrives over HTTP (authd identity, runed session_log).
 
-`/openapi.json` emits schema for: `routes`, `web_routes`, `acl`, `secrets`
-(the REST-exposed subset; `acl_membership`/`network_rules` are MCP-only).
+`/openapi.json` emits schema for: `routes`, `web_routes`, `acl` (the
+REST-exposed subset). `secrets` is excluded (its `enc_value` blob must
+never appear in a read surface); `acl_membership`/`network_rules` are
+MCP-only.
 
 ## Entry points
 
@@ -72,6 +74,7 @@ Endpoints (`server.go`, `channels.go`):
 - `POST /v1/acl`, `DELETE /v1/acl` — acl grant/revoke (`acl:write`)
 - `POST /v1/secrets`, `DELETE /v1/secrets/{key}` — secret write/delete (`secrets:write`)
 - `POST /v1/pane` — Slack pane context (`messages:write`)
+- `GET|PATCH|DELETE /v1/tasks[/{id}]` — scheduled-task CRUD, shared with the agent's task tools (`tasks:read`/`tasks:write`)
 - `GET /v1/tasks/due` — claim due tasks (`tasks:read`)
 - `POST /v1/tasks/runlog`, `POST /v1/tasks/{id}/reschedule` — task logs/reschedule (`tasks:write`)
 - `POST /v1/cost` — cost log write
@@ -174,7 +177,8 @@ optional observability webhook — not the source of truth.
 - `mcp.go` — in-process per-turn MCP socket (`ServeTurnMCP`, `buildGatedFns`)
 - `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)
 - `proactive.go`, `steer.go` — proactive interjection + slash-command dispatch
-- `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `reads_http.go` — REST CRUD
+- `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
+- `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/44 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
 - `db.go` — `routd.db` writes (PutMessage, turn claims, routing)
 - `reads.go` — `routd.db` reads (messages, chats, sessions)
 - `session.go`, `identity.go`, `onbod.go` — federation to runed/authd/onbod

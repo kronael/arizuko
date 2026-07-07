@@ -2,8 +2,11 @@
 // 5/5-uniform-mcp-rest.md: one Handler per (Resource, Action), wrapped
 // by two auto-adapters (REST + MCP) so any caller surface reaches the
 // same code. Resources using it: proxyd's runtime route table
-// (proxyd/resource.go) and webd's operator-side MCP forwarder
-// (webd/routes_mcp.go). Migration of ipc/ipc.go is pending.
+// (proxyd/resource.go), webd's operator-side MCP forwarder
+// (webd/routes_mcp.go), and routd's cold-tier agent tools
+// (routes/web_routes/network_rules/scheduled_tasks/acl), each riding one
+// shared handler on both the agent MCP socket and the operator REST face
+// (spec 5/44).
 //
 // Design (post oracle critique 2026-05-25):
 //

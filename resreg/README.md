@@ -47,19 +47,27 @@ and excluded from the `config_version` count per spec.
 - webd's operator-side MCP forwarder for `routes.*` —
   `webd/routes_mcp.go` (forwarder; `Resource.Store == nil`; proxyd
   writes the audit row downstream).
+- routd's cold-tier agent tools — `routes`, `web_routes`,
+  `network_rules`, `scheduled_tasks`, `acl` (one `*_resource.go` each),
+  mounted on the agent MCP socket via a `postBuild` seam with the
+  tier-aware `Gate` injected, and — where a REST twin exists (`routes`,
+  `web_routes`, `scheduled_tasks` as `/v1/tasks`, `acl`) — the same
+  handler on the operator REST face with a scope/folder `Gate`. This is
+  the spec 5/44 fold. The hot-tier tools (`reply`/`send`/`inspect_*`)
+  stay hand-authored in `ipc/ipc.go` — no REST twin.
 
-`ipc/ipc.go` migration of the agent-facing tool surface is pending — a
-larger surgical pass tracked under
-[`specs/5/44-mcp-rest-unification.md`](../specs/5/44-mcp-rest-unification.md).
+Spec: [`specs/5/44-mcp-rest-unification.md`](../specs/5/44-mcp-rest-unification.md).
 
 ## OpenAPI emission
 
 `OpenAPI(daemon, baseURL, resources)` / `OpenAPIHandler(daemon,
 resources)` (`openapi.go`) walk the registry and emit an OpenAPI 3.1
-JSON doc off the same `RowType` reflection — struct field → schema
-property, resource → `/v1/<name>` **five** paths: list, **read-one**
-(`GET /v1/<name>/{pk}`), create, update, delete. No `huma`, no `swag`,
-no codegen. Handler is public (mount before auth) and caches the blob
+JSON doc off the same `RowType` reflection (struct field → schema
+property). A resource that declares `Endpoints` emits **exactly those**
+real mounted verbs+paths (so the doc can't drift from `RegisterREST`);
+one with none falls back to the `/v1/<name>` PK-CRUD convention (list,
+read-one `GET /v1/<name>/{pk}`, create, update, delete). No `huma`, no
+`swag`, no codegen. Handler is public (mount before auth) and caches the blob
 for the process lifetime. Mounted at `/openapi.json` on `routd`, `runed`,
 `authd`, timed, onbod, webd, proxyd, dashd. Drift between handler and doc
 is impossible because both read the same struct. Aggregator landing:
@@ -82,9 +90,11 @@ register, so the two faces can't drift.
 - `RegisterREST(mux, r, build)` — emits HTTP handlers for every
   endpoint declared on the resource. `build(*http.Request) (Caller, error)`
   resolves identity per request.
-- `MCPTools(srv, r, callerFor)` — emits matching MCP tools. `callerFor`
-  is invoked **per call**, not at registration time — privilege
-  confusion in shared MCP servers is structurally precluded.
+- `MCPTools(srv, r, callerFor, visible)` — emits matching MCP tools.
+  `callerFor` is invoked **per call**, not at registration time —
+  privilege confusion in shared MCP servers is structurally precluded.
+  `visible(name)` gates which tools the caller's tier may even see in
+  `tools/list` (nil → all visible).
 
 ## Types
 
@@ -97,8 +107,8 @@ Store, RowType}` — one literal per resource per daemon. `Gate` is the
 - `Action` — short verb constant (`list`, `get`, `create`, `update`,
   `delete`, or resource-specific). `Action.Mutates() bool` is the
   read-vs-write classifier.
-- `Caller{Sub, Name, Folder, Tier, Claims}` — surface-agnostic
-  principal. `Claims` carries JWT claims the ACL row predicates match
+- `Caller{Sub, Name, Folder, Claims}` — surface-agnostic principal.
+  `Claims` carries JWT claims the ACL row predicates match
   (e.g. `operator=1`).
 - `Execution{Caller, Action, Resource, Args, TurnID, RequestID,
 SourceIP, Surface, Tx}` — everything a handler needs. `Tx` is
@@ -155,7 +165,7 @@ Table: [`specs/7/F-audit-stream.md`](../specs/7/F-audit-stream.md).
 2. Implement one `Handler` that switches on `x.Action`. Run mutations
    via `x.Tx` when `Store` is set.
 3. Wire from `main.go`: `resreg.RegisterREST(mux, r, build)` and
-   `resreg.MCPTools(srv, r, callerFor)`.
+   `resreg.MCPTools(srv, r, callerFor, visible)`.
 
 `proxyd/resource.go` is the canonical store-backed example;
 `webd/routes_mcp.go` is the canonical forwarder example.
