@@ -1,10 +1,7 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -73,14 +70,5 @@ func init() {
 		MCPNames:      NetworkRulesMCPNames,
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"CreatedAt"},
-		Hooks: resreg.Hooks{
-			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
-				r := row.(*NetworkRulesRow)
-				if r.CreatedAt == "" {
-					r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-				}
-				return nil
-			},
-		},
 	})
 }

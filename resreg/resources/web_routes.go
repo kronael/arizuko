@@ -1,10 +1,7 @@
 package resources
 
 import (
-	"context"
-	"database/sql"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -74,13 +71,6 @@ func init() {
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"CreatedAt"},
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
-				r := row.(*WebRoutesRow)
-				if r.CreatedAt == "" {
-					r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-				}
-				return nil
-			},
 			ColumnOverride: map[string]resreg.ColumnHook{
 				"RedirectTo": {
 					Read:  "COALESCE(redirect_to, '')",

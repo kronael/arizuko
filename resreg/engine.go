@@ -24,6 +24,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -58,7 +59,7 @@ type Hooks struct {
 }
 
 // ColumnHook is a per-field escape hatch. Read replaces the SELECT
-// expression for this column (e.g. "COALESCE(model,'')"); Write maps
+// expression for this column (e.g. "COALESCE(model,”)"); Write maps
 // the struct field's value to the bind argument (nil-coalesce, JSON-
 // encode, encrypt). Either may be empty.
 type ColumnHook struct {
@@ -211,6 +212,17 @@ func (r *Resource) Insert(ctx context.Context, tx *sql.Tx, row any) error {
 	if r.Hooks.BeforeInsert != nil {
 		if err := r.Hooks.BeforeInsert(ctx, tx, rowPtr.Interface()); err != nil {
 			return fmt.Errorf("%s: before-insert: %w", r.Name, err)
+		}
+	}
+	// Auto-stamp: any string-typed StampedField still empty gets an RFC3339 now().
+	// StampedFields are server-set timestamps (created_at/added_at/…) — the same set
+	// Diff ignores — so the engine owns both meanings and resources don't hand-copy a
+	// "stamp if empty" hook. An explicit BeforeInsert value wins: it ran above, so
+	// this only fills what's still empty.
+	stampNow := time.Now().UTC().Format(time.RFC3339)
+	for _, idx := range r.meta.stampedIdx {
+		if f := rowPtr.Elem().Field(idx); f.Kind() == reflect.String && f.String() == "" {
+			f.SetString(stampNow)
 		}
 	}
 	if r.Hooks.ValidateRow != nil {

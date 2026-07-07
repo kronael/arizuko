@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -27,19 +26,12 @@ var ErrMembershipSelf = errors.New("acl_membership: self")
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "acl_membership",
-		Table:    "acl_membership",
-		RowType:  reflect.TypeOf(ACLMembershipRow{}),
+		Name:          "acl_membership",
+		Table:         "acl_membership",
+		RowType:       reflect.TypeOf(ACLMembershipRow{}),
 		PKFields:      []string{"Child", "Parent"},
 		StampedFields: []string{"AddedAt"},
 		Hooks: resreg.Hooks{
-			BeforeInsert: func(ctx context.Context, tx *sql.Tx, row any) error {
-				r := row.(*ACLMembershipRow)
-				if r.AddedAt == "" {
-					r.AddedAt = time.Now().UTC().Format(time.RFC3339)
-				}
-				return nil
-			},
 			ValidateRow: func(ctx context.Context, tx *sql.Tx, row any) error {
 				r := row.(*ACLMembershipRow)
 				if r.Child == r.Parent {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -96,9 +95,6 @@ func init() {
 				}
 				if r.ContextMode == "" {
 					r.ContextMode = "group"
-				}
-				if r.Created == "" {
-					r.Created = time.Now().UTC().Format(time.RFC3339)
 				}
 				return nil
 			},

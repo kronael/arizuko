@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -91,9 +90,6 @@ func init() {
 				r := row.(*ACLRow)
 				if r.Effect == "" {
 					r.Effect = "allow"
-				}
-				if r.GrantedAt == "" {
-					r.GrantedAt = time.Now().UTC().Format(time.RFC3339)
 				}
 				return nil
 			},

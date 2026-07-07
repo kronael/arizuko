@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
-	"time"
 
 	"github.com/kronael/arizuko/resreg"
 )
@@ -67,9 +66,9 @@ var GroupsMCPArgs = map[resreg.Action][]resreg.MCPArg{
 
 func init() {
 	resreg.Register(resreg.Resource{
-		Name:     "groups",
-		Table:    "groups",
-		RowType:  reflect.TypeOf(GroupsRow{}),
+		Name:          "groups",
+		Table:         "groups",
+		RowType:       reflect.TypeOf(GroupsRow{}),
 		PKFields:      []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},
@@ -85,13 +84,6 @@ func init() {
 				r := row.(*GroupsRow)
 				if r.Product == "" {
 					r.Product = "assistant"
-				}
-				now := time.Now().UTC().Format(time.RFC3339)
-				if r.AddedAt == "" {
-					r.AddedAt = now
-				}
-				if r.UpdatedAt == "" {
-					r.UpdatedAt = now
 				}
 				// Normalize the JSON blobs for deterministic emit: parse →
 				// re-marshal so key order is canonical. Cheap; runs only on apply.
