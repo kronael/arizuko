@@ -1,5 +1,30 @@
 # BUGS.md — open issues queue
 
+## 5/44 invites fold — agent-forwarder half deferred (2026-07-07, by design)
+
+onbod's `/v1/invites` REST face is folded onto resreg (`154cd17f`, mirrors the
+gates fold): create/list/revoke ride the shared handler + one tx + audit, and
+invites is on onbod's `/openapi.json`. The AGENT invite tools (`invite_create`/
+`invite_list`/`invite_revoke`, ipc/ipc.go registerRaw → GatedFns → routd/mcp.go
+→ httpOnbod federation) are deliberately NOT folded yet — same precedent as the
+route_tokens operator twin left hand-rolled where the shape doesn't fit resreg.
+
+Blocker for a mechanical forwarder fold (Store nil → forward to onbod): the agent
+face carries three things a single HTTP forward can't express —
+- **caller-bound issuer** (`issued_by="agent:"+folder`, never a client arg),
+- **accept_url synthesis** (routd computes `AcceptURLBase + /invite/<token>`),
+- **revoke ownership as list-then-delete** (routd/mcp.go:141 lists THIS folder's
+  invites and confirms the token before calling onbod's token-only DELETE — the
+  comment: "an agent must not revoke another folder's invite even though the wire
+  call would"). A naive forwarded DELETE `/v1/invites/{token}` REGRESSES this into
+  a cross-folder revoke.
+
+Safe fold needs onbod's DELETE to gain an `issued_by` scope (`DELETE ... WHERE
+token=? AND issued_by_sub=?`) so the forwarder passes the caller-bound issuer and
+onbod enforces ownership in one call; create needs the forwarder to inject issuer
++ synthesize accept_url. That's the "one-owner + federation" design step, not a
+mechanical fold — left for a focused change on the live agent surface.
+
 ## 5/44 two-faces rollout — status (updated 2026-07-06)
 
 All 5 cold-tier agent-MCP faces ride one resreg.Resource via the injected Gate

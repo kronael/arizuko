@@ -37,9 +37,12 @@ in-process cold-tier resources (`routes`, `acl`, `scheduled_tasks`,
 socket injects a `mcp:`+tier `Gate` (the tier-default grant a folder agent
 needs) and per-resource folder-containment lives in each handler/gate.
 The dashd tool-browser renders the migrated facade tools (`df9ebad3` +
-`d5023c60`). `groups`, `route_tokens`, and `onboarding_gates` are folded.
-Remaining: the agent invite-management face (`invite_create`/`list`/`revoke`,
-which federates to onbod) and one-owner + federation.
+`d5023c60`). `groups`, `route_tokens`, `onboarding_gates`, and onbod's
+`/v1/invites` REST face (`154cd17f`) are folded. Remaining: the AGENT invite
+tools (`invite_create`/`list`/`revoke`) stay hand-rolled — their caller-bound
+issuer + list-then-delete revoke-ownership don't fit a single resreg forward
+without onbod's DELETE gaining an `issued_by` scope (see BUGS.md); and
+one-owner + federation.
 
 ## The model
 
