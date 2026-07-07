@@ -14,8 +14,9 @@ moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > task-management leak (`0d25b687`). `network_rules` keeps containment in its
 > Gate already and is agent-only (no REST twin) — the clean model, nothing to
 > fold. OpenAPI now emits each resource's real mounted `Endpoints` (`7c14efd6`),
-> so the doc no longer drifts to a PK-CRUD guess. Remaining: the dashd
-> tool-browser and the one-owner + federation phase.
+> so the doc no longer drifts to a PK-CRUD guess. The dashd tool-browser now
+> renders the migrated facade tools (`df9ebad3` + `d5023c60`). Remaining: the
+> one-owner + federation phase.
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
 
