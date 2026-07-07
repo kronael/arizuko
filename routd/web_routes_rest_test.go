@@ -105,21 +105,38 @@ func TestRESTWebRouteScopedManage(t *testing.T) {
 	}
 }
 
-// TestRESTWebRouteTier0DeleteWidens: a tier-0 (top-level) operator deletes ANY
-// folder's route by path — the accepted 5/44 delete widening. The operator sends
-// no folder arg, so the target defaults to its own tier-0 folder and the shared
-// handler drops the folder bound (scopedFolder="").
-func TestRESTWebRouteTier0DeleteWidens(t *testing.T) {
+// TestRESTWebRouteRootDeletesAny: the delete widening keys on the EMPTY folder
+// claim — a root/service token (no folder) deletes ANY folder's route. This is
+// the genuine operator path (the `arizuko` CLI + service tokens carry no folder).
+func TestRESTWebRouteRootDeletesAny(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:op", scope: []string{"routes:write"}, folder: ""})
+	_ = db.PutGroup(core.Group{Folder: "other"})
+	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
+
+	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Path: "/pub/other/x"}); r.Code != 200 {
+		t.Fatalf("root operator delete = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+	if _, ok := db.WebRouteOwner("/pub/other/x"); ok {
+		t.Fatal("root operator did not delete the route")
+	}
+}
+
+// TestRESTWebRouteTier0TenantNoCrossDelete is the fail-on-broken leak guard: a
+// NAMED top-level tenant is tier-0 too (min(count("/"),3)==0), but must stay bound
+// to its OWN routes — keying the widen on tier-0 (not the empty folder claim) let
+// tenant "hq" delete + re-claim tenant "other"'s route. Symmetric with
+// TestRESTWebRouteScopedListNoLeak, which proves the same for list.
+func TestRESTWebRouteTier0TenantNoCrossDelete(t *testing.T) {
 	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"routes:write:own_group"}, folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/other/x", Access: "public", Folder: "other"})
 
-	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Path: "/pub/other/x"}); r.Code != 200 {
-		t.Fatalf("tier-0 widened delete = %d want 200 body=%s", r.Code, r.Body.String())
+	if r := doJSON(t, h, "DELETE", "/v1/web_routes", "", webRouteReq{Path: "/pub/other/x"}); r.Code == 200 {
+		t.Fatalf("tier-0 tenant cross-tenant delete = 200, want non-200 body=%s", r.Body.String())
 	}
-	if _, ok := db.WebRouteOwner("/pub/other/x"); ok {
-		t.Fatal("tier-0 operator did not delete the other folder's route")
+	if _, ok := db.WebRouteOwner("/pub/other/x"); !ok {
+		t.Fatal("tier-0 tenant deleted a sibling tenant's route (cross-tenant leak)")
 	}
 }
 
