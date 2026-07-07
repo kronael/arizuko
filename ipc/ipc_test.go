@@ -907,42 +907,11 @@ func callRaw(t *testing.T, sock, name string, args map[string]any) string {
 // tier-0-widen parity is covered by routd/web_routes_resource_test.go, which
 // drives the real socket through the ServeMCP postBuild seam.
 
-func TestRouteTokens_IssueTierMatrix(t *testing.T) {
-	var issued []string
-	gated := GatedFns{
-		IssueRouteToken: func(kind, owner, target, src, suffix string) (RouteTokenInfo, error) {
-			issued = append(issued, kind+":"+owner+"→"+target)
-			jid := "web:" + target
-			if kind == "hook" {
-				jid = "hook:" + target + "/" + src
-			}
-			return RouteTokenInfo{RawToken: "tok", JID: jid, OwnerFolder: owner}, nil
-		},
-		ListRouteTokens:  func(owner string) []RouteTokenInfo { return nil },
-		RevokeRouteToken: func(jid, owner string) (bool, error) { return true, nil },
-	}
-	// Use grants "*" so the action tools are registered.
-	rules := []string{"*"}
-
-	// Tier 1 at "acme": can mint for self + descendants, not siblings.
-	srv := buildMCPServer(gated, StoreFns{}, "acme", rules, "")
-	if srv == nil {
-		t.Fatal("nil server")
-	}
-
-	// Tier 2 at "acme/eng": cannot mint for "acme" (parent) or sibling "acme/ops".
-	srv2 := buildMCPServer(gated, StoreFns{}, "acme/eng", rules, "")
-	if srv2 == nil {
-		t.Fatal("nil server")
-	}
-
-	// Tier 3+ at "a/b/c/d": no mint (cannot register tool — registerRaw still
-	// registers since matching rules exist, but handler returns unauthorized).
-	srv3 := buildMCPServer(gated, StoreFns{}, "a/b/c/d", rules, "")
-	if srv3 == nil {
-		t.Fatal("nil server")
-	}
-}
+// NOTE: issue_chat_link/issue_webhook/list_tokens/revoke_token moved off ipc onto
+// routd's resreg route_tokens resource (spec 5/44 fold). Their mint tier matrix +
+// owner-scoped revoke + Gate/visibility parity is covered by
+// routd/route_tokens_resource_test.go, which drives the real socket through the
+// ServeMCP postBuild seam.
 
 // quote/repost author new content on the agent's own feed, so they must
 // record via recordOutbound (SetLastReply + PutMessage) like post —

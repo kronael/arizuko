@@ -110,10 +110,7 @@ func (s *Server) buildGatedFns(t turnMCP) ipc.GatedFns {
 			// by timestamp, so the injected row is picked up on the next tick.
 			return id, err
 		},
-		IssueRouteToken:  s.mcpIssueRouteToken,
-		ListRouteTokens:  s.mcpListRouteTokens,
-		RevokeRouteToken: s.mcpRevokeRouteToken,
-		SubmitTurn:       s.mcpSubmitTurn,
+		SubmitTurn: s.mcpSubmitTurn,
 		SubmitStatus: func(_ string, turnID, text string) error {
 			return s.mcpSubmitStatus(turnID, text)
 		},
@@ -292,74 +289,8 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 	return pid, err
 }
 
-// mcpIssueRouteToken maps the ipc.GatedFns five-arg signature onto routd's
-// IssueRouteToken(jid, owner), constructing the jid the same way the REST
-// handlers (handleTokenChat/handleTokenHook) do.
-func (s *Server) mcpIssueRouteToken(kind, ownerFolder, targetFolder, sourceLabel, jidSuffix string) (ipc.RouteTokenInfo, error) {
-	if targetFolder == "" {
-		return ipc.RouteTokenInfo{}, fmt.Errorf("target_folder required")
-	}
-	if ownerFolder == "" {
-		ownerFolder = targetFolder
-	}
-	// Validate the agent-supplied segments before they enter the JID — the REST
-	// handlers (handleTokenChat/Hook) gate on segRe; the MCP path must too, or an
-	// agent can inject `/` / `..` and corrupt the stored route-token JID.
-	if sourceLabel != "" && !segRe.MatchString(sourceLabel) {
-		return ipc.RouteTokenInfo{}, fmt.Errorf("source_label must match %s", segRe.String())
-	}
-	if jidSuffix != "" && !segRe.MatchString(jidSuffix) {
-		return ipc.RouteTokenInfo{}, fmt.Errorf("jid_suffix must match %s", segRe.String())
-	}
-	var jid, urlPrefix string
-	switch kind {
-	case "chat":
-		jid = "web:" + targetFolder
-		urlPrefix = "/chat/"
-	case "hook":
-		if sourceLabel == "" {
-			return ipc.RouteTokenInfo{}, fmt.Errorf("source_label required for webhook")
-		}
-		jid = "hook:" + targetFolder + "/" + sourceLabel
-		urlPrefix = "/hook/"
-	default:
-		return ipc.RouteTokenInfo{}, fmt.Errorf("kind must be chat|hook")
-	}
-	if jidSuffix != "" {
-		jid += "/" + jidSuffix
-	}
-	token, created, err := s.db.IssueRouteToken(jid, ownerFolder)
-	if err != nil {
-		return ipc.RouteTokenInfo{}, err
-	}
-	info := ipc.RouteTokenInfo{RawToken: token, JID: jid, OwnerFolder: ownerFolder}
-	info.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	if s.webHost != "" {
-		info.URL = s.webHost + urlPrefix + token
-		if kind == "chat" {
-			info.URL += "/"
-		}
-	}
-	return info, nil
-}
-
-func (s *Server) mcpListRouteTokens(ownerFolder string) []ipc.RouteTokenInfo {
-	rows, err := s.db.ListRouteTokens(ownerFolder)
-	if err != nil {
-		return nil
-	}
-	out := make([]ipc.RouteTokenInfo, len(rows))
-	for i, r := range rows {
-		out[i] = ipc.RouteTokenInfo{JID: r.JID, OwnerFolder: r.OwnerFolder}
-		out[i].CreatedAt, _ = time.Parse(time.RFC3339Nano, r.CreatedAt)
-	}
-	return out
-}
-
-func (s *Server) mcpRevokeRouteToken(jid, ownerFolder string) (bool, error) {
-	n, err := s.db.RevokeRouteTokens(jid, ownerFolder)
-	return n > 0, err
-}
+// Route-token issuance/list/revocation migrated to routd/route_tokens_resource.go
+// (spec 5/44, agent-MCP fold). The REST twin stays hand-rolled in tokens_http.go.
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
 // shape and records it through the shared recordTurnResult writer (the same
@@ -613,5 +544,6 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules)
 	routes := s.routesPostBuild(t.folder, callerSub, rules)
 	acl := s.aclPostBuild(t.folder, callerSub, rules)
-	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl)
+	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules)
+	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens)
 }

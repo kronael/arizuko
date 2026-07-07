@@ -36,4 +36,7 @@ func TestResourceEndpoints_SingleSource(t *testing.T) {
 	if !reflect.DeepEqual(srv.networkRulesResource().Endpoints, resources.NetworkRulesEndpoints) {
 		t.Error("network_rules: mounted Endpoints != resources.NetworkRulesEndpoints")
 	}
+	if !reflect.DeepEqual(srv.routeTokensResource().Endpoints, resources.RouteTokensEndpoints) {
+		t.Error("route_tokens: mounted Endpoints != resources.RouteTokensEndpoints")
+	}
 }
