@@ -196,6 +196,34 @@ func TestWebRoutesMCP_DeleteFolderBound(t *testing.T) {
 	}
 }
 
+// TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant is the fail-on-broken guard for
+// the 5/44 list-all leak class. A top-level tenant folder is tier-0
+// (min(count("/"),3)==0) and holds ["*"] grants by default, so del_web_route is
+// GRANTED — yet it must NOT delete a sibling tenant's route. Containment keys on
+// the EMPTY folder claim, never tier-0. Before the fix, tier-0 widened the delete
+// scope to "" and removed any folder's route (then set_web_route could re-claim
+// it — cross-tenant DoS + hijack).
+func TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "acme"})
+	_ = db.PutGroup(core.Group{Folder: "globex"})
+	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/globex/landing", Access: "public", Folder: "globex"})
+	// acme is a top-level tenant → tier 0 → rules ["*"] (del_web_route granted).
+	rules := deriveFolderGrants(db, "acme")
+	sock := serveWebRoutesMCP(t, db, "acme", "folder:acme", rules)
+
+	if _, e := callToolText(t, sock, "del_web_route", map[string]any{"path": "/pub/globex/landing"}); e == "" {
+		t.Fatal("tier-0 tenant cross-tenant delete should fail (not owned by acme)")
+	}
+	if owner, ok := db.WebRouteOwner("/pub/globex/landing"); !ok || owner != "globex" {
+		t.Fatalf("globex route deleted by tier-0 tenant acme: owner=%q ok=%v", owner, ok)
+	}
+}
+
 // TestWebRoutesMCP_Visibility: the Visible predicate (MatchingRules) preserves
 // tools/list gating — a tier-0 folder (rules ["*"]) sees set_web_route; a tier-1
 // folder (whose derived rules don't grant it) does not, exactly as ipc's

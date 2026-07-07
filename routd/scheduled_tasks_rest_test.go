@@ -132,6 +132,29 @@ func TestRESTTaskTier0NoCrossTenant(t *testing.T) {
 	}
 }
 
+// TestRESTTaskGetNoCrossTenant is the read twin of the cross-tenant leak the
+// DELETE cap closed: GET /v1/tasks/{id} let any tasks:read holder read ANY task
+// by ID, since the Gate's ownsFolder(jwt,jwt) is a no-op for a per-task op. Now
+// contain() gates the read on the task's OWNER — a tenant reads only its subtree;
+// a root/operator token (empty folder) still reads any.
+func TestRESTTaskGetNoCrossTenant(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u",
+		scope: []string{"tasks:read:own_group"}, folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "alice"})
+	_ = db.PutGroup(core.Group{Folder: "bob"})
+	seedTask(t, db, "alice-1", "alice", "web:alice", "mine")
+	seedTask(t, db, "bob-1", "bob", "web:bob", "theirs")
+
+	// cross-tenant GET → 403 (was 200 + leaked the task row).
+	if r := doJSON(t, h, "GET", "/v1/tasks/bob-1", "", nil); r.Code != 403 {
+		t.Fatalf("cross-tenant get = %d want 403 body=%s", r.Code, r.Body.String())
+	}
+	// own GET → 200.
+	if r := doJSON(t, h, "GET", "/v1/tasks/alice-1", "", nil); r.Code != 200 {
+		t.Fatalf("own get = %d want 200 body=%s", r.Code, r.Body.String())
+	}
+}
+
 // TestRESTTaskTier1NoWorldLeak: "alice/team" (tier 1) shares world "alice" with
 // "alice/other" but does NOT contain it. The baked cap authorized tier 1 for ANY
 // task in its WORLD (isInWorld), so DELETE/PATCH of "alice/other"'s task returned

@@ -15,9 +15,10 @@ package routd
 //
 // The route always belongs to the agent socket's folder (never a client arg),
 // so cross-folder writes are impossible by construction — the same guarantee
-// the deleted ipc bodies gave. The REST twin (/v1/web_routes) stays hand-rolled
-// in web_routes_http.go: its scope + JWT-folder-containment auth model differs
-// from the agent socket's tier model, and unifying it is a separate 5/44 step.
+// the deleted ipc bodies gave. The REST twin (/v1/web_routes) rides the SAME
+// shared handler (web_routes_http.go) via resreg.RegisterREST with a REST Gate
+// + Caller injected; the delete/list scope binds to Caller.Folder under either
+// gate, so containment is uniform across both faces.
 
 import (
 	"context"
@@ -29,7 +30,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/kronael/arizuko/auth"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
@@ -131,14 +131,14 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 		if p == "" {
 			return nil, resreg.Errorf(http.StatusBadRequest, "path required")
 		}
-		// tier-0 widening: an operator-tier folder (root) may delete any folder's
-		// route; every other tier is bound to its own folder (mirrors the deleted
-		// ipc del_web_route + routd.DeleteWebRoute's exact-match semantics).
-		scopedFolder := folder
-		if auth.Resolve(folder).Tier == 0 {
-			scopedFolder = ""
-		}
-		ok, err := deleteWebRouteTx(ctx, x.Tx, p, scopedFolder)
+		// Containment keys on the EMPTY folder claim, NOT tier-0: the genuine root/
+		// operator caller (empty folder) widens to delete any folder's route via the
+		// SQL `?=''` arm; every NAMED folder — including a top-level tenant, which is
+		// also tier-0 (min(count("/"),3)) — is bound to its own routes. Keying on
+		// tier-0 let a tenant delete + hijack a sibling tenant's route (the 5/44
+		// list-all leak class). The agent socket folder is always a named group, so
+		// no agent widens; only the root REST/CLI operator (folder="") does.
+		ok, err := deleteWebRouteTx(ctx, x.Tx, p, folder)
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -195,17 +195,12 @@ func putWebRouteTx(ctx context.Context, tx *sql.Tx, r WebRouteRow) error {
 	return err
 }
 
-// deleteWebRouteTx removes a web_routes row on tx. It mirrors store.DelWebRoute's
-// widening predicate `(folder=? OR ?=”)` so the tier-0 widening (scopedFolder="")
-// deletes any folder's route — the "operators can delete any" promise the tool
-// description makes and the removed integration test asserted. A non-tier-0 caller
-// passes its own folder, so the OR arm is false and the match is exact (own only).
-//
-// NOTE (flagged, not a silent choice): the prior PRODUCTION wiring used
-// DB.DeleteWebRoute, whose `folder=?` exact match made tier-0 widening a no-op
-// (folder="" matches no FK-valid row) — del_web_route could never delete a
-// tier-0 folder's route. This resource adopts store.DelWebRoute's correct
-// widening; see the migration report.
+// deleteWebRouteTx removes a web_routes row on tx. The `(folder=? OR ?='')`
+// predicate widens ONLY when folder is empty — the genuine root/operator caller
+// (empty folder claim) deletes any folder's route; every named folder (any tier)
+// matches exactly its own. Containment therefore lives entirely in how the caller
+// resolves its folder — the agent socket's own group, or the REST target bounded
+// to the JWT subtree — never in a tier test here.
 func deleteWebRouteTx(ctx context.Context, tx *sql.Tx, pathPrefix, folder string) (bool, error) {
 	res, err := tx.ExecContext(ctx,
 		"DELETE FROM web_routes WHERE path_prefix=? AND (folder=? OR ?='')",

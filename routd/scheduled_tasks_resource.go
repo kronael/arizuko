@@ -207,12 +207,18 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		return map[string]any{"ok": true}, nil
 
 	case resreg.ActionGet:
-		// Get-one (REST only): scope-gated read. The REST Gate already checked
-		// tasks:read + ownsFolder on the JWT folder; no per-task structural cap,
-		// matching the retired handleTaskGet the operator dashboard relies on.
+		// Get-one (REST only): scope-gated read + per-task containment. The Gate
+		// checked tasks:read + ownsFolder on the JWT folder — a no-op for a per-task
+		// op — so, exactly like pause/resume/cancel/patch, the real cap is contain()
+		// on the task's OWNER: a tenant must not read a task outside its subtree by
+		// guessing its ID. A root/operator token (empty folder) still reads any task
+		// (ownsFolder("", _) is true), which the operator dashboard relies on.
 		task, ok := s.db.GetTask(argString(x.Args, "taskId"))
 		if !ok {
 			return nil, resreg.Errorf(http.StatusNotFound, "task not found")
+		}
+		if err := contain(x.Caller, resreg.ActionGet, task.Owner); err != nil {
+			return nil, err
 		}
 		return task, nil
 
