@@ -165,9 +165,10 @@ type Resource struct {
 	// reflection can't infer. Actions absent from the map get no tool.
 	MCPDoc map[Action]string
 
-	// MCPArgs supplies the tool's parameter list for resources that have
-	// NO RowType (forwarders, custom shapes). When RowType is set the
-	// args are reflected from it and MCPArgs is ignored.
+	// MCPArgs supplies the tool's parameter list per action. When an action
+	// has an MCPArgs entry it wins; an action absent from the map falls back
+	// to RowType reflection (nil args if there is no RowType). Forwarders and
+	// custom shapes set MCPArgs for every mutating action.
 	MCPArgs map[Action][]MCPArg
 
 	// MCPNames overrides the derived MCP tool name per action. Default is

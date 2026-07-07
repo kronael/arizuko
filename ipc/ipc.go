@@ -2256,7 +2256,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 // Used by dashd and /v1/tools to render the tool browser without duplication.
 //
 // The result is hot-tier tools (buildMCPServer) PLUS the grant-visible cold-tier
-// facade tools (routes/web_routes/scheduled_tasks/acl/network_rules management),
+// facade tools (routes/web_routes/scheduled_tasks/acl/network_rules/route_tokens/groups management),
 // which the live agent socket mounts via routd's resreg postBuild seam, not here.
 // addFacadeTools derives them from the SAME resreg specs routd uses, so the
 // browser shows exactly the agent's surface. The mcp-go server keys tools by name,
@@ -2276,7 +2276,7 @@ func ListTools(folder string, rules []string) []mcp.Tool {
 // addFacadeTools registers the cold-tier facade tools onto srv for DISPLAY only.
 // It walks the resreg registry (populated by a blank import of resreg/resources in
 // the daemon binary) and derives every resource carrying MCP metadata — MCPNames
-// set is the agent-facade discriminator, so pure-REST resources (secrets/groups)
+// set is the agent-facade discriminator, so the pure-REST resource (secrets)
 // and dotted-name ones (proxyd_routes) are skipped. visible mirrors the agent
 // socket's filter EXACTLY: a tool whose name no grant rule matches is not shown.
 // The stub caller is never invoked — ListTools reads schemas, never calls handlers.

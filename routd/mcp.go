@@ -481,12 +481,6 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	}
 }
 
-// ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the
-// folder's tier-default grant rules, then stands up ipc.ServeMCP wired to
-// routd's own DB + Deliverer. expectedUID gates peers (1000 = ant `node` user,
-// or the dev host uid). Returns the stop func (removes the socket). Called
-// per-turn from runTurn before dispatch.
-
 // deriveFolderGrants is the single grant-rule renderer for a folder: tier
 // defaults (grants.DeriveRules) keyed on the folder's tier + world, then the
 // per-folder operator ACL overlay. Used by both ServeTurnMCP (the in-process MCP
@@ -514,6 +508,11 @@ func deriveFolderGrants(d *DB, folder string) []string {
 	return rules
 }
 
+// ServeTurnMCP binds the per-turn agent MCP socket in-process: it derives the
+// folder's tier-default grant rules, then stands up ipc.ServeMCP wired to
+// routd's own DB + Deliverer. expectedUID gates peers (1000 = ant `node` user,
+// or the dev host uid). Returns the stop func (removes the socket). Called
+// per-turn from runTurn before dispatch.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	rules := deriveFolderGrants(s.db, t.folder)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder

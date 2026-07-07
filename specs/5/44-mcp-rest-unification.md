@@ -5,18 +5,21 @@ depends:
 moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
-> **Status (2026-07-06).** Agent-MCP faces: all 5 cold-tier resources migrated
-> onto one `resreg.Resource` via the injected Gate. REST second faces folded onto
-> the shared handler: `web_routes`, `acl`, `routes`, `scheduled_tasks`.
-> Containment for the tier-structural handlers (`routes`, `scheduled_tasks`) is
-> decoupled into a routd-internal per-face `containFn` (agent → tier
+> **Status (2026-07-07).** Agent-MCP faces: all SEVEN agent-facing cold-tier
+> resources — `web_routes`, `routes`, `network_rules`, `scheduled_tasks`, `acl`,
+> `route_tokens`, `groups` — ride one `resreg.Resource` via the injected Gate.
+> `secrets` is REST-only, write-only (no agent face). REST second faces folded
+> onto the shared handler: `web_routes`, `acl`, `routes`, `scheduled_tasks`,
+> `secrets`. Containment for the tier-structural handlers (`routes`,
+> `scheduled_tasks`) is a routd-internal per-face `containFn` (agent → tier
 > `AuthorizeStructural`, REST → `ownsFolder`), which closed a live cross-tenant
-> task-management leak (`0d25b687`). `network_rules` keeps containment in its
-> Gate already and is agent-only (no REST twin) — the clean model, nothing to
-> fold. OpenAPI now emits each resource's real mounted `Endpoints` (`7c14efd6`),
-> so the doc no longer drifts to a PK-CRUD guess. The dashd tool-browser now
-> renders the migrated facade tools (`df9ebad3` + `d5023c60`). Remaining: the
-> one-owner + federation phase.
+> task leak (`0d25b687`); the same empty-folder key later closed a `web_routes`
+> tier-0 delete + a `tasks` get twin (`ad44b081`). `network_rules` is agent-only
+> (no REST twin) — nothing to fold. OpenAPI emits each advertised resource's real
+> mounted `Endpoints` (`7c14efd6`); the dashd tool-browser renders the facade
+> tools (`df9ebad3` + `d5023c60`). Remaining: `route_tokens`' REST face is still
+> hand-rolled (`server.go handleToken*`) and `groups` has no `/v1/groups` REST
+> twin yet; then the one-owner + federation phase retires `messages.db`.
 
 # specs/5/44 — MCP+REST unification (finish the adoption)
 
@@ -199,10 +202,10 @@ owner daemon, repoint non-owner reads to the owner's face, and retire
 
 ## REST-face reconciliation (resolved — 2026-07-06)
 
-The agent MCP face of all five cold-tier resources (`web_routes`,
-`routes`, `network_rules`, `scheduled_tasks`, `acl`) rides one shared
-`resreg.Resource` handler with an injected tier `Gate`. Folding each
-resource's **REST** face onto that same handler was blocked not by auth —
+The agent MCP face of all seven cold-tier resources (`web_routes`,
+`routes`, `network_rules`, `scheduled_tasks`, `acl`, `route_tokens`,
+`groups`) rides one shared `resreg.Resource` handler with an injected tier
+`Gate`. Folding each resource's **REST** face onto that same handler was blocked not by auth —
 the scoped self-service check maps cleanly onto an injected REST `Gate`
 (`s.verify.Verify` → `hasAnyScope` + `ownsFolder`, reproduced verbatim) —
 but by **wire-contract drift** the then-hand-rolled REST handlers carried
@@ -227,8 +230,11 @@ resreg's REST conventions (error/list/delete shapes + tier-0 delete widening +
 `?path_prefix=` relocated to `/v1/web_routes/owner`) as the new REST contract;
 the tier-structural handlers (`routes`, `scheduled_tasks`) got the per-face
 `containFn` decouple (agent → tier `AuthorizeStructural`, REST → `ownsFolder`),
-which also closed a live cross-tenant task leak (`0d25b687`). `network_rules`
-stays agent-only — no REST twin to fold.
+which also closed a live cross-tenant task leak (`0d25b687`). `secrets` folded
+its REST face afterward as a forwarder (no resreg tx — the enc value must not
+ride `audit_log`). `network_rules` stays agent-only — no REST twin to fold.
+`route_tokens`' REST face (`server.go handleToken*`) is not yet folded, and
+`groups` has no REST twin — the two remaining hand-rolled/absent surfaces.
 
 ## Acceptance
 
