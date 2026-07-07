@@ -49,8 +49,10 @@ func TestOpenOwnedDB_SplitOpensOnbodDBNotMessages(t *testing.T) {
 	}
 }
 
-// admin invite lifecycle against a real onbod.db: create → list → delete,
-// nil KeySet (open, monolith/local-dev) so no bearer needed.
+// admin invite lifecycle through the resreg /v1/invites face (spec 5/44 fold):
+// create → list → delete. Drives a real mux so {token} path binding + resreg
+// dispatch (a POST-collection create returning a server-generated token) are
+// exercised end-to-end; ks=nil (open, monolith/local-dev) so no bearer needed.
 func TestAdminInviteCreateListDelete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store", "onbod.db")
 	mustMkdir(t, filepath.Dir(path))
@@ -59,12 +61,31 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 		t.Fatalf("openOwnedDB: %v", err)
 	}
 	defer db.Close()
-	a := &admin{db: db, ks: nil}
+	mux := http.NewServeMux()
+	(&admin{db: db, ks: nil}).mountInvites(mux)
 
-	// create
-	body := `{"target_glob":"main/","max_uses":3}`
-	w := httptest.NewRecorder()
-	a.handleInviteCreate(w, httptest.NewRequest("POST", "/v1/invites", strings.NewReader(body)))
+	do := func(method, target, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+	list := func() []inviteJSON {
+		w := do("GET", "/v1/invites", "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("list status=%d body=%s", w.Code, w.Body.String())
+		}
+		var listed struct {
+			Invites []inviteJSON `json:"invites"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
+			t.Fatalf("decode invites: %v", err)
+		}
+		return listed.Invites
+	}
+
+	// create returns the server-generated token + persisted fields.
+	w := do("POST", "/v1/invites", `{"target_glob":"main/","max_uses":3}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("create status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -76,37 +97,54 @@ func TestAdminInviteCreateListDelete(t *testing.T) {
 		t.Fatalf("create returned wrong invite: %+v", created)
 	}
 
-	// list
-	w = httptest.NewRecorder()
-	a.handleInviteList(w, httptest.NewRequest("GET", "/v1/invites", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("list status=%d", w.Code)
-	}
-	var listed struct {
-		Invites []inviteJSON `json:"invites"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
-		t.Fatalf("decode list: %v", err)
-	}
-	if len(listed.Invites) != 1 || listed.Invites[0].Token != created.Token {
-		t.Fatalf("list = %+v, want the one created invite", listed.Invites)
+	// list returns the one created invite.
+	if inv := list(); len(inv) != 1 || inv[0].Token != created.Token {
+		t.Fatalf("list = %+v, want the one created invite", inv)
 	}
 
-	// delete
-	req := httptest.NewRequest("DELETE", "/v1/invites/"+created.Token, nil)
-	req.SetPathValue("token", created.Token)
-	w = httptest.NewRecorder()
-	a.handleInviteRevoke(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("delete status=%d", w.Code)
+	// target_glob is required → 400 (validation before insert, no row added).
+	if w := do("POST", "/v1/invites", `{"max_uses":1}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing target_glob status=%d, want 400", w.Code)
 	}
 
-	// gone
-	w = httptest.NewRecorder()
-	a.handleInviteList(w, httptest.NewRequest("GET", "/v1/invites", nil))
-	_ = json.Unmarshal(w.Body.Bytes(), &listed)
-	if len(listed.Invites) != 0 {
-		t.Fatalf("after delete list = %+v, want empty", listed.Invites)
+	// delete → {ok:true}, then gone.
+	if w := do("DELETE", "/v1/invites/"+created.Token, ""); w.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", w.Code, w.Body.String())
+	}
+	if inv := list(); len(inv) != 0 {
+		t.Fatalf("after delete list = %+v, want empty", inv)
+	}
+}
+
+// invitesRESTGate reproduces the retired handlers' scope check: invites:read OR
+// invites:write lists; only invites:write mutates (create/revoke). Non-nil ks
+// makes it enforce; nil ks is covered by TestAdminInviteCreateListDelete (open).
+func TestInvitesRESTGateScopes(t *testing.T) {
+	a := &admin{ks: &auth.KeySet{}}
+	call := func(action resreg.Action, scopes string) error {
+		return a.invitesRESTGate(resreg.Execution{
+			Action: action,
+			Caller: resreg.Caller{Claims: map[string]string{"scopes": scopes}},
+		}, "", nil)
+	}
+	cases := []struct {
+		action resreg.Action
+		scopes string
+		ok     bool
+	}{
+		{resreg.ActionList, "invites:read", true},
+		{resreg.ActionList, "invites:write", true}, // write covers read
+		{resreg.ActionList, "gates:read", false},
+		{resreg.ActionCreate, "invites:write", true},
+		{resreg.ActionCreate, "invites:read", false}, // read cannot mutate
+		{resreg.ActionCreate, "", false},
+		{resreg.ActionDelete, "invites:write", true},
+		{resreg.ActionDelete, "invites:read", false},
+	}
+	for _, c := range cases {
+		if err := call(c.action, c.scopes); (err == nil) != c.ok {
+			t.Errorf("%s scopes=%q: got err=%v, want ok=%v", c.action, c.scopes, err, c.ok)
+		}
 	}
 }
 

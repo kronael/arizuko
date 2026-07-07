@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -74,87 +73,6 @@ func toInviteJSON(inv store.Invite) inviteJSON {
 		out.ExpiresAt = inv.ExpiresAt.Format(time.RFC3339)
 	}
 	return out
-}
-
-type createInviteBody struct {
-	TargetGlob  string `json:"target_glob"`
-	IssuedBySub string `json:"issued_by_sub"`
-	MaxUses     int    `json:"max_uses"`
-	ExpiresAt   string `json:"expires_at"` // RFC3339, optional
-}
-
-// handleInviteCreate is POST /v1/invites — mint an invite. Bearer scope
-// invites:write. issued_by_sub defaults to the caller's verified sub when the
-// body omits it (CLI passes "cli"; dashd passes the admin sub).
-func (a *admin) handleInviteCreate(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "invites:write") {
-		return
-	}
-	var body createInviteBody
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	if body.TargetGlob == "" {
-		writeErr(w, http.StatusBadRequest, "missing_field", "target_glob required")
-		return
-	}
-	if body.IssuedBySub == "" {
-		body.IssuedBySub = "onbod"
-	}
-	var expiresAt *time.Time
-	if body.ExpiresAt != "" {
-		t, err := time.Parse(time.RFC3339, body.ExpiresAt)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "bad_request", "expires_at: "+err.Error())
-			return
-		}
-		expiresAt = &t
-	}
-	inv, err := store.New(a.db).CreateInvite(body.TargetGlob, body.IssuedBySub, body.MaxUses, expiresAt)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "create_failed", err.Error())
-		return
-	}
-	slog.Info("invite created", "token", inv.Token[:min(8, len(inv.Token))], "target", inv.TargetGlob)
-	writeJSON(w, http.StatusOK, toInviteJSON(*inv))
-}
-
-// handleInviteList is GET /v1/invites[?issued_by=SUB] — list invites. Bearer
-// scope invites:read (write covers read).
-func (a *admin) handleInviteList(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "invites:read", "invites:write") {
-		return
-	}
-	invs, err := store.New(a.db).ListInvites(r.URL.Query().Get("issued_by"))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db_error", err.Error())
-		return
-	}
-	out := make([]inviteJSON, len(invs))
-	for i, inv := range invs {
-		out[i] = toInviteJSON(inv)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"invites": out})
-}
-
-// handleInviteRevoke is DELETE /v1/invites/{token} — revoke an invite. Bearer
-// scope invites:write.
-func (a *admin) handleInviteRevoke(w http.ResponseWriter, r *http.Request) {
-	if !a.authed(w, r, "invites:write") {
-		return
-	}
-	token := r.PathValue("token")
-	if token == "" {
-		writeErr(w, http.StatusBadRequest, "missing_field", "token required")
-		return
-	}
-	if err := store.New(a.db).RevokeInvite(token); err != nil {
-		writeErr(w, http.StatusInternalServerError, "revoke_failed", err.Error())
-		return
-	}
-	slog.Info("invite revoked", "token", token[:min(8, len(token))])
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type insertOnboardingBody struct {
