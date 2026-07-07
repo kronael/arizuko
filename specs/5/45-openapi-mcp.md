@@ -25,19 +25,19 @@ depends:
 > [`5/5`](5-uniform-mcp-rest.md); [`5/44`](44-mcp-rest-unification.md) is
 > the rollout.
 
-**Adoption (`partial`):** the REST-side mechanism ships
-(`deriveMCPTools`, `MCPNames`, `x-mcp-when`) and one resource rides it —
-`proxyd_routes`. But that exemplar proves ONLY the OPERATOR path: it is a
-forwarder (`Store: nil`) whose MCP face lives on webd's operator socket
-(callers carry a `**` ACL row), and it is a GLOBAL resource with no
-folder-containment. The seam the AGENT surface needs — an injected `Gate`
-carrying `mcp:`+tier (so a folder agent gets the tier-default grant) and
-per-resource folder-containment — is NOT built: `resreg.invoke` still
-hardcodes the operator `auth.Authorize` with empty opts. The other nine
-resources (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
-`network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`) stay
-hand-rolled per [`5/5`](5-uniform-mcp-rest.md) pending the
-[`5/44`](44-mcp-rest-unification.md) rollout that builds the `Gate` seam.
+**Adoption (`partial`):** the mechanism ships — `deriveMCPTools`,
+`MCPNames`, `x-mcp-when`, the injected `Gate` seam (`resreg.invoke` now
+calls `Resource.Gate`, defaulting to the operator `auth.Authorize`), and
+truthful `Endpoints`-driven OpenAPI (`7c14efd6`). `proxyd_routes` remains
+the cross-daemon forwarder exemplar (`Store: nil`, webd operator socket,
+`**` ACL row, global — no folder-containment). The
+[`5/44`](44-mcp-rest-unification.md) rollout has migrated the five
+in-process cold-tier resources (`routes`, `acl`, `scheduled_tasks`,
+`network_rules`, `web_routes`) onto one `resreg.Resource` each: the agent
+socket injects a `mcp:`+tier `Gate` (the tier-default grant a folder agent
+needs) and per-resource folder-containment lives in each handler/gate.
+Remaining: the `groups`/`route_tokens`/`onboarding_gates` folds, the dashd
+tool-browser, and one-owner + federation.
 
 ## The model
 
