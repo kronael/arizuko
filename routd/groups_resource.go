@@ -34,13 +34,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 )
@@ -59,7 +57,7 @@ func (s *Server) groupsResource(authz func(resreg.Caller, resreg.Action, resreg.
 	return resreg.Resource{
 		Name:      "groups",
 		Endpoints: resources.GroupsAgentEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.GroupsMCPDoc,          // single source (resreg/resources)
+		MCPDoc:    resources.GroupsMCPDoc,         // single source (resreg/resources)
 		MCPArgs:   resources.GroupsMCPArgs,
 		MCPNames:  resources.GroupsMCPNames,
 		Authz:     authz,
@@ -157,11 +155,8 @@ func (s *Server) groupsPostBuild(folder, callerSub string, rules []string) func(
 			return "", nil, nil // refresh_groups: no runtime authz (visibility-gated only)
 		}
 		name := "register_group"
-		if !grantslib.CheckAction(rules, name, nil) {
-			return "", nil, resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		if callerSub != "" && !s.db.Authorize(callerSub, folder, "mcp:"+name, nil) {
-			return "", nil, resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+		if err := s.toolGrant(rules, callerSub, folder, name); err != nil {
+			return "", nil, err
 		}
 		// The prototype path derives the child folder (no arg target); the manual path
 		// binds the `folder` arg to the caller's subtree (tier model). An empty folder
@@ -179,12 +174,8 @@ func (s *Server) groupsPostBuild(folder, callerSub string, rules []string) func(
 		return "", nil, nil
 	}
 	res := s.groupsResource(authz)
-	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
-		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
-	}
-	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, callerFor, visible)
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
 	}
 }
 

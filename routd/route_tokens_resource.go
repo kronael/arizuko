@@ -45,11 +45,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/ipc"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
@@ -79,7 +77,7 @@ func (s *Server) routeTokensResource() resreg.Resource {
 	return resreg.Resource{
 		Name:      "route_tokens",
 		Endpoints: resources.RouteTokensEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.RouteTokensMCPDoc,     // single source (resreg/resources)
+		MCPDoc:    resources.RouteTokensMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.RouteTokensMCPArgs,
 		MCPNames:  routeTokensMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -174,21 +172,10 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 func (s *Server) routeTokensPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
 	res := s.routeTokensResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		name := routeTokensMCPNames[x.Action]
-		if !grantslib.CheckAction(rules, name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		if callerSub != "" && !s.db.Authorize(callerSub, folder, "mcp:"+name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		return nil
+		return s.toolGrant(rules, callerSub, folder, routeTokensMCPNames[x.Action])
 	}
-	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
-		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
-	}
-	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, callerFor, visible)
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
 	}
 }
 

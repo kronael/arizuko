@@ -35,7 +35,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
@@ -174,12 +173,8 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, rules []string)
 		}
 		return nil
 	}
-	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
-		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
-	}
-	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, callerFor, visible)
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
 	}
 }
 

@@ -32,7 +32,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
@@ -54,7 +53,7 @@ func (s *Server) aclResource() resreg.Resource {
 	return resreg.Resource{
 		Name:      "acl",
 		Endpoints: resources.ACLEndpoints, // single source: doc + REST(add/remove) read one list
-		MCPDoc:    resources.ACLMCPDoc,     // single source (resreg/resources)
+		MCPDoc:    resources.ACLMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.ACLMCPArgs,
 		MCPNames:  aclMCPNames,
 		// Authz derives (scope, params) for the gate; acl's containment is done
@@ -178,11 +177,8 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string) func(*mc
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := aclMCPNames[x.Action]
-		if !grantslib.CheckAction(rules, name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		if callerSub != "" && !s.db.Authorize(callerSub, folder, "mcp:"+name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
+		if err := s.toolGrant(rules, callerSub, folder, name); err != nil {
+			return err
 		}
 		// Scope-containment: the caller must have authority over the target it
 		// grants/revokes (add/remove) or lists. "**" requires tier-0 by design.
@@ -198,9 +194,6 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string) func(*mc
 		}
 		return nil
 	}
-	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
-		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
-	}
 	// list_acl is tier 0-1 only (mirrors the old `if identity.Tier <= 1`
 	// registration); other tools follow the socket's grant rules.
 	visible := func(name string) bool {
@@ -210,7 +203,7 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string) func(*mc
 		return len(grantslib.MatchingRules(rules, name)) > 0
 	}
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, callerFor, visible)
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), visible)
 	}
 }
 

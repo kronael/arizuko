@@ -48,13 +48,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/audit"
 	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
-	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
 	"github.com/kronael/arizuko/resreg/resources"
 	"github.com/kronael/arizuko/router"
@@ -279,21 +277,10 @@ func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(
 	}
 	res := s.routesResource(contain)
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		name := routesMCPNames[x.Action]
-		if !grantslib.CheckAction(rules, name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		if callerSub != "" && !s.db.Authorize(callerSub, folder, "mcp:"+name, nil) {
-			return resreg.Errorf(http.StatusForbidden, "%s: not permitted", name)
-		}
-		return nil
+		return s.toolGrant(rules, callerSub, folder, routesMCPNames[x.Action])
 	}
-	callerFor := func(context.Context, mcp.CallToolRequest) (resreg.Caller, error) {
-		return resreg.Caller{Sub: callerSub, Folder: folder}, nil
-	}
-	visible := func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
 	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, callerFor, visible)
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
 	}
 }
 
