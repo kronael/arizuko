@@ -2,7 +2,6 @@ package routd
 
 import (
 	"strings"
-	"time"
 )
 
 // NetworkRule is one explicit egress allowlist row. JSON tags match the shape
@@ -11,22 +10,6 @@ type NetworkRule struct {
 	Folder    string `json:"folder"`
 	Target    string `json:"target"`
 	CreatedBy string `json:"created_by,omitempty"`
-}
-
-// AddNetworkRule appends one egress allowlist target for folder (idempotent).
-// folder="" is the instance-wide base.
-func (d *DB) AddNetworkRule(folder, target, by string) error {
-	_, err := d.db.Exec(
-		`INSERT OR IGNORE INTO network_rules (folder, target, created_at, created_by)
-		 VALUES (?, ?, ?, ?)`,
-		folder, target, time.Now().UTC().Format(time.RFC3339), by)
-	return err
-}
-
-// RemoveNetworkRule drops one egress allowlist target for folder. No error if absent.
-func (d *DB) RemoveNetworkRule(folder, target string) error {
-	_, err := d.db.Exec(`DELETE FROM network_rules WHERE folder = ? AND target = ?`, folder, target)
-	return err
 }
 
 // ListNetworkRules returns the explicit rules for folder only (not the resolved

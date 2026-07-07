@@ -101,7 +101,7 @@ func (s *Server) routesResource(contain containFn) resreg.Resource {
 	r := resreg.Resource{
 		Name:      "routes",
 		Endpoints: resources.RoutesEndpoints, // single source: doc + mount + MCP read one list
-		MCPDoc:    resources.RoutesMCPDoc,     // single source (resreg/resources)
+		MCPDoc:    resources.RoutesMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.RoutesMCPArgs,
 		MCPNames:  routesMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -371,8 +371,8 @@ func setRoutesTx(ctx context.Context, tx *sql.Tx, folder string, routes []core.R
 	return nil
 }
 
-// deleteRouteTx removes one route by id on tx (mirrors DB.DeleteRoute); ErrNotFound
-// when the row is absent.
+// deleteRouteTx removes one route by id on tx so the mutation lands in
+// resreg.invoke's tx alongside its audit_log row; ErrNotFound when the row is absent.
 func deleteRouteTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	res, err := tx.ExecContext(ctx, "DELETE FROM routes WHERE id=?", id)
 	if err != nil {

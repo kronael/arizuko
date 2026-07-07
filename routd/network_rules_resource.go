@@ -67,7 +67,7 @@ func (s *Server) networkRulesResource() resreg.Resource {
 	return resreg.Resource{
 		Name:      "network_rules",
 		Endpoints: resources.NetworkRulesEndpoints, // single source: doc + MCP read one list
-		MCPDoc:    resources.NetworkRulesMCPDoc,      // single source (resreg/resources)
+		MCPDoc:    resources.NetworkRulesMCPDoc,    // single source (resreg/resources)
 		MCPArgs:   resources.NetworkRulesMCPArgs,
 		MCPNames:  networkMCPNames,
 		Authz: func(resreg.Caller, resreg.Action, resreg.Args) (string, map[string]string, error) {
@@ -184,7 +184,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, rules []string)
 }
 
 // addNetworkRuleTx appends one egress allowlist row on tx (mirrors
-// DB.AddNetworkRule so the mutation lands in resreg.invoke's tx alongside its
+// store.AddNetworkRule so the mutation lands in resreg.invoke's tx alongside its
 // audit_log row). INSERT OR IGNORE keeps the append idempotent.
 func addNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string) error {
 	_, err := tx.ExecContext(ctx,
@@ -194,7 +194,7 @@ func addNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target, by string
 }
 
 // removeNetworkRuleTx drops one egress allowlist row on tx (mirrors
-// DB.RemoveNetworkRule). No error if the row is absent.
+// store.RemoveNetworkRule). No error if the row is absent.
 func removeNetworkRuleTx(ctx context.Context, tx *sql.Tx, folder, target string) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM network_rules WHERE folder = ? AND target = ?`, folder, target)
 	return err

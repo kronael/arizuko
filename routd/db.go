@@ -750,18 +750,6 @@ func (d *DB) SetRoutes(folder string, routes []core.Route) (int, error) {
 	return len(routes), nil
 }
 
-// DeleteRoute removes a route by id; ErrNotFound when absent.
-func (d *DB) DeleteRoute(id int64) error {
-	res, err := d.db.Exec("DELETE FROM routes WHERE id=?", id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
 // ErrNotFound signals an absent row to the HTTP layer (404).
 var ErrNotFound = errors.New("not found")
 

@@ -167,21 +167,13 @@ func (d *DB) UserScopes(sub string) []string {
 	return d.aclEval().UserScopes(sub)
 }
 
-// AddACLRow inserts one acl row (behind POST /v1/acl).
+// AddACLRow inserts one acl row.
 func (d *DB) AddACLRow(row core.ACLRow) error { return d.aclEval().AddACLRow(row) }
-
-// RemoveACLRow deletes one acl row (behind DELETE /v1/acl).
-func (d *DB) RemoveACLRow(row core.ACLRow) error { return d.aclEval().RemoveACLRow(row) }
 
 // AddMembership inserts one (child→parent) acl_membership edge (the operator `**`
 // grant maps to role:operator membership; same self/cycle rejection).
 func (d *DB) AddMembership(child, parent, addedBy string) error {
 	return d.aclEval().PutMembership(child, parent, addedBy)
-}
-
-// RemoveMembership deletes one acl_membership edge.
-func (d *DB) RemoveMembership(child, parent string) error {
-	return d.aclEval().RemoveMembershipBare(child, parent)
 }
 
 // Authorize is the per-call row-ACL check for an in-container agent tool call.
@@ -200,15 +192,6 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 func (d *DB) GetTask(id string) (core.Task, bool) {
 	return d.taskStore().GetTask(id)
 }
-
-// CreateTask inserts one scheduled task (behind the schedule_task agent tool).
-func (d *DB) CreateTask(t core.Task) error { return d.taskStore().CreateTask(t) }
-
-// SetTaskStatus updates one task's status (behind pause_task/resume_task).
-func (d *DB) SetTaskStatus(id, status string) error { return d.taskStore().SetTaskStatus(id, status) }
-
-// DeleteTask removes one task (behind cancel_task).
-func (d *DB) DeleteTask(id string) error { return d.taskStore().RemoveTask(id) }
 
 // DueTasks atomically claims + returns the tasks ready to fire, backing
 // GET /v1/tasks/due (timed's read half).
@@ -256,11 +239,4 @@ func (d *DB) AllRunLogs(limit int) []ipc.TaskRunLog {
 		}
 	}
 	return out
-}
-
-// PatchTask applies a partial update to a scheduled task.
-// status: set if non-empty ("active", "paused").
-// nextRun: set if non-empty (RFC3339); used for run-now (set to now).
-func (d *DB) PatchTask(id, status, nextRun string) error {
-	return d.taskStore().PatchTask(id, status, nextRun)
 }
