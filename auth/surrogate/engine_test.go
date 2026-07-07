@@ -135,6 +135,24 @@ func TestRefresh_TransientIsNotReconnect(t *testing.T) {
 	}
 }
 
+// TestRefresh_BodylessErrorIsNotReconnect: a 4xx with NO parseable OAuth error
+// body (transient 429 / gateway hiccup) must be transient, not ErrReconnect —
+// nulling a still-valid refresh token over a hiccup forces a needless reconnect.
+func TestRefresh_BodylessErrorIsNotReconnect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests) // 429, empty body
+	}))
+	defer srv.Close()
+
+	_, err := testEngine(srv.URL).Refresh(context.Background(), "github", "r")
+	if err == nil {
+		t.Fatal("want error on bodyless 4xx")
+	}
+	if errors.Is(err, ErrReconnect) {
+		t.Error("bodyless 4xx must be transient, not ErrReconnect (would null a live credential)")
+	}
+}
+
 func TestRegistry_EmbeddedGitHub(t *testing.T) {
 	e, err := NewEngine(nil)
 	if err != nil {

@@ -180,8 +180,16 @@ func (e *Engine) Refresh(ctx context.Context, provider, refresh string) (Tokens,
 	}
 	var tr tokenResp
 	_ = json.Unmarshal(body, &tr)
-	if tr.Error != "" || tr.AccessToken == "" {
-		return Tokens{}, fmt.Errorf("%w: %s", ErrReconnect, firstNonEmpty(tr.ErrorDesc, tr.Error, resp.Status))
+	if tr.Error != "" {
+		// Definitive OAuth error (invalid_grant, …) — the refresh token is dead;
+		// signal reconnect so the caller nulls the credential.
+		return Tokens{}, fmt.Errorf("%w: %s", ErrReconnect, firstNonEmpty(tr.ErrorDesc, tr.Error))
+	}
+	if tr.AccessToken == "" {
+		// 4xx with no parseable OAuth error body (transient 429 / gateway hiccup /
+		// malformed response). Do NOT null the credential — treat as transient so a
+		// retry keeps the still-valid refresh token instead of forcing a reconnect.
+		return Tokens{}, fmt.Errorf("surrogate refresh: %s (no token; keeping credential)", resp.Status)
 	}
 	return toTokens(tr, refresh), nil
 }
