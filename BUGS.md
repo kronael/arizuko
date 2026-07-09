@@ -1,5 +1,32 @@
 # BUGS.md — open issues queue
 
+## Chat-initiated onboarding dead in split — routd never gets ONBOARDING_ENABLED (2026-07-09)
+
+A new group posts, hits a route miss, and **nothing happens** — no greeting, no
+admission-queue row. The operator has to discover the JID out-of-band (grep
+routd.db `messages.chat_jid` / journalctl) and hand-run `arizuko group <inst> add
+<jid> <folder>`. Witnessed on krons: `telegram:group/5567410596` posted `/chatid`
++ an @mention (05:34–05:41 2026-07-09), all stored, zero onboarding row created.
+
+Root cause: the route-miss onboarding insert lives in **routd**
+(`routd/loop.go:520`, gated by `l.onboardingEnabled` ←
+`routd/cmd/routd/main.go:184` `envOr("ONBOARDING_ENABLED","false")`). But
+`compose/compose.go:167` passes `ONBOARDING_ENABLED` only to the **onbod**
+service's env list — routd's container gets only `ONBOD_URL`. So
+`l.onboardingEnabled=false` in prod → the greeting/queue path is unreachable even
+though onbod is up and `ONBOARDING_ENABLED=true` in the instance `.env`. onbod
+holds the flag but routd is the daemon that detects route-misses. Pre-split the
+monolith (gated) saw the flag; the split dropped it from routd (older telegram
+onboarding rows date to 2026-05-02, before the regression).
+
+Fix (one line): add `"ONBOARDING_ENABLED"` (and `"ONBOARDING_PLATFORMS"`) to
+routd's env passthrough in `compose/compose.go`. No code change — routd already
+reads it. Redeploy re-arms self-service onboarding for every channel.
+
+Note: separately, `/chatid` is not an arizuko command (nothing echoes it) — JID
+discovery is meant to be the onboarding greeting + dashboard queue, which is
+exactly what this bug disables.
+
 ## 5/44 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
 onbod's `/v1/invites` REST face is folded onto resreg (`154cd17f`, mirrors the
