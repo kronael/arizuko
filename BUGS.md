@@ -1,31 +1,50 @@
 # BUGS.md — open issues queue
 
-## Chat-initiated onboarding dead in split — routd never gets ONBOARDING_ENABLED (2026-07-09)
+## Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09, OPEN)
 
 A new group posts, hits a route miss, and **nothing happens** — no greeting, no
-admission-queue row. The operator has to discover the JID out-of-band (grep
+admission-queue row. The operator must discover the JID out-of-band (grep
 routd.db `messages.chat_jid` / journalctl) and hand-run `arizuko group <inst> add
-<jid> <folder>`. Witnessed on krons: `telegram:group/5567410596` posted `/chatid`
-+ an @mention (05:34–05:41 2026-07-09), all stored, zero onboarding row created.
+<jid> <folder>`. Witnessed on krons: `telegram:group/5567410596` posted repeatedly
+05:34–06:11 2026-07-09, all stored, zero onboarding row created.
 
-Root cause: the route-miss onboarding insert lives in **routd**
-(`routd/loop.go:520`, gated by `l.onboardingEnabled` ←
-`routd/cmd/routd/main.go:184` `envOr("ONBOARDING_ENABLED","false")`). But
-`compose/compose.go:167` passes `ONBOARDING_ENABLED` only to the **onbod**
-service's env list — routd's container gets only `ONBOD_URL`. So
-`l.onboardingEnabled=false` in prod → the greeting/queue path is unreachable even
-though onbod is up and `ONBOARDING_ENABLED=true` in the instance `.env`. onbod
-holds the flag but routd is the daemon that detects route-misses. Pre-split the
-monolith (gated) saw the flag; the split dropped it from routd (older telegram
-onboarding rows date to 2026-05-02, before the regression).
+**Fix #1 (shipped, `4b4d868c`, deployed to krons):** the route-miss onboarding
+insert lives in **routd** (`routd/loop.go:520`, gated by `l.onboardingEnabled` ←
+`routd/cmd/routd/main.go:184` `envOr("ONBOARDING_ENABLED","false")`), but
+`compose/compose.go` passed `ONBOARDING_ENABLED` only to **onbod**. Added it (+
+`ONBOARDING_PLATFORMS`) to routd's env passthrough; rebuilt `arizuko:latest`
+(the systemd `ExecStartPre` regenerates env from the image, so a host-side
+regen alone reverts on restart — the image MUST be rebuilt); verified
+`printenv ONBOARDING_ENABLED=true` inside the routd container.
 
-Fix (one line): add `"ONBOARDING_ENABLED"` (and `"ONBOARDING_PLATFORMS"`) to
-routd's env passthrough in `compose/compose.go`. No code change — routd already
-reads it. Redeploy re-arms self-service onboarding for every channel.
+**Still broken (residual bug).** With the flag confirmed live, a genuine
+telegram-group route miss at 06:11:42 was processed (chat `agent_cursor`
+advanced to 06:11:42) but produced NO onboarding row and NO error. All
+preconditions are met and ruled out:
+- `l.onboardingEnabled=true` (in-container printenv),
+- `l.onbod != nil` (routd logged "service-token bootstrap via authd" at 06:09:11),
+- `ONBOARDING_PLATFORMS` unset → `onboardingAllowed` true,
+- no matching/catch-all route, `sticky_group`/`sticky_topic` empty (no engagement),
+- `httpOnbod.do` returns an error on any non-2xx and `loop.go:531` logs
+  `slog.Warn("insert onboarding", …)` — **no such warn exists**, so a swallowed
+  403 is excluded. `InsertOnboarding` is simply never invoked for the miss.
 
-Note: separately, `/chatid` is not an arizuko command (nothing echoes it) — JID
-discovery is meant to be the onboarding greeting + dashboard queue, which is
-exactly what this bug disables.
+So the `else if l.onboardingEnabled && l.onbod != nil` branch at `loop.go:520` is
+not being entered even though both are true. Next step: add a trace log at the
+top of the route-miss block (is `!r.ok` even reached, or does `resolve()` return
+`ok=true`/`Observe!=""` for an unrouted telegram group?) and confirm the poll
+actually walks `pollOnce` for this chat rather than the cursor being advanced at
+ingest. Candidate causes: `resolve()` returns a non-miss for a bare group JID; or
+`agent_cursor` is advanced before the onboarding branch runs (batching /
+`last.Timestamp <= GetAgentCursor` skip at `loop.go:500`).
+
+Note: `/chatid` is not an arizuko command (nothing echoes it) — JID discovery is
+meant to BE the onboarding greeting + dashboard queue, exactly what this disables.
+
+See also the onboarding redesign the operator wants (telegram groups = Slack
+channels: new group → default staging folder, private-group interaction gated to
+some users). That vision is being specced into `specs/5/` — the fix here should
+land compatibly with it.
 
 ## 5/44 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
