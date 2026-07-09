@@ -53,8 +53,10 @@ func SanitizeFolder(folder string) string {
 	return strings.Trim(s, "-")
 }
 
-func worldOf(folder string, root bool) string {
-	if root {
+// worldOf returns the folder's world (top segment). An elevated (operator
+// /root) turn spans all worlds, so it resolves to the instance-wide "".
+func worldOf(folder string, elevated bool) string {
+	if elevated {
 		return ""
 	}
 	if i := strings.IndexByte(folder, '/'); i >= 0 {
@@ -63,8 +65,11 @@ func worldOf(folder string, root bool) string {
 	return folder
 }
 
-func tierOf(folder string, root bool) int {
-	if root {
+// tierOf resolves the spawn's tier. Elevated (operator /root) is the ONLY
+// path to tier 0; a normal spawn is tier ≥1 by depth (top-level world = 1).
+// Agrees with auth.Resolve at the top level: both give a bare folder tier 1.
+func tierOf(folder string, elevated bool) int {
+	if elevated {
 		return 0
 	}
 	if folder == "" {
@@ -93,7 +98,12 @@ type Input struct {
 	GroupPath string           `json:"-"`
 	Name      string           `json:"-"`
 	Config    core.GroupConfig `json:"-"`
-	Model     string           `json:"-"` // per-group model override; empty = instance default
+	// Elevated marks an operator /root turn — the ONLY source of root. A normal
+	// spawn is never root: folder shape no longer grants it. routd sets this true
+	// only when the turn resolved to an operator elevation (steer.go cmdRoot).
+	// Drives root=Elevated: tier 0, the /var/lib/groups mount, ARIZUKO_IS_ROOT=1.
+	Elevated bool   `json:"-"`
+	Model    string `json:"-"` // per-group model override; empty = instance default
 	// QueryTimeoutMs is the agent's in-container query timeout, derived from
 	// runed's RunTTL and set just below it so the agent aborts + delivers a
 	// graceful summary BEFORE runed's hard container kill. 0 = unset (agent
@@ -148,7 +158,7 @@ type volumeMount struct {
 }
 
 func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
-	root := !strings.Contains(in.Folder, "/")
+	elevated := in.Elevated
 
 	groupDir := in.GroupPath
 	if groupDir == "" {
@@ -157,7 +167,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 	os.MkdirAll(groupDir, 0o755)
 	writeGatewayCaps(groupDir, cfg)
 
-	mounts := buildMounts(cfg, in, groupDir, root, folders)
+	mounts := buildMounts(cfg, in, groupDir, elevated, folders)
 	in = prepareInput(cfg, in, groupDir)
 
 	ipcDir, _ := folders.IpcPath(in.Folder)
@@ -171,7 +181,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	// Tier 0/1 are operator-run bots; append "*" so they pass crackbox
 	// unconstrained while still benefiting from logging/secret injection.
-	if tierOf(in.Folder, root) <= 1 && in.Egress.AllowlistFn != nil {
+	if tierOf(in.Folder, elevated) <= 1 && in.Egress.AllowlistFn != nil {
 		base := in.Egress.AllowlistFn
 		in.Egress.AllowlistFn = func(id string) ([]string, error) {
 			list, err := base(id)
@@ -195,7 +205,7 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 
 	slog.Info("spawning container",
 		"group", in.Folder, "container", containerName,
-		"mounts", len(mounts), "root", root, "session", in.SessionID != "")
+		"mounts", len(mounts), "elevated", elevated, "session", in.SessionID != "")
 	slog.Debug("container args",
 		"group", in.Folder,
 		"args", strings.Join(args, " "))
@@ -209,8 +219,8 @@ func Run(cfg *core.Config, folders *groupfolder.Resolver, in Input) Output {
 		TurnID:   in.SessionID,
 		Outcome:  audit.OutcomeOK,
 		ParamsSummary: map[string]any{
-			"image": cfg.Image,
-			"root":  root,
+			"image":    cfg.Image,
+			"elevated": elevated,
 		},
 	})
 
@@ -512,7 +522,7 @@ func prepareInput(cfg *core.Config, in Input, groupDir string) Input {
 
 func buildMounts(
 	cfg *core.Config, in Input,
-	groupDir string, root bool,
+	groupDir string, elevated bool,
 	folders *groupfolder.Resolver,
 ) []volumeMount {
 	var m []volumeMount
@@ -531,10 +541,10 @@ func buildMounts(
 	})
 
 	// Every container gets the world's shared dir at /var/lib/share (writable):
-	// a per-world scratch/handoff space all its groups see. Root groups
+	// a per-world scratch/handoff space all its groups see. Elevated turns
 	// (world == "") share the instance-wide groups/share. A `share_mount`
 	// grant with readonly=true downgrades it to RO for that folder.
-	world := worldOf(in.Folder, root)
+	world := worldOf(in.Folder, elevated)
 	share := filepath.Join(cfg.GroupsDir, world, "share")
 	os.MkdirAll(share, 0o755)
 	m = append(m, volumeMount{
@@ -545,7 +555,7 @@ func buildMounts(
 
 	claudeDir := filepath.Join(groupDir, ".claude")
 	os.MkdirAll(claudeDir, 0o755)
-	seedSettings(claudeDir, cfg, in, root)
+	seedSettings(claudeDir, cfg, in, elevated)
 
 	ipcDir, err := folders.IpcPath(in.Folder)
 	if err == nil {
@@ -591,7 +601,7 @@ func buildMounts(
 		for _, p := range cfg.MountAllowedRoots {
 			al.AllowedRoots = append(al.AllowedRoots, mountsec.AllowedRoot{Path: p})
 		}
-		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, root, al) {
+		for _, v := range mountsec.ValidateAdditionalMounts(add, in.Folder, elevated, al) {
 			m = append(m, volumeMount{Host: v.HostPath, Container: v.ContainerPath, RO: v.Readonly})
 		}
 	}
@@ -601,7 +611,7 @@ func buildMounts(
 	// writable web surfaces (~/public_html and ~/private_html). Tier 3+
 	// get no web surface.
 	pubHost := filepath.Join(cfg.WebDir, "pub")
-	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && tierOf(in.Folder, root) <= 2 {
+	if fi, err := os.Stat(pubHost); err == nil && fi.IsDir() && tierOf(in.Folder, elevated) <= 2 {
 		m = append(m, volumeMount{
 			Host:      hp(cfg, pubHost),
 			Container: "/var/lib/www",
@@ -609,7 +619,7 @@ func buildMounts(
 		})
 	}
 
-	if tierOf(in.Folder, root) <= 2 {
+	if tierOf(in.Folder, elevated) <= 2 {
 		// ~/public_html: served at /pub/<folder>/ (no auth).
 		pubGroupHost := filepath.Join(cfg.WebDir, "pub", in.Folder)
 		os.MkdirAll(pubGroupHost, 0o755)
@@ -627,7 +637,10 @@ func buildMounts(
 		})
 	}
 
-	if root {
+	// The all-groups RW mount is an operator-elevation privilege, NOT a folder
+	// shape: only an elevated /root turn sees every group's files (spec: root
+	// elimination). A normal top-level spawn is a tenant, confined to its own home.
+	if elevated {
 		m = append(m, volumeMount{
 			Host:      hp(cfg, cfg.GroupsDir),
 			Container: "/var/lib/groups",
@@ -767,7 +780,7 @@ func seedMigrateSkill(cfg *core.Config, claudeDir string) {
 
 func seedSettings(
 	claudeDir string, cfg *core.Config,
-	in Input, root bool,
+	in Input, elevated bool,
 ) {
 	seedOutputStyles(cfg, claudeDir)
 	seedMigrateSkill(cfg, claudeDir)
@@ -791,18 +804,18 @@ func seedSettings(
 	env["WEB_HOST"] = cfg.WebHost
 	env["ARIZUKO_ASSISTANT_NAME"] = cfg.Name
 	env["ARIZUKO_IS_ROOT"] = ""
-	// WEB_PREFIX tells the agent its publishing surface: "pub" for root
-	// (served at /pub/<folder>/), the world subdomain for tier 1-2, "" for
-	// tier 3+ (no web mount). Spec: specs/5/V-web-vhosts.md.
-	tier := tierOf(in.Folder, root)
+	// WEB_PREFIX tells the agent its publishing surface: "pub" for an elevated
+	// /root turn (served at /pub/<folder>/), the world subdomain for tier 1-2,
+	// "" for tier 3+ (no web mount). Spec: specs/5/V-web-vhosts.md.
+	tier := tierOf(in.Folder, elevated)
 	switch {
-	case root:
+	case elevated:
 		env["ARIZUKO_IS_ROOT"] = "1"
 		env["WEB_PREFIX"] = "pub"
 	case tier == 1:
 		env["WEB_PREFIX"] = in.Folder // vhost subdomain prefix
 	case tier == 2:
-		env["WEB_PREFIX"] = worldOf(in.Folder, root) // same vhost as parent world
+		env["WEB_PREFIX"] = worldOf(in.Folder, elevated) // same vhost as parent world
 	default:
 		env["WEB_PREFIX"] = "" // tier 3+: no mount, no surface
 	}
@@ -810,7 +823,7 @@ func seedSettings(
 	env["ARIZUKO_GROUP_FOLDER"] = in.Folder
 	env["ARIZUKO_GROUP_NAME"] = groupfolder.NameOf(in.Folder)
 	env["ARIZUKO_GROUP_PARENT"] = groupfolder.ParentOf(in.Folder)
-	env["ARIZUKO_WORLD"] = worldOf(in.Folder, root)
+	env["ARIZUKO_WORLD"] = worldOf(in.Folder, elevated)
 	env["ARIZUKO_TIER"] = strconv.Itoa(tier)
 	if in.Model != "" {
 		env["ARIZUKO_MODEL"] = in.Model

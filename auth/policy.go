@@ -72,7 +72,13 @@ func AuthorizeStructural(id Identity, tool string, target AuthzTarget) error {
 		if id.Tier >= 2 {
 			return fmt.Errorf("unauthorized: tier %d cannot manage routes", id.Tier)
 		}
+		// Own subtree = self OR descendant. A tier-1 world routes its own chats to
+		// itself, so self (target == folder) is in-bounds — matching the self-OR-
+		// descendant shape of the other tier-1 gates (reset_session, network_allow).
+		// (When worlds were tier 0 this was unconfined; the tier-1 demotion made the
+		// missing self case a real block.)
 		if id.Tier == 1 && target.RouteTarget != "" &&
+			target.RouteTarget != id.Folder &&
 			!strings.HasPrefix(target.RouteTarget, id.Folder+"/") {
 			return fmt.Errorf("unauthorized")
 		}

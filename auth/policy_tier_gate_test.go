@@ -47,12 +47,13 @@ func TestAuthorizeStructural_ListACL_TierGated(t *testing.T) {
 }
 
 // add_acl/remove_acl are the MCP write-face of REST POST/DELETE /v1/acl. Tier 0
-// (operator) may grant any scope including "**" (operator role); tier 1 is
+// is ONLY an operator /root elevation now (no folder resolves to it) and may
+// grant any scope including "**" (operator role); a top-level world is tier 1,
 // confined to its own world and cannot grant "**"; tier 2+ is denied.
 func TestAuthorizeStructural_ACLWrite(t *testing.T) {
-	tier0 := Resolve("root")     // 0 slashes
-	tier1 := Resolve("w/a")      // 1 slash
-	tier2 := Resolve("w/a/b")    // 2 slashes
+	tier0 := Identity{Folder: "w", Tier: 0, World: "w"} // elevated /root, not a folder shape
+	tier1 := Resolve("w/a")                             // 1 slash → tier 1 (world "w")
+	tier2 := Resolve("w/a/b")                           // 2 slashes → tier 2
 	for _, tool := range []string{"add_acl", "remove_acl"} {
 		// tier 0: any scope OK, including the operator role "**".
 		if err := AuthorizeStructural(tier0, tool, AuthzTarget{TargetFolder: "w/eng"}); err != nil {

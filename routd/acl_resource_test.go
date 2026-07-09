@@ -60,75 +60,71 @@ func operatorMembershipExists(t *testing.T, db *DB, child string) bool {
 	return n > 0
 }
 
-// TestACLMCP_AddListRemove — happy path for a tier-0 folder (rules ["*"]):
-// add_acl writes an acl row, list_acl shows it (tier 0-1 only), remove_acl drops
-// it. Exercises the seam + handler end-to-end.
+// TestACLMCP_AddListRemove — happy path for a tier-1 world granted the acl tools:
+// add_acl writes an acl row within its OWN world, list_acl shows it (tier 0-1
+// only), remove_acl drops it. A tier-1 world is world-confined, so the scope
+// stays under "root" (no folder resolves to tier 0 now — cross-world/`**` grants
+// are the operator REST/CLI face). Exercises the seam + handler end-to-end.
 func TestACLMCP_AddListRemove(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	for _, f := range []string{"root", "world"} {
+	for _, f := range []string{"root", "root/team"} {
 		_ = db.PutGroup(core.Group{Folder: f})
 	}
+	grantMCPTools(t, db, "root", "add_acl", "remove_acl", "list_acl")
 	sock := serveACLMCP(t, db, "root", "folder:root", deriveFolderGrants(db, "root"))
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
-		"principal": "google:bob", "scope": "world", "action": "read",
+		"principal": "google:bob", "scope": "root/team", "action": "read",
 	}); e != "" {
 		t.Fatalf("add_acl: %s", e)
 	}
-	if aclRowCount(t, db, "world") != 1 {
-		t.Fatalf("add_acl did not write a row (world rows=%d)", aclRowCount(t, db, "world"))
+	if aclRowCount(t, db, "root/team") != 1 {
+		t.Fatalf("add_acl did not write a row (root/team rows=%d)", aclRowCount(t, db, "root/team"))
 	}
-	res, e := callToolOverSock(t, sock, "list_acl", map[string]any{"folder": "world"})
+	res, e := callToolOverSock(t, sock, "list_acl", map[string]any{"folder": "root/team"})
 	if e != "" {
 		t.Fatalf("list_acl: %s", e)
 	}
-	if res["folder"] != "world" {
+	if res["folder"] != "root/team" {
 		t.Fatalf("list_acl returned unexpected shape: %v", res)
 	}
 	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
-		"principal": "google:bob", "scope": "world", "action": "read",
+		"principal": "google:bob", "scope": "root/team", "action": "read",
 	}); e != "" {
 		t.Fatalf("remove_acl: %s", e)
 	}
-	if aclRowCount(t, db, "world") != 0 {
+	if aclRowCount(t, db, "root/team") != 0 {
 		t.Fatal("remove_acl did not drop the row")
 	}
 }
 
-// TestACLMCP_OperatorMembership — the scope=="**" overload: a tier-0 caller
-// grants "**" and it writes an acl_membership operator edge (NOT an acl row);
-// remove_acl "**" drops the edge. This is the trickiest preserved semantic.
-func TestACLMCP_OperatorMembership(t *testing.T) {
+// TestACLMCP_OperatorGrantDeniedViaAgent — the agent socket can NO LONGER grant
+// the operator role: a tier-1 world granted add_acl (so CheckAction + db.Authorize
+// pass) is still blocked by the Gate's containment when the scope is "**" (no
+// folder owns the whole tree now). Granting `**` moved to the operator REST/CLI
+// face (which carries the empty-folder operator identity). The scope=="**"→edge
+// overload itself is covered by TestACLAddOperatorEndpoint on the REST twin.
+func TestACLMCP_OperatorGrantDeniedViaAgent(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "root"})
+	grantMCPTools(t, db, "root", "add_acl")
 	sock := serveACLMCP(t, db, "root", "folder:root", deriveFolderGrants(db, "root"))
 
 	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
 		"principal": "google:carol", "scope": "**",
-	}); e != "" {
-		t.Fatalf("add_acl **: %s", e)
-	}
-	if !operatorMembershipExists(t, db, "google:carol") {
-		t.Fatal("add_acl ** did not write an operator membership edge")
-	}
-	if aclRowCount(t, db, "**") != 0 {
-		t.Fatal("add_acl ** wrote an acl row instead of a membership edge")
-	}
-	if _, e := callToolOverSock(t, sock, "remove_acl", map[string]any{
-		"principal": "google:carol", "scope": "**",
-	}); e != "" {
-		t.Fatalf("remove_acl **: %s", e)
+	}); e == "" {
+		t.Fatal("agent-socket add_acl ** must be denied (operator role is REST/CLI-only)")
 	}
 	if operatorMembershipExists(t, db, "google:carol") {
-		t.Fatal("remove_acl ** did not drop the membership edge")
+		t.Fatal("denied ** grant still wrote an operator membership edge")
 	}
 }
 

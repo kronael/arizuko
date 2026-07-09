@@ -70,6 +70,7 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 	rules := deriveFolderGrants(db, "hq")
 	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", rules, "https://x.test")
 
@@ -154,7 +155,8 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 		t.Fatalf("seed acme token: %v", err)
 	}
 
-	// "other" (tier-0, fully granted) tries to revoke acme's token.
+	// "other" (granted revoke_token) tries to revoke acme's token.
+	grantMCPTools(t, db, "other", "revoke_token")
 	sock := serveRouteTokensMCP(t, db, "other", "folder:other", deriveFolderGrants(db, "other"), "")
 	rtext, e := callToolText(t, sock, "revoke_token", map[string]any{"jid": "web:acme"})
 	if e != "" {
@@ -178,6 +180,7 @@ func TestRouteTokensMCP_MintTierCap(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "acme"})
+	grantMCPTools(t, db, "acme", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 	sock := serveRouteTokensMCP(t, db, "acme", "folder:acme", deriveFolderGrants(db, "acme"), "")
 
 	// sibling top-level target: denied by the tier cap.
@@ -206,17 +209,18 @@ func TestRouteTokensMCP_Visibility(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
+	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 
-	tier0 := listToolNames(t, serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), ""))
+	granted := listToolNames(t, serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), ""))
 	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
-		if !tier0[name] {
-			t.Fatalf("%s not visible to a tier-0 folder", name)
+		if !granted[name] {
+			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	tier1 := listToolNames(t, serveRouteTokensMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"), ""))
+	ungranted := listToolNames(t, serveRouteTokensMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"), ""))
 	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
-		if tier1[name] {
-			t.Fatalf("%s visible to a tier-1 folder that isn't granted it", name)
+		if ungranted[name] {
+			t.Fatalf("%s visible to a folder not granted it", name)
 		}
 	}
 }
@@ -256,6 +260,7 @@ func TestRouteTokensMCP_AuditRowLands(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), "")
 
 	if _, e := callToolText(t, sock, "issue_chat_link", nil); e != "" {

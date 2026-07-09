@@ -25,6 +25,7 @@ type RunSpec struct {
 	TurnID          string
 	Token           string // brokered capability token (the JWS, in memory only)
 	Isolated        bool
+	Elevated        bool              // operator /root elevation → container.Input.Elevated (tier 0 + all-groups mount)
 	Model           string            // per-group model override; empty = instance default
 	ContainerConfig map[string]any    // opaque GroupConfig forwarded from groups.container_config
 	Grants          []string          // routd-derived grant rules → container.Input.Grants

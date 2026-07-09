@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kronael/arizuko/grants"
 )
 
 func sha256sum(b []byte) [32]byte { return sha256.Sum256(b) }
@@ -136,10 +139,11 @@ func TestAuthorizeBasicTools(t *testing.T) {
 }
 
 func TestAuthorizeOutboundSubtree(t *testing.T) {
-	// Tier 0 (root, any top-level folder) has all privileges — it sends across
-	// any world (user direction 2026-06-13: migrate-announce + operator ops).
-	// Tier ≥ 1 (sub-folders / tenant worlds) stay confined to their subtree.
-	root := Resolve("rhias") // top-level → tier 0
+	// Tier 0 is now ONLY an operator /root elevation (no folder resolves to it),
+	// and it has all privileges — it sends across any world (migrate-announce +
+	// operator ops). Tier ≥ 1 (every real folder, including top-level worlds) stay
+	// confined to their subtree.
+	root := Identity{Folder: "rhias", Tier: 0, World: "rhias"} // elevated /root
 	if err := AuthorizeStructural(root, "send", AuthzTarget{TargetFolder: "rhias"}); err != nil {
 		t.Errorf("root send to own folder should allow: %v", err)
 	}
@@ -317,13 +321,35 @@ func TestAuthorizeTaskOps(t *testing.T) {
 	}
 }
 
+// TestElevationRegainsStarGrant pins the root-elimination invariant end to end
+// on the LIVE gate (grants.DeriveRules, keyed on auth.Resolve tier): a bare
+// top-level world resolves to tier 1 and LOSES the tier-0 `*` grant, while an
+// elevated identity (tier 0, only reachable via operator /root) regains it.
+func TestElevationRegainsStarGrant(t *testing.T) {
+	world := Resolve("main")
+	if world.Tier != 1 {
+		t.Fatalf("top-level world tier = %d, want 1 (no default root)", world.Tier)
+	}
+	rules := grants.DeriveRules(nil, "main", world.Tier, world.World)
+	if slices.Contains(rules, "*") {
+		t.Errorf("tier-1 world must NOT carry the `*` grant, got %v", rules)
+	}
+	// Elevated /root resolves to tier 0 and regains the unrestricted `*`.
+	elevated := grants.DeriveRules(nil, "main", 0, "main")
+	if len(elevated) != 1 || elevated[0] != "*" {
+		t.Errorf("elevated (tier 0) grant set = %v, want [\"*\"]", elevated)
+	}
+}
+
 func TestIdentityResolve(t *testing.T) {
 	tests := []struct {
 		folder string
 		tier   int
 		world  string
 	}{
-		{"main", 0, "main"},
+		// A bare top-level world is tier 1, NOT 0 — tier 0 is reserved for
+		// operator /root elevation, so a world no longer picks up the `*` grant.
+		{"main", 1, "main"},
 		{"world/parent", 1, "world"},
 		{"world/parent/child", 2, "world"},
 		{"world/a/b/c", 3, "world"},

@@ -7,7 +7,11 @@ import (
 	"strings"
 )
 
-func IsRoot(folder string) bool {
+// IsTopLevel reports whether folder is a top-level world (no "/"). It is a
+// FOLDER-SHAPE predicate only — NOT a privilege check. A top-level world is a
+// tier-1 tenant, never root: root is a transient operator elevation (/root), not
+// a folder position. (Renamed from IsRoot when default-root was eliminated.)
+func IsTopLevel(folder string) bool {
 	return !strings.Contains(folder, "/")
 }
 

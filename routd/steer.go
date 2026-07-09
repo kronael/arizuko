@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/router"
 )
@@ -140,13 +139,13 @@ func (l *Loop) handleCommand(chatJID string, msg core.Message, folder string) bo
 	case "/stop":
 		l.cmdStop(chatJID, folder)
 	case "/status":
-		l.cmdStatus(chatJID, folder)
+		l.cmdStatus(chatJID, folder, msg.Sender)
 	case "/root":
-		l.cmdRoot(chatJID, folder, arg)
+		l.cmdRoot(chatJID, folder, arg, msg.Sender)
 	case "/invite":
-		l.cmdInvite(chatJID, folder, arg)
+		l.cmdInvite(chatJID, folder, arg, msg.Sender)
 	case "/gate":
-		l.cmdGate(chatJID, folder, arg)
+		l.cmdGate(chatJID, folder, arg, msg.Sender)
 	case "/approve", "/reject":
 		l.ack(chatJID, "HITL not configured")
 	default:
@@ -194,12 +193,13 @@ func (l *Loop) cmdStop(chatJID, folder string) {
 	}
 }
 
-// cmdStatus reports instance-wide counts, root-group only. Channels come from the
-// channel registry (held by the Server); errored chats + active tasks from
-// routd.db.
-func (l *Loop) cmdStatus(chatJID, folder string) {
-	if auth.Resolve(folder).Tier != 0 {
-		l.ack(chatJID, "Permission denied: root only.")
+// cmdStatus reports instance-wide counts. It is operator-only — instance-wide
+// visibility is a `**` (operator) privilege, not a folder position (a top-level
+// world is a tenant now, tier 1). Channels come from the channel registry (held
+// by the Server); errored chats + active tasks from routd.db.
+func (l *Loop) cmdStatus(chatJID, folder, sender string) {
+	if !l.db.IsOperator(sender) {
+		l.ack(chatJID, "Permission denied: operator only.")
 		return
 	}
 	nChannels := 0
@@ -215,39 +215,49 @@ func (l *Loop) cmdStatus(chatJID, folder string) {
 		nChannels, nGroups, active, errored, tasks))
 }
 
-// cmdRoot delegates a message up to the world-root group. Tier>1 is denied; a
-// bare /root usage-prompts; an already-root or missing-root group
-// short-circuits.
-func (l *Loop) cmdRoot(chatJID, folder, arg string) {
-	if auth.Resolve(folder).Tier > 1 {
-		l.ack(chatJID, "Permission denied.")
+// cmdRoot raises the caller's message to a root-privileged (tier 0) turn — the
+// ONLY path to root. It is gated on the caller carrying the operator `**` grant
+// (auth/grants), NOT on folder shape: a bare top-level world is a tenant now, so
+// Tier/GroupExists is the wrong gate. A non-operator gets a clear denial (no
+// silent downgrade). On success the arg is re-injected in-place and its message
+// id is registered in pendingElevation, so runTurn spawns it with Elevated=true.
+func (l *Loop) cmdRoot(chatJID, folder, arg, sender string) {
+	if !l.db.IsOperator(sender) {
+		l.ack(chatJID, "Permission denied: /root requires an operator grant (**).")
 		return
 	}
 	if arg == "" {
 		l.ack(chatJID, "Usage: /root <message>")
 		return
 	}
-	rootFolder := strings.SplitN(folder, "/", 2)[0]
-	if rootFolder == folder {
-		l.ack(chatJID, "Already in root group.")
+	// Re-inject the instruction as a fresh inbound in THIS chat (routes to the
+	// same folder) and mark it elevated. The turn runs root-privileged in place;
+	// the reply lands back here, no cross-folder delegation. Elevation is one-shot
+	// (this message only) — the transient, operator-gated root the model wants.
+	msg := core.Message{
+		ID:        core.MsgID("root-" + folder),
+		ChatJID:   chatJID,
+		Sender:    sender,
+		Content:   arg,
+		Timestamp: time.Now().UTC(),
+	}
+	l.pendingElevation.Store(msg.ID, struct{}{})
+	if err := l.db.PutMessage(msg); err != nil {
+		l.pendingElevation.Delete(msg.ID)
+		slog.Warn("cmdRoot: put message", "jid", chatJID, "folder", folder, "err", err)
+		l.ack(chatJID, "Failed to raise root turn.")
 		return
 	}
-	if !l.db.GroupExists(rootFolder) {
-		l.ack(chatJID, "Root group not found.")
-		return
-	}
-	if err := l.delegateViaMessage(rootFolder, arg, chatJID, 0); err != nil {
-		slog.Warn("cmdRoot: delegate failed", "jid", chatJID, "target", rootFolder, "err", err)
-	}
+	l.Enqueue(chatJID)
 }
 
-// cmdInvite mints an invite for the root group's subtree. It validates the tier-0
-// gate + arg shape, then calls onbod's POST /v1/invites. nil onbod client
-// (ONBOD_URL unset) → the federation-gap notice. The minted invite targets the
-// root folder + "/" so the redeemer picks a username under it.
-func (l *Loop) cmdInvite(chatJID, folder, arg string) {
-	if auth.Resolve(folder).Tier != 0 {
-		l.ack(chatJID, "Permission denied: root group only.")
+// cmdInvite mints an invite for the caller's folder subtree. It is operator-only
+// (`**`), then validates the arg shape and calls onbod's POST /v1/invites. nil
+// onbod client (ONBOD_URL unset) → the federation-gap notice. The minted invite
+// targets the folder + "/" so the redeemer picks a username under it.
+func (l *Loop) cmdInvite(chatJID, folder, arg, sender string) {
+	if !l.db.IsOperator(sender) {
+		l.ack(chatJID, "Permission denied: operator only.")
 		return
 	}
 	maxUses := 1
@@ -272,12 +282,12 @@ func (l *Loop) cmdInvite(chatJID, folder, arg string) {
 	l.ack(chatJID, "Invite link token: "+token)
 }
 
-// cmdGate manages the onboarding gates. It validates the tier-0 gate + subcommand
-// shape, then calls onbod's /v1/gates endpoints. nil onbod client → the
-// federation-gap notice.
-func (l *Loop) cmdGate(chatJID, folder, arg string) {
-	if auth.Resolve(folder).Tier != 0 {
-		l.ack(chatJID, "Permission denied: root only.")
+// cmdGate manages the onboarding gates. It is operator-only (`**`), then
+// validates the subcommand shape and calls onbod's /v1/gates endpoints. nil
+// onbod client → the federation-gap notice.
+func (l *Loop) cmdGate(chatJID, folder, arg, sender string) {
+	if !l.db.IsOperator(sender) {
+		l.ack(chatJID, "Permission denied: operator only.")
 		return
 	}
 	parts := strings.Fields(arg)

@@ -187,6 +187,24 @@ func (d *DB) Authorize(sub, folder, action string, params map[string]string) boo
 	return auth.AuthorizeWith(d.aclEval(), caller, action, folder, params, opts)
 }
 
+// IsOperator reports whether sub carries the operator `**` grant. Operators are
+// emergent from grants, never a role flag: the `**` grant is stored as a
+// role:operator acl_membership edge (grantACLTx), so operator status IS
+// transitive membership in role:operator. A direct `admin`/`*` grant on the whole
+// tree (`**`) also counts. This is the gate for /root elevation (steer.go
+// cmdRoot): only a `**` holder may raise a turn to tier 0. Empty sub → false.
+func (d *DB) IsOperator(sub string) bool {
+	if sub == "" {
+		return false
+	}
+	for _, anc := range d.aclEval().Ancestors(sub) {
+		if anc == "role:operator" {
+			return true
+		}
+	}
+	return auth.Authorize(d.aclEval(), auth.Caller{Principal: sub}, "admin", "**", nil)
+}
+
 // GetTask reads one scheduled_tasks row by id, for the inspect_tasks per-task
 // authz check. No row → (zero, false).
 func (d *DB) GetTask(id string) (core.Task, bool) {

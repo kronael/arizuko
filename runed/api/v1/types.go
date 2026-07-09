@@ -29,6 +29,11 @@ type RunRequest struct {
 	Model            string         `json:"model"`            // group override; empty = instance default
 	ContainerConfig  map[string]any `json:"container_config"` // opaque GroupConfig forwarded from groups.container_config
 	Isolated         bool           `json:"isolated"`         // timed-isolated:* runs: one-off container, no session persist
+	// Elevated is the operator /root elevation signal: routd sets it true ONLY
+	// for a turn an operator raised via /root (steer.go cmdRoot). runed forwards
+	// it to container.Input.Elevated → root=Elevated (tier 0, /var/lib/groups
+	// mount). A normal spawn is never root; folder shape does not grant it.
+	Elevated bool `json:"elevated,omitempty"`
 	// Grants is the per-folder grant ruleset routd derived (tier defaults + ACL);
 	// runed sets it on container.Input so buildMounts (share_mount) + the tier-0/1
 	// egress "*" logic see it. EgressAllowlist is the resolved crackbox allowlist

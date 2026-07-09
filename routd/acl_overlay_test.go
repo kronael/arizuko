@@ -224,7 +224,12 @@ func TestServeTurnMCP_ListACL(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	const folder = "w" // tier 0: list_acl is tier 0-1 only
+	const folder = "w" // tier 1 (a named top-level world); list_acl is tier 0-1 only
+	// Grant list_acl explicitly — a tier-1 world doesn't get management tools by
+	// default (only the tier-0 `*` set did, and no folder resolves to tier 0 now).
+	// Grant scope "**" so the grant row is filtered OUT of the folder-scoped list
+	// below (the tool returns only rows whose scope == the queried folder).
+	addACL(t, db, "folder:"+folder, "mcp:list_acl", "**", "allow")
 	addACL(t, db, "folder:"+folder, "mcp:send", folder, "allow")
 	addACL(t, db, "folder:"+folder, "mcp:reply", folder, "deny")
 	// A row in a different scope must NOT appear (tool filters on scope==folder).

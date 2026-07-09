@@ -88,6 +88,7 @@ func TestWebRoutesMCP_CreateListDelete(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 	rules := deriveFolderGrants(db, "hq")
 	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", rules)
 
@@ -130,6 +131,7 @@ func TestWebRoutesMCP_SelfSlotAndPathClaim(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	// other already owns a top-level prefix.
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/shared", Access: "public", Folder: "other"})
+	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 	rules := deriveFolderGrants(db, "hq")
 	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", rules)
 
@@ -212,7 +214,9 @@ func TestWebRoutesMCP_DeleteTier0TenantNoCrossTenant(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "globex"})
 	_ = db.PutWebRoute(WebRouteRow{PathPrefix: "/pub/globex/landing", Access: "public", Folder: "globex"})
-	// acme is a top-level tenant → tier 0 → rules ["*"] (del_web_route granted).
+	// acme is a tier-1 tenant granted del_web_route — so the delete is permitted by
+	// the grant gate and only folder-containment can still block the cross-tenant hit.
+	grantMCPTools(t, db, "acme", "del_web_route")
 	rules := deriveFolderGrants(db, "acme")
 	sock := serveWebRoutesMCP(t, db, "acme", "folder:acme", rules)
 
@@ -236,16 +240,17 @@ func TestWebRoutesMCP_Visibility(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
 	_ = db.PutGroup(core.Group{Folder: "world/a"})
+	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 
-	tier0 := listToolNames(t, serveWebRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
+	granted := listToolNames(t, serveWebRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq")))
 	for _, name := range []string{"set_web_route", "del_web_route", "list_web_routes"} {
-		if !tier0[name] {
-			t.Fatalf("%s not visible to a tier-0 folder", name)
+		if !granted[name] {
+			t.Fatalf("%s not visible to a folder granted it", name)
 		}
 	}
-	tier1 := listToolNames(t, serveWebRoutesMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a")))
-	if tier1["set_web_route"] {
-		t.Fatal("set_web_route visible to a tier-1 folder that isn't granted it")
+	ungranted := listToolNames(t, serveWebRoutesMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a")))
+	if ungranted["set_web_route"] {
+		t.Fatal("set_web_route visible to a folder not granted it")
 	}
 }
 
@@ -287,6 +292,7 @@ func TestWebRoutesMCP_AuditRowLands(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", "set_web_route", "del_web_route", "list_web_routes")
 	sock := serveWebRoutesMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"))
 
 	if _, e := callToolText(t, sock, "set_web_route", map[string]any{

@@ -121,9 +121,10 @@ func TestServeMCP_FindMessages_ACLDropsForeignRows(t *testing.T) {
 	}
 }
 
-// TestServeMCP_FindMessages_OperatorBypassesACL asserts tier 0 (folder
-// = "root" or equivalent) sees all rows even when JIDRoutedToFolder
-// would otherwise drop them.
+// TestServeMCP_FindMessages_OperatorBypassesACL asserts tier 0 sees all rows
+// even when JIDRoutedToFolder would otherwise drop them. Tier 0 is now the
+// operator identity — the empty folder "" (the operator/service sentinel); a
+// NAMED top-level world resolves to tier 1 and does NOT bypass.
 func TestServeMCP_FindMessages_OperatorBypassesACL(t *testing.T) {
 	dir := t.TempDir()
 	sock := dir + "/gated.sock"
@@ -138,9 +139,9 @@ func TestServeMCP_FindMessages_OperatorBypassesACL(t *testing.T) {
 		// Even if this returned false for everything, tier-0 must bypass.
 		JIDRoutedToFolder: func(jid, folder string) bool { return false },
 	}
-	// "world" is tier-1 in auth.Resolve, not tier-0. Use the literal tier-0
-	// folder "root" — same convention as TestSocialActionsRegistered etc.
-	stop, err := ServeMCP(sock, GatedFns{}, db, "root", []string{"*"}, 0, "")
+	// Any NAMED folder is tier ≥1 now; the tier-0 operator identity is the empty
+	// folder "" (operator/service sentinel), which bypasses the route filter.
+	stop, err := ServeMCP(sock, GatedFns{}, db, "", []string{"*"}, 0, "")
 	if err != nil {
 		t.Fatalf("ServeMCP: %v", err)
 	}

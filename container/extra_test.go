@@ -17,38 +17,38 @@ import (
 
 func TestWorldOf(t *testing.T) {
 	cases := []struct {
-		folder string
-		root   bool
-		want   string
+		folder   string
+		elevated bool
+		want     string
 	}{
 		{"", false, ""},
 		{"atlas", false, "atlas"},
 		{"atlas/support", false, "atlas"},
 		{"atlas/eng/sre", false, "atlas"},
-		{"anything", true, ""},
+		{"anything", true, ""}, // elevated /root spans all worlds → ""
 	}
 	for _, c := range cases {
-		if got := worldOf(c.folder, c.root); got != c.want {
-			t.Errorf("worldOf(%q, %v) = %q, want %q", c.folder, c.root, got, c.want)
+		if got := worldOf(c.folder, c.elevated); got != c.want {
+			t.Errorf("worldOf(%q, %v) = %q, want %q", c.folder, c.elevated, got, c.want)
 		}
 	}
 }
 
 func TestTierOf(t *testing.T) {
 	cases := []struct {
-		folder string
-		root   bool
-		want   int
+		folder   string
+		elevated bool
+		want     int
 	}{
 		{"", false, 0},
-		{"atlas", false, 1},
+		{"atlas", false, 1}, // a bare top-level world is tier 1, not root
 		{"atlas/support", false, 2},
 		{"atlas/eng/sre", false, 3},
-		{"any", true, 0},
+		{"any", true, 0}, // only an elevated /root spawn is tier 0
 	}
 	for _, c := range cases {
-		if got := tierOf(c.folder, c.root); got != c.want {
-			t.Errorf("tierOf(%q, %v) = %d, want %d", c.folder, c.root, got, c.want)
+		if got := tierOf(c.folder, c.elevated); got != c.want {
+			t.Errorf("tierOf(%q, %v) = %d, want %d", c.folder, c.elevated, got, c.want)
 		}
 	}
 }

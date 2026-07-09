@@ -11,7 +11,6 @@ import (
 
 	"github.com/kronael/arizuko/container"
 	"github.com/kronael/arizuko/core"
-	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/obs"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 	"github.com/kronael/arizuko/types"
@@ -102,6 +101,16 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 // whole batch after all per-sender/per-topic turns close.
 func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Message) (hadOutput, steered bool, rerr error) {
 	last := trigger[len(trigger)-1]
+	// Elevation: a message cmdRoot registered in pendingElevation (operator-gated,
+	// unforgeable) raises THIS turn to root. One-shot — consumed here so a re-fed
+	// batch never re-elevates. Scan the whole batch (not just last) so batching
+	// with a sibling can't drop the signal.
+	elevated := false
+	for i := range trigger {
+		if _, ok := l.pendingElevation.LoadAndDelete(trigger[i].ID); ok {
+			elevated = true
+		}
+	}
 	// turn span + duration/count metric (spec 5/O). Trace ID derives from the
 	// turn ID so every daemon handling this turn shares one trace; the span ctx
 	// flows into dispatchRun so container_spawn/cross_daemon nest under it.
@@ -185,7 +194,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if l.srv != nil {
 		if ipcDir, ierr := l.folders.IpcPath(folder); ierr == nil {
 			if stop, serr := l.srv.ServeTurnMCP(turnMCP{
-				folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender,
+				folder: folder, topic: topic, chatJID: chatJID, turnID: turnID, trigger: last.Sender, elevated: elevated,
 			}, ipcDir); serr == nil {
 				defer stop()
 			} else {
@@ -195,14 +204,14 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	}
 
 	// Write the per-spawn snapshots the in-container agent reads (current_tasks /
-	// available_groups JSON) right before dispatch. Root sees all tasks + groups;
-	// a child sees only its own tasks and no groups list. Skip when no ipc dir is
-	// configured (REST/unit tests) so the write doesn't resolve to a relative
-	// path under cwd.
+	// available_groups JSON) right before dispatch. The all-groups/all-tasks view
+	// is a root privilege, so it tracks elevation — NOT folder shape (a top-level
+	// tenant is not root). A non-elevated turn sees only its own tasks and no
+	// groups list. Skip when no ipc dir is configured (REST/unit tests) so the
+	// write doesn't resolve to a relative path under cwd.
 	if l.folders != nil && l.folders.IpcDir != "" {
-		isRoot := groupfolder.IsRoot(folder)
-		container.WriteTasksSnapshot(l.folders, folder, isRoot, l.db.Tasks(folder, isRoot))
-		container.WriteGroupsSnapshot(l.folders, folder, isRoot, slices.Collect(maps.Values(l.db.AllGroups())))
+		container.WriteTasksSnapshot(l.folders, folder, elevated, l.db.Tasks(folder, elevated))
+		container.WriteGroupsSnapshot(l.folders, folder, elevated, slices.Collect(maps.Values(l.db.AllGroups())))
 	}
 
 	// Reset a long-idle session before the spawn reads it: a folder whose chat
@@ -229,7 +238,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 	if l.deliver != nil {
 		_ = l.deliver.Typing(typingJID, true)
 	}
-	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered)
+	out, derr := l.dispatchRun(ctx, folder, topic, chatJID, turnID, last.Sender, rendered, elevated)
 	// For steered turns (container already running, returned immediately), the
 	// container is still processing — don't clear typing here. appendAndDeliver
 	// clears it when content lands. For all other outcomes (including errors and
@@ -416,7 +425,7 @@ func jidScheme(jid string) string {
 // dispatchRun renders the run request and calls runed POST /v1/runs. The
 // agent's conversation frames arrive out-of-band during the run via the
 // /v1/turns/{turn_id}/* callbacks; this returns the turn-boundary outcome.
-func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string) (runedv1.RunOutcome, error) {
+func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, trigger, batch string, elevated bool) (runedv1.RunOutcome, error) {
 	var cancel context.CancelFunc
 	if l.runTimeout > 0 {
 		ctx, cancel = context.WithTimeout(ctx, l.runTimeout)
@@ -439,6 +448,13 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 	// a web-chat user's own ANTHROPIC_API_KEY shadows the folder default. routd
 	// decrypts here (it holds SECRETS_KEY); runed injects as container env.
 	secrets := l.db.FolderSecretsForUser(folder, string(caller))
+	// An elevated (operator /root) turn regains the tier-0 `*` grant that
+	// grants.DeriveRules gives tier 0; a normal top-level tenant now resolves to
+	// tier 1 and does NOT. Wire elevation to the grant gate, not just the mount.
+	grants := deriveFolderGrants(l.db, folder)
+	if elevated {
+		grants = []string{"*"}
+	}
 	return l.runner.Run(ctx, runedv1.RunRequest{
 		Folder:  types.Folder(folder),
 		Topic:   topic,
@@ -459,7 +475,8 @@ func (l *Loop) dispatchRun(ctx context.Context, folder, topic, chatJID, turnID, 
 		Model:            model,
 		ContainerConfig:  containerCfg,
 		Isolated:         strings.HasPrefix(trigger, "timed-isolated:"),
-		Grants:           deriveFolderGrants(l.db, folder),
+		Elevated:         elevated,
+		Grants:           grants,
 		EgressAllowlist:  allowlist,
 		Secrets:          secrets,
 	})

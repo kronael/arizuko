@@ -13,10 +13,21 @@ type Identity struct {
 	World  string
 }
 
+// Resolve returns the NON-elevated identity of a folder. Tier 0 is reserved for
+// root: an operator /root elevation (an explicit Identity{Tier: 0}) OR the empty
+// folder "" — the operator/service sentinel the REST + service faces carry (no
+// folder = act on anything). A bare, NAMED top-level world ("main") resolves to
+// tier 1, not 0, so a tenant folder no longer picks up the tier-0 `*` grant by
+// depth (grants.DeriveRules). The floor is what demotes a named world; "" stays
+// the operator identity.
 func Resolve(folder string) Identity {
+	tier := min(strings.Count(folder, "/"), 3)
+	if folder != "" && tier < 1 {
+		tier = 1
+	}
 	return Identity{
 		Folder: folder,
-		Tier:   min(strings.Count(folder, "/"), 3),
+		Tier:   tier,
 		World:  WorldOf(folder),
 	}
 }

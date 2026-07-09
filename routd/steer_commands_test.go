@@ -144,13 +144,16 @@ func TestCmdStopNoActiveViaRuned(t *testing.T) {
 	}
 }
 
-// TestCmdStatusRootOnly: /status from a root group (tier 0) reports the
-// instance counts in gated's exact format (gateway.cmdStatus).
-func TestCmdStatusRootOnly(t *testing.T) {
+// TestCmdStatusOperatorOnly: /status from an operator (a `**` holder — here the
+// steerOne sender "u" made a role:operator member) reports the instance counts
+// in gated's exact format. Instance-wide visibility is an operator privilege,
+// not a folder position.
+func TestCmdStatusOperatorOnly(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.AddMembership("u", "role:operator", "test")
 	if !steerOne(loop, "web:demo", "demo", "/status") {
 		t.Fatal("/status not consumed")
 	}
@@ -166,6 +169,7 @@ func TestCmdStatusErroredCount(t *testing.T) {
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.AddMembership("u", "role:operator", "test")
 	_ = db.MarkChatErrored("tg:99")
 	_ = steerOne(loop, "web:demo", "demo", "/status")
 	if !strings.Contains(lastAck(t, dl), "errored chats: 1") {
@@ -173,115 +177,113 @@ func TestCmdStatusErroredCount(t *testing.T) {
 	}
 }
 
-// TestCmdStatusPermissionDenied: a child group (tier>0) is denied, matching
-// gated's exact message.
+// TestCmdStatusPermissionDenied: a non-operator (a bare top-level world is a
+// tenant now, not root) is denied.
 func TestCmdStatusPermissionDenied(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root/child"})
 	_ = steerOne(loop, "web:root/child", "root/child", "/status")
-	if got := lastAck(t, dl); got != "Permission denied: root only." {
-		t.Fatalf("/status child ack=%q", got)
+	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+		t.Fatalf("/status non-operator ack=%q", got)
 	}
 }
 
-// TestCmdRootUsage: a bare /root prompts usage (gateway.cmdRoot).
+// TestCmdRootUsage: an operator's bare /root prompts usage (gateway.cmdRoot).
 func TestCmdRootUsage(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root/eng"})
+	_ = db.AddMembership("u", "role:operator", "test")
 	_ = steerOne(loop, "web:root/eng", "root/eng", "/root")
 	if got := lastAck(t, dl); got != "Usage: /root <message>" {
 		t.Fatalf("/root ack=%q", got)
 	}
 }
 
-// TestCmdRootAlreadyRoot: /root from the root group itself short-circuits.
-func TestCmdRootAlreadyRoot(t *testing.T) {
+// TestCmdRootDeniedNonOperator: /root from a non-operator is denied outright —
+// NO silent downgrade. Root is obtainable only by a `**` holder.
+func TestCmdRootDeniedNonOperator(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = steerOne(loop, "web:root", "root", "/root hi")
-	if got := lastAck(t, dl); got != "Already in root group." {
-		t.Fatalf("/root ack=%q", got)
-	}
-}
-
-// TestCmdRootDelegates: /root from a child delegates the message up to the
-// world-root group, appending a delegation row with the origin as return addr.
-func TestCmdRootDelegates(t *testing.T) {
-	db, loop, _ := recLoop(t)
-	dl := &recDeliverer{}
-	loop.deliver = dl
-	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = db.PutGroup(core.Group{Folder: "root/eng"})
-	if !steerOne(loop, "tg:7", "root/eng", "/root escalate this") {
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	if !steerOne(loop, "web:demo", "demo", "/root do a thing") {
 		t.Fatal("/root not consumed")
 	}
-	msgs, _ := db.MessagesSince("root", "")
-	if len(msgs) != 1 {
-		t.Fatalf("delegation rows on root=%d want 1", len(msgs))
+	if got := lastAck(t, dl); !strings.Contains(got, "operator grant") {
+		t.Fatalf("non-operator /root ack=%q want operator-denial", got)
 	}
-	if msgs[0].Content != "escalate this" || msgs[0].ForwardedFrom != "tg:7" {
-		t.Fatalf("delegated row=%+v want content/escalate from tg:7", msgs[0])
+	// No message was re-injected — the turn was refused, not downgraded.
+	if msgs, _ := db.MessagesSince("web:demo", ""); len(msgs) != 0 {
+		t.Fatalf("non-operator /root re-injected %d messages, want 0", len(msgs))
 	}
 }
 
-// TestCmdRootMissingRoot: /root when the root group isn't registered acks the
-// gated "not found" message.
-func TestCmdRootMissingRoot(t *testing.T) {
+// TestCmdRootElevates: an operator's /root re-injects the instruction in place
+// and registers the message for elevation, so the ensuing turn spawns root.
+func TestCmdRootElevates(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
-	_ = db.PutGroup(core.Group{Folder: "root/eng"})
-	_ = steerOne(loop, "tg:7", "root/eng", "/root hi")
-	if got := lastAck(t, dl); got != "Root group not found." {
-		t.Fatalf("/root ack=%q", got)
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.AddMembership("u", "role:operator", "test")
+	if !steerOne(loop, "web:demo", "demo", "/root escalate this") {
+		t.Fatal("/root not consumed")
+	}
+	msgs, _ := db.MessagesSince("web:demo", "")
+	if len(msgs) != 1 {
+		t.Fatalf("re-injected rows=%d want 1", len(msgs))
+	}
+	if msgs[0].Content != "escalate this" {
+		t.Fatalf("re-injected row=%+v want content=escalate this", msgs[0])
+	}
+	if _, ok := loop.pendingElevation.Load(msgs[0].ID); !ok {
+		t.Fatal("re-injected message not registered for elevation")
 	}
 }
 
-// TestCmdInviteFederation: /invite enforces the tier-0 gate + arg shape like
-// gated, then reports the onbod federation gap (routd cannot mint invites).
+// TestCmdInviteFederation: /invite is operator-gated (`**`), enforces the arg
+// shape, then reports the onbod federation gap (routd cannot mint invites).
 func TestCmdInviteFederation(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = db.PutGroup(core.Group{Folder: "root/eng"})
 
-	// child group → denied, gated's exact message.
-	_ = steerOne(loop, "web:root/eng", "root/eng", "/invite")
-	if got := lastAck(t, dl); got != "Permission denied: root group only." {
-		t.Fatalf("/invite child ack=%q", got)
+	// non-operator → denied.
+	_ = steerOne(loop, "web:root", "root", "/invite")
+	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+		t.Fatalf("/invite non-operator ack=%q", got)
 	}
+	_ = db.AddMembership("u", "role:operator", "test")
 	// bad arg → gated's usage message.
 	_ = steerOne(loop, "web:root", "root", "/invite zero")
 	if got := lastAck(t, dl); got != "Usage: /invite [max_uses]" {
 		t.Fatalf("/invite bad-arg ack=%q", got)
 	}
-	// root + ok → federation notice (not silently dropped).
+	// operator + ok → federation notice (not silently dropped).
 	_ = steerOne(loop, "web:root", "root", "/invite")
 	if !strings.Contains(lastAck(t, dl), "onbod") {
-		t.Fatalf("/invite root ack=%q want onbod federation note", lastAck(t, dl))
+		t.Fatalf("/invite operator ack=%q want onbod federation note", lastAck(t, dl))
 	}
 }
 
-// TestCmdGateFederation: /gate enforces the tier-0 gate + subcommand shape like
-// gated, then reports the onbod federation gap.
+// TestCmdGateFederation: /gate is operator-gated (`**`), enforces the subcommand
+// shape, then reports the onbod federation gap.
 func TestCmdGateFederation(t *testing.T) {
 	db, loop, _ := recLoop(t)
 	dl := &recDeliverer{}
 	loop.deliver = dl
 	_ = db.PutGroup(core.Group{Folder: "root"})
-	_ = db.PutGroup(core.Group{Folder: "root/eng"})
 
-	_ = steerOne(loop, "web:root/eng", "root/eng", "/gate list")
-	if got := lastAck(t, dl); got != "Permission denied: root only." {
-		t.Fatalf("/gate child ack=%q", got)
+	_ = steerOne(loop, "web:root", "root", "/gate list")
+	if got := lastAck(t, dl); got != "Permission denied: operator only." {
+		t.Fatalf("/gate non-operator ack=%q", got)
 	}
+	_ = db.AddMembership("u", "role:operator", "test")
 	_ = steerOne(loop, "web:root", "root", "/gate bogus")
 	if got := lastAck(t, dl); got != "Usage: /gate [list|add|rm|enable|disable]" {
 		t.Fatalf("/gate bad-subcmd ack=%q", got)
@@ -346,6 +348,7 @@ func TestCmdInviteFederated(t *testing.T) {
 	fo := &fakeOnbod{}
 	loop.SetOnbodClient(fo)
 	_ = db.PutGroup(core.Group{Folder: "root"})
+	_ = db.AddMembership("u", "role:operator", "test")
 
 	_ = steerOne(loop, "web:root", "root", "/invite 5")
 	if len(fo.created) != 1 || fo.created[0] != "root/" {
@@ -365,6 +368,7 @@ func TestCmdGateFederated(t *testing.T) {
 	fo := &fakeOnbod{gates: []GateRow{{Gate: "*", LimitPerDay: 10, Enabled: true}}}
 	loop.SetOnbodClient(fo)
 	_ = db.PutGroup(core.Group{Folder: "root"})
+	_ = db.AddMembership("u", "role:operator", "test")
 
 	_ = steerOne(loop, "web:root", "root", "/gate list")
 	if got := lastAck(t, dl); !strings.Contains(got, "* 10/day enabled") {

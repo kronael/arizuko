@@ -23,11 +23,12 @@ import (
 // topic/chat/turn the socket serves and what triggered it. It mirrors the
 // turn_context routd stores, narrowed to what the MCP fns read.
 type turnMCP struct {
-	folder  string
-	topic   string
-	chatJID string
-	turnID  string
-	trigger string
+	folder   string
+	topic    string
+	chatJID  string
+	turnID   string
+	trigger  string
+	elevated bool // operator /root turn: the socket grants `*` (tier-0 grant set)
 }
 
 // buildGatedFns wires the write-side agent tools (reply/send/social/group
@@ -514,6 +515,13 @@ func deriveFolderGrants(d *DB, folder string) []string {
 // per-turn from runTurn before dispatch.
 func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	rules := deriveFolderGrants(s.db, t.folder)
+	if t.elevated {
+		// Operator /root: regain the tier-0 `*` grant set (grants.DeriveRules
+		// case 0). The socket's CheckAction half then permits every tool; the
+		// db.Authorize half still binds the caller's own grants. Same override as
+		// the shipped Grants in dispatchRun — one elevation, both sinks.
+		rules = []string{"*"}
+	}
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
 	// — never mkdirs — so create the parent here or net.Listen fails on a fresh

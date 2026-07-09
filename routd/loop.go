@@ -77,7 +77,12 @@ type Loop struct {
 	proactive     ProactiveConfig
 	modes         *modeCache
 	pendingReason sync.Map // turn_id → proactiveResult
-	nextScanAt    time.Time
+	// pendingElevation carries the operator /root elevation signal from cmdRoot
+	// (trusted, gated on `**`) to runTurn, keyed on the injected message id. It is
+	// the ONLY source of Elevated: an agent/user cannot forge a map entry, so root
+	// can never be reached by message content. One-shot (LoadAndDelete per turn).
+	pendingElevation sync.Map // message_id → struct{}
+	nextScanAt       time.Time
 
 	// Maintenance cadence, loop-driven (no free tickers). nextRetryAt paces
 	// the outbound retry sweep (pending bot rows >30s); nextGCAt paces the
@@ -417,11 +422,14 @@ func (l *Loop) recoverPending() {
 	}
 }
 
-// checkMigrationVersion enqueues a /migrate system message for every root group
-// whose on-disk skill version is behind the upstream MIGRATION_VERSION. Bumping
+// checkMigrationVersion enqueues a /migrate system message for EVERY group whose
+// on-disk skill version is behind the upstream MIGRATION_VERSION. Bumping
 // MIGRATION_VERSION is the single trigger for both skill updates AND release
-// broadcasts. Child groups get skills seeded at container start; the root's
-// /migrate skill fans out, so only roots are triggered here.
+// broadcasts. /migrate is now a per-group self-migrate (it 3-way merges the
+// group's own ~/.claude from the read-only skills mount), so there is no root
+// fan-out — each behind group migrates itself. Dropping the old top-level-only
+// skip is what made this fire for every behind group (they had frozen at
+// split-era versions, reference_auto_migrate).
 func (l *Loop) checkMigrationVersion() {
 	if l.appSrcDir == "" {
 		return
@@ -432,9 +440,6 @@ func (l *Loop) checkMigrationVersion() {
 		return
 	}
 	for folder := range l.db.AllGroups() {
-		if !groupfolder.IsRoot(folder) {
-			continue
-		}
 		agent := container.MigrationVersion(
 			filepath.Join(l.groupsDir, folder, ".claude", "skills", "self", "MIGRATION_VERSION"))
 		if agent >= latest {

@@ -97,6 +97,7 @@ func (d *dockerRuntime) Run(ctx context.Context, spec RunSpec) RunResult {
 		Sender:         spec.TriggerSender,
 		Model:          spec.Model,
 		Config:         gc,
+		Elevated:       spec.Elevated,
 		Grants:         spec.Grants,
 		Secrets:        spec.Secrets,
 		ExternalMCP:    true,

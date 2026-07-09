@@ -222,13 +222,16 @@ func TestRunTurn_WritesSpawnSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("groups snapshot not written: %v", err)
 	}
-	if !strings.Contains(string(g), `"demo"`) {
-		t.Errorf("groups snapshot missing demo group: %s", g)
+	// A NON-elevated turn (a tenant, not root) gets its snapshots written but NO
+	// groups list — the all-groups view is a root/elevation privilege now.
+	if strings.Contains(string(g), `"demo"`) {
+		t.Errorf("non-elevated groups snapshot must not list groups: %s", g)
 	}
 	ts, err := os.ReadFile(tasksSnap)
 	if err != nil {
 		t.Fatalf("tasks snapshot not written: %v", err)
 	}
+	// The folder's OWN tasks still surface (owner filter, not the all view).
 	if !strings.Contains(string(ts), `"t1"`) {
 		t.Errorf("tasks snapshot missing seeded task: %s", ts)
 	}

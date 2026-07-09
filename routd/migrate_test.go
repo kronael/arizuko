@@ -68,24 +68,45 @@ func hasSystemUpdate(t *testing.T, db *DB, folder string) bool {
 	return false
 }
 
-// TestCheckMigrationVersion: upstream ahead + a root group behind → a
-// /migrate system message is enqueued for that group; the child group gets
-// no backstop. Mirrors gateway_test.TestCheckMigrationVersion.
+// TestCheckMigrationVersion: /migrate is now a per-group self-migrate, so EVERY
+// group behind upstream is enqueued — the top-level world AND its behind child
+// (no version file → reads 0). No root fan-out.
 func TestCheckMigrationVersion(t *testing.T) {
 	db, loop := newMigrateLoop(t, "55\n")
 
 	_ = db.PutGroup(core.Group{Folder: "myworld"})
 	writeGroupVersion(t, loop, "myworld", "54\n")
-	_ = db.PutGroup(core.Group{Folder: "myworld/child"})
+	_ = db.PutGroup(core.Group{Folder: "myworld/child"}) // no version file → 0, behind
 
 	loop.checkMigrationVersion()
 
 	if !hasSystemUpdate(t, db, "myworld") {
 		t.Error("expected auto-migration /migrate message in myworld")
 	}
-	// Child group must NOT receive a backstop (the root's skill fans out).
+	// The child is behind too → it migrates ITSELF (per-group), no longer skipped.
+	if !hasSystemUpdate(t, db, "myworld/child") {
+		t.Error("expected per-group /migrate message in the behind child")
+	}
+}
+
+// TestCheckMigrationVersion_UpToDateChildSkipped: a child already at the upstream
+// version gets no /migrate even when its parent is behind — per-group, each
+// group is judged on its OWN on-disk version.
+func TestCheckMigrationVersion_UpToDateChildSkipped(t *testing.T) {
+	db, loop := newMigrateLoop(t, "55\n")
+
+	_ = db.PutGroup(core.Group{Folder: "myworld"})
+	writeGroupVersion(t, loop, "myworld", "54\n")
+	_ = db.PutGroup(core.Group{Folder: "myworld/child"})
+	writeGroupVersion(t, loop, "myworld/child", "55\n") // current → skipped
+
+	loop.checkMigrationVersion()
+
+	if !hasSystemUpdate(t, db, "myworld") {
+		t.Error("expected /migrate in the behind parent")
+	}
 	if hasSystemUpdate(t, db, "myworld/child") {
-		t.Error("child group received an unexpected /migrate message")
+		t.Error("current child should NOT be enqueued")
 	}
 }
 

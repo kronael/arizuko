@@ -112,15 +112,15 @@ func TestNameOf(t *testing.T) {
 	}
 }
 
-func TestIsRoot(t *testing.T) {
-	if !IsRoot("main") {
-		t.Fatal("main should be root")
+func TestIsTopLevel(t *testing.T) {
+	if !IsTopLevel("main") {
+		t.Fatal("main should be top-level")
 	}
-	if IsRoot("main/code") {
-		t.Fatal("main/code should not be root")
+	if IsTopLevel("main/code") {
+		t.Fatal("main/code should not be top-level")
 	}
-	if IsRoot("main/sub/deep") {
-		t.Fatal("nested should not be root")
+	if IsTopLevel("main/sub/deep") {
+		t.Fatal("nested should not be top-level")
 	}
 }
 
