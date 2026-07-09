@@ -117,6 +117,11 @@ var daemonKeys = map[string][]string{
 	// Verifies via authd JWKS. NO crackbox, NO docker socket.
 	"routd": {
 		"AUTHD_URL", "AUTHD_SERVICE_KEY", "ONBOD_URL",
+		// routd detects the route miss that fires chat-initiated onboarding
+		// (loop.go InsertOnboarding); the flag gates it. onbod holds the same
+		// vars but never sees inbound — without these on routd the greeting +
+		// admission queue never fire and a new group is stored, never onboarded.
+		"ONBOARDING_ENABLED", "ONBOARDING_PLATFORMS",
 		"OBSERVE_WINDOW_MESSAGES", "OBSERVE_WINDOW_CHARS",
 		"SEND_DISABLED_CHANNELS", "SEND_DISABLED_GROUPS",
 		// get_web_presence reports a folder's derived/aliased canonical host
