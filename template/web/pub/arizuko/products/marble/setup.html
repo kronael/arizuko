@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Taxonomy chat (Marble) setup — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/" aria-current="page">Taxonomy chat (Marble)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Taxonomy chat (Marble) &mdash; setup</p>
+      <h1>Taxonomy chat (Marble) &mdash; setup</h1>
+
+
+
+      <p class="lede">
+        Take any open dataset, bundle it into a folder, put a public chat link
+        in front of it, and run it on a cheap model. This guide uses the Marble
+        Skill Taxonomy, but the shape fits any JSON dataset an agent can query
+        with <code>jq</code>.
+      </p>
+
+      <h2>prerequisites</h2>
+      <ul>
+        <li>A running arizuko instance with a public hostname (<code>WEB_HOST</code>). See the <a href="../../howto/">getting started</a> guide.</li>
+        <li>The <code>arizuko</code> binary and <code>arizuko-ant</code> agent image built (<code>make build</code>, <code>sudo make images</code>, <code>sudo make agent</code>).</li>
+        <li>Anthropic API access. No web-search egress is needed &mdash; the dataset is bundled.</li>
+        <li>A dataset as one or more JSON files. Here: <code>topics.json</code>, <code>dependencies.json</code>, <code>clusters.json</code> from the Marble Skill Taxonomy.</li>
+      </ul>
+
+      <h2>1. register the public group</h2>
+      <p>
+        Add a folder for the bot and a route that sends its web-chat JID to it.
+        The <code>arizuko group add</code> command writes the group row, seeds
+        the folder, and adds the catch-all route in one step:
+      </p>
+      <pre><code>arizuko group &lt;instance&gt; add web:&lt;folder&gt; &lt;folder&gt;
+
+# example: a public sub-folder under an existing world
+arizuko group krons add web:krons/public/marble krons/public/marble</code></pre>
+      <div class="callout">
+        <strong>Two gotchas.</strong> The CLI resolves the data dir from
+        <code>DATA_DIR</code>, falling back to the current working directory. If
+        the instance <code>.env</code> doesn&rsquo;t set it, prefix the command:
+        <code>DATA_DIR=/srv/data/arizuko_&lt;instance&gt; arizuko group &hellip;</code>.
+        And if the parent group has <code>max_children=0</code>, the agent-side
+        <code>register_group</code> tool refuses &mdash; this host CLI path
+        bypasses that gate, so create sub-groups from the host.
+      </div>
+
+      <h2>2. bundle the dataset</h2>
+      <p>
+        Drop the JSON into the group folder. The agent reads it from
+        <code>~/taxonomy/</code> inside its container, which maps to
+        <code>groups/&lt;folder&gt;/taxonomy/</code> on the host:
+      </p>
+      <pre><code>mkdir -p /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy
+cp topics.json dependencies.json clusters.json \
+   /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy/</code></pre>
+      <p>
+        Keep the files owned by the instance user (the same owner as the rest
+        of <code>groups/</code>). The dataset is read-only reference &mdash; the
+        agent queries it, never writes it.
+      </p>
+
+      <h2>3. write the brain</h2>
+      <p>
+        The operator-owned <code>CLAUDE.md</code> in the group folder is the
+        agent&rsquo;s instructions: who it is, what it answers, and how it cites.
+        Keep it short &mdash; every line is re-read each turn.
+      </p>
+      <pre><code>cat &gt; /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/CLAUDE.md &lt;&lt;'EOF'
+# Marble Taxonomy Chat
+
+I am the "Talk to the Taxonomy" assistant - a public web chat over the
+Marble Skill Taxonomy v1.
+
+## What I do
+
+I answer questions about what children learn and in what order by
+searching `~/taxonomy/*.json`. I trace prerequisite chains, list what a
+topic unlocks, filter by subject/age, keep answers tight, and cite topic
+names.
+
+## Data
+
+Data (c) Marble (withmarble.com), CC BY-SA 4.0.
+
+## Running
+
+I run on a small model and reply concisely and friendly to visitors via
+the web chat widget.
+EOF</code></pre>
+      <p>
+        Identity lives here, in <code>CLAUDE.md</code> &mdash; this product
+        carries no <code>PERSONA.md</code>. Add one only if you want a distinct
+        voice register on top of the instructions.
+      </p>
+
+      <h2>4. pin the model to Haiku</h2>
+      <p>
+        A public lookup bot doesn&rsquo;t need a frontier model. Pin it to Haiku
+        in the group settings &mdash;
+        <code>/dash/groups/&lt;folder&gt;/settings</code> &rarr; <strong>Model</strong>
+        &rarr; <em>Claude Haiku 4.5</em>. That writes
+        <code>groups.config.$.model</code>, which routd forwards to the container
+        as <code>ARIZUKO_MODEL</code> on the next turn.
+      </p>
+      <p>
+        Headless equivalent (writes the same JSON the dropdown does, on the
+        owning daemon&rsquo;s DB):
+      </p>
+      <pre><code>sqlite3 /srv/data/arizuko_&lt;instance&gt;/store/routd.db \
+  "UPDATE groups SET config = json_set(COALESCE(config,'{}'), '\$.model', 'claude-haiku-4-5-20251001') WHERE folder='&lt;folder&gt;';"</code></pre>
+
+      <h2>5. trim the skills</h2>
+      <p>
+        A fresh container spawns per turn with no prompt cache, so every seeded
+        skill&rsquo;s <code>SKILL.md</code> is re-indexed into the system prompt
+        each answer. A read-only taxonomy bot needs almost none of the ~95 stock
+        skills. Uncheck all but a small keep-set at
+        <code>/dash/groups/&lt;folder&gt;/settings</code> &mdash; keep
+        <code>self</code>, <code>migrate</code>, and <code>hello</code>; disable
+        the rest. Smaller prompt, faster turns.
+      </p>
+      <div class="callout">
+        <strong>How disabling works.</strong> The dashboard drops a
+        <code>.disabled</code> marker in each unchecked skill&rsquo;s dir under
+        <code>groups/&lt;folder&gt;/.claude/skills/</code>. On the next spawn,
+        <code>seedSkills</code> removes that skill&rsquo;s <code>SKILL.md</code>
+        so Claude Code stops indexing it. Re-enable is one <code>rm</code> of the
+        marker. Auto-migrate is unaffected &mdash; it rides the
+        <code>MIGRATION_VERSION</code> file and the force-synced
+        <code>migrate</code> skill, both independent of the markers.
+      </div>
+
+      <h2>6. mint the public chat link</h2>
+      <pre><code>arizuko token &lt;instance&gt; issue chat &lt;folder&gt; public
+# returns: https://&lt;WEB_HOST&gt;/chat/&lt;token&gt;/</code></pre>
+      <p>
+        That URL is the whole front door &mdash; open it in a browser and ask a
+        question, or embed the widget in any page with the
+        <a href="../../howto/chat-sdk.html">chat SDK</a>. No adapter, no login.
+      </p>
+
+      <h2>7. verify</h2>
+      <ul>
+        <li><code>curl -sI https://&lt;WEB_HOST&gt;/chat/&lt;token&gt;/ | head -1</code> returns <code>200</code>.</li>
+        <li>Ask a question in the widget; a reply lands in a few seconds.</li>
+        <li>Confirm the model actually took: <code>sudo journalctl -u arizuko_&lt;instance&gt; --since "5 min ago" | grep '&lt;folder&gt;' | grep 'models='</code> shows <code>models=claude-haiku-4-5-20251001</code>, not the opus default.</li>
+        <li>Check for red flags: <code>&hellip; | grep -iE 'error|fatal'</code>.</li>
+      </ul>
+
+      <h2>tuning</h2>
+      <ul>
+        <li>
+          <strong>Answer length and citation.</strong> Edit the group
+          <code>CLAUDE.md</code>. A public bot wants short, cited answers &mdash;
+          say so explicitly there.
+        </li>
+        <li>
+          <strong>Latency.</strong> The two biggest costs are the fresh-container
+          cold start (~3.5s) and the number of sequential <code>jq</code>
+          round-trips the agent makes per answer. Steps 4 and 5 cut the model
+          and prompt size; to cut round-trips, pre-digest the dataset (a
+          summary file, precomputed indices) so common questions answer in one
+          or two calls instead of ten.
+        </li>
+        <li>
+          <strong>Rate limiting.</strong> Set <code>max_children</code> on the
+          group at <code>/dash/groups/&lt;folder&gt;/settings</code> to cap
+          concurrent turns &mdash; each visitor question is one container.
+        </li>
+        <li>
+          <strong>Swap the dataset.</strong> Nothing here is Marble-specific.
+          Replace <code>taxonomy/*.json</code> with any dataset, rewrite the
+          <code>CLAUDE.md</code> to describe it, and the same bot answers over
+          your data.
+        </li>
+      </ul>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li><a href="../../products/marble/">Taxonomy chat (Marble) &mdash; intro</a></li>
+        <li><a href="../../concepts/tokens.html">tokens</a> &mdash; web-chat and hook token minting</li>
+        <li><a href="../../howto/chat-sdk.html">chat SDK</a> &mdash; embedding the chat widget</li>
+        <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
+        <li><a href="../supermarket/">supermarket agent</a> &mdash; the live-web-search sibling of this shape</li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="index.html">&larr; Taxonomy chat (Marble)</a>
+        <a rel="next" href="../">Products &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/marble/setup.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Taxonomy chat (Marble) — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/" aria-current="page">Taxonomy chat (Marble)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; Taxonomy chat (Marble)</p>
+      <h1>Taxonomy chat (Marble)</h1>
+
+
+
+      <p class="lede">
+        &ldquo;What does a child need to learn before fractions?&rdquo; &mdash;
+        the agent traces the prerequisite graph of an open education dataset
+        and answers in plain words. One folder, one bundled dataset, a public
+        chat widget anyone can open.
+      </p>
+
+      <h2>system shape</h2>
+      <p>
+        This is a read-only knowledge bot over a fixed dataset. Where the
+        <a href="../supermarket/">supermarket agent</a> searches the live web
+        each turn, this one queries a dataset that ships <em>inside</em> the
+        folder &mdash; no outbound fetch for data, no per-user state. The six
+        primitives at their leanest:
+      </p>
+      <ul>
+        <li>
+          <strong>Event.</strong> A message from the public web-chat widget
+          lands as a row in the folder&rsquo;s inbox. No platform adapter, no
+          login &mdash; a <code>/chat/&lt;token&gt;/</code> link is the whole
+          front door.
+        </li>
+        <li>
+          <strong>Routing.</strong> One rule maps the widget&rsquo;s JID to the
+          single <code>marble</code> folder. Every visitor shares it.
+        </li>
+        <li>
+          <strong>Agent (folder-as-data).</strong> The folder holds a
+          <code>CLAUDE.md</code> (who the agent is, how to answer, how to cite)
+          and a <code>taxonomy/</code> directory of JSON &mdash;
+          <code>topics.json</code>, <code>dependencies.json</code>,
+          <code>clusters.json</code>. The agent answers by running
+          <code>jq</code> over those files: trace a prerequisite chain, list
+          what a topic unlocks, filter by subject or age.
+        </li>
+        <li>
+          <strong>Authorization.</strong> A single public chat token. Anyone
+          with the link can ask; no per-user ACL rows.
+        </li>
+        <li>
+          <strong>Turn.</strong> One ephemeral container per question. The
+          agent reads the JSON, walks the graph, and replies with topic names
+          cited. Nothing is written back.
+        </li>
+        <li>
+          <strong>State.</strong> The shared DB (per-turn message rows) and the
+          bundled dataset on disk. No per-user sub-folders, no memory files.
+          The dataset is reference, not scratch &mdash; nothing accumulates
+          between visitors.
+        </li>
+      </ul>
+
+      <h2>example</h2>
+      <pre><code>web chat &middot; public link
+
+  visitor  what does a child need before fractions?
+  marble   Before fractions, these foundations come first:
+           whole-number place value, equal sharing / partitioning,
+           multiplication as equal groups, and division as sharing.
+           Each is a prerequisite edge into "Introduce fractions".
+
+  visitor  what's the deepest chain in the taxonomy?
+  marble   Understanding Earth's atmosphere (for 10-11-year-olds)
+           requires learning 9 other topics first - the longest
+           prerequisite chain in the graph.</code></pre>
+      <p>
+        The taxonomy behind this example is the Marble Skill Taxonomy v1:
+        1,590 K&ndash;5 micro-topics wired into a 3,221-edge prerequisite graph
+        across 8 subjects. It is the open-data twin of the interactive
+        curriculum graph on <a href="https://withmarble.com/curriculum">withmarble.com/curriculum</a>
+        &mdash; same dataset, an agent you can talk to instead of a browser you
+        click.
+      </p>
+
+      <h2>where this sits &mdash; a bundled-dataset bot</h2>
+      <p>
+        Like the supermarket agent, this is the minimal end of the spectrum:
+      </p>
+      <ul>
+        <li>No per-user memory. Every visitor starts fresh.</li>
+        <li>No folder tree. One level, one folder.</li>
+        <li>No grants table. The chat token is the fence.</li>
+        <li>No web-search egress. The dataset is on disk; the box never
+          leaves for data, only for the model call.</li>
+      </ul>
+      <p>
+        The one thing it adds over the supermarket shape is a bundled
+        knowledge base and a deliberately cheap model. A public bot answering
+        lookup questions doesn&rsquo;t need a frontier model &mdash; pin it to
+        <a href="../../reference/mcp.html">Haiku</a> and trim its skills, and
+        each answer costs little and lands fast. The
+        <a href="setup.html">setup guide</a> walks both tuning steps.
+      </p>
+
+      <h2>data &amp; trust</h2>
+      <ul>
+        <li>
+          <strong>Your server.</strong> The dataset and message history live
+          under <code>/srv/data/arizuko_&lt;name&gt;/</code>. Backup is one
+          <code>tar</code>.
+        </li>
+        <li>
+          <strong>One outbound path.</strong> Anthropic, for model calls. There
+          is no web-search egress &mdash; the taxonomy is bundled, so the agent
+          answers from the folder, not the internet.
+        </li>
+        <li>
+          <strong>No user data collected.</strong> No per-user memory, no linked
+          identities, no email. The only persistent state is the message log.
+        </li>
+        <li>
+          <strong>Licensing.</strong> The Marble Skill Taxonomy is
+          &copy; Marble (<a href="https://withmarble.com">withmarble.com</a>),
+          released under CC BY-SA 4.0. Keep the attribution in the
+          agent&rsquo;s <code>CLAUDE.md</code> and cite it in replies.
+        </li>
+      </ul>
+
+      <h2>setup</h2>
+      <pre><code>arizuko group &lt;instance&gt; add web:&lt;folder&gt; &lt;folder&gt;   # register the public group
+cp taxonomy/*.json /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy/
+# pin the model to Haiku + trim skills at /dash/groups/&lt;folder&gt;/settings
+arizuko token &lt;instance&gt; issue chat &lt;folder&gt; public    # mint the public chat link</code></pre>
+      <p>
+        Full step-by-step &mdash; register the group, drop in a dataset, write
+        the brain, pin the model, trim skills, mint the link &mdash; is in the
+        <a href="setup.html">operator setup guide</a>.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../concepts/primitives.html">primitives</a> &mdash; the
+          minimal recomposition: one folder (Agent) with a bundled dataset,
+          one route (Routing), a jq-over-JSON Turn, no per-user State
+        </li>
+        <li>
+          <a href="../../concepts/tokens.html">web chat tokens</a> &mdash; mint
+          a public widget URL without a platform adapter
+        </li>
+        <li>
+          <a href="../supermarket/">supermarket agent</a> &mdash; the same
+          minimal shape, but searching the live web instead of a bundled
+          dataset
+        </li>
+        <li>
+          <a href="../../howto/chat-sdk.html">chat SDK</a> &mdash; embed the
+          widget in any page
+        </li>
+        <li>
+          <a href="../../howto/">deployment guide</a> &mdash; first instance,
+          first channel, first token
+        </li>
+      </ul>
+
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../company-brain/setup.html">&larr; Company brain setup</a>
+        <a rel="next" href="setup.html">Taxonomy chat setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/marble/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>
