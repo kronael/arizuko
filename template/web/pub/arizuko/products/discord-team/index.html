@@ -80,9 +80,11 @@
           individuals can have overrides.
         </li>
         <li>
-          <strong>Linked identities.</strong> GitHub, Google, Slack, and
-          Telegram logins resolve to the same user record so the same person
-          reaches the same memory and grants across surfaces.
+          <strong>Linked identities.</strong> Channel use needs no sign-in
+          &mdash; guild membership is the fence. A member who signs in at
+          <code>/auth/login</code> with GitHub, Google, or Discord links that
+          identity to one user record, so the same person reaches the same
+          memory and grants from the web chat or a DM.
         </li>
       </ul>
 
@@ -101,16 +103,72 @@
           replies stay in-thread.
         </li>
         <li>
-          <strong>Operator dashboard.</strong> <code>/dash/</code> for grants,
-          routing, scheduled tasks, admission queue, and per-channel health.
-          Members with elevated privileges see their own usage and can manage
-          their workspace.
-        </li>
-        <li>
           <strong>Customisable, upgradable in place.</strong> Persona, skills,
           and channel rules are plain Markdown edited via WebDAV or chat. Each
           release ships migrations the agent applies as a per-group 3-way merge,
           preserving local edits.
+        </li>
+      </ul>
+      <p>
+        This page is the Discord twin of the
+        <a href="../slack-team/">Slack team agent</a> &mdash; same folder
+        model, same grants, same web workspace. The three platform deltas
+        (no AI sidebar, mention syntax, JID shapes) are listed in that
+        page&rsquo;s <em>same shape on Discord</em> section.
+      </p>
+
+      <h2>example: shared thread, member-scoped state</h2>
+      <pre><code>#dev-chat &middot; thread
+
+  alice  @bot summarize the fix from the cold-start runbook for this thread
+  bot    Bundle growth after deploy is coming from broad SDK imports.
+         Recommended: switch back to per-service imports.
+         source: /docs/runbooks/lambda-cold-start.md:67
+
+  bob    @bot save that conclusion to my notes
+  bot    Wrote notes/lambda-cold-start.md in your workspace.
+
+  alice  @bot remember: prefer per-service imports for any new lambda
+  bot    Saved to your memory.
+</code></pre>
+      <p>
+        Same thread, same channel <code>CLAUDE.md</code>, different resolved
+        member state. The answer is visible to the team; Bob&rsquo;s write lands
+        in Bob&rsquo;s workspace; Alice&rsquo;s preference lands in her memory
+        file. Shared deliberation, member-scoped state.
+      </p>
+
+      <h2>how members use it</h2>
+      <ul>
+        <li>
+          <strong>In a channel.</strong> The bot stays quiet by default.
+          <code>@bot</code> mentions fire a turn. With the recommended
+          routing rule (see setup), channel chatter lands in
+          <code>#observe</code> &mdash; agent reads for context but
+          doesn&rsquo;t reply unless called on.
+        </li>
+        <li>
+          <strong>In a thread.</strong> Replying to one of the bot&rsquo;s
+          messages counts as a mention &mdash; the agent answers in the
+          same thread, with the thread&rsquo;s history as context.
+        </li>
+        <li>
+          <strong>In a DM.</strong> Every message is for the bot. No
+          mention needed; replies come back in the same DM.
+        </li>
+        <li>
+          <strong>File uploads.</strong> Drop a file on the bot or in a
+          mentioned thread. The agent reads it and replies in-thread.
+        </li>
+        <li>
+          <strong>Web interface.</strong> Sign in at
+          <code>/auth/login</code> to get a personal chat URL. Same agent,
+          same memory, browser-based.
+        </li>
+        <li>
+          <strong>WebDAV workspace.</strong> Mount your personal cloud at
+          <code>/dav/&lt;your-folder&gt;/</code>. Access agent outputs, notes,
+          and uploads from any file manager.
         </li>
       </ul>
 
@@ -178,66 +236,11 @@
 
       <h3>general team assistant</h3>
       <p>
-        The default configuration: a capable assistant that handles Q&amp;A,
-        summarization, file processing, and task tracking for a team channel.
+        The default configuration: Q&amp;A, summarization, file processing,
+        and task tracking for a team channel.
       </p>
 
-      <h2>example: shared thread, member-scoped state</h2>
-      <pre><code>#dev-chat &middot; thread
-
-  alice  @bot summarize the fix from the cold-start runbook for this thread
-  bot    Bundle growth after deploy is coming from broad SDK imports.
-         Recommended: switch back to per-service imports.
-         source: /docs/runbooks/lambda-cold-start.md:67
-
-  bob    @bot save that conclusion to my notes
-  bot    Wrote notes/lambda-cold-start.md in your workspace.
-
-  alice  @bot remember: prefer per-service imports for any new lambda
-  bot    Saved to your memory.
-</code></pre>
-      <p>
-        Same thread, same channel <code>CLAUDE.md</code>, different resolved
-        member state. The answer is visible to the team; Bob&rsquo;s write lands
-        in Bob&rsquo;s workspace; Alice&rsquo;s preference lands in her memory
-        file. Shared deliberation, member-scoped state.
-      </p>
-
-      <h2>how members use it</h2>
-      <ul>
-        <li>
-          <strong>In a channel.</strong> The bot stays quiet by default.
-          <code>@bot</code> mentions fire a turn. With the recommended
-          routing rule (see setup), channel chatter lands in
-          <code>#observe</code> &mdash; agent reads for context but
-          doesn&rsquo;t reply unless called on.
-        </li>
-        <li>
-          <strong>In a thread.</strong> Replying to one of the bot&rsquo;s
-          messages counts as a mention &mdash; the agent answers in the
-          same thread, with the thread&rsquo;s history as context.
-        </li>
-        <li>
-          <strong>In a DM.</strong> Every message is for the bot. No
-          mention needed; replies come back in the same DM.
-        </li>
-        <li>
-          <strong>File uploads.</strong> Drop a file on the bot or in a
-          mentioned thread. The agent reads it and replies in-thread.
-        </li>
-        <li>
-          <strong>Web interface.</strong> Sign in at
-          <code>/auth/login</code> to get a personal chat URL. Same agent,
-          same memory, browser-based.
-        </li>
-        <li>
-          <strong>WebDAV workspace.</strong> Mount your personal cloud at
-          <code>/dav/&lt;your-folder&gt;/</code>. Access agent outputs, notes,
-          and uploads from any file manager.
-        </li>
-      </ul>
-
-      <h2>data and trust</h2>
+      <h2>data &amp; trust</h2>
       <ul>
         <li>
           <strong>Your server.</strong> Conversation history, channel files,
@@ -321,7 +324,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/discord-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

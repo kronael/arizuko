@@ -27,6 +27,7 @@
             <li><a href="../discord-team/">Discord team agent</a></li>
             <li><a href="../reality/">Reality agent</a></li>
             <li><a href="../company-brain/" aria-current="page">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
           </ul>
         </li>
       </ul>
@@ -56,13 +57,17 @@
 cd /srv/data/arizuko_corp
 $EDITOR .env</code></pre>
       <pre><code>ASSISTANT_NAME=corp-brain
-AUTH_SECRET=&lt;openssl rand -hex 32&gt;
 WEB_HOST=brain.example.com
 ANTHROPIC_API_KEY=sk-ant-…
 
 # Slack (recommended primary channel)
 SLACK_BOT_TOKEN=xoxb-…
 SLACK_SIGNING_SECRET=…</code></pre>
+      <p>
+        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
+        and <code>SECRETS_KEY</code> in <code>.env</code> &mdash; leave those
+        alone.
+      </p>
 
       <h2>2. design the folder tree</h2>
       <p>
@@ -84,23 +89,21 @@ corp/sales/     # deal notes + CRM webhook</code></pre>
       <h2>3. create the folders and route rules</h2>
       <p>
         Create each group folder with <code>arizuko group corp add &lt;jid&gt; &lt;folder&gt;</code>.
-        The <code>&lt;jid&gt;</code> is the source JID pattern that will route to this folder.
-        Routes are added automatically. For a catch-all intake folder, route everything
-        that doesn&rsquo;t match a more specific rule:
+        The <code>&lt;jid&gt;</code> is the source chat that should land in
+        this folder; the route row is written for you.
       </p>
       <pre><code># create folders (jid first, then folder)
-arizuko group corp add 'slack:T-acme/channel/C-eng-oncall' corp/eng/sre/oncall
-arizuko group corp add 'slack:T-acme/channel/C-eng'        corp/eng
-arizuko group corp add 'slack:T-acme/channel/C-pm'         corp/pm
-arizuko group corp add 'slack:T-acme/channel/C-sales'      corp/sales</code></pre>
+arizuko group corp add 'slack:T-acme/channel/C0ONCALL' corp/eng/sre/oncall
+arizuko group corp add 'slack:T-acme/channel/C0ENG'    corp/eng
+arizuko group corp add 'slack:T-acme/channel/C0PM'     corp/pm
+arizuko group corp add 'slack:T-acme/channel/C0SALES'  corp/sales
+arizuko group corp add 'web:corp/intake'               corp/intake</code></pre>
       <p>
-        Then wire the remaining route rules (Sentry, Linear, CRM, and the catch-all).
-        More specific rules get a lower <code>seq</code> so they win:
+        Then the catch-all: an empty match expression matches every message,
+        so anything no other rule claims lands in the intake folder. Hook
+        routes come in step 5, once the tokens exist:
       </p>
-      <pre><code>arizuko route corp add 'chat_jid=hook:*/sentry/*' corp/eng/sre --seq -10
-arizuko route corp add 'chat_jid=hook:*/linear/*' corp/pm      --seq -5
-arizuko route corp add 'chat_jid=hook:*/crm/*'    corp/sales   --seq 0
-arizuko route corp add '*'                        corp/intake  --seq 10</code></pre>
+      <pre><code>arizuko route corp add '' corp/intake --seq 10</code></pre>
       <p>
         For bulk or GitOps-style edits, declare the same rows in a YAML
         manifest and <code>arizuko apply corp corp-routes.yaml</code> instead.
@@ -146,16 +149,20 @@ arizuko route corp add '*'                        corp/intake  --seq 10</code></
 
       <h2>5. wire webhook sources</h2>
       <p>
-        Mint a hook token for each external source:
+        Mint a hook token for each external source, then route the
+        token&rsquo;s JID (<code>hook:&lt;folder&gt;/&lt;label&gt;</code>)
+        to the folder that should handle it:
       </p>
       <pre><code># Sentry alerts
-arizuko token corp issue webhook corp/eng/sre sentry
-# https://brain.example.com/hook/&lt;token&gt;
+arizuko token corp issue webhook corp/eng/sre/oncall sentry
+# webhook URL: https://brain.example.com/hook/&lt;token&gt;
 # Paste into Sentry: Organization Settings → Integrations → Webhooks
+arizuko route corp add 'chat_jid=hook:corp/eng/sre/oncall/sentry' corp/eng/sre/oncall --seq -10
 
 # GitHub
-arizuko token corp issue webhook corp/eng/review github
-# Paste into GitHub repo → Settings → Webhooks</code></pre>
+arizuko token corp issue webhook corp/eng github
+# Paste into GitHub repo → Settings → Webhooks
+arizuko route corp add 'chat_jid=hook:corp/eng/github' corp/eng --seq -5</code></pre>
       <p>
         The body arrives verbatim in the target folder; parsing is skill
         work on the agent side. See
@@ -167,10 +174,11 @@ arizuko token corp issue webhook corp/eng/review github
       <p>
         Scheduled tasks fire a Turn in a target folder on a cron schedule
         &mdash; no host cron, no systemd timer. The scheduler
-        (<code>timed</code>) is part of the stack. There is no CLI command
-        for scheduling tasks; add them in the
-        <strong>dashd tasks admin</strong> at <code>/dash/</code>, or ask
-        the agent to schedule a recurring task:
+        (<code>timed</code>) is part of the stack. There is no dedicated CLI
+        subcommand for tasks; add them in the
+        <strong>dashd tasks admin</strong> at <code>/dash/</code>, declare
+        <code>scheduled_tasks</code> rows in a manifest for
+        <code>arizuko apply</code>, or ask the agent:
       </p>
       <pre><code>/new schedule briefs
 @corp-brain schedule a recurring task:
@@ -205,7 +213,7 @@ arizuko token corp issue webhook corp/eng/review github
       <ul>
         <li>Send a test Sentry webhook to the hook URL; check <code>sudo journalctl -u arizuko_corp | grep sentry</code> for the ingest log line.</li>
         <li>Post a message in the wired Slack channel; the agent should reply or observe (depending on your route).</li>
-        <li>Trigger a timed brief manually from the dashd tasks admin at <code>/dash/</code> &rarr; Tasks &rarr; Run now.</li>
+        <li>Test a brief without waiting for cron: ask the agent in chat to run the brief prompt once now, or temporarily set the task&rsquo;s cron to the next minute in <code>/dash/</code> &rarr; Tasks.</li>
         <li>Check <code>/dash/</code> &rarr; Groups to see each folder with its route and timed tasks listed.</li>
       </ul>
 
@@ -213,16 +221,16 @@ arizuko token corp issue webhook corp/eng/review github
       <p>
         By default, each folder&rsquo;s agent can read its own
         <code>facts/</code>, write its diary, and reply on the
-        configured channel. To add cross-folder read (e.g. the
-        triage inbox can read the SRE runbook folder):
+        configured channel; nothing crosses folders. The CLI grant is
+        admin-scoped &mdash; it gives a person admin over a folder subtree
+        (<code>'**'</code> makes them an operator):
       </p>
-      <pre><code>arizuko group corp grant 'corp/intake' 'read:corp/eng/sre/facts/**'</code></pre>
+      <pre><code>arizuko group corp grant google:cto@acme.com 'corp/**'</code></pre>
       <p>
-        Or grant a Slack user access to query a specific folder:
-      </p>
-      <pre><code>arizuko group corp grant 'slack:user/U123' 'interact:corp/pm/**'</code></pre>
-      <p>
-        Full grant rule syntax: <a href="../../concepts/grants.html">grants</a>.
+        Finer rules &mdash; who may <code>interact</code> in a folder, which
+        MCP tools an agent may call, deny effects, cross-folder read &mdash;
+        are grant rows managed from <code>/dash/</code> &rarr; Grants.
+        Full rule syntax: <a href="../../concepts/grants.html">grants</a>.
       </p>
 
       <h2>10. observe-mode ingest</h2>
@@ -236,7 +244,7 @@ arizuko token corp issue webhook corp/eng/review github
         Add the observe route (the <code>#observe</code> fragment on the
         target makes the agent watch without replying):
       </p>
-      <pre><code>arizuko route corp add 'chat_jid=slack:*/channel/C-general/*' 'corp/eng#observe' --seq 5</code></pre>
+      <pre><code>arizuko route corp add 'chat_jid=slack:*/channel/C0GENERAL' 'corp/eng#observe' --seq 5</code></pre>
       <p>
         You can also add it in the dashd routes admin UI at
         <code>/dash/</code>, or declare it in a YAML manifest and
@@ -252,8 +260,8 @@ arizuko token corp issue webhook corp/eng/review github
       <dl>
         <dt><strong>Webhook arrives but no Turn fires.</strong></dt>
         <dd>Check the route table matches the hook JID exactly
-        (<code>hook:corp/eng/sre/sentry</code> for a token issued to
-        <code>corp/eng/sre</code> with source <code>sentry</code>). Run
+        (<code>hook:corp/eng/sre/oncall/sentry</code> for a token issued to
+        <code>corp/eng/sre/oncall</code> with label <code>sentry</code>). Run
         <code>arizuko get corp routes</code> and compare against the
         <code>chat_jid</code> in the journalctl ingest log line.</dd>
 
@@ -290,7 +298,7 @@ arizuko token corp issue webhook corp/eng/review github
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/company-brain/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

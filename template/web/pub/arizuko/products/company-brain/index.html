@@ -27,6 +27,7 @@
             <li><a href="../discord-team/">Discord team agent</a></li>
             <li><a href="../reality/">Reality agent</a></li>
             <li><a href="../company-brain/" aria-current="page">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
           </ul>
         </li>
       </ul>
@@ -154,15 +155,17 @@
   sales/            # deal summaries, CRM webhook ingest
   finance/          # budget alerts, expense webhook</code></pre>
       <p>Route table shape (excerpt):</p>
-      <pre><code>seq  match                                           target
--10  chat_jid=hook:*/sentry/*                        corp/eng/sre/oncall
--5   chat_jid=slack:*/channel/C-eng-oncall/*         corp/eng/sre/oncall
-0    chat_jid=slack:*/channel/C-eng/*                corp/eng#observe
-5    chat_jid=hook:*/github/* verb=pr                corp/eng/review
-10   chat_jid=*                                      corp/intake</code></pre>
+      <pre><code>seq  match                                        target
+-10  chat_jid=hook:corp/eng/sre/oncall/sentry     corp/eng/sre/oncall
+-5   room=T-acme/channel/C0ONCALL                 corp/eng/sre/oncall
+0    room=T-acme/channel/C0ENG                    corp/eng#observe
+5    chat_jid=hook:corp/eng/github                corp/eng/review
+10   (empty match — catches everything)           corp/intake</code></pre>
       <p>
-        Add each row with <code>arizuko route corp add &lt;match&gt; &lt;target&gt; --seq N</code>
-        (see <a href="setup.html">setup</a>); lower <code>seq</code> wins.
+        <code>arizuko group add</code> writes the Slack rows for you; hooks
+        and the catch-all are one
+        <code>arizuko route corp add &lt;match&gt; &lt;target&gt; --seq N</code>
+        each (see <a href="setup.html">setup</a>). Lower <code>seq</code> wins.
       </p>
       <p>
         Timed tasks (examples — schedule these in the dashd tasks admin or by
@@ -237,21 +240,24 @@
       <h2>setup</h2>
       <pre><code>arizuko create corp
 cd /srv/data/arizuko_corp
-$EDITOR .env             # set SLACK_BOT_TOKEN, ANTHROPIC_API_KEY, channel secrets
-arizuko run corp
+$EDITOR .env             # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
 
-# create team folders (jid first, then folder)
-arizuko group corp add 'slack:T-acme/channel/C-eng-oncall' corp/eng/sre/oncall
-arizuko group corp add 'hook:*/sentry/*'                   corp/eng/sre/oncall
+# create team folders (jid first, then folder; route written for you)
+arizuko group corp add 'slack:T-acme/channel/C0ONCALL' corp/eng/sre/oncall
+
+# webhook intake: mint a hook token, route its JID
+arizuko token corp issue webhook corp/eng/sre/oncall sentry
+arizuko route corp add 'chat_jid=hook:corp/eng/sre/oncall/sentry' corp/eng/sre/oncall --seq -10
 
 # seed each team's knowledge base
-$EDITOR /srv/data/arizuko_corp/groups/corp/eng/sre/facts/runbooks/*.md
+$EDITOR groups/corp/eng/sre/oncall/facts/runbooks/*.md
+arizuko run corp
 
 # schedule briefs in dashd tasks admin (/dash/) or ask the agent:
 # "schedule a task: every weekday at 09:00, write a daily standup summary"</code></pre>
       <p>
         Full step-by-step is in the
-        <a href="../../products/company-brain/setup.html">operator setup guide</a>
+        <a href="setup.html">operator setup guide</a>
         &mdash; folder tree design, route table, timed tasks, WebDAV mounts,
         and ingest from Slack, email, and webhooks.
       </p>
@@ -302,7 +308,7 @@ $EDITOR /srv/data/arizuko_corp/groups/corp/eng/sre/facts/runbooks/*.md
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/company-brain/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-06">2026-06-06</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -57,8 +57,15 @@
       <pre><code>arizuko create travel --product trip
 cd /srv/data/arizuko_travel
 $EDITOR .env</code></pre>
+      <p>
+        The <code>--product trip</code> flag seeds the <code>main</code>
+        group from <code>ant/examples/trip/</code>: May&rsquo;s
+        <code>PERSONA.md</code>, the skill set, and a starter
+        <code>facts/preferences.md</code>. <code>arizuko create</code> also
+        writes <code>.env</code> with a generated <code>AUTH_SECRET</code>
+        and <code>SECRETS_KEY</code>; add the rest:
+      </p>
       <pre><code>ASSISTANT_NAME=may
-AUTH_SECRET=&lt;openssl rand -hex 32&gt;
 WEB_HOST=travel.example.com
 ANTHROPIC_API_KEY=sk-ant-…
 TELEGRAM_BOT_TOKEN=…
@@ -68,11 +75,10 @@ CODEX_API_KEY=…</code></pre>
       <p>
         May reads <code>facts/preferences.md</code> at the start of every trip
         planning session. Without it she has no baseline &mdash; she&rsquo;ll
-        ask the same questions every time. Populate it before the first
-        message:
+        ask the same questions every time. Replace the starter file with your
+        own profile before the first message:
       </p>
-      <pre><code>mkdir -p /srv/data/arizuko_travel/groups/may/facts
-cat &gt; /srv/data/arizuko_travel/groups/may/facts/preferences.md &lt;&lt;'EOF'
+      <pre><code>cat &gt; /srv/data/arizuko_travel/groups/main/facts/preferences.md &lt;&lt;'EOF'
 # Travel Preferences
 
 ## Profile
@@ -99,26 +105,33 @@ EOF</code></pre>
         conversation, using the <code>facts</code> skill to write changes back.
       </p>
 
-      <h2>3. run</h2>
+      <h2>3. wire the route</h2>
+      <p>
+        <code>arizuko create</code> writes no routes. Send your Telegram
+        messages to the <code>main</code> group:
+      </p>
+      <pre><code>arizuko route travel add 'platform=telegram' main</code></pre>
+
+      <h2>4. run</h2>
       <pre><code>arizuko run travel</code></pre>
 
-      <h2>4. verify</h2>
+      <h2>5. verify</h2>
       <ul>
         <li>Send a trip brief via Telegram: &ldquo;10 days in Japan, late October, food focus&rdquo;. May should ask clarifying questions before researching.</li>
-        <li>If she goes straight to research without clarifying, the preferences file was seeded correctly but check that the <code>PERSONA.md</code> from <code>ant/examples/trip/SOUL.md</code> is in place at <code>groups/may/</code> &mdash; the clarify-first behavior is persona-driven, not a hard rule.</li>
+        <li>If she goes straight to research without clarifying, check that <code>groups/main/PERSONA.md</code> (seeded from <code>ant/examples/trip/</code>) is in place &mdash; the clarify-first behavior is persona-driven, not a hard rule.</li>
         <li>If oracle doesn&rsquo;t run, check <code>sudo journalctl -u arizuko_travel | grep -i codex</code> &mdash; a missing key surfaces there.</li>
       </ul>
 
-      <h2>5. tune</h2>
+      <h2>6. tune</h2>
       <p>
         The preferences file is the main tuning surface. Edit it directly or
         over WebDAV at
-        <code>https://travel.example.com/dav/may/facts/preferences.md</code>.
+        <code>https://travel.example.com/dav/main/facts/preferences.md</code>.
         Changes take effect on the next planning session &mdash; no restart.
       </p>
       <p>
         To adjust May&rsquo;s voice or the structure of the itinerary output,
-        edit <code>groups/may/CLAUDE.md</code> (allowed tools, output format,
+        edit <code>groups/main/CLAUDE.md</code> (allowed tools, output format,
         citation rules) or the <code>PERSONA.md</code> (voice register,
         what she does and doesn&rsquo;t do).
       </p>
@@ -127,7 +140,7 @@ EOF</code></pre>
         <strong>Trip archive grows automatically.</strong> After delivering
         an itinerary May stores it at
         <code>facts/trips/YYYY-&lt;dest&gt;.md</code>. You can browse it over
-        WebDAV at <code>/dav/may/facts/trips/</code> or ask May directly:
+        WebDAV at <code>/dav/main/facts/trips/</code> or ask May directly:
         &ldquo;What did we plan for Lisbon?&rdquo;
       </div>
 
@@ -147,7 +160,7 @@ EOF</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/trip/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

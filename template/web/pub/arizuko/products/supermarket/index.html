@@ -72,15 +72,15 @@
           date lags, members-only prices, etc.).
         </li>
         <li>
-          <strong>Authorization.</strong> A single tier-1 grant: anyone who
-          reaches the chat endpoint can ask. No per-user ACL rows.
+          <strong>Authorization.</strong> The route is the fence: anyone who
+          reaches the bot or the chat URL can ask. No per-user ACL rows.
         </li>
         <li>
           <strong>Turn.</strong> One ephemeral container per query. The agent
-          reads <code>facts/retailers.md</code>, runs <code>web_search</code>
-          against the named retailers, and synthesises a reply. Results are
-          cached in <code>facts/cache/</code> by item + date; a second query
-          for the same item today skips the search.
+          reads <code>facts/retailers.md</code>, searches the named retailers
+          on the live web, and writes a reply. Results are cached in
+          <code>facts/cache/</code> by item + date; a second query for the
+          same item today skips the search.
         </li>
         <li>
           <strong>State.</strong> The shared DB (per-turn message rows) and
@@ -91,9 +91,9 @@
       </ul>
       <p>
         Ten users or ten thousand &mdash; the structure doesn&rsquo;t change.
-        The limit is per-turn container slots (controlled by
-        <code>max_children</code> on the root group), not registered users.
-        There is no registration to do.
+        The limit is concurrent container slots
+        (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5), not registered
+        users. There is no registration to do.
       </p>
 
       <h2>example</h2>
@@ -157,13 +157,16 @@
       <pre><code>arizuko create shop
 cd /srv/data/arizuko_shop
 $EDITOR .env             # set TELEGRAM_BOT_TOKEN or leave blank for web-chat only
-$EDITOR groups/supermarket/facts/retailers.md   # seed retailer list
+arizuko group shop add web:supermarket supermarket   # register the folder
+arizuko route shop add '' supermarket                # catch-all: every channel
+$EDITOR groups/supermarket/facts/retailers.md        # seed retailer list
 arizuko run shop</code></pre>
       <p>
         Full step-by-step is in the
-        <a href="../../products/supermarket/setup.html">operator setup guide</a>.
-        A web-chat token gives you a widget URL you can embed anywhere without
-        any platform adapter &mdash; good for a quick internal deployment.
+        <a href="setup.html">operator setup guide</a>.
+        A web-chat token gives you a chat URL you can open or embed anywhere
+        without any platform adapter &mdash; good for a quick internal
+        deployment.
       </p>
 
       <h2>go deeper</h2>
@@ -183,8 +186,8 @@ arizuko run shop</code></pre>
           egress allowlist for retailer domains
         </li>
         <li>
-          <a href="../../concepts/skills.html">web skill</a> &mdash; the
-          <code>web_search</code> tool the agent uses; how to enable it
+          <a href="../../concepts/skills.html">web skill</a> &mdash; how the
+          agent searches the live web; how to enable it
         </li>
         <li>
           <a href="../../concepts/tokens.html">web chat tokens</a> &mdash;
@@ -207,7 +210,7 @@ arizuko run shop</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/supermarket/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

@@ -53,22 +53,23 @@
       </ul>
 
       <h2>1. seed the instance</h2>
-      <pre><code>arizuko create acme --product discord-team
+      <pre><code>arizuko create acme
 cd /srv/data/arizuko_acme
 $EDITOR .env</code></pre>
       <p>
-        <code>arizuko create --product discord-team</code> seeds the data
-        dir with the discord-team product applied: <code>main</code> group
-        gets the discord-team <code>PERSONA.md</code>, <code>CLAUDE.md</code>
-        overlay, and a starter <code>facts/</code> dir.
+        No <code>discord-team</code> product template ships yet, so the
+        <code>main</code> group comes up with the generic persona. The
+        closest starting point is <code>ant/examples/slack-team/</code>
+        &mdash; copy its <code>PERSONA.md</code> and <code>CLAUDE.md</code>
+        into <code>groups/main/</code> and edit out the Slack-specific lines
+        (the sidebar pane, the channel wording), or write your own.
       </p>
 
       <h2>2. fill in <code>.env</code></h2>
-      <p>The Discord-team product needs at least these keys set:</p>
+      <p>The Discord-team setup needs at least these keys set:</p>
       <pre><code># Identity + secrets
 ASSISTANT_NAME=acme              # agent display name
-CHANNEL_SECRET=&lt;random hex&gt;      # signing between adapters and routd
-AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
+AUTH_SECRET=…                    # JWT signer; arizuko create pre-generates it
 WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
 
 # Discord adapter
@@ -79,10 +80,11 @@ GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...</code></pre>
+DISCORD_CLIENT_ID=...
+DISCORD_CLIENT_SECRET=...</code></pre>
       <p>
-        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
+        and <code>SECRETS_KEY</code> &mdash; leave those alone.
         See <a href="../../reference/env.html">reference / env</a> for the
         complete list.
       </p>
@@ -108,7 +110,8 @@ SLACK_CLIENT_SECRET=...</code></pre>
       <h2>5. verify</h2>
       <ul>
         <li><code>sudo systemctl status arizuko_acme</code> (or <code>docker compose ps</code>) shows all services up.</li>
-        <li><code>curl -s https://&lt;WEB_HOST&gt;/discord/health</code> returns <code>200</code>.</li>
+        <li><code>sudo docker ps --filter "name=discd"</code> shows the adapter healthy. discd connects out to Discord&rsquo;s gateway &mdash; there is no public <code>/discord/</code> URL to probe.</li>
+        <li><code>sudo journalctl -u arizuko_acme --since "5 min ago" | grep discd</code> shows the gateway connected, no auth errors.</li>
         <li>In Discord, send <code>@acme hello</code> in a channel the bot can see. The agent replies.</li>
         <li>Visit <code>https://&lt;WEB_HOST&gt;/dash/</code> as the operator &mdash; you should see the guild as a group with a route.</li>
       </ul>
@@ -116,16 +119,22 @@ SLACK_CLIENT_SECRET=...</code></pre>
       <h2>6. recommended routing default</h2>
       <p>
         For a guild bot, the usual shape is "answer every DM, stay quiet in
-        channels unless @-mentioned."
+        channels unless @-mentioned." Discord JIDs are
+        <code>discord:&lt;guild_id&gt;/&lt;channel_id&gt;</code> for guild
+        channels and <code>discord:dm/&lt;channel_id&gt;</code> for DMs:
       </p>
-      <pre><code>seq  match                                          target
--2   chat_jid=discord:*/dm/*                        main
--1   chat_jid=discord:*/channel/* verb=mention      main
-0    chat_jid=discord:*/channel/*                   main#observe</code></pre>
+      <pre><code>seq  match                                target
+-2   chat_jid=discord:dm/*                main
+-1   chat_jid=discord:*/* verb=mention    main
+0    chat_jid=discord:*/*                 main#observe</code></pre>
       <p>
         Channel chatter still lands in <code>main</code> under
         <code>#observe</code> so the agent has context on the next
         mention, but no turn fires until someone calls on it.
+        <code>arizuko group add</code> on a guild-channel JID writes this
+        mention + observe pair for you (see step 10); the rows above are
+        the guild-wide equivalent, added with
+        <code>arizuko route acme add &lt;match&gt; &lt;target&gt; --seq N</code>.
       </p>
 
       <h2>7. enable member features</h2>
@@ -205,12 +214,13 @@ On request for synthesis:
 
       <h2>10. adding more channels</h2>
       <p>
-        Map a new channel ID to a folder:
+        Map a new channel to a folder (guild ID, then channel ID):
       </p>
-      <pre><code>arizuko group acme add 'discord:123456789/channel/987654321' dev-chat</code></pre>
+      <pre><code>arizuko group acme add 'discord:123456789/987654321' dev-chat</code></pre>
       <p>
-        The JID matches the route table. For a per-channel persona or skill
-        set, edit <code>~/CLAUDE.md</code> in the new folder.
+        For guild channels this writes the mention-trigger + observe route
+        pair automatically. For a per-channel persona or skill set, edit
+        <code>~/CLAUDE.md</code> in the new folder.
       </p>
 
       <h2>common issues</h2>
@@ -225,9 +235,10 @@ On request for synthesis:
         <code>#observe</code> only. Add a <code>verb=mention</code> route
         that targets <code>main</code> (not <code>main#observe</code>).</dd>
 
-        <dt><strong><code>/discord/health</code> returns 503.</strong></dt>
+        <dt><strong>discd shows unhealthy in <code>docker ps</code>.</strong></dt>
         <dd>Token was rotated or the bot was removed from the guild. Copy
-        the new token into <code>DISCORD_BOT_TOKEN</code> and restart.</dd>
+        the new token into <code>DISCORD_BOT_TOKEN</code> and restart:
+        <code>sudo systemctl restart arizuko_acme</code>.</dd>
 
         <dt><strong>WebDAV mount fails.</strong></dt>
         <dd>The member needs to sign in at <code>/auth/login</code> first.
@@ -240,7 +251,7 @@ On request for synthesis:
         <li><a href="../../concepts/grants.html">grants</a> &mdash; per-member and per-folder action scoping</li>
         <li><a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
         <li><a href="../../concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
-        <li><a href="../../components/channels.html">channels (discd)</a> &mdash; the Discord adapter daemon</li>
+        <li><a href="../../components/discd.html">discd</a> &mdash; the Discord adapter daemon</li>
         <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
       </ul>
 
@@ -251,7 +262,7 @@ On request for synthesis:
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/discord-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

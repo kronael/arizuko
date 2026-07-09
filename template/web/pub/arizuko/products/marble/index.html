@@ -128,9 +128,9 @@
         The one thing it adds over the supermarket shape is a bundled
         knowledge base and a deliberately cheap model. A public bot answering
         lookup questions doesn&rsquo;t need a frontier model &mdash; pin it to
-        <a href="../../reference/mcp.html">Haiku</a> and trim its skills, and
-        each answer costs little and lands fast. The
-        <a href="setup.html">setup guide</a> walks both tuning steps.
+        Haiku and trim its skills, and each answer costs little and lands
+        fast. The <a href="setup.html">setup guide</a> walks both tuning
+        steps.
       </p>
 
       <h2>data &amp; trust</h2>
@@ -161,7 +161,7 @@
       <pre><code>arizuko group &lt;instance&gt; add web:&lt;folder&gt; &lt;folder&gt;   # register the public group
 cp taxonomy/*.json /srv/data/arizuko_&lt;instance&gt;/groups/&lt;folder&gt;/taxonomy/
 # pin the model to Haiku + trim skills at /dash/groups/&lt;folder&gt;/settings
-arizuko token &lt;instance&gt; issue chat &lt;folder&gt; public    # mint the public chat link</code></pre>
+arizuko token &lt;instance&gt; issue chat &lt;folder&gt;    # mint the public chat link</code></pre>
       <p>
         Full step-by-step &mdash; register the group, drop in a dataset, write
         the brain, pin the model, trim skills, mint the link &mdash; is in the

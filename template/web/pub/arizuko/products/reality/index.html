@@ -159,9 +159,9 @@
         wants to surface from WhatsApp posts to Telegram with a one-line
         attribution; the WhatsApp side stays silent on the wire.
       </p>
-      <pre><code>seq  match                                  target
-10   platform=telegram chat=group/5229089286  rhias/nemo
-20   platform=whatsapp room=420735544891@...  rhias/nemo#observe
+      <pre><code>seq  match                                     target
+10   platform=telegram room=group/5229089286   rhias/nemo
+20   platform=whatsapp room=420735544891@g.us  rhias/nemo#observe
 </code></pre>
       <p>
         The pattern extends. Ingest from many channels (RSS, partner
@@ -176,6 +176,16 @@
         targeting WhatsApp&rdquo;) on top of the platform-level
         <code>#observe</code> enforcement, but with the route mode in place
         the rule is redundant by construction.
+      </p>
+
+      <h2>where this sits &mdash; single-user, long horizon</h2>
+      <p>
+        Same single-user shape as the <a href="../trip/">trip planner</a>,
+        pointed at life context instead of a project. What grows here is the
+        folder &mdash; threads, diary, episodes &mdash; not the structure.
+        No hierarchy, no per-user rows, no dashboard for users. When several
+        people need the same agent, that&rsquo;s the
+        <a href="../slack-team/">slack-team</a> shape.
       </p>
 
       <h2>data &amp; trust</h2>
@@ -200,21 +210,18 @@
       </ul>
 
       <h2>setup</h2>
-      <pre><code>arizuko create &lt;name&gt;
-cd /srv/data/arizuko_&lt;name&gt;
-$EDITOR .env             # Telegram + (optional) WhatsApp tokens
-arizuko run &lt;name&gt;
-
-# inside the instance:
-#   start from ant/examples/reality/ as the group template
-#   seed facts/threads/ with active life-context entries
-#   create the rhias/content subgroup if you want long-form work isolated
-</code></pre>
+      <pre><code>arizuko create nemo
+cd /srv/data/arizuko_nemo
+$EDITOR .env             # TELEGRAM_BOT_TOKEN (+ optional WhatsApp)
+arizuko group nemo add 'telegram:user/&lt;your-tg-id&gt;' rhias --product reality
+$EDITOR groups/rhias/facts/threads/   # seed active life-context entries
+arizuko run nemo</code></pre>
       <p>
         Full step-by-step at the
-        <a href="../../products/reality/setup.html">operator setup guide</a>
+        <a href="setup.html">operator setup guide</a>
         &mdash; facts/threads seeding, monthly sweep task, asymmetric
-        WhatsApp+Telegram routing.
+        WhatsApp+Telegram routing, the <code>rhias/content</code> subgroup
+        for long-form work.
       </p>
 
       <h2>go deeper</h2>
@@ -254,7 +261,7 @@ arizuko run &lt;name&gt;
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/reality/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

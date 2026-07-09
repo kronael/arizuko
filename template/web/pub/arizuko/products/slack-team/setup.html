@@ -72,7 +72,7 @@ $EDITOR .env</code></pre>
       <p>The Slack-team product needs at least these keys set:</p>
       <pre><code># Identity + secrets
 ASSISTANT_NAME=acme              # agent display name
-AUTH_SECRET=&lt;random hex&gt;         # JWT signer for /auth/, /dash/, /chat/
+AUTH_SECRET=…                    # JWT signer; arizuko create pre-generates it
 WEB_HOST=acme.example.com        # public hostname for proxyd / OAuth callbacks
 
 # Slack adapter
@@ -87,7 +87,8 @@ GOOGLE_CLIENT_SECRET=…
 DISCORD_CLIENT_ID=…
 DISCORD_CLIENT_SECRET=…</code></pre>
       <p>
-        Generate <code>AUTH_SECRET</code> with <code>openssl rand -hex 32</code>.
+        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
+        and <code>SECRETS_KEY</code> &mdash; leave those alone.
         See <a href="../../reference/env.html">reference / env</a> for the
         complete list and the daemons that read each one.
       </p>
@@ -153,10 +154,10 @@ DISCORD_CLIENT_SECRET=…</code></pre>
         <code>auth_users</code> row.
       </p>
       <p>
-        Invite their primary Slack/web identity into the channel group
-        with the <code>invite</code> CLI:
+        To pre-approve teammates, issue an invite token scoped to the folders
+        it admits into (a folder glob, not a user pattern):
       </p>
-      <pre><code>arizuko invite acme create 'slack:user/U*'  --max-uses 20 --expires 14d
+      <pre><code>arizuko invite acme create 'main/**' --max-uses 20 --expires 336h
 arizuko invite acme list</code></pre>
       <p>
         Or open access via onboarding: set
@@ -321,8 +322,8 @@ preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pr
         Pick this when the workspaces belong to the same operator
         and should share state &mdash; one Anthropic key, one
         <code>/dash/</code>, one <code>/auth/</code> OAuth setup,
-        one <code>messages.db</code>, one set of users that can
-        sign in across workspaces. The cost is shared spend and
+        one <code>store/</code> of databases, one set of users that
+        can sign in across workspaces. The cost is shared spend and
         shared blast radius: a bad skill or an Anthropic outage
         hits every workspace at once.
       </p>
@@ -350,30 +351,30 @@ preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]</code></pr
       </p>
       <p>
         Quick GitHub example. Mint a hook token for the engineering
-        folder and paste the URL into the repo's webhook config:
+        folder, add a route for its JID, and paste the URL into the
+        repo's webhook config:
       </p>
       <pre><code># mint via CLI (operator) or issue_webhook (agent)
-arizuko token issue atlas/eng hook github
-# https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
+arizuko token acme issue webhook main/eng github
+# webhook URL: https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
+arizuko route acme add 'chat_jid=hook:main/eng/github' main/eng --seq -5
 
 # in github.com/&lt;repo&gt;/settings/hooks:
 # Payload URL: https://&lt;WEB_HOST&gt;/hook/&lt;token&gt;
 # Content-Type: application/json</code></pre>
       <p>
-        Events arrive in the <code>atlas/eng</code> folder with
-        <code>chat_jid = hook:atlas/eng/github</code> and the full
-        request body and headers preserved. Route from there to your
+        Events arrive in the <code>main/eng</code> folder with
+        <code>chat_jid = hook:main/eng/github</code> and the request
+        body delivered verbatim. Route from there to your
         main Slack channel with a normal route rule, or let the
-        <code>atlas/eng</code> agent triage and
+        <code>main/eng</code> agent triage and
         <code>escalate_group</code> to its parent when something
         needs human attention. Cross-channel and cross-platform
         moves use the same MCP tools the agents already share
         (<a href="../../howto/talking-to-agents.html#crossing-agents">talking to agents</a>).
       </p>
       <p>
-        webd delivers GitHub's JSON verbatim with the
-        <code>X-GitHub-Event</code> and signature headers attached.
-        Parsing and (optional) <code>X-Hub-Signature-256</code>
+        Parsing the payload and (optional) <code>X-Hub-Signature-256</code>
         verification are skill concerns on the agent side &mdash;
         the platform is intentionally hands-off. The URL token is
         the bearer credential; rotate by reissue. See the
@@ -439,7 +440,7 @@ arizuko group acme add 'slack:T123/channel/C456' main/support --product support
 # 2. populate facts/ &mdash; copy your KB markdown into
 #    /srv/data/arizuko_acme/groups/main/support/facts/
 #    (one file per topic; the support persona's first move is /recall-memories)
-$EDITOR /srv/data/arizuko_acme/groups/main/support/facts/<topic>.md
+$EDITOR /srv/data/arizuko_acme/groups/main/support/facts/&lt;topic&gt;.md
 
 # 3. (optional) override the auto-seeded route to fire on mention only,
 #    not on every msg. add_route takes ONE 'route' arg with the rule as
@@ -502,10 +503,13 @@ mcpc @s tools-call add_route \
         from it (group-level isolation by design).
       </p>
       <p>
-        Limits: each child runs its own container per agent turn, so
-        spawn budget matters. Tune via the parent's
-        <code>max_children</code> (default 16 from v0.40.1
-        onward) at <code>/dash/groups/main/settings</code>.
+        Limits: each child group runs its own container per agent turn, so
+        the global concurrency cap matters
+        (<code>MAX_CONCURRENT_CONTAINERS</code>, default 5). The separate
+        <code>max_children</code> setting at
+        <code>/dash/groups/main/settings</code> caps how many child groups
+        the <em>agent</em> may register itself (0 = disabled, the default;
+        host-CLI <code>group add</code> bypasses it).
       </p>
 
       <h3>tradeoff: when to NOT compose</h3>
@@ -563,7 +567,7 @@ mcpc @s tools-call add_route \
         <li><a href="../../concepts/auth.html">auth</a> &mdash; OAuth providers, account linking</li>
         <li><a href="../../concepts/slack-pane.html">slack pane</a> &mdash; AI sidebar surface, pane events, suggested prompts</li>
         <li><a href="../../concepts/personas.html">personas</a> &mdash; how voice + skills + frontmatter shape a channel agent</li>
-        <li><a href="../../components/channels.html">channels (slakd)</a> &mdash; the Slack adapter daemon</li>
+        <li><a href="../../components/slakd.html">slakd</a> &mdash; the Slack adapter daemon</li>
         <li><a href="../../reference/cli.html">CLI reference</a> &mdash; full command list</li>
       </ul>
 
@@ -574,7 +578,7 @@ mcpc @s tools-call add_route \
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/slack-team/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

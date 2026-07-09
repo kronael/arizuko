@@ -57,17 +57,36 @@
 cd /srv/data/arizuko_shop
 $EDITOR .env</code></pre>
       <p>
-        Minimum keys to set:
+        <code>arizuko create</code> writes <code>.env</code> with
+        <code>ASSISTANT_NAME</code>, a generated <code>AUTH_SECRET</code>, and
+        a generated <code>SECRETS_KEY</code>. Add what it can&rsquo;t guess:
       </p>
-      <pre><code>ASSISTANT_NAME=shop
-AUTH_SECRET=&lt;openssl rand -hex 32&gt;
-WEB_HOST=shop.example.com          # public hostname
+      <pre><code>WEB_HOST=shop.example.com          # public hostname
 ANTHROPIC_API_KEY=sk-ant-…
 
 # Optional: Telegram
 TELEGRAM_BOT_TOKEN=…</code></pre>
 
-      <h2>2. seed the retailer list</h2>
+      <h2>2. register the folder and the catch-all route</h2>
+      <p>
+        <code>arizuko group add</code> writes the group row, seeds the folder,
+        and adds a route for the given JID in one step. Then add the catch-all
+        (an empty match expression matches every message; see the
+        <a href="../../reference/cli.html#route">CLI reference</a>):
+      </p>
+      <pre><code>arizuko group shop add web:supermarket supermarket
+arizuko route shop add '' supermarket</code></pre>
+      <p>
+        For Telegram only (not web chat or webhooks), scope the match instead:
+      </p>
+      <pre><code>arizuko route shop add 'platform=telegram' supermarket</code></pre>
+      <p>
+        For bulk or GitOps-style edits, declare routes in a YAML manifest
+        and <code>arizuko apply shop shop-routes.yaml</code> instead. The
+        dashd routes admin at <code>/dash/</code> works too.
+      </p>
+
+      <h2>3. seed the retailer list and the brain</h2>
       <p>
         The agent reads <code>facts/retailers.md</code> before every search.
         Populate it with the retailers you want it to check:
@@ -93,8 +112,23 @@ EOF</code></pre>
         canonical source list &mdash; it won&rsquo;t search retailers not
         listed here.
       </p>
+      <p>
+        The group <code>CLAUDE.md</code> is the agent&rsquo;s instructions.
+        This product ships no template, so write it &mdash; it&rsquo;s what
+        makes the caching and citation behavior on the intro page true:
+      </p>
+      <pre><code>cat &gt; /srv/data/arizuko_shop/groups/supermarket/CLAUDE.md &lt;&lt;'EOF'
+# Supermarket price agent
 
-      <h2>3. configure egress</h2>
+Answer "where is X cheapest" questions. Read facts/retailers.md first;
+search only the retailers listed there. Always cite source URLs.
+
+Cache results in facts/cache/&lt;item&gt;-&lt;YYYYMMDD&gt;.md. Before searching,
+check the cache; a file dated today answers without a new search.
+Ignore cache files older than one day.
+EOF</code></pre>
+
+      <h2>4. configure egress</h2>
       <p>
         The agent needs outbound access to the retailer domains and a search
         engine. Allow them via <a href="../../components/crackbox.html">crackbox</a>:
@@ -108,23 +142,6 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
         silently returning stale data.
       </p>
 
-      <h2>4. add the catch-all route</h2>
-      <p>
-        Send every inbound message to the <code>supermarket</code> folder
-        (<a href="../../reference/cli.html#route">CLI reference</a>):
-      </p>
-      <pre><code>arizuko route shop add '*' supermarket</code></pre>
-      <p>
-        For Telegram only (not web chat), scope the match:
-      </p>
-      <pre><code>arizuko route shop add 'platform=telegram' supermarket</code></pre>
-      <p>
-        For bulk or GitOps-style edits, declare routes in a YAML manifest
-        and <code>arizuko apply shop shop-routes.yaml</code> instead. You
-        can also add the route from the dashd routes admin UI at
-        <code>/dash/</code>.
-      </p>
-
       <h2>5. run</h2>
       <pre><code>arizuko run shop</code></pre>
       <p>
@@ -134,21 +151,21 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
 
       <h2>6. mint a web-chat token (optional)</h2>
       <p>
-        A web-chat token gives you a widget URL you can embed in any page
+        A web-chat token gives you a chat URL you can open in any browser
         &mdash; no Telegram required:
       </p>
-      <pre><code>arizuko token shop issue chat supermarket public
-# returns: https://shop.example.com/chat/&lt;token&gt;/</code></pre>
+      <pre><code>arizuko token shop issue chat supermarket
+# prints the token; the chat URL is https://shop.example.com/chat/&lt;token&gt;/</code></pre>
       <p>
-        Embed the chat widget in any HTML page with
-        <code>&lt;script src="https://shop.example.com/assets/slink.js"&gt;&lt;/script&gt;</code>
-        and a <code>data-chat-url</code> pointing at the token URL. Full
-        instructions: <a href="../../howto/chat-sdk.html">chat SDK</a>.
+        To build the chat into your own page, load
+        <code>https://shop.example.com/assets/arizuko-client.js</code> and use
+        its <code>connect</code>/<code>send</code>/<code>stream</code> calls.
+        Full instructions: <a href="../../howto/chat-sdk.html">chat SDK</a>.
       </p>
 
       <h2>7. verify</h2>
       <ul>
-        <li><code>sudo docker ps --filter "name=arizuko-shop"</code> shows all containers up.</li>
+        <li><code>sudo systemctl status arizuko_shop</code> (or <code>docker compose ps</code>) shows all services up.</li>
         <li>For Telegram: send <code>/start</code> to your bot; it should reply.</li>
         <li>For web chat: open <code>https://shop.example.com/chat/&lt;token&gt;/</code> in a browser and ask a price question.</li>
         <li>Check <code>sudo journalctl -u arizuko_shop --since "5 min ago" | grep -iE 'error|fatal'</code> for red flags.</li>
@@ -175,9 +192,10 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
           <code>rm /srv/data/arizuko_shop/groups/supermarket/facts/cache/*.md</code>.
         </li>
         <li>
-          <strong>Rate limiting.</strong> Set <code>max_children=4</code> on
-          the supermarket group at <code>/dash/groups/supermarket/settings</code>
-          to cap concurrent searches (each search is one container turn).
+          <strong>Rate limiting.</strong> Concurrent turns are capped by
+          <code>MAX_CONCURRENT_CONTAINERS</code> in <code>.env</code> (default
+          5; each search is one container turn). For a per-day message cap on
+          the folder: <code>arizuko gate shop add supermarket 200/day</code>.
         </li>
       </ul>
 
@@ -197,7 +215,7 @@ arizuko network shop allow supermarket lidl.co.uk</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/supermarket/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

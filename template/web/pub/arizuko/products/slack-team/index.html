@@ -80,9 +80,11 @@
           individuals can have overrides.
         </li>
         <li>
-          <strong>Linked identities.</strong> GitHub, Google, Discord, and
-          Telegram logins resolve to the same user record so the same person
-          reaches the same memory and grants across surfaces.
+          <strong>Linked identities.</strong> Channel use needs no sign-in
+          &mdash; workspace membership is the fence. A teammate who signs in
+          at <code>/auth/login</code> with GitHub, Google, or Discord links
+          that identity to their Slack user, so the same person reaches the
+          same memory and grants from the web chat, a DM, or another channel.
         </li>
       </ul>
 
@@ -99,10 +101,10 @@
           <code>rclone</code>, or any editor.
         </li>
         <li>
-          <strong>Per-user memory.</strong> The agent maintains a memory file
-          per teammate (<code>users/&lt;channel&gt;-&lt;id&gt;.md</code> inside
-          the channel folder) &mdash; preferences, recurring tasks, prior
-          conclusions. Alice has hers, Bob has his. (Per-user
+          <strong>Per-user memory.</strong> Auto-created on a teammate&rsquo;s
+          first message as <code>users/&lt;sub&gt;.md</code> inside the channel
+          folder &mdash; preferences, recurring tasks, prior conclusions. Not
+          shared with the channel; not visible to other teammates. (Per-user
           <em>secrets</em> &mdash; distinct from memory &mdash; are spec 7/Y,
           not yet shipped; folder-scoped secrets work today.)
         </li>
@@ -112,22 +114,6 @@
           sub-folder (e.g. <code>eng/alice/</code>) inherits from the channel
           and overrides only what differs &mdash; tweak one skill, keep
           everything else.
-        </li>
-        <li>
-          <strong>Linked identities.</strong> GitHub, Google, Discord, and
-          Telegram logins resolve to the same user record so the same person
-          reaches the same memory and grants across surfaces.
-        </li>
-        <li>
-          <strong>Private web workspace.</strong> The same channel exposes a
-          token-bound <a href="../../concepts/tokens.html">chat URL</a>
-          (<code>/chat/&lt;token&gt;/</code>) &mdash; a browser chat against the
-          same agent. Take the conversation off Slack onto a phone or laptop
-          without losing context.
-        </li>
-        <li>
-          <strong>Operator dashboard.</strong> <code>/dash/</code> for grants,
-          routing, scheduled tasks, admission queue, and per-channel health.
         </li>
         <li>
           <strong>Customisable, upgradable in place.</strong> Persona, skills,
@@ -261,8 +247,8 @@
 
       <h3>general team assistant</h3>
       <p>
-        The default configuration: a capable assistant that handles Q&amp;A,
-        summarization, file processing, and task tracking for a team channel.
+        The default configuration: Q&amp;A, summarization, file processing,
+        and task tracking for a team channel.
       </p>
 
       <h2>data &amp; trust</h2>
@@ -290,32 +276,6 @@
           <strong>Channel boundary.</strong> A teammate in #eng-support sees
           that channel&rsquo;s context and their own user area; #design&rsquo;s
           files and persona are inaccessible unless granted explicitly.
-        </li>
-      </ul>
-
-      <h2>per-user features (optional)</h2>
-      <ul>
-        <li>
-          <strong>Per-teammate memory file.</strong> Auto-created on a
-          teammate&rsquo;s first message; keyed by Slack user ID. Not
-          shared with the channel; not visible to other teammates.
-          Works without any sign-in &mdash; Slack workspace membership
-          is the fence.
-        </li>
-        <li>
-          <strong>OAuth sign-in (optional).</strong> A teammate who
-          signs in at <code>/auth/login</code> with GitHub or Google
-          links that identity to their Slack user. Memory and grants
-          then survive across surfaces: the same person reaches the
-          same notes from the web chat, from a DM, or from a different
-          channel.
-        </li>
-        <li>
-          <strong>Per-user secrets.</strong> Spec
-          <a href="../../concepts/secrets.html">7/Y</a> &mdash; the
-          <code>arizuko user-secret</code> CLI exists today, but the
-          full broker model (per-tool, audit-logged) is not yet shipped.
-          For now, secrets are folder-scoped.
         </li>
       </ul>
 
@@ -353,9 +313,9 @@
       </p>
 
       <h2>setup</h2>
-      <pre><code>arizuko create acme
+      <pre><code>arizuko create acme --product slack-team
 cd /srv/data/arizuko_acme
-$EDITOR .env             # set Slack/Discord/Telegram tokens; enable the adapters you want
+$EDITOR .env             # SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY
 arizuko run acme
 
 # in Slack:
@@ -365,7 +325,7 @@ arizuko run acme
 #   linked identities resolve to the same user record; per-user state goes live</code></pre>
       <p>
         Full step-by-step is in the
-        <a href="../../products/slack-team/setup.html">operator setup guide</a>;
+        <a href="setup.html">operator setup guide</a>;
         the <a href="../../howto/slack.html">Slack adapter how-to</a> covers
         Slack-specific quirks. Per-channel <code>CLAUDE.md</code> override
         lives in the channel folder; edit via WebDAV or directly on the
@@ -421,7 +381,7 @@ arizuko run acme
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/slack-team/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

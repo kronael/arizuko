@@ -74,26 +74,25 @@ TELEGRAM_BOT_TOKEN=…
 OBSERVE_WINDOW_MESSAGES=25
 OBSERVE_WINDOW_CHARS=8000</code></pre>
       <p>
-        Generate the two secrets with <code>openssl rand -hex 32</code>.
+        <code>arizuko create</code> already generated <code>AUTH_SECRET</code>
+        and <code>SECRETS_KEY</code> in <code>.env</code>.
         Full env-var list at <a href="../../reference/env.html">reference / env</a>.
       </p>
 
-      <h2>3. lay down the reality group from the template</h2>
+      <h2>3. create the rhias group from the template</h2>
       <p>
         The shipped template at <code>ant/examples/reality/</code>
-        carries the persona (<code>PERSONA.md</code>), the skill set
-        declared in <code>PRODUCT.md</code> (<code>diary</code>,
+        carries the persona, the skill set declared in
+        <code>PRODUCT.md</code> (<code>diary</code>,
         <code>facts</code>, <code>recall-memories</code>,
         <code>compact-memories</code>, <code>users</code>, optional
         <code>web</code> + <code>oracle</code>), and an empty
-        <code>facts/threads/</code> directory.
+        <code>facts/threads/</code> directory. One command creates the
+        group, seeds it from the template, and routes your Telegram DM
+        to it:
       </p>
-      <p>
-        Use <code>arizuko create</code> with the product flag (when
-        available) or copy the template into the seeded group:
-      </p>
-      <pre><code>cp -r ant/examples/reality/* /srv/data/arizuko_nemo/groups/rhias/
-# adjust PERSONA.md and CLAUDE.md to taste before first run</code></pre>
+      <pre><code>arizuko group nemo add 'telegram:user/&lt;your-tg-id&gt;' rhias --product reality
+# adjust groups/rhias/PERSONA.md and CLAUDE.md to taste before first run</code></pre>
 
       <h2>4. seed facts/threads</h2>
       <p>
@@ -111,23 +110,23 @@ facts/threads/relationship-alice.md</code></pre>
         conversation has somewhere to land.
       </p>
 
-      <h2>5. configure routes</h2>
+      <h2>5. check the route</h2>
       <p>
-        By default <code>arizuko create</code> wires Telegram DMs to
-        the default group. For Rhias, you want one named group
-        (<code>rhias</code>) for the primary conversation and any
-        secondary channels routed deliberately. Add the route with the
-        <code>add_route</code> MCP tool from <code>arizuko chat nemo</code>, or
-        put it in the manifest and run <code>arizuko apply</code>. The route row
+        Step 3&rsquo;s <code>group add</code> already wrote the primary
+        route. Confirm with <code>arizuko route nemo list</code>; the row
         looks like:
       </p>
-      <pre><code>seq  match                                     target
-10   platform=telegram chat=user/&lt;your-tg-id&gt;  rhias
+      <pre><code>seq  match                    target
+0    room=user/&lt;your-tg-id&gt;   rhias
 </code></pre>
       <p>
-        Add the <code>rhias/content</code> subgroup if you want a
-        distinct memory + persona for longer-form writing &mdash;
-        route it from a separate Telegram chat or a <code>/chat/&lt;token&gt;/</code> URL.
+        Secondary channels get routed deliberately &mdash; with
+        <code>arizuko route nemo add</code>, the <code>add_route</code> MCP
+        tool from <code>arizuko chat nemo</code>, or a manifest plus
+        <code>arizuko apply</code>. Add a <code>rhias/content</code> subgroup
+        if you want a distinct memory + persona for longer-form writing;
+        route it from a separate Telegram chat or a
+        <code>/chat/&lt;token&gt;/</code> URL.
       </p>
 
       <h2>6. asymmetric channels (optional WhatsApp)</h2>
@@ -136,9 +135,11 @@ facts/threads/relationship-alice.md</code></pre>
         replying on WhatsApp, add a second route in
         <code>#observe</code> mode:
       </p>
-      <pre><code>seq  match                                       target
-10   platform=telegram chat=user/&lt;your-tg-id&gt;    rhias
-20   platform=whatsapp room=&lt;jid-of-group&gt;       rhias#observe
+      <pre><code>arizuko route nemo add 'platform=whatsapp room=&lt;group-id&gt;@g.us' 'rhias#observe' --seq 20</code></pre>
+      <p>The table then reads:</p>
+      <pre><code>seq  match                                     target
+0    room=user/&lt;your-tg-id&gt;                    rhias
+20   platform=whatsapp room=&lt;group-id&gt;@g.us    rhias#observe
 </code></pre>
       <p>
         WhatsApp messages land in <code>rhias/</code> for context
@@ -208,7 +209,7 @@ facts/threads/relationship-alice.md</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/reality/setup.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 

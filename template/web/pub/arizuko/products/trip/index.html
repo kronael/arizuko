@@ -137,6 +137,16 @@
          Osaka 2 nights (Dotonbori, Kuromon market, takoyaki circuit),
          Nara half-day. Budget est. ~&yen;142k total (ex flights).</code></pre>
 
+      <h2>where this sits &mdash; single-user depth</h2>
+      <p>
+        Mid-spectrum: one user, one folder, but a research-heavy Turn and
+        state that grows across trips. Simpler than this is the
+        <a href="../supermarket/">supermarket agent</a> (shared folder, no
+        memory at all); the same single-user shape pointed at life context
+        instead of travel is the <a href="../reality/">reality agent</a>;
+        the team shapes start at <a href="../slack-team/">slack-team</a>.
+      </p>
+
       <h2>required skills</h2>
       <ul>
         <li><code>web</code> &mdash; required. Live search for visa rules, transport, current prices.</li>
@@ -185,12 +195,13 @@
       <pre><code>arizuko create travel --product trip
 cd /srv/data/arizuko_travel
 $EDITOR .env             # TELEGRAM_BOT_TOKEN, CODEX_API_KEY (required), ANTHROPIC_API_KEY
-$EDITOR groups/may/facts/preferences.md  # seed traveller profile
+$EDITOR groups/main/facts/preferences.md   # tune the seeded traveller profile
+arizuko route travel add 'platform=telegram' main
 arizuko run travel</code></pre>
       <p>
         Full step-by-step is in the
-        <a href="../../products/trip/setup.html">operator setup guide</a>
-        &mdash; seeding the preferences file, enabling the oracle skill,
+        <a href="setup.html">operator setup guide</a>
+        &mdash; seeding the preferences file, wiring the route,
         and verifying the first research run.
       </p>
 
@@ -233,7 +244,7 @@ arizuko run travel</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/products/trip/index.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-09">2026-07-09</time>
       </div>
     </main>
 
