@@ -682,3 +682,47 @@ audit.Init + the audit reader to routd.db). These readers should be repointed to
   SQL matches the store schema, so it needs a query rewrite to read routd.db's live cost_log.
   (2) `chat.go` chat_sessions is dashd-owned in messages.db (no external writer) — moving it needs
   the mint-write path repointed too. Until both land, dashd still holds `store.Open(messages.db)`.
+
+## Product PRODUCT.md manifests declare a non-existent `facts` skill (2026-07-09, OPEN)
+
+9 of the `ant/examples/*/PRODUCT.md` manifests list `"facts"` in their `skills`
+array (personal, reality, socials, support, creator, pm, slack-team, strategy,
+trip), but there is no `ant/skills/facts/` — writing facts is done by `find` +
+`recall-memories`. Either the seed path silently ignores unknown skill names
+(then the manifest is misleading) or it errors/mis-seeds. Product doc pages
+mirror the manifests, so the drift shows up in docs too.
+
+- **Severity:** low
+- **Scope:** `ant/examples/*/PRODUCT.md` skills field vs `ant/skills/`
+- **Source:** grep — no `ant/skills/facts`; 9 PRODUCT.md declare it
+- **Status:** OPEN — decide: rename to a real skill, add a `facts` skill, or drop from manifests
+- **Found:** product-docs refine pass (fable), 2026-07-09
+
+## Suffixed web chat token mints a JID that routes nowhere (2026-07-09, OPEN)
+
+`arizuko token <inst> issue chat <folder> <suffix>` builds
+`jid = "web:"+folder+"/"+suffix` (`cmd/arizuko/token.go:60`). A group's auto route
+is `room=<folder>`, and direct-address resolution keys on the folder — a
+`web:<folder>/<suffix>` JID appears to match neither, so a suffixed chat link may
+be dead on arrival. The unsuffixed form (`web:<folder>`) works. If suffixed chat
+tokens are meant to route (e.g. sub-surface chats), that's a routd gap; if not,
+the CLI should reject the suffix for `chat`. Product setup pages were written to
+avoid the suffix as a workaround.
+
+- **Severity:** medium (silent dead link if an operator uses the documented suffix arg)
+- **Scope:** `cmd/arizuko/token.go` chat JID + routd route/direct-address resolution
+- **Source:** `cmd/arizuko/token.go:55-62`; route match `room=<folder>`
+- **Status:** OPEN — needs a routing repro to confirm whether `web:X/sub` resolves
+- **Found:** product-docs refine pass (fable), 2026-07-09
+
+## howto/webhooks.html claims hook headers are delivered; ingest forwards body only (2026-07-09, OPEN)
+
+`template/web/pub/arizuko/howto/webhooks.html` documents a `"headers": {…}`
+envelope on hook ingest, but the route-token webhook path forwards the request
+body only (per `webd/route_token.go` ~:268, cited by the refine agent — verify).
+Product pages had the same claim removed; the howto page still carries it.
+
+- **Severity:** low (doc-only; misleads webhook integrators)
+- **Scope:** `template/web/pub/arizuko/howto/webhooks.html` vs `webd/route_token.go`
+- **Status:** OPEN — verify webd behavior, then fix the howto page
+- **Found:** product-docs refine pass (fable), 2026-07-09
