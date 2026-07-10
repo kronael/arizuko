@@ -414,6 +414,19 @@ Avoid: "extensible platform," "flexible architecture," "powerful
 abstractions," "scalable," "seamless." True and weak. Name the concrete
 thing instead (a table, a row, a file, a folder).
 
+**The layer above the model.** Models get better; agent harnesses get
+better; neither is the race arizuko runs. The gap is the layer above
+them — managing users, context, and organization across many agents,
+over time. We haven't seen that built as composable primitives you own
+rather than one system you rent. That is the Unix bet: small orthogonal
+pieces you wire together, not a platform. Call it a web-native Linux —
+primitives for identity (the folder/JID), storage (the folder tree),
+routing (the route table), and publishing (`~/public_html` → `/pub`, no
+deploy step) that outlive the model you run this week. Swap the agent
+for a better one tomorrow; the folder, its history, and its grants stay.
+This complements the ownership wedge above: ownership is what you get,
+composable-primitives-over-a-platform is how it's built.
+
 ## Honesty notes
 
 The docs rewrite must NOT reintroduce these false claims (a codex

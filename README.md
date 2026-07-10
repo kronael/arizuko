@@ -27,6 +27,8 @@
 
 A folder is an agent. It has a `PERSONA.md`, a `skills/` directory, a `MEMORY.md`, a conversation diary, and an ACL. Folders form a hierarchy (`corp/sales`, `corp/eng/sre`) — each node is an independent agent that accumulates only the conversations relevant to it.
 
+Models and agent harnesses keep improving — that isn't the race arizuko runs. The gap is the layer above them: managing users, context, and organization across many agents, built as composable primitives you own rather than one platform you rent — a web-native Linux, where publishing a page is a file write, not a deploy. See [`specs/5/A`](specs/5/A-primitives-framing.md) for the framing.
+
 ```
 # A message arrives in Slack.
 @andy can you summarize the open PRs?
