@@ -15,10 +15,11 @@ reimplementation loop — arizuko's self-learning, pointed outward.
 
 ## Specs
 
-| Spec                                           | Status | Covers                                                              |
-| ---------------------------------------------- | ------ | ------------------------------------------------------------------- |
-| [1-adoption-interop.md](1-adoption-interop.md) | draft  | interop-first strategy, campaign, the agentic reimplementation loop |
-| [2-target-matrix.md](2-target-matrix.md)       | draft  | which hub systems to incorporate (mechanisms) vs beat (products)    |
+| Spec                                                     | Status | Covers                                                                  |
+| -------------------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| [1-adoption-interop.md](1-adoption-interop.md)           | draft  | interop-first strategy, campaign, the agentic reimplementation loop     |
+| [2-target-matrix.md](2-target-matrix.md)                 | draft  | which hub systems to incorporate (mechanisms) vs beat (products)        |
+| [3-graph-taxonomy-answer.md](3-graph-taxonomy-answer.md) | draft  | ride the graph/taxonomy hype the non-intrusive way (folder = substrate) |
 
 ## Ties
 

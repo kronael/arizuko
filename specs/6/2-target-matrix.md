@@ -54,8 +54,8 @@ the lead item of phase 6.** centaur's iron-proxy (below) is the fourth witness.
 ### 3. Behavioral verification (eBPF) — gap: secrets/trust, defense-in-depth
 
 - **agentsight** — eBPF kernel-boundary tracing (TLS-tap via uprobes on
-  SSL_read/write + syscall trace), 2.9% measured overhead, PACMI'25. Verifies
-  what the container _actually did_ vs what the agent _claimed_. Complements the
+  SSL*read/write + syscall trace), 2.9% measured overhead, PACMI'25. Verifies
+  what the container \_actually did* vs what the agent _claimed_. Complements the
   credential firewall and the existing `obs/` OTLP wiring (`specs/5/O`).
 
 ### 4. Faster spawn / stronger isolation — gap: per-turn Docker cold start
@@ -126,11 +126,14 @@ ephemeral per-turn Docker, not by convention._
 - **claude-code-internals** — this _is_ arizuko's runtime substrate, not a rival;
   keep as the internals reference (confirm subagent tool-scoping still mirrors it).
 - **axoniq** — JVM/commercial event-sourcing for regulators; arizuko has `audit_log`.
-- **graphify** — codebase→graph dev tooling; headline metric self-debunked on-page.
+- **graphify** — codebase→graph dev tooling; headline metric self-debunked
+  on-page. Not adopted — the graph/taxonomy demand it rides is answered
+  non-intrusively in `3-graph-taxonomy-answer.md`.
 - **smolagents** — code-as-tool dev framework; no tenancy story.
 - **milady** — consumer desktop "AI OS"; process-level default isolation.
 - **activegraph / contextlattice** — infra for problems arizuko doesn't have
-  (graph-native state; single-node context freshness).
+  (graph-native state; single-node context freshness). activegraph's graph
+  demand: see `3-graph-taxonomy-answer.md`, not a replatform.
 
 ## Sequencing
 
