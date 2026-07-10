@@ -18,6 +18,7 @@ reimplementation loop — arizuko's self-learning, pointed outward.
 | Spec                                           | Status | Covers                                                              |
 | ---------------------------------------------- | ------ | ------------------------------------------------------------------- |
 | [1-adoption-interop.md](1-adoption-interop.md) | draft  | interop-first strategy, campaign, the agentic reimplementation loop |
+| [2-target-matrix.md](2-target-matrix.md)       | draft  | which hub systems to incorporate (mechanisms) vs beat (products)    |
 
 ## Ties
 
