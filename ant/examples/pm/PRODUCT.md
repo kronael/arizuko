@@ -1,7 +1,7 @@
 name    = "pm"
 brand   = "sloth"
 tagline = "PM agent — task board, status summaries, decisions."
-skills  = ["diary", "facts", "recall-memories", "users"]
+skills  = ["diary", "recall-memories", "users"]
 
 # Operator setup
 #

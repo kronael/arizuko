@@ -1,7 +1,7 @@
 name    = "reality"
 brand   = "rhias"
 tagline = "Reality thread holder — ongoing life context across weeks and months."
-skills  = ["diary", "facts", "recall-memories", "compact-memories", "users", "web", "oracle"]
+skills  = ["diary", "recall-memories", "compact-memories", "users", "web", "oracle"]
 
 # Operator setup
 #

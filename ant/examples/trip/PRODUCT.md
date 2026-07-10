@@ -1,7 +1,7 @@
 name    = "trip"
 brand   = "may"
 tagline = "Trip planner — research, synthesise, structured plan."
-skills  = ["diary", "facts", "recall-memories", "web", "oracle", "find"]
+skills  = ["diary", "recall-memories", "web", "oracle", "find"]
 
 # Operator setup
 #

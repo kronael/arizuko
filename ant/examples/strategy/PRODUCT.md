@@ -1,7 +1,7 @@
 name    = "strategy"
 brand   = "prometheus"
 tagline = "Domain researcher — weekly briefings and deep dives."
-skills  = ["diary", "facts", "recall-memories", "web", "oracle", "find"]
+skills  = ["diary", "recall-memories", "web", "oracle", "find"]
 
 # Operator setup
 #

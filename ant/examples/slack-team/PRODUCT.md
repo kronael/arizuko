@@ -1,7 +1,7 @@
 name    = "slack-team"
 brand   = "slack-team"
 tagline = "One agent in your team's Slack — channel persona, per-teammate memory, email ingest."
-skills  = ["diary", "facts", "recall-memories", "users", "issues", "web", "dispatch", "resolve", "find", "oracle"]
+skills  = ["diary", "recall-memories", "users", "issues", "web", "dispatch", "resolve", "find", "oracle"]
 
 # Operator setup
 #

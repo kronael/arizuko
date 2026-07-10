@@ -1,7 +1,7 @@
 name    = "support"
 brand   = "atlas"
 tagline = "Embedded support agent — answers from your knowledge base, escalates when stuck."
-skills  = ["diary", "facts", "recall-memories", "users", "issues", "web"]
+skills  = ["diary", "recall-memories", "users", "issues", "web"]
 
 # Operator setup
 #

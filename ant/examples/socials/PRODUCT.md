@@ -1,7 +1,7 @@
 name    = "socials"
 brand   = "phosphene"
 tagline = "Social presence manager — post, monitor, cross-post."
-skills  = ["diary", "facts", "recall-memories", "web"]
+skills  = ["diary", "recall-memories", "web"]
 
 # Operator setup
 #

@@ -1,7 +1,7 @@
 name    = "creator"
 brand   = "inari"
 tagline = "Content creation pipeline — draft, refine, publish."
-skills  = ["diary", "facts", "recall-memories", "web", "oracle", "find"]
+skills  = ["diary", "recall-memories", "web", "oracle", "find"]
 
 # Operator setup
 #
