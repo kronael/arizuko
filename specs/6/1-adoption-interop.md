@@ -4,23 +4,30 @@ status: draft
 
 # Adoption — interop first, campaign second, agentic reimplementation as the engine
 
-The end goal is blunt: people stop running their own agent harness and run
-arizuko instead. This spec is the path to that, and the honest reason it might
-not be persuasion.
+arizuko is not a harness. It is orchestration: it decides how agents run and for
+whom — routing, tenancy, identity, permissions — the layer _above_ any harness.
+So the goal is not "stop running your harness and run arizuko"; it is "run your
+harness inside arizuko." Adoption is addition, not replacement.
 
 ## Problem
 
-arizuko competes in a crowded field (see the Agent Research Hub + `USELESS.md`):
-Claude Code, OpenClaw, NanoClaw, ElizaOS, Hermes, and a new one every week. Each
-already runs someone's agents today. Asking them to rip that out and adopt
-arizuko is a high switching cost against a working incumbent. A better mousetrap
-loses to the mousetrap already screwed to the wall.
+The crowded field (Claude Code, OpenClaw, NanoClaw, ElizaOS, Hermes, a new one
+every week) is a field of _harnesses_ — each runs one agent for one user.
+arizuko is a different layer: it orchestrates agents across tenants. Competing
+with a harness head-to-head is a category error; the win is to orchestrate it,
+not replace it.
 
-The orthogonal component is real but narrow (`specs/5/A`, `USELESS.md` §4): the
-folder coordinate — one path is tenant, ACL, route, egress, web host, and file
-tree — and the web-native building blocks (publish = a file write). That is the
-layer _above_ the harness. It does not require replacing the harness to be
-useful. That is the wedge.
+Two things make that layer worth adopting (`specs/5/A`, `USELESS.md` §4):
+
+1. **The folder coordinate.** One path is tenant, ACL, route, egress, web host,
+   and file tree — how agents run and for whom, on one box, the same code from
+   `solo/inbox` to `corp/eng/sre/oncall`.
+2. **Agents reshape the system; you stay in the loop.** The persona, skills,
+   routing, even child groups are files the LLM edits — the agent changes the
+   system, not just its output — yet every change is a file you diff, a grant
+   that gates it, a `git revert` away. Self-modifying, human-owned.
+
+Neither requires replacing the harness. That is the wedge.
 
 ## Two tracks, ranked
 

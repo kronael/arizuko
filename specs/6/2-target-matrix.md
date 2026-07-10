@@ -106,10 +106,27 @@ the lead item of phase 6.** centaur's iron-proxy (below) is the fourth witness.
 
 ## Beat — products the folder coordinate outclasses (feed the campaign)
 
-All share one weakness: no real tenant isolation — sandbox absent or bypassable,
-one shared process/daemon serving every user. The pitch collapses to one line:
-_per-folder coordinate = tenant + ACL + route + egress + host, enforced by
-ephemeral per-turn Docker, not by convention._
+**First, a layer correction.** arizuko is orchestration, not a harness
+(`1-adoption-interop.md`). A _harness_ with "no tenant isolation" is not a
+competitor to beat — it is a runtime to **orchestrate** (it lacks exactly the
+tenancy + human-in-the-loop ownership arizuko adds; that is the interop case).
+Only systems that themselves try to host many agents/users are genuine
+head-to-head _orchestration_ peers.
+
+So read the table below in two groups:
+
+- **Orchestrate, don't beat (harnesses):** openclaw, cline, brainpro, ironclaw —
+  single-agent runtimes. Their weakness _is_ the reason to run them inside a
+  folder. "Beat" here means "the campaign shows what arizuko adds on top," not
+  "replace."
+- **True head-to-head (orchestration / multi-tenant peers):** muaddib, elizaos,
+  home23 — they host many, but without the folder coordinate or the
+  agents-reshape-it-you-own-it loop.
+
+The pitch is one line either way: the folder coordinate fuses tenant, ACL, route,
+egress, and host into one path, enforced by ephemeral per-turn Docker — and every
+change the agent makes to the system is a file you own, not convention and not a
+shared process.
 
 | System       | Their weakness (cited)                                                                                     | The wedge                                                                     |
 | ------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
