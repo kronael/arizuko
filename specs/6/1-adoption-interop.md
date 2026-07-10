@@ -29,9 +29,9 @@ what they already run:
 
 - **Runtime pluralism.** runed spawns "just another binary." Today that's Claude
   Code. Make the runtime swappable so an OpenClaw / a raw model / another harness
-  runs inside an arizuko folder-agent. arizuko becomes the multi-tenant + routing
-  - web layer over _their_ agent, not a replacement for it. (`USELESS.md` §5.3
-    names this gap: one runtime today.)
+  runs inside an arizuko folder-agent. arizuko becomes the multi-tenant, routing,
+  and web layer over _their_ agent, not a replacement for it (`USELESS.md` §5.3
+  names this gap: one runtime today).
 - **MCP as the seam.** arizuko is already MCP-native (agent side) + REST (human
   side). Every capability another harness exposes over MCP is reachable; every
   arizuko resource is reachable by their agent. Interop is protocol work, not a
@@ -71,7 +71,7 @@ A scheduled loop (`timed` → a folder-agent), one system at a time:
 
 This reuses machinery that already exists: the Hub's monthly code-analysis
 protocol, worktree-isolated subagents, the migrate/broadcast delivery path. The
-loop is the same shape arizuko already runs on itself (`specs/11/7` self-learning);
+loop is the same shape arizuko already runs on itself (`specs/12/7` self-learning);
 here it points outward.
 
 ## Non-goals / honest risks
@@ -92,5 +92,5 @@ here it points outward.
 ## Ties
 
 `specs/5/A` (positioning) · `USELESS.md` (honest gaps this closes) · the Agent
-Research Hub (source of truth on targets) · `specs/11/7` self-learning (the loop,
+Research Hub (source of truth on targets) · `specs/12/7` self-learning (the loop,
 turned outward) · runtime pluralism in runed.
