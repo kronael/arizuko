@@ -2,95 +2,73 @@
 status: draft
 ---
 
-# The graph & taxonomy hype — the non-intrusive answer
+# Riding a demand class — how the loop devises a non-intrusive answer
 
-There is real demand for "give my agent a knowledge graph / a taxonomy / a
-codebase map." Most of the machinery sold to meet it is hype, and adopting it is
-intrusive: a graph database, a vector store, a replatforming of state onto a
-projection. arizuko's answer is to ride the demand without buying the machinery —
-the folder is already the substrate, and the agent already traverses it.
+`1-adoption-interop.md` reads a _system_ and builds interop for it. A hype —
+knowledge graphs, taxonomies, RAG, "codebase maps" — is not a system. It is a
+_demand class_: a category of user want, restated by every vendor as a reason to
+buy heavy machinery (a graph DB, a vector store, an always-on index).
 
-## The hype, named
+This spec is not the answer to graphs. It is the **method the loop runs to devise
+the answer automatically**, for any such demand class. Writing one answer by hand
+is the thing phase 6 exists to stop doing.
 
-- **codebase→knowledge-graph** (graphify) — the headline "71.5x token reduction"
-  is self-debunked on its own hub page (~0% real savings for typical grep-first
-  use). A retrieval skill dressed as an architecture.
-- **event-log/graph-as-agent** (activegraph) — elegant, but adopting it means
-  replatforming arizuko's relational-per-daemon state onto a graph projection.
-  Intrusive by construction.
-- **vector-RAG / graph-RAG platforms** — a second datastore, a sync pipeline, an
-  index to keep fresh. arizuko explicitly does _not_ ship this (README §"does not
-  include") and pairs with a retrieval system instead.
+## The method (the loop runs this, not a human)
 
-The pattern across all three: a heavy, stateful, always-on subsystem sold to
-solve a problem that is usually just "let the agent read the data."
+Given a demand class (from user requests, hub-tracked competitor features, or a
+trend), the loop:
 
-## arizuko's answer — the folder is the graph
+1. **Strip to the primitive need.** "Talk to my knowledge graph" → "let the agent
+   traverse this data." Discard the machinery the pitch bundles with the need.
+2. **Try the primitives first.** Can the folder tree (hierarchy), bundled files
+   (nodes/edges), and the tools the container already has (`jq`, `grep`, FTS5)
+   serve the stripped need with **no new always-on subsystem**? Default yes.
+3. **Generate the product.** If yes, emit a folder + the dataset + a
+   one-paragraph brain + a route/chat link — a working bot, in an isolated
+   worktree, no core change.
+4. **Escalate only on proof.** If the primitives genuinely can't (millions of
+   edges, sub-second joins), mount an external engine as a **folder capability**
+   (`/mnt` read-only, or an MCP tool the agent calls) — never a core subsystem.
+   The engine is a tool the agent uses, not the substrate arizuko runs on.
+5. **Verify + record.** Drive the generated bot end-to-end, gate on an
+   adversarial check, record the demand-class → answer mapping, open for review.
 
-You do not adopt a graph engine. The primitives already present are enough:
+The output of steps 1–3 is almost always the same shape — a folder, files, an
+agent that traverses them — which is exactly why it can be automatic. The loop is
+not inventing per-demand; it is applying one discipline (primitives over
+subsystems) to each new want.
 
-- **The folder tree is the hierarchy.** `corp/eng/sre` is a graph edge. Nesting
-  is the taxonomy.
-- **Bundled data files are the nodes and edges.** Drop `topics.json`,
-  `dependencies.json` in the folder; the agent traverses them with `jq`, `grep`,
-  FTS5 — the tools it already has, in the container it already spawns.
-- **No new datastore, no sync, nothing always-on.** The dataset is a read-only
-  artifact in the folder. Traversal happens inside the per-turn container and
-  leaves nothing behind. Non-intrusive by construction — the opposite of a graph
-  platform.
+## Reference output — marble
 
-The moat stays the moat: this rides on the folder coordinate
-(`specs/5/A`, `USELESS.md` §4), it does not add a competing subsystem beside it.
+marble (`products/marble/`) is what step 3 produces, verified live: a 1,590-topic
+/ 3,221-edge prerequisite graph answered by `jq` over three bundled JSON files —
+no graph DB, no index, no sync. A folder, three files, a Haiku agent, one
+`/chat/` link. A graph-RAG vendor would have sold a database and an ingestion
+pipeline for this; the loop should reach the folder answer on its own, for any
+dataset, without a human writing the spec each time. marble is the proof the
+generated shape works, not a hand-authored answer to keep.
 
-## Proof — marble already does it
+## Why automatic matters here
 
-The marble taxonomy bot (`products/marble/`) is the existence proof, live on
-krons:
-
-- The Marble Skill Taxonomy: **1,590 K–5 micro-topics, a 3,221-edge prerequisite
-  graph** across 8 subjects.
-- Answered by **`jq` over three bundled JSON files** (`topics.json`,
-  `dependencies.json`, `clusters.json`) — trace a prerequisite chain, list what a
-  topic unlocks, filter by subject/age.
-- **No graph DB, no vector index, no sync.** A folder, three files, a Haiku
-  agent, one public `/chat/` link. Runs on the cheapest model.
-
-A graph-RAG vendor would have sold a database and an ingestion pipeline for this.
-arizuko shipped it as a folder.
-
-## The product shape — bring-your-dataset explorer
-
-Generalize marble into a product (it already is one, `products/marble/`): any
-JSON/CSV/markdown dataset an agent can traverse becomes a chat-over-your-data bot.
-Swap the files, rewrite the one-paragraph brain, keep everything else. This is the
-non-intrusive way to ride the "talk to my knowledge graph" demand:
-
-- **Non-intrusive**: the dataset is bundled and read-only; no new infra, no
-  always-on process, no second source of truth to keep in sync.
-- **Orthogonal**: it is the same six-primitive pipeline with different folder
-  contents — no new machinery.
-- **Composable**: one folder per dataset; a hierarchy of them if you have many.
-
-## When you actually need graph queries
-
-If a dataset genuinely needs Cypher/SPARQL-scale traversal (millions of edges,
-sub-second joins), do not replatform arizuko. Mount the graph tool as a
-**folder capability** — a `/mnt` read-only mount or an MCP tool the agent calls —
-and keep arizuko's state relational. The graph engine is a tool the agent uses,
-never the substrate arizuko runs on. Same discipline as any external system:
-interop at the boundary, the folder coordinate stays intact.
+Hand-authoring an answer per demand class is O(hypes) human work that goes stale
+as the hypes rotate. The loop makes it O(1): one method, applied to whatever the
+market is selling this quarter. The discipline it encodes — strip to the need,
+try primitives, escalate to a mounted capability only on proof — is the same
+interop-at-the-boundary rule as `1-adoption-interop.md`, pointed at demands
+instead of systems.
 
 ## Non-goals
 
-- **No graph DB or vector store in core.** The moment arizuko ships an always-on
-  second datastore, it has become the intrusive thing it is answering.
-- **Don't chase the token-reduction claim.** grep-first + FTS5 is the honest
-  baseline; a projection only earns its keep on a corpus that measurably needs it.
-- **The folder coordinate is still the reason.** Graph/taxonomy support is a
-  product shape on top of the primitives, not a new primitive.
+- **No hand-written per-demand answers.** If a human is speccing the concrete
+  answer, the loop failed — fix the method, not the instance.
+- **No graph DB or vector store in core.** An always-on second datastore _is_ the
+  intrusive machinery the method exists to avoid.
+- **The folder coordinate stays the substrate.** Every generated answer rides on
+  it (`specs/5/A`); none replaces it.
 
 ## Ties
 
-`2-target-matrix.md` (graphify/activegraph land here, not adopted) ·
-`1-adoption-interop.md` (interop-at-the-boundary discipline) · `specs/5/A`
-(the folder coordinate) · the marble product (`products/marble/`).
+`1-adoption-interop.md` (the loop; this is its demand-class mode) ·
+`2-target-matrix.md` (graphify/activegraph are inputs, not adoptions) ·
+`specs/5/A` (the folder coordinate) · the marble product (`products/marble/`, the
+reference output).
