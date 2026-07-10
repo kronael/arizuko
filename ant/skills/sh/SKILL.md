@@ -6,6 +6,9 @@ when_to_use: editing .sh files or writing shell scripts
 
 # Bash Style
 
+Requires the `software` skill's `code.md` for shared naming, style, and design
+rules. Below are shell-specific additions.
+
 ## Structure
 - ALWAYS `set -Eeuo pipefail` at top, NEVER rely on `set -e` alone for pipelines
 - ALWAYS `tmp=$(mktemp -d)` + `trap 'rm -rf -- "$tmp"' EXIT` for transient files; NEVER hand-roll `/tmp/script-$$`
