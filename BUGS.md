@@ -1,5 +1,33 @@
 # BUGS.md — open issues queue
 
+## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
+
+`dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
+`/dash/onbod/`, `/dash/timed/`), so `handleServices` renders them as drill-in
+links once the daemon's `/health` is reachable (`services.go:143`). But
+`dashd/main.go` only mounts `GET /dash/routd/` and `GET /dash/runed/` — there is
+**no `/dash/onbod/` or `/dash/timed/` handler**. Result: on a live instance the
+onbod and timed service tiles link to a 404. The slice comment ("Set Built=true
+once the per-daemon /dash/ route is shipped") documents the invariant that was
+violated. Fix: either ship the two control-plane handlers, or set
+`Built=false` on onbod+timed until they exist. Surfaced by the dashd-playwright
+audit (`services.spec.ts:32`), 2026-07-10.
+
+## dashd-playwright: 4 drifted test assertions (harness maintenance, not dashd bugs) (2026-07-10, OPEN)
+
+The offline dashd playtest (`make play`) has 4 stale assertions that no longer
+match verified-correct dashd behavior. Dashboard is sound; fix the tests:
+- `davd.spec.ts:21` — asserts per-file `/dav/inbox/{MEMORY,CLAUDE}.md` links on
+  `/dash/memory/`; they actually render on the group **settings** page
+  (`groups_admin.go:306-308`). Point the test there.
+- `groups.spec.ts:71` — clicks "delete group" without expanding the collapsed
+  `<details>Danger zone` wrapper (`groups_admin.go:330`, added 2026-06-18) →
+  button hidden → 30s timeout. Expand the `<summary>` first.
+- `invites.spec.ts:44` — POSTs the raw token to `/revoke`; handler keys revoke on
+  the short **ref** (`invites_test.go:175,182`) → 404. Revoke by ref.
+- `read-only.spec.ts:34` — asserts "Active sessions" on `/dash/status/`; that row
+  lives on the chat portal (`main.go:756`). Assert the group-count row instead.
+
 ## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
 
 Symptom (reported as "agents dying after some minutes"): a long-lived group's
