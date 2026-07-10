@@ -1,5 +1,40 @@
 # BUGS.md — open issues queue
 
+## Stale chat-bound session → `error_during_execution` + silent context loss (2026-07-10, OPEN)
+
+Symptom (reported as "agents dying after some minutes"): a long-lived group's
+agent briefly errors mid-turn and appears to "forget" the thread. **Not a
+crash** — 24/24 container exits over 12h were `code:0, timedOut:false`; no OOM
+(containers have no mem limit, ~218MB usage), no query timeout.
+
+**Root cause.** routd persists one session ID per chat (`sessions` table) and
+resumes it next turn via `claude --resume <id>`. The container's SDK transcript
+store (`groups/<folder>/.claude/projects/-home-node/*.jsonl`, bind-mounted) is
+pruned by Claude Code's **native retention cleanup** (`.last-cleanup`, ~30-day).
+When routd resumes a session whose transcript was pruned or never fully
+persisted, the SDK returns *"No conversation found with session ID"* → the turn
+result is `subtype=error_during_execution`.
+
+Evidence (marinade `atlas`): `.last-cleanup` = `2026-07-09T19:31:48Z` matches an
+`error_during_execution` at 19:31:41 to the minute; another at 2026-07-10
+07:13:26 resumed `b6c2b287-…` which is absent from disk. On-disk transcripts
+span 06-10 → 07-10 (retention window).
+
+**Self-heals but lossy.** `ant/src/index.ts:335,440` catches the session error
+and retries with a **fresh** session — the 07:13 case delivered `subtype=success`
+~3 min later. Costs: (1) the failed attempt's `error_during_execution` is logged
+as `Result #1` and may surface to the user before the retry; (2) the resumed
+conversation context is discarded (agent "forgets" the thread); (3) wasted
+latency + tokens.
+
+**Candidate fixes (do NOT apply until asked):** (a) before `--resume`, stat the
+transcript file for the stored session ID; if missing, start fresh silently
+(never surface `error_during_execution` as a delivered result); (b) routd expires
+/ nulls a session ID older than the CLI retention window; (c) raise or disable
+Claude Code `cleanupPeriodDays` in the container settings so referenced
+transcripts aren't pruned while `sessions` still points at them. (a)+(c) together
+close both the error-flash and the context loss.
+
 ## Chat-initiated onboarding still dead after the compose fix — InsertOnboarding never fires (2026-07-09, OPEN)
 
 A new group posts, hits a route miss, and **nothing happens** — no greeting, no
