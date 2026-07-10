@@ -344,7 +344,7 @@ Discipline:
 1. Create `pub/products/<name>/index.html` (intro) and `setup.html`
 2. Add a row to the product grid in `pub/products/index.html`
 3. Add a link to the landing page `go deeper` section if it's a flagship product
-4. Create `specs/6/product-<name>.md` (if not already there)
+4. Create `specs/7/product-<name>.md` (if not already there)
 
 ## Adding a new component page
 

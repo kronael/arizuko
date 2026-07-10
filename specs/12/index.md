@@ -2,36 +2,28 @@
 status: active
 ---
 
-# specs/12 — standalone + reusable
+# specs/11 — genericization + publishing components
 
-Making each arizuko daemon and capability presentable and usable
-standalone, reusable across other agent workloads beyond arizuko.
+The home for arizuko's orthogonal, publishable, standalone
+components and the sibling-component pattern they follow. Each
+component builds, tests, ships, and runs without arizuko; arizuko
+consumes it through a published surface (CLI / HTTP / `pkg/`),
+never by reaching into its internals. The phase also covers the
+security-hardening work that ships as such components (skill guard,
+self-learning, the crackbox sandbox/egress family).
 
-| Spec                                                     | Status     | Hook                                                                                 |
-| -------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
-| [b-ant-standalone.md](b-ant-standalone.md)               | draft      | ant as standalone Claude Code distribution; `ant <folder>` CLI                       |
-| [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | draft      | Go runtime: MCP front (stream-progress), claude NDJSON driver                        |
-| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | draft      | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol                             |
-| [6-workflows.md](6-workflows.md)                         | draft      | workflowd — TOML flow engine over shared SQLite; agent-agnostic                      |
-| [8-self-eval-skill.md](8-self-eval-skill.md)             | superseded | Same-model `query()` self-eval; superseded by [specs/9/1](../9/1-self-eval-haiku.md) |
-| [1-multi-agent-commits.md](1-multi-agent-commits.md)     | draft      | Committer script for multi-agent git safety (openclaw pattern)                       |
-| [2-printing-press.md](2-printing-press.md)               | draft      | Integrate printingpress.dev — agent-native CLI generator + MCP.                      |
-| [3-template-distillation.md](3-template-distillation.md) | draft      | Harvest live-group wisdom back into `ant/examples/<product>/`.                       |
+| Spec                                                     | Status               | Hook                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [A-orthogonal-components.md](A-orthogonal-components.md) | draft                | The orthogonality PATTERN: sibling shippable components (crackbox, gateway, mcp-firewall) each build/test/ship/run without arizuko; zero arizuko-internal imports; consumed via CLI / HTTP / `pkg/`. `16`/`17`/`18` instantiate it. Moved from `5/A` 2026-05-29. |
+| [7-self-learning.md](7-self-learning.md)                 | draft                | Pattern recognition → operator-gated proposals (skill, memory, persona)                                                                                                                                                                                          |
+| [8-skill-guard.md](8-skill-guard.md)                     | draft                | Threat-pattern PreToolUse hook on agent-written skills (hermes peel)                                                                                                                                                                                             |
+| [9-crackbox-standalone.md](9-crackbox-standalone.md)     | shipped              | egred — forward proxy with per-source allowlists (2026-04-29); arizuko's per-folder allowlist consumer                                                                                                                                                           |
+| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md)   | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing; gated Docker→KVM backend transition                                                                                                                                                                        |
+| [15-crackbox-dns-filter.md](15-crackbox-dns-filter.md)   | draft                | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host`; ANY refused                                                                                                                                                                                       |
+| [16-messaging-gateway.md](16-messaging-gateway.md)       | draft                | Generic message router over opaque ids; `routd` adds folder/grant domain on top                                                                                                                                                                                  |
+| [17-mcp-firewall.md](17-mcp-firewall.md)                 | draft                | Transparent MCP proxy; deny-wins tool-call filter on flat ruleset; `mcpd` sits behind                                                                                                                                                                            |
+| 18-openapi-mcp (moved)                                   | moved                | → [`5/45-openapi-mcp`](../5/45-openapi-mcp.md) — pulled to active phase 5 (the REST→MCP derivation for the unification program)                                                                                                                                  |
+| [c-sandd.md](c-sandd.md)                                 | draft                | Sandbox-spawn daemon; gated keeps spawn ownership for now                                                                                                                                                                                                        |
 
----
-
-## Queue (from comparative research)
-
-Patterns identified by muaddib / hermes / nanoclaw / openclaw / Anthropic-plugin deep-reads that arizuko genuinely lacks but doesn't yet have a written spec for. See [`tmp/improvements.md`](../../tmp/improvements.md) `## True-gap queue` for the 9 entries:
-
-- NULL-sentinel agent decline
-- Pre-container command gate
-- Periodic memory/skill nudges
-- Versioned PATCH + optimistic concurrency on persona/grants/settings
-- Column-flag for per-generation message visibility (steer race persistence)
-- `onExit`-callback-chained respawn
-- Bidirectional MCP-as-channel triad
-- FTS5 over messages
-- JSONL durable session log + observer-finalize
-
-Each promotes to its own spec — landing here when cross-cutting / platform-level, or extending an existing spec in `specs/4/`, `specs/5/`, `specs/6/` when the pattern is bucket-specific.
+The orthogonal-components pattern (the discipline this phase's
+components follow) is [`A-orthogonal-components.md`](A-orthogonal-components.md) above.

@@ -12,7 +12,7 @@ status: partial
 >
 > **Phase C (folder/user-scope secrets layering) is the BYOA primitive
 > phase 8 depends on.** Without secrets resolvable at spawn by
-> `(scope, name)` tuple, [`../8/3-git-as-truth.md`](../8/3-git-as-truth.md)
+> `(scope, name)` tuple, [`../9/3-git-as-truth.md`](../9/3-git-as-truth.md)
 > cannot ship safely — `agents.toml` would have to inline values.
 > Phase B (invites) + D (chats.is_group) shipped 2026-05; C is the
 > remaining piece.
@@ -203,12 +203,12 @@ Specs already shipped or planned that this references (do not duplicate
 their content):
 
 - `4/9-acl-unified.md` — canonical unified ACL (shipped); subsumes the
-- `13/6-dynamic-channels.md` — channel adapter credentials (special case
+- `14/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
 - `5/30-inspect-tools.md` — read-only introspection (shipped)
 - `GRANTS.md` (root) — composition mechanics
-- `13/7-auth-tunneling.md` — web-based credential capture; planned
-- `7/8-cli-auth-helper.md` — CLI auth dispatcher; planned
+- `14/7-auth-tunneling.md` — web-based credential capture; planned
+- `8/8-cli-auth-helper.md` — CLI auth dispatcher; planned
 
 Channels become a _consumer_ of the secrets table (channel-creds-as-folder-scope-secrets-with-platform-validators). Auth-tunnel writes to the same secrets table.
 

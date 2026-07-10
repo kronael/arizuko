@@ -26,7 +26,7 @@ never see credential values (credential_injector.rs). We inject
 secrets INTO the container at spawn (README.md §Security model).
 Prompt injection can read ours. It cannot read theirs. The fix —
 egred HTTPS-MITM swap at the boundary — is a spec, not code
-(specs/7/Z-egred-mitm.md, "planned, not shipped").
+(specs/8/Z-egred-mitm.md, "planned, not shipped").
 
 **Channels.** OpenClaw routes 24+ channels from one Node process, no
 message bus. Hermes speaks 16 platforms. We run 10 adapters as 10
@@ -48,7 +48,7 @@ replace is scaffolding, not an asset.
 **Skills.** Hermes has a skills marketplace, trust tiers, and a
 932-LOC threat scanner (skills_guard.py) gating installs. Our skills
 are folders plus a version bump; the scanner port is a spec
-(specs/11/8-skill-guard.md), not code.
+(specs/12/8-skill-guard.md), not code.
 
 **Scale.** ElizaOS is the only horizontally-scalable system in the
 survey (PostgreSQL + pgvector). We are one host, SQLite WAL,
@@ -89,7 +89,7 @@ admitted roughly a handful of humans, all known to the author.
   a path. One-process systems do not have this bug class.
 
 The pattern: complexity is paid daily; several benefits are
-promissory (git-as-truth: specs/8/3, spec; egred: spec; tenant
+promissory (git-as-truth: specs/9/3, spec; egred: spec; tenant
 self-service: specs/5/32, spec).
 
 ## 3. Validation, honestly

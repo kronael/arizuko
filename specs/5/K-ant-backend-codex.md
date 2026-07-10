@@ -264,7 +264,7 @@ Deferred:
 - Forking a harness to fix protocol gaps — wait for upstream or pick
   another harness.
 - Backend-specific operator verbs. Fleet ops
-  ([../16/7-ant-portability.md](../16/7-ant-portability.md)) operate on
+  ([../17/7-ant-portability.md](../17/7-ant-portability.md)) operate on
   the folder, not the harness, so they are backend-agnostic.
 
 ## Why Codex (decision record)
@@ -283,7 +283,7 @@ abstract so one could be added, but arizuko ships claude + codex.
 1. **Per-spawn vs per-folder selection.** Env-per-spawn ships in v1.
    A folder-level `backend:` hint (resolved by runed, env still the
    transport) is specified when the folder layout
-   ([../12/b-ant-standalone.md](../12/b-ant-standalone.md)) gains the
+   ([../13/b-ant-standalone.md](../13/b-ant-standalone.md)) gains the
    slot.
 2. **Codex protocol stability.** `app-server` is younger than claude's
    stream-json; field-level breakage between releases is likely. Pin
@@ -291,16 +291,16 @@ abstract so one could be added, but arizuko ships claude + codex.
 
 ## Relation to other specs
 
-- [../12/c-ant-mcp-runtime.md](../12/c-ant-mcp-runtime.md) — the
+- [../13/c-ant-mcp-runtime.md](../13/c-ant-mcp-runtime.md) — the
   planned Go runtime rewrite. If it lands, the `Backend` seam ports
   to Go unchanged in shape (this spec defines the seam, not the
   language).
-- [../12/b-ant-standalone.md](../12/b-ant-standalone.md) — folder
+- [../13/b-ant-standalone.md](../13/b-ant-standalone.md) — folder
   shape; this spec adds an optional `backend:` hint (deferred).
-- [../12/d-ant-image-cutover.md](../12/d-ant-image-cutover.md) — image
+- [../13/d-ant-image-cutover.md](../13/d-ant-image-cutover.md) — image
   build; a codex variant follows the same pattern.
 - [P-runed.md](P-runed.md) — owns the per-tenant MCP socket and the
   `submit_turn` → `POST /v1/turns/{turn_id}/result` forward. The
   backend sits below all of it.
-- [../16/7-ant-portability.md](../16/7-ant-portability.md) — fleet ops;
+- [../17/7-ant-portability.md](../17/7-ant-portability.md) — fleet ops;
   backend-agnostic.

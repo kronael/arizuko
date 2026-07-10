@@ -79,7 +79,7 @@ That's what arizuko is today: a single-host, multi-tenant agent router with chan
 
 **Multi-tenant by primitive.** The same code runs `solo/inbox` and `corp/eng/sre/oncall`. Folder hierarchies have no fixed depth. Every primitive — grants, channels, secrets, routes, scheduled work — scales from one-user-one-channel to a fleet of agents under shared admin. Adding tenants is adding rows + folders; the daemon graph is invariant.
 
-**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/8/3](specs/8/3-git-as-truth.md)), with SQLite as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
+**Agent-as-data.** Each agent is a folder of values — `PERSONA.md`, `skills/`, `MEMORY.md`, `.diary/`, ACL rules, route rows, secret references. The runtime is an interpreter over those values. The plan is to move cold-tier config (ACL, routes, persona, skills, scheduled tasks, invites) toward git as the source of truth ([specs/9/3](specs/9/3-git-as-truth.md)), with SQLite as a rebuildable cache. Forking, auditing, and distributing an agent then ride native git verbs instead of bespoke ones.
 
 **Agent-first managed (target state).** The agent and the operator will speak the same language. The plan ([specs/5/45](specs/5/45-openapi-mcp.md), rolled out by [specs/5/44](specs/5/44-mcp-rest-unification.md)) is one handler per cold-tier resource with two faces — REST authored for humans + external tools, MCP derived for in-container agents — over one auth gate (`auth.Authorize`) and one tx-bound audit row. The first resource (`proxyd_routes`) already runs that pattern; the rest follow incrementally. Declarative intent is then carried by YAML manifests dispatched through the same gate ([specs/5/36](specs/5/36-yaml-manifests.md)): operator writes the YAML, `arizuko apply` walks it row by row, daemons see resreg-shaped mutations identical to any other call.
 
@@ -175,7 +175,7 @@ Documents can be mounted or written into a group's workspace; agents can read th
 ## Security model
 
 - **Container isolation**: each group runs in a separate Docker container on a separate network. Sibling groups never share a context window.
-- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/7/Z-egred-mitm.md`) is planned, not shipped.
+- **Egress isolation**: `crackbox` enforces default-deny on agent outbound traffic via per-source-IP allowlists. Credential/placeholder swap at the boundary (`egred` HTTPS-MITM, `specs/8/Z-egred-mitm.md`) is planned, not shipped.
 - **ACL**: `auth.Authorize` — one `acl` table, deny-wins, tier defaults in code. MCP tools gated per-action per-principal.
 - **Secret injection**: folder secrets are AES-256-GCM encrypted at rest; injected into the container at spawn time, never written to disk in plaintext.
 - **Identity relay**: `proxyd` stamps `X-User-*` headers, proving the channel with a `service:proxyd` ES256 bearer (verified via `auth.ProxydTransit`); backends trust the headers only when that proof holds. Client-supplied `X-User-*` headers are stripped.

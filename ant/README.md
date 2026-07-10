@@ -58,7 +58,7 @@ arizuko-only if it mentions `@gated`, `@arizuko`, or `gated.sock`;
 portable otherwise. Current: 83 portable, 1 arizuko-only (`mcp`).
 
 The partition exists for the future standalone-ant binary
-(`specs/12/b-ant-standalone.md`) but doesn't run yet — all skills
+(`specs/13/b-ant-standalone.md`) but doesn't run yet — all skills
 ship in `ant/skills/`, nothing has moved to a separate `ant-arizuko/`
 package.
 

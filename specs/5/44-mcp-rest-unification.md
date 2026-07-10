@@ -2,7 +2,7 @@
 status: partial
 depends:
   [5/5-uniform-mcp-rest, 5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
-moved_from: specs/8/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
+moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
 > **Status (2026-07-07).** Agent-MCP faces: all SEVEN agent-facing cold-tier
@@ -253,5 +253,5 @@ ride `audit_log`). `network_rules` stays agent-only — no REST twin to fold.
 ## Out of scope
 
 - The `5/5` mechanism itself (shipped).
-- Data-model sharpening (`8/2`) and git-as-truth (`8/3`) — the other two
+- Data-model sharpening (`9/2`) and git-as-truth (`9/3`) — the other two
   phase-8 actions, still phase 8; do not smuggle them in here.

@@ -8,7 +8,7 @@ depends:
     E-routd,
     P-runed,
     ../4/9-acl-unified,
-    ../16/9-positioning,
+    ../17/9-positioning,
   ]
 ---
 
@@ -71,7 +71,7 @@ files you can diff, review, fork, and `git revert` on your own host.
 The same fixed pipeline serves all of them; only the folder contents
 and the routing differ. Ownership is what makes deep customization
 possible — the thing you need at this stage of AI, against opaque SaaS
-agents you can only tune through a text box (`6/9`).
+agents you can only tune through a text box (`7/9`).
 
 The deeper wedge is _how_ you shape it: through language, not config.
 You mold the system by talking to LLMs that edit the files that ARE the
@@ -494,7 +494,7 @@ What changed when this framing landed (the original to-do, kept for record):
 - **Products pages.** Each product opens by naming the recomposition —
   which folder contents + routing make it that product — and links to
   `concepts/primitives.html`. Keeps "a product is the same pipeline,
-  different folder" visible (`16/9`, `16/R-products`).
+  different folder" visible (`17/9`, `17/R-products`).
 - **README lead.** Product-first + the six-step trace + the four-layer
   table; shorten the current sprawl.
 - **Reference pages unchanged in shape** (`5/D` ownership rule):

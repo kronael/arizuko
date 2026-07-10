@@ -20,13 +20,13 @@ tied to a single channel adapter:
 
 Phase 5 capabilities are the foundation for phases 7 + 8:
 
-- [7/](../7/) layers enterprise hardening (encryption, audit, SSO,
+- [7/](../8/) layers enterprise hardening (encryption, audit, SSO,
   secret broker, MITM egress) on top of phase 5's surfaces +
   identity + tenancy.
-- [8/](../8/) closes and minimizes: `5/44` finishes the unification
+- [8/](../9/) closes and minimizes: `5/44` finishes the unification
   whose canonical mechanism is `5/45-openapi-mcp.md` (REST authored,
-  MCP derived), superseding `5/5-uniform-mcp-rest.md`; `8/2` sharpens
-  the data entities defined here; `8/3` moves the cold tier into git.
+  MCP derived), superseding `5/5-uniform-mcp-rest.md`; `9/2` sharpens
+  the data entities defined here; `9/3` moves the cold tier into git.
 
 The BYOA unlock for phase 8 is **`32-tenant-self-service.md` Phase C**
 (folder/user-scope secrets layering) — that work lands here and

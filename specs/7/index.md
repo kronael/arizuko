@@ -2,58 +2,38 @@
 status: active
 ---
 
-# specs/7 — enterprise hardening: trust primitives on top of phase 5
+# specs/6 — operator cockpit
 
-The trust layer. Hardening that makes arizuko credible to regulated
-buyers and enterprise security reviews:
+Every daemon serves its own dashboard from its own `/dash/<daemon>/`
+HTMX namespace, rendering its own source and reading/writing only
+through its own `/v1` surface — it observes AND controls every aspect
+of itself. A lean `dashd` hub probes and links them, AWS-Console style.
+One renderer per daemon, one hub.
 
-- **Encryption at rest** — `messages.db` + `secrets` table (`E`)
-- **Audit stream** — `ipc_audit` for MCP mutations + proxyd access
-  log + cli_audit (`F`)
-- **Per-daemon secrets** — channel-secret separation; leaking one
-  adapter's bearer does not compromise others (`H`)
-- **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
-  Code; JIT provisioning + SCIM deprovisioning (`X`)
-- **External capability injection** — secrets-injected MCP tools,
-  connector spawner, grants-governed; see `specs/5/41-ext-mcp.md`
-- **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
-  placeholder swap, per-instance CA; catches opaque HTTP clients
-  the broker can't (`Z`)
+[`1-cockpit-index.md`](1-cockpit-index.md) is the anchor: architecture,
+the `/v1`-only read-path, routing, auth, theme, non-goals, and the
+per-daemon spec template. Every other spec points back to it and adds
+only its own page list + show/control matrix.
 
-## Where this leads
+## Specs
 
-Phase 7 hardening composes with phase 8's git-as-truth into the
-platform thesis:
+| Spec                                                                                 | Status | Covers                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [1-cockpit-index.md](1-cockpit-index.md)                                             | draft  | architecture, `/v1` read-path, routing, auth, theme, non-goals                                                                                                                                                          |
+| [2-dashd-hub.md](2-dashd-hub.md)                                                     | draft  | dashd hub + retained cross-cutting operator pages                                                                                                                                                                       |
+| [3-routd-dashboard.md](3-routd-dashboard.md)                                         | draft  | queue, circuit breaker, channel-registry health, errored chats                                                                                                                                                          |
+| [4-runed-dashboard.md](4-runed-dashboard.md)                                         | draft  | active runs, history, capacity, broker tokens, kill run                                                                                                                                                                 |
+| [5-authd-dashboard.md](5-authd-dashboard.md)                                         | draft  | keys, tokens, OAuth providers, identity links                                                                                                                                                                           |
+| [6-proxyd-dashboard.md](6-proxyd-dashboard.md)                                       | draft  | live route table, denials, auth transit                                                                                                                                                                                 |
+| [7-onbod-dashboard.md](7-onbod-dashboard.md)                                         | draft  | admission queue, gates, invites                                                                                                                                                                                         |
+| [8-timed-dashboard.md](8-timed-dashboard.md)                                         | draft  | scheduled tasks, next ticks, recent runs                                                                                                                                                                                |
+| [9-crackbox-dashboard.md](9-crackbox-dashboard.md)                                   | draft  | egress policy, blocked attempts, registrations                                                                                                                                                                          |
+| [10-webd-davd-ttsd-dashboard.md](10-webd-davd-ttsd-dashboard.md)                     | draft  | thin web/file/voice surfaces, combined                                                                                                                                                                                  |
+| [11-adapter-contract.md](11-adapter-contract.md)                                     | draft  | shared adapter dashboard grammar + health model                                                                                                                                                                         |
+| [12-whapd-teled-slakd-dashboard.md](12-whapd-teled-slakd-dashboard.md)               | draft  | session chat adapters                                                                                                                                                                                                   |
+| [13-mastd-bskyd-reditd-linkd-dashboard.md](13-mastd-bskyd-reditd-linkd-dashboard.md) | draft  | stream/poll social adapters                                                                                                                                                                                             |
+| [14-discd-emaid-twitd-dashboard.md](14-discd-emaid-twitd-dashboard.md)               | draft  | mixed gateway adapters                                                                                                                                                                                                  |
+| [41-social-adapter-model.md](41-social-adapter-model.md)                             | draft  | Boundary: social adapters (bskyd/mastd/reditd/twitd/linkd — asymmetric visibility, selective engagement) vs chat adapters (bidirectional, push-events). Open: observer delivery, triage skill, rate-limit coordination. |
 
-- **Audit stream** (`F`) provides the SQLite audit log that
-  pairs with git history for warm-tier decisions; phase 8's
-  per-turn decision sidecar references the same actor identities.
-- **Encryption at rest** (`E`) keeps secret blobs safe in SQLite
-  while phase 8 explicitly keeps secrets OUT of git (refs only).
-- **Secret broker** (`Y`) + **per-daemon secrets** (`H`) lock down
-  the secret access surface that phase 8 references via
-  `(scope, name)` tuples in `agents.toml`.
-- **SSO** (`X`) and **MITM** (`Z`) are independent enterprise
-  asks; they don't depend on phase 8 but make the same buyer
-  ready to adopt it.
-
-## Scope notes
-
-Two specs in this phase are channel-flavored historical exceptions
-(D-slack-agent-pane, G-slack-multi-workspace) that bled in before
-the phase 5/7 split was clean. Per-platform adapter behavior
-generally lives next to daemon code (`slakd/`, `teled/`, etc.),
-not as spec files. Future channel-specific items get a per-daemon
-README rather than a phase-7 spec.
-
-| Spec                                                     | Status  | Hook                                                                                                                                                                                                                                   |
-| -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-hierarchical-skills.md](A-hierarchical-skills.md)     | draft   | Nested `ant/skills/` layout + self-skill root; `resolve` descends a tree instead of enumerating all SKILL.md frontmatters. Per-turn cost O(depth) not O(N).                                                                            |
-| [D-slack-agent-pane.md](D-slack-agent-pane.md)           | shipped | Full Slack AI sidebar support: pane_sessions table; assistant_thread_started/\_context_changed event handlers; setTitle on open; setSuggestedPrompts after every reply; pane_context surfaced to agent prompt; PERSONA.md frontmatter. |
-| [E-encryption-at-rest.md](E-encryption-at-rest.md)       | partial | Encrypt `secrets` table + `messages.db` at rest; filesystem-attacker threat model. Shipped: AES-256-GCM on `secrets.value`. Deferred: `messages.db` content columns.                                                                   |
-| [F-audit-stream.md](F-audit-stream.md)                   | draft   | Audit log: `ipc_audit` table for MCP mutations + `cli_audit` (existing) + slog for proxyd access. No file export.                                                                                                                      |
-| [G-slack-multi-workspace.md](G-slack-multi-workspace.md) | draft   | Slack OAuth install flow + multi-workspace support in slakd.                                                                                                                                                                           |
-| [H-per-daemon-secrets.md](H-per-daemon-secrets.md)       | shipped | Per-daemon channel secrets: each adapter reads `<DAEMON>_CHANNEL_SECRET` with fallback to `CHANNEL_SECRET` so a leaked per-platform bearer does not compromise the others.                                                             |
-| [X-sso-saml.md](X-sso-saml.md)                           | draft   | Enterprise SSO: SAML 2.0 SP-initiated + OIDC Authorization Code, on top of existing OAuth. JIT provisioning + optional SCIM deprovisioning.                                                                                            |
-| [Z-egred-mitm.md](Z-egred-mitm.md)                       | draft   | HTTPS-MITM on egred: per-source TLS termination, `$VAR` placeholder swap on Authorization-class headers, CA per instance. Additive to Y — catches opaque HTTP clients (curl, requests, bash-grant scripts) the broker can't.           |
-| [00-finalise-plan.md](00-finalise-plan.md)               | draft   | Historical: bucket-6 finalisation plan from the pre-split era. Most referenced specs now live in [specs/5/](../5/).                                                                                                                    |
+Supersedes `specs/11/18-daemon-dashboards.md`; reconciles the shipped
+`3/d`, `4/Q`, `4/V` (see `1-cockpit-index.md` "Reconciliation").

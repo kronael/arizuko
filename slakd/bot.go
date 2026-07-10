@@ -616,7 +616,7 @@ func (b *bot) handleJoin(teamID string, raw json.RawMessage) {
 	b.lastInboundAt.Store(time.Now().Unix())
 }
 
-// ===== assistant pane (specs/7/D) =====
+// ===== assistant pane (specs/8/D) =====
 
 // defaultPanePrompts is the suggested-prompt set shown when a pane
 // opens. Operator-overridable later via PERSONA.md (deferred).

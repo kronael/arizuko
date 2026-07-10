@@ -209,7 +209,7 @@ flat and per-turn enumeration cost grows linearly. Two rules:
 
 2. **Freeze growth of MCP tools per source file.** When a new
    capability appears, the default home is a skill (per
-   `../7/A-hierarchical-skills.md`), not a new MCP tool. New MCP
+   `../8/A-hierarchical-skills.md`), not a new MCP tool. New MCP
    tools land only when the capability is a stable primitive that
    every agent needs (file I/O, container ops, inspect\_\*). Domain
    workflows go into skills.
@@ -222,7 +222,7 @@ Beyond freezing growth: most tools should not load eagerly at all.
 Core messaging/inspect stay eager; connector + management tools defer
 behind the Tool Search Tool. The eager/deferred split + cache
 rationale lives in
-[`../7/A-hierarchical-skills.md`](../7/A-hierarchical-skills.md)
+[`../8/A-hierarchical-skills.md`](../8/A-hierarchical-skills.md)
 §"Tools side: deferred disclosure".
 
 ## Token / auth model
@@ -759,7 +759,7 @@ MCP-only by design.
 
 - Not streaming. SSE endpoints (slink message stream, agent live
   output) stay as-is — not CRUD/RPC.
-- Not rate limits ([`specs/10/4-rate-limits.md`](../10/4-rate-limits.md)).
+- Not rate limits ([`specs/11/4-rate-limits.md`](../11/4-rate-limits.md)).
 - Not transport addition. REST + MCP only. No GraphQL, no gRPC.
 - Not per-tenant policy variants. One global policy table per resource.
 - Not a permission-model overhaul. Grants (per

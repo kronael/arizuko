@@ -6,7 +6,7 @@ status: shipped
 > uses the chat/route-token surface (`W-webhook-routes.md`, which renamed
 > slink) + `send_message`. Workflows use the Claude Code Agent tool inside
 > a container. No routd work outstanding; declarative workflow syntax
-> tracked separately in `12/6-workflows.md`.
+> tracked separately in `13/6-workflows.md`.
 
 # Agent orchestration & workflows
 
@@ -21,4 +21,4 @@ Rationale: workflows already work via Claude Code Agent tool. No routd
 changes needed. Orchestration = existing chat/route-token surface +
 `send_message` + skill files driving the topology.
 
-Superseded for declarative flows by [../12/6-workflows.md](../12/6-workflows.md).
+Superseded for declarative flows by [../13/6-workflows.md](../13/6-workflows.md).

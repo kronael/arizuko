@@ -919,7 +919,7 @@ longer exists:
   line numbers (#L28/#L73/#L252) for `ParseJID`/`validateKind`/`MatchJID`.
 - `specs/5/index.md:59` + `specs/5/S-jid-format.md` (status:shipped) —
   describe typed structs as the implementation.
-- `specs/6/00-finalise-plan.md:82` lists `core/jid.go` in a file set.
+- `specs/7/00-finalise-plan.md:82` lists `core/jid.go` in a file set.
 Fix path: rewrite the two web-doc pages to describe the string JID +
 `JidPlatform`/`JidRoom` reality, reconcile S-jid-format with the
 genericization direction, drop the file-list entry. Operator-facing
@@ -1689,7 +1689,7 @@ predate this session's restructure (the 5/4-delete + 5/A→11/A move added
 zero broken links). Fix = repoint to the correct target:
 - `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
 - `specs/5/5-uniform-mcp-rest.md` → `../11/11-crackbox-secrets.md` (×2) — no such file in specs/11 (renamed/removed); find the real secrets-broker spec (6/Y?).
-- `specs/7/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
+- `specs/8/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
 </details>
 
 ## resreg (5/36) spec-vs-impl gaps (found 2026-05-29 shipping plan/get; address in finalize)
@@ -2252,7 +2252,7 @@ protocol. The `network_rules`/egress surface was excluded (impl in flight).
   `K-ant-backend-codex` draft but shipped. `33-proactive` draft but shipped-in-routd.
   `I`/`O` shipped but partial. `1-auth-standalone` accurately partial (schema/endpoints
   diverge materially: no encryption-at-rest, /v1/keys/rotate, unlink, account-linking).
-- Stale `specs/6/...` citations: `store/migrations/0054` (→5/B), `api/api.go:297` (→5/L),
+- Stale `specs/7/...` citations: `store/migrations/0054` (→5/B), `api/api.go:297` (→5/L),
   `0034-secrets` cites 7/35.
 
 ## CEO/CTO critique + live docs audit (2026-06-04) — NOT yet fixed
@@ -2298,7 +2298,7 @@ logged above (DOCS gaps).
 - `/products/` ships 2 cards (reality, slack-team); CLI offers 9 templates
   (`cmd/arizuko/main.go:193`); landing promises "and more." Thin catalog vs pitch.
 - README "Direction" + landing forward surfaces present `CUTOVER_SPLIT`/git-as-truth
-  (unshipped: compose/compose.go:31 default-off; specs/7/3 drafting) in present
+  (unshipped: compose/compose.go:31 default-off; specs/8/3 drafting) in present
   tense without a "planned" marker.
 - No named buyer / no business posture stated anywhere (CEO kill-shot: operability
   gap × no SaaS = narrow market). Positioning rewrite in critique-ceo memo.

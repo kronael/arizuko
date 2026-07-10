@@ -56,7 +56,7 @@ in shape — registers with `routd` via `chanlib.RouterClient`, exposes
 | `pane_set_prompts` | native (pane only) | `assistant.threads.setSuggestedPrompts` after next Send          |
 | `pane_set_title`   | native (pane only) | `assistant.threads.setTitle` after next Send                     |
 
-## Assistant pane (specs/6/D)
+## Assistant pane (specs/7/D)
 
 Slack's "Agents & AI Apps" feature gives the bot a dedicated sidebar
 pane. slakd implements the full lifecycle when the app has

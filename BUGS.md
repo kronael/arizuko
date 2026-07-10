@@ -365,7 +365,7 @@ because snapshots can't see that state.
 - **Severity:** high
 - **Scope:** dashd, cockpit spec 6/1
 - **Affected:** all dashd pages (groups, status, invites, memory, tokens, activity)
-- **Source:** dashd/main.go:106,170-191; specs/6/1-cockpit-hub.md
+- **Source:** dashd/main.go:106,170-191; specs/7/1-cockpit-hub.md
 - **Status:** open
 - **Fix:**
 
@@ -392,7 +392,7 @@ zero occurrences of "usage", "throughput", or "metric". Not specced, not built.
 - **Severity:** medium
 - **Scope:** dashd specs 6/1, 6/2
 - **Affected:** operators, business visibility
-- **Source:** dashd/main.go:789-822; specs/6/2-dashd-hub.md
+- **Source:** dashd/main.go:789-822; specs/7/2-dashd-hub.md
 - **Status:** resolved — /dash/usage/ shipped
 - **Fix:**
 

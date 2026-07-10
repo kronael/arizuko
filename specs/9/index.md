@@ -1,89 +1,153 @@
 ---
-status: active
+status: draft
 ---
 
-# specs/9 — self-healing (Aeon mechanism incorporation)
+# specs/8 — platform program: MCP+REST unification, data model, git-as-truth
 
-A deliberate import of the three load-bearing mechanisms from
-[Aeon](https://github.com/aaronjmars/aeon) — a GitHub-Actions-based
-agent framework with 121 skills and a "self-healing" reputation. Aeon
-runs on cron in GHA; arizuko is a channel-native multi-tenant
-platform. The architecture does not port. The mechanisms do.
+The platform thesis crystallized in the 2026-05-23 framing session.
+This phase carries it from positioning to mechanism.
 
-Source analysis (memory): `reference_aeon.md`. Of the 9 mechanisms
-catalogued, three are imports for this phase, three are deferred to
-later phases, three are skipped because arizuko has a better answer.
+## The framing (one paragraph)
 
-## Why this phase exists
+arizuko is an **agentic product platform** with two surfaces and one
+discipline. The surfaces: **MCP+REST** (the operations + runtime
+protocol, agent-first, REST as impedance match) and **git** (the
+serialized representation, the audit trail, the fork primitive, the
+distribution channel). The discipline: **agent is data** — persona,
+skills, ACL, routes, products, secrets-pointers, decisions, memory,
+diary are all values, versioned in git, mutated through the
+MCP+REST gate, projected into running containers at HEAD. Like
+"code is data" became cloud and infrastructure-as-code, now we have
+_agents as data_ — and agents managing agents on top of it.
 
-Aeon's "self-healing" reduces to a small loop:
+## Why this is a phase, not a feature
 
-1. **LLM-as-quality-gate** — Haiku scores Opus output after every run
-   (1-5 + flags + reasoning, JSON).
-2. **State-evaluator** — periodic check on a rolling score history
-   fires a reactive trigger when conditions match.
-3. **Repair playbooks** — opinionated skills the agent invokes on the
-   reactive trigger.
+Each of the three actions is independently shippable. Together they
+are the platform thesis. Out of order they don't compose. Pre-ordered:
 
-Combined with a cooldown table, that loop turns a noisy failure mode
-into a tracked, throttled, agent-driven repair. arizuko doesn't have
-this loop today. It should — once, mechanically, riding existing
-primitives.
+1. **MCP+REST unification** — **pulled to active phase 5 as
+   [`5/44-mcp-rest-unification.md`](../5/44-mcp-rest-unification.md)**
+   (it's in flight now, not a future phase-8 item). Finish what
+   `specs/5/5-uniform-mcp-rest.md` started: one hand-rolled handler per
+   resource, both protocols, identical scopes + auth gate. Without this,
+   the operator + agent surfaces drift and the "git as truth" reconcile
+   loop has two masters to chase.
+2. **Data model improvements** — sharpen the entities (chats, routes,
+   grants, secrets, products, deployments) so they can be cleanly
+   serialized to git files. Many tables today are operational shapes,
+   not authoritative state — that boundary needs explicit lines
+   drawn before the git move can be principled.
+3. **Git as truth** — move what we can put in git easily _now_
+   into a per-instance git repo. Cold tier (ACL, routes, persona,
+   skills, MEMORY.md, .diary/) goes synchronously, written direct
+   to working tree; commits gate at turn boundary. Hard parts
+   (secrets blob location, chats split, inbound digest) stay in
+   SQLite until their own sub-specs land. Pragmatic, not
+   maximalist. Audit, history, fork, distribute — native git
+   verbs for everything that does migrate.
 
-## Design principle (carried from CLAUDE.md)
+## Design principles (carried)
 
-**Minimality and orthogonality.** Don't introduce new primitives where
-the messaging primitive carries the seam.
+- **One renderer, many sinks** (CLAUDE.md) — MCP+REST unification IS
+  this principle applied to the platform's external surface.
+- **Strict, not magical** (CLAUDE.md) — git is strict by construction
+  (commit or it didn't happen); no silent fallbacks for missing data,
+  no parent-folder inheritance for things the operator didn't write.
+- **Boring tech** (CLAUDE.md) — git is the most-known versioned-data
+  primitive on the planet; reach for it before inventing event logs,
+  CRDTs, or bespoke audit tables.
+- **Minimality and orthogonality** (CLAUDE.md) — three concerns, three
+  spec files, no cross-mixing. Don't smuggle git semantics into the
+  MCP/REST unification spec; don't smuggle data-model changes into
+  the git move.
 
-- State-evaluator is a message producer, like `timed`. No new trigger
-  type in the gateway, no new MCP tool, no new daemon shape.
-- Repair playbooks are skills, not infrastructure. They drop into
-  `ant/skills/` and are invoked via normal dispatch when the agent
-  handles `verb=state-event`.
-- Self-eval is a Haiku sub-query at container exit, writing a row to
-  `skill_health`. Same shape as the existing `specs/12/8-self-eval`
-  predecessor — but with a stronger judge and a persistent surface.
+## What this phase is NOT
 
-The seam is the SQLite schema (`skill_health`, `cooldowns`) plus the
-existing message bus. Nothing else.
+- Not a runtime rewrite. Containers, channel adapters, daemon shape
+  unchanged.
+- Not a bespoke event-sourcing system. ActiveGraph
+  (arxiv:2605.21997) inspired the direction; git replaces the
+  bespoke event log + projection + fork machinery. Adopt the
+  discipline, not the runtime.
+- Not Kubernetes / multi-node. Single-host operator footprint stays.
+- Not a product registry (that's `specs/7/...` / future-phase 6 work).
+- ~~Not the `agents.toml` declarative composer~~ — resolved
+  in [5/36-yaml-manifests.md](../5/36-yaml-manifests.md): the carrier
+  format is YAML, not TOML, and lives in this phase. Product
+  composition / mixin semantics remain open (8/4 Q2).
+
+## Sequencing
+
+Action 1 unblocks Action 2 (data model can target the unified
+surface). Actions 1+2 unblock Action 3 (clean entities + clean
+surface = clean git serialization). Within each action, ship the
+smallest viable version first; iterate behind that surface.
+
+Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
+(folder/user-scope secrets layering) — the BYOA primitive. Without
+secrets-as-references-resolvable-at-spawn, Action 3 can't ship
+safely.
+
+Also composes with phase 7 hardening: `specs/8/F-audit-stream.md`
+(audit log for warm tier), `specs/8/E-encryption-at-rest.md`
+(secrets stay encrypted in SQLite, never leak into git),
+`specs/5/41-ext-mcp.md` (per-call audit at the secret edge),
+`specs/8/H-per-daemon-secrets.md` (adapter-side compartments).
 
 ## Specs in this phase
 
-| Spec                                                             | Status | Hook                                                               |
-| ---------------------------------------------------------------- | ------ | ------------------------------------------------------------------ |
-| [1-self-eval-haiku.md](1-self-eval-haiku.md)                     | draft  | Haiku scores Opus output; writes `skill_health` rows per run.      |
-| [2-state-evaluator.md](2-state-evaluator.md)                     | draft  | Message producer fires `verb=state-event` on conditions; cooldown. |
-| [3-repair-playbooks.md](3-repair-playbooks.md)                   | draft  | Opinionated skills for typed failure recovery (api, rate, schema). |
-| [4-positioning-componentized.md](4-positioning-componentized.md) | draft  | Capture componentized-daemon vs monolithic-GHA as the real diff.   |
-| [5-skill-catalog-audit.md](5-skill-catalog-audit.md)             | draft  | Map Aeon's 121 skills against arizuko's 56; prioritise imports.    |
+- [2-data-model.md](2-data-model.md) — entity sharpening,
+  serialization-friendly shapes.
+- [3-git-as-truth.md](3-git-as-truth.md) — gateway as the only git
+  writer; dual-write event-sourcing-lite; SQLite as cache; fork via
+  `git worktree`; audit via `git log`.
+- [4-data-ingestion-curation-eventing.md](4-data-ingestion-curation-eventing.md)
+  — open questions: how ingestion, curation, and eventing fit the
+  agent-is-data + git-as-truth thesis. Status: draft (open questions;
+  no mechanism proposed).
+- [5/36-yaml-manifests.md](../5/36-yaml-manifests.md) — declarative YAML
+  carrier for cold-tier intent; flat resource namespace dispatched
+  through resreg; supersedes the `agents.toml` placeholder in
+  3/4. Status: shipped.
+- [6-functions.md](6-functions.md) — lambda/function primitive:
+  agent-authored scripts on host, triggered transiently by webhook /
+  cron / function-chain / manual via `systemd-run --transient` under
+  per-folder cgroup slice; host-side `fnspd` spawner bridges
+  containerized gated to host systemd-user manager. Status: draft.
+- [7-configurable-autocalls.md](7-configurable-autocalls.md) —
+  operator-extensible `<autocalls>` block: a DB-backed, resreg-managed
+  resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
+  builtins. Two bounded kinds — `template` (pure, zero-I/O over
+  `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
+  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/31's
+  planned `unread`/`errors` entries; "agent is data" applied to what
+  the agent passively sees. Status: draft.
 
-## Cross-spec dependencies
+## Open questions (referenced from each spec)
 
-- **`specs/4/P-personas.md`** — skills lifecycle, versioning, migration
-  hook. Repair playbooks ship under the same lifecycle (skill file in
-  `ant/skills/`, MIGRATION_VERSION bump, auto-broadcast on tag).
-- **`specs/12/8-self-eval-skill.md`** — the predecessor self-eval
-  spec, where the judge was the same model via in-container
-  `query()`. Superseded by `6/1` — Aeon's Haiku-judges-Opus is the
-  stronger design (cheaper judge, less reflexive). The 11/8 spec
-  retains the trigger-shape research; 6/1 supersedes the model
-  choice and the data shape.
-- **`specs/12/6-workflows.md`** — workflowd. `6/4` proposes dropping
-  this in favour of "any automation is a folder" — see that spec for
-  the case.
-- **`specs/5/41-ext-mcp.md`** — arizuko's answer to Aeon's
-  prefetch-outside-sandbox pattern. Not imported; called out in
-  `6/4` as "we already do this, but better".
+These are real and unresolved at phase-open. Each child spec carries
+its own subset; the index keeps the master list.
 
-## Out of scope for this phase
+1. Inbound message storage — per-day JSONL in git, or hot-only in
+   SQLite?
+2. Crash recovery between SQLite write and git commit — replay
+   protocol?
+3. Fork lifecycle — does forked branch get its own container, same
+   DB, separate cache?
+4. Operator UX — `arizuko log/diff/revert` wrappers vs raw git?
+5. dashd tier-1 write — commit→apply, or commit-immediate-apply?
+6. Tracing granularity vs audit granularity — sidecar JSON enough,
+   or per-event commits on a side branch?
+7. Term "GitOps" — adopt (familiar to ops buyers) or substitute
+   "git-native" (cleaner for non-K8s audience)?
 
-- **Regression-hunter / git-blame** (Aeon mechanism #5). Useful for
-  the arizuko _codebase_ (developer tool), not for agents.
-- **Cluster-first triage** (mechanism #6). Defer until `skill_health`
-  data accumulates and signature-grouping has signal to chew on.
-- **24h repair cooldown** (mechanism #9). Folded into `6/2` as the
-  cooldowns table; not a separate spec.
-- **Pull-based Telegram scheduler** (mechanism #8). Skip; we have
-  instant webhooks.
-- **Git-as-database** (mechanism #1). Skip; SQLite + per-folder
-  files is more flexible.
+## Pointers
+
+- Framing session diary: `.diary/20260523.md` (afternoon blocks
+  ~14:00–15:30).
+- Competitive sweep + ActiveGraph honesty check: same diary entry.
+- Three-lens synthesis (agent-is-data, agent-first, agent-is-graph
+  scoped to organizational layer): same diary.
+- Memory pointers: `~/.claude/projects/-home-onvos-app-arizuko/memory/`
+  (no permanent memory file yet; this index doubles as canonical
+  framing reference until POSITIONING.md exists at repo root).

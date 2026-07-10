@@ -6,7 +6,7 @@ supersedes:
   [
     specs/5/41 §Secrets-table,
     specs/5/32 §Phase-C-secrets,
-    specs/7/E §Anthropic-keys,
+    specs/8/E §Anthropic-keys,
   ]
 ---
 
@@ -214,5 +214,5 @@ surface belong to spec 41 (`registerWithSecrets` for Go handlers,
   handler shapes (subprocess connector, REST descriptor) only.
 - `specs/5/32-tenant-self-service.md` §Phase-C §credentials §user-secret-injection —
   `chats.kind` gate and scope model replaced here.
-- `specs/7/E-encryption-at-rest.md` §Anthropic-keys — operator anchors are
+- `specs/8/E-encryption-at-rest.md` §Anthropic-keys — operator anchors are
   host env, not secrets table; only user BYOA overrides land in the table.

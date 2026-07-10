@@ -293,5 +293,5 @@ write paths) lives in [`5/42`](42-credentials.md).
 - Per-tool secret-scope overrides (refuse folder fallback) — add
   `MCPTool.SecretScopes` if needed, not v1
 - HSM / KMS integration
-- MITM-isolated egress for opaque HTTP clients — `specs/7/Z-egred-mitm.md`
+- MITM-isolated egress for opaque HTTP clients — `specs/8/Z-egred-mitm.md`
   (additive: catches clients the broker can't reach)

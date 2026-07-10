@@ -1,72 +1,47 @@
 ---
-status: active
+status: draft
 ---
 
-# specs/16 — products
+# specs/15 — multiplayer: shared sessions, durable streams, presence
 
-Launching products built on arizuko: persona templates, packaging,
-and the publish surface that lets operators deploy a configured agent
-out of the box.
+What we steal from **Centaur** (paradigmxyz/centaur — "multiplayer,
+self-hosted, secure agents", open-sourced 2026-05-21; Slack-native,
+FastAPI control plane, Postgres state, per-thread sandbox) and from the
+**krons agents hub** (`https://krons.fiu.wtf/pub/krons/agents/` — a
+published static catalog comparing eleven agent frameworks, arizuko
+among them).
 
-## Infrastructure
+Centaur and arizuko are near-twins in shape: both are self-hosted
+multi-tenant agent routers with channel adapters, per-conversation
+container isolation, and network-level credential injection. arizuko
+already matches or beats Centaur on isolation (crackbox vs iron-proxy),
+secret broker, per-folder identity, and surface uniformity (MCP+REST).
+The honest gaps are all on the **multiplayer** axis — Centaur's word
+for _multiple humans collaborating in one shared, observable,
+crash-durable agent session_:
 
-| Spec                                             | Status      | Hook                                                                                    |
-| ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
-| [P-product-templates.md](P-product-templates.md) | draft       | Pointer stub → R-products (merged).                                                     |
-| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
-| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                              |
-| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.               |
-| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.         |
-| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.        |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.           |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases. |
-| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.  |
+- arizuko's live stream (`5/J` SSE) is **best-effort**: no event-id
+  cursor, no replay, drops slow clients silently. Centaur's
+  `GET /agent/threads/{key}/events?after_event_id=` replays from a
+  durable event log and emits a terminal snapshot on reconnect.
+- arizuko has **no final-delivery guarantee**: poll-based outbound, but
+  no retry-until-acked outbox for the terminal reply. Centaur has
+  `agent_final_delivery_outbox`.
+- arizuko has **no presence**: a shared web chat can't show who else is
+  watching or that the agent is mid-turn.
+- arizuko has **no published agent catalog**: the operator sees groups
+  behind dashd admin auth, but there's no multiplayer "what agents live
+  here" surface — which is exactly what the krons hub demonstrates as a
+  publishable artifact.
 
-Platform/API surface lives in [specs/5/](../5/) — products consume the
-control API; the API design ships before the products that depend on it.
+Each row below is a draft spec for one such gap, fit to arizuko's
+existing daemons (routd owns the event store + loop; webd is the SSE
+sink; vited publishes static `/pub`). Nothing here adds a foreign
+runtime, a workflow engine (that overlaps `13/6`), or Kubernetes.
 
-## Product catalog
-
-Each product ships as `ant/examples/<name>/` and installs via
-`arizuko create <instance> --product <name>`. Public page at `/pub/products/<name>/`.
-
-Developer capabilities are embedded in each product that needs them
-(oracle + bash grants, scoped per deployment) — not a separate product.
-
-| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
-| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
-| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
-| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
-| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
-| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
-| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
-| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
-| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
-
-## Arizuko features required per product
-
-| Feature (shipped ✓ / unshipped ✗) | Personal | Support | Trip  | Strategy | PM  | Reality | Creator | Socials |
-| --------------------------------- | :------: | :-----: | :---: | :------: | :-: | :-----: | :-----: | :-----: |
-| ant link (slink) ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| onbod / user reg ✓                |    –     |  **✓**  |   –   |    –     |  –  |    –    |    –    |    –    |
-| oracle ✓                          |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| davd ✓                            |    –     |    –    | **✓** |  **✓**   |  –  |    –    |  **✓**  |    –    |
-| timed ✓                           |    –     |    –    |   –   |  **✓**   |  –  |  **✓**  |  **✓**  |  **✓**  |
-| social adapters ✓                 |    –     |    –    |   –   |    –     |  –  |    –    |  **✓**  |  **✓**  |
-| send_file ✓                       |    –     |    –    | **✓** |  **✓**   |  –  |    –    |    –    |    –    |
-| rate limits ✗                     |    –     |    ✗    |   –   |    –     |  –  |    –    |    –    |    ✗    |
-| HITL firewall ✗                   |    –     |    –    |   –   |    –     |  –  |    –    |    ✗    |    ✗    |
-
-## Products in spec only (not yet in ant/examples/)
-
-Specced in this directory but no template folder shipped yet:
-
-| Spec                                           | Value prop                                                        |
-| ---------------------------------------------- | ----------------------------------------------------------------- |
-| [product-ops.md](product-ops.md)               | DevOps/SRE with runbooks + scoped bash                            |
-| [product-companion.md](product-companion.md)   | Personal companion with proactive check-ins                       |
-| [product-slack-team.md](product-slack-team.md) | Slack team agent — shared channel persona, per-user memory/grants |
+| Spec                                                         | Status | Hook                                                                                                                                 |
+| ------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [1-durable-turn-stream.md](1-durable-turn-stream.md)         | draft  | Event-id'd turn event log in routd; `5/J` SSE + `get_round` MCP replay from `after_event_id`, terminal snapshot on reconnect.        |
+| [2-final-delivery-outbox.md](2-final-delivery-outbox.md)     | draft  | Retry-until-acked outbox in routd for the terminal channel reply; survives adapter/process restart.                                  |
+| [3-shared-session-presence.md](3-shared-session-presence.md) | draft  | Presence frames on the webd hub: who is subscribed to a (folder, topic), and an agent-working indicator.                             |
+| [4-agents-catalog.md](4-agents-catalog.md)                   | draft  | Published `/pub/<group>/agents/` catalog of an instance's folders + one-line capability — multiplayer discoverability, vited-served. |

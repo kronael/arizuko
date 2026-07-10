@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [I-tool-call-logging, ../7/F-audit-stream]
+depends: [I-tool-call-logging, ../8/F-audit-stream]
 ---
 
 # specs/5/O — Observability
@@ -24,7 +24,7 @@ All three are optional. Unset env vars → zero overhead, stderr-only.
 
 ## Non-goals
 
-- OTLP export of `audit_log` (SQLite is canonical; see `7/F-audit-stream.md`)
+- OTLP export of `audit_log` (SQLite is canonical; see `8/F-audit-stream.md`)
 - SIEM webhooks, file rotation, JSONL dumps
 - Replacing slog — stderr stays primary
 - Custom trace UIs — use any OTel-compatible collector
@@ -245,6 +245,6 @@ end(err) // sets outcome + duration
 ## Cross-references
 
 - [`I-tool-call-logging.md`](I-tool-call-logging.md) — slog field schema
-- [`../7/F-audit-stream.md`](../7/F-audit-stream.md) — audit_log (NOT exported)
+- [`../8/F-audit-stream.md`](../8/F-audit-stream.md) — audit_log (NOT exported)
 - [`5/45-openapi-mcp.md`](45-openapi-mcp.md) — unified handlers that emit records
 - [`obs/README.md`](../../obs/README.md) — implementation reference

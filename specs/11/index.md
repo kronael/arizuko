@@ -2,28 +2,19 @@
 status: active
 ---
 
-# specs/11 — genericization + publishing components
+# specs/10 — operator tools
 
-The home for arizuko's orthogonal, publishable, standalone
-components and the sibling-component pattern they follow. Each
-component builds, tests, ships, and runs without arizuko; arizuko
-consumes it through a published surface (CLI / HTTP / `pkg/`),
-never by reaching into its internals. The phase also covers the
-security-hardening work that ships as such components (skill guard,
-self-learning, the crackbox sandbox/egress family).
+Operator-facing controls: usage visibility, spend limits, and
+per-instance branding. No user-visible UX changes; all
+operator-configured via env vars or dashd.
 
-| Spec                                                     | Status               | Hook                                                                                                                                                                                                                                                             |
-| -------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-orthogonal-components.md](A-orthogonal-components.md) | draft                | The orthogonality PATTERN: sibling shippable components (crackbox, gateway, mcp-firewall) each build/test/ship/run without arizuko; zero arizuko-internal imports; consumed via CLI / HTTP / `pkg/`. `16`/`17`/`18` instantiate it. Moved from `5/A` 2026-05-29. |
-| [7-self-learning.md](7-self-learning.md)                 | draft                | Pattern recognition → operator-gated proposals (skill, memory, persona)                                                                                                                                                                                          |
-| [8-skill-guard.md](8-skill-guard.md)                     | draft                | Threat-pattern PreToolUse hook on agent-written skills (hermes peel)                                                                                                                                                                                             |
-| [9-crackbox-standalone.md](9-crackbox-standalone.md)     | shipped              | egred — forward proxy with per-source allowlists (2026-04-29); arizuko's per-folder allowlist consumer                                                                                                                                                           |
-| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md)   | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing; gated Docker→KVM backend transition                                                                                                                                                                        |
-| [15-crackbox-dns-filter.md](15-crackbox-dns-filter.md)   | draft                | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host`; ANY refused                                                                                                                                                                                       |
-| [16-messaging-gateway.md](16-messaging-gateway.md)       | draft                | Generic message router over opaque ids; `routd` adds folder/grant domain on top                                                                                                                                                                                  |
-| [17-mcp-firewall.md](17-mcp-firewall.md)                 | draft                | Transparent MCP proxy; deny-wins tool-call filter on flat ruleset; `mcpd` sits behind                                                                                                                                                                            |
-| 18-openapi-mcp (moved)                                   | moved                | → [`5/45-openapi-mcp`](../5/45-openapi-mcp.md) — pulled to active phase 5 (the REST→MCP derivation for the unification program)                                                                                                                                  |
-| [c-sandd.md](c-sandd.md)                                 | draft                | Sandbox-spawn daemon; gated keeps spawn ownership for now                                                                                                                                                                                                        |
-
-The orthogonal-components pattern (the discipline this phase's
-components follow) is [`A-orthogonal-components.md`](A-orthogonal-components.md) above.
+| Spec                                               | Status     | Hook                                                                                                       |
+| -------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| [13-onbod-branding.md](13-onbod-branding.md)       | draft      | Per-instance brand surface for onbod (env vars + assets).                                                  |
+| [4-rate-limits.md](4-rate-limits.md)               | draft      | Usage tracking + per-group rate limits + dashd /usage page.                                                |
+| [14-plugins.md](14-plugins.md)                     | draft      | MCP-tool plugin layer: manifest, CLI install, dashd catalog.                                               |
+| [15-whapd-self-rebind.md](15-whapd-self-rebind.md) | draft      | Operator-only self-service WhatsApp re-pair (no shell dance) when a session is invalidated.                |
+| [16-whapd-auth-rotate.md](16-whapd-auth-rotate.md) | draft      | whapd auto-rotates the auth dir on 401 storms instead of looping forever.                                  |
+| [17-emaid-auth.md](17-emaid-auth.md)               | draft      | emaid sender auth (DMARC/DKIM/SPF) + allowlist + quarantine routing for unverified mail.                   |
+| [18-daemon-dashboards.md](18-daemon-dashboards.md) | superseded | Each daemon owns its own `/dash/`; dashd becomes the central index/hub. Superseded by `7/1-cockpit-index`. |
+| [19-cost-caps.md](19-cost-caps.md)                 | draft      | Per-folder cost ceilings via `cost_log` + Anthropic billing API.                                           |

@@ -4,10 +4,10 @@ Egress-filtering proxy + KVM sandbox library. Two halves:
 
 - **Proxy** (`crackbox proxy serve`) — forward HTTP/HTTPS proxy with
   per-source-IP allowlists. Admin API, transparent + forward modes, DNS
-  interception. See [`specs/11/9`](../specs/11/9-crackbox-standalone.md)
-  - [`specs/11/15`](../specs/11/15-crackbox-dns-filter.md).
+  interception. See [`specs/12/9`](../specs/12/9-crackbox-standalone.md)
+  - [`specs/12/15`](../specs/12/15-crackbox-dns-filter.md).
 - **`pkg/host/`** — Go library for KVM/qemu sandbox lifecycle (shipped;
-  see [`specs/11/12`](../specs/11/12-crackbox-sandboxing.md)). Spawns VMs,
+  see [`specs/12/12`](../specs/12/12-crackbox-sandboxing.md)). Spawns VMs,
   manages privileges, integrates proxy registration. Imported by
   arizuko's container runner and by `crackbox run --kvm` for standalone use.
 
@@ -147,7 +147,7 @@ fixtures) ported from `/home/onvos/app/crackbox/internal/vm/{proxy,netfilter}.go
 Host library (`pkg/host/`) ported from the prototype's `internal/vm/launch.go`
 (qemu invocation, virtio-net, virtio-fs), `internal/vm/network.go` (bridge +
 tap + iptables NAT), `internal/vm/secrets.go` (TLS-terminating placeholder
-injection). See [`specs/11/12`](../specs/11/12-crackbox-sandboxing.md).
+injection). See [`specs/12/12`](../specs/12/12-crackbox-sandboxing.md).
 
 ## Orthogonality
 

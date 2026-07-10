@@ -706,7 +706,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   capability scopes replace tiers, service-JWT-at-boot, and a single
   big-bang `gated` split into `authd` (first) then `routd`/`runed`/`mcpd`.
   See `specs/5/{1,U,5,3,35}`, new `specs/5/N` (web publish single-source),
-  and `specs/11/{16,17}` (messaging-gateway, mcp-firewall).
+  and `specs/12/{16,17}` (messaging-gateway, mcp-firewall).
 
 ---
 
@@ -1113,7 +1113,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - Landing page: new `ingest` section (WebDAV drop, `/find` skill, webhook
   push path) placed between `organize` and `coordinate`.
-- specs/7/8: company-brain status → "not planned"; data ingestion framed
+- specs/8/8: company-brain status → "not planned"; data ingestion framed
   as the primary gap; connector skill and Onyx integration as future directions.
 
 ---
@@ -1528,7 +1528,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   adapters (Discord, Telegram, WhatsApp, Slack). Promotion happens
   once in `api.handleMessage` driven by `is_bot_message` in the
   stored row; per-adapter `botMsgs` ring buffers + adapter-side
-  promotion removed from `discd`. Spec: `specs/6/J-mention-promotion.md`.
+  promotion removed from `discd`. Spec: `specs/7/J-mention-promotion.md`.
   Operators with `verb=mention`-filtered routes will now see
   reactions-on-bot fire on every platform, not just Discord.
 
@@ -1708,7 +1708,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   Observe mode stores the inbound under `folder` with `is_observed=1`
   but does not dispatch. The agent sees observed messages via the
   existing folder ACL plus a trailing `<observed>` window on the next
-  trigger turn. Spec: `specs/6/B-route-mode-ingestion.md`.
+  trigger turn. Spec: `specs/7/B-route-mode-ingestion.md`.
 - **Verb filtering via match keys + seq priority.** Mention-only
   channels ship as a `verb=mention` trigger row stacked above a
   catch-all `#observe` row. The impulse weighting helper is gone.
@@ -1757,7 +1757,7 @@ overrides via `routes.observe_window_messages` /
   Migration 0053 converts `user_groups` → `acl(sub, admin, folder)` and
   `user_groups(sub, '**')` → `acl_membership(sub, role:operator)`, then
   drops `user_groups`, `user_jids`, `grant_rules`, and the dead `grants`
-  table. Spec: [`specs/6/9-acl-unified.md`](https://github.com/kronael/arizuko/blob/v0.38.0/specs/6/9-acl-unified.md).
+  table. Spec: [`specs/7/9-acl-unified.md`](https://github.com/kronael/arizuko/blob/v0.38.0/specs/7/9-acl-unified.md).
 - **`auth.Authorize(s, Caller, action, scope, claims, params)`** is
   the single authorization entry point. Walks membership transitively,
   matches against `acl` rows with action implication + deny-wins,
@@ -1937,13 +1937,13 @@ applied cleanly without data fixup.
 - [`proxyd/routes.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/routes.go) — `Route` struct + `LoadRoutes(raw string)` parser for `PROXYD_ROUTES_JSON`. Loader validates: unique paths (duplicate `path` is a hard error), well-formed `backend` URL, recognised `auth` (`public` / `user` / `operator`). Longest-prefix match at dispatch; ties resolved by load order.
 - `[[proxyd_route]]` block in service TOML — [`template/services/slakd.toml`](https://github.com/kronael/arizuko/blob/v0.35.0/template/services/slakd.toml) carries the first one (`/slack/`, `auth=public`, `gated_by=SLACK_BOT_TOKEN`, `preserve_headers=[X-Slack-Signature, X-Slack-Request-Timestamp]`). Fields: `path`, `backend`, `auth`, `gated_by` (optional, drops route if env unset), `preserve_headers` (optional, header allowlist), `strip_prefix` (optional, default false).
 - `coreProxydRoutes` slice in [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go) — static routes for core daemons (`dashd`, `webd`, `davd`, `onbod`) that don't have a `template/services/*.toml`. Merged with per-service routes before serialisation.
-- DNS NXDOMAIN egress filter (crackbox) — per [`specs/9/15-crackbox-dns-filter.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/9/15-crackbox-dns-filter.md). Restricts container egress to an allowlist of hostnames; non-matching DNS lookups return NXDOMAIN.
+- DNS NXDOMAIN egress filter (crackbox) — per [`specs/10/15-crackbox-dns-filter.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/10/15-crackbox-dns-filter.md). Restricts container egress to an allowlist of hostnames; non-matching DNS lookups return NXDOMAIN.
 
 ### Changed
 
 - [`proxyd/main.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/main.go) — route dispatch reads `routes []Route` from `PROXYD_ROUTES_JSON` instead of hardcoded prefixes. Bespoke handlers for `/slink/` (rate limiter + token resolver) and `/dav/` (group-scoped routing + davAllow write-block) remain in `dispatchRoute` (`main.go`), wired by path. Built-in routes (`/auth/*`, `/health`, `/pub/*`, vhost host-header rewrite) stay hand-wired.
 - [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go) — `proxydService` no longer injects per-daemon `*_ADDR` env vars. Instead iterates `template/services/*.toml` for `[[proxyd_route]]` blocks, filters by `gated_by`, merges with `coreProxydRoutes`, JSON-encodes, and injects as `PROXYD_ROUTES_JSON`.
-- [`proxyd/README.md`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/README.md) — points at `compose/compose.go:coreProxydRoutes` + `template/services/*.toml [[proxyd_route]]` as sources of truth. Spec link to [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md).
+- [`proxyd/README.md`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/README.md) — points at `compose/compose.go:coreProxydRoutes` + `template/services/*.toml [[proxyd_route]]` as sources of truth. Spec link to [`specs/7/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/7/2-proxyd-standalone.md).
 - [`CLAUDE.md`](https://github.com/kronael/arizuko/blob/v0.35.0/CLAUDE.md) "## Conventions" — adds the channel-adapter convention: ship a `template/services/<daemon>.toml` with the daemon's compose env + a `[[proxyd_route]]` block; no edit to [`proxyd/main.go`](https://github.com/kronael/arizuko/blob/v0.35.0/proxyd/main.go) or [`compose/compose.go`](https://github.com/kronael/arizuko/blob/v0.35.0/compose/compose.go).
 
 ### Removed
@@ -1954,11 +1954,11 @@ applied cleanly without data fixup.
 ### Schema
 
 - Env: drop `DASH_ADDR`, `WEBD_ADDR`, `DAV_ADDR`, `ONBOD_ADDR`, `SLAKD_ADDR`. Add `PROXYD_ROUTES_JSON` (JSON array; absence = empty external table, built-ins still serve). `VITE_ADDR` retained.
-- TOML: new `[[proxyd_route]]` block in `template/services/<daemon>.toml`. Field semantics in [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md).
+- TOML: new `[[proxyd_route]]` block in `template/services/<daemon>.toml`. Field semantics in [`specs/7/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/7/2-proxyd-standalone.md).
 
 ### Spec
 
-- [`specs/6/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/6/2-proxyd-standalone.md) Phase-1 ship (per-daemon TOML routes) marked shipped; HTTP API for runtime management, MCP tool surface, and `[auth].mode = "remote"` remain spec-only.
+- [`specs/7/2-proxyd-standalone.md`](https://github.com/kronael/arizuko/blob/v0.35.0/specs/7/2-proxyd-standalone.md) Phase-1 ship (per-daemon TOML routes) marked shipped; HTTP API for runtime management, MCP tool surface, and `[auth].mode = "remote"` remain spec-only.
 
 ---
 
@@ -2162,11 +2162,11 @@ applied cleanly without data fixup.
 ### Added
 
 - `/support` skill ([`ant/skills/support/`](https://github.com/kronael/arizuko/tree/v0.33.20/ant/skills/support)) — orchestrator that answers concrete factual questions about domain entities with primary-source citations. Four phases: case (continuation detection by entity ID, reply-pointer, or correction phrase), gather (open canonical source, grep literal ID, read recorded outcome), reply (front-load answer + cite source path + field, render through `~/SOUL.md` Voice), persist (write new sources to `~/facts/sources.md`)
-- Spec at [`specs/7/2-support-skill.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/7/2-support-skill.md) — rationale, composition table, acceptance criteria. Driven by the 2026-05-09 Atlas support exchange that took 5 correction turns to land on a single field in `results.json`
+- Spec at [`specs/8/2-support-skill.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/8/2-support-skill.md) — rationale, composition table, acceptance criteria. Driven by the 2026-05-09 Atlas support exchange that took 5 correction turns to land on a single field in `results.json`
 
 ### Changed
 
-- [`specs/7/product-support.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/7/product-support.md) skills table now requires `support`
+- [`specs/8/product-support.md`](https://github.com/kronael/arizuko/blob/v0.33.20/specs/8/product-support.md) skills table now requires `support`
 
 ---
 
@@ -2980,7 +2980,7 @@ fixes (crackbox DNS alias, davd healthcheck, migration 079).
 - Public web docs at `/pub/slink/` (landing) +
   `/pub/slink/reference/` (full protocol reference).
 - Agent migration 080 documents the round-handle protocol for ants.
-- Spec `specs/8/f-replaceability-research.md`: audit each shipped
+- Spec `specs/9/f-replaceability-research.md`: audit each shipped
   homegrown component (crackbox, future messaging-gateway,
   mcp-firewall, gated container orchestration) against off-the-shelf
   alternatives (squid, mitmproxy, envoy, NATS, Anthropic permission
@@ -3182,7 +3182,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   Compose no longer declares an `agents` network — folder networks are
   runtime-managed by gated.
 - `egred/` → `crackbox/` (specs 6/9 + 6/10): the network-isolation
-  proxy moves to a sibling component (per [`specs/8/b-orthogonal-components.md`](https://github.com/kronael/arizuko/blob/v0.31.0/specs/8/b-orthogonal-components.md))
+  proxy moves to a sibling component (per [`specs/9/b-orthogonal-components.md`](https://github.com/kronael/arizuko/blob/v0.31.0/specs/9/b-orthogonal-components.md))
   with its own CLI, `pkg/proxy`, `pkg/match`, `pkg/admin`, `pkg/run`,
   `pkg/client` layout. No semantic change — daemon-mode wire shape
   (admin API at `:3129`, proxy at `:3128`) stays identical. Adds
@@ -3253,7 +3253,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   `/pub/concepts/webdav.html`.
 - `arizuko chat`: interactive Claude Code session bound to root MCP
   socket. Local-operator only — socket access == root.
-- `invites` rewrite (phase B of specs/7/35 tenant self-service):
+- `invites` rewrite (phase B of specs/8/35 tenant self-service):
   token-issuance vs realized-grant separation, atomic `ConsumeInvite`,
   `target_glob` replaces folder so a single token grants a path
   subtree. New CLI `arizuko invite <inst> create|list|revoke`,
@@ -3451,7 +3451,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   ≥1 scoped to own folder subtree. Replaces ad-hoc `Bash sqlite3 …`
   introspection. `inspect_logs`/`inspect_health` deferred — need
   journal/docker-socket the agent container doesn't have.
-  See `specs/7/33-inspect-tools.md`.
+  See `specs/8/33-inspect-tools.md`.
 
 ### Changed
 
@@ -4527,7 +4527,7 @@ arizuko-ant` with correct mounts for use outside arizuko.
     shown when configured.
 
 - **Voice synthesis spec**: `ttsd` daemon design and `send_voice` MCP tool
-  spec in [`specs/8/6-voice-synthesis.md`](https://github.com/kronael/arizuko/blob/v0.18.0/specs/8/6-voice-synthesis.md). Open questions resolved.
+  spec in [`specs/9/6-voice-synthesis.md`](https://github.com/kronael/arizuko/blob/v0.18.0/specs/9/6-voice-synthesis.md). Open questions resolved.
 
 ### Fixed
 
@@ -4599,8 +4599,8 @@ arizuko-ant` with correct mounts for use outside arizuko.
   `gateway`, `ipc`, `chanlib`, `container/runner` — all routing decisions,
   MCP tool calls, container lifecycle events, channel registration, and
   task scheduling are now traceable from logs alone.
-- **Specs**: agent-managed services (`servd`, specs/7/28), self-improvement
-  loop (specs/7/29).
+- **Specs**: agent-managed services (`servd`, specs/8/28), self-improvement
+  loop (specs/8/29).
 
 ### Changed
 

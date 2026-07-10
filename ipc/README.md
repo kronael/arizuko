@@ -54,7 +54,7 @@ calling tables routd owns (groups, routes, sessions, channels,
 messages, grants) hit `store.*` directly. Tools touching
 foreign-owned tables (invite ops → `invites` in onbod) **also** hit
 the shared SQLite directly — that's the cross-boundary leak
-`specs/6/7` closes.
+`specs/7/7` closes.
 
 **Planned (per spec Phase 4):** when a tool touches routd-owned tables
 it stays an in-process Go call. When it touches a foreign daemon's
@@ -181,7 +181,7 @@ post-fetch `JIDRoutedToFolder` per row.
 - `specs/5/30-inspect-tools.md`
 - `specs/5/5-uniform-mcp-rest.md` — MCP host's role as token issuer +
   HTTP-federation pattern for foreign-domain tools
-- `specs/7/Y-connectors.md` — MCP-subprocess tool catalog
+- `specs/8/Y-connectors.md` — MCP-subprocess tool catalog
 - `../auth/README.md` — `Authorize` / identity resolution
 - `../routd/README.md` — host process; routd-owned tables stay local
 - `../SECURITY.md` — root threat model
