@@ -49,11 +49,15 @@ test.describe('invites', () => {
     expect(create.status()).toBe(303);
 
     const html = await (await context.request.get('/dash/invites/')).text();
-    const m = html.match(/<code>([0-9a-f]{32,})<\/code>/);
-    expect(m, 'token must appear in listing').not.toBeNull();
-    const token = m![1];
+    const tok = html.match(/<code>([0-9a-f]{32,})<\/code>/);
+    expect(tok, 'token must appear in listing').not.toBeNull();
+    const token = tok![1];
+    // revoke keys on the opaque inviteRef in the form action, not the raw token
+    const refMatch = html.match(/\/dash\/invites\/([^/"]+)\/revoke/);
+    expect(refMatch, 'revoke form must expose an invite ref').not.toBeNull();
+    const ref = refMatch![1];
 
-    const revoke = await context.request.post(`/dash/invites/${token}/revoke`, {
+    const revoke = await context.request.post(`/dash/invites/${ref}/revoke`, {
       maxRedirects: 0,
     });
     expect(revoke.status()).toBe(303);

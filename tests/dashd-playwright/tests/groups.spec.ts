@@ -82,6 +82,8 @@ test.describe('groups', () => {
     // confirm() auto-accept
     page.on('dialog', (d) => d.accept());
     await page.goto(`/dash/groups/${folder}/settings`);
+    // the delete button lives inside a collapsed <details>Danger zone
+    await page.locator('summary', { hasText: 'Danger zone' }).click();
     await Promise.all([
       page.waitForURL('**/dash/groups/'),
       page.locator('button', { hasText: 'delete group' }).click(),

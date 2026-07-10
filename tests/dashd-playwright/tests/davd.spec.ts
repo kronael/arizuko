@@ -18,10 +18,11 @@ test.describe('davd surface links', () => {
     await expect(page.locator('a[href="/dav/inbox/"]')).toBeVisible();
   });
 
-  test('memory page links to /dav/{folder}/ per-file entries', async ({
+  test('group settings page links to /dav/{folder}/ per-file entries', async ({
     page,
   }) => {
-    await page.goto('/dash/memory/?group=inbox');
+    // per-file dav links render on the group settings page, not /dash/memory/
+    await page.goto('/dash/groups/inbox/settings');
     const html = await page.content();
     expect(html).toContain('/dav/inbox/MEMORY.md');
     expect(html).toContain('/dav/inbox/CLAUDE.md');

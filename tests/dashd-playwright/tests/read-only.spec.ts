@@ -31,11 +31,12 @@ test.describe('read-only pages', () => {
     await expect(banner.locator('a')).toHaveAttribute('href', '/dash/status/');
   });
 
-  test('/dash/status/ shows group count row', async ({ page }) => {
+  test('/dash/status/ shows group count', async ({ page }) => {
     await page.goto('/dash/status/');
     await expect(page.locator('h1')).toHaveText('Status');
-    const summary = page.locator('table').filter({ hasText: 'Groups' }).first();
-    await expect(summary).toContainText('Active sessions');
+    // group count renders in the health banner ("N groups"), not a table; the
+    // "Active sessions" table appears only when sessions exist (none seeded).
+    await expect(page.getByText(/\d+ groups/)).toBeVisible();
   });
 
   test('/dash/activity/ renders seeded message', async ({ page }) => {
