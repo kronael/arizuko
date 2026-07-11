@@ -389,6 +389,38 @@ func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	}
 }
 
+// TestGhostGroup_RefusesUnregistered verifies a route to a folder with no group
+// row is refused loud + notified, never dispatched (GB1 L4a). This is the
+// krons/content class: routed but unregistered → config-less spawn → silence.
+func TestGhostGroup_RefusesUnregistered(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// No PutGroup: "ghost" is routed but unregistered.
+	dl := &recDeliverer{}
+	spawned := false
+	runner := runnerFn(func(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+		spawned = true
+		return runedv1.RunOutcome{Outcome: runedv1.OutcomeOK}, nil
+	})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
+	loop.StopQueue()
+	doSetRoutes(t, db, []core.Route{{Match: "platform=slack", Target: "ghost"}})
+	_ = db.PutMessage(core.Message{ID: "g1", ChatJID: "slack:T/C/U", Sender: "u1",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	_, _ = loop.processGroupMessages("slack:T/C/U")
+
+	if spawned {
+		t.Fatal("ghost group must not spawn a container")
+	}
+	if len(dl.sends) != 1 || dl.sends[0].text != ghostGroupNotice {
+		t.Fatalf("expected ghost-group notice, got %+v", dl.sends)
+	}
+}
+
 // TestIngressIdempotencyKey is the POST /v1/messages key fix: a stable id +
 // X-Idempotency-Key is ambiguous (400); a key with no id mints
 // <adapter>-<key> (spec 5/E § POST /v1/messages key rules).

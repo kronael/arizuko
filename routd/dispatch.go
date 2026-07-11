@@ -126,6 +126,19 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		obs.RecordTurn(folder, outcome, time.Since(start).Seconds())
 		endSpan(rerr)
 	}()
+	// Ghost-group guard. A route/engagement/sticky rule can point at a folder
+	// with no registered group row — hand-created, or one whose row was deleted
+	// (DeleteGroup has no route cascade). Its home may be mis-owned, so the agent
+	// spawns config-less and silently never replies. Refuse loud + tell the chat,
+	// and consume the batch (advance the cursor, no poison replay). Observe/web/
+	// hook targets never reach here — resolve() handles them before runTurn.
+	if !l.db.GroupExists(folder) {
+		slog.Error("dispatch refused: unregistered group", "folder", folder, "jid", chatJID, "turn_id", turnID)
+		if l.deliver != nil {
+			_, _ = l.deliver.Send(chatJID, ghostGroupNotice, "", topic, "", "ghost-"+turnID)
+		}
+		return true, false, nil
+	}
 	// Pre-spawn budget gate. If today's folder spend hits the cap, deliver a
 	// channel-visible refusal (no run dispatched) and consume the batch — return
 	// hadOutput=true so processGroupMessages advances the cursor past it.
@@ -421,6 +434,10 @@ const retryExhaustedNotice = "⚠️ Agent couldn't complete this request after 
 // no bot reply. A malfunction (config-less spawn, 0-result run), not deliberate
 // silence (which records a result). See runTurn's clean-outcome epilogue.
 const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
+
+// ghostGroupNotice is sent when a chat routes to a folder with no registered
+// group row (a ghost route). See runTurn's ghost-group guard.
+const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
 
 // retryBackoff is the delay between retry attempts (spec 5/40).
 const retryBackoff = 10 * time.Second
