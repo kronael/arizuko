@@ -584,6 +584,14 @@ func (l *Loop) resolve(chatJID string, last core.Message) resolution {
 	}
 	// 2. Route table.
 	routes, err := l.db.Routes()
+	if err != nil {
+		// A transient Routes() read failure otherwise looks identical to a
+		// clean route-miss: the poll caller advances the cursor and drops the
+		// message (loop.go:540). We keep the fail-forward — retrying here risks a
+		// poison-message loop — but make the drop LOUD instead of silent.
+		slog.Error("resolve: route table read failed; message dropped as route-miss",
+			"jid", chatJID, "err", err)
+	}
 	if err == nil {
 		rt := router.ResolveRouteTarget(last, routes)
 		if rt.Folder != "" {

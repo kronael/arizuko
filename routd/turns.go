@@ -337,6 +337,11 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 			if pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, tc.Topic, msgID); err == nil {
 				row.PlatformID = pid
 				row.Status = core.MessageStatusSent
+			} else {
+				// Mirror the handleSend path (deliver send failed): a swallowed
+				// Document error left send_file failing while the row stayed
+				// pending and the agent saw HTTP 200.
+				slog.Error("deliver document failed", "jid", jid, "folder", tc.Folder, "err", err)
 			}
 		}
 		return 200, apiv1.SendResult{MessageID: msgID, PlatformID: row.PlatformID, Status: row.Status}, &row
