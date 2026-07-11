@@ -863,7 +863,13 @@ func seedSettings(
 	data, _ := json.MarshalIndent(settings, "", "  ")
 	tmp := fp + ".tmp"
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		slog.Warn("failed to write settings tmp", "path", tmp, "err", err)
+		// settings.json carries the mcpServers socket + outputStyle; without it
+		// the agent spawns with no reply/send tools and silently returns 0
+		// messages ("typing but no reply"). A permission-denied here means the
+		// group home isn't owned by the run uid — a misconfigured (hand-mkdir'd,
+		// root-owned) home. Fail LOUD with the folder so it's not invisible.
+		slog.Error("group home not writable — agent will run config-less and not reply; chown the home to the run uid",
+			"folder", in.Folder, "path", tmp, "err", err)
 		return
 	}
 	if err := os.Rename(tmp, fp); err != nil {
