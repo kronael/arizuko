@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 supersedes: 5/5-uniform-mcp-rest
 depends:
   [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
@@ -25,7 +25,7 @@ depends:
 > [`5/5`](5-uniform-mcp-rest.md); [`5/44`](44-mcp-rest-unification.md) is
 > the rollout.
 
-**Adoption (`partial`):** the mechanism ships — `deriveMCPTools`,
+**Mechanism (`shipped`); adoption tracked in `5/44`:** the mechanism ships — `deriveMCPTools`,
 `MCPNames`, `x-mcp-when`, the injected `Gate` seam (`resreg.invoke` now
 calls `Resource.Gate`, defaulting to the operator `auth.Authorize`), and
 truthful `Endpoints`-driven OpenAPI (`7c14efd6`). `proxyd_routes` remains

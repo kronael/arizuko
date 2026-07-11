@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 depends: [5/41-ext-mcp, 5/42-credentials, 5/1-auth-standalone]
 ---
 

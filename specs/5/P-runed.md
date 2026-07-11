@@ -306,22 +306,20 @@ POST authd /v1/tokens   Authorization: Bearer <runed service token>
 - Distinct from routd's route-tokens (5/W): those authenticate _inbound_
   web/webhook traffic; `mcp_tokens` authenticate the agent's _outbound_
   `/v1/*` calls. Different family, table, owner.
-- **Token delivery is PINNED: the MCP socket handshake, not an env var.**
-  When the in-container agent's MCP client connects (to routd's socket),
-  the JWS is returned in the `initialize` response `_meta.capability_token`
-  field. It is **not** a docker `-e` env var — env vars leak into
-  `docker inspect`, `/proc/1/environ`, and shelled-out sub-processes. The
-  socket is already `SO_PEERCRED`-gated, so the handshake is the tighter
-  carrier. `runed` persists only the `jti`; the raw JWS lives in the
-  agent's process memory.
-  > **Divergence (open, decision pending).** The pinned handshake is
-  > UNBUILT: `capability_token`/`_meta` appear nowhere in the code, and
-  > `dockerRuntime.Run` drops `spec.Token` on the floor
-  > (`runed/docker.go` — `container.Input` has no token field; only
-  > `FakeRuntime` observes it in `contract_test.go`). Production works
-  > because routd hosts the agent's MCP socket in-process, so no
-  > brokered JWS ever needs to reach the container. Build the handshake
-  > or drop per-spawn JWS delivery from this spec — undecided.
+- **Token delivery — AMENDED 2026-07-11: the in-process MCP socket IS the
+  mechanism; per-spawn JWS delivery is dropped.** The spec originally pinned a
+  handshake — the JWS returned in the `initialize` response
+  `_meta.capability_token` field, never a docker `-e` env var (env vars leak into
+  `docker inspect`, `/proc/1/environ`, and shelled-out sub-processes). That
+  handshake was never built: `capability_token`/`_meta` appear nowhere in the
+  code and `dockerRuntime.Run` drops `spec.Token` (`runed/docker.go` —
+  `container.Input` has no token field; only `FakeRuntime` observes it in
+  `contract_test.go`). It is also unnecessary: routd hosts the agent's MCP socket
+  **in-process**, so no brokered JWS ever needs to reach the container — the
+  `SO_PEERCRED`-gated unix socket is the trust boundary. Carrying an unbuilt,
+  unused delivery mechanism in the spec violates minimality, so it is removed.
+  Should a future out-of-process runed socket need a per-spawn token, add the
+  handshake then, specced against that concrete need.
 - An agent's `mint_token` MCP call (sub-agent delegation) forwards to
   `authd` with the **agent's own token** as parent — `runed` does not
   re-broker; `authd` downscopes from the agent's token directly. `runed`
