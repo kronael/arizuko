@@ -384,7 +384,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
 # Only check groups registered in DB (skip orphan filesystem dirs like share/)
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
   gdir=$(echo "$g" | tr '/' '-')  # atlas/content → atlas-content (folder path)
   n=$(sudo ls /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/ 2>/dev/null | wc -l)
   echo "$g: $n skills (expected >= $SOURCE_COUNT)"
@@ -423,7 +423,7 @@ Fix: check the skill's SKILL.md frontmatter `description:` field.
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
   missing=""
   for s in $(ls $SOURCE_DIR); do
     if ! sudo test -d /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/skills/$s; then
@@ -446,7 +446,7 @@ Fix: trigger `/migrate` in the root group, or manually run `SetupGroup` for the 
 ```bash
 DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Check that group CLAUDE.md has the resolve instruction (seeded from ant/CLAUDE.md)
-for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
+for g in $(sudo sqlite3 $DB "SELECT folder FROM groups;  -- row existence = active; delete cascades the row (no state col)"); do
   has=$(sudo grep -c "resolve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
   if [ "$has" -lt 1 ]; then
     echo "$g: MISSING resolve instruction in CLAUDE.md"
