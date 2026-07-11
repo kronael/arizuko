@@ -4,9 +4,11 @@ status: draft
 
 # arizuko — 10-slide deck
 
-A first cut. Each slide: the one message, the support, and a `viz:` hint for
-what to show. Voice is warm-caveman — concrete, evidence where it sharpens, no
-theatre. Take it from here.
+Ten slides. Each: the one message, the support, and a `viz:` hint for what to
+show. Voice is warm-caveman — concrete, evidence where it sharpens, no theatre.
+The live demo is the `anteval` run (slide 9) plus a public `/chat/` link
+(slide 10): the agent operates the platform in front of you, over the same
+surfaces a human uses.
 
 ---
 
@@ -142,17 +144,22 @@ rings snapping on around it.
 
 ## Slide 9 — Honest state (why you can trust the pitch)
 
-**We ship a self-critique with the product. Here's what's real and what isn't.**
+**We ship a self-critique with the product — and it's executable, not a paragraph.**
 
 - Real: the folder coordinate is live; `marble` answers a 1,590-topic
   prerequisite graph over bundled JSON, no graph DB; three instances self-hosted.
-- Not yet: secrets still enter the container (the host-side-injection fix is
-  specced, `8/Z`, not shipped); validation is still autobiographical — no
-  external installs yet.
+- Proof, not marketing: `anteval` — a black-box capability gate — ran LIVE
+  against a real instance and drove real tasks through the public surfaces
+  (publish, spawn+grant a child, wire a chat app, reach it over REST). **7 of 8
+  passed; the 8th failure caught a real production bug** (a dead webhook route) a
+  green health check had missed. The eval grades observable effects, not the
+  agent's prose.
+- Not yet: secrets still enter the container (host-side injection specced `8/Z`,
+  not shipped); validation is still mostly self-run — no external installs yet.
 - `USELESS.md` is in the repo. Read it before the README.
 
-`viz:` two honest columns — "true today" / "not yet" — and a screenshot of
-`USELESS.md`'s title line.
+`viz:` two honest columns — "true today" / "not yet" — beside the `anteval`
+run's 7/8 scorecard (the one red cell annotated "caught a real bug").
 
 ---
 
