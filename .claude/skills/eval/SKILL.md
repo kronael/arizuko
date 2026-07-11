@@ -43,7 +43,10 @@ Groups: `sudo ls /srv/data/arizuko_<instance>/groups/`.
 ```bash
 INSTANCE=krons
 sudo systemctl is-active arizuko_${INSTANCE}
-sudo docker ps --filter "name=arizuko_${INSTANCE}" --format "{{.Names}} {{.Status}}"
+# Split topology: containers are arizuko_<daemon>_<instance> (routd, runed, authd,
+# onbod, timed, proxyd, webd, dashd, davd, + adapters). Filter on the _<instance>
+# suffix — "name=arizuko_${INSTANCE}" matches NOTHING (no bare arizuko_krons container).
+sudo docker ps --filter "name=_${INSTANCE}" --format "{{.Names}} {{.Status}}"
 ```
 
 **Pass**: systemd active + all containers Up.
@@ -54,12 +57,13 @@ sudo docker ps --filter "name=arizuko_${INSTANCE}" --format "{{.Names}} {{.Statu
 ### 2. Startup sequence (last 5 min)
 
 ```bash
-sudo journalctl -u arizuko_${INSTANCE} --since "5 min ago" --no-pager \
-  | grep "gated" | tail -20
+sudo journalctl -u arizuko_${INSTANCE} --since "5 min ago" --no-pager | tail -30
 ```
 
-**Pass**: see `"arizuko running"` and `"channel connected"` (once per restart).
-**Fail**: no log activity at all for > 2 min (gated may be hung or polling stopped).
+**Pass**: see `"running"` (routd/runed) and `"channel registered"` (adapters) once
+per restart. (Post-split there is no `gated` daemon — do NOT grep for it; that
+filter returns nothing and looks like a dead stack.)
+**Fail**: no log activity at all for > 2 min (routd may be hung or polling stopped).
 
 Red flags: `"error in message loop"`, `"circuit breaker open"`, `"failed to start MCP server"`.
 
@@ -73,8 +77,8 @@ sudo journalctl -u arizuko_${INSTANCE} --since "10 min ago" --no-pager \
 ```
 
 **Pass**: each adapter (`telegram`, `discord`, etc.) shows `"channel registered"` after
-each gated restart.
-**Fail**: no `"channel registered"` after a gated restart → adapter lost connection.
+each restart.
+**Fail**: no `"channel registered"` after a stack restart → adapter lost connection.
 Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 
 ---
@@ -82,7 +86,7 @@ Fix: `sudo docker restart arizuko_teled_${INSTANCE}` (or whichever adapter).
 ### 4. Message routing (cursor state)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 
 # Agent cursors vs latest messages + errored count. errored moved to
 # the messages table in migration 0030 — chats.errored no longer exists.
@@ -113,7 +117,7 @@ sudo sqlite3 $DB "
 "
 ```
 
-If `errored_msgs > 0` and gated is healthy, clear the errored messages to unblock recovery:
+If `errored_msgs > 0` and routd is healthy, clear the errored messages to unblock recovery:
 ```bash
 sudo sqlite3 $DB "DELETE FROM messages WHERE chat_jid = '<jid>' AND errored = 1;"
 sudo systemctl restart arizuko_${INSTANCE}
@@ -125,7 +129,6 @@ sudo systemctl restart arizuko_${INSTANCE}
 
 ```bash
 sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
-  | grep "gated" \
   | grep -E "spawning|exited|timeout|circuit.breaker|agent.error" | tail -30
 ```
 
@@ -157,7 +160,7 @@ tail -30 /srv/data/arizuko_${INSTANCE}/groups/${FOLDER}/logs/$(ls -t /srv/data/a
 ### 7. Task scheduler (timed)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 
 # Tasks and their next run
 sudo sqlite3 $DB "
@@ -194,7 +197,10 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 8. MCP sockets
 
 ```bash
-ls -la /srv/data/arizuko_${INSTANCE}/data/ipc/*/gated.sock 2>/dev/null || \
+# Sockets live at ipc/<folder>/gated.sock (the file name is legacy — kept in code
+# after the gated daemon was removed; routd now hosts the socket). Nested folders
+# nest the dir, so use find.
+sudo find /srv/data/arizuko_${INSTANCE}/ipc -name 'gated.sock' 2>/dev/null || \
   echo "No MCP sockets found"
 ```
 
@@ -208,9 +214,10 @@ A missing socket during an active container run is an error.
 ### 9. Auth / proxyd health
 
 ```bash
-# Proxyd health endpoint (change port as needed)
-curl -sf http://localhost:8095/health 2>/dev/null || \
-  echo "proxyd not responding on 8095"
+# Proxyd's host port is assigned dynamically by compose — resolve it, don't hardcode.
+PORT=$(sudo docker port arizuko_proxyd_${INSTANCE} 8080 2>/dev/null | head -1 | sed 's/.*://')
+curl -sf http://localhost:${PORT}/health 2>/dev/null || \
+  echo "proxyd not responding on ${PORT}"
 
 # Check proxyd logs for errors
 sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
@@ -225,17 +232,19 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 10. Schema migration version
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
-# db_utils.Migrate tracks applied migrations in the `migrations` table
-# (service='store'); PRAGMA user_version stays 0 and is NOT the version.
-sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service = 'store';"
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
+# Split: each daemon owns + migrates its OWN db. routd.db is the busy one; its
+# migrations table keys on service='routd'. (runed.db/auth.db/onbod.db migrate
+# themselves under service='runed'/'authd'/'onbod'.) PRAGMA user_version stays 0.
+sudo sqlite3 $DB "SELECT MAX(version) FROM migrations WHERE service = 'routd';"
 
-# Expected version (check store/migrations/ for latest)
-ls /home/onvos/app/arizuko/store/migrations/ | sort | tail -3
+# Expected version (check routd/migrations/ for latest)
+ls /home/onvos/app/arizuko/routd/migrations/ | sort | tail -3
 ```
 
-**Pass**: DB version ≥ latest migration number in `store/migrations/`.
+**Pass**: routd.db version ≥ latest migration number in `routd/migrations/`.
 **Fail**: DB behind → migration not applied; new features may silently not work.
+(To check another daemon, swap `$DB`→its `.db` and `service`→its name.)
 
 ---
 
@@ -372,7 +381,7 @@ sudo journalctl -u arizuko_${INSTANCE} --since "1 hour ago" --no-pager \
 ### 17. Skill seeding (per group)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_COUNT=$(ls /home/onvos/app/arizuko/ant/skills/ | wc -l)
 # Only check groups registered in DB (skip orphan filesystem dirs like share/)
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
@@ -412,7 +421,7 @@ Fix: check the skill's SKILL.md frontmatter `description:` field.
 ### 19. Skill consistency (group vs source)
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 SOURCE_DIR=/home/onvos/app/arizuko/ant/skills
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
   missing=""
@@ -435,7 +444,7 @@ Fix: trigger `/migrate` in the root group, or manually run `SetupGroup` for the 
 ### 20. Resolve wiring
 
 ```bash
-DB=/srv/data/arizuko_${INSTANCE}/store/messages.db
+DB=/srv/data/arizuko_${INSTANCE}/store/routd.db  # split: routd owns messages/chats/routes/scheduled_tasks/groups
 # Check that group CLAUDE.md has the resolve instruction (seeded from ant/CLAUDE.md)
 for g in $(sudo sqlite3 $DB "SELECT folder FROM groups WHERE state='active';"); do
   has=$(sudo grep -c "resolve" /srv/data/arizuko_${INSTANCE}/groups/$g/.claude/CLAUDE.md 2>/dev/null)
@@ -506,12 +515,12 @@ be judged by whether it drives the class to zero.
 |---------|-----------|-----|
 | Entire stack crash-loops every ~15s | Service in compose references missing binary | Check `docker ps` for short-lived containers; read journalctl for `exec: "<name>": executable file not found` |
 | Stalled typing indicator | Stack crashed mid-agent-run; `Typing(false)` never sent to teled | Fix crash loop; typing expires naturally in Telegram |
-| Agent cursor stuck, no new container | `SendMessage` to dying container, `pendingMessages` not set | Fixed in d75f8b1 — rebuild + restart gated |
-| Channel not registering after gated restart | Adapter holds stale connection | `sudo docker restart arizuko_teled_${INSTANCE}` |
+| Agent cursor stuck, no new container | `SendMessage` to dying container, `pendingMessages` not set | Fixed in d75f8b1 — rebuild + restart routd |
+| Channel not registering after a stack restart | Adapter holds stale connection | `sudo docker restart arizuko_teled_${INSTANCE}` |
 | Circuit breaker stuck open | 3+ consecutive container failures | Send a new message to the group to reset; check container logs |
 | Agent responds "let me fix this now" then stops | Container killed mid-task by 5s idle timer after final output | User must re-send to trigger another run |
 | Errored messages on a chat | Container timed out with no output, or stack crashed mid-run | Clear with `DELETE FROM messages WHERE chat_jid = '...' AND errored = 1` then restart |
 | Migration version mismatch | New migration not applied to instance | Run migration manually or `arizuko run` to regenerate compose + restart |
-| gated "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
+| routd "connecting channels: count=0" | Adapters not yet registered | Wait 10s; if still 0, restart adapters |
 | Agent ignores skills, responds generically | Resolve not firing: CLAUDE.md not seeded, or nudge missing from runner | Re-seed group via `SetupGroup`; verify `runner.go` has `[resolve]` annotation |
 | Skill exists but never matched by dispatch | Broken `description:` in SKILL.md frontmatter — awk can't parse it | Fix the YAML frontmatter: `description: >` followed by indented text on next line |
