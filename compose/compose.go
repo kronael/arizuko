@@ -144,6 +144,9 @@ var daemonKeys = map[string][]string{
 		"WHISPER_BASE_URL", "WHISPER_MODEL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
+		// Surrogate OAuth (spec 5/43): routd's broker refreshes near-expiry
+		// tokens at call time (routd/cmd/routd/main.go surrogate registry).
+		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
 	},
 	// runed: execution plane. The ONLY daemon wired to docker.sock +
 	// crackbox + the per-folder agent networks.
@@ -177,8 +180,12 @@ var daemonKeys = map[string][]string{
 	},
 	// dashd VERIFIES proxyd's ES256 transit bearer against authd's JWKS (AUTHD_URL)
 	// AND presents its own service:dashd token on the whapd re-pair proxy
-	// (AUTHD_SERVICE_KEY).
-	"dashd": {"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY"},
+	// (AUTHD_SERVICE_KEY). SURROGATE_* runs the Connect-GitHub OAuth dance
+	// at /dash/me/connections (spec 5/43).
+	"dashd": {
+		"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY",
+		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
+	},
 	// webd + proxyd present a service:<daemon> ES256 token as the channel proof
 	// for the X-User-* headers they forward: proxyd→backends, webd→proxyd
 	// /v1/routes + webd→routd register. Exchanged from AUTHD_SERVICE_KEY at AUTHD_URL.

@@ -99,6 +99,32 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
+// Surrogate OAuth creds (spec 5/43) reach BOTH consumers: dashd runs the
+// Connect-GitHub dance at /dash/me/connections; routd's broker refreshes
+// near-expiry tokens at call time. Without the passthrough the feature is
+// dead on every split deploy.
+func TestSurrogateKeysScopedToDashdAndRoutd(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
+	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n" +
+		"SURROGATE_GITHUB_CLIENT_ID=cid\nSURROGATE_GITHUB_CLIENT_SECRET=csec\n"
+	os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
+	if _, err := Generate(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"dashd", "routd"} {
+		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
+		if err != nil {
+			t.Fatalf("read env/%s.env: %v", d, err)
+		}
+		for _, kv := range []string{"SURROGATE_GITHUB_CLIENT_ID=cid", "SURROGATE_GITHUB_CLIENT_SECRET=csec"} {
+			if !strings.Contains(string(b), kv) {
+				t.Errorf("env/%s.env must carry %s; got:\n%s", d, kv, b)
+			}
+		}
+	}
+}
+
 // A present channel adapter (slakd) is wired as a service principal: its env
 // file carries AUTHD_URL + AUTHD_SERVICE_KEY, and the authd seed registers
 // service:slakd=<key>. onbod (a fixed daemon) is always wired. This is the
