@@ -421,6 +421,34 @@ func TestGhostGroup_RefusesUnregistered(t *testing.T) {
 	}
 }
 
+// TestDeleteGroup_CascadesRoutes verifies deleting a group removes its own
+// routes (bare + observe variant) so no ghost route lingers, but keeps a child
+// folder's routes (GB1 L4b).
+func TestDeleteGroup_CascadesRoutes(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "atlas"})
+	doSetRoutes(t, db, []core.Route{
+		{Seq: 0, Match: "room=1", Target: "atlas"},
+		{Seq: 1, Match: "room=2", Target: "atlas#observe"},
+		{Seq: 2, Match: "room=3", Target: "atlas/support"},
+	})
+
+	if err := db.DeleteGroup("atlas"); err != nil {
+		t.Fatal(err)
+	}
+	if db.GroupExists("atlas") {
+		t.Fatal("group not deleted")
+	}
+	routes, _ := db.Routes()
+	if len(routes) != 1 || routes[0].Target != "atlas/support" {
+		t.Fatalf("expected only atlas/support route to survive, got %+v", routes)
+	}
+}
+
 // TestIngressIdempotencyKey is the POST /v1/messages key fix: a stable id +
 // X-Idempotency-Key is ambiguous (400); a key with no id mints
 // <adapter>-<key> (spec 5/E § POST /v1/messages key rules).

@@ -251,9 +251,28 @@ func (d *DB) GroupByFolder(folder string) (core.Group, bool) {
 
 // DeleteGroup removes a group identity row (spawn-on-delegation rollback when
 // the route insert fails — never leave a route-less orphan).
+// DeleteGroup removes the group AND cascades its routes + engagement, so a
+// deleted folder never lingers as a ghost route/engagement target (GB1 L4b).
+// Without the cascade a later message to that route dispatches to a folder with
+// no group row → the ghost guard refuses it (a notice, not a reply). A route
+// carries the folder as `target` or an observe/mode variant `folder#...`; a
+// child folder (`folder/x`) keeps its own routes.
 func (d *DB) DeleteGroup(folder string) error {
-	_, err := d.db.Exec("DELETE FROM groups WHERE folder=?", folder)
-	return err
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM routes WHERE target=? OR target LIKE ?||'#%'", folder, folder); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM chat_reply_state WHERE engaged_folder=?", folder); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM groups WHERE folder=?", folder); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GroupConfig returns the per-group model override + the opaque container_config
