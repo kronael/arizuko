@@ -2,43 +2,60 @@
 
 ## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, proposed)
 
-Symptom-level loud-logging shipped (route-read, send_file, home-write). This is
-the CAUSE fix: make the silent state impossible-by-construction. De-duplicated
-against existing code — three of four AMEND AN EXISTING MECHANISM, not add a new
-one. **Needs sign-off before shipping** (control-flow / contract changes).
+Cause fix for the silent-failure class (symptom-level loud-logging already
+shipped). Reviewed by fable against the real code — it REFUTED two of my four
+layers and re-scoped the rest; every claim below is code-verified. **Needs
+sign-off.**
 
-- **Severity:** medium (rare triggers, but silent + user-facing when they fire)
-- **Scope:** routd dispatch + delivery, container spawn, lint tooling
+- **Severity:** medium (rare triggers, silent + user-facing when they fire)
+- **Scope:** routd dispatch + delivery, container spawn, route write-path, lint
 - **Status:** proposed (redesign, needs sign-off)
 
-**L4 — ghost-group dispatch guard (amend original).** `GroupExists` (`routd/db.go:226`)
-is already applied on the direct-address path (`loop.go:582`) but NOT on the
-route-resolved path (`loop.go:588 rt.Folder`) — exactly how the krons/content
-ghost dispatched. Add the SAME guard to the route branch. VERIFY it doesn't break
-onboarding / observe rules / web+hook JIDs first. Smallest, highest-value.
+Ship order **L3 → L4 → L2 → L1** (biggest cause-net first). Each = own commit + test.
 
-**L2 — deliver loudly, to the user (amend original).** `appendAndDeliver`
-(`routd/turns.go:194`) already funnels reply delivery; the file/social handlers
-(`handleDocument` et al.) inline `if err==nil{}` and don't share its error→status
-recording. Route them through one recorder that sets `status=failed` AND returns
-non-2xx so the AGENT sees the failure (not just a log). One renderer, many sinks.
+**L3 — silent-turn reconciliation (KEEP, ~8 lines, highest value).** The clean
+epilogue `dispatch.go:314-321` ALREADY computes `TurnResultRecorded(folder,turnID)`
+(line 316) and runs synchronously at container exit (no async observer/ledger
+needed). Add: `Outcome==OK && !TurnResultRecorded && !TurnHasBotReply` → `slog.Error`
++ deliver a chat notice via the existing `l.deliver.Send` (as `dispatch.go:297-303`)
++ a `silent_turns_total` counter. NO retry (a 0-result run isn't transient). Verified
+no false positives: deliberate silence records turn_results (`ant/src/index.ts:328`
+calls deliverTurn on every result event incl. think-only); steered turns exit before
+the epilogue. Cause-agnostic — catches the three residues L2/L4 miss: 0-result query
+(`index.ts:459`), swallowed submit_turn RPC (`index.ts:105`), and the config-less
+home fix that still spawns (`01a61a07`).
 
-**L3 — silent-turn reconciliation (extend original).** `TurnHasBotReply` +
-`recordTurnResult` (`routd/db.go:965`, `turns.go:644`) already reconcile
-reply-vs-result. The uncaught case is a turn that records NOTHING (no
-`turn_results`, no reply — krons/content). Extend the container-exit path
-(`runed`→routd "container exited") to reconcile dispatched-turn vs any recorded
-outcome; none → ERROR + a `silent_turns_total` metric + deliver an error turn to
-the chat. Cause-agnostic net — catches unknown future silent modes.
+**L4 — ghost-group guard, TWO commits.** (a) Runtime backstop: guard the HEAD of
+`runTurn` (`dispatch.go:102`), mirroring `budgetGate` (`:132`) — `!GroupExists(folder)`
+→ ERROR + `deliver.Send` notice + return `true` (consume batch, cursor advances, no
+poison replay). One choke covers route/engagement/sticky ghosts. **NOT** in `resolve()`
+— there a failed guard becomes a route-*miss* → silently drops (`loop.go:540`) AND fires
+spurious `InsertOnboarding` (`:525`). (b) Write-time integrity (the real cause):
+`routesHandler` add/set (`routes_resource.go` ~149/171) + CLI `route add`
+(`cmd/arizuko/route.go:33`) must `GroupExists(target)` before persist; add a route/
+engagement cascade to `DeleteGroup` (`db.go:254`, currently a bare DELETE). Legit flows
+traced clean (@child, sticky, web:/hook:, observe, onboarding all pre-register or
+pre-guard).
 
-**L1 — static prevention (new; the only genuinely new mechanism).** No
-`.golangci.yml`/`sgconfig`; lint is bare `go vet ./...` (`Makefile`). Add
-golangci-lint (`errcheck`, `nilerr`, `errorlint`) + an ast-grep ban on
-`if err == nil { … }` inverted guards, into `make lint` + pre-commit. Triage the
-~15 error-hygiene-sweep sites; benign discards get `//nolint … // benign: <why>`.
+**L2 — `handleDocument` only (~5 lines), NOT a funnel.** The agent surface is already
+loud: MCP `send_file`→`mcpAppendDoc`→`toolErr` (`mcp.go:265`,`ipc/ipc.go:1112`), social
+REST returns 422 via `relay()` (`turns.go:480`). Only `handleDocument` (`turns.go:336`)
+drifted: swallow→HTTP 200 + `pending` row. Fix: return 422 on `Document()` error AND
+don't persist the pending row — else the text-only `maybeRetryOutbound` sweep
+(`loop.go:373`, sends `m.Content` only) re-sends the caption WITHOUT the file (latent
+bug). DROP the `recordDelivery` abstraction and DROP making `appendAndDeliver` non-2xx
+(fights `maybeRetryOutbound`, causes double-sends).
 
-Order once signed off: L4 (smallest) → L1 (guardrail) → L2 → L3. Each ships as
-its own commit + test.
+**L1 — golangci-lint `errcheck` + `nilerr` only.** Into `make lint` + pre-commit (lint
+is bare `go vet`, `Makefile:35`). DROP `errorlint` (unrelated to this class) and DROP
+the ast-grep `if err==nil{}` rule (false-positive generator — the with-else form is
+legit and used correctly, `turns.go:297`, `dispatch.go:278`). Triage ~15 sweep sites;
+benign discards → `//nolint … // benign:`.
+
+**Plus (fable-added cause fixes, cheap):** ant `deliverTurn` submit_turn failure →
+retry once then exit non-zero → `outcomeFor`→OutcomeError → existing retry+notice path
+(`index.ts:105`,`docker.go:276`). And finish `01a61a07`: home-not-writable → runner
+returns error → OutcomeError → existing user notice, not log-and-spawn-config-less.
 
 ## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
 
