@@ -1,0 +1,22 @@
+# GB1 L1 — static gate for the "green but broken" swallow class.
+#
+# nilerr: flags `if err != nil { return nil }` (swallow-and-return) — the exact
+#   shape behind the route-drop and silent-turn bugs.
+# errcheck: flags dropped error returns. check-blank stays false: `_ = err` is a
+#   sanctioned, reviewed ignore (~200 in-tree); we only want the UNsanctioned
+#   fully-dropped calls, keeping noise low.
+#
+# Run via `make lint-strict`. Not in `make lint` (go vet) yet: golangci-lint must
+# build against this repo's Go toolchain first (x/tools mismatch, 2026-07-11).
+linters:
+  enable:
+    - errcheck
+    - nilerr
+linters-settings:
+  errcheck:
+    check-blank: false
+    check-type-assertions: false
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [errcheck]

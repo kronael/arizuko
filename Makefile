@@ -37,6 +37,14 @@ lint:
 	$(foreach d,$(DAEMONS),make -C $(d) lint;)
 	$(foreach c,$(COMPONENTS),make -C $(c) lint;)
 
+# lint-strict: GB1 L1 swallow-class gate (errcheck + nilerr, see .golangci.yml).
+# Separate from `lint` until golangci-lint builds against this repo's toolchain;
+# wire into CI once available.
+lint-strict:
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "install golangci-lint: https://golangci-lint.run/usage/install/"; exit 1; }
+	golangci-lint run
+.PHONY: lint-strict
+
 test:
 	go test ./... -count=1 -short
 	$(foreach d,$(DAEMONS),make -C $(d) test;)
