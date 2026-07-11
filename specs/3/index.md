@@ -23,7 +23,7 @@ status: shipped
 | [Y-thread-routing.md](Y-thread-routing.md)             | shipped    | persist last-reply-id, Topic mapping, `routed_to` on messages    |
 | [Z-reply-routing.md](Z-reply-routing.md)               | shipped    | per-sender batching, chunk chaining, escalation reply threading  |
 | [a-sticky-routing.md](a-sticky-routing.md)             | shipped    | `@group` / `#topic` commands, sticky columns on chats            |
-| [b-control-chat.md](b-control-chat.md)                 | shipped    | root group as control chat; `/status` and approve wired          |
+| [b-control-chat.md](b-control-chat.md)                 | shipped    | operator chat as control chat; `/status` and approve wired       |
 | [c-audit-log.md](c-audit-log.md)                       | shipped    | `PutMessage` unified path, `source` column semantics             |
 | [d-dashboards.md](d-dashboards.md)                     | shipped    | dashd + six dashboards                                           |
 | [l-linkedin.md](l-linkedin.md)                         | shipped    | LinkedIn channel adapter (`linkd`)                               |

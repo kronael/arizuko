@@ -13,8 +13,8 @@ worldOf('atlas/support') === 'atlas'
 
 ## Authorization boundary
 
-- Root world groups (`root`, `root/*`) can delegate to any folder
-  in any world
+- An elevated `/root` turn (tier 0, operator-gated) can delegate to any
+  folder in any world
 - Same world, descendant: allowed
 - Cross world: denied
 - Sibling, ancestor, same-folder: denied

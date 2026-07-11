@@ -100,7 +100,7 @@ Callers can only act within their own subtree:
 
 - `andy/research` can act on `andy/research/*`
 - `andy/research` cannot act on `andy/ops/*`
-- `andy` (tier 0) can act on everything under `andy/`
+- `andy` (a top-level world, tier 1) can act on everything under `andy/`
 - Outbound JID containment follows the same rule, applied
   to the JID's routed target folder rather than to the
   caller's own.

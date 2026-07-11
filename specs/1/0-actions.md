@@ -76,6 +76,6 @@ See `specs/1/F-group-routing.md` for the full vocabulary.
 
 ## Authorization
 
-- Root group can target any JID
-- Non-root can only target their own
+- An elevated `/root` turn (tier 0) can target any JID
+- A normal turn can only target its own subtree
 - Enforced in action handlers

@@ -226,9 +226,9 @@ group via `/var/lib/www` rw. Tier 1+ writes through its own
 `~/public_html/` / `~/private_html/` slot, which the bind mount
 projects into the unified tree.
 
-### Root infra skill
+### Tier-0 infra skill
 
-Root agent gets an `infra` skill (`~/.claude/skills/infra/`) for
+An elevated `/root` turn (tier 0) gets an `infra` skill (`~/.claude/skills/infra/`) for
 instance-level setup:
 
 - `HOSTING_DOMAIN` (set once in the instance `.env`) — per-world
@@ -287,9 +287,9 @@ kept three hand-copies that diverged. N file copies feeding one URL violates
 
 1. **Every top-level segment of `/pub/` is owned by a group.** A group's
    slot projects to `<data>/web/pub/<folder>/`. The only writers are (a)
-   group containers, each into its own slot, and (b) tier-0 root, which owns
-   the top level and the shared frame `/pub/arizuko/` (root's `public_html`
-   projects to the tree top).
+   group containers, each into its own slot, and (b) an elevated `/root` turn
+   (tier 0), which owns the top level and the shared frame `/pub/arizuko/` (its
+   `public_html` projects to the tree top).
 
 2. **Cross-group / aliased URLs are redirects, never copies.** A top-level
    alias like `/pub/guides/` is a `web_routes` row
@@ -309,11 +309,11 @@ kept three hand-copies that diverged. N file copies feeding one URL violates
    if unclaimed (no existing row), recorded with `folder` = claimant. The
    `0068` FK (`web_routes.folder → groups`, CASCADE) retires the claim when
    the owner dies. Operator-curated top-level paths (`/pub/arizuko/`,
-   marketing `/pub/index.html`) are root-owned, declared in the instance
+   marketing `/pub/index.html`) are system-owned, declared in the instance
    manifest's `web_routes` (`5/36`, `owner: system`).
 
 Operational consequence: the `template/web/pub/` rsync target is
-`<data>/web/pub/arizuko/` only (root slot) — no "rsync to any subdir of
+`<data>/web/pub/arizuko/` only (the top-level/tier-0 slot) — no "rsync to any subdir of
 `web/pub/`" affordance. The operational cleanup shipped on all instances;
 code enforcement of the path-claim constraint is tracked separately.
 

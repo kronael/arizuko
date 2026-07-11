@@ -63,7 +63,7 @@ pattern as existing MCP tools.
   - `inspect_messages` → `store.MessagesBefore`
   - `inspect_logs` → exec `journalctl` bounded by `--until` + `-n`
   - `inspect_health` → `/health` endpoints + `docker ps` over the
-    docker socket (root group only; tier ≥1 gets agent-scoped subset)
+    docker socket (tier 0 / elevated `/root` turn only; tier ≥1 gets agent-scoped subset)
   - `inspect_routing` → `routes` + `messages.errored` aggregation
   - `inspect_tasks` → `scheduled_tasks` + recent `task_run_logs`
   - `inspect_session` → `sessions` row + current `messages.db` cursor

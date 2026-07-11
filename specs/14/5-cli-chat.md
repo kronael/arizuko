@@ -6,7 +6,7 @@ depends: [29-local-cli]
 # CLI Chat
 
 `arizuko chat <instance>` launches Claude Code with MCP access to the
-instance's root IPC socket. The operator gets an interactive Claude
+instance's default-group (`main`) IPC socket. The operator gets an interactive Claude
 session that can use all arizuko MCP tools — send messages, manage
 groups, delegate, view history, etc.
 
@@ -20,7 +20,7 @@ arizuko chat <instance>
 ```
 
 Resolves data dir via `instanceDir(instance)` (same as other commands),
-finds the root group's IPC socket, launches Claude Code with the
+finds the default group's (`main`) IPC socket, launches Claude Code with the
 arizuko MCP server attached.
 
 ## MCP wiring
@@ -64,13 +64,13 @@ identity (folder="main"), which has unrestricted MCP tool access.
 The root socket grants `**` (all tools, all targets). Same privileges
 as the root agent container.
 
-## Root folder detection
+## Default group
 
-The default root group is `main` (created by `arizuko create`). To
-support non-default root folders:
+The default group is `main` (created by `arizuko create`; now an ordinary
+tier-1 world, not a root group). To support a non-default folder:
 
-1. Open `<dataDir>/store/messages.db`
-2. Query for the tier-0 group (no `/` in folder name, first registered)
+1. Open the owner daemon's DB
+2. Query for the default group (first registered top-level folder)
 3. Use its folder for the socket path
 
 For v1, hardcode `main`. The `create` command always creates `main`
