@@ -334,15 +334,17 @@ func (s *Server) handleDocument(w http.ResponseWriter, r *http.Request) {
 			Content: req.Caption, Timestamp: time.Now().UTC(), BotMsg: true, FromMe: true,
 			Topic: tc.Topic, RoutedTo: tc.Folder, TurnID: turnID, Status: core.MessageStatusPending}
 		if s.deliver != nil {
-			if pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, tc.Topic, msgID); err == nil {
-				row.PlatformID = pid
-				row.Status = core.MessageStatusSent
-			} else {
-				// Mirror the handleSend path (deliver send failed): a swallowed
-				// Document error left send_file failing while the row stayed
-				// pending and the agent saw HTTP 200.
+			pid, err := s.deliver.Document(jid, req.Path, req.Name, req.Caption, req.ReplyToID, tc.Topic, msgID)
+			if err != nil {
+				// Fail loud to the agent (422, like relay + the MCP send_file
+				// face); persist NO row. A pending document row would be re-sent
+				// by the text-only maybeRetryOutbound sweep as a captionless,
+				// fileless message.
 				slog.Error("deliver document failed", "jid", jid, "folder", tc.Folder, "err", err)
+				return 422, apiv1.Err{Error: "delivery_failed", Message: err.Error()}, nil
 			}
+			row.PlatformID = pid
+			row.Status = core.MessageStatusSent
 		}
 		return 200, apiv1.SendResult{MessageID: msgID, PlatformID: row.PlatformID, Status: row.Status}, &row
 	})

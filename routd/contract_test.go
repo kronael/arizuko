@@ -262,6 +262,7 @@ func TestRouteTokenRoundTrip(t *testing.T) {
 type fakeDeliverer struct {
 	platformID string
 	sends      int
+	docErr     error
 }
 
 func (d *fakeDeliverer) Send(_, _, _, _, _, _ string) (string, error) {
@@ -275,6 +276,9 @@ func (d *fakeDeliverer) Pin(_, _ string) error           { return nil }
 func (d *fakeDeliverer) Unpin(_, _ string, _ bool) error { return nil }
 func (d *fakeDeliverer) Typing(_ string, _ bool) error   { return nil }
 func (d *fakeDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
+	if d.docErr != nil {
+		return "", d.docErr
+	}
 	return d.platformID, nil
 }
 func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {

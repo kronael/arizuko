@@ -938,6 +938,33 @@ func TestDocumentStampsPlatformID(t *testing.T) {
 	}
 }
 
+// TestDocumentDeliveryFailure: a Document() delivery error returns 422 and
+// persists NO bot row (GB1 L2). A pending document row would be re-sent by the
+// text-only maybeRetryOutbound sweep as a captionless, fileless message.
+func TestDocumentDeliveryFailure(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &fakeDeliverer{docErr: errSend}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+	h := srv.Handler()
+
+	rec := doJSONKey(t, h, "POST", "/v1/turns/t1/document", "doc-err-1",
+		apiv1.DocumentRequest{JID: "slack:T/C/U", Path: "/srv/x.pdf", Name: "x.pdf"})
+	if rec.Code != 422 {
+		t.Fatalf("document delivery failure status=%d body=%s, want 422", rec.Code, rec.Body.String())
+	}
+	var n int
+	db.SQL().QueryRow("SELECT COUNT(*) FROM messages WHERE chat_jid=? AND is_bot_message=1",
+		"slack:T/C/U").Scan(&n)
+	if n != 0 {
+		t.Fatalf("failed document persisted %d bot rows, want 0", n)
+	}
+}
+
 // TestSubmitTurnResultDelivered: a submit_turn carrying a prose result for a
 // turn that called no reply/send tool delivers that result as the reply — the
 // agent's "text outside <think> is delivered" contract. Regression: the split
