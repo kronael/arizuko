@@ -176,10 +176,12 @@ audit (`services.spec.ts:32`), 2026-07-10.
   Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
   to `true` then).
 
-## dashd-playwright: 4 drifted test assertions (harness maintenance, not dashd bugs) (2026-07-10, OPEN)
+## dashd-playwright: 4 drifted test assertions (harness maintenance, not dashd bugs) (2026-07-10, RESOLVED 2026-07-11 — d068eeaa)
 
 The offline dashd playtest (`make play`) has 4 stale assertions that no longer
 match verified-correct dashd behavior. Dashboard is sound; fix the tests:
+**All 4 fixed in d068eeaa "[tests] dashd-playwright: fix 4 drifted assertions to
+match current dashd" — verified this pass.**
 - `davd.spec.ts:21` — asserts per-file `/dav/inbox/{MEMORY,CLAUDE}.md` links on
   `/dash/memory/`; they actually render on the group **settings** page
   (`groups_admin.go:306-308`). Point the test there.
@@ -341,10 +343,10 @@ routes (3195f867), tasks (0b6ca53e). Open:
    injected Gate (network_rules_resource.go:187), the handler is auth-agnostic, and it has
    NO REST twin — the model the decouple brings routes/tasks to. Adopt the same containFn
    only if/when a REST face lands.
-3. **Tool-browser drift (open, task #40).** `dashd` renders the schema browser via
-   `ipc.ListTools`→`buildMCPServer` directly (no postBuild seam), so the migrated
-   cold-tier facade tools don't appear. The LIVE agent still sees + calls them via the
-   seam — discovery-only. Fix: ListTools must render resreg facade tools.
+3. **Tool-browser drift — RESOLVED 2026-07-11** (df9ebad3 single-sources facade-tool
+   MCP metadata; d5023c60 `ipc.ListTools` renders grant-visible cold-tier facade tools
+   for dashd; `facade_tools_test.go`). `dashd`'s schema browser now shows the migrated
+   cold-tier facade tools. Verified this pass (`ipc/ipc.go:2263`).
 4. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path
    (`!ExternalMCP`) gets no postBuild → no facade tools there. Production (split, routd
    hosts the socket) unaffected.
@@ -403,7 +405,11 @@ change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the 
 - **Severity:** medium (public API doc misleads; not a live leak — phantom paths 404)
 - **Scope:** resreg/openapi.go:resourcePaths; timed/split.go, onbod/main.go, routd/cmd/routd/main.go
 - **Source:** resreg refine-review 2026-07-02
-- **Status:** open (blocked on the 5/44 per-resource resreg migration)
+- **Status:** MOSTLY RESOLVED 2026-07-11 — `resreg/openapi.go` now emits each resource's
+  real `Endpoints` (7c14efd6, single-sourced), so routd (routes/web_routes/acl) and onbod
+  (gates → `/v1/gates`, 4bd09532) are truthful. **Only `timed` remains**: `timed/split.go:13`
+  still lists `scheduled_tasks` in its OpenAPI while serving only health/openapi/dash. Fix is
+  a decision (Q8): emit an empty resource list for timed, or give timed a real `/v1` face.
 
 ## proxyd_routes list handler returns {routes:[]} envelope; OpenAPI documents a bare array (2026-07-02, open)
 
@@ -852,8 +858,9 @@ callers (and accurate UI hint displays) see nothing.
 - **Scope:** `ipc/extcall.go:ExtTool`, `routd/ext.go:extToolConfig`, `routd/extproviders/*.toml`
 - **Affected:** all REST-descriptor tools (cloudflare, porkbun, gandi, namecheap)
 - **Source:** refine review 2026-06-26
-- **Status:** open
-- **Fix:** add `input_schema` (JSON inline) or `params` (TOML array) to `extToolConfig`; populate `ExtTool.InputSchema` in `LoadExtProviders`; update each provider TOML
+- **Status:** RESOLVED 2026-07-11 — `extToolConfig` gained a `[[param]]` array
+  (`routd/ext.go:42`), `extInputSchema` builds the MCP schema (`:63`), and it's
+  populated on registration (`:157`), consumed at `ipc/ipc.go:990`. Verified this pass.
 
 ---
 
