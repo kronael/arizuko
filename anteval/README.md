@@ -15,17 +15,23 @@ external tool uses (sibling component, `specs/12/A`).
 
 ```bash
 make build
+# mint the injecting bearer (operator, on the instance host):
+arizuko token krons issue bearer eval --scope messages:write,messages:read,cost:read
 ./anteval run https://krons.fiu.wtf \
   --api   http://localhost:8081 \ # routd /v1 base reachable from the eval host
-  --token "$AGENTEVAL_TOKEN" \    # bearer (messages:write + read) for the eval folder
+  --token "$AGENTEVAL_TOKEN" \    # bearer minted above, for the eval folder
   --chat  web:eval \              # chat JID tasks are injected into (folder must own it)
   --sink-addr :9099 \            # local bind for the callback sink (routable iface)
-  --sink  https://eval-host:9099 \# URL the agent containers call back to
+  --sink  http://172.22.0.1:9099 \# URL the agent containers call back to (docker-gateway IP works host-local)
   --smoke                         # gate subset; omit for all 19
 # selectors: --dimension web | --case pub-200 ; output: --md report.md --json report.json
 ./anteval dash report.json      # re-render a saved report
 make validate                     # load+validate the case catalog (no target)
 ```
+
+Live preconditions (spec § "Live-run preconditions"): the eval folder exists
+(`arizuko group <inst> add web:eval eval`), its `MaxChildren` is raised for the
+subagent cases, and the sink URL is reachable from agent containers.
 
 Exit is non-zero if any case fails. `dash` renders a saved JSON report.
 
@@ -37,8 +43,9 @@ callback sink (e.g. a freshly minted chat-link token). Checkers:
 
 - `callback` — the agent wired an artifact (skill, MCP tool, app, webhook,
   child) that fires `{sink}/cb/{nonce}`; firing is the proof.
-- `http_status` — a `{cb.url}`/`{cb.token}` URL returns the expected code
-  (publish → 200, gated → 401, deleted/denied → 404).
+- `http_status` — a `{cb.url}`/`{cb.token}` URL's FIRST response carries the
+  expected code (publish → 200, gated → 303-to-login, deleted/denied → 404);
+  redirects are asserted, never followed.
 - `rest_reply` — a **bot-authored** message carrying `{nonce}` is readable in
   `{chat}` via REST (the user-injected prompt is excluded, so the marker the
   harness itself sent can't false-pass). `rest_observe` matches any author.
@@ -59,11 +66,12 @@ target arg is proxyd's public base for `/pub` `/priv` `/chat` probes. The
 injecting token needs `messages:write` + read scope on the eval folder, and the
 `--chat` JID must be a real chat that folder owns.
 
-Two known gaps (honest, not silent): routd exposes **no cost READ** endpoint
-(cost is write-only), so `Cost()` is 0 over pure REST and `max_tokens` budgets
-don't bite live until a cost source is wired; and `--mcp` expects an
-inspect-compatible MCP-over-HTTP face — unset, the `mcp_roundtrip`/`parity`
-cases fail loudly ("surface not configured") rather than false-pass.
+`Cost()` reads routd `GET /v1/cost?turn_id=` (token needs `cost:read`); a 404
+— no cost recorded yet, or a routd predating the endpoint — reads as 0, other
+failures surface. One known gap (honest, not silent): `--mcp` expects an
+inspect-compatible MCP-over-HTTP face — unset, the `rest-mcp-parity` case
+fails loudly ("surface not configured") rather than false-pass; the platform's
+chat-token MCP face lacks an inspect-read (proposal in `BUGS.md`).
 
 The callback sink binds locally; the agent containers must be able to reach
 `--sink`, so the eval host has to be on the target folder's crackbox egress

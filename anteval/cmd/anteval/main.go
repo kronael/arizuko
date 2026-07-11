@@ -70,8 +70,10 @@ func cmdRun(args []string) {
 	only := fs.String("case", "", "run only one case id")
 	mdOut := fs.String("md", "", "also write the markdown report to this path")
 	jsonOut := fs.String("json", "", "also write the JSON report to this path")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
+	// flexParse, not fs.Parse: the documented form is `run <target> --flags…`,
+	// and std flag stops at the first positional — every flag after <target>
+	// would be silently dropped (cost the first live run: no token, no chat).
+	if err := flexParse(fs, args); err != nil || fs.NArg() != 1 {
 		usage()
 	}
 	base := fs.Arg(0)

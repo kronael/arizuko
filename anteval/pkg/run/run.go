@@ -75,7 +75,7 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 		r.LatencyMs = msSince(start)
 		return r
 	}
-	ctx := check.Ctx{HTTP: http.DefaultClient, Sink: s, Reader: cfg.Target, Expand: expand}
+	ctx := check.Ctx{HTTP: noRedirectClient, Sink: s, Reader: cfg.Target, Expand: expand}
 	deadline := time.Now().Add(budget(c))
 	for {
 		pass, reason := check.Run(ctx, c.Check)
@@ -96,6 +96,15 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 	}
 	r.LatencyMs = msSince(start)
 	return r
+}
+
+// noRedirectClient asserts the FIRST response of an http_status probe. The
+// default client follows redirects, which made "gate engaged" unobservable:
+// proxyd answers an unauthenticated /priv GET with 303 → /auth/login, and the
+// follower graded the login page's 200 instead (cost the first live priv-401
+// run, 2026-07-11). A status checker must see 3xx as 3xx.
+var noRedirectClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
 func budget(c spec.Case) time.Duration {

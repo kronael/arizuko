@@ -79,16 +79,19 @@ kind = "http_status"
 url = "{cb.url}"
 want = 200
 
+# proxyd's gate answers an unauthenticated /priv GET with 303 → /auth/login
+# (never 401 — proxyd/main.go requireAuth); the checker sees first responses,
+# so 303 IS the observable "gate engaged". The id keeps the spec's intent name.
 [[case]]
 id = "priv-401"
 dimension = "web"
 smoke = true
-prompt = "Publish a JWT-gated (/priv) web page containing {nonce}. POST its full /priv/ URL to {sink}/cb/{nonce}?url=<url>. From an unauthenticated client it must return 401."
+prompt = "Publish a JWT-gated (/priv) web page containing {nonce}. POST its full /priv/ URL to {sink}/cb/{nonce}?url=<url>. An unauthenticated client must be refused (redirected to login), never served the page."
 max_wall_ms = 120000
 [case.check]
 kind = "http_status"
 url = "{cb.url}"
-want = 401
+want = 303
 
 [[case]]
 id = "unpublish-404"

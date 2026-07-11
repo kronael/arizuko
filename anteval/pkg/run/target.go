@@ -106,7 +106,30 @@ func (t *HTTPTarget) RestMessages(chat string) ([]check.Msg, error) { return t.m
 // loudly rather than false-pass.
 func (t *HTTPTarget) McpMessages(chat string) ([]check.Msg, error) { return t.messages(t.MCPURL, chat) }
 
-// Cost reports the turn's token spend. routd exposes no cost READ endpoint
-// (cost is write-only via POST /v1/cost), so this is 0 over pure REST; token
-// budgets are enforced only where a cost source is wired.
-func (t *HTTPTarget) Cost(string) (int, error) { return 0, nil }
+// Cost reports the turn's token spend via routd GET /v1/cost?turn_id= (the
+// token needs cost:read). 404 = no cost recorded (turn still running, or a
+// routd predating the endpoint) → 0, not an error; other failures surface.
+func (t *HTTPTarget) Cost(turnID string) (int, error) {
+	if turnID == "" {
+		return 0, nil
+	}
+	resp, err := t.do(http.MethodGet, t.API+"/v1/cost?turn_id="+url.QueryEscape(turnID), nil)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, nil
+	}
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("cost %s: %d", turnID, resp.StatusCode)
+	}
+	var out struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return 0, err
+	}
+	return out.InputTokens + out.OutputTokens, nil
+}

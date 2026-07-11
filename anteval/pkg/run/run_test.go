@@ -72,6 +72,28 @@ func TestDriveCbTokenExpand(t *testing.T) {
 	}
 }
 
+// TestDriveStatusSeesRedirect: http_status grades the FIRST response. A
+// gated /priv URL answers 303 → login; a redirect-following client would
+// grade the login page's 200 and "gate engaged" could never pass (nor could
+// a 3xx ever be asserted). Mirrors proxyd's requireAuth contract.
+func TestDriveStatusSeesRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	}))
+	defer srv.Close()
+	c := spec.Case{ID: "priv-401", Dimension: "web", Prompt: "publish gated",
+		Check: spec.Check{Kind: "http_status", URL: "{target}/priv/x", Want: 303}}
+	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c},
+		Nonce: "R", TargetBase: srv.URL, Poll: 5 * time.Millisecond})
+	if !res[0].Pass {
+		t.Fatalf("want 303 observed as 303, got %+v", res[0])
+	}
+}
+
 type silentTarget struct{}
 
 func (silentTarget) Inject(_, _ string) (string, error)      { return "t", nil }
