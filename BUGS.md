@@ -1,5 +1,59 @@
 # BUGS.md — open issues queue
 
+## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
+
+Sweep for the same class as the no-reply bug below (an error swallowed as
+Warn/`_ =` while execution continues → silent degradation). Two shapes recur:
+`if err == nil { use }` with the else branch missing, and `_ = err` on
+bookkeeping writes that matter next turn.
+
+**FIXED this pass** (both were missing error logs, no control-flow change):
+- `routd/loop.go` `resolve()` — a transient `l.db.Routes()` read failure was
+  indistinguishable from a clean route-miss, so the poll caller advanced the
+  cursor and **dropped the inbound message** with zero log. Kept the
+  fail-forward (retry risks a poison-message loop) but made the drop a loud
+  `slog.Error`.
+- `routd/turns.go:337` `handleDocument` — `s.deliver.Document` error had no
+  `else`, so `send_file` failures returned HTTP 200 (row left pending) and were
+  never logged, unlike the sibling `handleSend` (`turns.go:308` logs
+  "deliver send failed"). Added the matching `slog.Error`.
+
+**VERIFIED, OPEN** (real, left for prioritisation):
+- `authd/main.go:108-112` — `core.LoadConfig()` failure → OAuth `/auth/*` not
+  mounted, logged only `Warn`, server starts green (JWKS/health OK). Human login
+  404s while everything reports healthy. Elevate to `Error` (already logged, so
+  lower urgency).
+
+**NOT A BUG** (verified benign, recorded so it isn't re-flagged):
+- `container/runner.go:173` `ipcDir, _ := folders.IpcPath(in.Folder)` — the same
+  folder is already resolved+validated via `buildMounts` (`runner.go:170`, which
+  handles the error at `:560`) before line 173; `IpcPath` won't diverge for a
+  folder that reached dispatch. Discard is a cosmetic asymmetry, not a live gap.
+- `routd/prompt.go:29-39` (scout #2) — the store reads there don't surface an
+  error at the call site (methods return zero-value/empty context); the one
+  explicit `_ = UpdateObservedCursor` is **documented-benign** (comment L24-27:
+  re-seeing observed messages is harmless, at-least-once by design).
+
+**REPORTED by sweep, NOT yet independently verified** (read before fixing):
+- `ipc/ipc.go:378-386` `writeJSON` — swallows `json.Marshal` error with bare
+  `return`, no error frame → tool result vanishes, caller times out. (HIGH if
+  confirmed.)
+- `ipc/ipc.go:348-361` — peer-cred/UID mismatch on MCP accept only `Warn`; gates
+  every tool call for the group. (MED)
+- `crackbox/pkg/admin/registry.go:84-107` `flushLocked` — `Warn`+return on
+  disk-persist failure inside a void fn; handler still ACKs 200 → stale egress
+  allowlist can reappear after restart. (MED)
+- `routd/turns.go:670-676` `recordTurnResult` — discards `PutMessage`/`PutSession`
+  errors (this path historically broke all replies post-split — verify first). (MED)
+- `runed/manager.go:212-214`, `runed/docker.go:66` (steer silently no-ops),
+  `ipc/ipc.go:340-345` (conn-limit reject, no error frame),
+  `routd/dispatch.go:263,305,320` (terminal SetTurnState unlogged),
+  `crackbox/pkg/host/host.go:130-132`, `routd/budget.go:32-43` (spend caps fail
+  open on a DB hiccup). (MED/LOW)
+
+Adapters (teled/discd/slakd/mastd/bskyd/reditd/emaid/chanlib) swept clean for
+this class.
+
 ## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED on krons, HARDENING OPEN)
 
 Symptom (user-reported): the bot shows a typing indicator then never replies,
