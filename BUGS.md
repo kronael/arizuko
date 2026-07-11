@@ -1,5 +1,45 @@
 # BUGS.md — open issues queue
 
+## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, proposed)
+
+Symptom-level loud-logging shipped (route-read, send_file, home-write). This is
+the CAUSE fix: make the silent state impossible-by-construction. De-duplicated
+against existing code — three of four AMEND AN EXISTING MECHANISM, not add a new
+one. **Needs sign-off before shipping** (control-flow / contract changes).
+
+- **Severity:** medium (rare triggers, but silent + user-facing when they fire)
+- **Scope:** routd dispatch + delivery, container spawn, lint tooling
+- **Status:** proposed (redesign, needs sign-off)
+
+**L4 — ghost-group dispatch guard (amend original).** `GroupExists` (`routd/db.go:226`)
+is already applied on the direct-address path (`loop.go:582`) but NOT on the
+route-resolved path (`loop.go:588 rt.Folder`) — exactly how the krons/content
+ghost dispatched. Add the SAME guard to the route branch. VERIFY it doesn't break
+onboarding / observe rules / web+hook JIDs first. Smallest, highest-value.
+
+**L2 — deliver loudly, to the user (amend original).** `appendAndDeliver`
+(`routd/turns.go:194`) already funnels reply delivery; the file/social handlers
+(`handleDocument` et al.) inline `if err==nil{}` and don't share its error→status
+recording. Route them through one recorder that sets `status=failed` AND returns
+non-2xx so the AGENT sees the failure (not just a log). One renderer, many sinks.
+
+**L3 — silent-turn reconciliation (extend original).** `TurnHasBotReply` +
+`recordTurnResult` (`routd/db.go:965`, `turns.go:644`) already reconcile
+reply-vs-result. The uncaught case is a turn that records NOTHING (no
+`turn_results`, no reply — krons/content). Extend the container-exit path
+(`runed`→routd "container exited") to reconcile dispatched-turn vs any recorded
+outcome; none → ERROR + a `silent_turns_total` metric + deliver an error turn to
+the chat. Cause-agnostic net — catches unknown future silent modes.
+
+**L1 — static prevention (new; the only genuinely new mechanism).** No
+`.golangci.yml`/`sgconfig`; lint is bare `go vet ./...` (`Makefile`). Add
+golangci-lint (`errcheck`, `nilerr`, `errorlint`) + an ast-grep ban on
+`if err == nil { … }` inverted guards, into `make lint` + pre-commit. Triage the
+~15 error-hygiene-sweep sites; benign discards get `//nolint … // benign: <why>`.
+
+Order once signed off: L4 (smallest) → L1 (guardrail) → L2 → L3. Each ships as
+its own commit + test.
+
 ## Error-hygiene sweep: swallowed / mis-levelled errors in the hot path (2026-07-11, 2 FIXED, rest OPEN)
 
 Sweep for the same class as the no-reply bug below (an error swallowed as
