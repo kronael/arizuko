@@ -179,8 +179,9 @@ post-fetch `JIDRoutedToFolder` per row.
 
 - `ARCHITECTURE.md` (IPC section)
 - `specs/5/30-inspect-tools.md`
-- `specs/5/5-uniform-mcp-rest.md` — MCP host's role as token issuer +
-  HTTP-federation pattern for foreign-domain tools
+- `specs/5/5-uniform-mcp-rest.md` (superseded by `specs/5/45-openapi-mcp.md`)
+  — MCP host's role as token issuer + HTTP-federation pattern for
+  foreign-domain tools
 - `specs/8/Y-connectors.md` — MCP-subprocess tool catalog
 - `../auth/README.md` — `Authorize` / identity resolution
 - `../routd/README.md` — host process; routd-owned tables stay local

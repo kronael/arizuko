@@ -10,7 +10,8 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > `route_tokens`, `groups` — ride one `resreg.Resource` via the injected Gate.
 > `secrets` is REST-only, write-only (no agent face). REST second faces folded
 > onto the shared handler: `web_routes`, `acl`, `routes`, `scheduled_tasks`,
-> `secrets`. Containment for the tier-structural handlers (`routes`,
+> `secrets`, plus onbod's `/v1/invites` (`154cd17f`) and `/v1/gates`
+> (`4bd09532`). Containment for the tier-structural handlers (`routes`,
 > `scheduled_tasks`) is a routd-internal per-face `containFn` (agent → tier
 > `AuthorizeStructural`, REST → `ownsFolder`), which closed a live cross-tenant
 > task leak (`0d25b687`); the same empty-folder key later closed a `web_routes`

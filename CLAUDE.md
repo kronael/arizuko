@@ -48,7 +48,7 @@ them on each request.
   through one hand-written handler — no auto-generated DSL, no
   catalog-driven mapper. arizuko is agent-first; MCP is the canonical
   protocol; REST is the boundary impedance match for non-MCP callers.
-  Spec: `specs/5/5-uniform-mcp-rest.md`. Cost is N+M hand-rolled
+  Spec: `specs/5/45-openapi-mcp.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions and the same folder-containment discipline, each
   checked by its own injected gate (agent tier-grants vs operator
@@ -85,7 +85,7 @@ them on each request.
   second hand-rolled check inside the handler. A handler that resolves a
   `jid`/`folder`/`run_id` param MUST bind it to the caller's folder. Drift =
   cross-folder access (cost a krons split review 2026-06-07). Spec:
-  `specs/5/5-uniform-mcp-rest.md`.
+  `specs/5/45-openapi-mcp.md`.
 
 (Spec-first change discipline lives in the `specs` skill.)
 
@@ -409,7 +409,8 @@ Model + wiring in the `### Observability` runbook above and
 1. Add entry to `CHANGELOG.md` (release block + `>` blockquote — see "## Announcing")
 2. Add migration file `ant/skills/self/migrations/NNN-vX.Y.Z-summary.md` — **every release**, including docs-only (stub body is fine; the file existing is what fires the auto-migrate broadcast)
 3. Update `ant/skills/self/MIGRATION_VERSION`
-4. Update "Latest migration version" in `ant/skills/self/SKILL.md`
+4. Update "Latest migration version" in `ant/skills/self/migration.md`
+   (SKILL.md is the index; the version line lives in migration.md)
 5. Rebuild agent image
 
 Spec: `specs/4/P-personas.md ## Versioning`. The auto-migrate hook

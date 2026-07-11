@@ -107,7 +107,9 @@ and signals it.
 
 **Boot reconciliation.** On startup runed scans `spawns` for
 `state='running'` rows whose containers are gone (crashed mid-run before a
-clean teardown) and marks them `killed`. After reconciliation the `running`
+clean teardown) and marks them `state='exited', outcome='error'`
+(`DB.ExpireOrphans`, called from `runed/cmd/runed/main.go` — not `killed`;
+`killed` is reserved for an explicit kill). After reconciliation the `running`
 set reflects only live containers, so the atomic claim is correct from the
 first request.
 
@@ -166,8 +168,9 @@ CREATE TABLE spawns (
                                         --   resolved at step 3 (resume value or freshly minted UUID).
                                         --   NOT lineage-authoritative — routd.sessions owns lineage.
   state          TEXT NOT NULL,         -- queued|running|exited|error|killed
-                                        --   exited = natural exit / timeout; error = failed run;
-                                        --   killed = explicit kill or boot-reconcile of a dead container.
+                                        --   exited = natural exit / timeout / boot-reconcile of a
+                                        --   dead container (outcome=error); error = failed run;
+                                        --   killed = explicit kill.
   outcome        TEXT,                  -- ok|error|silent (set at end; NULL while running)
   exit_code      INTEGER,
   steered        INTEGER NOT NULL DEFAULT 0, -- 1 if any steer-into-running write happened
@@ -311,6 +314,14 @@ POST authd /v1/tokens   Authorization: Bearer <runed service token>
   socket is already `SO_PEERCRED`-gated, so the handshake is the tighter
   carrier. `runed` persists only the `jti`; the raw JWS lives in the
   agent's process memory.
+  > **Divergence (open, decision pending).** The pinned handshake is
+  > UNBUILT: `capability_token`/`_meta` appear nowhere in the code, and
+  > `dockerRuntime.Run` drops `spec.Token` on the floor
+  > (`runed/docker.go` — `container.Input` has no token field; only
+  > `FakeRuntime` observes it in `contract_test.go`). Production works
+  > because routd hosts the agent's MCP socket in-process, so no
+  > brokered JWS ever needs to reach the container. Build the handshake
+  > or drop per-spawn JWS delivery from this spec — undecided.
 - An agent's `mint_token` MCP call (sub-agent delegation) forwards to
   `authd` with the **agent's own token** as parent — `runed` does not
   re-broker; `authd` downscopes from the agent's token directly. `runed`

@@ -137,7 +137,7 @@ delivered messages.
 
 ## Related docs
 
-- `specs/5/5-uniform-mcp-rest.md` — federated `/v1/*` contract
+- `specs/5/45-openapi-mcp.md` — federated `/v1/*` contract (supersedes 5/5)
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/4/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

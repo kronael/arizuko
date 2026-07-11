@@ -10,12 +10,14 @@ status: partial
 > chats (existing — extends one column), plus two new tables (invites,
 > secrets). Three implementation phases lined up after this lands.
 >
-> **Phase C (folder/user-scope secrets layering) is the BYOA primitive
-> phase 8 depends on.** Without secrets resolvable at spawn by
-> `(scope, name)` tuple, [`../9/3-git-as-truth.md`](../9/3-git-as-truth.md)
-> cannot ship safely — `agents.toml` would have to inline values.
-> Phase B (invites) + D (chats.is_group) shipped 2026-05; C is the
-> remaining piece.
+> **Phase status.** B (invites) shipped 2026-05. C (folder/user-scope
+> secrets layering — the BYOA primitive phase 8 depends on) shipped via
+> the credential model in [`5/42`](42-credentials.md); see the §Secrets
+> supersede note below. D shipped as a boolean `chats.is_group`
+> (`store/migrations/0033-chat-is-group.sql`, owned by specs/7/35), NOT
+> this spec's `chats.kind` enum — read §chats.kind as superseded shape.
+> E/F/G (structural dashd UI, topic kinds + workflow verbs, cross-group
+> topic ops) remain unbuilt; scope decision pending.
 
 ## Vocabulary
 

@@ -12,6 +12,14 @@ depends: specs/5/5-uniform-mcp-rest.md, specs/9/2-data-model.md
 > no SIGHUP-reload. `specs/9/3-git-as-truth.md`'s continuously-synced
 > cold-tier-config is superseded; committing an `export` dump to git is fine
 > (8/3 itself is unedited — read its `agents.toml` references through this lens).
+>
+> **Caveat (2026-07-11).** `arizuko apply`/`plan`/`export`/`get` are
+> INERT against a production split instance: `cmd/arizuko/apply.go`
+> opens the frozen pre-split `messages.db`, not the owner DBs
+> (`routd.db` etc.) the daemons actually read. The CLI works only on the
+> retired monolith layout until the 5/44 one-owner + federation phase
+> repoints it. Tracked in BUGS.md ("`arizuko apply`/`plan`/`export`/`get`
+> operate on the frozen messages.db post-split").
 
 ## Why
 

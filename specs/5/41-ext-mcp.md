@@ -219,9 +219,10 @@ Every tool call through this layer writes to `audit_log`:
 `scope_kind ∈ {user, folder, missing}`. `status ∈ {ok, err, timeout}`.
 Secret values never written. One row per `(call × resolved key)`.
 
-The `secret_use_log` table design from the old broker spec is the target
-shape; it is **not yet created** — the current `audit_log` table does not
-include per-secret rows. This is the M2 gap.
+The `secret_use_log` table EXISTS (`routd/migrations/0008-secrets.sql`;
+store `0048`) and `audit/audit.go` reads it — but `store.LogSecretUse`
+has **zero production callers**, so no per-secret row is ever written.
+The M2 gap is the missing WRITER at the broker path, not the table.
 
 ---
 
@@ -277,10 +278,10 @@ write paths) lives in [`5/42`](42-credentials.md).
 
 ## What's not yet shipped
 
-| piece                                 | gap                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------ |
-| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string` |
-| `secret_use_log` per-key audit rows   | current `audit_log` has no per-secret granularity                              |
+| piece                                 | gap                                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------------- |
+| `registerWithSecrets` for Go handlers | plain (non-connector) built-in tools can't receive `secrets map[string]string`         |
+| `secret_use_log` per-key audit rows   | table + reader exist; `store.LogSecretUse` never called — no writer at the broker path |
 
 ---
 
