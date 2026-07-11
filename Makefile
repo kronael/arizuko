@@ -76,27 +76,17 @@ play:
 test-dash: play
 .PHONY: test-dash
 
-# smoke: post-deploy verification on a running instance. Pings the
-# admin and sends a synthetic message through the registered-channel
-# path; confirms egress register fires (when on) and the message
-# routes. Run after every redeploy: `make smoke INSTANCE=krons`.
+# smoke: post-deploy liveness of a running instance — every container healthy
+# (adapters degraded by a down platform link warn, not fail) + crackbox egress.
+# This is the FREE tier of tests/integration_features_smoke_test.go (no model
+# credits); the credit-spending end-to-end tier there is opt-in. Single source:
+# the smoke logic lives in one place, run here and by `go test` directly.
+# Run after every redeploy: `make smoke SMOKE_INSTANCE=krons`.
 SMOKE_INSTANCE ?= krons
 smoke:
-	@inst=$(SMOKE_INSTANCE); \
-	echo "smoking arizuko_$$inst"; \
-	for c in $$($(DOCKER) ps --filter "name=arizuko_.*_$$inst" -q); do \
-	  name=$$($(DOCKER) inspect -f '{{.Name}}' $$c | tr -d /); \
-	  status=$$($(DOCKER) inspect -f '{{.State.Health.Status}}' $$c 2>/dev/null); \
-	  if [ -n "$$status" ] && [ "$$status" != "healthy" ]; then \
-	    echo "  FAIL: $$name = $$status"; exit 1; \
-	  fi; \
-	done; \
-	echo "  all containers healthy"; \
-	if grep -q '^CRACKBOX_ADMIN_API=' /srv/data/arizuko_$$inst/.env 2>/dev/null; then \
-	  $(DOCKER) exec arizuko_runed_$$inst wget -qO- --timeout=3 http://crackbox:3129/health \
-	    | grep -q '"status":"ok"' && echo "  crackbox /health: ok" \
-	    || (echo "  FAIL: crackbox /health"; exit 1); \
-	fi
+	SMOKE_INSTANCE=$(SMOKE_INSTANCE) SMOKE_DOCKER='$(DOCKER)' \
+	  go test ./tests/ -tags smoke -count=1 -v \
+	  -run 'TestSmoke_ContainerHealth|TestSmoke_CrackboxEgress'
 .PHONY: smoke
 
 clean:
