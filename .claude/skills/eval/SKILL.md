@@ -3,6 +3,24 @@
 Checks operational health of running arizuko instances.
 Run after deploys, on suspicion of a stuck agent, or periodically.
 
+## Method: causes, not symptoms
+
+Eval hunts ALL errors and maps each to its CAUSE — not just pass/fail health.
+For every ERROR/WARN across journald, `audit_log`, and container logs:
+
+1. **Census** — collect every distinct error with count + first/last seen. A
+   rare error still counts; a swallowed one (see check 16) counts double.
+2. **Cause** — trace each to its root, not the symptom line: which boundary
+   swallowed it, which precondition wasn't gated, which contract drifted.
+3. **Redesign** — propose the change that makes the bad state impossible-by-
+   construction (`~/.claude/CLAUDE.md` System-change discipline): fail loud to
+   the user, retry only transient (remote/DB-busy) errors, amend the ORIGINAL
+   mechanism — never a symptom patch, never a parallel path.
+4. **Record + sign-off** — write each proposal to `BUGS.md` (`/bugs` format);
+   the user signs off BEFORE any ship. NEVER auto-fix or auto-commit.
+5. **Track over time** — error counts ARE the metric. A good redesign drives a
+   whole class to zero across successive evals; re-run to confirm it's gone.
+
 ## Usage
 
 ```
@@ -473,14 +491,12 @@ Checked: <what was checked>
 **Summary**: <one line>
 ```
 
-If a pattern of failures is found across multiple runs, write or update
-`.ship/critique-<TOPIC>.md` with:
-- What is failing
-- How often / under what conditions
-- Reproduction steps
-- Proposed fix (do NOT apply it — user decides)
+Route every proposed fix to `BUGS.md` per **Method** step 4 (cause → redesign →
+sign-off) — never a symptom patch, never applied without sign-off. For a failure
+that recurs across runs, record its count trend in the entry so a redesign can
+be judged by whether it drives the class to zero.
 
-**Never**: auto-fix, auto-commit, or create duplicate critique files.
+**Never**: auto-fix, auto-commit.
 
 ---
 
