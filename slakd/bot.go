@@ -518,7 +518,7 @@ func (b *bot) handleMessage(teamID string, raw json.RawMessage, verb string) {
 	chatName := chatNameFrom(conv)
 
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
-		ID:          m.TS,
+		ID:          jid + "/" + m.TS,
 		ChatJID:     jid,
 		Sender:      "slack:user/" + m.User,
 		SenderName:  senderName,
@@ -564,7 +564,7 @@ func (b *bot) handleReaction(teamID string, raw json.RawMessage) {
 	conv := b.convInfoFor(r.Item.Channel, "")
 	jid := chanlib.FormatSlackJID(cmp.Or(teamID, b.TeamID()), chanKind(conv.IsIM, conv.IsMpim), r.Item.Channel)
 	if err := b.rc.SendMessage(chanlib.InboundMsg{
-		ID:         r.Item.TS + ":r:" + r.Reaction,
+		ID:         jid + "/" + r.Item.TS + ":r:" + r.Reaction,
 		ChatJID:    jid,
 		Sender:     "slack:user/" + r.User,
 		SenderName: b.userName(r.User),

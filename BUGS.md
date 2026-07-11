@@ -96,8 +96,8 @@ bookkeeping writes that matter next turn.
 **VERIFIED, OPEN** (real, left for prioritisation):
 - `authd/main.go:108-112` — `core.LoadConfig()` failure → OAuth `/auth/*` not
   mounted, logged only `Warn`, server starts green (JWKS/health OK). Human login
-  404s while everything reports healthy. Elevate to `Error` (already logged, so
-  lower urgency).
+  404s while everything reports healthy. **FIXED 2026-07-11** — elevated to
+  `slog.Error` with the "login 404s while health green" symptom in the message.
 
 **NOT A BUG** (verified benign, recorded so it isn't re-flagged):
 - `container/runner.go:173` `ipcDir, _ := folders.IpcPath(in.Folder)` — the same
@@ -170,6 +170,11 @@ once the per-daemon /dash/ route is shipped") documents the invariant that was
 violated. Fix: either ship the two control-plane handlers, or set
 `Built=false` on onbod+timed until they exist. Surfaced by the dashd-playwright
 audit (`services.spec.ts:32`), 2026-07-10.
+
+- **Status:** fixed 2026-07-11 — set `Built=false` on onbod+timed (restores the
+  slice invariant: tiles show as probe-only status, no dead drill-in link).
+  Shipping the two `/dash/` control-plane handlers stays a follow-up (flip back
+  to `true` then).
 
 ## dashd-playwright: 4 drifted test assertions (harness maintenance, not dashd bugs) (2026-07-10, OPEN)
 
@@ -510,7 +515,9 @@ Reaction IDs (`r.Item.TS + ":r:" + r.Reaction`) need the same treatment.
 - **Severity:** low (theoretical — Slack TS precision makes collision astronomically unlikely)
 - **Scope:** slakd
 - **Affected:** slakd/bot.go:521,567 — multi-channel Slack workspaces
-- **Status:** open
+- **Status:** fixed 2026-07-11 — message + reaction IDs prefixed with the channel
+  `jid`, mirroring teled (`bot.go:291,209`). Raw-TS API targeting uses `TargetID`,
+  not `InboundMsg.ID`, so prefixing is safe.
 
 ## dashd reads SQLite directly — violates spec 6/1 read-path contract (2026-06-16, open)
 

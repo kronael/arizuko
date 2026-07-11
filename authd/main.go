@@ -109,7 +109,7 @@ func main() {
 		srv.secureCookies = strings.HasPrefix(auth.AuthBaseURL(cfg), "https://")
 		srv.registerOAuth(mux, cfg)
 	} else {
-		slog.Warn("oauth /auth/* not mounted: config load failed", "err", cerr)
+		slog.Error("oauth /auth/* not mounted: config load failed; human login will 404 while health stays green", "err", cerr)
 	}
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("authd", []string{}))
 	if obs.MetricsEnabled() {
