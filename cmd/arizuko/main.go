@@ -47,6 +47,7 @@ func main() {
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
+		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
 		fmt.Println("  token    <instance> list <folder>")
 		fmt.Println("  token    <instance> revoke <jid>")
 		fmt.Println("  chat     <instance>  — interactive Claude Code session bound to root MCP socket")

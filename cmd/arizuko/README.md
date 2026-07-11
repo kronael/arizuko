@@ -24,6 +24,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko secret <inst> set <folder> KEY --value V | list <folder> | delete <folder> KEY` — folder-scoped secrets
   - `arizuko user-secret <inst> set <user_sub> KEY --value V | list <user_sub> | delete <user_sub> KEY` — user-scoped secrets
   - `arizuko token <inst> issue chat <folder> [<suffix>] | issue webhook <folder> <label> | list <folder> | revoke <jid> [<owner_folder>]` — manage `route_tokens` (chat / webhook capability URLs)
+  - `arizuko token <inst> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]` — mint a folder-scoped ES256 access JWT signed with authd's active key (read from auth.db; operator-only). E.g. `--scope messages:write,messages:read` for anteval's inject+inspect
   - `arizuko invite <inst> create <target_glob> [--max-uses N] [--expires DURATION]`
   - `arizuko invite <inst> list [--issued-by SUB]`
   - `arizuko invite <inst> revoke <token>`

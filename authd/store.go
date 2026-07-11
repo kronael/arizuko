@@ -50,7 +50,7 @@ func loadKeys(db *sql.DB) ([]keyRow, error) {
 		if err := rows.Scan(&kid, &privPEM, &active, &retired); err != nil {
 			return nil, err
 		}
-		priv, err := parseECPriv(privPEM)
+		priv, err := auth.ParseECPrivateKeyPEM(privPEM)
 		if err != nil {
 			return nil, fmt.Errorf("parse key %s: %w", kid, err)
 		}
@@ -228,20 +228,4 @@ func encodeKey(priv *ecdsa.PrivateKey) (privPEM, pubPEM string, err error) {
 	}
 	pubPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
 	return privPEM, pubPEM, nil
-}
-
-func parseECPriv(privPEM string) (*ecdsa.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(privPEM))
-	if block == nil {
-		return nil, errors.New("no PEM block")
-	}
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
-	ec, ok := key.(*ecdsa.PrivateKey)
-	if !ok {
-		return nil, errors.New("not an ECDSA key")
-	}
-	return ec, nil
 }

@@ -11,8 +11,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"time"
 
@@ -150,6 +152,26 @@ func NewSigningKey(kid string) (*SigningKey, error) {
 		return nil, err
 	}
 	return &SigningKey{Kid: kid, Priv: priv}, nil
+}
+
+// ParseECPrivateKeyPEM parses a PKCS#8 PEM-encoded ECDSA private key — the
+// on-disk form authd persists in signing_keys.priv_pem. Shared by authd's key
+// load and the host-admin CLI's operator bearer mint (both read the same
+// storage format; one parser, no drift).
+func ParseECPrivateKeyPEM(privPEM string) (*ecdsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(privPEM))
+	if block == nil {
+		return nil, errors.New("no PEM block")
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	ec, ok := key.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("not an ECDSA key")
+	}
+	return ec, nil
 }
 
 // Sign mints a compact ES256 JWT for claims with the given TTL. iss is forced
