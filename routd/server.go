@@ -269,6 +269,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/tasks/{id}/runs", s.handleTaskRunLogs)
 	mux.HandleFunc("POST /v1/tasks/{id}/reschedule", s.handleTaskReschedule)
 	mux.HandleFunc("POST /v1/cost", s.handleCost)
+	mux.HandleFunc("GET /v1/cost", s.handleCostGet)
 	// turn callbacks (the sole-appender surface)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/reply", s.handleReply)
 	mux.HandleFunc("POST /v1/turns/{turn_id}/send", s.handleSend)

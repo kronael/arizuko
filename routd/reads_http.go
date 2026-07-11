@@ -26,6 +26,9 @@ var (
 	// via the in-process MCP log_external_cost tool; this REST path is for service
 	// callers that hold cost:write.
 	scopeCost = []string{"cost:write", "cost:write:own_group"}
+	// Reading a turn's spend is the read half of the same capability (anteval's
+	// token budgets, operator cost tooling) — cost:read, not messages:read.
+	scopeCostRead = []string{"cost:read", "cost:read:own_group"}
 )
 
 func toMessageRow(m core.Message) apiv1.MessageRow {
@@ -291,4 +294,36 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, apiv1.OK{OK: true})
+}
+
+// handleCostGet is the read twin of the cost surface: one turn's spend summed
+// across models. Closes spec 5/37's honest gap (a) — before this, cost was
+// write-only over REST, so external budget checks (anteval max_tokens) read 0.
+func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
+	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)
+	if !ok {
+		return
+	}
+	turnID := r.URL.Query().Get("turn_id")
+	if turnID == "" {
+		writeErr(w, 400, "bad_request", "turn_id required")
+		return
+	}
+	folder, in, out, cents, found, err := s.db.CostByTurn(turnID)
+	if err != nil {
+		writeErr(w, 500, "store_error", err.Error())
+		return
+	}
+	if !found {
+		writeErr(w, 404, "not_found", "no cost recorded for turn "+turnID)
+		return
+	}
+	if !ownsFolder(tokenFolder, folder) {
+		denyCrossFolder(w, folder)
+		return
+	}
+	writeJSON(w, 200, apiv1.CostResponse{
+		TurnID: turnID, Folder: folder,
+		InputTokens: in, OutputTokens: out, CostCents: cents,
+	})
 }

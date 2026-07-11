@@ -1,6 +1,7 @@
 package routd
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
@@ -97,6 +98,44 @@ type webRouteReq struct {
 	Path       string `json:"path"`
 	Access     string `json:"access,omitempty"`
 	RedirectTo string `json:"redirect_to,omitempty"`
+}
+
+// GET /v1/cost (the read twin, spec 5/37 gap a) binds the turn's folder to the
+// token and requires the dedicated cost:read scope; sums span models.
+func TestRESTCostRead(t *testing.T) {
+	db, h := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"cost:read:own_group"}, folder: "alice"})
+	if err := db.PutCost("alice", "t1", "user:u", "opus", 100, 20, 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutCost("alice", "t1", "user:u", "haiku", 50, 5, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PutCost("bob", "t2", "user:v", "opus", 1, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doJSON(t, h, "GET", "/v1/cost?turn_id=t1", "", nil)
+	if rec.Code != 200 {
+		t.Fatalf("own-folder cost read = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	var resp apiv1.CostResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Folder != "alice" || resp.InputTokens != 150 || resp.OutputTokens != 25 || resp.CostCents != 31 {
+		t.Fatalf("cost read = %+v", resp)
+	}
+	if rec := doJSON(t, h, "GET", "/v1/cost?turn_id=t2", "", nil); rec.Code != 403 {
+		t.Fatalf("cross-folder cost read = %d want 403", rec.Code)
+	}
+	if rec := doJSON(t, h, "GET", "/v1/cost?turn_id=missing", "", nil); rec.Code != 404 {
+		t.Fatalf("missing turn cost read = %d want 404", rec.Code)
+	}
+	// messages:read must NOT satisfy the dedicated cost:read scope.
+	_, h2 := authSrv(t, fakeVerifier{sub: "user:u", scope: []string{"messages:read"}, folder: "alice"})
+	if rec := doJSON(t, h2, "GET", "/v1/cost?turn_id=t1", "", nil); rec.Code != 403 {
+		t.Fatalf("cost read with messages:read = %d want 403 (dedicated scope)", rec.Code)
+	}
 }
 
 // The REST web_route PUT must enforce the SAME path-claim + redirect-self-slot

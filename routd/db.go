@@ -1095,6 +1095,24 @@ func (d *DB) PutCost(folder, turnID, userSub, model string, in, out, cents int) 
 	return err
 }
 
+// CostByTurn aggregates cost_log across models for one turn. found=false when
+// the turn has no cost rows yet (still running, or an adapter-side turn that
+// never reported) — the REST face maps that to 404 so a caller can tell
+// "no cost recorded" from a genuine zero-cost row.
+func (d *DB) CostByTurn(turnID string) (folder string, in, out, cents int, found bool, err error) {
+	err = d.db.QueryRow(
+		`SELECT folder, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(cost_cents),0)
+		 FROM cost_log WHERE turn_id=? GROUP BY folder`, turnID).
+		Scan(&folder, &in, &out, &cents)
+	if err == sql.ErrNoRows {
+		return "", 0, 0, 0, false, nil
+	}
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	return folder, in, out, cents, true, nil
+}
+
 // FolderCap returns the per-day spend cap for a folder in cents
 // (groups.cost_cap_cents_per_day). Zero means uncapped (the default).
 func (d *DB) FolderCap(folder string) (int, error) {

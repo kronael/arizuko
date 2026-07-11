@@ -356,6 +356,17 @@ type CostRequest struct {
 	CostCents    int    `json:"cost_cents"`
 }
 
+// CostResponse is GET /v1/cost?turn_id=: the turn's recorded spend summed
+// across cost_log models. 404 when the turn has no rows yet — distinct from
+// a genuine zero-cost turn.
+type CostResponse struct {
+	TurnID       string `json:"turn_id"`
+	Folder       string `json:"folder"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	CostCents    int    `json:"cost_cents"`
+}
+
 // Err is the uniform JSON error envelope.
 type Err struct {
 	Error   string `json:"error"`
