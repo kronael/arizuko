@@ -34,6 +34,11 @@ var (
 		Help: "Total turns processed.",
 	}, []string{"folder", "outcome"})
 
+	silentTurns = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "arizuko_silent_turns_total",
+		Help: "Clean runs that delivered neither a turn result nor a bot reply.",
+	}, []string{"folder"})
+
 	modelCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "arizuko_model_call_duration_seconds",
 		Help:    "Anthropic API call latency.",
@@ -108,7 +113,7 @@ func reg() *prometheus.Registry {
 	registryOnce.Do(func() {
 		registry = prometheus.NewRegistry()
 		registry.MustRegister(
-			turnDuration, turnsTotal,
+			turnDuration, turnsTotal, silentTurns,
 			modelCallDuration, modelTokens,
 			containerSpawns, containerActive, containerDuration,
 			requestsTotal, requestDuration,
@@ -143,6 +148,12 @@ func MetricsHandler() http.Handler {
 func RecordTurn(folder, outcome string, seconds float64) {
 	turnDuration.WithLabelValues(folder, outcome).Observe(seconds)
 	turnsTotal.WithLabelValues(folder, outcome).Inc()
+}
+
+// RecordSilentTurn counts a clean run that delivered nothing — neither a turn
+// result nor a bot reply. The metric to drive to zero over successive evals.
+func RecordSilentTurn(folder string) {
+	silentTurns.WithLabelValues(folder).Inc()
 }
 
 // RecordModelCall records Anthropic call latency.

@@ -311,10 +311,25 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		}
 		return false, false, nil
 	}
-	// Clean turn-boundary outcome: persist session_id backstop UNLESS submit_turn
-	// already recorded one (its value wins).
-	if out.SessionID != "" && !l.db.TurnResultRecorded(folder, turnID) {
+	// Clean turn-boundary outcome.
+	recorded := l.db.TurnResultRecorded(folder, turnID)
+	// Persist session_id backstop UNLESS submit_turn already recorded one (its wins).
+	if out.SessionID != "" && !recorded {
 		_ = l.db.PutSession(folder, topic, out.SessionID)
+	}
+	// Silent turn: a clean run that recorded neither a result nor a bot reply
+	// delivered nothing — the user saw typing then silence. Deliberate silence
+	// still records a result (ant calls deliverTurn on every result event,
+	// think-only included), so this fires only on a real malfunction: a 0-result
+	// SDK run, a config-less spawn, a swallowed submit_turn. Not transient — never
+	// retry; surface it loud AND to the chat so it can never be invisible again.
+	if out.Outcome == runedv1.OutcomeOK && !recorded && !l.db.TurnHasBotReply(turnID) {
+		slog.Error("silent turn: clean run delivered nothing",
+			"folder", folder, "turn_id", turnID, "jid", chatJID)
+		obs.RecordSilentTurn(folder)
+		if l.deliver != nil {
+			_, _ = l.deliver.Send(chatJID, silentTurnNotice, "", topic, "", "silent-"+turnID)
+		}
 	}
 	obs.SetCircuitBreakerState(folder, 0) // 0=closed: a clean run clears the breaker
 	_ = l.db.SetTurnState(turnID, "done")
@@ -401,6 +416,11 @@ const runFailureNotice = "Failed: agent error on that message. Try rephrasing or
 // retryExhaustedNotice is sent when all retry attempts are exhausted without
 // a reply (spec 5/40 turn-retry).
 const retryExhaustedNotice = "⚠️ Agent couldn't complete this request after 3 attempts."
+
+// silentTurnNotice is sent when a clean run delivered nothing — no turn result,
+// no bot reply. A malfunction (config-less spawn, 0-result run), not deliberate
+// silence (which records a result). See runTurn's clean-outcome epilogue.
+const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please re-send."
 
 // retryBackoff is the delay between retry attempts (spec 5/40).
 const retryBackoff = 10 * time.Second
