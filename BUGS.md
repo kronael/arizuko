@@ -1,5 +1,34 @@
 # BUGS.md — open issues queue
 
+## Root-owned group home → agent runs config-less, silently never replies ("typing but no reply") (2026-07-11, ROOT CAUSE FIXED on krons, HARDENING OPEN)
+
+Symptom (user-reported): the bot shows a typing indicator then never replies,
+intermittently. Reproduced on krons folder `krons/content`: 4 turns (5729–5732)
+dispatched + spawned, each ran ~33s, logged `[ant] Query done. Messages: 0,
+results: 0` then `[ant] Input empty, exiting`, `code:0` — **no `turn_results`
+row, no bot message**. rhias/nemo (healthy) replies normally.
+
+**Root cause.** `groups/krons/content` was hand-created as **root:root** (Jul 7,
+manual `mkdir`/host-CLI — the "never mkdir groups manually, use onbod/SetupGroup"
+rule, `group_creation` memory). The container runs `user: 1000:1000`
+(`compose/compose.go:694`); it can't `mkdir .claude` under the root-owned home, so
+`cpDirImpl` (`container/runner.go:1146`) and `writeSettings`
+(`container/runner.go:865`) both fail — **settings.json (which carries the
+`mcpServers.arizuko` socket + outputStyle) is never written** → the SDK query
+runs with no MCP tools and returns 0 messages → no reply. Note `krons/content` is
+also a **ghost**: routed-to but NOT in `groups` (registered krons groups:
+adshaus, happy, krons, krons/public/marble, mayai, rhias, rhias/content,
+rhias/nemo). Fixed live: `chown -R 1000:1000 groups/krons/content`; uid-1000 can
+now write `.claude`. Pending end-to-end confirm on next inbound.
+
+**Hardening (OPEN).** Both write-failure sites swallow the error as `WARN` and
+continue, producing a silently dead agent — violates CLAUDE.md "strict, not
+magical / no silent fallbacks." Fix: when the group home is not writable (mkdir
+`.claude` = permission denied, or settings.json write fails), fail LOUD — log
+`ERROR` with the folder AND abort the spawn / deliver an error turn, rather than
+running a config-less container. Also consider refusing to dispatch a folder with
+no `groups` row (ghost-group guard) or auto-`chown` a fresh home to the run uid.
+
 ## Services hub: onbod + timed tiles are `Built=true` but their `/dash/` routes 404 (2026-07-10, OPEN)
 
 `dashd/services.go:35-36` marks `onbod` and `timed` `Built=true` (Dash=
