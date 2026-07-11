@@ -1,15 +1,33 @@
 # BUGS.md — open issues queue
 
-## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, proposed)
+## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, mostly ✅ SHIPPED)
 
-Cause fix for the silent-failure class (symptom-level loud-logging already
-shipped). Reviewed by fable against the real code — it REFUTED two of my four
-layers and re-scoped the rest; every claim below is code-verified. **Needs
-sign-off.**
+Cause fix for the silent-failure class. fable-reviewed + code-verified; signed
+off and shipped L3→L4→L2→L1, each its own commit + test (all `go test ./routd/`
+green). NOT deployed yet (ships next image build).
 
 - **Severity:** medium (rare triggers, silent + user-facing when they fire)
 - **Scope:** routd dispatch + delivery, container spawn, route write-path, lint
-- **Status:** proposed (redesign, needs sign-off)
+- **Status:** shipped (code); remaining follow-ups below
+
+**Shipped:** L3 silent-turn detect+notice+metric (`d65e73c2`); L4a ghost-group
+dispatch guard (`c9979e78`); L4b DeleteGroup route/engagement cascade (`836d3f88`
++ fix `a4c4a68d`); L2 send_file→422+no-row (`d347a0dc`); L1 golangci errcheck+nilerr
+config + `lint-strict` (`3aa59fd3`).
+
+**Remaining (open):**
+1. **L4b route-write validation** — `routesHandler` add/set + CLI `route add` should
+   `GroupExists(target)` before persist. Deferred: needs a shared target parser
+   (observe/web/hook suffixes) + confirm no bootstrap adds route-before-group.
+   L4a backstops it at dispatch meanwhile.
+2. **L1 gate-flip** — wire `lint-strict` into `make lint`/CI once golangci-lint
+   builds against the toolchain (x/tools mismatch here), then triage findings.
+3. **ant `deliverTurn`** — submit_turn RPC failure should retry once then exit
+   non-zero (`ant/src/index.ts:105`) → `OutcomeError` → existing notice path.
+4. **Finish `01a61a07`** — home-not-writable should return an error from the runner
+   (→ `OutcomeError` → user notice), not log-and-spawn-config-less.
+
+Original plan detail (for the record):
 
 Ship order **L3 → L4 → L2 → L1** (biggest cause-net first). Each = own commit + test.
 
