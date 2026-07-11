@@ -525,7 +525,7 @@ runed (`POST /v1/runs`). runed performs the spawn:
    - `seedSkills()` — copy `ant/skills/` (re-seeds every run); seed `.claude.json`
    - Name: `arizuko-<instance>-<folder>-<ts_ms>` or overridden by caller
      (e.g. task containers set `timed-isolated:<id>` sender)
-   - Env: `WEB_PREFIX` (`pub` for root, `pub/<folder>` for children),
+   - Env: `WEB_PREFIX` (`pub` for an elevated `/root` turn, world subdomain for children),
      `ARIZUKO_IS_ROOT`, `ARIZUKO_DELEGATE_DEPTH`, `WEB_HOST`,
      `ARIZUKO_ASSISTANT_NAME`, plus group overrides
    - `docker run -i --rm`; spawn + wait. Per-turn results arrive

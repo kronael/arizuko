@@ -14,8 +14,8 @@ arg: <question or keyword>
 
 # Arizuko
 
-The deployment's operator-facing arizuko docs are published by the
-root group at `/pub/arizuko/...` — i.e. mounted into your container
+The deployment's operator-facing arizuko docs are published at the
+instance top level, `/pub/arizuko/...` — i.e. mounted into your container
 at `/var/lib/www/arizuko/` (RO browse). Public URL:
 `https://$WEB_HOST/pub/arizuko/...`.
 

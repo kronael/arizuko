@@ -50,12 +50,12 @@ labels are advisory: 1=world, 2=org, 3=branch, 4=unit, 5+=thread.
 
 Tier from path depth:
 
-- **Tier 0**: root (folder = `root`). Unrestricted.
-- **Tier 1**: top-level tenant. Full management, scoped to own world. Reachable at the derived host `<world>.<HOSTING_DOMAIN>`.
+- **Tier 0**: root — a transient operator elevation (`/root`), never a folder shape. Unrestricted.
+- **Tier 1**: top-level tenant (a named world). Full management, scoped to own world. Reachable at the derived host `<world>.<HOSTING_DOMAIN>`.
 - **Tier 2**: full management, scoped to own folder subtree. Served under the parent world's host (`/pub/<world>/<sub>/`).
 - **Tier 3+**: send-only tools. No management surface, no web publishing.
 
-Tier determines your MCP tool list. `$ARIZUKO_IS_ROOT` = "1" for root.
+Tier determines your MCP tool list. `$ARIZUKO_IS_ROOT` = "1" only during an elevated `/root` turn.
 When unsure, check your live tools.
 
 **Topics** are the transient work-unit (one conversation), overlaid on
@@ -263,7 +263,7 @@ your first reply.
 
 Before saying you can't do something, check your live MCP tool list —
 tools are injected at session start. `echo $ARIZUKO_IS_ROOT` shows
-privilege ("1" = root). Most tools work regardless of tier. Never say
+privilege ("1" = elevated `/root` turn). Most tools work regardless of tier. Never say
 "I can't do X" if an MCP tool exists for X. Routing tools
 (`get_routes`/`add_route`/`delete_route`) and `reset_session` work at
 tier ≤ 2 — do not refuse.
@@ -308,7 +308,7 @@ egress allowlist. (A real auth gate gives mixed codes: 200 on public paths,
 
   **How to escalate egress requests (tier 2+):**
   1. Tell the user the exact fix: "I need `api.example.com` allowlisted. You can
-     ask the root agent: `/root please run network_allow('main/trading', 'api.example.com')`"
+     ask an operator: `/root please run network_allow('main/trading', 'api.example.com')`"
   2. Or file via `/issues` for the operator to handle async.
   3. NEVER say vague things like "the operator can..." — give the user the command.
 
@@ -385,9 +385,9 @@ hierarchy: `/pub/atlas/support/...`. Subgroup names are reserved in
 the parent's view — check `/var/lib/www/<your-folder>/` (RO whole pub
 tree) before writing under a name a subgroup might own.
 
-### Tier 0 (root)
+### Tier 0 (elevated `/root` turn)
 
-Root group's `~/public_html/` projects to `<data>/web/pub/` at the
+An elevated turn's `~/public_html/` projects to `<data>/web/pub/` at the
 top level (no folder prefix); it can also write to `/var/lib/www/`
 directly (RW for tier 0 only) to stage content for any group.
 
@@ -507,7 +507,7 @@ reaches you instead.
 - `/stop` — stop agent
 - `/ping` — status check
 - `/chatid` — show chat JID
-- `/root <message>` — delegate to instance root group
+- `/root <message>` — run this turn root-privileged (operator `**` only)
 
 When asked for help, mention these.
 

@@ -7,8 +7,9 @@ On group create, Go (`container.seedSkills`) copies
 last synced; the live copy is what Claude Code reads.
 
 When `MIGRATION_VERSION` is behind, routd enqueues `/migrate` on
-the root group (per-spawn auto-cp was removed — the skill owns the
-sync now). The skill walks each stock file and does a 3-way merge:
+every behind group — each group self-migrates its own `~/.claude`
+(per-spawn auto-cp was removed — the skill owns the sync now; there is
+no root fan-out). The skill walks each stock file and does a 3-way merge:
 
 - `base` = `~/.claude/.merge-base/<path>` (last upstream synced)
 - `ours` = `~/.claude/<path>` (live, possibly operator-edited)

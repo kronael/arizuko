@@ -46,7 +46,7 @@ Every container:
 - `ipc/` → `/run/ipc` (rw, for MCP socket)
 - `groups/<world>/share/` → `/var/lib/share` (rw; ro if `share_mount` grant with `readonly=true`)
 
-Root groups only:
+Elevated `/root` turn only (tier 0):
 
 - `GROUPS_DIR` → `/var/lib/groups` (rw)
 

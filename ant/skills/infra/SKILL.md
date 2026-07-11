@@ -1,16 +1,16 @@
 ---
 name: infra
 description: >
-  Root-group only — set the instance hosting domain + wildcard DNS so
-  per-world hostnames resolve, verify reachability. USE for instance-level
-  web setup. NOT for non-root groups (no permission), NOT for app code
+  Tier 0 only (elevated `/root` turn) — set the instance hosting domain +
+  wildcard DNS so per-world hostnames resolve, verify reachability. USE for
+  instance-level web setup. NOT below tier 0 (no permission), NOT for app code
   deploy (use web).
 user-invocable: true
 ---
 
 # Infra
 
-Root-only. Per-world hostnames are **derived**, not assigned: world `W`
+Tier 0 only (elevated `/root` turn). Per-world hostnames are **derived**, not assigned: world `W`
 is served at `W.<HOSTING_DOMAIN>`, which proxyd 302s to `/pub/W/`. There
 is no host-mapping file to edit — the host is the deterministic
 composition of the world folder and `HOSTING_DOMAIN`.

@@ -12,7 +12,7 @@ Platform mounts use FHS canonical locations (v0.45.11+). Your home
 | `/var/lib/www`        | unified public web tree (RO browse of every group's `web/pub`) | read-only (tier 0 read-write)               |
 | `/var/lib/share`      | shared group memory                                            | RO/RW per grant                             |
 | `/run/ipc`            | gateway↔agent IPC (input/, gated.sock MCP server)              | read-write                                  |
-| `/var/lib/groups`     | all group dirs (root only — for migrate)                       | read-write, tier 0 only                     |
+| `/var/lib/groups`     | all group dirs (elevated `/root` turn only)                    | read-write, tier 0 only                     |
 | `/mnt/<name>`         | operator-configured extra mounts                               | varies                                      |
 | `~/.claude`           | agent memory: skills, CLAUDE.md, sessions                      | read-write                                  |
 
@@ -34,7 +34,10 @@ SAME file (the second JWT-rewrites to `/pub/<X>`).
 `https://$WEB_HOST/priv/<X>` serves a DIFFERENT file from
 `<data>/web/priv/`.
 
-## Root group only
+## Elevated `/root` turn only
+
+Available only when an operator raised this turn with `/root` (tier 0);
+a normal spawn has no `/var/lib/groups` mount.
 
 ```bash
 ls /opt/arizuko/

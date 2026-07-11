@@ -35,13 +35,13 @@ does not exist — the socket is wired automatically.
   (`acl` + `acl_membership` tables); `list_acl(folder)` is the read tool,
   writes go through CLI / dashd. Tier ≤ 1 gates the inspection tool.
 
-## Root Group
+## Root
 
 kanipi: root = literal `folder === 'root'`.
-arizuko: root = any folder with no `/` (tier 0).
+arizuko: no default root — a top-level folder (no `/`) is tier 1. Root (tier 0,
+cross-group `*`) is a transient operator `/root` elevation, never a folder.
 
-A root named `main` / `boss` was tier-1 in kanipi, tier-0 in arizuko. Audit
-root grants.
+A folder named `main` / `boss` is tier-1 in both. Audit operator (`**`) grants.
 
 ## Configuration
 

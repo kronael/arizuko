@@ -7,6 +7,6 @@ reaches you instead.
 - `/stop` — stop agent
 - `/ping` — status check
 - `/chatid` — show chat JID
-- `/root <message>` — delegate to instance root group
+- `/root <message>` — run this turn root-privileged (operator `**` only)
 
 When asked for help, mention these.

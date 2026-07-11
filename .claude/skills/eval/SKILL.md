@@ -437,7 +437,7 @@ echo "done"
 
 **Pass**: no MISSING lines — all source skills present in every group.
 **Fail**: skills missing → `/migrate` hasn't synced them, or `SetupGroup` incomplete.
-Fix: trigger `/migrate` in the root group, or manually run `SetupGroup` for the group.
+Fix: trigger `/migrate` in the affected group (each group self-migrates), or manually run `SetupGroup` for it.
 
 ---
 
