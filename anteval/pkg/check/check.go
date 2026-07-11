@@ -52,10 +52,22 @@ func Run(ctx Ctx, c spec.Check) (bool, string) {
 	switch c.Kind {
 	case "callback":
 		n := ctx.Expand("{nonce}")
-		if len(ctx.Sink.Hits(n)) > 0 {
-			return true, "callback received for " + n
+		hits := ctx.Sink.Hits(n)
+		if c.Field == "" {
+			if len(hits) > 0 {
+				return true, "callback received for " + n
+			}
+			return false, "no callback for " + n
 		}
-		return false, "no callback for " + n
+		want := ctx.Expand(c.Equals)
+		seen := make([]string, 0, len(hits))
+		for _, h := range hits {
+			if h.Query[c.Field] == want {
+				return true, fmt.Sprintf("callback %s=%q received for %s", c.Field, want, n)
+			}
+			seen = append(seen, h.Query[c.Field])
+		}
+		return false, fmt.Sprintf("callback %s=%q not seen for %s (saw %v)", c.Field, want, n, seen)
 	case "http_status":
 		url := ctx.Expand(c.URL)
 		resp, err := ctx.HTTP.Get(url)

@@ -75,17 +75,43 @@ func runCase(cfg Config, s *sink, c spec.Case) report.Result {
 		r.LatencyMs = msSince(start)
 		return r
 	}
+	// Two-turn case: let turn 1 settle (no checker), then inject the graded
+	// second turn. Prompt2 may lead with `/new ` to reset the session, so a
+	// pass proves on-disk persistence, not container/session reuse. Cost and
+	// the check both track turn 2.
+	if c.Prompt2 != "" {
+		time.Sleep(settle(c))
+		turn, err = cfg.Target.Inject(cfg.Chat, expand(c.Prompt2))
+		if err != nil {
+			r.Reason = "inject2: " + err.Error()
+			r.LatencyMs = msSince(start)
+			return r
+		}
+	}
 	ctx := check.Ctx{HTTP: noRedirectClient, Sink: s, Reader: cfg.Target, Expand: expand}
 	deadline := time.Now().Add(budget(c))
 	for {
 		pass, reason := check.Run(ctx, c.Check)
-		if pass {
-			r.Pass, r.Reason = true, reason
-			break
-		}
-		if time.Now().After(deadline) {
-			r.Reason = "timeout: " + reason
-			break
+		if c.Check.Negate {
+			// A negated check must NEVER see its positive condition: one hit
+			// fails the case immediately; surviving the whole window passes it.
+			if pass {
+				r.Pass, r.Reason = false, "unexpected: "+reason
+				break
+			}
+			if time.Now().After(deadline) {
+				r.Pass, r.Reason = true, "absent as required: "+reason
+				break
+			}
+		} else {
+			if pass {
+				r.Pass, r.Reason = true, reason
+				break
+			}
+			if time.Now().After(deadline) {
+				r.Reason = "timeout: " + reason
+				break
+			}
 		}
 		time.Sleep(cfg.Poll)
 	}
@@ -112,6 +138,16 @@ func budget(c spec.Case) time.Duration {
 		return time.Duration(c.MaxWallMs) * time.Millisecond
 	}
 	return 90 * time.Second
+}
+
+// settle bounds the wait between a two-turn case's first and graded turn: long
+// enough for turn 1 to finish its work, capped so a case can't hang on it.
+func settle(c spec.Case) time.Duration {
+	d := budget(c) / 3
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	return d
 }
 
 func msSince(t time.Time) int64 { return time.Since(t).Milliseconds() }

@@ -45,6 +45,30 @@ func TestCallback(t *testing.T) {
 	}
 }
 
+// TestCallbackFieldMatch: with Field set, a callback passes only when some hit
+// carries Query[Field] == Equals (Equals is templated). Field="" keeps the
+// any-hit behavior (covered by TestCallback).
+func TestCallbackFieldMatch(t *testing.T) {
+	hits := map[string][]Hit{"N1": {{Query: map[string]string{"deny_reason": "egress"}}}}
+	ctx := Ctx{Sink: fakeSink{hits: hits}, Expand: exp}
+	if ok, _ := Run(ctx, spec.Check{Kind: "callback", Field: "deny_reason", Equals: "egress"}); !ok {
+		t.Fatal("want pass when the field matches")
+	}
+	if ok, r := Run(ctx, spec.Check{Kind: "callback", Field: "deny_reason", Equals: "auth"}); ok {
+		t.Fatalf("want fail when the field mismatches, got pass; reason=%q", r)
+	}
+	// A hit that lacks the field must not pass.
+	noField := Ctx{Sink: fakeSink{hits: map[string][]Hit{"N1": {{Query: map[string]string{"other": "x"}}}}}, Expand: exp}
+	if ok, _ := Run(noField, spec.Check{Kind: "callback", Field: "deny_reason", Equals: "egress"}); ok {
+		t.Fatal("want fail when no hit carries the field")
+	}
+	// Equals is templated: {nonce} expands before comparison.
+	tmpl := Ctx{Sink: fakeSink{hits: map[string][]Hit{"N1": {{Query: map[string]string{"marker": "N1"}}}}}, Expand: exp}
+	if ok, _ := Run(tmpl, spec.Check{Kind: "callback", Field: "marker", Equals: "{nonce}"}); !ok {
+		t.Fatal("want pass with a templated Equals")
+	}
+}
+
 func TestRestObserve(t *testing.T) {
 	ctx := Ctx{Reader: fakeReader{rest: []Msg{{Text: "hello N1 world"}}}, Expand: exp}
 	if ok, _ := Run(ctx, spec.Check{Kind: "rest_observe", Chat: "c"}); !ok {

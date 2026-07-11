@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,85 @@ func TestDriveTokenBudget(t *testing.T) {
 	}
 	if !strings.Contains(res[0].Reason, "budget") {
 		t.Fatalf("want budget reason, got %q", res[0].Reason)
+	}
+}
+
+// TestDriveNegateAbsent: a negated check passes when its positive condition
+// never occurs within the budget window.
+func TestDriveNegateAbsent(t *testing.T) {
+	c := spec.Case{ID: "neg-absent", Prompt: "noop", MaxWallMs: 40,
+		Check: spec.Check{Kind: "callback", Negate: true}}
+	res := Drive(Config{Target: silentTarget{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if !res[0].Pass {
+		t.Fatalf("negate: want pass when condition absent, got %+v", res[0])
+	}
+	if !strings.Contains(res[0].Reason, "absent") {
+		t.Fatalf("want 'absent' reason, got %q", res[0].Reason)
+	}
+}
+
+// TestDriveNegatePresent: a negated check fails the instant its positive
+// condition occurs — here the compliant agent fires the callback.
+func TestDriveNegatePresent(t *testing.T) {
+	c := spec.Case{ID: "neg-present", Prompt: "curl {sink}/cb/{nonce}", MaxWallMs: 2000,
+		Check: spec.Check{Kind: "callback", Negate: true}}
+	res := Drive(Config{Target: &agentSim{}, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if res[0].Pass {
+		t.Fatalf("negate: want fail when condition occurs, got %+v", res[0])
+	}
+	if !strings.Contains(res[0].Reason, "unexpected") {
+		t.Fatalf("want 'unexpected' reason, got %q", res[0].Reason)
+	}
+}
+
+// twoTurnTarget records every inject and only exposes the graded message after
+// the SECOND inject — so a check that passes proves it ran against turn 2, and
+// Cost keys per turn id so the report attributes spend to the graded turn.
+type twoTurnTarget struct {
+	injects []string
+	msgs    []check.Msg
+}
+
+func (t *twoTurnTarget) Inject(_, prompt string) (string, error) {
+	t.injects = append(t.injects, prompt)
+	if len(t.injects) == 2 {
+		t.msgs = []check.Msg{{FromBot: true, Text: prompt}}
+	}
+	return "turn-" + strconv.Itoa(len(t.injects)), nil
+}
+func (t *twoTurnTarget) RestMessages(string) ([]check.Msg, error) { return t.msgs, nil }
+func (t *twoTurnTarget) McpMessages(string) ([]check.Msg, error)  { return t.msgs, nil }
+func (t *twoTurnTarget) Cost(id string) (int, error) {
+	if id == "turn-2" {
+		return 42, nil
+	}
+	return 7, nil
+}
+
+// TestDriveTwoTurn: Prompt2 drives a second inject after a settle, the expander
+// applies to it, and the check + cost track turn 2 (not turn 1).
+func TestDriveTwoTurn(t *testing.T) {
+	tgt := &twoTurnTarget{}
+	c := spec.Case{ID: "twoturn", Prompt: "persist {nonce}", Prompt2: "/new report {nonce}",
+		MaxWallMs: 90, Check: spec.Check{Kind: "rest_reply", Chat: "{chat}", Text: "{nonce}"}}
+	res := Drive(Config{Target: tgt, Cases: []spec.Case{c}, Nonce: "R",
+		Poll: 5 * time.Millisecond})
+	if len(tgt.injects) != 2 {
+		t.Fatalf("want 2 injects, got %d: %v", len(tgt.injects), tgt.injects)
+	}
+	if !strings.Contains(tgt.injects[0], "persist R-twoturn") {
+		t.Fatalf("turn 1 inject wrong: %q", tgt.injects[0])
+	}
+	if !strings.HasPrefix(tgt.injects[1], "/new ") || !strings.Contains(tgt.injects[1], "R-twoturn") {
+		t.Fatalf("turn 2 inject not the expanded Prompt2: %q", tgt.injects[1])
+	}
+	if !res[0].Pass {
+		t.Fatalf("want pass on the graded turn 2, got %+v", res[0])
+	}
+	if res[0].Tokens != 42 {
+		t.Fatalf("cost must track turn 2 (want 42), got %d", res[0].Tokens)
 	}
 }
 
