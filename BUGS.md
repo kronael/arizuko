@@ -961,3 +961,98 @@ Product pages had the same claim removed; the howto page still carries it.
 - **Scope:** `template/web/pub/arizuko/howto/webhooks.html` vs `webd/route_token.go`
 - **Status:** OPEN — verify webd behavior, then fix the howto page
 - **Found:** product-docs refine pass (fable), 2026-07-09
+
+## `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11, open)
+
+Same class as the fixed `arizuko network` bug (2026-06-21, 2dfa5670): `cmd/arizuko/token.go`
+`cmdToken` opens the DB via `store.Open(dir/store)` → `messages.db`, but post-split
+`route_tokens` is owned by routd in `routd.db` (`routd/tokens.go` resolves against `d.db`).
+CLI-issued chat/webhook tokens land in a table routd never reads — the printed `/chat/<token>`
+or `/hook/<token>` URL silently never resolves (webd POST /v1/route_tokens/resolve → 404).
+Verified live on krons: routd.db has 3 route_tokens, messages.db has 1 stale CLI-issued row.
+Also breaks `token list` (reads stale rows) and the `issue` folder-existence check
+(`GroupByFolder` on messages.db misses post-split groups, e.g. `eval`). The REST
+(`POST /v1/route_tokens/chat`) and MCP (`issue_chat_link`) paths are correct — only the CLI
+is wrong. Note `tokenIssueBearer` (added 2026-07-11) is unaffected: it reads auth.db +
+validates the folder via `mustOpenACL` (routd.db).
+
+Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirror 2dfa5670).
+
+- **Severity:** medium (silent — operator-issued capability URLs are dead; no error surfaced)
+- **Scope:** cmd/arizuko/token.go
+- **Affected:** `arizuko token issue chat|webhook|list|revoke` on all split instances
+- **Source:** cmd/arizuko/token.go:27 (`store.Open` → should be `store.OpenRoutd` for route_tokens)
+- **Status:** open
+- **Fix:**
+
+## `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11, open)
+
+`core.LoadConfigFrom(dataDir)` loads the instance `.env` but resolves
+`root = envOr("DATA_DIR", mustCwd())` (`core/config.go:157`). Instance `.env` files don't set
+`DATA_DIR` (compose injects it per-container), so on the HOST the CLI's `cfg.GroupsDir`
+becomes `<cwd>/groups` — `container.SetupGroup` writes the whole agent-home skeleton
+(`.claude/`, skills, logs) into a stray `groups/<folder>` under whatever directory the
+operator ran the command from. The DB rows still land correctly (routd.db), and routd/runed
+re-provision the real `groups/<folder>` on first dispatch, which masks the bug. Observed
+live 2026-07-11 creating the `eval` group on krons from a repo worktree: skeleton appeared
+in `<worktree>/groups/eval` (root-owned), real dir appeared only when routd provisioned it.
+
+Fix direction: host CLI paths should derive GroupsDir from the instance dir it was given
+(`filepath.Join(dataDir, "groups")`), not from `DATA_DIR`-or-cwd. Cross-check other CLI
+users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd fallback.
+
+- **Severity:** low (masked by daemon-side re-provisioning; litters cwd, confuses operators)
+- **Scope:** cmd/arizuko/main.go + core/config.go LoadConfigFrom root resolution
+- **Affected:** `arizuko create`, `arizuko group add` run on the host
+- **Source:** core/config.go:157 (`envOr("DATA_DIR", mustCwd())`)
+- **Status:** open
+- **Fix:**
+
+## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
+
+Spec 5/37 gap (b): `anteval --mcp` expects an "inspect-compatible MCP-over-HTTP face" —
+`HTTPTarget.McpMessages` just GETs `<mcp>/v1/messages/inspect`, i.e. a REST-shaped URL, not a
+real MCP client. The platform DOES have MCP-over-HTTP (webd `POST /mcp` session-auth'd, and
+`POST /chat/{token}/mcp` chat-token-auth'd, stateless streamable HTTP) but its tools are
+`send_message`/`get_round` — get_round returns ASSISTANT frames for one turn, so the
+`rest-mcp-parity` sentinel (harness-injected USER message identical via both faces) cannot be
+read through it. Closing the gap honestly needs ONE of: (1) an inspect-read tool on the
+chat-token MCP face (new public contract on webd, folder-bound like routd's REST inspect);
+(2) a real streamable-HTTP MCP client in anteval driving send_message/get_round and a
+reshaped parity case (assert the ROUND's frames match via REST + MCP instead of the raw
+sentinel). Both change a public surface contract or the spec's case semantics → needs
+sign-off before shipping. Until then `--mcp` stays unset and `rest-mcp-parity` fails loudly
+("surface not configured") — honest, not silent; `mcp-roundtrip` is unaffected (agent-driven,
+callback-checked).
+
+- **Severity:** low (one non-smoke case ungated; documented honest gap)
+- **Scope:** anteval/pkg/run/target.go McpMessages + webd chat MCP toolset + spec 5/37
+- **Affected:** anteval `rest-mcp-parity` case
+- **Source:** anteval/README.md "Two known gaps"; webd/chat_mcp.go toolset
+- **Status:** proposed (redesign, needs sign-off)
+- **Fix:**
+
+## krons: `/hook/` proxyd route missing — webhook surface dead; route table not hot-reloaded (2026-07-11, open)
+
+Found by anteval's `webhook-in` live case. `POST /hook/<token>` on krons falls through to the
+public catch-all (302 → `/pub/krons/hook/<token>`) for EVERY token — the `proxyd_routes` table
+(messages.db) had `/chat/` but no `/hook/` row. `compose.coreProxydRoutes` HAS declared
+`{/hook/ → webd, public}` since e2d2b5df (2026-05-18), but proxyd seeds the table only when it
+is EMPTY, so instances seeded before that date never gain new core routes — a seeded-once vs
+evolving-defaults drift class (same class as MIGRATION_VERSION-style drift, no re-seed path).
+Spec 5/W webhooks (`issue_webhook` → `POST /hook/<token>`) are silently dead on krons: the
+agent mints a token, the POST 302s, no turn fires.
+
+Second facet: the row was INSERTed live (2026-07-11) and a `/zzztest/` probe row confirmed the
+running proxyd does NOT pick up proxyd_routes changes without a restart — despite
+`proxyd/resource.go snapshot()` reading the DB per request (spec 5/36, d9796a62). Either the
+deployed build predates the per-request read or something still caches; verify on next deploy
+and re-run `anteval run ... --case webhook-in` (the `/hook/` row is already in place, so the
+next proxyd restart activates it).
+
+- **Severity:** medium (a documented public surface is dead on the flagship instance; silent)
+- **Scope:** proxyd route seeding / krons data drift
+- **Affected:** krons (and any instance seeded before 2026-05-18); spec 5/W `/hook` surface
+- **Source:** anteval webhook-in live run 2026-07-11; proxyd request log `status:302 path:/hook/...`
+- **Status:** open (row inserted on krons, awaits proxyd restart; re-seed/upsert path undesigned)
+- **Fix:**
