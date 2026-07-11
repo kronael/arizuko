@@ -191,6 +191,12 @@ Full threat model in [SECURITY.md](SECURITY.md).
 
 Build, test, image, and smoke targets: [INSTALL.md](INSTALL.md).
 
+Beyond unit/e2e tests, [`anteval/`](anteval/) is the **agent-capability gate** — a
+black-box prober that runs real tasks through the public surfaces (REST/HTTP/MCP +
+a callback sink) against a _live_ instance and grades observable effects, proving
+the in-container agent can self-modify, spawn+grant subagents, publish web, and
+build chat apps reachable over REST and MCP. Spec: [`specs/5/37`](specs/5/37-agent-capability-eval.md).
+
 ## Docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — package graph, message flow, full daemon/library tables, schema

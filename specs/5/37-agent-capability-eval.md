@@ -4,9 +4,16 @@ status: shipped
 
 # 5/37 — agent-capability eval (`anteval`)
 
-> **Status (2026-07-11): shipped.** Run LIVE against krons: the full `--smoke`
-> basis passed (7/8 in-run + priv-401 green after the harness's
-> redirect-following bug was fixed — see `## Live-run preconditions`). The
+> **Status (2026-07-11): shipped.** Run LIVE against krons ($4.78 / 23 turns):
+> **7/8 of the `--smoke` basis passed** — self-skill, rest-roundtrip,
+> chat-entrypoint, pub-200, child-delegate, priv-grant, and priv-401 (green
+> after the harness's redirect-following bug was fixed — see `## Live-run
+preconditions`). The 8th, `webhook-in`, FAILED — and that is the eval doing
+> its job: it caught a **real krons bug**, not an agent-capability gap. The
+> `/hook/` proxyd route was never seeded on the instance (seeded-once drift) and
+> live proxyd doesn't hot-reload the route table, so spec 5/W webhooks are dead
+> there (BUGS.md; row staged for the next deploy). A green health check missed
+> it; the capability prober did not. The
 > operator token gap is closed by `arizuko token <inst> issue bearer <folder>
 --scope messages:write,messages:read` (CLI signs with authd's active key from
 > auth.db). Former gap (a) is closed in code: routd `GET /v1/cost?turn_id=`

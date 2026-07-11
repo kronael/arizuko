@@ -90,6 +90,10 @@ crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
         in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
         Wired to runed (the execution plane) only. Shippable separately;
         specs/12/A-orthogonal-components.md
+anteval/  agent-capability gate: a black-box prober that runs real tasks
+        through the public surfaces (REST/HTTP/MCP + a callback sink) against
+        a LIVE instance and grades observable effects, not prose. Zero
+        arizuko-internal imports; shippable separately. specs/5/37.
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
