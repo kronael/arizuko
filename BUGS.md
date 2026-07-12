@@ -23,12 +23,15 @@ adshaus and the earlier telegram groups. Two distinct defects compound it:
    onboarding still dead" entry below. One shared `routeMiss` handler now
    serves both paths; an `InsertOnboarding` failure is `slog.Error` + a
    notice delivered to the chat.
-2. **No self-serve JID discovery — `/chatid` does not exist.** The docs and
-   several proposals tell a new chat to send `/chatid`, but nothing echoes it
-   (confirmed: not intercepted in the gateway command set). **Suggested fix:**
-   add `/chatid` as a first-word gateway command (sibling of `/ping`/`/chatid`
-   family) that replies with the chat's JID — a trivial, high-value unblock so a
-   user can hand the operator their JID without sqlite spelunking.
+2. **No self-serve JID discovery — `/chatid` dead exactly where it's needed** —
+   **fixed 2026-07-12.** Correction to the original claim: `/chatid` DOES
+   exist (`routd/steer.go handleCommand`, tested by `TestCmdChatID`) — but the
+   steer layer only runs on chats that RESOLVE, so on an unrouted chat (the
+   one audience that needs it) the command fell into the route-miss drop.
+   Live: 3 dead `/chatid` attempts on unrouted `telegram:group/5567410596`,
+   2026-07-09. Fix: `routeMiss` intercepts `/chatid` (same `lookupCommand`
+   parser, same `ack` path — not a second dispatcher) and replies with the
+   chat JID; the miss still queues onboarding. Test: `TestRouteMissChatID`.
 
 **Test gap (operator ask 2026-07-12):** the integration/e2e suite does not
 exercise the WHOLE onboarding path (new inbound → greeting/queue → operator

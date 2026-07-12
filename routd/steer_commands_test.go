@@ -42,6 +42,39 @@ func TestCmdChatID(t *testing.T) {
 	}
 }
 
+// TestRouteMissChatID: /chatid answers on an UNROUTED chat too — the exact
+// case a new user needs it for (self-reporting their JID for onboarding).
+// Steer never runs on a miss, so routeMiss carries the intercept; the miss
+// still queues onboarding (the /chatid is a first contact like any other).
+func TestRouteMissChatID(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	loop := NewLoop(db, nopRunner{}, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutMessage(core.Message{ID: "c1", ChatJID: "telegram:group/999", Sender: "u",
+		Content: "/chatid", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("telegram:group/999"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if got := lastAck(t, dl); got != "telegram:group/999" {
+		t.Fatalf("route-miss /chatid ack=%q want the jid", got)
+	}
+	if len(fo.onboarded) != 1 || fo.onboarded[0] != "telegram:group/999" {
+		t.Fatalf("route-miss /chatid skipped onboarding: %v", fo.onboarded)
+	}
+	if db.GetAgentCursor("telegram:group/999") == "" {
+		t.Fatal("route-miss /chatid did not advance cursor")
+	}
+}
+
 // TestCmdPing: /ping reports group, session prefix, active-run count, and group
 // count in gated's exact format (gateway.cmdPing).
 func TestCmdPing(t *testing.T) {

@@ -527,9 +527,9 @@ func (l *Loop) pollOnce() {
 // queue path (which wins the race — ingest enqueues it directly) advanced the
 // cursor without onboarding, so a new chat's first message vanished silently
 // and every new user needed a hand-run `arizuko group add` (krons 2026-07-12).
-// Observe-mode ingests silently; a genuine miss fires chat-initiated
-// onboarding; either way the cursor advances past the batch (fail-forward — a
-// re-fed miss would replay forever).
+// Observe-mode ingests silently; a genuine miss answers /chatid and fires
+// chat-initiated onboarding; either way the cursor advances past the batch
+// (fail-forward — a re-fed miss would replay forever).
 func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 	last := msgs[len(msgs)-1]
 	if r.Observe != "" {
@@ -547,22 +547,33 @@ func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
 		if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
 			slog.Warn("route miss: mark observed", "jid", chatJID, "err", err)
 		}
-	} else if l.onboardingEnabled && l.onbod != nil {
-		// Genuine route miss (no observe rule): chat-initiated onboarding.
-		// Discord guild channels only onboard on an explicit @mention so a
-		// busy server doesn't queue every poster.
-		// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
-		// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
-		discordGuild := strings.HasPrefix(chatJID, "discord:") &&
-			!strings.HasPrefix(chatJID, "discord:dm/")
-		if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
-			(!discordGuild || last.Verb == "mention") {
-			if err := l.onbod.InsertOnboarding(chatJID); err != nil {
-				// Fail loud: without the row the new user gets silence forever
-				// and no operator queue entry — tell the chat, not just the log.
-				slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
-				if l.deliver != nil {
-					_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID)
+	} else {
+		// A route-missed /chatid still answers: it is how a NEW (unrouted)
+		// user self-reports their JID for `arizuko group add` — the routed
+		// twin lives in handleCommand, and steer never runs on a miss. Same
+		// parser + ack path, not a second dispatcher. It does not consume the
+		// miss: the message still queues onboarding below.
+		if head, _ := lookupCommand(last.Content); head == "/chatid" &&
+			!last.BotMsg && !strings.HasPrefix(last.Sender, "timed-") {
+			l.ack(chatJID, chatJID)
+		}
+		if l.onboardingEnabled && l.onbod != nil {
+			// Genuine route miss (no observe rule): chat-initiated onboarding.
+			// Discord guild channels only onboard on an explicit @mention so a
+			// busy server doesn't queue every poster.
+			// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
+			// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
+			discordGuild := strings.HasPrefix(chatJID, "discord:") &&
+				!strings.HasPrefix(chatJID, "discord:dm/")
+			if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
+				(!discordGuild || last.Verb == "mention") {
+				if err := l.onbod.InsertOnboarding(chatJID); err != nil {
+					// Fail loud: without the row the new user gets silence forever
+					// and no operator queue entry — tell the chat, not just the log.
+					slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
+					if l.deliver != nil {
+						_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID)
+					}
 				}
 			}
 		}
