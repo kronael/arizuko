@@ -25,6 +25,9 @@ type RouteToken struct {
 	JID         string
 	OwnerFolder string
 	CreatedAt   time.Time
+	// Context is the optional issuer-authored per-link processing
+	// instructions (spec 5/W § link context). Empty = none.
+	Context string
 }
 
 const (
@@ -82,8 +85,8 @@ func (s *Store) InsertRouteToken(rawToken string, t RouteToken) error {
 	}
 	return s.runAudited(func(tx *sql.Tx) (audit.Event, error) {
 		_, err := tx.Exec(
-			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano),
+			`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context) VALUES (?, ?, ?, ?, ?)`,
+			HashRouteToken(rawToken), t.JID, t.OwnerFolder, ts.Format(time.RFC3339Nano), nilIfEmpty(t.Context),
 		)
 		return audit.Event{
 			Category: audit.CategoryChannel,
@@ -110,9 +113,9 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 	var t RouteToken
 	var createdAt string
 	err := s.db.QueryRow(
-		`SELECT jid, owner_folder, created_at FROM route_tokens WHERE token_hash = ?`,
+		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE token_hash = ?`,
 		HashRouteToken(rawToken),
-	).Scan(&t.JID, &t.OwnerFolder, &createdAt)
+	).Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context)
 	if err != nil {
 		return RouteToken{}, false
 	}
@@ -123,7 +126,7 @@ func (s *Store) LookupRouteToken(rawToken string) (RouteToken, bool) {
 // ListRouteTokens returns all tokens owned by ownerFolder.
 func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	rows, err := s.db.Query(
-		`SELECT jid, owner_folder, created_at FROM route_tokens WHERE owner_folder = ? ORDER BY created_at DESC`,
+		`SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder = ? ORDER BY created_at DESC`,
 		ownerFolder,
 	)
 	if err != nil {
@@ -134,7 +137,7 @@ func (s *Store) ListRouteTokens(ownerFolder string) []RouteToken {
 	for rows.Next() {
 		var t RouteToken
 		var createdAt string
-		if rows.Scan(&t.JID, &t.OwnerFolder, &createdAt) != nil {
+		if rows.Scan(&t.JID, &t.OwnerFolder, &createdAt, &t.Context) != nil {
 			continue
 		}
 		t.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)

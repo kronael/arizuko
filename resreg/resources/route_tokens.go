@@ -16,6 +16,7 @@ type RouteTokensRow struct {
 	JID         string `db:"jid"          yaml:"jid"          json:"jid"`
 	OwnerFolder string `db:"owner_folder" yaml:"owner_folder" json:"owner_folder"`
 	CreatedAt   string `db:"created_at"   yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	Context     string `db:"context"      yaml:"context,omitempty"    json:"context,omitempty"`
 }
 
 // RouteTokensEndpoints is the single owner of the route_tokens endpoint set that
@@ -59,7 +60,7 @@ var RouteTokensMCPDoc = map[resreg.Action]string{
 		"system (GitHub, Linear, Stripe, …) as a fire-and-forget event " +
 		"source for the folder. Spec 5/W.",
 	resreg.ActionList: "List route tokens (chat links + webhooks) owned by your folder. " +
-		"Returns rows with {jid, owner_folder, created_at}. Raw tokens " +
+		"Returns rows with {jid, owner_folder, created_at, context}. Raw tokens " +
 		"are NOT returned — they're shown once at issue time. Spec 5/W.",
 	resreg.Action("revoke"): "Revoke a route token by JID. Caller must own the token " +
 		"(owner_folder = your folder). After revocation the URL " +
@@ -75,6 +76,8 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 			Description: "Folder the token routes to. Defaults to your own folder. Tier 0 = any; tier 1 = self+descendants; tier 2 = self only."},
 		{Name: "jid_suffix", Type: "string",
 			Description: "Optional path appended to the JID (web:<folder>/<suffix>) — useful to partition multiple chat surfaces under one folder."},
+		{Name: "context", Type: "string",
+			Description: "Optional processing instructions for this link's inbound (e.g. 'bug reports from the acme site; triage, don't chat'). Rendered to the handling agent as <link-context> on every message arriving through this token. Spec 5/W."},
 	},
 	resreg.Action("issue_hook"): {
 		{Name: "source_label", Type: "string", Required: true,
@@ -83,6 +86,8 @@ var RouteTokensMCPArgs = map[resreg.Action][]resreg.MCPArg{
 			Description: "Folder the token routes to. Defaults to your own folder. Tier rules match issue_chat_link."},
 		{Name: "jid_suffix", Type: "string",
 			Description: "Optional path appended to the JID — partition multiple webhooks under one source_label."},
+		{Name: "context", Type: "string",
+			Description: "Optional processing instructions for this hook's inbound (e.g. 'Stripe events; summarize daily, no replies'). Rendered to the handling agent as <link-context> on every message arriving through this token. Spec 5/W."},
 	},
 	resreg.Action("revoke"): {
 		{Name: "jid", Type: "string", Required: true,

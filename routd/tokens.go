@@ -13,8 +13,9 @@ import (
 // family from authd capability tokens.
 
 // IssueRouteToken mints a 32-byte token for jid under owner_folder, stores
-// sha256(token), and returns the raw token once.
-func (d *DB) IssueRouteToken(jid, ownerFolder string) (string, string, error) {
+// sha256(token), and returns the raw token once. context is the optional
+// per-link processing instructions (spec 5/W § link context); "" stores NULL.
+func (d *DB) IssueRouteToken(jid, ownerFolder, context string) (string, string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
@@ -22,22 +23,23 @@ func (d *DB) IssueRouteToken(jid, ownerFolder string) (string, string, error) {
 	token := hex.EncodeToString(raw)
 	h := sha256.Sum256([]byte(token))
 	created := nowTS()
-	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at)
-		VALUES(?,?,?,?)`, h[:], jid, ownerFolder, created)
+	_, err := d.db.Exec(`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context)
+		VALUES(?,?,?,?,?)`, h[:], jid, ownerFolder, created, nullStr(context))
 	if err != nil {
 		return "", "", err
 	}
 	return token, created, nil
 }
 
-// ResolveRouteToken hashes the raw token and returns (jid, owner_folder).
-func (d *DB) ResolveRouteToken(token string) (jid, owner string, err error) {
+// ResolveRouteToken hashes the raw token and returns (jid, owner_folder, context).
+func (d *DB) ResolveRouteToken(token string) (jid, owner, context string, err error) {
 	h := sha256.Sum256([]byte(token))
-	err = d.db.QueryRow("SELECT jid, owner_folder FROM route_tokens WHERE token_hash=?", h[:]).Scan(&jid, &owner)
+	err = d.db.QueryRow("SELECT jid, owner_folder, COALESCE(context,'') FROM route_tokens WHERE token_hash=?",
+		h[:]).Scan(&jid, &owner, &context)
 	if err == sql.ErrNoRows {
-		return "", "", ErrNotFound
+		return "", "", "", ErrNotFound
 	}
-	return jid, owner, err
+	return jid, owner, context, err
 }
 
 // RouteTokenRow is a listed token (never the raw value).
@@ -45,11 +47,12 @@ type RouteTokenRow struct {
 	JID         string
 	OwnerFolder string
 	CreatedAt   string
+	Context     string
 }
 
 // ListRouteTokens returns the tokens owned by ownerFolder (no raw token).
 func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
-	rows, err := d.db.Query("SELECT jid, owner_folder, created_at FROM route_tokens WHERE owner_folder=?", ownerFolder)
+	rows, err := d.db.Query("SELECT jid, owner_folder, created_at, COALESCE(context,'') FROM route_tokens WHERE owner_folder=?", ownerFolder)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +60,7 @@ func (d *DB) ListRouteTokens(ownerFolder string) ([]RouteTokenRow, error) {
 	var out []RouteTokenRow
 	for rows.Next() {
 		var r RouteTokenRow
-		if err := rows.Scan(&r.JID, &r.OwnerFolder, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.JID, &r.OwnerFolder, &r.CreatedAt, &r.Context); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

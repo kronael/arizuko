@@ -17,8 +17,8 @@ import (
 
 // cmdToken: arizuko token <instance> <subcommand> ...
 //
-//	arizuko token <instance> issue chat <folder> [<suffix>]
-//	arizuko token <instance> issue webhook <folder> <label> [<suffix>]
+//	arizuko token <instance> issue chat <folder> [<suffix>] [--context|-c TEXT]
+//	arizuko token <instance> issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]
 //	arizuko token <instance> issue bearer <folder> --scope s1,s2 [--ttl 1h] [--sub user:cli]
 //	arizuko token <instance> list <folder>
 //	arizuko token <instance> revoke <jid>
@@ -48,15 +48,24 @@ func cmdToken(args []string) {
 }
 
 func tokenIssue(st *store.Store, dataDir string, args []string) {
+	usage := "usage: arizuko token <instance> issue chat <folder> [<suffix>] [--context|-c TEXT]\n" +
+		"       arizuko token <instance> issue webhook <folder> <label> [<suffix>] [--context|-c TEXT]\n" +
+		"       arizuko token <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]"
 	if len(args) < 2 {
-		die("usage: arizuko token <instance> issue chat <folder> [<suffix>]\n" +
-			"       arizuko token <instance> issue webhook <folder> <label> [<suffix>]\n" +
-			"       arizuko token <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
+		die("%s", usage)
 	}
 	if args[0] == "bearer" {
 		tokenIssueBearer(st, dataDir, args[1:])
 		return
 	}
+	fs := flag.NewFlagSet("token issue", flag.ContinueOnError)
+	var context string
+	fs.StringVar(&context, "context", "", "per-link processing instructions stored on the token (spec 5/W)")
+	fs.StringVar(&context, "c", "", "per-link processing instructions (short)")
+	if err := flexParse(fs, args); err != nil || fs.NArg() < 2 {
+		die("%s", usage)
+	}
+	args = fs.Args()
 	kind, folder := args[0], args[1]
 
 	var jid string
@@ -93,7 +102,7 @@ func tokenIssue(st *store.Store, dataDir string, args []string) {
 	}
 
 	raw := store.GenRouteToken()
-	rt := store.RouteToken{JID: jid, OwnerFolder: folder, CreatedAt: time.Now()}
+	rt := store.RouteToken{JID: jid, OwnerFolder: folder, CreatedAt: time.Now(), Context: context}
 	if err := st.InsertRouteToken(raw, rt); err != nil {
 		die("Failed: insert token: %v", err)
 	}
@@ -180,10 +189,10 @@ func tokenList(st *store.Store, args []string) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "JID\tKIND\tCREATED")
+	fmt.Fprintln(w, "JID\tKIND\tCREATED\tCONTEXT")
 	for _, t := range tokens {
 		kind := store.RouteTokenKind(t.JID)
-		fmt.Fprintf(w, "%s\t%s\t%s\n", t.JID, kind, t.CreatedAt.Format(time.RFC3339))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.JID, kind, t.CreatedAt.Format(time.RFC3339), t.Context)
 	}
 	w.Flush()
 }

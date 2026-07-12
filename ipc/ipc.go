@@ -97,6 +97,7 @@ type RouteTokenInfo struct {
 	OwnerFolder string    `json:"owner_folder"`
 	URL         string    `json:"url,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	Context     string    `json:"context,omitempty"`
 }
 
 // TurnResult is the agent-submitted turn payload. The MCP `submit_turn`

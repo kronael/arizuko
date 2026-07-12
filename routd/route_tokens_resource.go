@@ -103,7 +103,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		}
 		out := make([]ipc.RouteTokenInfo, len(rows))
 		for i, r := range rows {
-			out[i] = ipc.RouteTokenInfo{JID: r.JID, OwnerFolder: r.OwnerFolder}
+			out[i] = ipc.RouteTokenInfo{JID: r.JID, OwnerFolder: r.OwnerFolder, Context: r.Context}
 			out[i].CreatedAt, _ = time.Parse(time.RFC3339Nano, r.CreatedAt)
 		}
 		return map[string]any{"tokens": out}, nil
@@ -132,7 +132,7 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusBadRequest, "%v", err)
 		}
-		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder)
+		raw, err := issueRouteTokenTx(ctx, x.Tx, jid, folder, strings.TrimSpace(argString(x.Args, "context")))
 		if err != nil {
 			return nil, resreg.Errorf(http.StatusInternalServerError, "%v", err)
 		}
@@ -229,7 +229,8 @@ func routeTokenJID(kind, targetFolder, sourceLabel, jidSuffix string) (jid, urlP
 // issueRouteTokenTx mints a 32-byte hex token for jid under owner and inserts
 // sha256(token) on tx (mirrors DB.IssueRouteToken so the mutation lands in
 // resreg.invoke's tx alongside its audit_log row), returning the raw token once.
-func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner string) (string, error) {
+// context is the optional per-link processing instructions; "" stores NULL.
+func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner, context string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -237,8 +238,8 @@ func issueRouteTokenTx(ctx context.Context, tx *sql.Tx, jid, owner string) (stri
 	raw := hex.EncodeToString(b)
 	h := sha256.Sum256([]byte(raw))
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at) VALUES(?,?,?,?)`,
-		h[:], jid, owner, nowTS())
+		`INSERT INTO route_tokens(token_hash, jid, owner_folder, created_at, context) VALUES(?,?,?,?,?)`,
+		h[:], jid, owner, nowTS(), nullStr(context))
 	if err != nil {
 		return "", err
 	}

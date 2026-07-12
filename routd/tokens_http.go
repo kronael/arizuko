@@ -48,7 +48,7 @@ func (s *Server) handleTokenChat(w http.ResponseWriter, r *http.Request) {
 		}
 		jid += "/" + req.JIDSuffix
 	}
-	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder)
+	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder, req.Context)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -91,7 +91,7 @@ func (s *Server) handleTokenHook(w http.ResponseWriter, r *http.Request) {
 		}
 		jid += "/" + req.JIDSuffix
 	}
-	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder)
+	token, created, err := s.db.IssueRouteToken(jid, req.OwnerFolder, req.Context)
 	if err != nil {
 		writeErr(w, 500, "store_error", err.Error())
 		return
@@ -122,7 +122,7 @@ func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]apiv1.RouteTokenRow, 0, len(rows))
 	for _, x := range rows {
-		out = append(out, apiv1.RouteTokenRow{JID: x.JID, OwnerFolder: x.OwnerFolder, CreatedAt: x.CreatedAt})
+		out = append(out, apiv1.RouteTokenRow{JID: x.JID, OwnerFolder: x.OwnerFolder, CreatedAt: x.CreatedAt, Context: x.Context})
 	}
 	writeJSON(w, 200, out)
 }
@@ -164,10 +164,10 @@ func (s *Server) handleTokenResolve(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad_request", err.Error())
 		return
 	}
-	jid, owner, err := s.db.ResolveRouteToken(req.Token)
+	jid, owner, context, err := s.db.ResolveRouteToken(req.Token)
 	if err != nil {
 		writeErr(w, 404, "unknown_token", "token not found")
 		return
 	}
-	writeJSON(w, 200, apiv1.ResolveResponse{JID: jid, OwnerFolder: owner})
+	writeJSON(w, 200, apiv1.ResolveResponse{JID: jid, OwnerFolder: owner, Context: context})
 }

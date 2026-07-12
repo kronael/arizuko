@@ -227,6 +227,7 @@ type RouteTokenRequest struct {
 	TargetFolder string `json:"target_folder"`
 	SourceLabel  string `json:"source_label"` // hook only
 	JIDSuffix    string `json:"jid_suffix"`
+	Context      string `json:"context"` // optional per-link processing instructions (spec 5/W)
 }
 
 // RouteTokenResponse is the 201 of route-token issue (raw token once).
@@ -243,6 +244,7 @@ type RouteTokenRow struct {
 	JID         string `json:"jid"`
 	OwnerFolder string `json:"owner_folder"`
 	CreatedAt   string `json:"created_at"`
+	Context     string `json:"context,omitempty"`
 }
 
 // ResolveRequest is POST /v1/route_tokens/resolve (webd → routd).
@@ -254,6 +256,7 @@ type ResolveRequest struct {
 type ResolveResponse struct {
 	JID         string `json:"jid"`
 	OwnerFolder string `json:"owner_folder"`
+	Context     string `json:"context,omitempty"`
 }
 
 // MessageRow is one full message row of the agent read surface

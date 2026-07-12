@@ -89,6 +89,44 @@ func TestRouteToken_List(t *testing.T) {
 	}
 }
 
+// TestRouteToken_ContextRoundTrip: the optional link context (spec 5/W § link
+// context) written by InsertRouteToken comes back verbatim from Lookup and
+// List; a context-less token stays empty (NULL at rest).
+func TestRouteToken_ContextRoundTrip(t *testing.T) {
+	s, _ := OpenMem()
+	defer s.Close()
+	seedFolder(t, s, "acme")
+
+	if err := s.InsertRouteToken("raw-ctx", RouteToken{
+		JID: "web:acme", OwnerFolder: "acme",
+		Context: "bug reports; triage, don't chat",
+	}); err != nil {
+		t.Fatalf("insert with context: %v", err)
+	}
+	if err := s.InsertRouteToken("raw-plain", RouteToken{
+		JID: "hook:acme/github", OwnerFolder: "acme",
+	}); err != nil {
+		t.Fatalf("insert without context: %v", err)
+	}
+
+	row, ok := s.LookupRouteToken("raw-ctx")
+	if !ok || row.Context != "bug reports; triage, don't chat" {
+		t.Fatalf("lookup = (%+v, %v)", row, ok)
+	}
+	row, ok = s.LookupRouteToken("raw-plain")
+	if !ok || row.Context != "" {
+		t.Fatalf("context-less lookup = (%+v, %v)", row, ok)
+	}
+
+	byJID := map[string]string{}
+	for _, r := range s.ListRouteTokens("acme") {
+		byJID[r.JID] = r.Context
+	}
+	if byJID["web:acme"] != "bug reports; triage, don't chat" || byJID["hook:acme/github"] != "" {
+		t.Fatalf("list contexts = %+v", byJID)
+	}
+}
+
 func TestRouteToken_Revoke(t *testing.T) {
 	s, _ := OpenMem()
 	defer s.Close()

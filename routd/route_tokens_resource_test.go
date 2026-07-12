@@ -82,7 +82,7 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	if chatURL != "https://x.test/chat/"+chatTok+"/" {
 		t.Fatalf("chat url = %q, want https://x.test/chat/<tok>/", chatURL)
 	}
-	if j, owner, e := db.ResolveRouteToken(chatTok); e != nil || j != "web:hq" || owner != "hq" {
+	if j, owner, _, e := db.ResolveRouteToken(chatTok); e != nil || j != "web:hq" || owner != "hq" {
 		t.Fatalf("resolve chat: jid=%q owner=%q err=%v", j, owner, e)
 	}
 
@@ -130,8 +130,55 @@ func TestRouteTokensMCP_IssueListRevoke(t *testing.T) {
 	if rtext != `{"deleted":true}` {
 		t.Fatalf("revoke result = %q, want {\"deleted\":true}", rtext)
 	}
-	if _, _, e := db.ResolveRouteToken(chatTok); e == nil {
+	if _, _, _, e := db.ResolveRouteToken(chatTok); e == nil {
 		t.Fatal("chat token still resolves after revoke")
+	}
+}
+
+// TestRouteTokensMCP_IssueWithContext: the optional context arg (spec 5/W § link
+// context) lands on the row and surfaces via resolve + list_tokens; omitted →
+// empty, exactly the pre-context behavior.
+func TestRouteTokensMCP_IssueWithContext(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	grantMCPTools(t, db, "hq", "issue_chat_link", "issue_webhook", "list_tokens")
+	sock := serveRouteTokensMCP(t, db, "hq", "folder:hq", deriveFolderGrants(db, "hq"), "")
+
+	chatTok, _, _ := issueToken(t, sock, "issue_chat_link",
+		map[string]any{"context": "bug reports from the acme site; triage, don't chat"})
+	if _, _, linkCtx, e := db.ResolveRouteToken(chatTok); e != nil ||
+		linkCtx != "bug reports from the acme site; triage, don't chat" {
+		t.Fatalf("resolve context = (%q,%v)", linkCtx, e)
+	}
+	hookTok, _, _ := issueToken(t, sock, "issue_webhook", map[string]any{"source_label": "github"})
+	if _, _, linkCtx, e := db.ResolveRouteToken(hookTok); e != nil || linkCtx != "" {
+		t.Fatalf("context-less mint got context (%q,%v)", linkCtx, e)
+	}
+
+	text, e := callToolText(t, sock, "list_tokens", nil)
+	if e != "" {
+		t.Fatalf("list_tokens errored: %s", e)
+	}
+	var listed struct {
+		Tokens []struct {
+			JID     string `json:"jid"`
+			Context string `json:"context"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal([]byte(text), &listed); err != nil {
+		t.Fatalf("list payload %q not JSON: %v", text, err)
+	}
+	byJID := map[string]string{}
+	for _, r := range listed.Tokens {
+		byJID[r.JID] = r.Context
+	}
+	if byJID["web:hq"] != "bug reports from the acme site; triage, don't chat" ||
+		byJID["hook:hq/github"] != "" {
+		t.Fatalf("list contexts = %+v", byJID)
 	}
 }
 
@@ -150,7 +197,7 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	_ = db.PutGroup(core.Group{Folder: "acme"})
 	_ = db.PutGroup(core.Group{Folder: "other"})
 	// acme mints its own token out-of-band.
-	acmeTok, _, err := db.IssueRouteToken("web:acme", "acme")
+	acmeTok, _, err := db.IssueRouteToken("web:acme", "acme", "")
 	if err != nil {
 		t.Fatalf("seed acme token: %v", err)
 	}
@@ -165,7 +212,7 @@ func TestRouteTokensMCP_RevokeCrossFolderDenied(t *testing.T) {
 	if rtext != `{"deleted":false}` {
 		t.Fatalf("cross-folder revoke result = %q, want {\"deleted\":false}", rtext)
 	}
-	if j, owner, e := db.ResolveRouteToken(acmeTok); e != nil || j != "web:acme" || owner != "acme" {
+	if j, owner, _, e := db.ResolveRouteToken(acmeTok); e != nil || j != "web:acme" || owner != "acme" {
 		t.Fatalf("acme token revoked cross-folder: jid=%q owner=%q err=%v", j, owner, e)
 	}
 }
