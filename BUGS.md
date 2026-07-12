@@ -68,7 +68,32 @@ inventing a fallback.
 
 - **Severity:** high (operator locked out of their own instance)
 - **Scope:** proxyd/main.go requireAuth + /auth flow; authd; krons `.env`
-- **Status:** OPEN — classify config-gap vs code-bug, then fix or document.
+- **Status:** config-not-code (root-caused 2026-07-12). **Every server-side hop
+  verified working on live krons; no code change.** Corrections to the facts
+  above: krons `.env` DOES carry an OAuth provider — `GITHUB_CLIENT_ID` +
+  `GITHUB_CLIENT_SECRET` (the original check greped only `GOOGLE_*`), and
+  compose delivers them (`env/authd.env`). Verified live: `/auth/login` 200
+  renders the GitHub button; `/auth/github` 307s to GitHub authorize with a
+  valid client_id + PKCE state; GitHub shows the normal sign-in (no
+  redirect_uri-mismatch banner → the app's callback URL is registered
+  correctly); `/auth/github/callback` is mounted (403 `invalid state` on a
+  bogus probe); proxyd has `AUTHD_URL` so the cookie→`/v1/refresh`→JWKS chain
+  (`tryRefreshViaAuthd`) is wired; and the first-operator grant is ALREADY
+  seeded: routd.db `acl_membership: github:kronael → role:operator` +
+  `acl: role:operator | * | ** | allow` (migration-0053). What's actually true:
+  **no login has EVER completed** — `auth_users` = 0 rows, `refresh_tokens` =
+  0 rows, zero `/auth/github/callback` hits in 11 days of journal. The flow
+  dies at the human step, not in the platform. **Exact operator actions:**
+  (1) open `https://krons.fiu.wtf/dash/` → redirected to `/auth/login` →
+  "Continue with GitHub" → sign in to GitHub as **kronael** (the seeded
+  operator sub) → operator scope resolves and `/dash` opens. (2) If the
+  admin's GitHub account is NOT `kronael`: log in once (creates the
+  `auth_users` row), then seed the grant:
+  `arizuko grant krons github:<login> '**'` (→ `role:operator` membership,
+  cmd/arizuko/main.go:532). (3) If Google login is wanted (as on marinade):
+  add `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (and optionally
+  `GOOGLE_ALLOWED_EMAILS`) to `/srv/data/arizuko_krons/.env`, then
+  `sudo systemctl restart arizuko_krons`.
 
 ## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, mostly ✅ SHIPPED)
 
