@@ -44,8 +44,44 @@ pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
 
 - **Severity:** high (every new user needs manual operator intervention today)
 - **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
-- **Status:** fixed 2026-07-12 (all three parts above; see each for detail).
-  NOT yet deployed — ships with the next krons image build + restart.
+- **Status:** fixed 9fcb0bce (onboarding) + 5f102e0d (/chatid) + 03b6949c
+  (e2e) (2026-07-12). NOT yet deployed — ships with the next krons image
+  build + restart.
+
+## Steer layer (slash commands / sticky nav / @child) races the queue path — routed-chat slash commands dispatch agent turns (2026-07-12, OPEN, HIGH)
+
+Found while root-causing the onboarding miss (same structural drift, distinct
+concern — recorded, NOT fixed). The steer layer (`routd/steer.go` — `/ping`,
+`/new`, `/stop`, `/root`, `/invite`, `/gate`, sticky `@group`/`#topic`, @child
+delegation) runs ONLY in `pollOnce` (`loop.go l.steer`), but ingest enqueues
+straight into the queue worker `processGroupMessages`, which dispatches a turn
+WITHOUT consulting steer. So for a routed chat both race: the queue path
+usually starts an agent turn on the raw command message within ms, and the
+2s-tick `pollOnce` may ALSO steer it while that run is in flight (cursor not
+yet advanced) → double-processing (steer ack + an agent reply to the command
+text).
+
+**Live evidence (krons):** `/root check rhias direct groups…`
+(`telegram:user/1112184352/5771`, 2026-07-12 08:08:31) has a `turn_context`
+row on the RAW message (state=done) and NO `root-…` reinjection row — i.e. the
+queue path ran it as a plain non-elevated agent turn and the agent replied
+ABOUT `/root` instead of `cmdRoot` elevating it. Operator `/root` (and every
+routd-serviceable command) is therefore unreliable on the live split: whether
+the fixed command response, an agent turn, or both happen is a race.
+
+**Suggested direction (needs design sign-off — control-flow change):** the
+same consolidation shape as `routeMiss`: steer must run on the path that
+processes the batch (`processGroupMessages`, before `runTurn`), not in a
+racing backstop. Care: steer consumes only the LATEST message (`last`) while
+the queue path batches; and pollOnce's steer call must not remain as a second
+racing site.
+
+- **Severity:** high (operator /root silently not elevating; command double-
+  processing burns turns)
+- **Scope:** routd/loop.go pollOnce steer site; routd/dispatch.go
+  processGroupMessages; routd/steer.go
+- **Status:** OPEN — recorded per triage protocol; fix is a dispatch-ordering
+  redesign, awaits sign-off.
 
 ## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
 
@@ -369,8 +405,8 @@ channels: new group → default staging folder, private-group interaction gated 
 some users). That vision is being specced into `specs/5/` — the fix here should
 land compatibly with it.
 
-- **Status:** fixed 2026-07-12 — **root cause: two route-miss handlers, and
-  the one that runs had no onboarding.** Ingest (`routd/server.go`
+- **Status:** fixed 9fcb0bce (2026-07-12) — **root cause: two route-miss
+  handlers, and the one that runs had no onboarding.** Ingest (`routd/server.go`
   `handleMessages`) calls `loop.Enqueue` directly, so the queue worker
   `processGroupMessages` (dispatch.go) consumes the miss within milliseconds —
   its miss branch was a drifted copy (observe + advance only, NO onboarding).
