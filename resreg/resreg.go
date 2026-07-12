@@ -77,7 +77,6 @@ func (a Action) Mutates() bool {
 // operators); Claims carry JWT claims used by ACL row predicates.
 type Caller struct {
 	Sub    string
-	Name   string
 	Folder string
 	Claims map[string]string
 }

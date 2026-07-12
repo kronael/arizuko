@@ -47,7 +47,7 @@ func registerRoutesMCP(srv *mcpserver.MCPServer, c *proxydClient, sub, name stri
 				break
 			}
 		}
-		return resreg.Caller{Sub: sub, Name: name, Claims: claims}, nil
+		return resreg.Caller{Sub: sub, Claims: claims}, nil
 	}
 	resreg.MCPTools(srv, routesForwarder(c, sub, name, groups), callerFor, nil)
 }

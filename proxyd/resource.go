@@ -352,12 +352,11 @@ func callerFromHTTP(ks *auth.KeySet) resreg.CallerFromHTTPFunc {
 			return resreg.Caller{}, fmt.Errorf("missing or invalid identity")
 		}
 		sub := r.Header.Get("X-User-Sub")
-		name := r.Header.Get("X-User-Name")
 		var groups []string
 		if hdr := r.Header.Get("X-User-Groups"); hdr != "" {
 			_ = json.Unmarshal([]byte(hdr), &groups)
 		}
-		c := resreg.Caller{Sub: sub, Name: name, Claims: map[string]string{}}
+		c := resreg.Caller{Sub: sub, Claims: map[string]string{}}
 		for _, g := range groups {
 			if g == "**" {
 				c.Claims["operator"] = "1"

@@ -98,7 +98,7 @@ func fakeResource(st *store.Store, s *fakeState) Resource {
 }
 
 func operatorBuilder(_ *http.Request) (Caller, error) {
-	return Caller{Sub: "google:op", Name: "op", Claims: map[string]string{"operator": "1"}}, nil
+	return Caller{Sub: "google:op", Claims: map[string]string{"operator": "1"}}, nil
 }
 
 func anonBuilder(_ *http.Request) (Caller, error) {

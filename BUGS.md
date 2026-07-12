@@ -442,7 +442,9 @@ use-as-Actor changes audit semantics — neither is a pure cleanup).
 - **Severity:** minor
 - **Scope:** resreg/resreg.go:76
 - **Source:** resreg refine-review 2026-07-02
-- **Status:** open
+- **Status:** fixed 2026-07-12 — dropped the field + both assignments (audit Actor
+  stays Sub, unchanged); the proxyd `name` computation went with it, webd's `name`
+  param remains live for the forwarded X-User-Name header
 
 ## ConnectorSecrets resolves folder scope only — user BYOA key never reaches MCP subprocess
 
