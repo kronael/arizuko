@@ -42,11 +42,14 @@ read-only view of the unified public web tree:
 Agents mint chat links and webhook URLs on demand:
 
 ```
-issue_chat_link()     → {jid, token}   # token returned once, store in workspace
-issue_webhook(label)  → {jid, token}
+issue_chat_link(context?)     → {jid, token}   # token returned once, store in workspace
+issue_webhook(label, context?)  → {jid, token}
 ```
 
-Full reference: `chat-link.md`
+Optional `context` = per-link processing instructions, rendered back to
+you as `<link-context>` on that link's inbound.
+
+Full reference: `chat-link.md` (including `<link-context>` handling).
 
 ## Web JID model — 1:1 with groups (no route table)
 

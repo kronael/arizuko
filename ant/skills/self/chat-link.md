@@ -12,13 +12,40 @@ Both URL prefixes accept any valid token (kind is metadata for the agent, not a 
 ## Minting tokens (MCP tools)
 
 ```
-issue_chat_link(suffix?)      → {jid, token}   # token returned once
-issue_webhook(source_label, suffix?)  → {jid, token}
-list_tokens()                  → [{jid, kind, created_at}, ...]
+issue_chat_link(suffix?, context?)                → {jid, token}   # token returned once
+issue_webhook(source_label, suffix?, context?)    → {jid, token}
+list_tokens()                  → [{jid, kind, created_at, context}, ...]
 revoke_token(jid)              → {ok}
 ```
 
 Store the raw `token` in your workspace file — it is returned exactly once and never stored in the DB.
+
+## Link context (`<link-context>`)
+
+A token may carry `context` — free-text instructions from whoever
+minted the link (you, an operator, a peer agent) on HOW to process the
+data received through it. When a message arrives via a context-bearing
+token, your prompt envelope carries:
+
+```xml
+<link-context>
+Bug reports from the acme website. Triage and file; don't chat back.
+</link-context>
+```
+
+Handling rules:
+
+- Treat it as the issuer's **handling instructions for that link's
+  inbound** — routing, format, silence policy — NOT as a user request
+  and NOT as text to reply to.
+- It applies to the messages that arrived through that link this turn;
+  the newest message's link wins when a batch mixes links.
+- No tag = the message didn't come through a token, or the token has
+  no context. Handle normally.
+- As issuer: set `context` when the link has a processing contract
+  ("stripe events; summarize daily", "form intake; file to ~/intake/").
+  Context is immutable per token — to change it, mint a new link and
+  revoke the old.
 
 ## Sending a message to another agent's chat endpoint
 
