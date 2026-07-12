@@ -20,6 +20,29 @@ prefix). Also spec 5/W §"Where this runs" still describes the old filtered
 lookup — internal spec inconsistency. Fix: align the four web pages + that
 spec section to the any-token contract (docs-only).
 
+## Codex mount assumes creds readable by the container uid — 0600 operator creds break codex-in-container (2026-07-12, unblocked live, DURABLE FIX OPEN)
+
+`container/runner.go:582-590` RO-mounts `HOST_CODEX_DIR/{auth.json,config.toml}`
+into the agent container, which runs as uid 1000 (`mivu`). But those files are
+the operator's personal codex creds under `/home/onvos/.codex`, owned
+`onvos:1001` mode `0600` → uid 1000 gets `Permission denied` on `config.toml`,
+so the in-container `/oracle`/codex path dies (looks like "not logged in", is
+actually a uid mismatch). Live on krons 2026-07-12.
+
+- **Unblocked live (fragile):** `chmod o+r /home/onvos/.codex/{auth.json,config.toml}`
+  (setfacl not installed → couldn't scope to just uid 1000). uid 1000 now reads
+  them; next fresh container's codex works, no restart. **Two caveats:** (1)
+  world-readable now exposes the operator's ChatGPT OAuth token to any local
+  user — acceptable on a single-operator box, tighten with an ACL (`apt install
+acl`; `setfacl -m u:1000:r …`) if the host gains other users; (2) if onvos's
+  host codex REWRITES these files (refresh/config change via atomic rename), the
+  `o+r` is lost and it breaks again — re-apply, or ship the durable fix.
+- **Durable fix (code, needs sign-off):** don't RO-mount the 0600 originals;
+  at spawn, COPY `auth.json`/`config.toml` into the per-group writable `.codex`
+  dir (`runner.go:583`, already chowned to the run uid) so the container reads
+  its own uid-1000 copy. Keeps operator creds untouched, survives host-side
+  rewrites, no world-read. Redesign of the codex mount → record + sign-off.
+
 ## Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12, OPEN, HIGH)
 
 This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent
