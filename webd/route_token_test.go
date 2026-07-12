@@ -335,6 +335,87 @@ func TestHandleHookTokenPost(t *testing.T) {
 	}
 }
 
+// Link context (spec 5/W § link context): a chat POST via a context-bearing
+// token snapshots the token's context onto the inbound wire message; a
+// context-less token on the same JID carries none (no regression).
+func TestHandleChatTokenPost_LinkContext(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	withCtx, plain := store.GenRouteToken(), store.GenRouteToken()
+	if err := st.InsertRouteToken(withCtx, store.RouteToken{
+		JID: "web:main", OwnerFolder: "main",
+		Context: "bug reports from the acme site; triage, don't chat",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	if err := st.InsertRouteToken(plain, store.RouteToken{
+		JID: "web:main", OwnerFolder: "main",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	post := func(tok string) {
+		t.Helper()
+		body := strings.NewReader("content=hello&topic=tt")
+		req, _ := http.NewRequest("POST", srv.URL+"/chat/"+tok, body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("status = %d", resp.StatusCode)
+		}
+	}
+	post(withCtx)
+	post(plain)
+
+	sent := mr.sent()
+	if len(sent) != 2 {
+		t.Fatalf("router got %d messages, want 2", len(sent))
+	}
+	if sent[0].LinkContext != "bug reports from the acme site; triage, don't chat" {
+		t.Errorf("context token: LinkContext = %q", sent[0].LinkContext)
+	}
+	if sent[1].LinkContext != "" {
+		t.Errorf("context-less token: LinkContext = %q, want empty", sent[1].LinkContext)
+	}
+}
+
+// Link context on the hook surface: POST /hook/<token> carries the token's
+// context on the inbound wire message too.
+func TestHandleHookTokenPost_LinkContext(t *testing.T) {
+	s, mr, st := newTestServer(t)
+	seedGroup(t, st, "main", "Main")
+	raw := "hooktok-ctx"
+	if err := st.InsertRouteToken(raw, store.RouteToken{
+		JID: "hook:main/github", OwnerFolder: "main",
+		Context: "github push events; summarize, no replies",
+	}); err != nil {
+		t.Fatalf("InsertRouteToken: %v", err)
+	}
+	srv := httptest.NewServer(s.handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/hook/"+raw, strings.NewReader("event payload"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	sent := mr.sent()
+	if len(sent) != 1 || sent[0].LinkContext != "github push events; summarize, no replies" {
+		t.Fatalf("router messages = %+v", sent)
+	}
+}
+
 // POST /hook/<token> with unknown token → 404.
 func TestHandleHookTokenPost_UnknownToken(t *testing.T) {
 	s, _, _ := newTestServer(t)

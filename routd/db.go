@@ -383,12 +383,13 @@ func putMessage(x execer, m core.Message) error {
 		(id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
 		 is_bot_message, forwarded_from, reply_to_id, reply_to_text, reply_to_sender,
 		 topic, routed_to, verb, attachments, source, is_observed, turn_id, status,
-		 platform_id, chat_name)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 platform_id, chat_name, link_context)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		m.ID, m.ChatJID, m.Sender, m.Name, m.Content, m.Timestamp.UTC().Format(time.RFC3339Nano),
 		b2i(m.FromMe), b2i(m.BotMsg), m.ForwardedFrom, m.ReplyToID, m.ReplyToText, m.ReplyToSender,
 		m.Topic, m.RoutedTo, defaultVerb(m.Verb), m.Attachments, m.Source, b2i(false),
-		nullStr(m.TurnID), defaultStatus(m.Status), nullStr(m.PlatformID), m.ChatName)
+		nullStr(m.TurnID), defaultStatus(m.Status), nullStr(m.PlatformID), m.ChatName,
+		nullStr(m.LinkContext))
 	return err
 }
 
@@ -502,7 +503,8 @@ func scanMessages(rows *sql.Rows, since string) ([]core.Message, string, error) 
 		var fromMe, botMsg int
 		if err := rows.Scan(&m.ID, &m.ChatJID, &m.Sender, &m.Name, &m.Content, &ts,
 			&fromMe, &botMsg, &m.ReplyToID, &m.Topic, &m.RoutedTo, &m.Verb, &m.Source,
-			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom, &m.Attachments); err != nil {
+			&turnID, &m.Status, &platformID, &m.ChatName, &fwdFrom, &m.Attachments,
+			&m.LinkContext); err != nil {
 			return out, hi, err
 		}
 		m.ForwardedFrom = fwdFrom.String

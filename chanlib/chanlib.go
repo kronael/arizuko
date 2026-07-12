@@ -72,6 +72,11 @@ type InboundMsg struct {
 	// this from the per-adapter registration token; the split must carry it
 	// explicitly). Stamped from the registered channel name in SendMessage.
 	Source string `json:"source,omitempty"`
+	// LinkContext is the route token's context snapshotted at ingest by webd
+	// (spec 5/W § link context): the issuer's per-link processing instructions.
+	// routd persists it on the row and prompt-build renders it as
+	// <link-context>. Empty for non-token inbound or a context-less token.
+	LinkContext string `json:"link_context,omitempty"`
 }
 
 type RouterClient struct {

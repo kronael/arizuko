@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/core"
+	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
 )
 
@@ -65,6 +66,64 @@ func TestBuildAgentPrompt_PaneHints(t *testing.T) {
 	trigger[0].ChatJID = "telegram:99"
 	if got := loop.buildAgentPrompt("main", "", trigger); strings.Contains(got, "slack-pane") {
 		t.Errorf("non-slack jid leaked pane hint; prompt:\n%s", got)
+	}
+}
+
+// TestBuildAgentPrompt_LinkContext drives the full carry (spec 5/W § link
+// context): a POST /v1/messages whose wire body carries link_context (webd's
+// ingest snapshot of the route token's context) persists it, and the built
+// prompt renders one <link-context> tag. A message without it → no tag.
+// Newest trigger wins when a batch mixes tokens.
+func TestBuildAgentPrompt_LinkContext(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_ = db.PutGroup(core.Group{Folder: "main"})
+	loop := NewLoop(db, runnerFn(nil), LoopConfig{})
+	loop.StopQueue()
+	srv := NewServer(db, loop, nil, nil, 0, "")
+	h := srv.Handler()
+
+	// Wire ingest, exactly what webd sends for a context-bearing token.
+	rec := doJSON(t, h, "POST", "/v1/messages", "", apiv1.Message{
+		ID: "lc1", ChatJID: "web:main", Sender: "anon:1", Content: "hello",
+		Topic: "tt", LinkContext: "bug reports; triage, don't chat",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("ingest = %d body=%s", rec.Code, rec.Body.String())
+	}
+	trigger, err := db.MessagesSince("web:main", "")
+	if err != nil || len(trigger) != 1 {
+		t.Fatalf("trigger = %d err=%v", len(trigger), err)
+	}
+	if trigger[0].LinkContext != "bug reports; triage, don't chat" {
+		t.Fatalf("persisted link_context = %q", trigger[0].LinkContext)
+	}
+	got := loop.buildAgentPrompt("main", "tt", trigger)
+	want := "<link-context>\nbug reports; triage, don't chat\n</link-context>\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing link-context tag; prompt:\n%s", got)
+	}
+
+	// No link_context → no tag.
+	plain := []core.Message{{
+		ID: "lc2", ChatJID: "web:main", Sender: "anon:2", Content: "hi",
+		Timestamp: time.Now(), Verb: "message",
+	}}
+	if got := loop.buildAgentPrompt("main", "tt", plain); strings.Contains(got, "<link-context>") {
+		t.Errorf("tokenless trigger emitted link-context; prompt:\n%s", got)
+	}
+
+	// Mixed batch: the newest message's context wins.
+	mixed := append(trigger, core.Message{
+		ID: "lc3", ChatJID: "web:main", Sender: "anon:3", Content: "again",
+		Timestamp: time.Now(), Verb: "message", LinkContext: "stripe events; summarize daily",
+	})
+	got = loop.buildAgentPrompt("main", "tt", mixed)
+	if !strings.Contains(got, "<link-context>\nstripe events; summarize daily\n</link-context>\n") {
+		t.Errorf("newest context should win; prompt:\n%s", got)
 	}
 }
 

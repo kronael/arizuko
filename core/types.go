@@ -36,6 +36,7 @@ type Message struct {
 	TurnID        string // for outbound: the inbound message id that triggered the run; for inbound: empty
 	Status        string // delivery state: 'sent' (default/inbound), 'pending' (outbound queued), 'failed' (terminal)
 	ChatName      string // human-readable channel/group name set by the adapter (e.g. "#general", "My Group")
+	LinkContext   string // route-token context snapshotted at ingest (spec 5/W); rendered as <link-context> in the prompt
 }
 
 // Message status values for the poll-based outbound delivery path.

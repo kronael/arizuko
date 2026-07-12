@@ -197,7 +197,7 @@ func (s *server) handleChatTokenPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jid := row.JID
-	m, userPayload, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, r.PathValue("token"))
+	m, userPayload, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, r.PathValue("token"), row.Context)
 	if err != nil {
 		switch err {
 		case errRouteTokenStore:
@@ -266,13 +266,14 @@ func (s *server) handleHookTokenPost(w http.ResponseWriter, r *http.Request) {
 		"token_hash", chanlib.ShortHash(r.PathValue("token")), "bytes", len(body))
 
 	if err := s.rc.SendMessage(chanlib.InboundMsg{
-		ID:         id,
-		ChatJID:    jid,
-		Sender:     sender,
-		SenderName: sender,
-		Content:    string(body),
-		Timestamp:  ts.Unix(),
-		IsGroup:    false,
+		ID:          id,
+		ChatJID:     jid,
+		Sender:      sender,
+		SenderName:  sender,
+		Content:     string(body),
+		Timestamp:   ts.Unix(),
+		IsGroup:     false,
+		LinkContext: row.Context,
 	}); err != nil {
 		slog.Warn("hook router", "folder", folder, "err", err)
 		http.Error(w, "router unavailable", http.StatusBadGateway)
@@ -329,8 +330,10 @@ func parseChatBody(r *http.Request) (content, topic string, err error) {
 // injectRouteMessage is the shared writer for chat-token POSTs (the
 // hook-token surface inlines its own simpler path: no topic, no SSE).
 // routd is the sole message appender — no local PutMessage. rc.SendMessage
-// delivers to routd which persists + dispatches.
-func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderName, token string) (core.Message, map[string]any, error) {
+// delivers to routd which persists + dispatches. linkContext is the token
+// row's context snapshotted here at ingest (spec 5/W § link context);
+// "" for tokenless callers (panel, /me) or a context-less token.
+func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderName, token, linkContext string) (core.Message, map[string]any, error) {
 	m := core.Message{
 		ID:        core.MsgID("msg"),
 		ChatJID:   jid,
@@ -345,14 +348,15 @@ func (s *server) injectRouteMessage(jid, folder, content, topic, sender, senderN
 		"token_hash", chanlib.ShortHash(token), "topic", topic)
 
 	if err := s.rc.SendMessage(chanlib.InboundMsg{
-		ID:         m.ID,
-		ChatJID:    jid,
-		Sender:     sender,
-		SenderName: senderName,
-		Content:    content,
-		Timestamp:  m.Timestamp.Unix(),
-		Topic:      topic,
-		IsGroup:    false,
+		ID:          m.ID,
+		ChatJID:     jid,
+		Sender:      sender,
+		SenderName:  senderName,
+		Content:     content,
+		Timestamp:   m.Timestamp.Unix(),
+		Topic:       topic,
+		IsGroup:     false,
+		LinkContext: linkContext,
 	}); err != nil {
 		slog.Warn("route-token router", "folder", folder, "err", err)
 		return core.Message{}, nil, errRouteTokenRouter

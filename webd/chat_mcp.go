@@ -32,12 +32,12 @@ func (s *server) handleChatTokenMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	}
-	mcpSrv := s.buildChatTokenMCP(row.JID, folder, r.PathValue("token"))
+	mcpSrv := s.buildChatTokenMCP(row.JID, folder, r.PathValue("token"), row.Context)
 	h := mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithStateLess(true))
 	h.ServeHTTP(w, r)
 }
 
-func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServer {
+func (s *server) buildChatTokenMCP(jid, folder, token, linkContext string) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer("arizuko-chat", "1.0")
 
 	sender := "anon:chat-" + chanlib.ShortHash(token)
@@ -59,7 +59,7 @@ func (s *server) buildChatTokenMCP(jid, folder, token string) *mcpserver.MCPServ
 		if len(topic) > maxTopicLen {
 			return mcp.NewToolResultError("topic too long"), nil
 		}
-		m, _, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, token)
+		m, _, err := s.injectRouteMessage(jid, folder, content, topic, sender, senderName, token, linkContext)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

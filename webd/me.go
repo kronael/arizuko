@@ -302,7 +302,7 @@ func (s *server) handleMeSend(w http.ResponseWriter, r *http.Request) {
 	}
 	jid := "web:" + folder
 
-	m, _, err := s.injectRouteMessage(jid, folder, content, topic, sub, name, "")
+	m, _, err := s.injectRouteMessage(jid, folder, content, topic, sub, name, "", "")
 	if err != nil {
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return

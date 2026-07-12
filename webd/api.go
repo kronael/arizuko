@@ -100,7 +100,7 @@ func (s *server) handleAPIMessagesPost(w http.ResponseWriter, r *http.Request) {
 		sender = "operator"
 		senderName = "Operator"
 	}
-	if _, _, err := s.injectRouteMessage(jid, folder, body.Content, topic, sender, senderName, ""); err != nil {
+	if _, _, err := s.injectRouteMessage(jid, folder, body.Content, topic, sender, senderName, "", ""); err != nil {
 		chanlib.WriteErr(w, 500, err.Error())
 		return
 	}

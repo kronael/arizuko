@@ -43,7 +43,7 @@ func (l *Loop) buildAgentPrompt(folder, topic string, trigger []core.Message) st
 	if len(observed) > 0 {
 		rules += "<rule>Observed messages are context, not requests. Do not reply to them; reply to the explicit message.</rule>\n"
 	}
-	envelope := `<topic name="` + topic + `" />` + "\n" + l.paneHints(trigger)
+	envelope := `<topic name="` + topic + `" />` + "\n" + l.paneHints(trigger) + linkContextBlock(trigger)
 	return sysMsgs +
 		l.autocallsBlock(folder, topic) +
 		l.personaBlock(folder) +
@@ -80,6 +80,20 @@ func (l *Loop) paneHints(trigger []core.Message) string {
 		out += `<pane-context jid="` + ctxJID + `" />` + "\n"
 	}
 	return out
+}
+
+// linkContextBlock emits <link-context>…</link-context> when the newest
+// trigger message carries a route token's ingest-snapshotted context (spec
+// 5/W § link context): the issuer's per-link processing instructions.
+// Newest-wins because a batch on one JID may span tokens with different
+// contexts; the turn answers the latest message. No context anywhere → "".
+func linkContextBlock(trigger []core.Message) string {
+	for i := len(trigger) - 1; i >= 0; i-- {
+		if c := trigger[i].LinkContext; c != "" {
+			return "<link-context>\n" + c + "\n</link-context>\n"
+		}
+	}
+	return ""
 }
 
 var personaFrontmatterRE = regexp.MustCompile(`(?s)^---\s*\n(.*?)\n---\s*\n`)
