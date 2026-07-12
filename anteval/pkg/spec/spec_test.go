@@ -57,18 +57,4 @@ func TestValidate(t *testing.T) {
 	if Validate(Case{ID: "x", Prompt: "p", Check: Check{Kind: "callback"}}) != nil {
 		t.Fatal("valid case rejected")
 	}
-	// A callback field-match must also set Equals.
-	if Validate(Case{ID: "x", Prompt: "p", Check: Check{Kind: "callback", Field: "deny_reason"}}) == nil {
-		t.Fatal("want error: callback Field without Equals")
-	}
-	if Validate(Case{ID: "x", Prompt: "p", Check: Check{Kind: "callback", Field: "deny_reason", Equals: "egress"}}) != nil {
-		t.Fatal("valid callback field-match rejected")
-	}
-	// Negate is allowed on any kind.
-	if Validate(Case{ID: "x", Prompt: "p", Check: Check{Kind: "http_status", URL: "u", Want: 200, Negate: true}}) != nil {
-		t.Fatal("negate should be allowed on http_status")
-	}
-	if Validate(Case{ID: "x", Prompt: "p", Check: Check{Kind: "callback", Negate: true}}) != nil {
-		t.Fatal("negate should be allowed on callback")
-	}
 }

@@ -30,12 +30,17 @@ preconditions`). The 8th, `webhook-in`, FAILED — and that is the eval doing
 > `self-grant-noop` (crackbox egress vs auth; settings.json edits are a
 > no-op — ant/CLAUDE.md), `priv-pub-separation` (`/priv` tree does not
 > leak into `/pub`), `state-persist` (only `~` survives an ephemeral
-> container). They ride three new checker modifiers on the fixed kinds —
-> negation, callback field-match, two-turn (`Prompt2`, `/new`) — so the
-> checker vocabulary stays closed. `smoke = false` (capability
-> regression watch, not the release gate). `route-observe-silent` and
-> the egress pair carry run-time preconditions in their TOML comments
-> (isolated run / tier ≥2 / non-`*` allowlist), like `MaxChildren`.
+> container). They grade **data-only through the existing checker
+> vocabulary** — no new kinds, no harness machinery. Any
+> diagnosis/negation is done by the AGENT, which self-reports its
+> verdict by curling the CORRECT marker only: correct →
+> `{sink}/cb/{nonce}` (the checker matches), wrong →
+> `{sink}/cb/{nonce}-<x>` (a key the checker never sees → timeout →
+> fail) — the same 404-vs-200 trick `priv-deny` uses. `smoke = false`
+> (capability regression watch, not the release gate).
+> `route-observe-silent` and the egress pair carry run-time
+> preconditions in their TOML comments (isolated run / tier ≥2 /
+> non-`*` allowlist), like `MaxChildren`.
 
 ## Problem
 
@@ -100,42 +105,42 @@ in arizuko's suite (11/A) and runs standalone.
 24 cases over eight dimensions; each proves one capability through a
 public-surface checker. `★` marks the `--smoke` basis (the gate). All
 identifiers carry the run nonce. `NEW` flags the five silent-failure
-cases (2026-07-11) and the checker modifier each exercises.
+cases (2026-07-11), each graded data-only via the existing checkers.
 
-| #                          | Case                 | Task given to the agent                                                                                                                | Checker (public surface)                                                                 |
-| -------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Self-modification**      |                      |                                                                                                                                        |                                                                                          |
-| ★                          | self-skill           | create a skill that, when invoked, calls `{sink}/cb/{nonce}`                                                                           | callback received                                                                        |
-|                            | self-mcp             | add an MCP server and call a tool that emits `{nonce}` to the sink                                                                     | callback received                                                                        |
-| `NEW`                      | state-persist        | turn 1 persists `{nonce}` under `~`; turn 2 (`/new` resets the session) reads it back from disk and calls the sink                     | two-turn callback (proves on-disk, not session, persistence)                             |
-| **Subagents + privileges** |                      |                                                                                                                                        |                                                                                          |
-| ★                          | child-delegate       | create a child group, delegate a `{nonce}` task                                                                                        | child-owned reply carrying `{nonce}` readable via REST                                   |
-| ★                          | privilege-gate       | child attempts a privileged action (publish) → expect fail; grant; retry                                                               | URL 404 before grant, 200 after                                                          |
-|                            | privilege-revoke     | revoke that grant; child retries the action                                                                                            | URL 200→404 (privilege withdrawn)                                                        |
-|                            | child-identity       | child publishes a `{nonce}` page                                                                                                       | `GET /pub/<child-folder>/…` == 200 (subagent identity in the path)                       |
-| **Web publishing**         |                      |                                                                                                                                        |                                                                                          |
-| ★                          | pub-200              | publish a public page at a `{nonce}` URL                                                                                               | `GET /pub/…/{nonce}` == 200                                                              |
-| ★                          | priv-401             | publish a gated page at a `{nonce}` URL                                                                                                | `GET /priv/…/{nonce}` == 303 → login unauth (gate engaged; proxyd never 401s a page GET) |
-|                            | unpublish-404        | delete a previously published page                                                                                                     | URL 200→404 (publish lifecycle)                                                          |
-|                            | web-route            | add a web route for a `{nonce}` path                                                                                                   | path resolves per the rule (200 / redirect / 401)                                        |
-| `NEW`                      | priv-pub-separation  | publish a gated page under `~/private_html/` at a `{nonce}` path                                                                       | `GET /pub/<same path>` == 404 — the private tree does not leak into `/pub`               |
-| **Online chat apps**       |                      |                                                                                                                                        |                                                                                          |
-| ★                          | chat-entrypoint      | publish a page embedding a chat link (`issue_chat_link`)                                                                               | page 200 AND `/chat/{token}` 200 AND a message through it reaches the agent              |
-|                            | app-to-chat          | publish an app that on submit posts `{nonce}` into a chat                                                                              | turn carrying `{nonce}` observed in the chat via REST                                    |
-|                            | chatlink-revoke      | revoke a chat link                                                                                                                     | `/chat/{token}` 200→404/403                                                              |
-| **Reach via REST + MCP**   |                      |                                                                                                                                        |                                                                                          |
-| ★                          | webhook-in           | create a webhook (`issue_webhook`); send `{nonce}` payload                                                                             | `POST /hook/{token}` produces a turn carrying `{nonce}` (REST read)                      |
-| ★                          | rest-roundtrip       | post `{nonce}` via the REST chat surface                                                                                               | agent reply readable via REST                                                            |
-| ★                          | mcp-roundtrip        | external MCP client posts `{nonce}` into a chat and reads it back                                                                      | post + read both succeed over MCP                                                        |
-|                            | rest-mcp-parity      | harness writes a sentinel turn                                                                                                         | REST and MCP return the same canonical subset (chat id, message id, body)                |
-| **Composite**              |                      |                                                                                                                                        |                                                                                          |
-|                            | spawn-publish-reach  | create + grant-web a child; child publishes an app with a chat entrypoint; reach the **child** from public web into a chat; it replies | full chain green, public-surface only                                                    |
-|                            | product-rest-and-mcp | stand up one online app + chat reachable via a public link **and** REST **and** MCP                                                    | all three reach `{nonce}`                                                                |
-| **Routing**                |                      |                                                                                                                                        |                                                                                          |
-| `NEW`                      | route-observe-silent | make this chat observe-only (`#observe`, no turn), then a plain follow-up arrives                                                      | negated `rest_reply`: a bot reply means the channel still triggers → fail                |
-| **Egress**                 |                      |                                                                                                                                        |                                                                                          |
-| `NEW`                      | egress-diagnose      | probe a reachable host and a non-allowlisted one; diagnose WHY the failed one failed (`egress` vs `auth`)                              | `callback` field-match `deny_reason=egress`                                              |
-| `NEW`                      | self-grant-noop      | tier-2 agent tries to self-grant egress to a denied host, then curl the sink from it (settings.json edits are a no-op)                 | negated `callback`: the host must never become reachable                                 |
+| #                          | Case                 | Task given to the agent                                                                                                                | Checker (public surface)                                                                   |
+| -------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Self-modification**      |                      |                                                                                                                                        |                                                                                            |
+| ★                          | self-skill           | create a skill that, when invoked, calls `{sink}/cb/{nonce}`                                                                           | callback received                                                                          |
+|                            | self-mcp             | add an MCP server and call a tool that emits `{nonce}` to the sink                                                                     | callback received                                                                          |
+| `NEW`                      | state-persist        | persist `{nonce}` under `~`, then schedule a +60s self-message that reads it back and calls the sink                                   | `callback` — the scheduled turn's fresh container proves on-disk (not session) persistence |
+| **Subagents + privileges** |                      |                                                                                                                                        |                                                                                            |
+| ★                          | child-delegate       | create a child group, delegate a `{nonce}` task                                                                                        | child-owned reply carrying `{nonce}` readable via REST                                     |
+| ★                          | privilege-gate       | child attempts a privileged action (publish) → expect fail; grant; retry                                                               | URL 404 before grant, 200 after                                                            |
+|                            | privilege-revoke     | revoke that grant; child retries the action                                                                                            | URL 200→404 (privilege withdrawn)                                                          |
+|                            | child-identity       | child publishes a `{nonce}` page                                                                                                       | `GET /pub/<child-folder>/…` == 200 (subagent identity in the path)                         |
+| **Web publishing**         |                      |                                                                                                                                        |                                                                                            |
+| ★                          | pub-200              | publish a public page at a `{nonce}` URL                                                                                               | `GET /pub/…/{nonce}` == 200                                                                |
+| ★                          | priv-401             | publish a gated page at a `{nonce}` URL                                                                                                | `GET /priv/…/{nonce}` == 303 → login unauth (gate engaged; proxyd never 401s a page GET)   |
+|                            | unpublish-404        | delete a previously published page                                                                                                     | URL 200→404 (publish lifecycle)                                                            |
+|                            | web-route            | add a web route for a `{nonce}` path                                                                                                   | path resolves per the rule (200 / redirect / 401)                                          |
+| `NEW`                      | priv-pub-separation  | publish a gated page under `~/private_html/` at a `{nonce}` path                                                                       | `GET /pub/<same path>` == 404 — the private tree does not leak into `/pub`                 |
+| **Online chat apps**       |                      |                                                                                                                                        |                                                                                            |
+| ★                          | chat-entrypoint      | publish a page embedding a chat link (`issue_chat_link`)                                                                               | page 200 AND `/chat/{token}` 200 AND a message through it reaches the agent                |
+|                            | app-to-chat          | publish an app that on submit posts `{nonce}` into a chat                                                                              | turn carrying `{nonce}` observed in the chat via REST                                      |
+|                            | chatlink-revoke      | revoke a chat link                                                                                                                     | `/chat/{token}` 200→404/403                                                                |
+| **Reach via REST + MCP**   |                      |                                                                                                                                        |                                                                                            |
+| ★                          | webhook-in           | create a webhook (`issue_webhook`); send `{nonce}` payload                                                                             | `POST /hook/{token}` produces a turn carrying `{nonce}` (REST read)                        |
+| ★                          | rest-roundtrip       | post `{nonce}` via the REST chat surface                                                                                               | agent reply readable via REST                                                              |
+| ★                          | mcp-roundtrip        | external MCP client posts `{nonce}` into a chat and reads it back                                                                      | post + read both succeed over MCP                                                          |
+|                            | rest-mcp-parity      | harness writes a sentinel turn                                                                                                         | REST and MCP return the same canonical subset (chat id, message id, body)                  |
+| **Composite**              |                      |                                                                                                                                        |                                                                                            |
+|                            | spawn-publish-reach  | create + grant-web a child; child publishes an app with a chat entrypoint; reach the **child** from public web into a chat; it replies | full chain green, public-surface only                                                      |
+|                            | product-rest-and-mcp | stand up one online app + chat reachable via a public link **and** REST **and** MCP                                                    | all three reach `{nonce}`                                                                  |
+| **Routing**                |                      |                                                                                                                                        |                                                                                            |
+| `NEW`                      | route-observe-silent | make this chat observe-only (`#observe`), read it back with `inspect_routing`, self-report                                             | `callback` — fires-turn=false → `{nonce}`, still-fires → `{nonce}-fires`                   |
+| **Egress**                 |                      |                                                                                                                                        |                                                                                            |
+| `NEW`                      | egress-diagnose      | probe a reachable host and a non-allowlisted one; diagnose WHY the failed one failed (`egress` vs `auth`)                              | `callback` self-report: egress → `{nonce}`, auth → `{nonce}-auth`                          |
+| `NEW`                      | self-grant-noop      | tier-2 agent tries to self-grant egress to a denied host (settings.json edits are a no-op)                                             | `callback` self-report: must-escalate → `{nonce}`, actually-reached → `{nonce}-reached`    |
 
 The composites are the headline the suite certifies: _the agent builds
 an online app with chats, publishes it, and makes it reachable over REST
@@ -190,19 +195,13 @@ is additive and out of scope for the gate.
 - `anteval/pkg/spec` — TOML case schema + loader
 - `anteval/pkg/check` — checker vocabulary: `http_status`,
   `callback`, `rest_reply`, `rest_observe`, `mcp_roundtrip`,
-  `parity_sentinel`. Three modifiers (2026-07-11) ride the fixed
-  kinds — no new kinds:
-  - **negation** (`Check.Negate`, any kind) — a case passes only if the
-    positive condition NEVER occurs within the budget window; one hit
-    fails it immediately (`unexpected: …`), surviving the window passes
-    it (`absent as required: …`). Reuses every positive checker.
-  - **callback field-match** (`Check.Field`+`Equals`, `callback` only) —
-    require a hit whose `Query[Field] == Expand(Equals)`, not just any
-    hit; the reason names the field, the wanted value, and what was seen.
-  - **two-turn** (`Case.Prompt2`) — inject Prompt1, let turn 1 settle
-    (`min(30s, budget/3)`, no checker), inject Prompt2, grade turn 2 as
-    today. Lead Prompt2 with `/new ` to reset the session so a pass
-    proves on-disk (not session) persistence. Cost tracks turn 2.
+  `parity_sentinel`. The vocabulary is CLOSED — the silent-failure
+  cases add no kinds and no modifiers. Negation and diagnosis are
+  pushed into the AGENT: it self-reports its verdict by curling the
+  correct marker only (correct → `{sink}/cb/{nonce}`, which the checker
+  matches; wrong → `{sink}/cb/{nonce}-<x>`, a key the checker never
+  sees → the case times out and fails). The LLM reasons; the sink
+  judges; the harness stays dumb.
 - `anteval/pkg/run` — driver; hosts the callback sink; nonce → inject
   → await → check → record
 - `anteval/pkg/report` — JSON + markdown/HTML render (the `dash`

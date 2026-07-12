@@ -19,7 +19,6 @@ type Case struct {
 	Dimension string `toml:"dimension"`
 	Smoke     bool   `toml:"smoke"`
 	Prompt    string `toml:"prompt"`
-	Prompt2   string `toml:"prompt2"` // optional second turn; graded turn (Prompt settles, then this is injected). Lead with `/new ` to reset the session and prove on-disk persistence.
 	Check     Check  `toml:"check"`
 	MaxTokens int    `toml:"max_tokens"` // budget: a case spending more than this fails
 	MaxWallMs int    `toml:"max_wall_ms"`
@@ -27,14 +26,11 @@ type Case struct {
 
 // Check is a single public-surface assertion on the observable effect.
 type Check struct {
-	Kind   string `toml:"kind"`   // callback|http_status|rest_reply|rest_observe|mcp_roundtrip|parity_sentinel
-	URL    string `toml:"url"`    // http_status: templated URL to GET
-	Want   int    `toml:"want"`   // http_status: expected code
-	Chat   string `toml:"chat"`   // rest_*/mcp/parity: chat ref (templated)
-	Text   string `toml:"text"`   // rest_*/mcp: substring to find (templated; default {nonce})
-	Negate bool   `toml:"negate"` // any kind: pass only if the positive condition NEVER holds within budget (absence proof)
-	Field  string `toml:"field"`  // callback only: require a hit whose Query[Field] == Equals (empty = any hit passes)
-	Equals string `toml:"equals"` // callback only: expected value for Field (templated)
+	Kind string `toml:"kind"` // callback|http_status|rest_reply|rest_observe|mcp_roundtrip|parity_sentinel
+	URL  string `toml:"url"`  // http_status: templated URL to GET
+	Want int    `toml:"want"` // http_status: expected code
+	Chat string `toml:"chat"` // rest_*/mcp/parity: chat ref (templated)
+	Text string `toml:"text"` // rest_*/mcp: substring to find (templated; default {nonce})
 }
 
 type file struct {
@@ -89,9 +85,6 @@ func Validate(c Case) error {
 	}
 	if c.Check.Kind == "http_status" && (c.Check.URL == "" || c.Check.Want == 0) {
 		return fmt.Errorf("case %s: http_status needs url+want", c.ID)
-	}
-	if c.Check.Kind == "callback" && c.Check.Field != "" && c.Check.Equals == "" {
-		return fmt.Errorf("case %s: callback field-match needs equals", c.ID)
 	}
 	return nil
 }
