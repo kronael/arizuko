@@ -112,6 +112,13 @@
         <code>/dash/</code> lists existing tokens and offers an
         &ldquo;Issue webhook&rdquo; button per folder.</p>
 
+      <p>
+        Every mint face also takes an optional <code>context</code>
+        &mdash; the link's processing contract, delivered to the agent
+        as a <code>&lt;link-context&gt;</code> block on each event:
+      </p>
+      <pre><code>issue_webhook(source_label="stripe", context="payment events; summarize daily, no replies")</code></pre>
+
       <h2>worked example: GitHub repo</h2>
 
       <ol>
@@ -244,7 +251,7 @@ arizuko token revoke hook:acme/eng/github</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/webhooks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
       </div>
     </main>
 

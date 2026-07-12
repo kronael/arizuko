@@ -92,6 +92,27 @@
     "jid":   "web:acme"
   }</code></pre>
 
+      <h2>attach instructions to the link</h2>
+
+      <p>
+        Either mint face takes an optional <code>context</code> &mdash;
+        instructions on how the agent should process what arrives
+        through this specific link:
+      </p>
+
+      <pre><code>issue_chat_link(context="bug reports from the acme site; triage and file, don't chat back")
+
+arizuko token acme issue chat acme --context "bug reports; triage, don't chat"</code></pre>
+
+      <p>
+        Every message that arrives through the link then carries the
+        text into the agent's prompt as a <code>&lt;link-context&gt;</code>
+        block. The agent treats it as the link's handling contract, not
+        as something to reply to. Two links into the same folder can
+        carry two different contracts. Context is fixed at mint time
+        &mdash; to change it, mint a new link and revoke the old.
+      </p>
+
       <h2>what the visitor sees</h2>
 
       <p>
@@ -168,7 +189,7 @@ arizuko token issue acme chat --suffix sales
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/chat-link.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

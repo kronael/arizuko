@@ -164,6 +164,7 @@
         <tr><td><code>turn_id</code></td><td>TEXT</td><td>NULL</td><td></td><td>inbound msg ID that triggered this outbound (0038)</td></tr>
         <tr><td><code>status</code></td><td>TEXT</td><td>NOT NULL</td><td>'sent'</td><td>'sent' | 'pending' | 'failed' (0039)</td></tr>
         <tr><td><code>chat_name</code></td><td>TEXT</td><td>NOT NULL</td><td>''</td><td>human channel/group name (0046)</td></tr>
+        <tr><td><code>link_context</code></td><td>TEXT</td><td>NULL</td><td></td><td>route token's <code>context</code> snapshotted at ingest; rendered as <code>&lt;link-context&gt;</code> in the agent prompt</td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>idx_messages_chat_ts</code> on <code>(chat_jid, timestamp)</code>; <code>idx_messages_turn_id</code> on <code>turn_id WHERE turn_id IS NOT NULL</code>; <code>idx_messages_status</code> on <code>status WHERE status != 'sent'</code>.</p>
       <p class="meta"><strong>Writers:</strong> <a href="https://github.com/kronael/arizuko/blob/main/store/messages.go#L19"><code>store/messages.go:19</code></a> (PutMessage), <a href="https://github.com/kronael/arizuko/blob/main/timed/main.go#L132"><code>timed/main.go:132</code></a> (scheduled-task inject); UPDATEs in <code>store/messages.go</code> (status, content, errored, delivered).</p>
@@ -355,6 +356,7 @@
         <tr><td><code>jid</code></td><td>TEXT</td><td>NOT NULL</td><td><code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> or <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> &mdash; <code>&lt;folder&gt;</code> is the destination, distinct from <code>owner_folder</code></td></tr>
         <tr><td><code>owner_folder</code></td><td>TEXT</td><td>NOT NULL</td><td>issuing folder; bounds revocation</td></tr>
         <tr><td><code>created_at</code></td><td>TEXT</td><td>NOT NULL</td><td>RFC3339</td></tr>
+        <tr><td><code>context</code></td><td>TEXT</td><td>NULL</td><td>optional per-link processing instructions; snapshotted onto each inbound as <code>messages.link_context</code>, rendered to the agent as <code>&lt;link-context&gt;</code></td></tr>
       </table>
       <p class="meta"><strong>Indexes:</strong> <code>route_tokens_jid</code> on <code>jid</code>.</p>
       <p class="meta"><strong>Writers:</strong> routd (<code>insertRouteToken</code>, called from both MCP <code>issue_chat_link</code>/<code>issue_webhook</code> and REST <code>POST /v1/route_tokens/*</code>).</p>
@@ -693,7 +695,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-08">2026-06-08</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

@@ -7,6 +7,19 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, OPEN, LOW)
+
+**Location**: `template/web/pub/arizuko/reference/tokens.html` §"/chat/ and /hook/ — each URL bound to its JID prefix kind" (+ echoes in `concepts/tokens.html`, `reference/schema.html`, both howto ledes)
+
+The docs say "a hook: token at /chat/… returns 404; a web: token at /hook/…
+returns 404 — binding enforced at token lookup". The shipped contract is the
+opposite: spec 5/W §"URL routing" locked "both URL prefixes accept ANY valid
+route_token; kind is metadata, not a URL access gate", and
+`webd/route_token.go` implements exactly that (lookup does not filter on JID
+prefix). Also spec 5/W §"Where this runs" still describes the old filtered
+lookup — internal spec inconsistency. Fix: align the four web pages + that
+spec section to the any-token contract (docs-only).
+
 ## Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12, OPEN, HIGH)
 
 This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent

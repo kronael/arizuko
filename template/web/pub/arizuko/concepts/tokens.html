@@ -55,6 +55,18 @@
 
     <p class="lede">So far every caller authenticated &mdash; logged in, minted a sub, passed a grant. But the web surfaces just ahead serve people who never log in: a public chat box on a website, a webhook from GitHub. A route token is the no-login counterpart that lets them in &mdash; a 32-byte random string that maps to one JID. POST a body to a URL carrying that token and the body lands as an inbound message at the mapped JID. The JID prefix carries the routing intent &mdash; <code>web:</code> for a browser chat, <code>hook:</code> for a webhook from GitHub, Linear, or anything else that can POST JSON. Possession of the URL is the whole credential.</p>
 
+    <h2>three axes of one URL</h2>
+
+    <p>A route-token URL composes three independent things, and keeping them apart is what makes the primitive predictable.</p>
+
+    <ul>
+      <li><strong>Routing &mdash; the token.</strong> Which folder the URL feeds. A random secret looked up in the DB; revoke it by deleting the row.</li>
+      <li><strong>Identity &mdash; an optional login.</strong> Who is posting. The same link serves everyone: a visitor with a logged-in session posts as their real self; everyone else posts as <code>anon:&lt;ip-hash&gt;</code>. The link doesn't change &mdash; the caller's session does.</li>
+      <li><strong>Context &mdash; optional instructions on the link.</strong> How the agent should process what arrives through it. Free text set at mint time (&ldquo;bug reports from the acme site; triage, don't chat back&rdquo;), stamped onto each arriving message, shown to the agent as a <code>&lt;link-context&gt;</code> block. Two links into the same folder can carry two different contracts.</li>
+    </ul>
+
+    <p>None of the three depends on another: a leaked token doesn't impersonate a user, a stolen session doesn't reveal tokens, and context is set only by whoever was authorized to mint.</p>
+
     <h2>one table, two URLs</h2>
 
     <p>All tokens live in the <code>route_tokens</code> table &mdash; the raw token is hashed to a lookup key, mapped to a JID, owned by the folder that minted it. Two URLs read that table, one per JID prefix: <code>web:</code> tokens answer at <code>/chat/&lt;token&gt;/</code>, <code>hook:</code> tokens at <code>/hook/&lt;token&gt;</code>. Both serve the same chat widget on GET and append a message on POST, streaming the reply over SSE to browsers and a plain response to everyone else. The binding is enforced at lookup: a <code>hook:</code> token at <code>/chat/&hellip;</code> returns 404, and vice-versa, so each surface stays single-purpose. Full column list, payload shapes, and the per-token MCP surface: <a href="../reference/tokens.html">reference / tokens</a>.</p>
@@ -79,6 +91,8 @@
     <p>Both paths hit the same <code>insertRouteToken</code> writer &mdash; same row shape, same audit trail. The raw token is returned exactly once; only its sha256 is stored, so losing it means reissuing.</p>
 
     <p>Folders do not get a chat token automatically when they are created. A folder gets a token when someone calls <code>issue_chat_link</code> for it. This keeps unused folders from accumulating live URLs.</p>
+
+    <p>Either mint face takes an optional <code>context</code> &mdash; the per-link processing instructions from the &ldquo;three axes&rdquo; above. Column shapes and the <code>&lt;link-context&gt;</code> contract: <a href="../reference/tokens.html#link-context">reference / tokens</a>.</p>
 
     <h2>who can mint for which folder</h2>
 
@@ -111,7 +125,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-10">2026-06-10</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

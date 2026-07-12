@@ -47,7 +47,8 @@
   token_hash    BLOB PRIMARY KEY,
   jid           TEXT NOT NULL,
   owner_folder  TEXT NOT NULL,
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  context       TEXT
 );
 CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
 
@@ -56,6 +57,7 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
       <dt>jid</dt><dd>Destination. <code>web:&lt;folder&gt;[/&lt;suffix&gt;]</code> for chat tokens, <code>hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]</code> for webhooks. <code>&lt;folder&gt;</code> is the destination folder, distinct from <code>owner_folder</code> (the issuer).</dd>
       <dt>owner_folder</dt><dd>Folder of the issuing principal. Bounds revocation: <code>revoke_route_token</code> requires admin on this folder, not on the JID folder.</dd>
       <dt>created_at</dt><dd>RFC3339 timestamp.</dd>
+      <dt>context</dt><dd>Optional. Free-text instructions from the issuer on how to process this link's inbound. Snapshotted onto each arriving message and rendered to the agent as <code>&lt;link-context&gt;</code>. NULL means no instructions &mdash; the pre-context behavior.</dd>
     </dl>
 
     <h2 id="token-format">Token format</h2>
@@ -71,8 +73,8 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
 
     <table>
       <tr><th>Action</th><th>MCP tool</th><th>REST endpoint</th></tr>
-      <tr><td>Issue chat link</td><td><code>issue_chat_link(jid_suffix?)</code></td><td><code>POST /v1/route_tokens/chat</code></td></tr>
-      <tr><td>Issue webhook</td><td><code>issue_webhook(source_label, jid_suffix?)</code></td><td><code>POST /v1/route_tokens/hook</code></td></tr>
+      <tr><td>Issue chat link</td><td><code>issue_chat_link(jid_suffix?, context?)</code></td><td><code>POST /v1/route_tokens/chat</code></td></tr>
+      <tr><td>Issue webhook</td><td><code>issue_webhook(source_label, jid_suffix?, context?)</code></td><td><code>POST /v1/route_tokens/hook</code></td></tr>
       <tr><td>List</td><td><code>list_route_tokens()</code></td><td><code>GET /v1/route_tokens</code></td></tr>
       <tr><td>Revoke</td><td><code>revoke_route_token(jid)</code></td><td><code>DELETE /v1/route_tokens/{jid}</code></td></tr>
     </table>
@@ -80,10 +82,12 @@ CREATE INDEX route_tokens_jid ON route_tokens(jid);</code></pre>
     <h3 id="rest-body">REST request body</h3>
     <p>Each <code>POST</code> body carries the same params as the matching MCP tool:</p>
     <pre><code>POST /v1/route_tokens/chat
-{ "jid_suffix": "support" }                          // optional
+{ "jid_suffix": "support",                           // optional
+  "context": "bug reports; triage, don't chat" }     // optional
 
 POST /v1/route_tokens/hook
-{ "source_label": "github", "jid_suffix": "main" }   // jid_suffix optional</code></pre>
+{ "source_label": "github", "jid_suffix": "main",    // jid_suffix optional
+  "context": "push events; summarize daily" }        // optional</code></pre>
 
     <p><code>owner_folder</code> is bound from session context (the agent's folder or the caller's grants) and is never a parameter. Tier scope (lower = wider reach):</p>
 
@@ -102,6 +106,21 @@ POST /v1/route_tokens/hook
   "jid":   "hook:acme/eng/github"
 }</code></pre>
     <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ. <code>url</code> is built from <code>WEB_HOST</code> plus the URL bound to the JID prefix kind &mdash; <code>/chat/&lt;token&gt;/</code> for <code>web:</code> JIDs, <code>/hook/&lt;token&gt;</code> for <code>hook:</code> JIDs. Each URL accepts only its bound prefix; the issuance verb picks the URL.</p>
+
+    <h2 id="link-context">Link context</h2>
+
+    <p>The optional <code>context</code> minted onto a token is the issuer's instructions on how to process the data received through that link &mdash; per link, not per folder or per sender. webd snapshots it onto every message arriving through the token (<code>messages.link_context</code>), and routd renders it into the handling agent's prompt as a sibling of <code>&lt;topic&gt;</code>:</p>
+
+    <pre><code>&lt;link-context&gt;
+Bug reports from the acme website. Triage and file; don't chat back.
+&lt;/link-context&gt;</code></pre>
+
+    <ul>
+      <li>Set only at mint time, by any mint face (MCP, REST, dashd, CLI). Immutable per token &mdash; to change the contract, mint a new link and revoke the old.</li>
+      <li>Snapshot semantics: a message is processed under the context that was live when it arrived; revoking or re-minting never re-interprets stored messages.</li>
+      <li>Several tokens on one JID may carry different contexts; each message carries the context of the token it arrived through, and the newest trigger message wins in a mixed batch.</li>
+      <li>No context (NULL) &mdash; no tag, behavior identical to a pre-context token.</li>
+    </ul>
 
     <h2 id="endpoint">/chat/&lt;token&gt;/ and /hook/&lt;token&gt; &mdash; each URL bound to its JID prefix kind</h2>
 
@@ -155,14 +174,15 @@ content=...&amp;topic=...                  # form
 
     <h2 id="cli">CLI</h2>
 
-    <pre><code>arizuko token issue &lt;folder&gt; chat                       # mints web:&lt;folder&gt;
-arizuko token issue &lt;folder&gt; chat --suffix support       # mints web:&lt;folder&gt;/support
-arizuko token issue &lt;folder&gt; hook github                 # mints hook:&lt;folder&gt;/github (destination folder)
-arizuko token issue &lt;folder&gt; hook linear --suffix issues # mints hook:&lt;folder&gt;/linear/issues
-arizuko token list
-arizuko token revoke &lt;jid&gt;</code></pre>
+    <pre><code>arizuko token &lt;instance&gt; issue chat &lt;folder&gt;                    # mints web:&lt;folder&gt;
+arizuko token &lt;instance&gt; issue chat &lt;folder&gt; support            # mints web:&lt;folder&gt;/support
+arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; github          # mints hook:&lt;folder&gt;/github
+arizuko token &lt;instance&gt; issue webhook &lt;folder&gt; linear issues   # mints hook:&lt;folder&gt;/linear/issues
+arizuko token &lt;instance&gt; issue chat &lt;folder&gt; --context "bug reports; triage, don't chat"
+arizuko token &lt;instance&gt; list &lt;folder&gt;
+arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code></pre>
 
-    <p>All four commands hit the same REST endpoints listed under <a href="#mint">Mint surface</a>; the CLI does no extra work beyond shaping the JSON and printing the URL.</p>
+    <p>The CLI is the FS-mounted host-admin path: it writes the same <code>route_tokens</code> row directly to routd.db (<code>cmd/arizuko/token.go</code>) and prints the raw token once. <code>--context</code> (<code>-c</code>) attaches per-link instructions, same as the <code>context</code> mint param.</p>
 
     <h2 id="related">Related</h2>
 
@@ -181,7 +201,7 @@ arizuko token revoke &lt;jid&gt;</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-18">2026-05-18</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 
