@@ -7,6 +7,63 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## Onboarding recurs as a manual operator chore — new chat → route-miss → silence → hand-run `arizuko group add` (2026-07-12, OPEN, HIGH)
+
+This keeps popping up. Live datapoint: Nikol (`telegram:user/8177590051`) sent
+`/start` + a question at 08:01 2026-07-12 on krons, hit a route-miss, got NO
+greeting and NO admission-queue row; the operator had to discover the JID out of
+band (sqlite) and hand-run `arizuko group krons add … rhias/niki`. Same story as
+adshaus and the earlier telegram groups. Two distinct defects compound it:
+
+1. **`InsertOnboarding` never fires on a genuine route-miss** — see the
+   "Chat-initiated onboarding still dead" entry below (root cause not yet
+   pinned: the `else if l.onboardingEnabled && l.onbod != nil` branch at
+   `routd/loop.go:520` is not entered even though both are true). **Suggested
+   fix:** add a trace at the top of the route-miss block, confirm whether
+   `resolve()` returns a non-miss (`ok=true`/`Observe!=""`) for a bare unrouted
+   group JID, or the cursor is advanced at ingest before the branch runs
+   (`loop.go:500` `last.Timestamp <= GetAgentCursor` skip). Then make the miss
+   fire the greeting + queue row (fail loud if `InsertOnboarding` errors).
+2. **No self-serve JID discovery — `/chatid` does not exist.** The docs and
+   several proposals tell a new chat to send `/chatid`, but nothing echoes it
+   (confirmed: not intercepted in the gateway command set). **Suggested fix:**
+   add `/chatid` as a first-word gateway command (sibling of `/ping`/`/chatid`
+   family) that replies with the chat's JID — a trivial, high-value unblock so a
+   user can hand the operator their JID without sqlite spelunking.
+
+**Test gap (operator ask 2026-07-12):** the integration/e2e suite does not
+exercise the WHOLE onboarding path (new inbound → greeting/queue → operator
+admits → group replies). Add an onboarding case (webd/e2e or an anteval case)
+so this regression is caught in CI, not by a real new user's silence.
+
+- **Severity:** high (every new user needs manual operator intervention today)
+- **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
+- **Status:** OPEN — clear-cut parts (`/chatid`, the onboarding test) are
+  mechanical; the never-fires branch needs a short root-cause first.
+
+## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
+
+Reported: an admin cannot get into krons (`/dash`/`/auth`). Facts gathered:
+`auth_users` in krons `auth.db` has **0 rows**; krons `.env` and
+`docker-compose.yml` carry **no OAuth provider config** (no `GOOGLE_CLIENT_ID`/
+`_SECRET`, no `*_ALLOWED_EMAILS`) — only `AUTH_SECRET` + `AUTH_BASE_URL`. So
+either the login flow has no identity provider to authenticate against, or a
+successful login isn't being recognized as operator (operator status is a grant
+check — `proxyd/main.go:678-681`, and durable once the acl table has a row per
+`main.go:236`). No `/auth` deny lines in journalctl (the 401 spam is the known
+whapd re-pair loop, unrelated). **Suggested fix (root-cause first, do NOT hack):**
+trace the `/auth/login` → callback → `requireAuth` path on krons: (a) is a
+provider configured at all — if not, that's an operator config gap (document the
+exact `.env` keys), not a code change; (b) if login succeeds but `/dash` 403s,
+the first operator needs a bootstrap grant (`**` acl row) — confirm how the
+first operator is meant to be seeded and whether that path is broken. Fail loud
+on the real cause; if it's config, surface the missing keys rather than
+inventing a fallback.
+
+- **Severity:** high (operator locked out of their own instance)
+- **Scope:** proxyd/main.go requireAuth + /auth flow; authd; krons `.env`
+- **Status:** OPEN — classify config-gap vs code-bug, then fix or document.
+
 ## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, mostly ✅ SHIPPED)
 
 Cause fix for the silent-failure class. fable-reviewed + code-verified; signed
