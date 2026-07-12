@@ -29,10 +29,10 @@ func cmdToken(args []string) {
 	instance, sub := args[0], args[1]
 
 	dataDir := mustInstanceDir(instance)
-	st, err := store.Open(filepath.Join(dataDir, "store"))
-	if err != nil {
-		die("Failed: open db: %v", err)
-	}
+	// route_tokens + groups live in routd.db post-split — messages.db is the
+	// frozen monolith routd never reads (same fix class as `arizuko network`,
+	// 2dfa5670).
+	st := mustOpenACL(dataDir)
 	defer st.Close()
 
 	switch sub {

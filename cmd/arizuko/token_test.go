@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/auth"
+	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
+	"github.com/kronael/arizuko/store"
 )
 
 // TestMintBearer mints against a fixture auth.db (the same signing_keys shape
@@ -86,6 +88,45 @@ func seedAuthDB(t *testing.T, storeDir string, key *auth.SigningKey) {
 	if _, err := adb.Exec(`INSERT INTO signing_keys (kid, priv_pem, active, created_at) VALUES (?, ?, 1, ?)`,
 		key.Kid, privPEM, time.Now().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestTokenLandsInRoutdDB proves `arizuko token issue`/`revoke` write
+// route_tokens into routd.db (its post-split owner, the DB routd resolves
+// against) and leave messages.db untouched — a CLI-issued /chat or /hook URL
+// written to the frozen monolith silently never resolves.
+func TestTokenLandsInRoutdDB(t *testing.T) {
+	dir := setupSplitStore(t)
+
+	s, err := store.OpenRoutd(dir)
+	if err != nil {
+		t.Fatalf("OpenRoutd: %v", err)
+	}
+	if err := s.PutGroupRow(core.Group{Folder: "main", AddedAt: time.Now()}); err != nil {
+		t.Fatalf("seed group: %v", err)
+	}
+	tokenIssue(s, "", []string{"chat", "main"})
+	s.Close()
+
+	if n := countRows(t, dir, "routd.db",
+		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 1 {
+		t.Errorf("routd.db route_tokens = %d, want 1", n)
+	}
+	if n := countRows(t, dir, "messages.db",
+		"SELECT COUNT(*) FROM route_tokens"); n != 0 {
+		t.Errorf("messages.db route_tokens = %d, want 0 (CLI must not write the monolith)", n)
+	}
+
+	// revoke path also targets routd.db.
+	s2, err := store.OpenRoutd(dir)
+	if err != nil {
+		t.Fatalf("OpenRoutd: %v", err)
+	}
+	tokenRevoke(s2, []string{"web:main"})
+	s2.Close()
+	if n := countRows(t, dir, "routd.db",
+		"SELECT COUNT(*) FROM route_tokens WHERE jid='web:main'"); n != 0 {
+		t.Errorf("routd.db route_tokens after revoke = %d, want 0", n)
 	}
 }
 

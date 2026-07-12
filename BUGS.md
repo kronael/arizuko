@@ -989,7 +989,9 @@ Fix: route `issue chat|webhook`/`list`/`revoke` through `store.OpenRoutd` (mirro
 - **Scope:** cmd/arizuko/token.go
 - **Affected:** `arizuko token issue chat|webhook|list|revoke` on all split instances
 - **Source:** cmd/arizuko/token.go:27 (`store.Open` → should be `store.OpenRoutd` for route_tokens)
-- **Status:** open
+- **Status:** fixed 2026-07-12 — cmdToken opens routd.db via the existing
+  `mustOpenACL` (one CLI open-path, no second `store.OpenRoutd` copy); guarded by
+  `TestTokenLandsInRoutdDB` (issue+revoke land in routd.db, messages.db stays empty)
 - **Fix:**
 
 ## `arizuko group add`/`create` writes the group skeleton to CWD, not the data dir (2026-07-11, open)
