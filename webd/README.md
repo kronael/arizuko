@@ -16,7 +16,10 @@ chat) and exposes MCP endpoints used by agents running against web JIDs.
   `folder/topic` (`hub.go`).
 - Serve guest chat pages: public widget, token-scoped chat at
   `/chat/<token>/`, fire-and-forget webhooks at `/hook/<token>`
-  (`route_token.go`, `pages.go`).
+  (`route_token.go`, `pages.go`). At ingest webd stamps the sender —
+  real `sub`/name when the caller carries a verified JWT, else
+  `anon:<ip-hash>` — and snapshots the token's optional `context` onto
+  the inbound as `link_context` (spec 5/W § link context).
 - Serve the user MCP bridge for authed sessions (`mcp.go`) and the
   token-only chat-MCP transport at `/chat/<token>/mcp` (`chat_mcp.go`).
 - Accept proxyd-stamped identity headers verified via ES256 bearer

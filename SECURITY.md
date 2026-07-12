@@ -111,6 +111,28 @@ host root always wins — arizuko does not defend against the host
 operator. The agent container runs with `bypassPermissions`; the
 boundary is the mount set, not the tool policy.
 
+### Route tokens: capability URL + optional identity overlay
+
+`/chat/<token>/` and `/hook/<token>` are capability URLs: the token IS
+the credential (256-bit random, sha256 at rest in `route_tokens`, 404
+on miss, revoke = delete the row — spec `specs/5/W-webhook-routes.md`).
+Possession grants exactly one thing: append messages at the token's
+JID. It does NOT grant an identity — the two axes compose
+independently in `webd/route_token.go`:
+
+- **Anonymous caller** → sender is `anon:<ip-hash>` / "Anonymous".
+- **Logged-in caller** (valid JWT, proxyd-stamped `X-User-*` verified
+  via `auth.ProxydTransit`) → sender is the real `sub`/name.
+
+The same public link therefore serves both: identity comes from the
+JWT session when present and degrades to anonymous when not, without
+weakening the token axis (a stolen JWT doesn't reveal tokens; a leaked
+token doesn't impersonate users). A third, non-credential axis — the
+token's optional `context` (issuer-authored processing instructions,
+rendered to the agent as `<link-context>`) — is set only at mint time
+by an authorized issuer (tier-capped MCP, scoped REST, dashd admin,
+CLI); the public URL cannot alter it.
+
 ### Public vs private web tree separation
 
 `<data>/web/pub/` and `<data>/web/priv/` are **separate filesystem

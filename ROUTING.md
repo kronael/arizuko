@@ -37,6 +37,27 @@ sub-groups (`<parent>/<sub>`) — each gets its own `web:<parent>/<sub>`
 JID. `store.AddRoute` rejects `chat_jid=web:*` predicates at insert
 time so the mistake fails loudly.
 
+### Route-token surfaces (`/chat/<token>/`, `/hook/<token>`)
+
+Public URLs that feed a chat: `/chat/<token>/` serves the human widget
+(GET) and accepts messages (POST); `/hook/<token>` is machine
+fire-and-forget POST ingest. Spec `specs/5/W-webhook-routes.md`. Each
+URL composes three orthogonal axes:
+
+1. **Routing (the token)** — which JID/folder the URL feeds. Opaque
+   random secret, sha256 at rest in `route_tokens`, DB-looked-up by
+   webd; revoke = delete the row.
+2. **Identity (optional JWT overlay)** — who is posting. A logged-in
+   caller's real `sub`/name is stamped from the proxyd-verified
+   headers; anonymous callers get `anon:<ip-hash>` / "Anonymous". Same
+   link either way (`webd/route_token.go`).
+3. **Context (optional per-link instructions)** — how to process this
+   link's inbound. Set at mint (`issue_chat_link(context=…)` /
+   `issue_webhook(context=…)`, REST, dashd, `arizuko token issue
+--context`), snapshotted onto each message at ingest
+   (`messages.link_context`), rendered to the agent as
+   `<link-context>` in the turn envelope.
+
 ## Route Table
 
 The `routes` table is a flat list of rules evaluated against every

@@ -62,6 +62,7 @@ Endpoints (`server.go`, `channels.go`):
 - `GET|PUT|DELETE /v1/web_routes` — web route CRUD
 - `GET /v1/web_presence` — folder vhost info (get_web_presence REST twin)
 - `POST /v1/route_tokens/{chat,hook}` — mint chat/hook route tokens
+  (optional `context` = per-link processing instructions, spec 5/W)
 - `GET /v1/route_tokens`, `DELETE /v1/route_tokens/{jid}` — list/revoke
 - `POST /v1/route_tokens/resolve` — validate token
 - `POST /v1/channels/register`, `POST /v1/channels/deregister` — adapter registry
