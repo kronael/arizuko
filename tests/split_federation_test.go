@@ -181,6 +181,7 @@ type federation struct {
 	routdDB  *routd.DB
 	routdSrv *routd.Server
 	routdTS  *httptest.Server
+	loop     *routd.Loop
 	runedDB  *runed.DB
 	runedTS  *httptest.Server
 
@@ -195,8 +196,9 @@ type federation struct {
 // routd (real Loop + real poller calling runed over HTTP via runedv1.Client).
 // The FakeRuntime is the only fake: it simulates the agent by posting a reply
 // back into routd with a real authd-minted folder-bound token, closing the
-// turn end-to-end. Returns f and the running loop's cancel.
-func bootFederation(t *testing.T) *federation {
+// turn end-to-end. Returns f and the running loop's cancel. cfgMods tweak the
+// LoopConfig before construction (e.g. the onboarding e2e enables onboarding).
+func bootFederation(t *testing.T, cfgMods ...func(*routd.LoopConfig)) *federation {
 	t.Helper()
 	f := &federation{ranFolders: map[string]string{}, replyStatus: map[string]int{}}
 	f.authd = newFakeAuthd(t)
@@ -258,11 +260,16 @@ func bootFederation(t *testing.T) *federation {
 	svcTok := f.authd.mintService(t, "service:routd", "runs:run", "runs:kill")
 	runedClient := runedv1.NewClient(f.runedTS.URL, svcTok, 10*time.Second)
 
-	loop := routd.NewLoop(rodb, runedClient, routd.LoopConfig{
+	lc := routd.LoopConfig{
 		InstanceName: "fedtest",
 		PollEvery:    20 * time.Millisecond, // fast poll for the test
 		RunScopes:    []types.Scope{"messages:send:own_group", "chats:read:own_group"},
-	})
+	}
+	for _, mod := range cfgMods {
+		mod(&lc)
+	}
+	loop := routd.NewLoop(rodb, runedClient, lc)
+	f.loop = loop
 	// Inbound auth is the REAL split path: routd's verifier (newFedVerifier over
 	// authd's JWKS) gates /v1/messages on a service:<adapter> messages:write JWT.
 	// Adapters present a token from mintAdapter — see

@@ -33,15 +33,19 @@ adshaus and the earlier telegram groups. Two distinct defects compound it:
    parser, same `ack` path — not a second dispatcher) and replies with the
    chat JID; the miss still queues onboarding. Test: `TestRouteMissChatID`.
 
-**Test gap (operator ask 2026-07-12):** the integration/e2e suite does not
-exercise the WHOLE onboarding path (new inbound → greeting/queue → operator
-admits → group replies). Add an onboarding case (webd/e2e or an anteval case)
-so this regression is caught in CI, not by a real new user's silence.
+**Test gap (operator ask 2026-07-12):** **closed 2026-07-12** —
+`tests/onboarding_e2e_test.go TestOnboardingEndToEnd` drives the WHOLE path on
+the bootFederation harness (real authd tokens, real ingest→queue→dispatch,
+real runed over HTTP): unrouted inbound → route miss → onboarding row
+`awaiting_message` in the onbod-owned store via routd's production OnbodClient
+→ operator admits (approve + the `arizuko group add` group/route shape) → same
+chat's next message routes → agent reply row lands. Verified failing on the
+pre-fix queue path (WaitForRow timeout — no onboarding row), green after.
 
 - **Severity:** high (every new user needs manual operator intervention today)
 - **Scope:** routd/loop.go onboarding branch; gateway `/chatid`; e2e/anteval
-- **Status:** OPEN — clear-cut parts (`/chatid`, the onboarding test) are
-  mechanical; the never-fires branch needs a short root-cause first.
+- **Status:** fixed 2026-07-12 (all three parts above; see each for detail).
+  NOT yet deployed — ships with the next krons image build + restart.
 
 ## Admin cannot log in to the krons dashboard (2026-07-12, OPEN, HIGH — needs root-cause)
 
