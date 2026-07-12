@@ -17,6 +17,28 @@ token table, one handler, two URL prefixes (`/chat/<token>/` for
 bound to its JID prefix kind — single-purpose surfaces, shared
 mechanics.
 
+## Three orthogonal axes
+
+A route-token URL composes three independent things. None entangles
+with another; each has its own storage, its own lifecycle, its own
+revocation.
+
+1. **Routing (the token).** WHICH chat/folder the URL feeds. Opaque
+   256-bit random secret, `sha256` at rest (`store/route_tokens.go`),
+   resolved by DB lookup. Not a JWT — nothing is encoded in it;
+   revoke = delete the row.
+2. **Identity (optional JWT overlay).** WHO is posting. The same URL
+   serves logged-in and anonymous callers:
+   `webd/route_token.go` (`handleChatTokenPost`) stamps the real
+   `sub`/name from the proxyd-verified identity headers when
+   `s.identified(r)` holds, else `anon:<ip-hash>` / "Anonymous". The
+   link doesn't change; the caller's session does.
+3. **Context (optional per-link instructions).** HOW to process what
+   arrives through this link. Free text attached to the token at mint
+   time (`route_tokens.context`, nullable), rendered to the handling
+   agent as a `<link-context>` prompt tag on every message that
+   arrived through the token. See "Link context" below.
+
 ## Usecase
 
 Visitor chat for a tenant. The operator runs `arizuko token issue acme
@@ -79,7 +101,8 @@ CREATE TABLE route_tokens (
   token_hash    BLOB PRIMARY KEY,        -- sha256(token); raw token returned once
   jid           TEXT NOT NULL,           -- web:<folder>[/...] | hook:<folder>/<source>[/...]
   owner_folder  TEXT NOT NULL,           -- issuing folder; bounds revocation (admin authority)
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  context       TEXT                     -- optional per-link processing instructions (axis 3)
 );
 CREATE INDEX route_tokens_jid ON route_tokens(jid);
 ```
@@ -141,18 +164,66 @@ One JID prefix, one URL prefix, one issuance verb.
 also becomes the inbound message's `sender` field. `<suffix>` is the
 optional `jid_suffix` argument.
 
+## Link context (axis 3)
+
+A token may carry issuer-authored instructions on how to process the
+data received through it — "these are bug reports from the acme
+website, triage and file, don't chat back", "this hook carries Stripe
+events, summarize daily". The instructions belong to the LINK, not to
+the folder (a folder can serve several links with different
+contracts) and not to the sender (axis 2 is who; axis 3 is how).
+
+Mint: optional `context` argument on `issue_chat_link` /
+`issue_webhook` (and their REST twins + dashd form + `arizuko token
+issue --context`). Omitted → NULL → behavior identical to a
+pre-context token. Immutable per token — to change the contract,
+mint a new link and revoke the old (same lifecycle as the secret
+itself; no update surface).
+
+**Carry: snapshot at ingest, not lookup at prompt-build.** webd
+already holds the token row when a message arrives
+(`LookupRouteToken`); it copies `row.Context` onto the inbound wire
+message (`chanlib.InboundMsg.LinkContext`), routd persists it as
+`messages.link_context` (nullable), and prompt-build reads it off the
+trigger row. Chosen over a chat_jid→token lookup at build time
+because:
+
+- a folder may have several active tokens on one JID (`token_hash` is
+  the PK, not `jid` — shipped contract), so JID→context is ambiguous;
+- identity (axis 2) is already snapshotted onto the message row at
+  ingest (`sender`/`sender_name`); context rides the same pattern —
+  the message row is the complete record of what arrived, under which
+  link contract;
+- revoking or re-minting a token never retroactively re-interprets
+  messages that already arrived.
+
+Render: `routd/prompt.go buildAgentPrompt` emits one sibling tag in
+the turn envelope, only when the newest trigger message carries a
+non-empty `link_context`:
+
+```
+<link-context>
+Bug reports from the acme website. Triage and file; don't chat back.
+</link-context>
+```
+
+The agent treats it as the issuer's handling instructions for that
+link's inbound — not as a user request (`ant/skills/self/chat-link.md`).
+Messages that did not arrive through a route token never produce the
+tag.
+
 ## MCP + REST surface
 
 Per `5/45-openapi-mcp.md`: every action is one hand-written
 handler with two faces — MCP for the agent, REST for operators (dashd,
 CLI). Sharp tool names per `mcp_tool_naming`:
 
-| Action | MCP                                        | REST                            |
-| ------ | ------------------------------------------ | ------------------------------- |
-| Issue  | `issue_chat_link(jid_suffix?)`             | `POST /v1/route_tokens/chat`    |
-| Issue  | `issue_webhook(source_label, jid_suffix?)` | `POST /v1/route_tokens/hook`    |
-| List   | `list_route_tokens()`                      | `GET /v1/route_tokens`          |
-| Revoke | `revoke_route_token(jid)`                  | `DELETE /v1/route_tokens/{jid}` |
+| Action | MCP                                                  | REST                            |
+| ------ | ---------------------------------------------------- | ------------------------------- |
+| Issue  | `issue_chat_link(jid_suffix?, context?)`             | `POST /v1/route_tokens/chat`    |
+| Issue  | `issue_webhook(source_label, jid_suffix?, context?)` | `POST /v1/route_tokens/hook`    |
+| List   | `list_route_tokens()`                                | `GET /v1/route_tokens`          |
+| Revoke | `revoke_route_token(jid)`                            | `DELETE /v1/route_tokens/{jid}` |
 
 `issue_chat_link` and `issue_webhook` are distinct tools (distinct
 intents, distinct descriptions); they share one internal
@@ -240,3 +311,7 @@ No backfill. Only live token (Atlas on marinade) gets reissued by hand.
 - Tier 1 at `acme` can mint for `acme/eng`; tier 2 at `acme` cannot.
 - MCP `issue_chat_link` and REST `POST /v1/route_tokens/chat` produce
   identical rows (one writer, two faces).
+- Mint with `context` round-trips (lookup + list return it); a
+  `/chat/` or `/hook/` message via a context-bearing token renders
+  `<link-context>` in the built prompt; no token / no context → no
+  tag.
