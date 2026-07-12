@@ -1019,7 +1019,11 @@ users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd
 - **Scope:** cmd/arizuko/main.go + core/config.go LoadConfigFrom root resolution
 - **Affected:** `arizuko create`, `arizuko group add` run on the host
 - **Source:** core/config.go:157 (`envOr("DATA_DIR", mustCwd())`)
-- **Status:** open
+- **Status:** fixed 2026-07-12 — `LoadConfigFrom(dir)` defaults DATA_DIR to `dir`
+  (explicit env/.env still wins), fixing all four callers at the one cause site
+  (cross-checked: create/group add/status/secret all pass `mustInstanceDir`);
+  daemons use `LoadConfig()` directly, unaffected. Tests:
+  `TestLoadConfigFromDefaultsRootToDir` + `TestLoadConfigFromRespectsDataDirEnv`
 - **Fix:**
 
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)

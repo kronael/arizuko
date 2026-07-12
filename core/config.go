@@ -154,8 +154,18 @@ func SecretKeyring(raw string) [][]byte {
 	return out
 }
 
+// LoadConfigFrom loads dir/.env and resolves the config with dir as the
+// data root unless DATA_DIR (env or .env) overrides. Host CLI callers pass
+// the instance dir explicitly; without this default the root fell back to
+// the operator's cwd and `arizuko create`/`group add` wrote the groups/
+// skeleton into whatever directory the command ran from (2026-07-11).
 func LoadConfigFrom(dir string) (*Config, error) {
 	_ = godotenv.Load(filepath.Join(dir, ".env"))
+	if os.Getenv("DATA_DIR") == "" {
+		if err := os.Setenv("DATA_DIR", dir); err != nil {
+			return nil, err
+		}
+	}
 	return LoadConfig()
 }
 

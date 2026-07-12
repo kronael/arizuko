@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -66,6 +67,42 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 	if cfg.MaxContainers != 10 {
 		t.Fatalf("expected 10, got %d", cfg.MaxContainers)
+	}
+}
+
+// TestLoadConfigFromDefaultsRootToDir pins the CLI path: LoadConfigFrom(dir)
+// roots the config at dir when DATA_DIR is unset, so `arizuko create`/`group
+// add` write groups/ under the instance dir, never the operator's cwd.
+func TestLoadConfigFromDefaultsRootToDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATA_DIR", "")
+	t.Setenv("ARIZUKO_DEV", "true")
+
+	cfg, err := LoadConfigFrom(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "groups"); cfg.GroupsDir != want {
+		t.Fatalf("GroupsDir = %q, want %q", cfg.GroupsDir, want)
+	}
+	if cfg.ProjectRoot != dir {
+		t.Fatalf("ProjectRoot = %q, want %q", cfg.ProjectRoot, dir)
+	}
+}
+
+// An explicit DATA_DIR still wins over the dir argument.
+func TestLoadConfigFromRespectsDataDirEnv(t *testing.T) {
+	dir := t.TempDir()
+	override := t.TempDir()
+	t.Setenv("DATA_DIR", override)
+	t.Setenv("ARIZUKO_DEV", "true")
+
+	cfg, err := LoadConfigFrom(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProjectRoot != override {
+		t.Fatalf("ProjectRoot = %q, want DATA_DIR override %q", cfg.ProjectRoot, override)
 	}
 }
 
