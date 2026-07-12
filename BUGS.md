@@ -656,7 +656,8 @@ logs, browser history, and proxy access logs.
 - **Severity:** high
 - **Scope:** dashd/invites.go:56
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved a51989cc — stale entry, verified 2026-07-12: revoke URL
+  carries `inviteRef` (sha256 of token); handler resolves ref→token server-side
 - **Fix:** revoke by opaque row ID, not token
 
 ## [SEC] route_tokens: encodeJID/decodeJID not reversible; webhook label unvalidated (2026-06-18, open)
