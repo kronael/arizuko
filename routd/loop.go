@@ -507,37 +507,7 @@ func (l *Loop) pollOnce() {
 		}
 		r := l.resolve(chatJID, last)
 		if !r.ok {
-			if r.Observe != "" {
-				// Route-table observe rule: ingest silently into the folder's
-				// ambient context (is_observed=1), no turn. Enrich attachments so
-				// later turns see downloaded media, not raw URLs (fix: observed
-				// messages were missing media enrichment, only triggers got it).
-				ids := make([]string, len(chatMsgs))
-				for i := range chatMsgs {
-					ids[i] = chatMsgs[i].ID
-					if l.media.Enabled {
-						l.enrichAttachments(context.Background(), &chatMsgs[i], r.Observe)
-					}
-				}
-				if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
-					slog.Warn("poll: mark observed", "jid", chatJID, "err", err)
-				}
-			} else if l.onboardingEnabled && l.onbod != nil {
-				// Genuine route miss (no observe rule): chat-initiated onboarding.
-				// Discord guild channels only onboard on an explicit @mention so a
-				// busy server doesn't queue every poster.
-				// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
-				// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
-				discordGuild := strings.HasPrefix(chatJID, "discord:") &&
-					!strings.HasPrefix(chatJID, "discord:dm/")
-				if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
-					(!discordGuild || last.Verb == "mention") {
-					if err := l.onbod.InsertOnboarding(chatJID); err != nil {
-						slog.Warn("insert onboarding", "jid", chatJID, "err", err)
-					}
-				}
-			}
-			l.advance(chatJID, last)
+			l.routeMiss(chatJID, chatMsgs, r)
 			continue
 		}
 		// Steering layer (sticky-nav / slash / @child delegation) consumes the
@@ -550,6 +520,59 @@ func (l *Loop) pollOnce() {
 		l.Enqueue(chatJID)
 	}
 }
+
+// routeMiss consumes a route-missed batch. It is the ONLY miss handler —
+// shared by BOTH processing paths (ingest-enqueued processGroupMessages and
+// the pollOnce backstop). It used to exist twice and the copies drifted: the
+// queue path (which wins the race — ingest enqueues it directly) advanced the
+// cursor without onboarding, so a new chat's first message vanished silently
+// and every new user needed a hand-run `arizuko group add` (krons 2026-07-12).
+// Observe-mode ingests silently; a genuine miss fires chat-initiated
+// onboarding; either way the cursor advances past the batch (fail-forward — a
+// re-fed miss would replay forever).
+func (l *Loop) routeMiss(chatJID string, msgs []core.Message, r resolution) {
+	last := msgs[len(msgs)-1]
+	if r.Observe != "" {
+		// Route-table observe rule: ingest silently into the folder's
+		// ambient context (is_observed=1), no turn. Enrich attachments so
+		// later turns see downloaded media, not raw URLs (fix: observed
+		// messages were missing media enrichment, only triggers got it).
+		ids := make([]string, len(msgs))
+		for i := range msgs {
+			ids[i] = msgs[i].ID
+			if l.media.Enabled {
+				l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
+			}
+		}
+		if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
+			slog.Warn("route miss: mark observed", "jid", chatJID, "err", err)
+		}
+	} else if l.onboardingEnabled && l.onbod != nil {
+		// Genuine route miss (no observe rule): chat-initiated onboarding.
+		// Discord guild channels only onboard on an explicit @mention so a
+		// busy server doesn't queue every poster.
+		// onbod OWNS the onboarding table (onbod.db); routd isn't mounted to
+		// it, so the insert federates over onbod's HTTP API (POST /v1/onboarding).
+		discordGuild := strings.HasPrefix(chatJID, "discord:") &&
+			!strings.HasPrefix(chatJID, "discord:dm/")
+		if onboardingAllowed(chatJID, l.onboardingPlatforms) &&
+			(!discordGuild || last.Verb == "mention") {
+			if err := l.onbod.InsertOnboarding(chatJID); err != nil {
+				// Fail loud: without the row the new user gets silence forever
+				// and no operator queue entry — tell the chat, not just the log.
+				slog.Error("insert onboarding failed", "jid", chatJID, "err", err)
+				if l.deliver != nil {
+					_, _ = l.deliver.Send(chatJID, onboardingFailedNotice, "", "", "", "onboard-"+last.ID)
+				}
+			}
+		}
+	}
+	l.advance(chatJID, last)
+}
+
+// onboardingFailedNotice is sent to an unrouted chat when the admission-queue
+// insert fails — the alternative is permanent silence (see routeMiss).
+const onboardingFailedNotice = "⚠️ Couldn't register this chat for setup — please try again later."
 
 // pollCursor is the global high-water mark: the max agent_cursor across
 // chats. The simple poll feeds anything newer than the lowest unprocessed

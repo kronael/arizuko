@@ -15,15 +15,14 @@ greeting and NO admission-queue row; the operator had to discover the JID out of
 band (sqlite) and hand-run `arizuko group krons add … rhias/niki`. Same story as
 adshaus and the earlier telegram groups. Two distinct defects compound it:
 
-1. **`InsertOnboarding` never fires on a genuine route-miss** — see the
-   "Chat-initiated onboarding still dead" entry below (root cause not yet
-   pinned: the `else if l.onboardingEnabled && l.onbod != nil` branch at
-   `routd/loop.go:520` is not entered even though both are true). **Suggested
-   fix:** add a trace at the top of the route-miss block, confirm whether
-   `resolve()` returns a non-miss (`ok=true`/`Observe!=""`) for a bare unrouted
-   group JID, or the cursor is advanced at ingest before the branch runs
-   (`loop.go:500` `last.Timestamp <= GetAgentCursor` skip). Then make the miss
-   fire the greeting + queue row (fail loud if `InsertOnboarding` errors).
+1. **`InsertOnboarding` never fires on a genuine route-miss** — **fixed
+   2026-07-12**: root cause pinned — TWO drifted route-miss handlers; the
+   queue-worker copy that ingest actually drives (`processGroupMessages`)
+   had no onboarding and advanced the cursor first, so `pollOnce`'s
+   onboarding branch was dead. Full walkthrough in the "Chat-initiated
+   onboarding still dead" entry below. One shared `routeMiss` handler now
+   serves both paths; an `InsertOnboarding` failure is `slog.Error` + a
+   notice delivered to the chat.
 2. **No self-serve JID discovery — `/chatid` does not exist.** The docs and
    several proposals tell a new chat to send `/chatid`, but nothing echoes it
    (confirmed: not intercepted in the gateway command set). **Suggested fix:**
@@ -337,6 +336,21 @@ See also the onboarding redesign the operator wants (telegram groups = Slack
 channels: new group → default staging folder, private-group interaction gated to
 some users). That vision is being specced into `specs/5/` — the fix here should
 land compatibly with it.
+
+- **Status:** fixed 2026-07-12 — **root cause: two route-miss handlers, and
+  the one that runs had no onboarding.** Ingest (`routd/server.go`
+  `handleMessages`) calls `loop.Enqueue` directly, so the queue worker
+  `processGroupMessages` (dispatch.go) consumes the miss within milliseconds —
+  its miss branch was a drifted copy (observe + advance only, NO onboarding).
+  By the next `pollOnce` tick (2s) the cursor was already current, so the
+  `last.Timestamp <= GetAgentCursor` skip suppressed the ONLY onboarding site.
+  Matches the live evidence exactly (cursor advanced, no row, no warn, no
+  turn_context). Fix: one shared `Loop.routeMiss` (observe ingest → onboarding
+  → advance) called from BOTH `pollOnce` and `processGroupMessages`;
+  `InsertOnboarding` failure is now `slog.Error` + `onboardingFailedNotice`
+  delivered to the chat (fail loud, fail-forward — cursor still advances, no
+  poison replay). Tests: `TestQueuePathRouteMissInsertsOnboarding` (failed
+  pre-fix), `TestRouteMissOnboardingFailureSurfaces`.
 
 ## 5/44 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 

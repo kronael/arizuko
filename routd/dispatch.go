@@ -31,19 +31,7 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 	last := msgs[len(msgs)-1]
 	r := l.resolve(chatJID, last)
 	if !r.ok {
-		if r.Observe != "" {
-			ids := make([]string, len(msgs))
-			for i := range msgs {
-				ids[i] = msgs[i].ID
-				if l.media.Enabled {
-					l.enrichAttachments(context.Background(), &msgs[i], r.Observe)
-				}
-			}
-			if err := l.db.MarkMessagesObserved(r.Observe, ids); err != nil {
-				slog.Warn("process: mark observed", "jid", chatJID, "err", err)
-			}
-		}
-		l.advance(chatJID, last)
+		l.routeMiss(chatJID, msgs, r)
 		return false, nil
 	}
 	folder := r.Folder

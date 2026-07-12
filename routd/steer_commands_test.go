@@ -301,6 +301,7 @@ type fakeOnbod struct {
 	listed    []Invite // canned ListInvites result
 	revoked   []string // tokens passed to RevokeInvite
 	onboarded []string // jids passed to InsertOnboarding
+	insertErr error    // forced InsertOnboarding failure (fail-loud tests)
 	gates     []GateRow
 	putCalls  []string // "gate=N"
 	rmCalls   []string
@@ -321,6 +322,9 @@ func (f *fakeOnbod) RevokeInvite(token string) error {
 	return nil
 }
 func (f *fakeOnbod) InsertOnboarding(jid string) error {
+	if f.insertErr != nil {
+		return f.insertErr
+	}
 	f.onboarded = append(f.onboarded, jid)
 	return nil
 }

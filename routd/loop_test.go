@@ -135,6 +135,64 @@ func TestRouteMissInsertsOnboarding(t *testing.T) {
 	})
 }
 
+// TestQueuePathRouteMissInsertsOnboarding drives the route miss through
+// processGroupMessages — the path ingest actually takes (handleMessages →
+// Enqueue → queue worker), which WINS the race against the pollOnce backstop.
+// The miss handler drifted into two copies and this one dropped onboarding:
+// every new chat's first message advanced the cursor silently and no admission
+// row ever appeared (krons 2026-07-12). Both paths now share routeMiss.
+func TestQueuePathRouteMissInsertsOnboarding(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	loop := NewLoop(db, nopRunner{}, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	fo := &fakeOnbod{}
+	loop.SetOnbodClient(fo)
+	_ = db.PutMessage(core.Message{ID: "q1", ChatJID: "telegram:user/7", Sender: "u",
+		Content: "hello?", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("telegram:user/7"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(fo.onboarded) != 1 || fo.onboarded[0] != "telegram:user/7" {
+		t.Fatalf("queue-path miss did not onboard: %v", fo.onboarded)
+	}
+	if db.GetAgentCursor("telegram:user/7") == "" {
+		t.Fatal("miss did not advance cursor")
+	}
+}
+
+// TestRouteMissOnboardingFailureSurfaces: an InsertOnboarding failure must not
+// be swallowed — the chat gets a notice (else the new user faces permanent
+// silence) and the cursor still advances (fail-forward, no poison replay).
+func TestRouteMissOnboardingFailureSurfaces(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	loop := NewLoop(db, nopRunner{}, LoopConfig{OnboardingEnabled: true})
+	loop.StopQueue()
+	loop.SetOnbodClient(&fakeOnbod{insertErr: context.DeadlineExceeded})
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutMessage(core.Message{ID: "q2", ChatJID: "telegram:user/8", Sender: "u",
+		Content: "hi", Timestamp: time.Now().UTC(), Verb: "message"})
+
+	if _, err := loop.processGroupMessages("telegram:user/8"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	if len(dl.sends) != 1 || dl.sends[0].text != onboardingFailedNotice {
+		t.Fatalf("onboarding failure not surfaced to chat: %+v", dl.sends)
+	}
+	if db.GetAgentCursor("telegram:user/8") == "" {
+		t.Fatal("onboarding failure blocked cursor advance")
+	}
+}
+
 // TestTransportFailureNoAdvance checks a transport failure leaves the
 // cursor un-advanced (re-fed next poll; spec 5/E § Transport failure).
 func TestTransportFailureNoAdvance(t *testing.T) {
