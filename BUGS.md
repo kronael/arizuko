@@ -1,5 +1,12 @@
 # BUGS.md — open issues queue
 
+> **Standing policy — every fix here adheres to WISDOM** (`~/.claude/CLAUDE.md`):
+> minimality (smallest change at the root cause), orthogonality (one concern per
+> fix, no parallel second path — amend the original), fail loud to the user on
+> user-facing paths, retry only transient errors, fix causes not symptoms.
+> Redesigns (new contract, changed cross-daemon control flow, auth-model or
+> schema changes) stay recorded as proposals and ship only after user sign-off.
+
 ## GB1 — Redesign: eliminate the "green but broken" class at the cause (2026-07-11, mostly ✅ SHIPPED)
 
 Cause fix for the silent-failure class. fable-reviewed + code-verified; signed
