@@ -61,9 +61,9 @@
         <strong>GitHub push &rarr; agent.</strong> A repo's webhook
         settings POST a push payload to <code>/hook/&lt;token&gt;</code>.
         The agent sees one inbound per push at <code>hook:&lt;folder&gt;/github</code>
-        with the body verbatim and the <code>X-GitHub-Event</code> header
-        intact. A skill on the agent side parses the payload, decides
-        whether to reply on Slack, file a sub-task, or stay silent.
+        with the body verbatim. A skill on the agent side parses the
+        payload, decides whether to reply on Slack, file a sub-task,
+        or stay silent.
       </p>
 
       <p>
@@ -78,8 +78,7 @@
       <p>
         <strong>Custom alert &rarr; agent.</strong> Grafana, Sentry,
         Healthchecks.io, or a cron job that POSTs JSON: anything that
-        speaks HTTP. The body is delivered to the agent verbatim and
-        the headers come with it.
+        speaks HTTP. The body is delivered to the agent verbatim.
       </p>
 
       <h2>issuing a webhook</h2>
@@ -132,20 +131,14 @@
       <pre><code>{
   "jid":     "hook:acme/eng/github",
   "sender":  "github",
-  "body":    "{\"ref\":\"refs/heads/main\",\"commits\":[...]}",
-  "headers": {
-    "x-github-event": "push",
-    "x-github-delivery": "...",
-    "x-hub-signature-256": "sha256=..."
-  }
+  "body":    "{\"ref\":\"refs/heads/main\",\"commits\":[...]}"
 }</code></pre>
 
       <p>
         The body is verbatim &mdash; whatever GitHub sent &mdash; up
-        to the 1 MiB cap. Headers come through lowercase-keyed. The
-        agent reads them via the inbound message shape; signature
-        validation (<code>X-Hub-Signature-256</code>) belongs to a
-        skill, not the platform.
+        to the 1 MiB cap. Request headers are not forwarded; the
+        token URL is the only authentication (see the
+        <a href="#security-model">security model</a>).
       </p>
 
       <p>webd returns a plain response to GitHub. The agent
@@ -212,11 +205,11 @@ arizuko token revoke hook:acme/eng/github</code></pre>
           any other JID. Keep sources separate.
         </li>
         <li>
-          <strong>Body signing is a skill.</strong> If the upstream
-          ships an HMAC header (GitHub <code>X-Hub-Signature-256</code>,
-          Stripe <code>Stripe-Signature</code>), validate it in a
-          skill on the agent side using the <code>headers</code>
-          map on the inbound. The platform never touches it.
+          <strong>No body signing.</strong> Upstream HMAC headers
+          (GitHub <code>X-Hub-Signature-256</code>, Stripe
+          <code>Stripe-Signature</code>) are dropped at ingest with
+          the rest of the request headers. The URL is the only
+          secret &mdash; treat it like a bearer token.
         </li>
       </ul>
 
@@ -251,7 +244,7 @@ arizuko token revoke hook:acme/eng/github</code></pre>
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/webhooks.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-05-28">2026-05-28</time>
+        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
       </div>
     </main>
 

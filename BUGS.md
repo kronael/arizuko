@@ -968,7 +968,10 @@ Product pages had the same claim removed; the howto page still carries it.
 
 - **Severity:** low (doc-only; misleads webhook integrators)
 - **Scope:** `template/web/pub/arizuko/howto/webhooks.html` vs `webd/route_token.go`
-- **Status:** OPEN — verify webd behavior, then fix the howto page
+- **Status:** fixed 2026-07-12 — verified `webd/route_token.go:handleHookIngest`
+  builds `InboundMsg{Content: body}` only (no headers field exists on the type);
+  removed all four headers-delivery claims from the howto page, security bullet
+  now states headers are dropped at ingest
 - **Found:** product-docs refine pass (fable), 2026-07-09
 
 ## `arizuko token issue chat|webhook` writes route_tokens to frozen messages.db (2026-07-11, open)
