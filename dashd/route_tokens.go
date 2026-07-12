@@ -62,12 +62,16 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 		}
 		if jid != "" {
 			raw := store.GenRouteToken()
+			var context any
+			if c := r.FormValue("context"); c != "" {
+				context = c
+			}
 			// Raw INSERT (not store.InsertRouteToken): routd.db has no audit_log
 			// table, so the audited writer would roll back. Same audit-free
 			// discipline as the secrets and grant rewires.
 			_, err := d.adminDB().Exec(
-				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at) VALUES (?, ?, ?, ?)`,
-				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano))
+				`INSERT INTO route_tokens (token_hash, jid, owner_folder, created_at, context) VALUES (?, ?, ?, ?, ?)`,
+				store.HashRouteToken(raw), jid, folder, time.Now().Format(time.RFC3339Nano), context)
 			if err != nil {
 				fmt.Fprint(w, htmlBanner("err", "insert error: "+err.Error()))
 			} else {
@@ -89,10 +93,11 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf(`<code>%s</code>`, esc(t.JID)),
 			esc(kind),
 			`<abbr title="` + esc(iso) + `">` + relativeTS(iso) + `</abbr>`,
+			esc(t.Context),
 			revoke,
 		})
 	}
-	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", ""}, tableRows,
+	fmt.Fprint(w, htmlTable([]string{"JID", "Kind", "Created", "Context", ""}, tableRows,
 		"No tokens. Issue a chat link or webhook token above."))
 
 	fmt.Fprint(w, htmlSection("Issue new token",
@@ -102,6 +107,8 @@ func (d *dash) handleTokensFolder(w http.ResponseWriter, r *http.Request) {
 				`<option value="hook">webhook</option>`+
 				`</select>`)+
 			htmlFormRow("Label (webhook only)", `<input name="label" type="text" placeholder="github">`)+
+			htmlFormRow("Context (optional)", `<textarea name="context" rows="2" `+
+				`placeholder="How the agent should handle this link's messages, e.g. bug reports; triage, don't chat"></textarea>`)+
 			`<p><button type="submit" class="btn btn-primary">Issue</button></p>`+
 			`</form>`))
 

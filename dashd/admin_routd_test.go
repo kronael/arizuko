@@ -35,7 +35,7 @@ CREATE TABLE routes (
   observe_window_messages INTEGER, observe_window_chars INTEGER);
 CREATE TABLE route_tokens (
   token_hash BLOB PRIMARY KEY, jid TEXT NOT NULL,
-  owner_folder TEXT NOT NULL, created_at TEXT NOT NULL);
+  owner_folder TEXT NOT NULL, created_at TEXT NOT NULL, context TEXT);
 CREATE TABLE scheduled_tasks (
   id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_jid TEXT NOT NULL,
   prompt TEXT NOT NULL, cron TEXT, next_run TEXT,
@@ -263,6 +263,22 @@ func TestRouteTokenIssue_TargetsRoutdDB(t *testing.T) {
 	}
 	if n := count(t, msg, `SELECT COUNT(*) FROM route_tokens`); n != 0 {
 		t.Errorf("messages.db route_token rows = %d, want 0", n)
+	}
+
+	// Context form field (spec 5/W § link context) lands on the row; the
+	// context-less mint above stored NULL.
+	form = url.Values{"kind": {"hook"}, "label": {"github"},
+		"context": {"push events; summarize"}}.Encode()
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, adminReq("POST", "/dash/tokens/team/", form, "alice@x"))
+	if w.Code != 200 {
+		t.Fatalf("POST tokens with context = %d body=%q", w.Code, w.Body.String())
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='hook:team/github' AND context='push events; summarize'`); n != 1 {
+		t.Errorf("context-bearing route_token rows = %d, want 1", n)
+	}
+	if n := count(t, routd, `SELECT COUNT(*) FROM route_tokens WHERE jid='web:team' AND context IS NULL`); n != 1 {
+		t.Errorf("context-less token should store NULL context")
 	}
 }
 
