@@ -23,11 +23,17 @@ type stubRunner struct {
 	srv      *Server
 	gotBatch string
 	gotTurn  string
+	busy     bool // when set, reject the run as busy (runed at capacity)
 }
 
 func (r *stubRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	r.gotBatch = req.MessageBatch
 	r.gotTurn = req.TurnID
+	if r.busy {
+		// runed did not admit (folder busy / at cap): a retryable reject, no
+		// callback, no submit_turn.
+		return runedv1.RunOutcome{Busy: true}, nil
+	}
 	// the agent's reply tool calls back into routd (the sole appender). The
 	// HTTP idem wrapper persists the returned row; calling appendAndDeliver
 	// directly, the stub must persist it itself.
@@ -108,6 +114,59 @@ func TestContractRoundTrip(t *testing.T) {
 	first, _ := db.RecordTurnResult("demo", "m1", "sess-stub", "success")
 	if first {
 		t.Fatal("duplicate submit_turn was recorded (want dropped)")
+	}
+}
+
+// TestBusyOutcomeRetriesWithoutAdvanceOrBreaker: when runed rejects a run as
+// busy (folder busy / at cap), routd must NOT advance the agent_cursor (so the
+// batch is re-fed next poll), NOT surface an error (so the queue breaker never
+// trips — busy ≠ failure), and leave turn_context 'running' (so the re-dispatch
+// is live). Once capacity frees, the SAME turn_id re-dispatches and completes.
+// Spec 5/E § routd↔runed interface — busy is retryable, not a route-miss and
+// not a delivery failure.
+func TestBusyOutcomeRetriesWithoutAdvanceOrBreaker(t *testing.T) {
+	db, srv, runner := newTestRoutd(t)
+	runner.busy = true
+	h := srv.Handler()
+
+	if err := db.PutGroup(core.Group{Folder: "demo"}); err != nil {
+		t.Fatalf("put group: %v", err)
+	}
+	doJSON(t, h, "PUT", "/v1/routes", "", map[string]any{"routes": []apiv1.Route{{Seq: 0, Match: "platform=slack", Target: "demo"}}})
+	in := apiv1.Message{ID: "m1", ChatJID: "slack:T/C/U", Sender: "u1", Content: "hi", Verb: "message"}
+	doJSON(t, h, "POST", "/v1/messages", "", in)
+
+	cursorBefore := db.GetAgentCursor("slack:T/C/U")
+
+	// (1) busy dispatch: no error (no breaker), no output, cursor un-advanced.
+	hadOutput, err := srv.loop.processGroupMessages("slack:T/C/U")
+	if err != nil {
+		t.Fatalf("busy surfaced as an error (would trip the queue breaker): %v", err)
+	}
+	if hadOutput {
+		t.Fatal("busy reported output; want false (nothing ran)")
+	}
+	if got := db.GetAgentCursor("slack:T/C/U"); got != cursorBefore {
+		t.Fatalf("cursor advanced on busy: %q != %q (batch dropped, not retried)", got, cursorBefore)
+	}
+	if tc, ok := db.GetTurnContext("m1"); !ok || tc.State != "running" {
+		t.Fatalf("turn_context state=%q ok=%v want running (re-dispatchable)", tc.State, ok)
+	}
+
+	// (2) capacity frees; the next poll re-feeds and the SAME turn completes.
+	runner.busy = false
+	hadOutput, err = srv.loop.processGroupMessages("slack:T/C/U")
+	if err != nil {
+		t.Fatalf("retry process: %v", err)
+	}
+	if !hadOutput {
+		t.Fatal("retry after busy produced no output; want the run to complete")
+	}
+	if runner.gotTurn != "m1" {
+		t.Fatalf("retry dispatched turn_id=%q want m1 (same batch re-fed)", runner.gotTurn)
+	}
+	if db.GetAgentCursor("slack:T/C/U") == cursorBefore {
+		t.Fatal("cursor did not advance after the successful retry")
 	}
 }
 
