@@ -1,5 +1,5 @@
 // Package resreg implements the uniform Resource registry from spec
-// 5/5-uniform-mcp-rest.md: one Handler per (Resource, Action), wrapped
+// 5/45-openapi-mcp.md: one Handler per (Resource, Action), wrapped
 // by two auto-adapters (REST + MCP) so any caller surface reaches the
 // same code. Resources using it: proxyd's runtime route table
 // (proxyd/resource.go), webd's operator-side MCP forwarder
