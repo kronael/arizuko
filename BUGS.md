@@ -339,7 +339,11 @@ bookkeeping writes that matter next turn.
 **REPORTED by sweep, NOT yet independently verified** (read before fixing):
 - `ipc/ipc.go:378-386` `writeJSON` — swallows `json.Marshal` error with bare
   `return`, no error frame → tool result vanishes, caller times out. (HIGH if
-  confirmed.)
+  confirmed.) **Verified + partially fixed 2026-07-13** — marshal failure now
+  `slog.Error` (same log-add shape as the two FIXED items above; no
+  control-flow change). Error-frame delivery stays open: writeJSON takes an
+  opaque `v`, so a proper JSON-RPC error frame needs the request id threaded
+  in — design, not a log-add.
 - `ipc/ipc.go:348-361` — peer-cred/UID mismatch on MCP accept only `Warn`; gates
   every tool call for the group. (MED)
 - `crackbox/pkg/admin/registry.go:84-107` `flushLocked` — `Warn`+return on

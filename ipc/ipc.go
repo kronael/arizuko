@@ -381,6 +381,10 @@ func serveConn(ctx context.Context, c net.Conn, srv *server.MCPServer, gated Gat
 		defer writeMu.Unlock()
 		b, err := json.Marshal(v)
 		if err != nil {
+			// No error frame is written (v carries the request id we'd need);
+			// the caller's request times out — at least make the cause loud.
+			slog.Error("mcp writeJSON marshal — response dropped, caller will time out",
+				"folder", folder, "err", err)
 			return
 		}
 		c.Write(append(b, '\n'))
