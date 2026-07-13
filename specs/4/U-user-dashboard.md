@@ -181,7 +181,7 @@ Cap-hit folders rendered red; near-cap (≥80%) amber.
 
 - spec 5/A — auth consolidation (route-as-auth, user-sub globs).
   `/me/orgs` rendering assumes `MatchingGroups` ships.
-- spec 5/32 — org-chart vocabulary (worlds = orgs).
+- spec 5/5 — org-chart vocabulary (worlds = orgs).
 - spec 6/R — `/v1/*` federation; `/me/*` should be a `/v1/*` client
   of gated/onbod where possible (parallel to dashd's migration
   table). Direct DB reads are acceptable initially.

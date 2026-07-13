@@ -1,6 +1,6 @@
 package routd
 
-// Single-source guard for the spec 5/44 + 5/45 fold: each folded routd resource
+// Single-source guard for the spec 5/16 + 5/17 fold: each folded routd resource
 // mounts the canonical resources.<X>Endpoints — the SAME slice the resreg
 // registry emits into /openapi.json — so the mounted REST faces, the derived
 // MCP tools, and the published doc can never drift. Reverting any of these to an

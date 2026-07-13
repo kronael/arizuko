@@ -16,7 +16,7 @@ import (
 // "shadow" columns for the raw DB representation and BeforeInsert /
 // AfterScan keep them in sync.
 //
-// Trade-off note (spec 5/36 §"What does NOT come for free"): JSON-
+// Trade-off note (spec 5/8 §"What does NOT come for free"): JSON-
 // blob columns force a hook. We keep the public field shape natural
 // (`[]string`, `bool`) and pay the conversion in two short hooks.
 type ProxydRoutesRow struct {

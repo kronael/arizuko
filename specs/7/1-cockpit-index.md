@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [5/45-openapi-mcp, 5/35-proxyd-standalone, 1-auth-standalone]
+depends: [5/17-openapi-mcp, 5/7-proxyd-standalone, 1-auth-standalone]
 supersedes: [10/18-daemon-dashboards]
 ---
 
@@ -43,7 +43,7 @@ Why strict, not hybrid: live process state (`runed` active runs,
 next-tick, `proxyd` denials, `crackbox` blocked egress) exists only in
 daemon memory — a DB snapshot can't see it, and two read paths to one
 consumer drift silently (CLAUDE.md "One renderer, many sinks").
-`specs/5/45` already establishes daemon ownership through `/v1`;
+`specs/5/17` already establishes daemon ownership through `/v1`;
 dashboards follow the same ownership line.
 
 Consequences:
@@ -59,12 +59,12 @@ Consequences:
   daemon-owned read endpoint (`/v1/<thing>/status`). Each per-daemon
   spec lists the `/v1` additions it requires under "Required API work".
 - No new "dashboard API" separate from `/v1`. The HTML page is a third
-  face on the same handler set (`specs/5/45`), not a fourth surface.
+  face on the same handler set (`specs/5/17`), not a fourth surface.
 
 ## Routing
 
 proxyd carries one route per daemon dashboard, registered statically
-(no autodiscovery), per `specs/5/35-proxyd-standalone.md`:
+(no autodiscovery), per `specs/5/7-proxyd-standalone.md`:
 
 ```
 /dash/            -> dashd:8080         (hub + cross-cutting pages)
@@ -208,7 +208,7 @@ beyond "use theme" — point back to this spec.
   writes.
 - `chanreg/health.go` — canonical adapter liveness semantics (`7/11`).
 - existing `GET /health` + `GET /openapi.json` on every daemon.
-- existing `/v1` handlers (`specs/5/45`).
+- existing `/v1` handlers (`specs/5/17`).
 
 ## Code pointers
 
@@ -220,7 +220,7 @@ beyond "use theme" — point back to this spec.
 - [`auth/middleware.go`](../../auth/middleware.go) — `ProxydTransit`
   (service-bearer transit proof; gate the daemon-side dash check on it).
 - [`chanreg/health.go`](../../chanreg/health.go) — adapter health.
-- [`specs/5/45-openapi-mcp.md`](../5/45-openapi-mcp.md) — the
+- [`specs/5/17-openapi-mcp.md`](../5/17-openapi-mcp.md) — the
   HTML page is a third face on the same `/v1` handler set.
-- [`specs/5/35-proxyd-standalone.md`](../5/35-proxyd-standalone.md) —
+- [`specs/5/7-proxyd-standalone.md`](../5/7-proxyd-standalone.md) —
   `[[proxyd_route]]` registration in the service TOML.

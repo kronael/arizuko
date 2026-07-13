@@ -35,7 +35,7 @@ lands, those reads migrate to routd's `GET /v1/messages`. Per-world hostnames
 are derived by proxyd (`<world>.<HOSTING_DOMAIN>` → `/pub/<world>/`), not
 stored (`specs/5/V-web-vhosts.md`); webd has no vhost config.
 
-Planned per `specs/5/45-openapi-mcp.md`: `web_routes` table for owned
+Planned per `specs/5/17-openapi-mcp.md`: `web_routes` table for owned
 web-specific routing config (future).
 
 ## Surface
@@ -67,7 +67,7 @@ Shipped today (see `server.go`):
 - `GET /static/*`, `GET /assets/*` — embedded static assets (permissive CORS on `/assets/*`).
 - `GET /health`.
 
-Planned per `specs/5/45-openapi-mcp.md`:
+Planned per `specs/5/17-openapi-mcp.md`:
 
 - `/v1/web-routes` — REST verbs on owned tables.
 
@@ -140,7 +140,7 @@ delivered messages.
 
 ## Related docs
 
-- `specs/5/45-openapi-mcp.md` — federated `/v1/*` contract (supersedes 5/5)
+- `specs/5/17-openapi-mcp.md` — federated `/v1/*` contract (supersedes 5/5)
 - `specs/5/J-sse.md` — SSE streams + slink-MCP transport
 - `specs/4/3-chat-ui.md`
 - `ARCHITECTURE.md` (Web Channel section)

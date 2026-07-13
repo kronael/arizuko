@@ -230,7 +230,7 @@ type StoreFns struct {
 	// subprocess env AND scrubs those values from the result. Nil → no
 	// injection (the connector sees the placeholders literally), matching the
 	// pre-injection behaviour. Spec 7/Y. A non-nil error is a surrogate-OAuth
-	// "reconnect" signal (spec 5/43): a required credential's refresh_token was
+	// "reconnect" signal (spec 5/15): a required credential's refresh_token was
 	// revoked; the handler returns it to the agent as the tool result.
 	ResolveConnectorSecrets func(folder string, required []string) (map[string]string, error)
 
@@ -307,7 +307,7 @@ const maxMCPConns = 8
 // starts. It is the layering seam for resreg-driven tool registration:
 // ipc must not import store/resreg, so routd (which imports both) passes
 // a closure that calls resreg.MCPTools to mount cold-tier management
-// tools (spec 5/44 web_routes pilot). Empty in every non-routd caller.
+// tools (spec 5/16 web_routes pilot). Empty in every non-routd caller.
 func ServeMCP(sockPath string, gated GatedFns, db StoreFns, folder string, rules []string, expectedUID int, callerSub string, postBuild ...func(*server.MCPServer)) (func(), error) {
 	os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
@@ -1766,7 +1766,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"injected": true, "id": mid})
 		})
 
-	// register_group + refresh_groups moved to the groups resreg seam (spec 5/44,
+	// register_group + refresh_groups moved to the groups resreg seam (spec 5/16,
 	// the last agent-face fold): routd owns the shared handler and mounts them on
 	// this server via the ServeMCP postBuild seam. register_group is a FORWARDER
 	// (its group-row + route + git-init FS side-effects via s.registerGroup can't
@@ -1859,10 +1859,10 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 		})
 
 	// add_route/set_routes/list_routes/delete_route moved to the routes resreg
-	// seam (spec 5/44); inspect_routing (inspect.go) still reads db.ListRoutes.
+	// seam (spec 5/16); inspect_routing (inspect.go) still reads db.ListRoutes.
 
 	// list_acl / add_acl / remove_acl are no longer hand-rolled here. They ride
-	// resreg's two-face mechanism (spec 5/44): routd owns the shared handler +
+	// resreg's two-face mechanism (spec 5/16): routd owns the shared handler +
 	// tx/audit and mounts them on this server via the ServeMCP postBuild seam,
 	// with the agent's tier-aware Gate (scope-containment) + MatchingRules
 	// visibility (list_acl stays tier 0-1) injected. See routd/acl_resource.go.
@@ -1982,7 +1982,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 	// the former list_acl site above).
 
 	// issue_chat_link / issue_webhook / list_tokens / revoke_token migrated to
-	// routd/route_tokens_resource.go (spec 5/44, agent-MCP fold). Their mint tier
+	// routd/route_tokens_resource.go (spec 5/16, agent-MCP fold). Their mint tier
 	// cap + owner-scoped revoke ride the resreg postBuild seam now.
 
 	if db.MessagesBefore != nil {
@@ -2224,7 +2224,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 
 	// web_routes management tools (set_web_route/del_web_route/list_web_routes)
 	// are no longer hand-rolled here. They ride resreg's two-face mechanism
-	// (spec 5/44 pilot): routd owns the shared handler + tx/audit and mounts
+	// (spec 5/16 pilot): routd owns the shared handler + tx/audit and mounts
 	// them on this server via the ServeMCP postBuild seam, with the agent's
 	// tier-aware Gate + MatchingRules visibility injected. get_web_presence
 	// stays hand-authored — it is a read-only presence report, not web_routes

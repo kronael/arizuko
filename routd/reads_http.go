@@ -297,7 +297,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCostGet is the read twin of the cost surface: one turn's spend summed
-// across models. Closes spec 5/37's honest gap (a) — before this, cost was
+// across models. Closes spec 5/9's honest gap (a) — before this, cost was
 // write-only over REST, so external budget checks (anteval max_tokens) read 0.
 func (s *Server) handleCostGet(w http.ResponseWriter, r *http.Request) {
 	_, tokenFolder, ok := s.authz(w, r, scopeCostRead...)

@@ -252,14 +252,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/users/{sub}/scopes", s.handleUserScopes)
 	s.mountACL(mux)
 	// /v1/secrets write surface (POST set/seal + key-DELETE) rides the shared
-	// secretsHandler via resreg — the 5/44 REST fold (secrets_resource.go). Forwarder
+	// secretsHandler via resreg — the 5/16 REST fold (secrets_resource.go). Forwarder
 	// (no resreg tx/audit) so the plaintext value never lands in audit_log; the
 	// existing sealing, audited s.db.SetSecret/DeleteSecret own the write. NO read
 	// twin — a sealed value must never appear in any read surface.
 	s.mountSecrets(mux)
 	mux.HandleFunc("POST /v1/pane", s.handlePaneSet)
 	// /v1/tasks CRUD (list/get/patch/delete) rides the shared scheduled_tasks
-	// handler via resreg — the 5/44 REST fold (mountTasks, tasks_http.go). The
+	// handler via resreg — the 5/16 REST fold (mountTasks, tasks_http.go). The
 	// fire-loop control plane (due/runlog/reschedule) + run-log readers stay
 	// hand-rolled: they serve timed, not resource CRUD.
 	s.mountTasks(mux)

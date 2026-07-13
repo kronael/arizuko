@@ -1,6 +1,6 @@
 package routd
 
-// routes_resource.go is the spec 5/44 step after web_routes + network_rules +
+// routes_resource.go is the spec 5/16 step after web_routes + network_rules +
 // scheduled_tasks: the agent's message-routing tools (add_route/set_routes/
 // list_routes/delete_route) ride ONE resreg.Resource instead of four hand-rolled
 // ipc/ipc.go tool bodies. Routing is security-critical — a route's TARGET folder
@@ -33,7 +33,7 @@ package routd
 // Both faces ride this one resource: the agent's MCP tools via routesPostBuild,
 // and the operator REST face (/v1/routes) via routes_http.go's mountRoutes, which
 // mounts the SAME Endpoints on a copy with a REST caller + gate injected
-// (routes:read/write scope + ownsFolder containment) — the spec 5/44 REST-face
+// (routes:read/write scope + ownsFolder containment) — the spec 5/16 REST-face
 // fold. All REST-only policy lives in routes_http.go; the handler stays surface-
 // agnostic EXCEPT list, which the agent needs whole-table (cross-folder shadow
 // analysis) while the operator needs subtree-scoped — the one x.Surface branch below.

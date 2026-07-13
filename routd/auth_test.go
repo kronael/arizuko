@@ -81,7 +81,7 @@ func TestTurnCallbackWrongFolder(t *testing.T) {
 	}
 }
 
-// TestRouteWriteRequiresScope: the /v1/routes REST fold (spec 5/44) — POST add now
+// TestRouteWriteRequiresScope: the /v1/routes REST fold (spec 5/16) — POST add now
 // wraps the route arg the shared handler reads (`{"route": ...}`). CRUD demands
 // routes:write (the REST gate's scope check → 403), and a write-scoped token bound
 // to a folder cannot target a route outside its subtree (the gate's ownsFolder — the

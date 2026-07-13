@@ -6,9 +6,9 @@ one typed `Resource` literal + `RowType` struct. resreg owns the
 handler, its tx + audit, argument derivation, and MCP tool-spec
 generation — plus one INJECTED authz `Gate` per surface. It decides no
 auth policy of its own: it is not a second authz server. Spec:
-[`specs/5/45-openapi-mcp.md`](../specs/5/45-openapi-mcp.md) (the canonical
+[`specs/5/17-openapi-mcp.md`](../specs/5/17-openapi-mcp.md) (the canonical
 unified handler model — REST authored, MCP derived) and
-[`specs/5/36-yaml-manifests.md`](../specs/5/36-yaml-manifests.md) (the
+[`specs/5/8-yaml-manifests.md`](../specs/5/8-yaml-manifests.md) (the
 reflective engine + manifests).
 
 ## Reflective engine (shipped)
@@ -53,10 +53,10 @@ and excluded from the `config_version` count per spec.
   tier-aware `Gate` injected, and — where a REST twin exists (`routes`,
   `web_routes`, `scheduled_tasks` as `/v1/tasks`, `acl`) — the same
   handler on the operator REST face with a scope/folder `Gate`. This is
-  the spec 5/44 fold. The hot-tier tools (`reply`/`send`/`inspect_*`)
+  the spec 5/16 fold. The hot-tier tools (`reply`/`send`/`inspect_*`)
   stay hand-authored in `ipc/ipc.go` — no REST twin.
 
-Spec: [`specs/5/44-mcp-rest-unification.md`](../specs/5/44-mcp-rest-unification.md).
+Spec: [`specs/5/16-mcp-rest-unification.md`](../specs/5/16-mcp-rest-unification.md).
 
 ## OpenAPI emission
 

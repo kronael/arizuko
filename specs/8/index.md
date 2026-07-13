@@ -15,7 +15,7 @@ buyers and enterprise security reviews:
 - **Enterprise SSO** — SAML 2.0 SP-initiated + OIDC Authorization
   Code; JIT provisioning + SCIM deprovisioning (`X`)
 - **External capability injection** — secrets-injected MCP tools,
-  connector spawner, grants-governed; see `specs/5/41-ext-mcp.md`
+  connector spawner, grants-governed; see `specs/5/13-ext-mcp.md`
 - **MITM-isolated egress** — HTTPS termination on egred, `$VAR`
   placeholder swap, per-instance CA; catches opaque HTTP clients
   the broker can't (`Z`)

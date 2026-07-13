@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/45-openapi-mcp.md, specs/9/2-data-model.md
+depends: specs/5/17-openapi-mcp.md, specs/9/2-data-model.md
 ---
 
 # specs/9/3 — git as the source of truth
@@ -168,9 +168,9 @@ history). Operator vault → in-host SQLite is the trust boundary;
 git crosses it for config, never for secrets.
 
 Rotation, BYOA layering, per-call audit — all stay in
-`store/secrets.go`, in **Phase C of `specs/5/32-tenant-self-service.md`**
+`store/secrets.go`, in **Phase C of `specs/5/5-tenant-self-service.md`**
 (folder/user-scope secrets layering), and in
-`specs/5/41-ext-mcp.md` (tool-level audit edge). No
+`specs/5/13-ext-mcp.md` (tool-level audit edge). No
 phase-7 work here.
 
 ## Federation topology

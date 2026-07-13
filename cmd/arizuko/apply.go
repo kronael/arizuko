@@ -1,6 +1,6 @@
 package main
 
-// Spec 5/36: `arizuko apply` + `arizuko export` orchestrator.
+// Spec 5/8: `arizuko apply` + `arizuko export` orchestrator.
 //
 // Implementation choices:
 //
@@ -63,12 +63,12 @@ func cmdApply(args []string) {
 		die("Failed: read config_version: %v", err)
 	}
 	// Plan first (non-mutating) so the operator sees the delta the apply
-	// commits — spec 5/36 §"Apply lifecycle" step 5 (print plan + ok).
+	// commits — spec 5/8 §"Apply lifecycle" step 5 (print plan + ok).
 	if deltas, perr := resreg.Plan(st.DB(), manifest); perr == nil {
 		printPlan(deltas)
 	}
 	// Apply writes its own single audit_log summary row in-tx (actor +
-	// manifest digest + per-resource counts + final version), spec 5/36
+	// manifest digest + per-resource counts + final version), spec 5/8
 	// §"CAS implementation" (3). No separate auditCLI — one row per apply.
 	digest := sha256.Sum256(data)
 	opts := &resreg.ApplyOpts{Actor: os.Getenv("USER"), ManifestDigest: hex.EncodeToString(digest[:])}
@@ -114,7 +114,7 @@ func cmdExport(args []string) {
 	os.Stdout.Write(out)
 }
 
-// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/36
+// cmdPlan: non-mutating diff of a manifest vs live DB (spec 5/8
 // §"Apply lifecycle" step 3). Parses + validates, prints the per-resource
 // add/update/unchanged/remove delta, never opens a write tx.
 func cmdPlan(args []string) {
@@ -157,7 +157,7 @@ func cmdPlan(args []string) {
 // printPlan renders the plan delta in catalog order. Changed resources
 // list the add/update/remove PK strings. SkipApplyRebuild resources
 // (secrets) never mutate via apply, so they print as informational
-// "set/unset" — never actionable +/~/- deltas (spec 5/36 §"Secret
+// "set/unset" — never actionable +/~/- deltas (spec 5/8 §"Secret
 // safety": plan must agree with apply, which skips them).
 func printPlan(deltas []resreg.ResourceDelta) {
 	any := false
@@ -189,7 +189,7 @@ func printPlan(deltas []resreg.ResourceDelta) {
 	}
 }
 
-// cmdGet: emit a live-DB manifest fragment for one resource (spec 5/36
+// cmdGet: emit a live-DB manifest fragment for one resource (spec 5/8
 // §"arizuko get round-trip"). The fragment re-applies to a no-op — same
 // shape `apply` accepts. Secret rows emit metadata only (the engine's
 // SELECT omits the enc_value blob, which isn't in SecretsRow).

@@ -46,7 +46,7 @@ type Config struct {
 	GoogleAllowedEmails string
 	GitHubAllowedOrg    string
 
-	// Surrogate OAuth (spec 5/43): operator-owned confidential-client creds for
+	// Surrogate OAuth (spec 5/15): operator-owned confidential-client creds for
 	// the outbound "Connect GitHub" dance. Distinct from GitHubClientID/Secret,
 	// which authenticate a USER TO arizuko (login); these authenticate arizuko
 	// AS the user to the GitHub API. Empty → the dance can't run (no creds).

@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-05-18
-depends: [Q-unified-routing, S-jid-format, 45-openapi-mcp, ../4/9-acl-unified]
+depends: [Q-unified-routing, S-jid-format, 17-openapi-mcp, ../4/9-acl-unified]
 supersedes: [specs/1/W-slink.md]
 ---
 
@@ -214,7 +214,7 @@ tag.
 
 ## MCP + REST surface
 
-Per `5/45-openapi-mcp.md`: every action is one hand-written
+Per `5/17-openapi-mcp.md`: every action is one hand-written
 handler with two faces — MCP for the agent, REST for operators (dashd,
 CLI). Sharp tool names per `mcp_tool_naming`:
 

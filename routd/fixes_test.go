@@ -315,7 +315,7 @@ func TestRunErrorMarksAndNotifies(t *testing.T) {
 }
 
 // TestTurnRetry_SchedulesRetryOnError verifies that a failed turn without a
-// reply schedules a retry (spec 5/40).
+// reply schedules a retry (spec 5/12).
 func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -353,7 +353,7 @@ func TestTurnRetry_SchedulesRetryOnError(t *testing.T) {
 }
 
 // TestTurnRetry_ExhaustsAndNotifies verifies that after maxTurnRetry failures
-// without a reply, the user gets the exhausted notice (spec 5/40).
+// without a reply, the user gets the exhausted notice (spec 5/12).
 func TestTurnRetry_ExhaustsAndNotifies(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {

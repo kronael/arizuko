@@ -12,7 +12,7 @@ an ACL row-grant gate (`Authorize`), (4) **the canonical platform-token
 format** — authd signs, every backend verifies through this library. No
 daemon implements its own JWT format.
 
-## Platform token (per `specs/5/45-openapi-mcp.md`, `specs/5/1`)
+## Platform token (per `specs/5/17-openapi-mcp.md`, `specs/5/1`)
 
 ES256 signed JWT for all federated `/v1/*` calls and agent capability
 tokens. authd is the **sole signer**; backends only verify against the
@@ -112,12 +112,12 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 - `middleware.go` — `ProxydTransit` (proxyd bearer transit proof)
 - `web.go` — `HashToken` + `safeReturn`/`jsSafe` (token/url helpers)
 - `oauth.go` — provider exchange/userinfo + state/PKCE wrappers (authd owns the routes)
-- `surrogate/` — outbound `Connect <provider>` OAuth (spec 5/43): arizuko acts AS the user against a third-party API, writing the token into the user-scoped `secrets` row
+- `surrogate/` — outbound `Connect <provider>` OAuth (spec 5/15): arizuko acts AS the user against a third-party API, writing the token into the user-scoped `secrets` row
 
 ## Related docs
 
 - `ARCHITECTURE.md` (Auth Hardening)
 - `specs/4/9-acl-unified.md` — canonical ACL
-- `specs/5/45-openapi-mcp.md` — full token contract; auth/ is the
+- `specs/5/17-openapi-mcp.md` — full token contract; auth/ is the
   single source of truth for the JWT shape every federated daemon
   consumes

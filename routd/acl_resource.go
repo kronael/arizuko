@@ -1,9 +1,9 @@
 package routd
 
-// acl_resource.go — 5/44 agent-face migration of the acl tools
+// acl_resource.go — 5/16 agent-face migration of the acl tools
 // (add_acl/remove_acl/list_acl) onto one resreg.Resource + the injected Gate.
 // resreg owns handler dispatch + the mutation's tx + its audit_log row; routd
-// owns the auth POLICY (spec 5/44). Three semantics the shared handler preserves:
+// owns the auth POLICY (spec 5/16). Three semantics the shared handler preserves:
 //
 //   - scope-containment (the stricter MCP gate): a caller may only grant/revoke
 //     within its own authority — the Gate runs auth.AuthorizeStructural on the
@@ -67,7 +67,7 @@ func (s *Server) aclResource() resreg.Resource {
 }
 
 // mountACL wires the /v1/acl operator/human REST face onto the SAME shared
-// aclHandler the agent's add_acl/remove_acl MCP tools use (spec 5/44 REST fold).
+// aclHandler the agent's add_acl/remove_acl MCP tools use (spec 5/16 REST fold).
 // Only POST(add) + DELETE(remove) are REST-exposed — list_acl stays agent-only
 // (no REST twin). The injected aclRESTGate re-runs the MCP scope-containment, so
 // a REST caller can only grant/revoke within its own authority.

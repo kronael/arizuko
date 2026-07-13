@@ -37,7 +37,7 @@ type DB struct {
 	secretKeyring [][]byte
 
 	// surrogate refreshes near-expiry OAuth secret rows at broker call time
-	// (spec 5/43). nil → no refresh (PAT-only path); ConnectorSecrets then reads
+	// (spec 5/15). nil → no refresh (PAT-only path); ConnectorSecrets then reads
 	// the stored value unchanged. Wired in routd main from auth/surrogate.
 	surrogate *surrogate.Engine
 }

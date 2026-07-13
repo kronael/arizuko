@@ -38,7 +38,7 @@
     <p>Allowlist resolution walks the folder ancestry and dedupes (<a href="https://github.com/kronael/arizuko/blob/main/store/network.go"><code>store/network.go</code> <code>ResolveAllowlist</code></a>). The proxy itself, packaging, and CLI live in the <a href="../components/crackbox.html">crackbox component page</a>; the same daemon ships standalone for non-arizuko uses (CI scripts, vendor binaries).</p>
 
     <h2>3. Secrets never enter the container</h2>
-    <p>Three credential types live in the <code>secrets</code> table, each with its own rule (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/42-credential-model.md"><code>specs/5/42-credential-model.md</code></a>):</p>
+    <p>Three credential types live in the <code>secrets</code> table, each with its own rule (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/14-credential-model.md"><code>specs/5/14-credential-model.md</code></a>):</p>
     <ul>
       <li><strong>Env-profile keys</strong> &mdash; the model credentials (<code>ANTHROPIC_API_KEY</code>, <code>CLAUDE_CODE_OAUTH_TOKEN</code>, <code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>). User-scoped only; the store rejects them at folder scope. A user sets their own at <code>/dash/me/env</code>, and their key overrides the operator default for their spawns.</li>
       <li><strong>Capability credentials</strong> &mdash; per-service tokens like <code>GITHUB_TOKEN</code>, set at <code>/dash/me/secrets</code> (user scope) or by the operator at folder scope. Grant-gated. When a REST or MCP connector call needs one, the broker resolves the triggering user's value on the host at call time; the token never enters the container.</li>
@@ -66,7 +66,7 @@ X-User-Name:   Alice
 X-User-Groups: solo/inbox,corp/eng/sre
 Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
     <p>The bearer is an <code>authd</code>-minted ES256 token whose subject is pinned to <code>service:proxyd</code>. Every backend verifies it via <code>auth/middleware.go</code> &mdash; <code>ProxydTransit</code> checks the signature, expiry, issuer, and that subject pin against <code>authd</code>'s public JWKS. Only on that proof does a backend trust the stamped <code>X-User-*</code> headers. There is no per-request HMAC signature; the transit bearer is what makes a request a genuine &ldquo;came through proxyd&rdquo; call. Without the subject pin, any holder of a valid <code>authd</code> token reaching a backend directly could forge <code>X-User-*</code> and be treated as that user &mdash; covered in <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code> &sect; Identity header trust</a>.</p>
-    <p>One OAuth login covers GitHub, Google, Discord, and Telegram &mdash; account linking unifies them under one <code>auth_users.sub</code>. Per-route auth modes (<code>public</code> / <code>user</code> / <code>operator</code>) are declared per-daemon in service config and aggregated into <code>PROXYD_ROUTES_JSON</code> at compose generation (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/35-proxyd-standalone.md"><code>specs/5/35-proxyd-standalone.md</code></a>). Public paths today: <code>/pub/*</code>, <code>/health</code>, <code>/chat/*</code> and <code>/hook/*</code> (route-token bearer, per-token rate bucket).</p>
+    <p>One OAuth login covers GitHub, Google, Discord, and Telegram &mdash; account linking unifies them under one <code>auth_users.sub</code>. Per-route auth modes (<code>public</code> / <code>user</code> / <code>operator</code>) are declared per-daemon in service config and aggregated into <code>PROXYD_ROUTES_JSON</code> at compose generation (<a href="https://github.com/kronael/arizuko/blob/main/specs/5/7-proxyd-standalone.md"><code>specs/5/7-proxyd-standalone.md</code></a>). Public paths today: <code>/pub/*</code>, <code>/health</code>, <code>/chat/*</code> and <code>/hook/*</code> (route-token bearer, per-token rate bucket).</p>
     <p>Adapter ingress is a separate trust boundary &mdash; channel adapters reach <code>routd</code> over the internal docker network only, authenticated by <code>Authorization: Bearer $CHANNEL_SECRET</code> (<a href="https://github.com/kronael/arizuko/blob/main/chanlib/chanlib.go"><code>chanlib/chanlib.go</code></a>). proxyd does not see channel traffic; channels do not see web traffic.</p>
 
     <h2>6. Configuration surface &mdash; REST + MCP</h2>
@@ -94,11 +94,11 @@ Authorization: Bearer &lt;ES256 service:proxyd token&gt;</code></pre>
       <li><a href="../components/crackbox.html">crackbox</a> &mdash; sandbox internals, standalone usage, threat model for the proxy itself</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md"><code>SECURITY.md</code></a> &mdash; full trust model, boundary table, identity-header signing, trust-zone diagram, incident log</li>
       <li><a href="https://github.com/kronael/arizuko/tree/main/specs/9"><code>specs/9/</code></a> &mdash; security spec bucket: standalone crackbox (9), arizuko integration (10), tool-level secret broker (11), sandboxing options (12), DNS filter (15)</li>
-      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/35-proxyd-standalone.md"><code>specs/5/35-proxyd-standalone.md</code></a> &mdash; per-route auth modes, federated platform API</li>
+      <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/7-proxyd-standalone.md"><code>specs/5/7-proxyd-standalone.md</code></a> &mdash; per-route auth modes, federated platform API</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/specs/5/1-auth-standalone.md"><code>specs/5/1-auth-standalone.md</code></a> &mdash; auth as a library: mint, verify, downscope, MCP tool surface</li>
       <li><a href="https://github.com/kronael/arizuko/blob/main/ipc/SECURITY.md"><code>ipc/SECURITY.md</code></a> &mdash; MCP unix socket, <code>SO_PEERCRED</code> peer-uid check, per-group mount isolation</li>
     </ul>
-    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time></p>
+    <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-01">2026-07-01</time></p>
   </div>
   <button class="theme-toggle">&#127769;</button>
   <script src="../assets/hub.js"></script>

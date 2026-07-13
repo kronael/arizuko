@@ -26,9 +26,9 @@ Each of the three actions is independently shippable. Together they
 are the platform thesis. Out of order they don't compose. Pre-ordered:
 
 1. **MCP+REST unification** — **pulled to active phase 5 as
-   [`5/44-mcp-rest-unification.md`](../5/44-mcp-rest-unification.md)**
+   [`5/16-mcp-rest-unification.md`](../5/16-mcp-rest-unification.md)**
    (it's in flight now, not a future phase-8 item). Finish what
-   `specs/5/45-openapi-mcp.md` started: one hand-rolled handler per
+   `specs/5/17-openapi-mcp.md` started: one hand-rolled handler per
    resource, both protocols, identical scopes + auth gate. Without this,
    the operator + agent surfaces drift and the "git as truth" reconcile
    loop has two masters to chase.
@@ -72,7 +72,7 @@ are the platform thesis. Out of order they don't compose. Pre-ordered:
 - Not Kubernetes / multi-node. Single-host operator footprint stays.
 - Not a product registry (that's `specs/7/...` / future-phase 6 work).
 - ~~Not the `agents.toml` declarative composer~~ — resolved
-  in [5/36-yaml-manifests.md](../5/36-yaml-manifests.md): the carrier
+  in [5/8-yaml-manifests.md](../5/8-yaml-manifests.md): the carrier
   format is YAML, not TOML, and lives in this phase. Product
   composition / mixin semantics remain open (8/4 Q2).
 
@@ -83,7 +83,7 @@ surface). Actions 1+2 unblock Action 3 (clean entities + clean
 surface = clean git serialization). Within each action, ship the
 smallest viable version first; iterate behind that surface.
 
-Hard dependency on **Phase C of `specs/5/32-tenant-self-service.md`**
+Hard dependency on **Phase C of `specs/5/5-tenant-self-service.md`**
 (folder/user-scope secrets layering) — the BYOA primitive. Without
 secrets-as-references-resolvable-at-spawn, Action 3 can't ship
 safely.
@@ -91,7 +91,7 @@ safely.
 Also composes with phase 7 hardening: `specs/8/F-audit-stream.md`
 (audit log for warm tier), `specs/8/E-encryption-at-rest.md`
 (secrets stay encrypted in SQLite, never leak into git),
-`specs/5/41-ext-mcp.md` (per-call audit at the secret edge),
+`specs/5/13-ext-mcp.md` (per-call audit at the secret edge),
 `specs/8/H-per-daemon-secrets.md` (adapter-side compartments).
 
 ## Specs in this phase
@@ -105,7 +105,7 @@ Also composes with phase 7 hardening: `specs/8/F-audit-stream.md`
   — open questions: how ingestion, curation, and eventing fit the
   agent-is-data + git-as-truth thesis. Status: draft (open questions;
   no mechanism proposed).
-- [5/36-yaml-manifests.md](../5/36-yaml-manifests.md) — declarative YAML
+- [5/8-yaml-manifests.md](../5/8-yaml-manifests.md) — declarative YAML
   carrier for cold-tier intent; flat resource namespace dispatched
   through resreg; supersedes the `agents.toml` placeholder in
   3/4. Status: shipped.
@@ -119,7 +119,7 @@ Also composes with phase 7 hardening: `specs/8/F-audit-stream.md`
   resource (REST+MCP+YAML+OpenAPI) layered over the five hardcoded
   builtins. Two bounded kinds — `template` (pure, zero-I/O over
   `AutocallCtx`) and `query` (one budgeted, folder-scoped indexed read
-  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/31's
+  via a whitelisted probe, fail-open-to-omitted). Generalizes 5/4's
   planned `unread`/`errors` entries; "agent is data" applied to what
   the agent passively sees. Status: draft.
 

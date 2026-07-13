@@ -1,4 +1,4 @@
--- Spec 5/36: config_version table for optimistic locking on YAML apply.
+-- Spec 5/8: config_version table for optimistic locking on YAML apply.
 --
 -- Single-row table. Apply bumps it once per tx; CAS comparison happens
 -- inside BEGIN IMMEDIATE. Bootstrap value counts existing config rows

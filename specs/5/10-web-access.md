@@ -92,7 +92,7 @@ ACL table that gates everything else. Revoke = drop the grant.
 
 - **One gate, more sinks.** `Authorize` already decides folder access
   for chat/MCP/REST; web `/priv` becomes the fourth sink of the same
-  decision, not a parallel mechanism. (`5/45` "MCP + REST hand-rolled and
+  decision, not a parallel mechanism. (`5/17` "MCP + REST hand-rolled and
   uniform" extended to the web read path.)
 - **No new config surface.** No mount table, no per-path ACL file, no
   "web access" DSL. The grant DSL (`4/9`) already expresses it.

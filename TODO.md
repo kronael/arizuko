@@ -5,15 +5,15 @@ for shipped milestones.
 
 ## Now
 
-- **Deploy pending** — Phase B+D of 5/32 (invites + chats.is_group),
+- **Deploy pending** — Phase B+D of 5/5 (invites + chats.is_group),
   cli-chat, doc refresh, web UI gaps, and the verb-taxonomy work all
   sit on detached HEAD. krons is the test target; `sudo make images
 && sudo systemctl restart arizuko_krons`. Marinade only on explicit
   request.
-- **Phase C of 5/32** (secrets resolver) — Phase B (invites) and
+- **Phase C of 5/5** (secrets resolver) — Phase B (invites) and
   Phase D (chats.is_group) shipped. C reads `chats.is_group` and
   layers folder/user-scope secrets at container spawn. Spec at
-  `specs/5/32-tenant-self-service.md`.
+  `specs/5/5-tenant-self-service.md`.
 - **`/pub/arizuko/` 13-post series** — specced in
   `content/spec.md`, voice in `content/meta/voice.md`. Long-form
   content authorship; separate session.

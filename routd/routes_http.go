@@ -54,7 +54,7 @@ func toWireRoute(r core.Route) apiv1.Route {
 }
 
 // mountRoutes wires the /v1/routes operator REST face onto the SAME routesResource
-// handler the agent's four routing tools use (spec 5/44 fold): add/set/list/delete
+// handler the agent's four routing tools use (spec 5/16 fold): add/set/list/delete
 // ride resreg.RegisterREST with a REST caller + gate injected; get-one stays a thin
 // read (handleRouteGet — no agent twin, its own folder scoping).
 func (s *Server) mountRoutes(mux *http.ServeMux) {

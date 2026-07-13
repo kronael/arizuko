@@ -103,4 +103,4 @@ Typical deploy reaches dashd through `proxyd` at `/dash/`.
 
 ## Future work
 
-Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/45-openapi-mcp.md`, rolled out by `specs/5/44-mcp-rest-unification.md`). Read scoping already implemented.
+Migration of direct DB reads to `routd/v1/*` REST surface once that lands (`specs/5/17-openapi-mcp.md`, rolled out by `specs/5/16-mcp-rest-unification.md`). Read scoping already implemented.

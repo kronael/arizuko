@@ -81,10 +81,10 @@ func main() {
 		"user-secret":   cmdUserSecret,
 		"budget":        cmdBudget,
 		"token":         cmdToken,
-		"apply":         cmdApply,  // spec 5/36
-		"plan":          cmdPlan,   // spec 5/36
-		"get":           cmdGet,    // spec 5/36
-		"export":        cmdExport, // spec 5/36
+		"apply":         cmdApply,  // spec 5/8
+		"plan":          cmdPlan,   // spec 5/8
+		"get":           cmdGet,    // spec 5/8
+		"export":        cmdExport, // spec 5/8
 		"migrate-split": cmdMigrateSplit,
 	}
 	fn, ok := cmds[os.Args[1]]

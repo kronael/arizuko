@@ -209,7 +209,7 @@ preserve_headers = ["X-Webhook-Sig"]  # optional verbatim-pass list
 
 `compose.go` evaluates `gated_by` against the operator's `.env`, drops
 disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
-proxyd. Reference: `specs/5/35-proxyd-standalone.md`,
+proxyd. Reference: `specs/5/7-proxyd-standalone.md`,
 `template/services/slakd.toml`.
 
 ## Adding an MCP connector
@@ -221,7 +221,7 @@ with `tools/list`, namespaces them `<connector>_<remote_tool>`, and
 registers each through the broker chain. Per-call invocation
 resolves the declared secrets, renders the env template, spawns the
 subprocess, proxies `tools/call`, scrubs the result, tears the
-subprocess down. Spec `specs/5/41-ext-mcp.md` § "Connector declaration".
+subprocess down. Spec `specs/5/13-ext-mcp.md` § "Connector declaration".
 
 ```toml
 [[mcp_connector]]
@@ -257,7 +257,7 @@ Gandi, Namecheap…) plugs in as a REST descriptor. An operator declares one
 `[[ext]]` block; `routd/ext.go:LoadExtProviders` reads them at boot and each
 `[[ext.tool]]` becomes one REST-backed MCP tool (`ipc/extcall.go` `ExtTool`)
 that maps a tool call to one outbound HTTP request. This is **shape 3** of
-the credential model (`specs/5/41-ext-mcp.md`); the MCP connector above is
+the credential model (`specs/5/13-ext-mcp.md`); the MCP connector above is
 shape 2.
 
 ```toml
@@ -296,7 +296,7 @@ base = "https://api.cloudflare.com/client/v4"
 
 Operator sets the credential via `arizuko secret <inst> set <folder> KEY
 --value V` (folder) or the user via `/dash/me/secrets` (user). Spec
-`specs/5/41-ext-mcp.md`.
+`specs/5/13-ext-mcp.md`.
 
 ## Adding a slink-driven page
 

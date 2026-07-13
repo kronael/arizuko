@@ -1,4 +1,4 @@
--- surrogate OAuth (spec 5/43): capability-credential columns on routd's secrets
+-- surrogate OAuth (spec 5/15): capability-credential columns on routd's secrets
 -- table. A pasted PAT leaves all four NULL and the broker reads `value`
 -- unchanged; a "Connect <provider>" OAuth row (dashd /dash/me/connections)
 -- populates them and the broker refreshes `value` near expiry. refresh_val is

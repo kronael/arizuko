@@ -39,7 +39,7 @@ var ScheduledTasksEndpoints = []resreg.Endpoint{
 // ScheduledTasksMCPNames maps each action to the flat tool name the live agent
 // already calls; routd's scheduled_tasks_resource.go references it (agent socket
 // derivation) and ipc.ListTools reads it via the registry walk. The REST-only
-// `patch` verb has no entry here (no agent tool). Spec 5/44.
+// `patch` verb has no entry here (no agent tool). Spec 5/16.
 var ScheduledTasksMCPNames = map[resreg.Action]string{
 	resreg.Action("schedule"): "schedule_task",
 	resreg.Action("pause"):    "pause_task",
@@ -84,7 +84,7 @@ func init() {
 		MCPArgs:   ScheduledTasksMCPArgs,
 		MCPNames:  ScheduledTasksMCPNames,
 		// No folder scope: owner is system/user:sub and chat_jid is
-		// polymorphic (folder OR typed JID, spec 5/36 §"FK posture") —
+		// polymorphic (folder OR typed JID, spec 5/8 §"FK posture") —
 		// neither is column-equal to a folder. Apply rebuilds wholesale.
 		StampedFields: []string{"Created"},
 		Hooks: resreg.Hooks{

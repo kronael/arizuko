@@ -90,7 +90,7 @@ Four properties no competitor has together:
 3. **One uniform MCP+REST surface.** Every resource is reachable through
    one hand-rolled handler with two faces — MCP for in-container agents,
    REST for humans and external tools — over one auth gate and one
-   audited mutation path ([specs/5/45](../5/45-openapi-mcp.md)).
+   audited mutation path ([specs/5/17](../5/17-openapi-mcp.md)).
    Agents that manage agents (register a child, set routes, schedule a
    task) call the same handlers an operator would. Code manages code.
 

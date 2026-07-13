@@ -1,6 +1,6 @@
 -- 0068 — Declared FK: web_routes.folder → groups.folder ON DELETE CASCADE.
 --
--- Spec 5/36 "FK posture": web_routes is row-shaped (folder column always
+-- Spec 5/8 "FK posture": web_routes is row-shaped (folder column always
 -- non-empty, single writer in store/web_routes.go) and group removal MUST
 -- invalidate URL routes that pin to the dead group. CASCADE delivers that
 -- inside the apply tx without per-caller cleanup.

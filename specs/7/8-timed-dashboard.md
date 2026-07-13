@@ -92,7 +92,7 @@ token from [`timed/split.go:32`](../../timed/split.go)). No direct DB
 ## Required `/v1` work
 
 **routd** (row owner; these REST faces mirror its existing MCP task
-verbs, so they're owed by `specs/5/45` MCP↔REST symmetry anyway):
+verbs, so they're owed by `specs/5/17` MCP↔REST symmetry anyway):
 
 - `GET /v1/tasks?folder=&status=` — list (`tasks:read`; backs onto
   `ListTasks`, [`routd/sibling_db.go:25`](../../routd/sibling_db.go))

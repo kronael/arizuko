@@ -11,7 +11,7 @@ import (
 // tasks_http.go is the /v1/tasks operator REST face. Its list/get/patch/delete
 // verbs ride the SAME shared handler (scheduledTasksHandler,
 // scheduled_tasks_resource.go) the agent's schedule/pause/resume/cancel/list MCP
-// tools use — the spec 5/44 REST-face fold. resreg.RegisterREST mounts them on a
+// tools use — the spec 5/16 REST-face fold. resreg.RegisterREST mounts them on a
 // copy of s.scheduledTasksResource() whose Endpoints are overridden with the
 // /v1/tasks CRUD verbs and a REST-specific Caller + Gate injected, so ALL the
 // REST-only policy (scope + JWT-folder containment) lives here and the shared
@@ -78,7 +78,7 @@ func (s *Server) tasksRESTCaller(r *http.Request) (resreg.Caller, error) {
 // task owner, not this folder. GET list reads ?folder= (empty → "" ONLY for a
 // root/service token with no folder claim, so the list spans every folder; else
 // the caller's own JWT folder, so a folder-scoped token — even a tier-0 top-level
-// one — lists only its own tasks, the 5/44 list-all leak guard).
+// one — lists only its own tasks, the 5/16 list-all leak guard).
 func tasksTarget(r *http.Request, jwtFolder string) string {
 	if r.PathValue("taskId") != "" {
 		return jwtFolder // per-task op: containment is per-task in the handler

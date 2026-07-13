@@ -1,6 +1,6 @@
 package ipc
 
-// Task #40 / spec 5/44: dashd's tool browser (ipc.ListTools) must show the
+// Task #40 / spec 5/16: dashd's tool browser (ipc.ListTools) must show the
 // cold-tier facade tools the live agent socket mounts via routd's resreg
 // postBuild seam — they vanished from the browser when they left ipc's hot-tier.
 // ListTools now derives them from the SAME resreg specs routd uses, so the two
@@ -76,7 +76,7 @@ func TestListTools_FacadeToolHiddenWithoutGrant(t *testing.T) {
 // TestListTools_AllFacadeFamiliesVisible: one representative tool from each migrated
 // facade resource surfaces when granted, proving the registry walk covers every
 // family (routes/web_routes/scheduled_tasks/acl/network_rules + groups' register_group
-// — the last 5/44 fold, which needed MCPNames on the groups registration to appear).
+// — the last 5/16 fold, which needed MCPNames on the groups registration to appear).
 func TestListTools_AllFacadeFamiliesVisible(t *testing.T) {
 	want := []string{"add_route", "set_web_route", "schedule_task", "add_acl", "network_allow", "register_group"}
 	tools := ListTools("atlas", []string{"*"})

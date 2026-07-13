@@ -14,7 +14,7 @@ import (
 	"github.com/kronael/arizuko/store"
 )
 
-// envProfileKeyList in display order — fixed list from spec 5/42.
+// envProfileKeyList in display order — fixed list from spec 5/14.
 var envProfileKeyList = []string{
 	"ANTHROPIC_API_KEY",
 	"CLAUDE_CODE_OAUTH_TOKEN",

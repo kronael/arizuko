@@ -2,7 +2,7 @@
 status: shipped
 depends:
   [
-    45-openapi-mcp,
+    17-openapi-mcp,
     D-docs-refs-redesign,
     Q-unified-routing,
     E-routd,
@@ -202,7 +202,7 @@ are all views over / restrictions of this one question.
 An ephemeral Docker container runs the agent loop for ONE turn, then
 exits. **Owns: the bounded reaction.** Every side effect is one MCP
 tool call (the same handler a REST endpoint reaches, as the uniform
-surface rolls out — `5/45`), through the auth gate, written to one
+surface rolls out — `5/17`), through the auth gate, written to one
 `audit_log` row (`store/migrations/0066-audit-log.sql:30`). The
 container runtime is `runed/docker.go` (`dockerRuntime.Run`,
 `runed/docker.go:63`); the spawn request — model, container config,
@@ -290,7 +290,7 @@ docs' proof that the surface is small.
 | Secrets                    | folder/user-scoped State resolved into a Turn              | State + Turn         |
 | Egress allowlist           | per-folder State resolved before spawn (`dispatch.go:235`) | State + Turn         |
 | A product                  | a folder with persona + skills + routes                    | Agent (recomposed)   |
-| Tasks dashboard / CLI      | a second surface over the same handlers (`5/45`)           | (surface, not prim.) |
+| Tasks dashboard / CLI      | a second surface over the same handlers (`5/17`)           | (surface, not prim.) |
 
 Every row is recomposition. None introduces machinery absent from the
 six primitives + identity coordinate system.
@@ -447,7 +447,7 @@ review + a CTO audit flagged them):
   shipped fact.** It rolls out resource by resource — say "converging
   on one MCP+REST surface." README "Direction" (`README.md:54`) notes
   the _first_ resource (`proxyd/resource.go`) already runs the pattern;
-  the rest follow. Canonical mechanism: `5/45` (rollout in `5/44`).
+  the rest follow. Canonical mechanism: `5/17` (rollout in `5/16`).
 - **The grant primitive in code is the unified ACL, not just
   `grant_rules`.** `grant_rules`/`grants.DeriveRules` is the
   legacy/tier-default path; the unified model is the `acl` +

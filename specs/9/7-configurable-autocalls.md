@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/31-autocalls.md, specs/5/36-yaml-manifests.md, specs/5/45-openapi-mcp.md
+depends: specs/5/4-autocalls.md, specs/5/8-yaml-manifests.md, specs/5/17-openapi-mcp.md
 ---
 
 # specs/9/7 — Configurable autocalls
@@ -15,7 +15,7 @@ depends: specs/5/31-autocalls.md, specs/5/36-yaml-manifests.md, specs/5/45-opena
 
 ## Problem
 
-`specs/5/31-autocalls.md` shipped a fixed registry: five pure
+`specs/5/4-autocalls.md` shipped a fixed registry: five pure
 functions (`now`, `instance`, `folder`, `tier`, `session`) in
 `gateway/autocalls.go:26`, each `func(AutocallCtx) string`, rendered
 into `<autocalls>` by `renderAutocalls` (`gateway/autocalls.go:51`)
@@ -24,19 +24,19 @@ shared sink for both chat and web-topic paths. Adding a sixth fact is
 a code edit + rebuild + redeploy. 31's own "planned extension"
 (`unread` per-JID, `errors` count) is stuck behind that wall.
 
-What 5/31 cannot do:
+What 5/4 cannot do:
 
 - An operator cannot inject "you have 3 unread in solo/inbox" or
   "siblings: eng, sre, oncall" without a gateway code change.
 - A deployment cannot carry its autocall set in its config dump
-  (5/36 manifest) — the facts an agent sees aren't operator data,
+  (5/8 manifest) — the facts an agent sees aren't operator data,
   they're frozen in the binary.
 - The planned `unread`/`errors` entries imply cheap store reads are
-  acceptable, but 5/31's `AutocallCtx` contract is "no I/O, no
+  acceptable, but 5/4's `AutocallCtx` contract is "no I/O, no
   locks" — there's no sanctioned path for a fact that needs one
   indexed read.
 
-This is the natural evolution of 5/31's heuristic ("inject the fact
+This is the natural evolution of 5/4's heuristic ("inject the fact
 when schema-cost > content-cost") and of phase-8's thesis: **agent is
 data**. What the agent passively sees each turn becomes operator
 config — versioned, gated, projected into the prompt — not a
@@ -44,11 +44,11 @@ hardcoded constant.
 
 ## Decided model
 
-Three decisions, each resolving a tension from 5/31.
+Three decisions, each resolving a tension from 5/4.
 
 ### 1. Two classes of autocall — pure and probe-backed
 
-5/31's `AutocallCtx`/`renderAutocalls` are defined "synchronously in
+5/4's `AutocallCtx`/`renderAutocalls` are defined "synchronously in
 microseconds — no I/O, no locks" (`gateway/autocalls.go:11`). Adding
 a fact that reads the store is **not** a compatible extension of that
 contract — it is a deliberate semantic split. This spec REDEFINES the
@@ -138,17 +138,17 @@ The definitions are one `resreg.Resource` (`autocalls`), owned by
 "MCP + REST hand-rolled and uniform … one hand-written handler").
 The win is uniformity, not codegen: the resource declares one
 `RowType` + `Handler` + `Authz`, and because it sets
-`RowType`/`Table`/`PKFields`/`Scope`, the 5/36 engine drives the
+`RowType`/`Table`/`PKFields`/`Scope`, the 5/8 engine drives the
 mechanical CRUD/scan/parse/emit off that struct. From that one
 declaration the platform's existing surfaces reach it:
 
 - REST CRUD (`/v1/autocalls`, scoped paths under a group),
 - MCP tools (`autocalls.create`, `.list`, `.delete`, …),
 - YAML manifest round-trip (`arizuko export`/`apply`),
-- `/openapi.json` schema (5/36 §"OpenAPI emission"),
+- `/openapi.json` schema (5/8 §"OpenAPI emission"),
 - one audit row per mutation, ACL-gated by `autocalls:<action>`.
 
-The per-resource cost is the same as any 5/36 resource — a struct, a
+The per-resource cost is the same as any 5/8 resource — a struct, a
 `Register` call, and a `ValidateRow` hook (below); not zero, but
 small and uniform. The `RowType` struct is the single contract; all
 surfaces decode into it. No second config path, no env-var fallback,
@@ -199,7 +199,7 @@ type Row struct {
 
 `Scope` is `yaml:"-"`: in a manifest it's set from the YAML position,
 not a row field, exactly as `acl`/`scheduled_tasks` derive their
-folder in 5/36. Two positions:
+folder in 5/8. Two positions:
 
 ```yaml
 # base.yaml — instance-wide rows: top-level resource key, scope = ''
@@ -224,7 +224,7 @@ atlas:
 
 The parser maps the instance-wide list to `scope=''` rows and the
 nested list to `scope=<folder>` rows. PK is `(scope, name)`, so the
-5/36 merge rules apply unchanged: same `(scope, name)` with identical
+5/8 merge rules apply unchanged: same `(scope, name)` with identical
 payload across files dedups; with differing payload it's a parse-time
 error; twice in one file is a parse-time error.
 
@@ -238,7 +238,7 @@ decodes to that probe's typed arg schema (unknown keys reject); for
 `{now}`).
 
 **`params` is a typed hole, acknowledged.** It's a JSON `TEXT` column
-so the row schema stays one flat struct (the 5/36 engine handles
+so the row schema stays one flat struct (the 5/8 engine handles
 scalar columns, not per-probe variant shapes). Its _contents_ are not
 free-form: `ValidateRow` decodes `params` against the named probe's
 declared arg schema and rejects unknown/mistyped keys. The OpenAPI
@@ -341,7 +341,7 @@ blast radius to the budget; ownership caps who can arm it.
 
 ## Render and merge with builtins
 
-One renderer, one sink — unchanged from 5/31. `renderAutocalls`
+One renderer, one sink — unchanged from 5/4. `renderAutocalls`
 (`gateway/autocalls.go:51`) stays the only producer of the
 `<autocalls>` block; `g.autocallsBlock(folder, topic)`
 (`gateway/gateway.go:1024`) stays the only call site. This spec
@@ -444,7 +444,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
   §Autocalls paragraph gains one sentence: "operators may define
   additional autocalls; they appear in the same block and are equally
   authoritative."
-- **resreg adoption** rides 5/36's engine: `autocalls` is one more
+- **resreg adoption** rides 5/8's engine: `autocalls` is one more
   `resreg.Resource` with `RowType`/`Table`/`PKFields`/`Scope` set —
   it gets CRUD/YAML/OpenAPI from the engine. The only non-generic
   code is the gateway-side renderer integration and the probe
@@ -464,7 +464,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
 - **NOT a replacement for MCP tools or functions.** Anything needing
   args from the agent, side effects, on-demand timing, network, or
   shell is an MCP tool or a function (`9/6`), not an autocall. The
-  autocall niche is unchanged from 5/31: always-relevant, small,
+  autocall niche is unchanged from 5/4: always-relevant, small,
   read-only facts injected without schema cost.
 - **NOT an env-var or file config.** Definitions are business state →
   DB-backed via resreg. Only the budgets are env (`AUTOCALL_*_MS`).
@@ -473,13 +473,13 @@ or stale fact (CLAUDE.md: "strict, not magical").
 
 ## Related
 
-- `specs/5/31-autocalls.md` — the shipped hardcoded registry this
+- `specs/5/4-autocalls.md` — the shipped hardcoded registry this
   generalizes; its planned `unread`/`errors` entries become the first
   two probes here.
-- `specs/5/36-yaml-manifests.md` — the DB-backed resreg substrate;
+- `specs/5/8-yaml-manifests.md` — the DB-backed resreg substrate;
   `autocalls` is one more catalog resource, manifest-addressable,
   scoped by group nesting (`scope` implied like `acl`).
-- `specs/5/45-openapi-mcp.md` — `resreg.Resource` wires one
+- `specs/5/17-openapi-mcp.md` — `resreg.Resource` wires one
   hand-rolled handler to REST + MCP + audit + the ACL gate;
   `autocalls:<action>` is the action key.
 - `specs/4/9-acl-unified.md` — `autocalls:*` actions; operator-owned
@@ -503,7 +503,7 @@ or stale fact (CLAUDE.md: "strict, not magical").
    self-folder-scoped unless a concrete need says otherwise.
 2. **Per-probe cache.** `siblings`/`topics` change rarely but render
    every turn. A short TTL cache keyed `(probe, folder, params)`
-   could cut even the budgeted read. Deferred: 5/36's no-config-cache
+   could cut even the budgeted read. Deferred: 5/8's no-config-cache
    rule applies to config rows, not to a probe _result_ cache, but a
    stale-read window needs its own justification. Wait for a measured
    hot path before adding.

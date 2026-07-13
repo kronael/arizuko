@@ -2,7 +2,7 @@
 
 Agent-capability eval — a black-box prober that certifies a live arizuko
 agent can operate the platform itself. Spec:
-[`specs/5/37-agent-capability-eval.md`](../specs/5/37-agent-capability-eval.md).
+[`specs/5/9-agent-capability-eval.md`](../specs/5/9-agent-capability-eval.md).
 
 Each case injects one real task through a public surface, lets the live agent
 do it with its own MCP tools, and asserts an **externally observable effect** —

@@ -1,6 +1,6 @@
 package routd
 
-// scheduled_tasks_resource.go is the spec 5/44 step after web_routes +
+// scheduled_tasks_resource.go is the spec 5/16 step after web_routes +
 // network_rules: the agent's task tools (schedule_task/pause_task/resume_task/
 // cancel_task/list_tasks) ride ONE resreg.Resource instead of five hand-rolled
 // ipc/ipc.go tool bodies.
@@ -29,7 +29,7 @@ package routd
 //     open the TOOL but never widen the tier/containment cap.
 //
 // The operator REST face (/v1/tasks CRUD) now ALSO rides this handler — the
-// 5/44 REST fold: mountTasks REST-mounts list/get/patch/cancel with a
+// 5/16 REST fold: mountTasks REST-mounts list/get/patch/cancel with a
 // tasks:read/write + JWT-folder Gate + Caller injected (verify → hasAnyScope +
 // ownsFolder), exactly as web_routes folded its REST twin. The Endpoints on the
 // resource literal below still exist only to drive deriveMCPTools (the agent
@@ -119,7 +119,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 		//     for which tasksTarget resolved Caller.Folder to "") sees all. A
 		//     folder-SCOPED token — even a tier-0 top-level one — resolves to
 		//     its own non-empty folder, so it lists ONLY its own tasks, never a
-		//     sibling's (the 5/44 list-all leak guard). The REST caller is
+		//     sibling's (the 5/16 list-all leak guard). The REST caller is
 		//     detected by the jwt_folder claim it always sets; the agent sets
 		//     none, so it keeps the tier-based widening.
 		all := id.Tier == 0

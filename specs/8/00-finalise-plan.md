@@ -10,7 +10,7 @@ can be marked ready. This is meta-work: writing only, no implementation.
 
 ## 2026-05-13 update — new constraint added
 
-[`45-openapi-mcp.md`](../5/45-openapi-mcp.md) was added as a sibling
+[`17-openapi-mcp.md`](../5/17-openapi-mcp.md) was added as a sibling
 principle to `R-platform-api.md`: every operator action accessible via
 both REST (OAuth-gated) AND MCP (tier-gated) over a single handler.
 Drops a registry of `Resource{Endpoints, MCPTools, Policy, Handler}`
@@ -240,7 +240,7 @@ Sections it needs (light):
 
 ### 2-proxyd-standalone (DONE 2026-05-13)
 
-All five items landed in the spec (`specs/5/35-proxyd-standalone.md`):
+All five items landed in the spec (`specs/5/7-proxyd-standalone.md`):
 
 - Folder-ref count updated to 3 active + 1 comment with file:line
   cites.

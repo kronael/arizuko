@@ -144,7 +144,7 @@ var daemonKeys = map[string][]string{
 		"WHISPER_BASE_URL", "WHISPER_MODEL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
-		// Surrogate OAuth (spec 5/43): routd's broker refreshes near-expiry
+		// Surrogate OAuth (spec 5/15): routd's broker refreshes near-expiry
 		// tokens at call time (routd/cmd/routd/main.go surrogate registry).
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
 	},
@@ -185,7 +185,7 @@ var daemonKeys = map[string][]string{
 	// dashd VERIFIES proxyd's ES256 transit bearer against authd's JWKS (AUTHD_URL)
 	// AND presents its own service:dashd token on the whapd re-pair proxy
 	// (AUTHD_SERVICE_KEY). SURROGATE_* runs the Connect-GitHub OAuth dance
-	// at /dash/me/connections (spec 5/43).
+	// at /dash/me/connections (spec 5/15).
 	"dashd": {
 		"AUTH_SECRET", "DASH_PORT", "WHAPD_URL", "AUTHD_URL", "AUTHD_SERVICE_KEY",
 		"SURROGATE_GITHUB_CLIENT_ID", "SURROGATE_GITHUB_CLIENT_SECRET",
@@ -346,7 +346,7 @@ func gatedByOn(env map[string]string, key string) bool {
 }
 
 // collectProxydRoutes returns surviving routes after gated_by filtering.
-// Per spec (specs/5/35-proxyd-standalone.md "Field semantics"): a route whose
+// Per spec (specs/5/7-proxyd-standalone.md "Field semantics"): a route whose
 // GatedBy env is unset or empty at compose-generate time is dropped. Core
 // routes come first (skipped under PROFILE=minimal, /dash/ skipped unless
 // full); per-service routes appended in service-name order.

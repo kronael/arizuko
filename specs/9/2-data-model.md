@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/45-openapi-mcp.md
+depends: specs/5/17-openapi-mcp.md
 ---
 
 # specs/9/2 — data model improvements (toward serialization-friendly entities)

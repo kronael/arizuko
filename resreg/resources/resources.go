@@ -1,5 +1,5 @@
 // Package resources declares the canonical Row structs + Register
-// calls for every cold-tier resource manifested in spec 5/36.
+// calls for every cold-tier resource manifested in spec 5/8.
 //
 // One file per resource — adding a resource is a small Go file (Row
 // struct + init() block). The engine drives SELECT/INSERT/DELETE +

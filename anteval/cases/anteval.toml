@@ -1,4 +1,4 @@
-# anteval cases — spec 5/37. Each [[case]] gives the live agent one task and
+# anteval cases — spec 5/9. Each [[case]] gives the live agent one task and
 # asserts an externally observable effect. Templates expand per run:
 #   {nonce}  unique per run+case      {sink}    harness callback base
 #   {target} instance public base     {chat}    eval agent chat JID

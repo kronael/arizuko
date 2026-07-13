@@ -217,7 +217,7 @@ HTTP MCP endpoint scoped to the token's group. Token is auth; same
 DoS shield as the form-encoded slink path.
 
 Slink is a **resource** in the sense of
-[`specs/5/45-openapi-mcp.md`](../5/45-openapi-mcp.md): one
+[`specs/5/17-openapi-mcp.md`](../5/17-openapi-mcp.md): one
 handler per action, surfaced through both REST and MCP. The mapping
 is 1:1 — drift between transports is structurally precluded:
 

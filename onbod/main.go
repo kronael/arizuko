@@ -168,8 +168,8 @@ func main() {
 	mux.HandleFunc("POST /v1/onboarding/{jid}/approve", adm.handleOnboardingApprove)
 	mux.HandleFunc("DELETE /v1/onboarding/{jid}", adm.handleOnboardingDeny)
 	mux.HandleFunc("POST /v1/onboarding/{jid}/reprompt", adm.handleOnboardingReprompt)
-	adm.mountInvites(mux) // /v1/invites via the shared resreg handler (spec 5/44)
-	adm.mountGates(mux)   // /v1/gates via the shared resreg handler (spec 5/44)
+	adm.mountInvites(mux) // /v1/invites via the shared resreg handler (spec 5/16)
+	adm.mountGates(mux)   // /v1/gates via the shared resreg handler (spec 5/16)
 
 	// Operator dashboard (spec 6/7): the proxyd transit proof (stripUnsigned)
 	// admits the proxyd-stamped end-user identity; handleDash then gates on

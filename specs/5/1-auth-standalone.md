@@ -12,7 +12,7 @@ status: shipped
 > service tokens carry every inter-daemon identity (see CHANGELOG). The only
 > symmetric secret left is the OAuth CSRF-state HMAC (a CSRF token, not
 > identity). Deferred, non-blocking: the `/v1/keys/rotate` endpoint + `authd
-rotate-key` CLI ([`39-auth-api.md`](39-auth-api.md) § JWK rotation has the
+rotate-key` CLI ([`11-auth-api.md`](11-auth-api.md) § JWK rotation has the
 > mechanism; short-TTL + redeploy rotates today).
 
 **DECISION.** Token authority is centralized in a single `authd` daemon —
@@ -90,7 +90,7 @@ never learn per-token revocation. Three cases cover everything:
   until its own `exp`; no new ones issue. Server-side state change at
   `authd`, not a verifier concern.
 - **EMERGENCY revoke** (key compromise, "kill every token now") = **rotate
-  the signing key** ([`39-auth-api.md`](39-auth-api.md)). Every token signed by the retired `kid`
+  the signing key** ([`11-auth-api.md`](11-auth-api.md)). Every token signed by the retired `kid`
   fails verification once verifiers refresh the JWK Set (≤ JWKS cache TTL).
 
 ## Sessions — short access JWT + refresh token (LOCKED)
@@ -260,7 +260,7 @@ claim so `auth/` stays domain-agnostic.
   drives verifier-side policy (e.g. a `downscoped` token must carry
   `parent_jti`).
 - `scope` is namespace-wildcard-capable (`tasks:*`) but **never** the
-  global `*:*` ([`45-openapi-mcp.md`](45-openapi-mcp.md)
+  global `*:*` ([`17-openapi-mcp.md`](17-openapi-mcp.md)
   § "Auth model"). Match logic lives in `auth.HasScope`.
 - `arz/folder` is the namespaced folder claim; `auth/` treats it as
   opaque and exposes it via `Identity.Extra["folder"]`. The arizuko
@@ -306,7 +306,7 @@ type Identity struct {
 There is no `tier` field — scopes replace tier everywhere.
 
 The `/v1/*` token/key endpoints, JWK rotation, TTL table, and service bootstrap
-live in [`39-auth-api.md`](39-auth-api.md). The OAuth `/auth/*` flow + the
+live in [`11-auth-api.md`](11-auth-api.md). The OAuth `/auth/*` flow + the
 `auth/` library surfaces are below.
 
 ## Account linking + collision rules
@@ -415,7 +415,7 @@ surface call `Mount`; `Handlers` is for embedding the four core handlers
 into a custom mux.
 
 `authd` mounts these; proxyd delegates login to `authd`
-([`35-proxyd-standalone.md`](35-proxyd-standalone.md) § Login flow) — it
+([`7-proxyd-standalone.md`](7-proxyd-standalone.md) § Login flow) — it
 enforces, it does not sign. `StateStore` (default: `oauth_state` table)
 and `LinkStore` (default: `auth.db` `oauth_accounts`/`users`) are
 pluggable interfaces; daemons that don't need linking pass nil.

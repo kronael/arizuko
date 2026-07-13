@@ -1,9 +1,9 @@
 ---
 status: partial
-depends: [45-openapi-mcp, specs/4/9-acl-unified, specs/5/32-tenant-self-service]
+depends: [17-openapi-mcp, specs/4/9-acl-unified, specs/5/5-tenant-self-service]
 ---
 
-# specs/5/41 — external capability injection
+# specs/5/13 — external capability injection
 
 > arizuko is the broker between agents and the web. Credentials never enter
 > the container. Every external call is governed by grants and written to the
@@ -48,7 +48,7 @@ agent MCP call
 ## Secrets table
 
 Ownership model, resolution chain, and write paths moved to
-[`specs/5/42-credentials.md`](42-credentials.md). The handler shapes
+[`specs/5/14-credentials.md`](14-credentials.md). The handler shapes
 below remain here.
 
 ---
@@ -266,7 +266,7 @@ the calls. Every call appears in `audit_log`.
 ## What's shipped
 
 Handler shapes only — the credential model (secrets table, resolution,
-write paths) lives in [`5/42`](42-credentials.md).
+write paths) lives in [`5/14`](14-credentials.md).
 
 | piece                          | location                                                       | state |
 | ------------------------------ | -------------------------------------------------------------- | ----- |
@@ -287,7 +287,7 @@ write paths) lives in [`5/42`](42-credentials.md).
 
 ## Out of scope
 
-- OAuth token dance + refresh — `specs/5/43-surrogate-oauth.md` (writes
+- OAuth token dance + refresh — `specs/5/15-surrogate-oauth.md` (writes
   access token into the `secrets` table the broker reads)
 - Hosted-remote MCP servers (e.g. `mcp.linear.app/mcp`) — need HTTP
   upstream proxy mode, not stdio subprocess; design TBD

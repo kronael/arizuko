@@ -1,7 +1,7 @@
 # ipc
 
 MCP host — the in-container agent's only way to the host. Runs as a
-subsystem inside the `routd` process; per `specs/5/45-openapi-mcp.md`
+subsystem inside the `routd` process; per `specs/5/17-openapi-mcp.md`
 this is the **MCP host** issuer in the platform-token model.
 
 ## Purpose
@@ -25,12 +25,12 @@ Hot vs cold tier: the **hot-tier** runtime actions (`reply`/`send`/
 and stay here — no REST twin. The **cold-tier** management tools
 (`add_route`/`set_routes`/`set_secret`/`network_allow`/…) migrate onto
 shared `resreg` handlers — one in-process handler serving both the REST
-`/v1/*` face and this socket's generated MCP facade (`5/44`). ipc keeps
+`/v1/*` face and this socket's generated MCP facade (`5/16`). ipc keeps
 the unix-socket transport, the hot-tier tools, and the shared authz +
 visibility closures (`authorizeCall`, `registerRaw`/`granted`); it loses
 only the cold-tier per-tool bodies.
 
-## Capability token (planned, per `specs/5/45-openapi-mcp.md` §"Auth model")
+## Capability token (planned, per `specs/5/17-openapi-mcp.md` §"Auth model")
 
 At agent socket bind, the MCP host mints a capability token via
 `auth.Mint(...)` carrying:
@@ -105,7 +105,7 @@ Invites: `invite_create`, `invite_list`, `invite_revoke`.
 Route tokens: `issue_chat_link`, `issue_webhook`, `list_tokens`,
 `revoke_token`.
 
-**Cold-tier management (resreg-served, NOT hand-rolled here) — spec 5/44:**
+**Cold-tier management (resreg-served, NOT hand-rolled here) — spec 5/16:**
 the `routes` (`add_route`/`set_routes`/`list_routes`/`delete_route`),
 `web_routes` (`set_web_route`/`del_web_route`/`list_web_routes`),
 `network_rules` (`network_allow`/`network_deny`/`network_list`),
@@ -127,7 +127,7 @@ blocks as REST-backed MCP tools. Each maps a tool call to one outbound
 HTTP request with path-param substitution and auth injected from folder
 secrets (bearer / apikey-header / apikey-query / basic / json-body); the
 secret is scrubbed from the response before return. Grant-gated on
-`ext:<service>:<operation>`. Spec 5/41.
+`ext:<service>:<operation>`. Spec 5/13.
 
 Per-turn agent output flows back over the same socket via the
 `submit_turn` JSON-RPC method (hidden from `tools/list`);
@@ -151,7 +151,7 @@ post-fetch `JIDRoutedToFolder` per row.
   — `expectedUID` is the kernel-attested uid required on every accept
   (1000 = ant image's `node` user in prod; ≤0 disables the check for
   tests). `callerSub` is the agent's auth subject, stamped into audit
-  rows as the actor. `postBuild` are routd's spec 5/44 resreg seams that
+  rows as the actor. `postBuild` are routd's spec 5/16 resreg seams that
   mount the cold-tier resource tools onto the server. Returns a stop func
   that tears down the listener.
 - `GatedFns` — callbacks into the host daemon, routd (enqueue, register
@@ -178,8 +178,8 @@ post-fetch `JIDRoutedToFolder` per row.
 ## Related docs
 
 - `ARCHITECTURE.md` (IPC section)
-- `specs/5/30-inspect-tools.md`
-- `specs/5/45-openapi-mcp.md` — MCP host's role as token issuer +
+- `specs/5/3-inspect-tools.md`
+- `specs/5/17-openapi-mcp.md` — MCP host's role as token issuer +
   HTTP-federation pattern for foreign-domain tools
 - `specs/8/Y-connectors.md` — MCP-subprocess tool catalog
 - `../auth/README.md` — `Authorize` / identity resolution

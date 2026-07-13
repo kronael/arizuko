@@ -99,7 +99,7 @@ func TestSplitScopesSecretsKey(t *testing.T) {
 	}
 }
 
-// Surrogate OAuth creds (spec 5/43) reach BOTH consumers: dashd runs the
+// Surrogate OAuth creds (spec 5/15) reach BOTH consumers: dashd runs the
 // Connect-GitHub dance at /dash/me/connections; routd's broker refreshes
 // near-expiry tokens at call time. Without the passthrough the feature is
 // dead on every split deploy.

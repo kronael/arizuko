@@ -160,7 +160,7 @@ func TestFK_TaskRunLogs_CascadeOnTaskDelete(t *testing.T) {
 
 // TestFK_HistoryTablesStrandOnGroupDelete verifies that history tables
 // (messages, audit_log, cost_log) are NOT cascade-deleted on group
-// removal — per spec 5/36 they must strand. This pins the absence of
+// removal — per spec 5/8 they must strand. This pins the absence of
 // a FK on these tables.
 func TestFK_HistoryTablesStrandOnGroupDelete(t *testing.T) {
 	s := openFKStore(t)

@@ -36,7 +36,7 @@ var RouteTokensEndpoints = []resreg.Endpoint{
 
 // RouteTokensMCPNames maps each action to the flat tool name the live agent
 // already calls; routd's route_tokens_resource.go references it (agent socket
-// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/44.
+// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/16.
 var RouteTokensMCPNames = map[resreg.Action]string{
 	resreg.Action("issue_chat"): "issue_chat_link",
 	resreg.Action("issue_hook"): "issue_webhook",

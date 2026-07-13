@@ -1,16 +1,16 @@
 ---
 status: partial
 shipped: 2026-06-14
-depends: specs/5/45-openapi-mcp.md, specs/9/2-data-model.md
+depends: specs/5/17-openapi-mcp.md, specs/9/2-data-model.md
 ---
 
 <!-- partial (2026-07-13): the engine + YAML format shipped, but the CLI
      (apply/plan/export/get) still opens the frozen pre-split messages.db,
      not the split owner DBs — INERT on every production instance. Finalizing
      = split-aware DB routing + a cross-DB atomicity decision, jointly with
-     5/44. See the § Caveat below + BUGS.md. -->
+     5/16. See the § Caveat below + BUGS.md. -->
 
-# specs/5/36 — YAML manifests: transport dump/import for cold-tier config
+# specs/5/8 — YAML manifests: transport dump/import for cold-tier config
 
 > **DECISION.** The SQLite DB is authoritative. YAML manifests are a
 > transport dump/import — `pg_dump` / `pg_restore` for the cold tier — not
@@ -23,7 +23,7 @@ depends: specs/5/45-openapi-mcp.md, specs/9/2-data-model.md
 > INERT against a production split instance: `cmd/arizuko/apply.go`
 > opens the frozen pre-split `messages.db`, not the owner DBs
 > (`routd.db` etc.) the daemons actually read. The CLI works only on the
-> retired monolith layout until the 5/44 one-owner + federation phase
+> retired monolith layout until the 5/16 one-owner + federation phase
 > repoints it. Tracked in BUGS.md ("`arizuko apply`/`plan`/`export`/`get`
 > operate on the frozen messages.db post-split").
 
@@ -154,7 +154,7 @@ same handler REST POST and MCP `create` call.
 
 ### The row-schema half of `resreg.Resource`
 
-`5/45`'s `Resource` carries the transport half (`{Name, Endpoints, MCPTools,
+`5/17`'s `Resource` carries the transport half (`{Name, Endpoints, MCPTools,
 Authz, Handler, Store}`). This spec is authoritative for the **row-schema
 half** the engine adds — `RowType`, `Table`, `PKFields`, `Scope`, `Hooks`,
 `SkipApplyRebuild`:
@@ -291,7 +291,7 @@ For each `Resource` with `RowType != nil`:
 public** (schemas describe surface, not data) — mount BEFORE auth middleware.
 
 Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
-[`P-runed.md`](P-runed.md), [`45-openapi-mcp.md`](45-openapi-mcp.md)
+[`P-runed.md`](P-runed.md), [`17-openapi-mcp.md`](17-openapi-mcp.md)
 § "One owner per table"):
 
 | Daemon | Owned resources                                                                                                                                    |
@@ -300,7 +300,7 @@ Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
 | timed  | scheduled_tasks                                                                                                                                    |
 | onbod  | onboarding_gates                                                                                                                                   |
 | authd  | — (signing keys / JWKs / sessions; no manifest-addressable config rows)                                                                            |
-| proxyd | proxyd_routes (operator-composed enforcement point; see [`35-proxyd-standalone.md`](35-proxyd-standalone.md))                                      |
+| proxyd | proxyd_routes (operator-composed enforcement point; see [`7-proxyd-standalone.md`](7-proxyd-standalone.md))                                        |
 | runed  | — (execution runtime: spawns / session_log / mcp_tokens; all runtime tables, not config)                                                           |
 | webd   | — (reads `web_routes` from routd; doc is informational)                                                                                            |
 | dashd  | — (HTMX operator UI; CRUD lives in the owning daemons above)                                                                                       |
@@ -457,7 +457,7 @@ groups:
 
 **Resource names map to `resreg.Resource.Name`**, the operator-facing
 contract per
-[`45-openapi-mcp.md`](45-openapi-mcp.md#caller-and-resource-shape)
+[`17-openapi-mcp.md`](17-openapi-mcp.md#caller-and-resource-shape)
 (`<resource>.<action>` vocabulary, no aliases, no internal table names).
 Backing tables may be renamed/split/merged without touching manifest files.
 
@@ -762,7 +762,7 @@ spec/status boundary `kubectl` draws.
 
 ## Cross-refs
 
-- [`45-openapi-mcp.md`](45-openapi-mcp.md) — resreg defines the
+- [`17-openapi-mcp.md`](17-openapi-mcp.md) — resreg defines the
   per-resource handler + REST + MCP surface the apply tool talks to.
 - [`../9/2-data-model.md`](../9/2-data-model.md) — cold/warm/hot tier
   boundary; this spec touches cold tier only.
@@ -771,7 +771,7 @@ spec/status boundary `kubectl` draws.
   its continuously-synced premise is rejected. 8/3 is unedited.
 - [`../9/4-data-ingestion-curation-eventing.md`](../9/4-data-ingestion-curation-eventing.md)
   — Q2/Q5 open; extend the resource catalog when they resolve.
-- [`32-tenant-self-service.md`](32-tenant-self-service.md) — Phase C secret
+- [`5-tenant-self-service.md`](5-tenant-self-service.md) — Phase C secret
   layering composes with the `secrets` resource here.
 
 ## Non-goals

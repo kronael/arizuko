@@ -213,5 +213,5 @@ Can ship with `env_vars`, `pair_code`, `cookie_import` first; add
 ## Cross-references
 
 - `13/6-dynamic-channels.md` — channel-row + creds storage layer
-- `5/32-tenant-self-service.md` — tenant-controlled channels framing
+- `5/5-tenant-self-service.md` — tenant-controlled channels framing
 - `8/37-auth-tunneling.md` — the web side of the same flow

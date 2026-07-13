@@ -76,7 +76,7 @@ func (d *dashServer) handleDash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// GET /v1/tasks is a bare []Task array after the 5/44 REST fold (one shape
+	// GET /v1/tasks is a bare []Task array after the 5/16 REST fold (one shape
 	// across the agent MCP list_tasks + this operator face), not a {tasks:[]}
 	// envelope.
 	var tasks []taskRow

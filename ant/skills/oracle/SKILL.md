@@ -37,7 +37,7 @@ persistence (default is fine for one-shots).
 Two paths, codex picks up whichever is present:
 
 - **Path A — host mount**: operator sets `HOST_CODEX_DIR=/path/to/.codex`; gated bind-mounts it at `/home/node/.codex`. ChatGPT-OAuth, no env vars needed. Probe: `codex login status`
-- **Path B — env-profile key**: `CODEX_API_KEY`/`OPENAI_API_KEY` either in the platform host `.env` (global — reaches every container via `readSecrets`) or as a user's own key via `/dash/me/env` (BYOC). Model keys scope the same way as Anthropic's: platform-or-user, NEVER folder — the store rejects folder scope (`specs/5/42-credentials.md`). Restart the group container after inserting.
+- **Path B — env-profile key**: `CODEX_API_KEY`/`OPENAI_API_KEY` either in the platform host `.env` (global — reaches every container via `readSecrets`) or as a user's own key via `/dash/me/env` (BYOC). Model keys scope the same way as Anthropic's: platform-or-user, NEVER folder — the store rejects folder scope (`specs/5/14-credentials.md`). Restart the group container after inserting.
 
 ## Missing-auth fallback
 

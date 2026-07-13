@@ -1,4 +1,4 @@
--- Proactive interjection (spec 5/33). One chat-scoped runtime row: the
+-- Proactive interjection (spec 5/6). One chat-scoped runtime row: the
 -- per-chat 24h cooldown for the proactive trigger. Mode is group business
 -- state read from the group's CLAUDE.md frontmatter, NOT a column (single
 -- source, no DB/file drift). Times are RFC3339Nano UTC TEXT.

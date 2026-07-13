@@ -1,12 +1,12 @@
 package routd
 
-// web_routes_resource.go is the spec 5/44 pilot: the agent's web_route
+// web_routes_resource.go is the spec 5/16 pilot: the agent's web_route
 // management tools (set_web_route/del_web_route/list_web_routes) ride ONE
 // resreg.Resource instead of three hand-rolled ipc/ipc.go tool bodies.
 //
 // resreg owns the plumbing (handler dispatch + one tx wrapping the mutation
 // AND its audit_log row); routd owns the auth POLICY. The agent socket is
-// not the operator socket (spec 5/44 §Blocker), so routd injects:
+// not the operator socket (spec 5/16 §Blocker), so routd injects:
 //
 //   - Gate: the PROVEN tier-aware path (grants.CheckAction over the socket's
 //     rules + db.Authorize keyed mcp:<tool>), NOT resreg's operator default.
@@ -133,7 +133,7 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 		// operator caller (empty folder) widens to delete any folder's route via the
 		// SQL `?=''` arm; every NAMED folder — including a top-level tenant, which is
 		// also tier-0 (min(count("/"),3)) — is bound to its own routes. Keying on
-		// tier-0 let a tenant delete + hijack a sibling tenant's route (the 5/44
+		// tier-0 let a tenant delete + hijack a sibling tenant's route (the 5/16
 		// list-all leak class). The agent socket folder is always a named group, so
 		// no agent widens; only the root REST/CLI operator (folder="") does.
 		ok, err := deleteWebRouteTx(ctx, x.Tx, p, folder)

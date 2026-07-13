@@ -68,7 +68,7 @@ func main() {
 		slog.Warn("SECRETS_KEY unset; connector/scoped secrets will not decrypt")
 	}
 
-	// Surrogate OAuth (spec 5/43): the broker refreshes near-expiry capability
+	// Surrogate OAuth (spec 5/15): the broker refreshes near-expiry capability
 	// credentials at call time. The engine loads the embedded provider registry;
 	// creds come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). Always wired —
 	// refresh only fires for user rows carrying provider metadata (written by the
@@ -187,7 +187,7 @@ func main() {
 		// to this so the container never goes empty → ant SDK default. Default keeps
 		// behavior correct with no .env entry.
 		DefaultModel: envOr("ARIZUKO_DEFAULT_MODEL", "claude-opus-4-8"),
-		// Turn retry on SIGKILL/OOM/timeout (spec 5/40). Default 3.
+		// Turn retry on SIGKILL/OOM/timeout (spec 5/12). Default 3.
 		MaxTurnRetry: intOr("MAX_TURN_RETRY", 3),
 		// Inbound media enrichment (download + Whisper transcription). Defaults
 		// mirror core.LoadConfig; unset MEDIA_ENABLED leaves it off.
@@ -257,14 +257,14 @@ func main() {
 	}
 	reg.StartHealthLoop(ctx)
 	mux := srv.Handler().(*http.ServeMux)
-	// routd owns the residual config + conversation tables (spec 5/36 catalog).
+	// routd owns the residual config + conversation tables (spec 5/8 catalog).
 	// List ONLY resources routd actually serves over REST so /openapi.json can't
 	// advertise phantom 404 endpoints — these names must match the mounted /v1
 	// handlers below. (groups/acl_membership are dashd-FS-managed; network_rules
 	// is MCP-only via network_allow/deny/list — none are routd REST resources.)
 	// secrets declares explicit write-only Endpoints (POST create + key-DELETE, no
 	// read), so OpenAPI emits exactly those — a sealed value can't leak through a
-	// convention GET (spec 5/36 §"Secret safety").
+	// convention GET (spec 5/8 §"Secret safety").
 	mux.HandleFunc("GET /openapi.json", resreg.OpenAPIHandler("routd", []string{
 		"routes", "web_routes", "acl", "secrets",
 	}))

@@ -32,7 +32,7 @@ separation (cold / warm / hot) and git-as-truth for the cold tier (audit,
 history, fork, distribute — native git verbs replace bespoke machinery).
 Secrets stay in SQLite; git carries only references. Its first action —
 MCP+REST unification (one mutation path) — was pulled forward to phase 5 as
-active work (`5/45` mechanism + `5/44` rollout); the remaining phase-9
+active work (`5/17` mechanism + `5/16` rollout); the remaining phase-9
 actions are the data model and git-as-truth.
 
 Together: phases 5 + 8 give **enterprise-ready** (capabilities +
@@ -52,7 +52,7 @@ combination is the platform thesis arizuko ships toward.
 | [6/](6/)   | adoption & interop — runtime pluralism, import, agentic reimplementation loop  | drafting |
 | [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                          | active   |
 | [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                   | active   |
-| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/44·5/45) | drafting |
+| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17) | drafting |
 | [10/](10/) | self-healing — Aeon mechanism incorporation                                    | active   |
 | [11/](11/) | operator tools — branding, usage limits                                        | active   |
 | [12/](12/) | security + standalone — hardening, crackbox, mcp-fw                            | active   |

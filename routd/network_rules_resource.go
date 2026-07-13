@@ -1,6 +1,6 @@
 package routd
 
-// network_rules_resource.go is the spec 5/44 step after the web_routes pilot:
+// network_rules_resource.go is the spec 5/16 step after the web_routes pilot:
 // the agent's egress-allowlist tools (network_allow/network_deny/network_list)
 // ride ONE resreg.Resource instead of three hand-rolled ipc/ipc.go tool bodies.
 //

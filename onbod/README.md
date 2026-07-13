@@ -69,7 +69,7 @@ and invite redemption (FS-mounted, no federation).
 
 ## `/v1/*` surface
 
-Per `specs/5/45-openapi-mcp.md`:
+Per `specs/5/17-openapi-mcp.md`:
 
 - `POST /v1/onboarding` — record unrouted JID (status awaiting_message).
   routd's poll loop calls this on route miss. Scope: `invites:write`.
@@ -138,5 +138,5 @@ rather than panicking. Do not remove this nil-check.
 
 - `specs/4/26-prototypes.md` (prototype mechanic)
 - `specs/4/9-acl-unified.md` (canonical ACL)
-- `specs/5/45-openapi-mcp.md` (full `/v1/*` contract, token model; supersedes 5/5)
+- `specs/5/17-openapi-mcp.md` (full `/v1/*` contract, token model; supersedes 5/5)
 - `ARCHITECTURE.md` (Onboarding section)

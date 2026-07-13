@@ -132,7 +132,7 @@ contract).
 - Ship `template/services/crackbox.toml` carrying the
   `[[proxyd_route]]` for `/dash/crackbox/` → `:3129`, `auth =
 "operator"`, gated by `EGRESS_CRACKBOX` (the adapter pattern,
-  `specs/5/35`).
+  `specs/5/7`).
 
 ## Auth
 

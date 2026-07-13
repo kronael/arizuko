@@ -1,6 +1,6 @@
 package routd
 
-// REST-face tests for the spec 5/44 web_routes fold: /v1/web_routes list/create/
+// REST-face tests for the spec 5/16 web_routes fold: /v1/web_routes list/create/
 // delete now ride the SAME shared webRoutesHandler the agent MCP tools use, via
 // resreg.RegisterREST + the injected webRoutesRESTCaller/webRoutesRESTGate.
 // These assert (a) create/list/delete parity with the agent handler + the new

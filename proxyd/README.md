@@ -42,7 +42,7 @@ Routes not in the TOML table (hand-wired in `main.go`): `/auth/*`
 (login flow), `/health`, `/pub/*` (vited fallback + external redirect),
 the derived-host `302 → /pub/<world>/` redirect.
 
-See `specs/5/35-proxyd-standalone.md` for the field semantics.
+See `specs/5/7-proxyd-standalone.md` for the field semantics.
 
 ## Runtime route mutation (`/v1/routes`)
 
@@ -65,7 +65,7 @@ DELETE /v1/routes/{path}       # idempotent (204 either way)
 boot, if the table is empty AND `PROXYD_ROUTES_JSON` is set, proxyd
 seeds the table from the env var. Thereafter the table is authoritative
 and the env var is ignored. Runtime mutations are visible immediately
-(no row cache, spec 5/36) and durable across restarts.
+(no row cache, spec 5/8) and durable across restarts.
 
 **Authorization**: operator-only surface. The ACL gate is an empty scope
 (`auth.Authorize(caller, "routes.<action>", "", nil)`) matched by an

@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/44 network_rules migration: the agent's
+// Parity tests for the spec 5/16 network_rules migration: the agent's
 // network_allow/network_deny/network_list now ride resreg's MCP mechanism
 // through the ServeMCP postBuild seam instead of hand-rolled ipc bodies. Each
 // test drives the REAL unix socket end-to-end (not the handler directly) so the

@@ -64,7 +64,7 @@ until `7/3` is built, then decide per "One renderer, many sinks".
 The migration's cost lands here: each retained page needs a `/v1` read
 (and, for the editors, write) on the owning daemon to replace its
 current direct DB/FS access. Enumerate against the page table above
-when building; most map to existing `specs/5/45` resources (groups, acl,
+when building; most map to existing `specs/5/17` resources (groups, acl,
 routes, group-files). Add a minimal endpoint only where none exists.
 
 ## Auth

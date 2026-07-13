@@ -132,7 +132,7 @@ func (d *DB) DeleteSecret(scope store.SecretScope, scopeID, key string) error {
 // over a shared folder token). Empty callerSub → folder scope only.
 // Missing keys are omitted. nil/empty required → empty map.
 //
-// A required key backed by a user-scoped surrogate-OAuth row (spec 5/43) is
+// A required key backed by a user-scoped surrogate-OAuth row (spec 5/15) is
 // refreshed in place when within 60s of expiry before it is returned, so the
 // connector always gets a live token. A DEFINITIVE refresh rejection (revoked
 // refresh_token) nulls the row's oauth columns, drops the key, and returns a

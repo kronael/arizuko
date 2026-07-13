@@ -175,7 +175,7 @@ func (l *Loop) runTurn(folder, topic, chatJID, turnID string, trigger []core.Mes
 		pr := v.(proactiveResult)
 		rendered = proactiveReasonBlock(pr.check, pr.reason) + rendered
 	}
-	// Inject retry note when this is a retry attempt (spec 5/40). The turn_context
+	// Inject retry note when this is a retry attempt (spec 5/12). The turn_context
 	// row exists from the failed prior attempt; read its retry_count.
 	if tc, ok := l.db.GetTurnContext(turnID); ok && tc.RetryCount > 0 {
 		rendered = retryNoteBlock(tc.RetryCount, l.maxTurnRetry) + rendered
@@ -437,7 +437,7 @@ func groupByTopic(msgs []core.Message) [][]core.Message {
 const runFailureNotice = "Failed: agent error on that message. Try rephrasing or send a different message."
 
 // retryExhaustedNotice is sent when all retry attempts are exhausted without
-// a reply (spec 5/40 turn-retry).
+// a reply (spec 5/12 turn-retry).
 const retryExhaustedNotice = "⚠️ Agent couldn't complete this request after 3 attempts."
 
 // silentTurnNotice is sent when a clean run delivered nothing — no turn result,
@@ -449,7 +449,7 @@ const silentTurnNotice = "⚠️ I couldn't produce a reply to that — please r
 // group row (a ghost route). See runTurn's ghost-group guard.
 const ghostGroupNotice = "⚠️ This chat routes to a group that isn't set up — an operator needs to register it."
 
-// retryBackoff is the delay between retry attempts (spec 5/40).
+// retryBackoff is the delay between retry attempts (spec 5/12).
 const retryBackoff = 10 * time.Second
 
 // retryNoteBlock renders the system note injected on retry attempts.

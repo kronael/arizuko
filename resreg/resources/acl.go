@@ -35,7 +35,7 @@ var ACLEndpoints = []resreg.Endpoint{
 
 // ACLMCPNames maps each action to the flat tool name the live agent already calls;
 // routd's acl_resource.go references it (agent socket derivation) and ipc.ListTools
-// reads it via the registry walk. Spec 5/44.
+// reads it via the registry walk. Spec 5/16.
 var ACLMCPNames = map[resreg.Action]string{
 	resreg.Action("add"):    "add_acl",
 	resreg.Action("remove"): "remove_acl",
@@ -82,7 +82,7 @@ func init() {
 		MCPArgs:   ACLMCPArgs,
 		MCPNames:  ACLMCPNames,
 		// No folder scope: acl.scope is a glob (`atlas/`, `**`), not column-
-		// equal to a folder (spec 5/36 §"Schema-driven CRUD"/"FK posture").
+		// equal to a folder (spec 5/8 §"Schema-driven CRUD"/"FK posture").
 		// Apply rebuilds acl wholesale; per-glob scoped delete is not v1.
 		StampedFields: []string{"GrantedAt"},
 		Hooks: resreg.Hooks{

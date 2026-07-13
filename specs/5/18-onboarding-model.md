@@ -7,7 +7,7 @@ depends:
     G-engagement,
     E-routd,
     S-jid-format,
-    32-tenant-self-service,
+    5-tenant-self-service,
   ]
 supersedes: []
 ---
@@ -18,7 +18,7 @@ supersedes: []
 
 How a new chat enters the system is scattered across five places: the
 route table (`ROUTING.md`), `#observe` mode (`5/B`), onbod's admission
-queue (`5/32`, `onbod/`), the ACL (`4/9`), and `arizuko group add`.
+queue (`5/5`, `onbod/`), the ACL (`4/9`), and `arizuko group add`.
 There is no canonical statement of the default posture, so the actual
 default is **silence**: a new Telegram group the bot joins hits a route
 miss and vanishes — stored in `routd.db`, visible to nobody. Witnessed
@@ -83,7 +83,7 @@ seq   match                     target
   No flag, no special case.
 - **Declaration** is route-table data, not code:
   `arizuko route <inst> add 'platform=telegram' 'staging#observe' --seq 9999`
-  (equivalently `/v1/routes` REST, `routes` MCP, dashd — `5/44`). The
+  (equivalently `/v1/routes` REST, `routes` MCP, dashd — `5/16`). The
   staging folder is created like any group (dashd group-create,
   `/v1/groups`, `register_group`). One staging folder per platform or
   one shared — operator's choice via the `match` expression.
@@ -105,7 +105,7 @@ Promotion is the existing group-add, no new verb:
     Discord guilds get the mention-only pair instead (mention trigger at
     `seq -1` + `#observe` at `seq 0`).
 - Dashboard / REST: the same two resources (`groups`, `routes`) via
-  resreg (`5/44`).
+  resreg (`5/16`).
 - Agent-driven: autoviv — a tier-1 agent with operator grant calls
   `register_group` (`template/web/pub/arizuko/concepts/autoviv.html`).
 
@@ -162,12 +162,12 @@ onboarding branch runs (`routd/loop.go:505`–`533`):
    `admitFromQueue` daily caps), and world creation runs `SetupGroup`
    then writes group + admin `acl` + `seq 0` routes in one tx
    (`createWorldTx`).
-   Detail: `5/32`, `onbod/README.md`.
+   Detail: `5/5`, `onbod/README.md`.
 
 The paths compose per-platform: `ONBOARDING_PLATFORMS` allowlists which
 prefixes may onboard, and the route table decides where misses can
 still occur — e.g. `platform=telegram room=group/*` → staging catch-all
-while Telegram DMs miss through to onboarding. Invites (`5/32`) are the
+while Telegram DMs miss through to onboarding. Invites (`5/5`) are the
 third, out-of-band entry: operator-issued, no route miss involved.
 
 ## What exists vs the one gap
@@ -175,9 +175,9 @@ third, out-of-band entry: operator-issued, no route miss involved.
 Everything above composes shipped primitives: route table + `seq`
 precedence + `match` predicates (`ROUTING.md`, `5/E`), `#observe`
 (`5/B`), mention promotion (`5/L`), engagement (`5/G`), unified ACL
-(`4/9`), onbod queue + gates + invites (`5/32`, `onbod/`),
+(`4/9`), onbod queue + gates + invites (`5/5`, `onbod/`),
 `arizuko group add` / `arizuko route add` (`cmd/arizuko/`), groups +
-routes as resreg resources (`5/44`), autoviv. The staging posture is
+routes as resreg resources (`5/16`), autoviv. The staging posture is
 route-table data plus documentation — no schema, no daemon, no new
 mode.
 
@@ -205,6 +205,6 @@ stay canonical for their mechanisms. Nothing is superseded:
 - `5/L`, `5/G` — mention promotion, engagement continuation.
 - `5/E` — route-miss → onboarding hook in the loop.
 - `4/9` — `interact`/`admin`/`**` vocabulary; operator emergence.
-- `5/32` — invites, gates, tenant self-service phases.
+- `5/5` — invites, gates, tenant self-service phases.
 - `ROUTING.md` — route-table syntax + the mention-only examples this
   generalizes to staging and sender gating.

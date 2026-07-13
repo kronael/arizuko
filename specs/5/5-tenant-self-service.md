@@ -12,7 +12,7 @@ status: partial
 >
 > **Phase status.** B (invites) shipped 2026-05. C (folder/user-scope
 > secrets layering — the BYOA primitive phase 8 depends on) shipped via
-> the credential model in [`5/42`](42-credentials.md); see the §Secrets
+> the credential model in [`5/14`](14-credentials.md); see the §Secrets
 > supersede note below. D shipped as a boolean `chats.is_group`
 > (`store/migrations/0033-chat-is-group.sql`, owned by specs/7/35), NOT
 > this spec's `chats.kind` enum — read §chats.kind as superseded shape.
@@ -88,7 +88,7 @@ Lifecycle:
 ## Secrets
 
 > **Superseded.** This §Secrets + §chats.kind resolution is superseded
-> by the credential model in [`specs/5/42-credentials.md`](42-credentials.md)
+> by the credential model in [`specs/5/14-credentials.md`](14-credentials.md)
 > (env-profile vs capability vs infra scopes; grant-gated tools). Kept
 > for history; read 42 for the live model.
 
@@ -207,7 +207,7 @@ their content):
 - `4/9-acl-unified.md` — canonical unified ACL (shipped); subsumes the
 - `14/6-dynamic-channels.md` — channel adapter credentials (special case
   of folder-scope secrets); planned
-- `5/30-inspect-tools.md` — read-only introspection (shipped)
+- `5/3-inspect-tools.md` — read-only introspection (shipped)
 - `GRANTS.md` (root) — composition mechanics
 - `14/7-auth-tunneling.md` — web-based credential capture; planned
 - `8/8-cli-auth-helper.md` — CLI auth dispatcher; planned

@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/8/F-audit-stream.md, specs/5/45-openapi-mcp.md, specs/9/3-git-as-truth.md, specs/5/36-yaml-manifests.md
+depends: specs/5/W-webhook-routes.md, specs/5/I-tool-call-logging.md, specs/8/F-audit-stream.md, specs/5/17-openapi-mcp.md, specs/9/3-git-as-truth.md, specs/5/8-yaml-manifests.md
 ---
 
 # specs/9/6 — functions: agent-authored lambda primitive
@@ -48,7 +48,7 @@ plane around it.
 ## The shape
 
 `functions` is a top-level YAML manifest key per
-[`5/36`](../5/36-yaml-manifests.md)'s flat resource namespace, dispatched
+[`5/8`](../5/8-yaml-manifests.md)'s flat resource namespace, dispatched
 through resreg owned by `gated`.
 
 ```yaml
@@ -353,7 +353,7 @@ chain.
 | Delete          | `functions.delete` | `DELETE /v1/functions/{name}`      |
 | Invoke (manual) | `functions.invoke` | `POST /v1/functions/{name}:invoke` |
 
-One hand-rolled resreg handler per [`5/45`](../5/45-openapi-mcp.md).
+One hand-rolled resreg handler per [`5/17`](../5/17-openapi-mcp.md).
 `state: absent` row in a YAML manifest deletes. Group delete
 cascades.
 
@@ -456,7 +456,7 @@ shallow enough to surface accidents fast.
    `functions:*` under `admin`.
 7. **Adds `functions` resreg.Resource** in gated, dependency class 3
    alongside `route_tokens`, `scheduled_tasks` per
-   [`5/36`](../5/36-yaml-manifests.md).
+   [`5/8`](../5/8-yaml-manifests.md).
 
 No new HTTP-facing daemon. No new socket beyond fnspd's local one.
 
@@ -527,15 +527,15 @@ No new HTTP-facing daemon. No new socket beyond fnspd's local one.
   field schema; this spec fills in the `tool` values listed above.
 - [`../8/F-audit-stream.md`](../8/F-audit-stream.md) — audit_log
   table. New `tool` values only; no schema change.
-- [`../5/45-openapi-mcp.md`](../5/45-openapi-mcp.md) — one
+- [`../5/17-openapi-mcp.md`](../5/17-openapi-mcp.md) — one
   resreg handler per resource; `functions` joins the unified surface.
 - [`../9/3-git-as-truth.md`](3-git-as-truth.md) — function manifest
   row + script file are cold-tier state; per-turn commit picks them
   up; cold-tier integrity contract above implements the hashing
   discipline.
-- [`../5/36-yaml-manifests.md`](../5/36-yaml-manifests.md) — `functions` as
+- [`../5/8-yaml-manifests.md`](../5/8-yaml-manifests.md) — `functions` as
   top-level resource key; `state: absent` semantics.
-- [`../5/35-proxyd-standalone.md`](../5/35-proxyd-standalone.md) — no
+- [`../5/7-proxyd-standalone.md`](../5/7-proxyd-standalone.md) — no
   functions-specific proxyd route; webd serves `/hook/<token>` for
   both kinds.
 

@@ -8,7 +8,7 @@ depends: specs/9/2-data-model.md, specs/9/3-git-as-truth.md
 ## Why this exists
 
 Phase 8 lands the platform thesis: MCP+REST as the runtime surface
-([`5/44`](../5/44-mcp-rest-unification.md)), tiered entities (8/2), git
+([`5/16`](../5/16-mcp-rest-unification.md)), tiered entities (8/2), git
 as cold-tier truth (8/3). What it
 does NOT say is what happens at the edges where data enters, gets
 curated, and triggers reactions across products. After 8/3 ships, an
@@ -197,7 +197,7 @@ later, not as amendments here.
 - Framing journey: `.diary/20260523.md` (14:00 onward; three-lens
   synthesis at 15:00).
 - Original prompt: `.diary/20260525.md` (evening).
-- Adjacent platform specs: `specs/5/45-openapi-mcp.md`,
+- Adjacent platform specs: `specs/5/17-openapi-mcp.md`,
   `specs/9/2-data-model.md`, `specs/9/3-git-as-truth.md`.
 - File-event-stream (in-container, narrow): `specs/17/3-file-event-stream.md`.
 - Retrieval-layer gap framing: `specs/17/8-company-brain.md`.

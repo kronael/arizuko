@@ -468,7 +468,7 @@ land compatibly with it.
   poison replay). Tests: `TestQueuePathRouteMissInsertsOnboarding` (failed
   pre-fix), `TestRouteMissOnboardingFailureSurfaces`.
 
-## 5/44 invites fold — agent-forwarder half deferred (2026-07-07, by design)
+## 5/16 invites fold — agent-forwarder half deferred (2026-07-07, by design)
 
 onbod's `/v1/invites` REST face is folded onto resreg (`154cd17f`, mirrors the
 gates fold): create/list/revoke ride the shared handler + one tx + audit, and
@@ -493,7 +493,7 @@ onbod enforces ownership in one call; create needs the forwarder to inject issue
 + synthesize accept_url. That's the "one-owner + federation" design step, not a
 mechanical fold — left for a focused change on the live agent surface.
 
-## 5/44 two-faces rollout — status (updated 2026-07-06)
+## 5/16 two-faces rollout — status (updated 2026-07-06)
 
 All 5 cold-tier agent-MCP faces ride one resreg.Resource via the injected Gate
 seam. REST faces folded onto their shared handlers: web_routes (27537500 +
@@ -544,23 +544,23 @@ routes (3195f867), tasks (0b6ca53e). Open:
 4. **`container/runner.go` standalone ServeMCP (minor).** The non-split dev path
    (`!ExternalMCP`) gets no postBuild → no facade tools there. Production (split, routd
    hosts the socket) unaffected.
-5. **surrogate refresh: bodyless-4xx nulls the row (5/43).** RESOLVED 2026-07-07 (e813efd5):
+5. **surrogate refresh: bodyless-4xx nulls the row (5/15).** RESOLVED 2026-07-07 (e813efd5):
    `Engine.Refresh` now signals `ErrReconnect` ONLY on a definitive OAuth error body
    (`tr.Error` set); a bodyless/unparseable non-2xx is a transient error that keeps the
    credential. Test `TestRefresh_BodylessErrorIsNotReconnect`.
 6. **flaky test: `TestRefreshRotationRaceSingleWinner` (authd/bugfix_test.go:131).** A
    refresh-rotation concurrency race test that intermittently fails under full-suite parallel
-   load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/44/5/43 work. Needs a
+   load but passes 5/5 in isolation. Pre-existing, unrelated to the 5/16/5/15 work. Needs a
    sync point or serialization in the test harness. Low priority (not a product bug).
 
 
 ## oracle skill + examples tell operators to folder-scope CODEX_API_KEY, which the store rejects (2026-07-02, open)
 
-Spec 5/42 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
+Spec 5/14 put `CODEX_API_KEY`/`OPENAI_API_KEY` in `store.EnvProfileKeys`, so `validateScope`
 (`store/secrets.go:128`) rejects them at `scope_kind='folder'` — model creds are user-only (BYOA)
 or platform (host `.env`). But `ant/skills/oracle/SKILL.md` "Path B" and several
 `ant/examples/*/PRODUCT.md` still show `[[secret]] key = "CODEX_API_KEY"` at **folder** scope.
-Under 5/42 enforcement that write 400s.
+Under 5/14 enforcement that write 400s.
 
 **Design call needed** (do not silently change either side): (a) keep the model — codex/openai are
 user-only like Anthropic — and fix the oracle docs/examples to user-scope or platform `.env`; or
@@ -580,7 +580,7 @@ is purely about whether folder-scope is allowed. Fixing the docs also requires a
 
 ## OpenAPI convention emits phantom/divergent paths for hand-rolled resources (2026-07-02, open)
 
-`resreg/openapi.go:resourcePaths` synthesizes the 5/36 CRUD convention (`/v1/<name>`
+`resreg/openapi.go:resourcePaths` synthesizes the 5/8 CRUD convention (`/v1/<name>`
 GET/POST/GET-one/PATCH/DELETE) from `(RowType, PKFields)`, ignoring each resource's real
 `Endpoints`. Truthful only for `proxyd_routes` (the one resource whose live RegisterREST
 matches the convention). The others advertise paths their daemons don't serve or serve with
@@ -592,7 +592,7 @@ different shapes:
   (routes `{id}` not `{seq}`, has `PUT` + no `PATCH`; acl remove is body-`DELETE /v1/acl`; etc).
 
 The `secrets` read-surface leak (convention emitted `GET /v1/secrets/{scope_kind}`) is FIXED by
-dropping `secrets` from routd's OpenAPI list (2026-07-02). The rest is the 5/44 ipc→resreg
+dropping `secrets` from routd's OpenAPI list (2026-07-02). The rest is the 5/16 ipc→resreg
 migration: when each becomes a real resreg resource served via RegisterREST with true `Endpoints`,
 change `resourcePaths` to emit from `Endpoints` (empty → schema-only) and the drift closes for good.
 
@@ -651,7 +651,7 @@ Fix requires:
    `db.ResolveConnectorSecrets(folder, ...)` is called.
 3. `routd/mcp.go:569` pass `callerSub` alongside `folder` into the resolver.
 
-Spec: `specs/5/42-credentials.md § ConnectorSecrets user-scope`.
+Spec: `specs/5/14-credentials.md § ConnectorSecrets user-scope`.
 
 - **Status:** fixed 0d244973 (2026-06-26) — ConnectorSecrets now takes callerSub, calls FolderSecretsForUser
 
@@ -1216,7 +1216,7 @@ users of `LoadConfigFrom` (`cmdCreate`, `cmdPair`, `cmdStatus`) for the same cwd
 
 ## PROPOSAL — anteval `--mcp` parity face needs an inspect-read on a public MCP surface (2026-07-11, proposed)
 
-Spec 5/37 gap (b): `anteval --mcp` expects an "inspect-compatible MCP-over-HTTP face" —
+Spec 5/9 gap (b): `anteval --mcp` expects an "inspect-compatible MCP-over-HTTP face" —
 `HTTPTarget.McpMessages` just GETs `<mcp>/v1/messages/inspect`, i.e. a REST-shaped URL, not a
 real MCP client. The platform DOES have MCP-over-HTTP (webd `POST /mcp` session-auth'd, and
 `POST /chat/{token}/mcp` chat-token-auth'd, stateless streamable HTTP) but its tools are
@@ -1232,7 +1232,7 @@ sign-off before shipping. Until then `--mcp` stays unset and `rest-mcp-parity` f
 callback-checked).
 
 - **Severity:** low (one non-smoke case ungated; documented honest gap)
-- **Scope:** anteval/pkg/run/target.go McpMessages + webd chat MCP toolset + spec 5/37
+- **Scope:** anteval/pkg/run/target.go McpMessages + webd chat MCP toolset + spec 5/9
 - **Affected:** anteval `rest-mcp-parity` case
 - **Source:** anteval/README.md "Two known gaps"; webd/chat_mcp.go toolset
 - **Status:** proposed (redesign, needs sign-off)
@@ -1251,7 +1251,7 @@ agent mints a token, the POST 302s, no turn fires.
 
 Second facet: the row was INSERTed live (2026-07-11) and a `/zzztest/` probe row confirmed the
 running proxyd does NOT pick up proxyd_routes changes without a restart — despite
-`proxyd/resource.go snapshot()` reading the DB per request (spec 5/36, d9796a62). Either the
+`proxyd/resource.go snapshot()` reading the DB per request (spec 5/8, d9796a62). Either the
 deployed build predates the per-request read or something still caches; verify on next deploy
 and re-run `anteval run ... --case webhook-in` (the `/hook/` row is already in place, so the
 next proxyd restart activates it).

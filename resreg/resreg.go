@@ -1,12 +1,12 @@
 // Package resreg implements the uniform Resource registry from spec
-// 5/45-openapi-mcp.md: one Handler per (Resource, Action), wrapped
+// 5/17-openapi-mcp.md: one Handler per (Resource, Action), wrapped
 // by two auto-adapters (REST + MCP) so any caller surface reaches the
 // same code. Resources using it: proxyd's runtime route table
 // (proxyd/resource.go), webd's operator-side MCP forwarder
 // (webd/routes_mcp.go), and routd's cold-tier agent tools
 // (routes/web_routes/network_rules/scheduled_tasks/acl), each riding one
 // shared handler on both the agent MCP socket and the operator REST face
-// (spec 5/44).
+// (spec 5/16).
 //
 // Design (post oracle critique 2026-05-25):
 //
@@ -185,7 +185,7 @@ type Resource struct {
 	// Skipped for forwarders (Store == nil); the downstream daemon gates.
 	Gate func(x Execution, scope string, params map[string]string) error
 
-	// Schema half (spec 5/36). All optional. Resources that set
+	// Schema half (spec 5/8). All optional. Resources that set
 	// RowType+Table are "engine-managed" and get generic CRUD via
 	// engine.go. Resources without RowType are forwarders or custom-
 	// shape — still valid, just not engine-driven.
@@ -206,7 +206,7 @@ type Resource struct {
 	// server-side (created_at, granted_at, added_at, …). Diff ignores them
 	// when comparing payloads, so a hand-written manifest that omits them
 	// reads as `unchanged` against a live stamped row instead of phantom-
-	// updating on every plan (spec 5/36 §"Apply lifecycle" step 3).
+	// updating on every plan (spec 5/8 §"Apply lifecycle" step 3).
 	StampedFields []string
 
 	meta *resourceMeta // populated by Register; reflection-derived

@@ -233,7 +233,7 @@ func TestExport_DeterministicAcrossRuns(t *testing.T) {
 
 // TestGetRoundTrip_NoOp: `get <resource>` emits a fragment that, parsed
 // and diffed against the live DB, reports no change — the round-trip
-// honesty acceptance criterion (spec 5/36 §"arizuko get round-trip").
+// honesty acceptance criterion (spec 5/8 §"arizuko get round-trip").
 func TestGetRoundTrip_NoOp(t *testing.T) {
 	_, st := openInstance(t)
 	v0 := dbConfigVersion(t, st.DB())
@@ -304,7 +304,7 @@ func TestPlan_MatchesApply(t *testing.T) {
 
 // TestStrictParse_CLIPath: the parse step cmdApply/cmdPlan run (ParseYAML
 // over the real resource registry) rejects a typo'd resource key AND a
-// bogus row field before any DB write (spec 5/36 §"Apply lifecycle" step 1).
+// bogus row field before any DB write (spec 5/8 §"Apply lifecycle" step 1).
 func TestStrictParse_CLIPath(t *testing.T) {
 	typoKey := []byte(`
 config_version: 0

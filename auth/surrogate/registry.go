@@ -1,5 +1,5 @@
 // Package surrogate runs the outbound "Connect <provider>" OAuth dance
-// (spec 5/43): arizuko authenticates AS the user to a third-party API and the
+// (spec 5/15): arizuko authenticates AS the user to a third-party API and the
 // resulting access+refresh token is written into the `secrets` table the broker
 // reads at call time. This is DISTINCT from identity OAuth (auth/oauth.go),
 // which authenticates a user TO arizuko. It reuses auth's low-level primitives

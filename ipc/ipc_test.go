@@ -874,12 +874,12 @@ func callRaw(t *testing.T, sock, name string, args map[string]any) string {
 }
 
 // NOTE: set_web_route/del_web_route/list_web_routes moved off ipc onto routd's
-// resreg web_routes resource (spec 5/44 pilot). Their self-slot + path-claim +
+// resreg web_routes resource (spec 5/16 pilot). Their self-slot + path-claim +
 // tier-0-widen parity is covered by routd/web_routes_resource_test.go, which
 // drives the real socket through the ServeMCP postBuild seam.
 
 // NOTE: issue_chat_link/issue_webhook/list_tokens/revoke_token moved off ipc onto
-// routd's resreg route_tokens resource (spec 5/44 fold). Their mint tier matrix +
+// routd's resreg route_tokens resource (spec 5/16 fold). Their mint tier matrix +
 // owner-scoped revoke + Gate/visibility parity is covered by
 // routd/route_tokens_resource_test.go, which drives the real socket through the
 // ServeMCP postBuild seam.

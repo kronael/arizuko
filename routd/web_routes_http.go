@@ -3,7 +3,7 @@ package routd
 // web_routes_http.go is the /v1/web_routes REST face. Its list/create/delete
 // verbs ride the SAME shared handler (webRoutesHandler, web_routes_resource.go)
 // the agent's set_web_route/del_web_route/list_web_routes MCP tools use — the
-// spec 5/44 REST-face fold. resreg.RegisterREST mounts them on a copy of
+// spec 5/16 REST-face fold. resreg.RegisterREST mounts them on a copy of
 // s.webRoutesResource() with a REST-specific Caller + Gate injected, so ALL the
 // REST-only policy (scope + JWT-folder containment, target resolution) lives
 // here and the shared handler stays surface-agnostic (it only ever reads

@@ -1,6 +1,6 @@
 package routd
 
-// groups_resource.go is the spec 5/44 step after route_tokens — the LAST agent-face
+// groups_resource.go is the spec 5/16 step after route_tokens — the LAST agent-face
 // fold and the trickiest: the agent's group tools (register_group + refresh_groups)
 // ride ONE resreg.Resource instead of two hand-rolled ipc/ipc.go tool bodies.
 //

@@ -13,7 +13,7 @@ table — full CRUD already exists (`GET/POST/PATCH/DELETE /v1/proxyd_routes`,
 `proxyd/resource.go:300` `routesResourceDecl`). Mutations are durable
 and visible to the next request without restart: there is **no route
 cache and therefore no "reload"** — every request reads the table
-fresh (spec 5/36 no-cache, `proxyd/resource.go:62` `snapshot`).
+fresh (spec 5/8 no-cache, `proxyd/resource.go:62` `snapshot`).
 Everything else (hand-wired surfaces `/auth/*` `/pub/*` `/priv/*`
 `/dav/*` `/chat/` `/hook/`, `TRUSTED_PROXIES`, `PUB_REDIRECT_URL`,
 vhost aliases) is boot config — shown read-only, not mutable here.
@@ -84,7 +84,7 @@ vhost aliases, `PUB_REDIRECT_URL` + its cached probe state
 | create route          | `POST /v1/proxyd_routes`          | exists     | **`.btn-danger`** — a bad route shadows a daemon's surface                                                                                      |
 | edit route            | `PATCH /v1/proxyd_routes/{path}`  | exists     | **`.btn-danger`** — flipping `auth` to `public` exposes a backend                                                                               |
 | delete route          | `DELETE /v1/proxyd_routes/{path}` | exists     | **`.btn-danger`** — 404s a live surface; idempotent (204)                                                                                       |
-| reload routes         | —                                 | —          | **non-goal**: nothing to reload — per-request DB read (spec 5/36) means every mutation is already live                                          |
+| reload routes         | —                                 | —          | **non-goal**: nothing to reload — per-request DB read (spec 5/8) means every mutation is already live                                           |
 | enable/disable route  | —                                 | —          | **non-goal**: no `enabled` column exists; the honest disable is DELETE (the route row IS the registration, per `7/1`). Don't invent a soft flag |
 | clear denial counters | `DELETE /v1/denials`              | **to add** | no — in-memory ring + counters only, nothing durable                                                                                            |
 | edit web_routes       | —                                 | —          | **non-goal**: agent-owned via `set_web_route`; proxyd is a reader                                                                               |
@@ -152,7 +152,7 @@ hand-wired surfaces (`/pub/`, `/dav/` policy, vhost derivation — code
   list (proxyd is a core daemon, no service TOML — `7/1` Routing);
   hub tile probes `GET /health` (`proxyd/main.go:494`).
 - Routes page matches `GET /v1/proxyd_routes` exactly (same handler, third
-  face — spec 5/45); creating a route from the page makes the next
+  face — spec 5/17); creating a route from the page makes the next
   request through proxyd honour it with **no restart**.
 - Editing a route to `auth: public` and deleting a route both demand
   the danger confirm.

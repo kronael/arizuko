@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [5/45-openapi-mcp, 5/E-routd]
+depends: [5/17-openapi-mcp, 5/E-routd]
 supersedes-in-part: [4/19-action-grants.md]
 ---
 
@@ -261,7 +261,7 @@ satisfies spec 5/A's "next message" contract.
   as the room-JID principal pattern.
 - **`specs/4/19`**: tier derivation stays in code; deny semantics
   live in the `effect='deny'` column.
-- **`specs/5/45`**: `ScopePred` calls `Authorize`; the
+- **`specs/5/17`**: `ScopePred` calls `Authorize`; the
   `<resource>:<verb>[:own_group]` scope shorthand mints `acl` rows.
 
 ## Bootstrap

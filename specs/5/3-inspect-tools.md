@@ -10,7 +10,7 @@ status: shipped
 > Planned (2026-05-01): `inspect_messages` gains a `since` param
 > (forward time-window read) so the agent can pull only new rows
 > after a digest cron. Pairs with the autocalls `unread`/`errors`
-> extensions in [31-autocalls.md](31-autocalls.md).
+> extensions in [4-autocalls.md](4-autocalls.md).
 
 # Inspect Tools — operational introspection MCP surface
 

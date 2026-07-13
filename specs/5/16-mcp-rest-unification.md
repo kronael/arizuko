@@ -1,6 +1,6 @@
 ---
 status: partial
-depends: [5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
+depends: [5/13-ext-mcp, 5/17-openapi-mcp, specs/4/9-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 
@@ -21,14 +21,14 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > hand-rolled (`server.go handleToken*`) and `groups` has no `/v1/groups` REST
 > twin yet; then the one-owner + federation phase retires `messages.db`.
 
-# specs/5/44 — MCP+REST unification (finish the adoption)
+# specs/5/16 — MCP+REST unification (finish the adoption)
 
-[`5/45-openapi-mcp`](45-openapi-mcp.md) is the **mechanism** — one
+[`5/17-openapi-mcp`](17-openapi-mcp.md) is the **mechanism** — one
 `resreg.Resource` per `(resource, action)` wearing two faces: the agent's
 MCP tools (derived by `deriveMCPTools`) and the human's annotated REST
 `/openapi.json`. This spec is the **adoption program**: migrate every
 resource onto that mechanism and delete the parallel hand-rolled surfaces.
-Orthogonal to `5/45` — mechanism vs rollout.
+Orthogonal to `5/17` — mechanism vs rollout.
 
 ## The target
 
@@ -118,13 +118,13 @@ The goal is **agent-first platform management** — every cold-tier management
 resource (`routes`, `acl`, `groups`, `secrets`, `scheduled_tasks`,
 `network_rules`, `web_routes`, `route_tokens`, `onboarding_gates`,
 `proxyd_routes`) reachable via **MCP** (agent, tier-gated) AND **REST**
-(human, OAuth-gated), one in-process handler. That's `5/45`'s principle;
+(human, OAuth-gated), one in-process handler. That's `5/17`'s principle;
 this spec finishes the coverage and collapses the bespoke surfaces onto it.
 
 **Written once, not twice** — one `resreg.Resource` is authored; the agent's
 MCP tools are `deriveMCPTools`'d from its endpoints and the REST doc emitted
 from the same `MCPDoc`. No hand-authored `MCPTools` list per resource;
-shipping 5/45 is the mechanism this spec rides.
+shipping 5/17 is the mechanism this spec rides.
 
 **Two surfaces stay distinct — don't merge them:**
 
@@ -136,9 +136,9 @@ shipping 5/45 is the mechanism this spec rides.
   hand-authored in `ipc/ipc.go`. So ipc.go doesn't disappear — it loses its
   management tools, keeps the hot-tier tools + the unix-socket transport.
 
-The orthogonal sibling concern is `5/36` — the **same cold-tier resources as
-declarative YAML manifests** you `export`/`apply` (config-as-data). 5/44 is
-the runtime REST+MCP surface; 5/36 is the manifest transport. Same tables,
+The orthogonal sibling concern is `5/8` — the **same cold-tier resources as
+declarative YAML manifests** you `export`/`apply` (config-as-data). 5/16 is
+the runtime REST+MCP surface; 5/8 is the manifest transport. Same tables,
 two orthogonal fronts — the row-level plumbing underneath both is not a
 concept worth naming.
 
@@ -252,6 +252,6 @@ ride `audit_log`). `network_rules` stays agent-only — no REST twin to fold.
 
 ## Out of scope
 
-- The `5/45` mechanism itself (shipped).
+- The `5/17` mechanism itself (shipped).
 - Data-model sharpening (`9/2`) and git-as-truth (`9/3`) — the other two
   phase-8 actions, still phase 8; do not smuggle them in here.

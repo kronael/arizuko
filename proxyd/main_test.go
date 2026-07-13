@@ -1474,7 +1474,7 @@ func TestDavAllow(t *testing.T) {
 
 // installRoute is a tiny helper for tests that wires one TOML route into
 // the server's route table. Test-only: uses the manual fallback path
-// (st nil); production reads from the DB per request (spec 5/36).
+// (st nil); production reads from the DB per request (spec 5/8).
 func installRoute(s *server, r Route) {
 	if s.rr == nil {
 		s.rr = newRoutesResource(nil, nil)

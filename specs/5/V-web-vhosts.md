@@ -120,7 +120,7 @@ not the platform's, and is bounded to its own slot by `set_web_route`.
 ### Discovery — `get_web_presence`
 
 A world derives its hostname but is never told it. `get_web_presence`
-(routd MCP tool + `GET /v1/web_presence?folder=<f>` REST twin, spec 5/45
+(routd MCP tool + `GET /v1/web_presence?folder=<f>` REST twin, spec 5/17
 uniform) is the read-only discovery surface that closes that gap. Given
 a folder (default: the caller's own), it reports:
 
@@ -310,7 +310,7 @@ kept three hand-copies that diverged. N file copies feeding one URL violates
    `0068` FK (`web_routes.folder → groups`, CASCADE) retires the claim when
    the owner dies. Operator-curated top-level paths (`/pub/arizuko/`,
    marketing `/pub/index.html`) are system-owned, declared in the instance
-   manifest's `web_routes` (`5/36`, `owner: system`).
+   manifest's `web_routes` (`5/8`, `owner: system`).
 
 Operational consequence: the `template/web/pub/` rsync target is
 `<data>/web/pub/arizuko/` only (the top-level/tier-0 slot) — no "rsync to any subdir of

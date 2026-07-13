@@ -30,7 +30,7 @@ beyond `docker` for `run` and `pair`).
   - `arizuko invite <inst> revoke <token>`
   - `arizuko send <inst> <folder> [<message>] [--wait | --stream] [--stdin] [--from <sender>] [--topic <topic>] [--token <raw>]` — inject a message into a folder's queue (uses topic for conversation continuity). Default is **operator-direct**: no token, writes the inbound straight to the DB on `web:<folder>` (the operator already owns the DB, same authority as `create`/`grant`/`secret`); the gateway poll loop runs the agent and `--wait`/`--stream` prints its reply. Pass `--token`/`ARIZUKO_CHAT_TOKEN` to instead POST the public `/chat/<token>` endpoint as a non-operator caller.
   - `arizuko budget <inst> set folder|user <name> --daily N` / `show folder|user <name>` — per-folder or per-user daily spend cap in cents (0 = uncapped); pre-spawn gate enforces lower of (folder cap, user cap)
-  - `arizuko apply <inst> <manifest.yaml> [--force]` — restore cold-tier config from a YAML dump in one tx; CAS-checks `config_version` (spec 5/36)
+  - `arizuko apply <inst> <manifest.yaml> [--force]` — restore cold-tier config from a YAML dump in one tx; CAS-checks `config_version` (spec 5/8)
   - `arizuko plan <inst> <manifest.yaml>` — non-mutating diff of a manifest vs live config
   - `arizuko get <inst> <resource>` — emit one resource's live rows as a YAML fragment (round-trips to a no-op)
   - `arizuko export <inst> [out.yaml]` — dump cold-tier config to canonical-ordered YAML
@@ -43,7 +43,7 @@ beyond `docker` for `run` and `pair`).
 ## Files
 
 - `main.go` — command dispatch + `create`/`generate`/`run`/`status`/`pair`/`group`/`gate`/`invite`/`identity`/`chat`
-- `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/36)
+- `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8)
 - `budget.go` — `budget` spend caps
 - `network.go` — `network` egress rules
 - `secret.go` — `secret` + `user-secret`

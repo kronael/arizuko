@@ -4,7 +4,7 @@ shipped: 2026-06-14
 depends:
   [
     1-auth-standalone,
-    45-openapi-mcp,
+    17-openapi-mcp,
     3-user-spawned-agents,
     K-ant-backend-codex,
   ]

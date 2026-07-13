@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/44 groups fold: the agent's register_group +
+// Parity tests for the spec 5/16 groups fold: the agent's register_group +
 // refresh_groups now ride resreg's MCP mechanism through the ServeMCP postBuild seam
 // instead of two hand-rolled ipc bodies. register_group is a FORWARDER (its group
 // row + route + git-init FS side-effects can't ride a resreg tx), so its auth (tool

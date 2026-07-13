@@ -1,6 +1,6 @@
 package routd
 
-// route_tokens_resource.go is the spec 5/44 step after web_routes +
+// route_tokens_resource.go is the spec 5/16 step after web_routes +
 // network_rules + scheduled_tasks + routes: the agent's route-token tools
 // (issue_chat_link/issue_webhook/list_tokens/revoke_token) ride ONE
 // resreg.Resource instead of four hand-rolled ipc/ipc.go tool bodies.
@@ -28,7 +28,7 @@ package routd
 // Only the AGENT face rides this resource (agent socket, route_tokensPostBuild). The
 // operator REST twin (/v1/route_tokens/{chat,hook,resolve}, list, {jid}) stays
 // hand-rolled in tokens_http.go — its chat/hook/resolve request shapes predate the
-// fold and folding them is a separate 5/44 REST-face step. The injected Gate adds the
+// fold and folding them is a separate 5/16 REST-face step. The injected Gate adds the
 // uniform tool grant (grants.CheckAction + db.Authorize) the old registerRaw path
 // omitted (it gated on VISIBILITY only); for a normally-granted folder the decision
 // is identical, and an ungranted one is now denied at call time, not just hidden.

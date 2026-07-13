@@ -288,7 +288,7 @@ func (s *Server) mcpSendVoice(turnID, jid, text, voice, folder, threadID string)
 }
 
 // Route-token issuance/list/revocation migrated to routd/route_tokens_resource.go
-// (spec 5/44, agent-MCP fold). The REST twin stays hand-rolled in tokens_http.go.
+// (spec 5/16, agent-MCP fold). The REST twin stays hand-rolled in tokens_http.go.
 
 // mcpSubmitTurn maps the ipc.TurnResult agent payload onto routd's apiv1
 // shape and records it through the shared recordTurnResult writer (the same
@@ -391,7 +391,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 	}
 	return ipc.StoreFns{
 		// Task reads for inspect_tasks (the write tools schedule/pause/resume/
-		// cancel/list moved to the scheduled_tasks resreg seam — spec 5/44).
+		// cancel/list moved to the scheduled_tasks resreg seam — spec 5/16).
 		ListTasks: s.db.Tasks,
 		GetTask:   s.db.GetTask,
 		TaskRunLogs: func(taskID string, limit int) []ipc.TaskRunLog {
@@ -405,7 +405,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		// nil resolver → unclaimed shape.
 		GetIdentityForSub: s.resolveIdentity,
 		// list_routes/add_route/set_routes/delete_route moved to the routes resreg
-		// seam (spec 5/44); ListRoutes stays — inspect_routing still reads it.
+		// seam (spec 5/16); ListRoutes stays — inspect_routing still reads it.
 		ListRoutes: func(_ string, _ bool) []core.Route {
 			r, _ := s.db.Routes()
 			return r
@@ -464,7 +464,7 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 		ExtTools:   s.extTools,
 		// Capture the trigger sender so ConnectorSecrets resolves the triggering
 		// user's BYOA secrets (FolderSecretsForUser), not folder scope only.
-		// Normalize the caller the same way dispatchRun does (spec 5/42
+		// Normalize the caller the same way dispatchRun does (spec 5/14
 		// resolution chain): timed/system triggers resolve as service:routd, so
 		// a stray timed-<id> scope_id can't diverge connector-secret resolution
 		// from spawn-time resolution.
@@ -540,7 +540,7 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// ListACL key in deriveFolderGrants). With no acl rows, Authorize returns false
 	// only on an explicit deny; tier-default fallback covers the no-row case.
 	callerSub := "folder:" + t.folder
-	// spec 5/44: mount the agent's management tools via resreg (shared handler +
+	// spec 5/16: mount the agent's management tools via resreg (shared handler +
 	// tx/audit) with the agent's tier-aware Gate + visibility. One postBuild seam
 	// per migrated resource; ServeMCP applies them all.
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules)

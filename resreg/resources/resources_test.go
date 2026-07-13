@@ -230,7 +230,7 @@ func TestMembership_CycleRejected(t *testing.T) {
 
 // TestApply_ScopedLeavesOutOfScopeRow: a partial manifest mentioning only
 // folder "atlas" must NOT delete a live network_rules row for folder
-// "ops" — scoped DELETE+INSERT (spec 5/36 §"Atomicity model"). Before the
+// "ops" — scoped DELETE+INSERT (spec 5/8 §"Atomicity model"). Before the
 // scoped-apply fix this was a wholesale DeleteAll that wiped "ops".
 func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 	db := openMem(t)
@@ -280,7 +280,7 @@ func TestApply_ScopedLeavesOutOfScopeRow(t *testing.T) {
 
 // TestDiff_IgnoresStampedTimestamp: a hand-written network_rules manifest
 // that omits created_at reads as `unchanged` against a live row whose
-// created_at was server-stamped — no phantom update (spec 5/36 step 3).
+// created_at was server-stamped — no phantom update (spec 5/8 step 3).
 func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 	db := openMem(t)
 	v0, _ := resreg.ConfigVersion(db)
@@ -309,7 +309,7 @@ func TestDiff_IgnoresStampedTimestamp(t *testing.T) {
 // TestPlanApplyAgree_Secrets: plan must not render a SkipApplyRebuild
 // resource (secrets) as an actionable delta, because apply skips it.
 // Plan and apply agree: the live secret row survives the apply, and the
-// plan reports no change for secrets (spec 5/36 §"Secret safety").
+// plan reports no change for secrets (spec 5/8 §"Secret safety").
 func TestPlanApplyAgree_Secrets(t *testing.T) {
 	db := openMem(t)
 	if _, err := db.Exec(
@@ -349,7 +349,7 @@ func TestPlanApplyAgree_Secrets(t *testing.T) {
 // TestSecretsOpenAPIWriteOnly: the secrets resource declares explicit write-only
 // Endpoints, so OpenAPI emits exactly POST /v1/secrets + DELETE /v1/secrets/{key}
 // — NO read op (get/list) on either path. A sealed value must never surface in a
-// read (spec 5/36 §"Secret safety"); this proves the doc can't drift into one.
+// read (spec 5/8 §"Secret safety"); this proves the doc can't drift into one.
 func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 	out, err := resreg.OpenAPI("routd", "/", []string{"secrets"})
 	if err != nil {
@@ -384,7 +384,7 @@ func TestSecretsOpenAPIWriteOnly(t *testing.T) {
 
 // TestApply_WritesOneAuditRow: an apply with ApplyOpts writes exactly one
 // audit_log summary row (actor + manifest digest + final config_version),
-// not one per resource (spec 5/36 §"CAS implementation" (3)).
+// not one per resource (spec 5/8 §"CAS implementation" (3)).
 func TestApply_WritesOneAuditRow(t *testing.T) {
 	db := openMem(t)
 	v0, _ := resreg.ConfigVersion(db)
@@ -432,7 +432,7 @@ func TestApply_WritesOneAuditRow(t *testing.T) {
 }
 
 // daemonOwnership mirrors the per-daemon owned-resource lists the daemon
-// mains pass to resreg.OpenAPIHandler (spec 5/36 §"OpenAPI emission").
+// mains pass to resreg.OpenAPIHandler (spec 5/8 §"OpenAPI emission").
 // Keep in sync with timed/main.go, routd/cmd/routd/main.go,
 // onbod/main.go, proxyd/main.go.
 var daemonOwnership = map[string][]string{
@@ -607,7 +607,7 @@ func TestFoldedEndpoints_RegistrySingleSource(t *testing.T) {
 // TestFacadeMCP_RegistrySingleSource: each cold-tier facade resource the registry
 // walk feeds ipc.ListTools (dashd's tool browser) carries the SAME exported
 // MCPDoc/MCPArgs/MCPNames maps routd's *_resource.go feeds the agent socket, so the
-// browser and the live agent read one owner and can't drift (spec 5/44, task #40).
+// browser and the live agent read one owner and can't drift (spec 5/16, task #40).
 func TestFacadeMCP_RegistrySingleSource(t *testing.T) {
 	cases := []struct {
 		name  string

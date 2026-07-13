@@ -1,10 +1,10 @@
 package main
 
-// proxyd `routes` Resource — spec 5/36 no-cache audit (May 2026).
+// proxyd `routes` Resource — spec 5/8 no-cache audit (May 2026).
 //
-// Prior to 5/36 this file held a routesResource with sync.RWMutex around
+// Prior to 5/8 this file held a routesResource with sync.RWMutex around
 // a []Route snapshot rebuilt on every mutation. That cache violated spec
-// 5/36 §"Two-table-class model" rule 6 ("no daemon may cache config-
+// 5/8 §"Two-table-class model" rule 6 ("no daemon may cache config-
 // table rows"). The cache had no measurable benefit — DB reads cost
 // microseconds — and created stale-read windows that broke YAML apply
 // semantics.
@@ -46,7 +46,7 @@ type routesResource struct {
 
 // newRoutesResource constructs the handle. The `initial` arg seeds the
 // test-only manual route fallback when st is nil; production reads routes
-// from the DB per request (spec 5/36).
+// from the DB per request (spec 5/8).
 func newRoutesResource(st *store.Store, initial []Route) *routesResource {
 	rr := &routesResource{st: st}
 	if st == nil {
@@ -65,7 +65,7 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 	if rr.st != nil {
 		stored, err := rr.st.AllProxydRoutes()
 		if err != nil {
-			// No row cache to fall back to (spec 5/36); surface the error
+			// No row cache to fall back to (spec 5/8); surface the error
 			// so a transient DB fault is a visible outage, not silent 404s.
 			slog.Error("proxyd: read proxyd_routes", "err", err)
 			return nil, nil
@@ -93,7 +93,7 @@ func (rr *routesResource) snapshot() ([]Route, map[string]*httputil.ReverseProxy
 
 // webSnapshot returns a fresh view of the web_routes table by querying
 // the DB. Like snapshot(), one indexed read per call (no row cache, spec
-// 5/36). The test path reads from manualWebRoutes when st is nil.
+// 5/8). The test path reads from manualWebRoutes when st is nil.
 func (rr *routesResource) webSnapshot() []store.WebRoute {
 	if rr.st != nil {
 		stored, err := rr.st.AllWebRoutes()

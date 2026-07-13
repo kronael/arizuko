@@ -1,6 +1,6 @@
 package resreg
 
-// OpenAPI emission — spec 5/36 §"OpenAPI emission".
+// OpenAPI emission — spec 5/8 §"OpenAPI emission".
 //
 // The same `RowType` reflection that drives YAML/JSON/SQL also yields
 // an OpenAPI 3.1 schema document for free. One walk over the registry,
@@ -13,7 +13,7 @@ package resreg
 // struct. Paths can't drift either: when a resource declares its real
 // mounted faces in `Endpoints` (the same slice RegisterREST mounts), the
 // doc emits exactly those verbs+paths. A resource with no Endpoints
-// (engine-managed CRUD tables) falls back to the 5/36 PK-CRUD convention.
+// (engine-managed CRUD tables) falls back to the 5/8 PK-CRUD convention.
 
 import (
 	"encoding/json"
@@ -40,7 +40,7 @@ import (
 //
 // A resource that declares `Endpoints` emits exactly those (one operation
 // per endpoint — its real mounted verb+path). A resource with no Endpoints
-// falls back to the PK-CRUD convention from spec 5/5 + 5/36:
+// falls back to the PK-CRUD convention from spec 5/5 + 5/8:
 //
 //	GET    /v1/<name>                 → list (200: array<Schema>)
 //	POST   /v1/<name>                 → create (201: Schema)
@@ -82,7 +82,7 @@ func OpenAPI(daemon, baseURL string, resources []string) ([]byte, error) {
 		"openapi": "3.1.0",
 		"info": map[string]any{
 			"title":       fmt.Sprintf("arizuko %s API", daemon),
-			"description": fmt.Sprintf("Engine-generated OpenAPI for the %s daemon. Spec: arizuko/specs/5/36-yaml-manifests.md.", daemon),
+			"description": fmt.Sprintf("Engine-generated OpenAPI for the %s daemon. Spec: arizuko/specs/5/8-yaml-manifests.md.", daemon),
 			"version":     "v1",
 		},
 		"servers": []any{
@@ -210,7 +210,7 @@ func kindToSchema(t reflect.Type) map[string]any {
 
 // resourcePaths builds the OpenAPI operations for one resource. A resource
 // that declares Endpoints (its real mounted REST faces) emits exactly those;
-// one with none falls back to the spec 5/36 PK-CRUD convention. Returns a
+// one with none falls back to the spec 5/8 PK-CRUD convention. Returns a
 // map[path]ops; ops is keyed by HTTP method (lowercased per OpenAPI).
 func resourcePaths(r *Resource) map[string]map[string]any {
 	if len(r.Endpoints) > 0 {
@@ -303,7 +303,7 @@ func openAPIPath(p string) (string, []any) {
 }
 
 // conventionPaths is the PK-CRUD fallback for engine-managed resources that
-// declare no Endpoints (their REST face IS the generic 5/36 CRUD).
+// declare no Endpoints (their REST face IS the generic 5/8 CRUD).
 func conventionPaths(r *Resource) map[string]map[string]any {
 	schemaRef := map[string]any{"$ref": "#/components/schemas/" + schemaName(r.Name)}
 	collection := fmt.Sprintf("/v1/%s", r.Name)
@@ -519,7 +519,7 @@ func marshalDeterministic(v any) ([]byte, error) {
 // the JSON on first hit and caches it for the process lifetime;
 // reflection is one-time, steady-state requests are byte-copies.
 //
-// Endpoint is public per spec 5/36 §"OpenAPI emission" — schemas
+// Endpoint is public per spec 5/8 §"OpenAPI emission" — schemas
 // describe API surface, not data. Mount BEFORE any auth middleware so
 // `/openapi.json` is reachable without credentials.
 func OpenAPIHandler(daemon string, resources []string) http.HandlerFunc {

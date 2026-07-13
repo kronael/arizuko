@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/44 scheduled_tasks migration: the agent's
+// Parity tests for the spec 5/16 scheduled_tasks migration: the agent's
 // schedule_task/pause_task/resume_task/cancel_task/list_tasks now ride resreg's
 // MCP mechanism through the ServeMCP postBuild seam instead of five hand-rolled
 // ipc bodies. Each test drives the REAL unix socket end-to-end (not the handler

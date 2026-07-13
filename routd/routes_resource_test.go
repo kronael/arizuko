@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/44 routes migration: the agent's
+// Parity tests for the spec 5/16 routes migration: the agent's
 // add_route/set_routes/list_routes/delete_route now ride resreg's MCP mechanism
 // through the ServeMCP postBuild seam instead of four hand-rolled ipc bodies. Each
 // test drives the REAL unix socket end-to-end (not the handler directly) so the

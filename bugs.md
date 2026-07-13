@@ -426,13 +426,13 @@ in-process `runner.Run` made those identical. **FIXED**: routd now out-waits run
   guards re-feed via PutTurnContext live check.
 - **invite consume atomicity** — onbod/main.go:1001-1018 calls `RestoreInvite` on PutACLRow
   failure, preventing silent lockout.
-- **turn retry** — 5/40 shipped (commit 7f4dcf78), 3 attempts with 10s backoff, error notice
+- **turn retry** — 5/12 shipped (commit 7f4dcf78), 3 attempts with 10s backoff, error notice
   on final failure.
 
 **STILL OPEN:**
 - **MED — per-turn MCP socket torn down on dispatchRun return** (`routd/dispatch.go:161`).
   Late reply from a still-running container is dropped. Subsumed by ctx-honoring.
-- **MED — MCP+REST uniformity** — descoped in the MCP+REST-uniformity spec (now `5/45`; commit 623b88a9).
+- **MED — MCP+REST uniformity** — descoped in the MCP+REST-uniformity spec (now `5/17`; commit 623b88a9).
   Real face-gaps: routd social actions MCP-only. `acl`
   is MCP read-only (list_acl) but REST full-CRUD; onbod `invites` MCP create-only + dual handlers
   (no MCP list/revoke). Designed single-faced (document, don't fix): network_rules/fork/escalate/
@@ -1617,9 +1617,9 @@ the prompt, add them to the compose template and system prompt. The
 agent should surface its identity in the first line of any confused
 response ("I am atlas on krons, I cannot access X") — never ask.
 
-## Week-N code audit — 5/36 + 5/C + 5/Z + ant SDK (2026-05-28)
+## Week-N code audit — 5/8 + 5/C + 5/Z + ant SDK (2026-05-28)
 
-Read-only correctness sweep over this week's `[5/36]`/`[5/C]`/`[5/Z]`/`[ant]`/`[fks]`/`[fix]` commits. Ranked high→low.
+Read-only correctness sweep over this week's `[5/8]`/`[5/C]`/`[5/Z]`/`[ant]`/`[fks]`/`[fix]` commits. Ranked high→low.
 
 - 2026-05-28 (resreg/engine groups, medium): `GroupsRow` BeforeInsert comment (`resreg/resources/groups.go:53-54`) claims `open` defaults to 1, but no code sets it — the dangling `if r.ContainerConfig == ""` block is about ContainerConfig, not open. A hand-authored manifest omitting `open` inserts Go zero `open=0`, silently closing every group's sibling visibility (DB column DEFAULT is 1). Export→apply round-trips are safe (`yaml:"open"` has no omitempty so the value is always emitted), but hand-written YAML or any future omit path closes groups. Fix: add `if open not explicitly set → 1` — but Go zero-value can't distinguish "absent" from "0"; model `Open` as `*int` or `*bool` in the row, or drop the misleading comment and document open=0-on-omit as intended.
 - 2026-05-28 (proxyd, medium): `snapshot()` swallows the DB error from `AllProxydRoutes()` (`proxyd/resource.go:75-81`, `if err == nil`). On any transient DB error every request silently 404s with no log — invisible outage. Fix: log the error (slog) and/or surface 502 instead of an empty route table.
@@ -1701,14 +1701,14 @@ Logged (out of this lens — concurrency, not error/boundary):
 Surfaced by a whole-tree markdown link scan during the 5/ finalize; all
 predate this session's restructure (the 5/4-delete + 5/A→11/A move added
 zero broken links). Fix = repoint to the correct target:
-- `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
-- `specs/8/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
+- `specs/5/8-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
+- `specs/8/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/8-yaml-manifests.md`.
 </details>
 
-## resreg (5/36) spec-vs-impl gaps (found 2026-05-29 shipping plan/get; address in finalize)
+## resreg (5/8) spec-vs-impl gaps (found 2026-05-29 shipping plan/get; address in finalize)
 
 The engine + 10 resources + apply/export + plan/get + /openapi.json ship and
-test green, but these diverge from the rewritten 5/36 vision — none block the
+test green, but these diverge from the rewritten 5/8 vision — none block the
 engine, all are finalize/refine-stage work:
 - **Scoped apply not wired.** `resreg.Apply` does wholesale `DeleteAll` per
   resource, not the spec's `DELETE … WHERE folder IN (<manifest scope>)`.
@@ -1788,7 +1788,7 @@ missed (mostly concurrency + the remote verify path):**
 - [nit] `go.mod` `go 1.25.5` is rejected by older toolchains (codex couldn't run
   the test suite; our local toolchain is fine) — confirm CI's Go ≥ 1.25.
 
-### routd (vs 5/E + 5/33)
+### routd (vs 5/E + 5/6)
 
 - [blocker] early `submit_turn` 409s legit trailing callbacks (`turns.go:333`):
   collapses "submit_turn arrived" vs "run returned" into `done`; a `send` after
@@ -1838,7 +1838,7 @@ missed (mostly concurrency + the remote verify path):**
 - ✓ clean: federation verb→path map, broker isolation (fails closed), DB schema,
   token delivery (never env var), MCP socket served in prod.
 
-### resreg (vs 5/36) — NEW (beyond the already-logged gaps above)
+### resreg (vs 5/8) — NEW (beyond the already-logged gaps above)
 
 - [blocker] strict-parse NOT implemented (`engine.go:696,290`) — unknown resource
   keys AND unknown row fields silently accepted; an operator typo passes
@@ -2220,9 +2220,9 @@ protocol. The `network_rules`/egress surface was excluded (impl in flight).
   CallConnectorTool(...,nil); `ipc.injectSecretsAdapter` named in
   `container/runner.go:250` does NOT exist; `store.FolderSecretsResolved` has no
   production caller → folder/user secrets never injected into connector/MCP calls.
-  (spec 5/32 Phase C + 9/11.)
+  (spec 5/5 Phase C + 9/11.)
 - **MEDIUM user-scope secrets write-only** — `store.ScopeUser` secrets set via
-  `cmd/arizuko/secret.go` but never read/overlaid at resolution (spec 5/32 folder∪user).
+  `cmd/arizuko/secret.go` but never read/overlaid at resolution (spec 5/5 folder∪user).
 - **MEDIUM (unconfirmed) proxyd /pub→/priv traversal** — `proxyd/main.go:547,587`
   lack the `..`/`%2e%2e`/`%2f` reject the vhost branch has (`:503-505`); sibling
   web/pub|web/priv dirs → possible auth-gate bypass. No test. Needs runtime check.
@@ -2256,11 +2256,11 @@ protocol. The `network_rules`/egress surface was excluded (impl in flight).
   code `core/config.go:203` is 20m. (Spec 5/G self-contradicts; docs copied wrong value.) EASY.
 - No `components/routd.html` / `components/runed.html`; components/index lists gated 5×,
   split 0×. ARCHITECTURE.md:205 vs :229 self-contradict (routd vs runed hosts MCP).
-- mention-promotion (5/L) + proactive-interjection (5/33) undocumented in web docs.
+- mention-promotion (5/L) + proactive-interjection (5/6) undocumented in web docs.
 - arizuko-client.js still primary-targets deprecated `/slink/` (works via 301).
 
 ### Spec frontmatter accuracy (flag to owner, not code bugs)
-- `32-tenant-self-service` marked shipped but Phase C (secrets resolution) incomplete,
+- `5-tenant-self-service` marked shipped but Phase C (secrets resolution) incomplete,
   Phase D diverged (chats.kind→is_group). `D-docs-refs-redesign` draft but shipped.
   `K-ant-backend-codex` draft but shipped. `33-proactive` draft but shipped-in-routd.
   `I`/`O` shipped but partial. `1-auth-standalone` accurately partial (schema/endpoints

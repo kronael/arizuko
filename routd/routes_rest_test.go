@@ -1,6 +1,6 @@
 package routd
 
-// REST-face tests for the spec 5/44 routes fold: /v1/routes add/set/list/delete now
+// REST-face tests for the spec 5/16 routes fold: /v1/routes add/set/list/delete now
 // ride the SAME shared routesHandler the agent's add_route/set_routes/list_routes/
 // delete_route MCP tools use, via resreg.RegisterREST + the injected
 // routesRESTCaller/routesRESTGate; get-one stays a thin read. These assert (a)

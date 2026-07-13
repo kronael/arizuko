@@ -28,7 +28,7 @@ var NetworkRulesEndpoints = []resreg.Endpoint{
 
 // NetworkRulesMCPNames maps each action to the flat tool name the live agent
 // already calls; routd's network_rules_resource.go references it (agent socket
-// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/44.
+// derivation) and ipc.ListTools reads it via the registry walk. Spec 5/16.
 var NetworkRulesMCPNames = map[resreg.Action]string{
 	resreg.Action("allow"): "network_allow",
 	resreg.Action("deny"):  "network_deny",

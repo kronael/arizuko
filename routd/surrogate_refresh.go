@@ -12,7 +12,7 @@ import (
 )
 
 // nearExpiryWindow is the lead time before an OAuth access token's expiry at
-// which the broker refreshes it (spec 5/43: refresh when expires_at−now < 60s).
+// which the broker refreshes it (spec 5/15: refresh when expires_at−now < 60s).
 const nearExpiryWindow = 60 * time.Second
 
 // refreshNearExpiry refreshes any user-scoped surrogate-OAuth row among

@@ -42,7 +42,7 @@ gitd/
 
 Compose template: `template/services/gitd.toml`. No edits to
 `proxyd/main.go` or `compose/compose.go` (per the standalone-proxyd
-contract, spec `5/35`).
+contract, spec `5/7`).
 
 ## JID format
 

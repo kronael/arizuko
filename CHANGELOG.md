@@ -20,8 +20,8 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **Per-daemon `audit_log` in `routd.db`.** routd's own mutation paths (acl / secrets / tasks) now write tx-bound audit rows into `routd.db`'s own `audit_log` (migration `0016-audit-log.sql`) via `audit.EmitInTx`, and proxyd / webd / dashd write there through a sibling `routd.db` handle. Retires the frozen pre-split `messages.db` as a live audit sink; in-tx rollback fixed so an audit-insert failure rolls the mutation back. (`19b2c383`, `67496732`)
 - **resreg read-one + per-action MCP args.** OpenAPI now emits a fifth operation, `GET /v1/<name>/{pk}` (read one), and MCP tool args are reflected **per action** (`MCPArgs`) so a read-one tool doesn't carry create-body fields. (`ecfb48a2`, `8b612a1d`)
 - **`proxyd_routes` single-sourced.** `MCPDoc` / `MCPArgs` / the REST endpoint set (`resources.ProxydRoutesEndpoints`) are authored once and shared by proxyd and the webd MCP forwarder, so the two faces can't drift. (`ecfb48a2`)
-- **5/44 MCP+REST unification — REST faces on the shared handler.** `web_routes`, `acl`, `routes`, and `scheduled_tasks` now serve their operator `/v1/*` REST face from the SAME in-process handler as the agent MCP tool, with authz injected per surface — operator scope + `ownsFolder` for REST, tier grants for the agent. One renderer, two faces, no drift; the hand-rolled REST handlers are retired. (`27537500`, `44c53cef`, `3195f867`, `0b6ca53e`)
-- **Surrogate OAuth (spec 5/43, GitHub pilot).** "Connect GitHub" in the dashboard runs the OAuth dance and writes access + refresh tokens into the same `secrets` row a pasted PAT lands in; the broker refreshes near-expiry tokens at call time. Standalone `auth/surrogate` engine + TOML provider registry + `/dash/me/connections`; reuses the shipped login PKCE/state primitives, never touches login OAuth. (`9bc6b499`, `4c45d132`, `db845980`)
+- **5/16 MCP+REST unification — REST faces on the shared handler.** `web_routes`, `acl`, `routes`, and `scheduled_tasks` now serve their operator `/v1/*` REST face from the SAME in-process handler as the agent MCP tool, with authz injected per surface — operator scope + `ownsFolder` for REST, tier grants for the agent. One renderer, two faces, no drift; the hand-rolled REST handlers are retired. (`27537500`, `44c53cef`, `3195f867`, `0b6ca53e`)
+- **Surrogate OAuth (spec 5/15, GitHub pilot).** "Connect GitHub" in the dashboard runs the OAuth dance and writes access + refresh tokens into the same `secrets` row a pasted PAT lands in; the broker refreshes near-expiry tokens at call time. Standalone `auth/surrogate` engine + TOML provider registry + `/dash/me/connections`; reuses the shipped login PKCE/state primitives, never touches login OAuth. (`9bc6b499`, `4c45d132`, `db845980`)
 - **`groups` agent tools on resreg.** `register_group` + `refresh_groups` ride one `resreg.Resource` (forwarder — the row+route+git-init FS side-effects can't ride a resreg SQL tx), replacing two hand-rolled `ipc/ipc.go` bodies; every agent-facing cold-tier tool is now on resreg. (`ef3d4f99`)
 - **`route_tokens` agent tools on resreg.** `issue_chat_link` / `issue_webhook` / `list_tokens` / `revoke_token` fold onto one `resreg.Resource` via the Gate seam, args preserved exactly; mint tier-caps `owner_folder` to the socket folder and revoke stays scoped to the caller's own tokens. The REST twin stays hand-rolled (separate step). (`96ca858f`)
 - **onbod invites REST face on resreg.** `/v1/invites` create/list/revoke ride the shared resreg handler (one tx wrapping mutation + audit); the retired bearer-scope checks return as the injected REST Gate; invites now appear on onbod's `/openapi.json`. (`154cd17f`)
@@ -77,7 +77,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ### Changed
 
-- **Credential model spec (`5/42`) shipped; surrogate OAuth (`5/43`, ex-`11/14`) drafted.** Three credential types — env-profile / capability / infra — resolution chain, and write paths consolidated; OAuth write-path split into its own design-complete spec; `5/41` reduced to handler shapes. (`659ead85`)
+- **Credential model spec (`5/14`) shipped; surrogate OAuth (`5/15`, ex-`11/14`) drafted.** Three credential types — env-profile / capability / infra — resolution chain, and write paths consolidated; OAuth write-path split into its own design-complete spec; `5/13` reduced to handler shapes. (`659ead85`)
 
 ---
 
@@ -324,7 +324,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   running out of time" nudge instead of a hard kill.
 - **proxyd redirect_to (migration 0072).** DB-backed exact-path redirect on
   `proxyd_routes`; `/arizuko → /pub/arizuko/` row added on krons.
-- **proxyd /priv/<folder>/ (spec 5/38).** Folder-scoped grant check on the private
+- **proxyd /priv/<folder>/ (spec 5/10).** Folder-scoped grant check on the private
   web surface — caller's folder must contain the target folder, mirrors WebDAV.
 - **chanreg reliability.** Dead JID self-evicts from the outbox (no head-of-line
   block); permanent 4xx sends surface to the agent for correction (not retried as 502).
@@ -615,7 +615,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   path is unchanged; the cutover flip stays gated.
 - **routd + runed daemons** (additive) — the conversation/execution split
   lands as code; gated still orchestrates.
-- **Proactive interjector** (spec 5/33) in the routd loop.
+- **Proactive interjector** (spec 5/6) in the routd loop.
 - **`arizuko plan` + `arizuko get`** — resreg manifest preview + per-resource
   export.
 
@@ -663,7 +663,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   (`redirect_to` + suffix, query preserved), `deny` → 403, `auth` →
   JWT gate then proxy, public/no-match → proxy as before. proxyd reads
   the table per-request via `store.AllWebRoutes` (no row cache, spec
-  5/36). The `set_web_route` MCP tool now rejects a `redirect` whose
+  5/8). The `set_web_route` MCP tool now rejects a `redirect` whose
   `redirect_to` leaves the caller's own slot (`/pub/<folder>/...` or
   `/priv/<folder>/...`) — closes an open-redirect / cross-folder
   impersonation gap. So an agent can publish a clean top-level URL
@@ -674,7 +674,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 - **Auth: 6 tools were permanently denied for every tier.**
   `pin_message`, `unpin_message`, `unpin_all`, `pane_set_prompts`,
-  `pane_set_title` (since 6/D) and `inspect_tasks` (5/30) had no case in
+  `pane_set_title` (since 6/D) and `inspect_tasks` (5/3) had no case in
   `AuthorizeStructural`, so they fell through to "unknown tool" and were
   refused even for root. Added the policy cases.
 - **Data races** (caught under `-race`): per-turn state set by
@@ -757,7 +757,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
   default (platform enforces authorship); `:any` is a distinct grant.
 - **resreg reflective engine + YAML manifests** — one typed `Resource`
   - `RowType` struct drives SQL CRUD, REST, MCP, OpenAPI, and YAML from
-    a single declaration (spec 5/36). 10 cold-tier resources registered
+    a single declaration (spec 5/8). 10 cold-tier resources registered
     (`acl`, `acl_membership`, `groups`, `network_rules`,
     `onboarding_gates`, `proxyd_routes`, `routes`, `scheduled_tasks`,
     `secrets`, `web_routes`). `arizuko apply <inst> <manifest.yaml>` /
@@ -767,7 +767,7 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
     of v1 — CLI/MCP only. `config_meta` migration 0067.
 - **OpenAPI emission** — engine-generated `GET /openapi.json` (OpenAPI
   3.1) from `RowType` reflection, mounted on gated, timed, onbod, webd,
-  proxyd, dashd (spec 5/36, subsumes 5/4). No huma/swag/codegen; public
+  proxyd, dashd (spec 5/8, subsumes 5/4). No huma/swag/codegen; public
   endpoint, cached per process. Aggregator landing at
   `/pub/arizuko/reference/openapi.html`.
 
@@ -3474,7 +3474,7 @@ for use on a developer laptop with no arizuko around. Replaces the
   `session` at prompt-build time. Zero-arg read-only facts now cost one
   line each instead of paying per-turn MCP schema. `router.ClockXml`
   deleted. Registry is a flat slice in [`gateway/autocalls.go`](https://github.com/kronael/arizuko/blob/v0.30.0/gateway/autocalls.go); empty
-  eval output skips the line. See [`specs/5/31-autocalls.md`](https://github.com/kronael/arizuko/blob/v0.30.0/specs/5/31-autocalls.md) and
+  eval output skips the line. See [`specs/5/4-autocalls.md`](https://github.com/kronael/arizuko/blob/v0.30.0/specs/5/4-autocalls.md) and
   [`EXTENDING.md`](https://github.com/kronael/arizuko/blob/v0.30.0/EXTENDING.md) "Adding an autocall".
 
 ### Fixed

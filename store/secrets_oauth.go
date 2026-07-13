@@ -7,7 +7,7 @@ import (
 )
 
 // secrets_oauth.go is the surrogate-OAuth write/read half of the secrets table
-// (spec 5/43): the four columns migration routd/0017 adds (provider, refresh_val,
+// (spec 5/15): the four columns migration routd/0017 adds (provider, refresh_val,
 // expires_at, scope_list). value + refresh_val seal through the SAME storeValue/
 // open AES-256-GCM keyring as a pasted PAT — only these methods know a row came
 // from OAuth. A PAT row leaves all four NULL and never touches this file.

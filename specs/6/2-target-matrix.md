@@ -81,7 +81,7 @@ the lead item of phase 6.** centaur's iron-proxy (below) is the fourth witness.
 - **nanoclaw** — two directly portable, line-cited mechanisms: (a) `command-gate.ts`,
   a 64-line pass/filter/deny classifier that runs _before_ container wake — a slot
   arizuko lacks (routing/grants run on dispatch, not on already-routed content;
-  ties to `specs/5/33` proactive-interjection); (b) `on_wake` + `isFirstPoll`
+  ties to `specs/5/6` proactive-interjection); (b) `on_wake` + `isFirstPoll`
   fixes a restart race where a wake message is stolen by a dying container in its
   SIGTERM grace window — a race arizuko's in-memory `steeredTs` only partially
   covers (and one adshaus hit on a redeploy 2026-07-10).

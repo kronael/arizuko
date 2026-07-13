@@ -1,9 +1,9 @@
 ---
 status: shipped
-depends: [5/41-ext-mcp, 5/42-credentials, 5/1-auth-standalone]
+depends: [5/13-ext-mcp, 5/14-credentials, 5/1-auth-standalone]
 ---
 
-# specs/5/43 — surrogate OAuth
+# specs/5/15 — surrogate OAuth
 
 ## Status — GitHub pilot shipped
 
@@ -38,7 +38,7 @@ Deferred (follow-ups, not this pilot):
 
 > The user clicks "Connect GitHub" in their dashboard; arizuko runs the
 > OAuth dance and writes the access + refresh token into the `secrets`
-> table the [`5/41`](41-ext-mcp.md) broker reads at call time. Same
+> table the [`5/13`](13-ext-mcp.md) broker reads at call time. Same
 > destination row a pasted PAT lands in — only the writer changes.
 
 **Surrogate** = arizuko authenticates _as the user_ to a third party.
@@ -51,7 +51,7 @@ authorize/exchange/refresh primitives, including its S256 PKCE
 ## Where it sits
 
 This is the write path for a **capability credential**
-([`5/42`](42-credentials.md)). `/dash/me/secrets` manual PAT paste is the
+([`5/14`](14-credentials.md)). `/dash/me/secrets` manual PAT paste is the
 floor — zero OAuth, works today with fine-grained PATs. Surrogate is the
 upgrade: short-lived scoped tokens, auto-refresh, a "Connect" button
 instead of "paste this opaque string". Resolution, scope, and injection
@@ -169,9 +169,9 @@ primitives; identity's per-provider exchange is untouched.
 ## Usage is not special-cased
 
 Once written, the token is a **normal capability credential**
-([`5/42`](42-credentials.md)). Every consumer resolves it through 42's
+([`5/14`](14-credentials.md)). Every consumer resolves it through 42's
 standard path — shape 2 env render, shape 3 bearer, or a future HTTP-MCP
-client transport ([`5/41`](41-ext-mcp.md)). Surrogate owns the **write +
+client transport ([`5/13`](13-ext-mcp.md)). Surrogate owns the **write +
 refresh** only; nothing downstream knows the row came from OAuth rather than
 a paste, except the refresh check on `expires_at`.
 
@@ -182,7 +182,7 @@ ChatGPT/codex is the same. Surrogate OAuth automates both — a "Connect
 Anthropic" / "Connect ChatGPT" button, the OAuth sibling of `/dash/me/env`.
 
 The write is identical; only injection differs. These are **env-profile
-keys** ([`5/42`](42-credentials.md) type 1) — resolved by
+keys** ([`5/14`](14-credentials.md) type 1) — resolved by
 `FolderSecretsForUser` and injected into the container env at spawn, not
 call-time-brokered. So the refresh check (`expires_at − now < 60s`) fires at
 that spawn-time resolution point, not the per-call broker path. Same new
@@ -212,6 +212,6 @@ ownership and grant are orthogonal (42).
 
 ## Cross-references
 
-- [`5/41`](41-ext-mcp.md) — the broker that reads these rows.
-- [`5/42`](42-credentials.md) — the credential model; surrogate is one write path.
+- [`5/13`](13-ext-mcp.md) — the broker that reads these rows.
+- [`5/14`](14-credentials.md) — the credential model; surrogate is one write path.
 - [`5/1`](1-auth-standalone.md) — the OAuth primitives surrogate reuses.

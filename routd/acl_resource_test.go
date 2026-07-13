@@ -1,6 +1,6 @@
 package routd
 
-// Parity tests for the spec 5/44 acl migration: the agent's
+// Parity tests for the spec 5/16 acl migration: the agent's
 // add_acl/remove_acl/list_acl now ride resreg's MCP mechanism through the
 // ServeMCP postBuild seam instead of three hand-rolled ipc bodies. Each test
 // drives the REAL unix socket so the seam + injected Gate (grants.CheckAction +

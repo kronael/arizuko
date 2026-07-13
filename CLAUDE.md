@@ -48,7 +48,7 @@ them on each request.
   through one hand-written handler — no auto-generated DSL, no
   catalog-driven mapper. arizuko is agent-first; MCP is the canonical
   protocol; REST is the boundary impedance match for non-MCP callers.
-  Spec: `specs/5/45-openapi-mcp.md`. Cost is N+M hand-rolled
+  Spec: `specs/5/17-openapi-mcp.md`. Cost is N+M hand-rolled
   handlers; gain is one shape across the platform — agent and human
   see the same actions and the same folder-containment discipline, each
   checked by its own injected gate (agent tier-grants vs operator
@@ -66,9 +66,9 @@ them on each request.
 - **Every cold-tier management entity is a resreg resource — no
   exceptions**: a new operator/agent-managed table ALWAYS registers a
   resreg `Resource` (REST handler + `x-mcp-*` annotations → MCP derived,
-  per `5/45`). NEVER hand-roll a bespoke `ipc/ipc.go` management tool +
+  per `5/17`). NEVER hand-roll a bespoke `ipc/ipc.go` management tool +
   `dashd` direct-DB CRUD for it — that drifts the agent and operator
-  surfaces apart (the ~45 hand-rolled ipc.go tools are the debt `5/44`
+  surfaces apart (the ~45 hand-rolled ipc.go tools are the debt `5/16`
   reverses). A management resource without a resreg registration is a
   review-blocker. Only hot-tier agent actions (`reply`/`send`/`inspect_*`,
   no REST twin) are MCP-only, hand-authored.
@@ -85,7 +85,7 @@ them on each request.
   second hand-rolled check inside the handler. A handler that resolves a
   `jid`/`folder`/`run_id` param MUST bind it to the caller's folder. Drift =
   cross-folder access (cost a krons split review 2026-06-07). Spec:
-  `specs/5/45-openapi-mcp.md`.
+  `specs/5/17-openapi-mcp.md`.
 
 (Spec-first change discipline lives in the `specs` skill.)
 
@@ -142,7 +142,7 @@ impossible because both read the same struct.
 
 Aggregator landing: `/pub/arizuko/reference/openapi.html` lists every
 daemon's `/openapi.json` URL with a one-line description. Spec:
-[`specs/5/36-yaml-manifests.md`](specs/5/36-yaml-manifests.md)
+[`specs/5/8-yaml-manifests.md`](specs/5/8-yaml-manifests.md)
 §"OpenAPI emission" (subsumes the former openapi-discoverable spec).
 
 ### Observability
@@ -268,7 +268,7 @@ issues the prior one couldn't see.
 - **Adding a channel adapter**: ship a `template/services/<daemon>.toml`
   with the daemon's compose env + a `[[proxyd_route]]` block. No edit to
   `proxyd/main.go` or `compose/compose.go`. Spec:
-  `specs/5/35-proxyd-standalone.md`.
+  `specs/5/7-proxyd-standalone.md`.
 - **Daemon HTTP port: `:8080` inside the container, always.** Every
   daemon's `LISTEN_ADDR` code-default is `:8080`; every service TOML
   in `template/services/` declares `LISTEN_ADDR=:8080` explicitly

@@ -1,10 +1,10 @@
 package routd
 
-// secrets_resource.go — 5/44 REST-face fold of the operator secret write surface
+// secrets_resource.go — 5/16 REST-face fold of the operator secret write surface
 // (POST /v1/secrets set/seal, DELETE /v1/secrets/{key}) onto one resreg.Resource,
 // the write-only twin of the acl/tasks folds. There is NO agent MCP tool and NO
 // read/list face: the agent never sets secrets, and a secret's sealed value must
-// never appear in any read surface (spec 5/36 §"Secret safety"). So the resource
+// never appear in any read surface (spec 5/8 §"Secret safety"). So the resource
 // carries exactly two write Endpoints and no MCPDoc — deriveMCPTools surfaces
 // nothing.
 //

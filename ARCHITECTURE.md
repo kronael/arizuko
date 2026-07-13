@@ -93,7 +93,7 @@ crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
-        arizuko-internal imports; shippable separately. specs/5/37.
+        arizuko-internal imports; shippable separately. specs/5/9.
 ```
 
 TTS (`ttsd/`, `specs/5/T-voice-synthesis.md`) and the oracle skill
@@ -223,7 +223,7 @@ One walk over the registry produces `components.schemas` (struct field
 `paths./v1/<name>` (list / read-one / create / update / delete). Public —
 no auth gate. Cached for the process lifetime; reflection is one-time at
 first hit. Drift between handler + doc is structurally impossible because
-both read the same struct. Spec: `specs/5/36-yaml-manifests.md`
+both read the same struct. Spec: `specs/5/8-yaml-manifests.md`
 §"OpenAPI emission". Aggregator: `/pub/arizuko/reference/openapi.html`.
 
 ## Cold tier vs hot tier
@@ -240,8 +240,8 @@ Two management surfaces, one handler, an injected gate per surface:
   mutation's tx. An HTTP forwarder (`Store == nil`, skips the local audit)
   is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
   the table, webd serves the MCP face). Spec
-  [`5/45`](specs/5/45-openapi-mcp.md); rollout
-  [`5/44`](specs/5/44-mcp-rest-unification.md). Migrated so far: all five
+  [`5/17`](specs/5/17-openapi-mcp.md); rollout
+  [`5/16`](specs/5/16-mcp-rest-unification.md). Migrated so far: all five
   agent-MCP faces (`web_routes`, `acl`, `routes`, `scheduled_tasks`,
   `network_rules`) ride one `resreg.Resource`; the REST second face is
   folded onto the same handler for `web_routes`, `acl`, `routes`, and
@@ -538,7 +538,7 @@ runed (`POST /v1/runs`). runed performs the spawn:
 
 ### Secret injection
 
-Three credential types (spec [`5/42`](specs/5/42-credentials.md)), two
+Three credential types (spec [`5/14`](specs/5/14-credentials.md)), two
 delivery paths:
 
 - **Env-profile keys** (model creds: `ANTHROPIC_API_KEY`,
@@ -557,7 +557,7 @@ delivery paths:
   Grant-gated. A capability row is written either by a pasted PAT
   (`/dash/me/secrets`) or via **surrogate OAuth** — the dashboard's
   "Connect GitHub" button (`/dash/me/connections`, `auth/surrogate/`, spec
-  [`5/43`](specs/5/43-surrogate-oauth.md)) runs the OAuth dance and writes
+  [`5/15`](specs/5/15-surrogate-oauth.md)) runs the OAuth dance and writes
   access + refresh tokens into the same `secrets` row; the broker refreshes
   near-expiry tokens at call time (`ConnectorSecrets`).
 - **Infra / platform anchors** (`CHANNEL_SECRET`, `SECRETS_KEY`, bot
@@ -567,7 +567,7 @@ delivery paths:
 Env-profile + folder-scoped rows are merged by
 `mergeSecrets(anchors, tableSecrets)` into the container env; user-scoped
 capability creds stay on the host. See `SECURITY.md § Secret injection`,
-[`5/42`](specs/5/42-credentials.md), and [`5/41`](specs/5/41-ext-mcp.md).
+[`5/14`](specs/5/14-credentials.md), and [`5/13`](specs/5/13-ext-mcp.md).
 
 Session: new session ID updates routd's `sessions` table. Error with no
 output → evict session (cursor rolled back, retry). Error with output →

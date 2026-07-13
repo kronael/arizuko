@@ -376,7 +376,7 @@ func TestVerifyRejectsTamperedPayload(t *testing.T) {
 
 // Threat: a token carrying the global scope "*:*" authorizes nothing —
 // HasScope must never honor the global wildcard even when present in a verified
-// token. specs/5/1 / 5/45-openapi-mcp "never the global *:*".
+// token. specs/5/1 / 5/17-openapi-mcp "never the global *:*".
 func TestGlobalWildcardScopeAuthorizesNothing(t *testing.T) {
 	k, _ := NewSigningKey("k1")
 	ks := NewKeySet(map[string]*ecdsa.PublicKey{"k1": &k.Priv.PublicKey})

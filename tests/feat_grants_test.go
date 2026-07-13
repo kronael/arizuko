@@ -69,7 +69,7 @@ func TestFeature_Grants(t *testing.T) {
 		}
 		// refresh_groups is the read counterpart of register_group: tier 2 keeps
 		// it (its former tier≤2 gate, now grant-derived so the facade browser sees
-		// it) even though register_group is tier 0/1 only (spec 5/44 groups fold).
+		// it) even though register_group is tier 0/1 only (spec 5/16 groups fold).
 		t2 := grants.DeriveRules(nil, "a/b", 2, "a")
 		if !grants.CheckAction(t2, "refresh_groups", nil) {
 			t.Fatal("tier 2 must have refresh_groups")

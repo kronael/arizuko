@@ -1,6 +1,6 @@
 ---
 status: draft
-depends: [V-web-vhosts, 36-yaml-manifests]
+depends: [V-web-vhosts, 8-yaml-manifests]
 ---
 
 # Agents catalog
@@ -20,7 +20,7 @@ shared, advertised capability, not a private operator config. From the
 _published, static, browsable catalog_ is a real and valuable artifact —
 the hub proves an "agents reference page" is a thing people want to
 read. arizuko already publishes an OpenAPI aggregator
-(`/pub/arizuko/reference/openapi.html`, `5/36`); this is the same move
+(`/pub/arizuko/reference/openapi.html`, `5/8`); this is the same move
 applied to the _agents_ of an instance instead of the _daemons_.
 
 ## arizuko-shaped design
@@ -38,7 +38,7 @@ auth, public by the same rule as any `/pub` page.
   with `listed: true` + `summary:`). **Strict, not magical**: a group
   with no `catalog:` block is **unlisted** (private by default — an
   instance does not leak its full folder tree). Opt-in, never inferred.
-- Generation rides the existing manifest/export path (`5/36`
+- Generation rides the existing manifest/export path (`5/8`
   `arizuko export` / resreg) or a small vited render at request time
   over the listed groups — whichever the implementer picks; the catalog
   is a projection of existing rows + frontmatter, no new authoritative

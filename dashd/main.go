@@ -275,7 +275,7 @@ func main() {
 		slog.Warn("SECRETS_KEY unset in dashd — user secrets stored plaintext at rest")
 	}
 
-	// Surrogate OAuth (spec 5/43): the "Connect <provider>" dance under
+	// Surrogate OAuth (spec 5/15): the "Connect <provider>" dance under
 	// /dash/me/connections. Engine loads the embedded provider registry; creds
 	// come from .env (SURROGATE_<PROVIDER>_CLIENT_ID/_SECRET). stateSecret HMAC-
 	// signs the CSRF state cookie (AUTH_SECRET); connBaseURL is the configured
@@ -337,7 +337,7 @@ type dash struct {
 	secretKeyring [][]byte
 
 	// surrogate drives the /dash/me/connections "Connect <provider>" OAuth dance
-	// (spec 5/43); nil in read-only tests / when no engine is wired. stateSecret
+	// (spec 5/15); nil in read-only tests / when no engine is wired. stateSecret
 	// HMAC-signs the dance's CSRF state cookie (reuses auth.SignState). connBaseURL
 	// is the absolute base the provider redirects the callback to — configured
 	// (must match the provider app), never derived from the request.
@@ -451,7 +451,7 @@ func (d *dash) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /dash/me/env/{key}", g(d.handleMeEnvUpdate))
 	mux.HandleFunc("DELETE /dash/me/env/{key}", g(d.handleMeEnvDelete))
 
-	// /dash/me/connections — surrogate OAuth (spec 5/43). "Connect <provider>"
+	// /dash/me/connections — surrogate OAuth (spec 5/15). "Connect <provider>"
 	// runs the outbound dance and writes the token to the same secrets row a PAT
 	// lands in. start/callback/disconnect; identity-bound to X-User-Sub.
 	mux.HandleFunc("GET /dash/me/connections", g(d.handleMeConnections))

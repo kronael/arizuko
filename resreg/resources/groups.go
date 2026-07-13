@@ -26,7 +26,7 @@ type GroupsRow struct {
 }
 
 // GroupsAgentEndpoints drives the agent's group-management tools (register_group +
-// refresh_groups) via routd's groups_resource.go — the spec 5/44 agent-face fold.
+// refresh_groups) via routd's groups_resource.go — the spec 5/16 agent-face fold.
 // register is a custom verb with FS side-effects (a group row, a room route, and a
 // git-init'd group dir), so routd mounts it as a FORWARDER (no engine tx); these
 // paths only drive deriveMCPTools + the facade browser. groups is dashd-FS-managed,
@@ -40,7 +40,7 @@ var GroupsAgentEndpoints = []resreg.Endpoint{
 // GroupsMCPNames maps each agent action to the flat tool name the live agent already
 // calls; routd's groups_resource.go references it (agent socket derivation) and
 // ipc.ListTools reads it via the registry walk (MCPNames is the facade-tool
-// discriminator, so setting it here is what surfaces groups in the browser). Spec 5/44.
+// discriminator, so setting it here is what surfaces groups in the browser). Spec 5/16.
 var GroupsMCPNames = map[resreg.Action]string{
 	resreg.Action("register"): "register_group",
 	resreg.ActionList:         "refresh_groups",
@@ -72,7 +72,7 @@ func init() {
 		PKFields:      []string{"Folder"},
 		Scope:         resreg.ScopeSpec{Field: "Folder"},
 		StampedFields: []string{"AddedAt", "UpdatedAt"},
-		// Agent-face metadata (spec 5/44): drives deriveMCPTools for register_group +
+		// Agent-face metadata (spec 5/16): drives deriveMCPTools for register_group +
 		// refresh_groups. The manifest CRUD path uses RowType/Table only; these are
 		// inert to it (Apply/Export ignore Endpoints/MCP*).
 		Endpoints: GroupsAgentEndpoints,

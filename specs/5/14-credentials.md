@@ -1,16 +1,16 @@
 ---
 status: shipped
 depends:
-  [45-openapi-mcp, 5/41-ext-mcp, specs/4/9-acl-unified, 5/43-surrogate-oauth]
+  [17-openapi-mcp, 5/13-ext-mcp, specs/4/9-acl-unified, 5/15-surrogate-oauth]
 supersedes:
   [
-    specs/5/41 §Secrets-table,
-    specs/5/32 §Phase-C-secrets,
+    specs/5/13 §Secrets-table,
+    specs/5/5 §Phase-C-secrets,
     specs/8/E §Anthropic-keys,
   ]
 ---
 
-# specs/5/42 — credential model
+# specs/5/14 — credential model
 
 Three credential types that must not share an abstraction.
 Conflating them caused silent injection bugs and a wrong `scope_kind` split.
@@ -177,7 +177,7 @@ env-profile key names.
 
 ### Connect (surrogate OAuth) — either type
 
-[`5/43`](43-surrogate-oauth.md) is the OAuth-automated write path for both:
+[`5/15`](15-surrogate-oauth.md) is the OAuth-automated write path for both:
 capability creds (GitHub, Linear) and env-profile OAuth tokens
 (`CLAUDE_CODE_OAUTH_TOKEN`, ChatGPT/codex). A "Connect" button runs the
 dance and writes the same rows a paste would — plus `expires_at` + refresh.
@@ -197,7 +197,7 @@ dance and writes the same rows a paste would — plus `expires_at` + refresh.
 | dashd `/dash/me/secrets` HTML + JSON                      | `dashd/me_secrets.go`                                 | ✓     |
 | dashd `/dash/me/env` HTML + JSON                          | `dashd/me_env.go`                                     | ✓     |
 | Operator CLI `arizuko secret`                             | `cmd/arizuko/secret.go`                               | ✓     |
-| OAuth write path (surrogate)                              | `specs/5/43-surrogate-oauth.md`                       | draft |
+| OAuth write path (surrogate)                              | `specs/5/15-surrogate-oauth.md`                       | draft |
 | Shape 3 REST descriptor                                   | `ipc/extcall.go`, `routd/ext.go`, built-in providers  | ✓     |
 
 ## What's not shipped
@@ -210,9 +210,9 @@ surface belong to spec 41 (`registerWithSecrets` for Go handlers,
 
 ## Supersedes
 
-- `specs/5/41-ext-mcp.md` §Secrets table — replaced by this doc; 41 keeps
+- `specs/5/13-ext-mcp.md` §Secrets table — replaced by this doc; 41 keeps
   handler shapes (subprocess connector, REST descriptor) only.
-- `specs/5/32-tenant-self-service.md` §Phase-C §credentials §user-secret-injection —
+- `specs/5/5-tenant-self-service.md` §Phase-C §credentials §user-secret-injection —
   `chats.kind` gate and scope model replaced here.
 - `specs/8/E-encryption-at-rest.md` §Anthropic-keys — operator anchors are
   host env, not secrets table; only user BYOA overrides land in the table.

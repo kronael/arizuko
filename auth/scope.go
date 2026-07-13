@@ -5,7 +5,7 @@ package auth
 //
 // Wildcards: namespace-only. "tasks:*" grants any task verb. There is no
 // global "*:*" — operators carry the enumerated resource list
-// (specs/5/45-openapi-mcp § scopes).
+// (specs/5/17-openapi-mcp § scopes).
 
 import "strings"
 

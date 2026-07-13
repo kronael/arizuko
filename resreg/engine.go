@@ -1,6 +1,6 @@
 package resreg
 
-// Schema-driven CRUD engine — spec 5/36.
+// Schema-driven CRUD engine — spec 5/8.
 //
 // One reflection pass at Register() turns a Go struct's `db:` tags into
 // a cached column list + scan/insert binders. Steady-state SQL is plain
@@ -324,7 +324,7 @@ func (r *Resource) manifestScopes(rows any) []string {
 }
 
 // ParseRows decodes a YAML node (sequence of mappings) into a `[]RowType`.
-// Strict per spec 5/36 §"Apply lifecycle" step 1: unknown row fields
+// Strict per spec 5/8 §"Apply lifecycle" step 1: unknown row fields
 // reject (an operator typo on a field name must error, not silently
 // drop). Hooks.AfterScan does NOT run on parse (it's a post-SQL hook);
 // use BeforeInsert for transforms that should happen on the write path.
@@ -357,7 +357,7 @@ func (r *Resource) ParseRows(node *yaml.Node) (any, error) {
 }
 
 // EmitRows marshals a `[]RowType` to a YAML node, sorted by PK string
-// for deterministic output (spec 5/36 §"Canonical key order").
+// for deterministic output (spec 5/8 §"Canonical key order").
 func (r *Resource) EmitRows(rows any) (*yaml.Node, error) {
 	if r.meta == nil {
 		return nil, fmt.Errorf("resreg: %s has no schema (RowType unset)", r.Name)
@@ -465,7 +465,7 @@ var ErrVersionMismatch = errors.New("config_version mismatch")
 
 // ApplyOpts carries the optional audit context for an apply. When
 // non-nil, Apply writes exactly ONE audit_log row in the same tx
-// (spec 5/36 §"CAS implementation" (3): "one audit row per apply, not
+// (spec 5/8 §"CAS implementation" (3): "one audit row per apply, not
 // N"). nil → no audit row (engine isolation tests against a minimal
 // schema with no audit_log table).
 type ApplyOpts struct {
@@ -481,7 +481,7 @@ type ApplyOpts struct {
 //
 // `manifestRows` maps Resource.Name → []RowType slice. Resources with a
 // clean folder-scope column (HasScope) DELETE only the folders the
-// manifest mentions (spec 5/36 §"Atomicity model": scoped DELETE+INSERT),
+// manifest mentions (spec 5/8 §"Atomicity model": scoped DELETE+INSERT),
 // so a partial manifest leaves out-of-scope rows untouched; a resource
 // the manifest omits entirely is not touched. Scope-less resources
 // rebuild wholesale (DeleteAll) — only when the manifest mentions them.
@@ -589,7 +589,7 @@ func applyCounts(db *sql.DB, manifestRows map[string]any) (map[string]any, error
 }
 
 // emitApplyAudit writes the single per-apply summary row in-tx
-// (spec 5/36 §"CAS implementation" (3)): actor, manifest digest,
+// (spec 5/8 §"CAS implementation" (3)): actor, manifest digest,
 // per-resource add/update/delete counts, final config_version.
 func emitApplyAudit(ctx context.Context, tx *sql.Tx, opts *ApplyOpts, counts map[string]any, newVer int64) error {
 	return audit.EmitInTx(ctx, tx, audit.Event{
@@ -647,7 +647,7 @@ func Export(db *sql.DB) (map[string]any, error) {
 
 // GetResource emits a single-resource manifest fragment: a map with only
 // the named resource's rows (live `SELECT *`), shaped exactly as Export
-// would nest it so the fragment re-applies to a no-op (spec 5/36
+// would nest it so the fragment re-applies to a no-op (spec 5/8
 // §"arizuko get round-trip"). Returns an error for unknown resources or
 // resources without a RowType. No config_version is stamped — a fragment
 // is scoped, not a full dump.
@@ -681,7 +681,7 @@ type ResourceDelta struct {
 
 // Changed reports whether the delta would mutate any row. SkipApplyRebuild
 // resources never mutate via apply, so they never report a change — plan
-// and apply must agree (spec 5/36 §"Secret safety": plan shows secrets as
+// and apply must agree (spec 5/8 §"Secret safety": plan shows secrets as
 // set/unset, not actionable +/~/- deltas).
 func (d ResourceDelta) Changed() bool {
 	if d.SkipApplyRebuild {
@@ -698,7 +698,7 @@ func (d ResourceDelta) Changed() bool {
 // Scope-aware (matches scoped apply): for a scoped resource, only live
 // rows within the folders the manifest mentions are candidates for
 // Remove — apply leaves out-of-scope rows alone, so plan must too
-// (spec 5/36 §"Surface": plan shows what a scoped restore would change).
+// (spec 5/8 §"Surface": plan shows what a scoped restore would change).
 // Scope-less resources rebuild wholesale, so every live row is in scope.
 //
 // SkipApplyRebuild resources still diff (so `plan`/`get` report metadata)
@@ -777,7 +777,7 @@ func (r *Resource) rowScope(v reflect.Value) string {
 // fields (StampedFields) as equal regardless of value. A hand-written
 // manifest leaves created_at/granted_at/added_at empty; the live row
 // carries the stamp — without this they'd diff as a phantom update on
-// every plan (spec 5/36 §"Apply lifecycle" step 3).
+// every plan (spec 5/8 §"Apply lifecycle" step 3).
 func (r *Resource) payloadEqual(a, b reflect.Value) bool {
 	if len(r.meta.stampedIdx) == 0 {
 		return reflect.DeepEqual(a.Interface(), b.Interface())
@@ -810,7 +810,7 @@ func (r *Resource) byPK(rv reflect.Value) map[string]reflect.Value {
 // Plan diffs a parsed manifest (Resource.Name → []RowType, plus a
 // "config_version" key Diff ignores) against the live DB for every
 // resource the manifest mentions, in catalog order. Non-mutating. Backs
-// `arizuko plan` (spec 5/36 §"Apply lifecycle" step 3).
+// `arizuko plan` (spec 5/8 §"Apply lifecycle" step 3).
 //
 // Resources the manifest omits are skipped — apply leaves them untouched
 // (scoped restore: absent scopes are not deleted), so plan reports no
@@ -889,7 +889,7 @@ func EmitYAML(manifest map[string]any) ([]byte, error) {
 
 // ParseYAML decodes a manifest document into a map of resource name →
 // []RowType slice. The reserved key "config_version" stays in the map
-// as int64. Strict per spec 5/36 §"Apply lifecycle" step 1: an unknown
+// as int64. Strict per spec 5/8 §"Apply lifecycle" step 1: an unknown
 // top-level key (a typo'd resource name) rejects before the DB is
 // touched, so an operator's intended config can't silently fail to apply.
 func ParseYAML(data []byte) (map[string]any, int64, error) {

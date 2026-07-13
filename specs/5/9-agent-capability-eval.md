@@ -2,7 +2,7 @@
 status: shipped
 ---
 
-# 5/37 — agent-capability eval (`anteval`)
+# 5/9 — agent-capability eval (`anteval`)
 
 > **Status (2026-07-11): shipped.** Run LIVE against krons ($4.78 / 23 turns):
 > **7/8 of the `--smoke` basis passed** — self-skill, rest-roundtrip,
@@ -230,7 +230,7 @@ split a daemon out only if a hosted always-on watch is needed.
 ## Orthogonality + neighbors
 
 Public surfaces only — the same ones a human or external tool uses. The
-parity case is a direct check of the uniform-MCP+REST invariant (`5/45`);
+parity case is a direct check of the uniform-MCP+REST invariant (`5/17`);
 webhook/chat-link cases lean on `5/W`; privilege cases on `4/9`. No
 arizuko Go imports; fs/sqlite reads are a non-gating `--debug` aid.
 

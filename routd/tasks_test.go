@@ -197,7 +197,7 @@ func TestTaskListEndpoint(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("GET /v1/tasks = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	// Bare []core.Task after the 5/44 REST fold (one shape with the MCP list).
+	// Bare []core.Task after the 5/16 REST fold (one shape with the MCP list).
 	var all []core.Task
 	if err := json.Unmarshal(rec.Body.Bytes(), &all); err != nil {
 		t.Fatalf("decode: %v", err)

@@ -179,7 +179,7 @@ optional observability webhook — not the source of truth.
 - `prompt.go`, `prompt_db.go` — prompt envelope build (observe window, persona)
 - `proactive.go`, `steer.go` — proactive interjection + slash-command dispatch
 - `routes_http.go`, `tokens_http.go`, `web_routes_http.go`, `tasks_http.go`, `reads_http.go` — REST CRUD
-- `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/44 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
+- `{routes,web_routes,network_rules,scheduled_tasks,acl}_resource.go` — spec 5/16 shared handlers (one resource each; agent MCP + operator REST ride the same handler + injected Gate)
 - `db.go` — `routd.db` writes (PutMessage, turn claims, routing)
 - `reads.go` — `routd.db` reads (messages, chats, sessions)
 - `session.go`, `identity.go`, `onbod.go` — federation to runed/authd/onbod

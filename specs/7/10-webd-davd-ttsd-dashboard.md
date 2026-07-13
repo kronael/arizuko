@@ -51,7 +51,7 @@ and the agent tools — one creation flow.
 
 - `GET /v1/hub/status` — snapshot of hub keys + per-key subscriber
   counts + caps. Exposed (not just in-process) so MCP/REST/HTML stay
-  one handler set (`specs/5/45`).
+  one handler set (`specs/5/17`).
 
 ---
 

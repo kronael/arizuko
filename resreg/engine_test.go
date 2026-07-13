@@ -2,7 +2,7 @@ package resreg
 
 // Engine isolation tests — no arizuko-specific resource. Uses a synthetic
 // `TestResource` struct + an in-memory SQLite to exercise scan/insert/
-// delete/parse/emit/apply round-trips. Per spec 5/36 §"Testability".
+// delete/parse/emit/apply round-trips. Per spec 5/8 §"Testability".
 
 import (
 	"context"
@@ -162,7 +162,7 @@ func TestParseRows_RoundTrip(t *testing.T) {
 }
 
 // TestParseYAML_StrictRejectsUnknownKey: a typo'd top-level resource key
-// rejects before the DB is touched (spec 5/36 §"Apply lifecycle" step 1).
+// rejects before the DB is touched (spec 5/8 §"Apply lifecycle" step 1).
 func TestParseYAML_StrictRejectsUnknownKey(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
@@ -182,7 +182,7 @@ testrowz:
 }
 
 // TestParseYAML_StrictRejectsUnknownField: a bogus row field rejects, so
-// an operator's misspelled column can't silently drop (spec 5/36 step 1).
+// an operator's misspelled column can't silently drop (spec 5/8 step 1).
 func TestParseYAML_StrictRejectsUnknownField(t *testing.T) {
 	freshEngine(t)
 	manifest := []byte(`
@@ -400,7 +400,7 @@ func TestApply_Force(t *testing.T) {
 // TestDiff_AddUpdateRemove exercises the non-mutating plan diff: a row
 // only in the manifest is an add, a row only in the DB is a remove, a
 // PK in both with a differing payload is an update, identical is
-// unchanged. Per spec 5/36 §"Apply lifecycle" step 3.
+// unchanged. Per spec 5/8 §"Apply lifecycle" step 3.
 func TestDiff_AddUpdateRemove(t *testing.T) {
 	db, r := freshEngine(t)
 	insertRaw(t, db,
@@ -436,7 +436,7 @@ func TestDiff_AddUpdateRemove(t *testing.T) {
 
 // TestDiff_ScopedRemoveLeavesOutOfScope: for a scoped resource, a live
 // row outside the folders the manifest mentions is NOT reported for
-// Remove — apply leaves it alone, so plan must too (spec 5/36 §"Surface").
+// Remove — apply leaves it alone, so plan must too (spec 5/8 §"Surface").
 // TestRow's scope is "kind"; a manifest touching only kind "a" leaves a
 // kind "b" row untouched.
 func TestDiff_ScopedRemoveLeavesOutOfScope(t *testing.T) {
@@ -483,7 +483,7 @@ func TestPlan_NoChangeAfterApply(t *testing.T) {
 }
 
 // TestGetResource_RoundTrip: GetResource emits a fragment whose parsed
-// rows equal the live rows, so re-applying it is a no-op. Per spec 5/36
+// rows equal the live rows, so re-applying it is a no-op. Per spec 5/8
 // §"arizuko get round-trip".
 func TestGetResource_RoundTrip(t *testing.T) {
 	db, _ := freshEngine(t)

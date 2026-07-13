@@ -108,7 +108,7 @@ func proxy(target string) *httputil.ReverseProxy {
 type server struct {
 	cfg         config
 	stRoutd     *store.Store    // routd.db: auth_sessions, proxyd_routes, acl, auth_users, route_tokens (split ownership; login reads one DB)
-	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/36 no-cache)
+	rr          *routesResource // stateless route handler; reads routes from DB per request (spec 5/8 no-cache)
 	viteProxy   *httputil.ReverseProxy
 	authdProxy  *httputil.ReverseProxy // nil when AUTHD_URL unset (local dev)
 	ks          *auth.KeySet           // soak: ES256 JWKs (nil when AUTHD_URL unset → HS256-only, exactly as today)
@@ -138,7 +138,7 @@ func (s *server) proxies() map[string]*httputil.ReverseProxy {
 }
 
 // webRoutes is a per-request snapshot of the web_routes table (no row
-// cache, spec 5/36). Agents register rows via the set_web_route MCP
+// cache, spec 5/8). Agents register rows via the set_web_route MCP
 // tool; proxyd honours them on the /pub/* path.
 func (s *server) webRoutes() []store.WebRoute {
 	if s.rr == nil {
@@ -584,7 +584,7 @@ func (s *server) route(w http.ResponseWriter, r *http.Request) {
 	// as /pub/*, resolving to files under <data>/web/priv/<folder>/. Spec 5/V:
 	// agents publish to ~/private_html/, bind-mounted from web/priv/.
 	// No path rewrite — vite cwd is <data>/web/, so /priv/X resolves
-	// to web/priv/X naturally. Spec 5/38: after auth, the caller must hold
+	// to web/priv/X naturally. Spec 5/10: after auth, the caller must hold
 	// a grant covering the target folder (MatchGroups on X-User-Groups).
 	if r.URL.Path == "/priv" || strings.HasPrefix(r.URL.Path, "/priv/") {
 		s.requireAuth(func(w http.ResponseWriter, r *http.Request) {

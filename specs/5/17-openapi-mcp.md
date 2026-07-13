@@ -1,10 +1,9 @@
 ---
 status: shipped
-depends:
-  [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
+depends: [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/4/9-acl-unified]
 ---
 
-# specs/5/45 — one handler, two faces: MCP for the agent, REST for humans
+# specs/5/17 — one handler, two faces: MCP for the agent, REST for humans
 
 > Every cold-tier management resource is authored **once** as one
 > in-process `resreg.Resource` — logic, tx, audit, and arg-derivation in
@@ -21,15 +20,15 @@ depends:
 > tier); the agent socket injects a tier-aware `mcp:`+`db.Authorize`
 > gate. Hot-tier agent actions (`reply`, `send`, `inspect_*`) stay
 > MCP-only — no REST resource to mirror. Absorbs the former `5/5`
-> reality-record; [`5/44`](44-mcp-rest-unification.md) is the rollout.
+> reality-record; [`5/16`](16-mcp-rest-unification.md) is the rollout.
 
-**Mechanism (`shipped`); adoption tracked in `5/44`:** the mechanism ships — `deriveMCPTools`,
+**Mechanism (`shipped`); adoption tracked in `5/16`:** the mechanism ships — `deriveMCPTools`,
 `MCPNames`, `x-mcp-when`, the injected `Gate` seam (`resreg.invoke` now
 calls `Resource.Gate`, defaulting to the operator `auth.Authorize`), and
 truthful `Endpoints`-driven OpenAPI (`7c14efd6`). `proxyd_routes` remains
 the cross-daemon forwarder exemplar (`Store: nil`, webd operator socket,
 `**` ACL row, global — no folder-containment). The
-[`5/44`](44-mcp-rest-unification.md) rollout has migrated the five
+[`5/16`](16-mcp-rest-unification.md) rollout has migrated the five
 in-process cold-tier resources (`routes`, `acl`, `scheduled_tasks`,
 `network_rules`, `web_routes`) onto one `resreg.Resource` each: the agent
 socket injects a `mcp:`+tier `Gate` (the tier-default grant a folder agent
@@ -124,7 +123,7 @@ type Execution struct {
 The `Resource` is the `resreg.Resource` above: its transport half is
 `Endpoints` + `MCPDoc` (the two faces) + the injected `Gate` (authz); its
 row-schema half (`RowType`, `Table`, `PKFields`, `Scope`, `Hooks`) is
-authoritative in [`36-yaml-manifests.md`](36-yaml-manifests.md) and drives
+authoritative in [`8-yaml-manifests.md`](8-yaml-manifests.md) and drives
 SQL CRUD, YAML round-trip, and OpenAPI emission. `Execution.Tx` is the
 adapter↔handler contract: the adapter opens the tx for a mutating action,
 the handler mutates, and the one `audit_log` row lands in that same tx
@@ -181,7 +180,7 @@ folder — a cross-folder run reads as absent, 404, not leaked; a bare
 `folder` param is contained directly). The one shipped exemplar carries
 NO precedent for this — `proxyd_routes` is a GLOBAL resource on a `**`
 ACL row with no folder-bearing param — so containment is folded into each
-resource's handler as the [`5/44`](44-mcp-rest-unification.md) rollout
+resource's handler as the [`5/16`](16-mcp-rest-unification.md) rollout
 reaches it; there is no resreg-level containment to inherit. `POST
 /v1/messages` stays cross-folder by design (one adapter routes many
 folders); cost reporting uses a dedicated `cost:write` scope plus
@@ -290,11 +289,11 @@ High-rate side effect of normal operation → not.
 
 ## Orthogonal specs (don't fold in)
 
-- [`5/44`](44-mcp-rest-unification.md) — the **adoption program** that
+- [`5/16`](16-mcp-rest-unification.md) — the **adoption program** that
   rolls this model out resource-by-resource (pilot `routes`, then
   replicate). 44 = roll it out; 45 = the mechanism. Migration steps live
   in 44, not here.
-- [`5/36`](36-yaml-manifests.md) — the **same cold-tier resources as
+- [`5/8`](8-yaml-manifests.md) — the **same cold-tier resources as
   declarative YAML** you `export`/`apply` (config-as-data). A different
   front on the same tables; the row-level CRUD engine underneath both is
   shared plumbing, not a concept named here.

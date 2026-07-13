@@ -8,7 +8,7 @@ import (
 
 // SecretsRow mirrors secrets metadata. The encrypted value blob is
 // imperatively managed via `arizuko secret set …` — manifests carry
-// the (scope_kind, scope_id, key) triple ONLY. Per spec 5/36 §"Secret
+// the (scope_kind, scope_id, key) triple ONLY. Per spec 5/8 §"Secret
 // safety", the blob never appears in YAML, plan output, or error
 // messages.
 //
@@ -31,7 +31,7 @@ type SecretsRow struct {
 // mountSecrets (secrets_resource.go) references it, and OpenAPI emits exactly
 // these two operations. WRITE-ONLY by construction — create (seal + upsert) and
 // a key-addressed delete, NO list/get. A secret's sealed value must never appear
-// in any read surface (spec 5/36 §"Secret safety"); declaring these explicit
+// in any read surface (spec 5/8 §"Secret safety"); declaring these explicit
 // Endpoints keeps OpenAPI on endpointPaths, so the convention's phantom GET read
 // op can never surface. No MCPDoc entry → deriveMCPTools surfaces no agent tool
 // (the agent never sets secrets).
@@ -48,7 +48,7 @@ func init() {
 		Endpoints:        SecretsEndpoints,
 		PKFields:         []string{"ScopeKind", "ScopeID", "Key"},
 		// No folder scope: scope_id is polymorphic by scope_kind (folder OR
-		// user, spec 5/36 §"FK posture"). Moot for apply anyway —
+		// user, spec 5/8 §"FK posture"). Moot for apply anyway —
 		// SkipApplyRebuild means apply never DELETE+INSERTs this table.
 		StampedFields:    []string{"CreatedAt"},
 		SkipApplyRebuild: true, // enc_value blobs are set imperatively, never via apply

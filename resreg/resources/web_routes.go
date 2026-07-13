@@ -27,7 +27,7 @@ var WebRoutesEndpoints = []resreg.Endpoint{
 
 // WebRoutesMCPNames maps each action to the flat tool name the live agent already
 // calls; routd's web_routes_resource.go references it (agent socket derivation)
-// and ipc.ListTools reads it via the registry walk. Spec 5/44.
+// and ipc.ListTools reads it via the registry walk. Spec 5/16.
 var WebRoutesMCPNames = map[resreg.Action]string{
 	resreg.ActionCreate: "set_web_route",
 	resreg.ActionDelete: "del_web_route",

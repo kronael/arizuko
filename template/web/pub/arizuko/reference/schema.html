@@ -555,7 +555,7 @@
 
     <div class="tablecard">
       <h3><code>config_meta</code></h3>
-      <p>Single-row optimistic-lock version for YAML config apply (spec 5/36). Each apply bumps <code>version</code> once per transaction; a CAS comparison inside <code>BEGIN IMMEDIATE</code> rejects stale applies. Bootstrap value counts existing config rows so a fresh apply against a populated DB doesn't reject with "version 0".</p>
+      <p>Single-row optimistic-lock version for YAML config apply (spec 5/8). Each apply bumps <code>version</code> once per transaction; a CAS comparison inside <code>BEGIN IMMEDIATE</code> rejects stale applies. Bootstrap value counts existing config rows so a fresh apply against a populated DB doesn't reject with "version 0".</p>
       <table>
         <tr><th>column</th><th>type</th><th>default</th><th>meaning</th></tr>
         <tr><td><code>version</code></td><td>INTEGER NOT NULL</td><td>0</td><td>monotonic config version</td></tr>
@@ -695,7 +695,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
       </div>
     </main>
 

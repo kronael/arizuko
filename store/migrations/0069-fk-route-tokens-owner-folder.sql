@@ -1,6 +1,6 @@
 -- 0069 — Declared FK: route_tokens.owner_folder → groups.folder ON DELETE CASCADE.
 --
--- Spec 5/36 "FK posture": route_tokens.owner_folder is row-shaped
+-- Spec 5/8 "FK posture": route_tokens.owner_folder is row-shaped
 -- (InsertRouteToken rejects empty owner_folder, route_tokens.go:70) and
 -- group removal MUST invalidate webhook tokens minted by that group —
 -- silently dropping them is correct; the URL would 404 anyway because

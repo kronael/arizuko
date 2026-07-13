@@ -1,6 +1,6 @@
 package routd
 
-// REST-face guard tests for the spec 5/44 scheduled_tasks fold: /v1/tasks
+// REST-face guard tests for the spec 5/16 scheduled_tasks fold: /v1/tasks
 // list/get/patch/delete now ride the SAME shared scheduledTasksHandler the agent
 // MCP tools use, via resreg.RegisterREST + the injected tasksRESTCaller/
 // tasksRESTGate. tasks_test.go covers the CRUD parity with a service token
@@ -102,7 +102,7 @@ func TestRESTTaskScopedListNoLeak(t *testing.T) {
 	}
 }
 
-// TestRESTTaskTier0NoCrossTenant is the cross-tenant hole the 5/44 containment
+// TestRESTTaskTier0NoCrossTenant is the cross-tenant hole the 5/16 containment
 // decouple closes: "alice" is a top-level tenant (tier 0), so the baked
 // AuthorizeStructural tier cap is a no-op for it — tier 0 passes for ANY task
 // owner. Before the decouple a DELETE of "bob"'s task returned 200 and deleted it.

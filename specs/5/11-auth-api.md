@@ -16,7 +16,7 @@ browser flow and the `auth/` library surfaces stay in `1-auth-standalone.md`.
 `/v1/*` (consumed via the `auth/` library, not a separate client package);
 the human OAuth browser
 flow keeps `/auth/*` (proxyd 302s to `authd_url/auth/login` —
-[`35-proxyd-standalone.md`](35-proxyd-standalone.md) § Login flow). The two
+[`7-proxyd-standalone.md`](7-proxyd-standalone.md) § Login flow). The two
 prefixes don't overlap.
 
 All `/v1/*` JSON errors use `{"error":"<code>","message":"<human>"}` with the
@@ -185,7 +185,7 @@ Ported from `web.go`/`oauth.go`/`routes.go` into `authd`, minting ES256.
 ### Login-time scope snapshot
 
 `authd` does not own grants — routd does
-([`45-openapi-mcp.md`](45-openapi-mcp.md) § "One owner per table"). At session
+([`17-openapi-mcp.md`](17-openapi-mcp.md) § "One owner per table"). At session
 issuance `authd` fetches the caller's scope over one HTTP call:
 
 ```

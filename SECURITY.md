@@ -44,7 +44,7 @@ What's isolated per group:
   routd-resolved folder secrets reach the container; for a web-chat
   trigger the sender's user-scoped (BYOA) keys override the folder keys
   for that spawn. Tool-call-time broker shipped (v0.57.0;
-  `specs/5/41-ext-mcp.md`, `specs/5/42-credentials.md`).
+  `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`).
 
 The threat the model defends against is a malicious agent in group A
 trying to reach group B's data, files, or network. Separate containers
@@ -100,7 +100,7 @@ per-face predicate (`0d25b687`).
 | Email sender auth   | DMARC via pinned `Authentication-Results` authserv-id + operator allowlist; fail → `verb=untrusted`, never promoted to `mention`                                                                                                                                                                                                              | `emaid/imap.go`, spec 10/17                                                                       |
 | Mention promotion   | routd-side `verb=mention` rewrite when parent is bot-authored; one renderer across all adapters, untrusted verbs never promote                                                                                                                                                                                                                | `routd/loop.go`, spec 6/J                                                                         |
 | Secrets at rest     | AES-256-GCM encrypted (`v2:` prefix, key=SHA-256(`SECRETS_KEY`); required — routd refuses to start without it, no `AUTH_SECRET` fallback); comma keyring for rotation; legacy plaintext rows migrated in place on boot, never deleted                                                                                                         | `store/secrets.go`, `routd/main.go`, migration `0034-secrets.sql`                                 |
-| Secret injection    | Operator anchors (`ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN`) plus routd-resolved folder secrets reach container env; for a web-chat trigger the sender's user-scoped (BYOA) keys also resolve and override the folder keys for that spawn. Tool-call-time broker shipped (v0.57.0; `specs/5/41-ext-mcp.md`, `specs/5/42-credentials.md`). | `routd/dispatch.go` (`FolderSecretsForUser`), `container/runner.go` (`mergeSecrets`)              |
+| Secret injection    | Operator anchors (`ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN`) plus routd-resolved folder secrets reach container env; for a web-chat trigger the sender's user-scoped (BYOA) keys also resolve and override the folder keys for that spawn. Tool-call-time broker shipped (v0.57.0; `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/dispatch.go` (`FolderSecretsForUser`), `container/runner.go` (`mergeSecrets`)              |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                            | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                                                                                                                                                                                                                  | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
 | DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                                                                                                                               | `crackbox/pkg/dns/`, `specs/12/15-crackbox-dns-filter.md`                                         |
@@ -221,7 +221,7 @@ Caveats:
   _where_ the agent can reach; it does not prevent leaking an injected
   secret to an allowed domain.
 - The tool-level secret broker is **shipped** (v0.57.0;
-  `specs/5/41-ext-mcp.md`, `specs/5/42-credentials.md`): the broker
+  `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`): the broker
   middleware (`ipc/ipc.go` `injectSecretsAdapter`) resolves
   `user(caller.Sub)` then `folder(caller.Folder)` at tool-call time, with
   audit rows in `secret_use_log`, so secrets reach a tool's subprocess env

@@ -35,7 +35,7 @@ var RoutesEndpoints = []resreg.Endpoint{
 // calls; routd's routes_resource.go references it (agent socket derivation) and
 // ipc.ListTools reads it via the registry walk, so the tool wire contract has one
 // owner. delete addresses the row by the autoincrement `id` arg, not the
-// (seq,match,target) PK. Spec 5/44.
+// (seq,match,target) PK. Spec 5/16.
 var RoutesMCPNames = map[resreg.Action]string{
 	resreg.Action("add"): "add_route",
 	resreg.Action("set"): "set_routes",
@@ -75,7 +75,7 @@ func init() {
 		MCPArgs:   RoutesMCPArgs,
 		MCPNames:  RoutesMCPNames,
 		// No folder scope: routes.target carries #observe/#topic fragments
-		// (spec 5/36 §"FK posture") — not column-equal to a folder, so Apply
+		// (spec 5/8 §"FK posture") — not column-equal to a folder, so Apply
 		// rebuilds routes wholesale rather than per-folder.
 		Hooks: resreg.Hooks{
 			ColumnOverride: map[string]resreg.ColumnHook{

@@ -1,6 +1,6 @@
 ---
 status: shipped
-depends: [45-openapi-mcp]
+depends: [17-openapi-mcp]
 ---
 
 # specs/5/I — per-tool-call logging
@@ -13,7 +13,7 @@ Both the platform surface (every MCP tool + every REST endpoint served by
 routd, proxyd, dashd, onbod, webd, davd) and the agent sandbox (Bash,
 Edit, Read, Write, Task, ...) produce a torrent of calls per turn. Today
 there is no uniform record — `resreg` emits a structured slog line per
-dispatch (see [`45-openapi-mcp.md`](45-openapi-mcp.md#audit-contract) audit contract), `cli_audit` covers CLI writes
+dispatch (see [`17-openapi-mcp.md`](17-openapi-mcp.md#audit-contract) audit contract), `cli_audit` covers CLI writes
 ([`8/F`](../8/F-audit-stream.md)), but agent-internal tool use is invisible
 to the operator and platform-side reads aren't logged at all. The result:
 no single place to answer "what did agent X do in turn Y", no replay
@@ -67,7 +67,7 @@ Canonical keys, emitted by both layers:
 answer "how it went". `turn_id` + `folder` + `instance` answer "where
 in the system". The schema is intentionally close to the
 `caller=... resource=... action=... surface=... target=... result=...`
-shape already defined in [`5/45` Audit contract](45-openapi-mcp.md#audit-contract)
+shape already defined in [`5/17` Audit contract](17-openapi-mcp.md#audit-contract)
 — this spec extends it with `params_summary`, `duration_ms`, `turn_id`
 and pins the surface enum for both layers.
 
@@ -100,7 +100,7 @@ one query, deterministically.
   the row carries no decision value.
 
 The classifier is per-resource declaration: `resreg.Endpoint` and
-`resreg.MCPTool` already carry an `Action` ([`5/45` Caller and Resource shape](45-openapi-mcp.md#caller-and-resource-shape));
+`resreg.MCPTool` already carry an `Action` ([`5/17` Caller and Resource shape](17-openapi-mcp.md#caller-and-resource-shape));
 `Action.Mutates() bool` is the gate. For hand-rolled handlers outside
 the registry, the handler tags itself (`audit.WriteRow(...)` is an
 explicit call site, not magic).
@@ -165,13 +165,13 @@ Claude Code SDK fires `PreToolUse` before each tool invocation and
 
 ## Cross-references
 
-- [`45-openapi-mcp.md`](45-openapi-mcp.md) — the
+- [`17-openapi-mcp.md`](17-openapi-mcp.md) — the
   `Caller`/`Resource`/`Action` shape this spec extends, the audit
   contract (one `audit_log` row per state transition), and the
   `/v1/*` REST surfaces whose hits this spec covers.
 - [`5/E-routd.md`](E-routd.md), [`5/P-runed.md`](P-runed.md) — each
   daemon owns its own DB; `audit_log` is co-located per daemon.
-- [`5/36-yaml-manifests.md` §OpenAPI emission](36-yaml-manifests.md#openapi-emission) — the
+- [`5/8-yaml-manifests.md` §OpenAPI emission](8-yaml-manifests.md#openapi-emission) — the
   endpoint catalog this spec logs against.
 - [`8/F-audit-stream.md`](../8/F-audit-stream.md) — the DB-side
   partner; defines the `audit_log` table that this spec gives the

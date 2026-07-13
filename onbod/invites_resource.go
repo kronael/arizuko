@@ -1,7 +1,7 @@
 package main
 
 // invites_resource.go folds onbod's /v1/invites REST face onto the shared resreg
-// handler (spec 5/44), retiring the three hand-rolled invite handlers
+// handler (spec 5/16), retiring the three hand-rolled invite handlers
 // (handleInvite{Create,List,Revoke}). resreg owns the plumbing (handler dispatch
 // + one tx wrapping the mutation AND its audit_log row); onbod owns the auth
 // POLICY via the injected REST Caller + Gate. onbod has no agent socket, so this

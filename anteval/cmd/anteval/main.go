@@ -1,4 +1,4 @@
-// Command anteval runs the agent-capability eval (spec 5/37) against a live
+// Command anteval runs the agent-capability eval (spec 5/9) against a live
 // arizuko instance and reports pass/fail per capability. See README.
 package main
 

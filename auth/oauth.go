@@ -39,7 +39,7 @@ func postForm(ctx context.Context, url string, data url.Values) (*http.Response,
 }
 
 // PostForm exposes the low-level form POST (shared 15s httpClient) for the
-// surrogate engine's token/refresh/revoke calls (auth/surrogate, spec 5/43).
+// surrogate engine's token/refresh/revoke calls (auth/surrogate, spec 5/15).
 // accept sets the Accept header — surrogate wants "application/json" so GitHub
 // returns JSON; "" leaves it unset (login's private postForm shape). The login
 // exchange path is untouched; this is an additive exported primitive.
