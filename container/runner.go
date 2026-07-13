@@ -850,6 +850,12 @@ func seedSettings(
 	settings["permissions"] = map[string]any{"defaultMode": "bypassPermissions"}
 	settings["sandbox"] = map[string]any{"enabled": false}
 
+	// routd's `sessions` table pins one transcript per chat and resumes it via
+	// `claude --resume`; Claude Code's default 30-day retention would prune that
+	// transcript out from under it → "No conversation found" → error_during_execution
+	// + silent context loss. Pin transcripts far past any session's lifetime.
+	settings["cleanupPeriodDays"] = 3650
+
 	servers, _ := settings["mcpServers"].(map[string]any)
 	if servers == nil {
 		servers = map[string]any{}

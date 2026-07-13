@@ -218,6 +218,33 @@ func TestSeedSettingsTier3NoWebPrefix(t *testing.T) {
 	}
 }
 
+// TestSeedSettingsPinsTranscriptRetention guards the fix for the stale
+// chat-bound session bug: routd resumes a pinned transcript, so Claude Code's
+// default 30-day retention must not prune it out from under the sessions table.
+func TestSeedSettingsPinsTranscriptRetention(t *testing.T) {
+	d := t.TempDir()
+	cfg := &core.Config{Name: "Bot"}
+	in := Input{Folder: "atlas"}
+
+	seedSettings(d, cfg, in, false)
+
+	data, err := os.ReadFile(filepath.Join(d, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	days, ok := s["cleanupPeriodDays"].(float64)
+	if !ok {
+		t.Fatalf("cleanupPeriodDays missing or not a number: %v", s["cleanupPeriodDays"])
+	}
+	if days < 3650 {
+		t.Errorf("cleanupPeriodDays = %v, want >= 3650 (retention pinned)", days)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // WriteTasksSnapshot / WriteGroupsSnapshot — non-root filtering
 // ---------------------------------------------------------------------------
