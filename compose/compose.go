@@ -157,6 +157,10 @@ var daemonKeys = map[string][]string{
 		// (minus 30s) the agent query timeout (spec, runed/README). Default 20m.
 		"RUNED_RUN_TIMEOUT",
 		"IDLE_TIMEOUT", "MAX_CONCURRENT_CONTAINERS",
+		// MOUNT_ALLOWED_ROOTS gates GroupConfig.Mounts (container/runner.go
+		// buildMounts). Without it in runed's env, per-group host mounts are
+		// default-denied — must survive `arizuko generate` regen, so it lives here.
+		"MOUNT_ALLOWED_ROOTS",
 		"MEDIA_ENABLED", "MEDIA_MAX_FILE_BYTES", "WHISPER_BASE_URL",
 		"VOICE_TRANSCRIPTION_ENABLED", "VIDEO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
 		"TTS_ENABLED", "TTS_BASE_URL", "TTS_VOICE", "TTS_MODEL", "TTS_TIMEOUT",
