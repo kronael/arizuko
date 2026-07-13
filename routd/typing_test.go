@@ -98,17 +98,38 @@ func (r *steeringRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1
 	return runedv1.RunOutcome{RunID: "run-steered", Steered: true}, nil
 }
 
-func newTypingRoutd(t *testing.T, runner Runner, dl Deliverer) (*DB, *Server) {
+func newTypingRoutd(t *testing.T, runner Runner, dl Deliverer, maxRetry int) (*DB, *Server) {
 	t.Helper()
 	db, err := OpenMem()
 	if err != nil {
 		t.Fatalf("open mem db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	loop := NewLoop(db, runner, LoopConfig{Deliver: dl})
+	loop := NewLoop(db, runner, LoopConfig{Deliver: dl, MaxTurnRetry: maxRetry})
 	loop.StopQueue()
 	srv := NewServer(db, loop, dl, nil, 0, "https://example.test")
 	return db, srv
+}
+
+// assertTypingCleared verifies typing was turned on and then off on the same
+// jid, with the final recorded event being off — the indicator dies with the
+// turn, not at the 20-min backstop.
+func assertTypingCleared(t *testing.T, dl *typingDeliverer) {
+	t.Helper()
+	evts := dl.snapshot()
+	if len(evts) == 0 {
+		t.Fatal("no Typing events recorded")
+	}
+	if !evts[0].on {
+		t.Fatal("first Typing event was off, want on")
+	}
+	last := evts[len(evts)-1]
+	if last.on {
+		t.Fatal("last Typing event was on, want off (typing left hanging past turn end)")
+	}
+	if last.jid != evts[0].jid {
+		t.Fatalf("typing cleared on jid %q but was set on %q", last.jid, evts[0].jid)
+	}
 }
 
 // seedTypingMsg registers a demo group + route and ingests one inbound message.
@@ -131,7 +152,7 @@ func seedTypingMsg(t *testing.T, db *DB, srv *Server, jid string) {
 func TestTyping_Normal(t *testing.T) {
 	dl := &typingDeliverer{}
 	sr := &stubRunner{}
-	db, srv := newTypingRoutd(t, sr, dl)
+	db, srv := newTypingRoutd(t, sr, dl, 0)
 	sr.srv = srv
 	const jid = "slack:T/C/U1"
 	seedTypingMsg(t, db, srv, jid)
@@ -159,7 +180,7 @@ func TestTyping_Normal(t *testing.T) {
 func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 	dl := &typingDeliverer{}
 	runner := &steeringRunner{deliverContent: false}
-	db, srv := newTypingRoutd(t, runner, dl)
+	db, srv := newTypingRoutd(t, runner, dl, 0)
 	runner.srv = srv
 	const jid = "slack:T/C/U2"
 	seedTypingMsg(t, db, srv, jid)
@@ -182,7 +203,7 @@ func TestTyping_Steered_NoImmediateOff(t *testing.T) {
 func TestTyping_Steered_ClearsOnContent(t *testing.T) {
 	dl := &typingDeliverer{}
 	runner := &steeringRunner{deliverContent: true}
-	db, srv := newTypingRoutd(t, runner, dl)
+	db, srv := newTypingRoutd(t, runner, dl, 0)
 	runner.srv = srv
 	const jid = "slack:T/C/U3"
 	seedTypingMsg(t, db, srv, jid)
@@ -204,4 +225,50 @@ func TestTyping_Steered_ClearsOnContent(t *testing.T) {
 			t.Fatal("Typing(false) fired before Typing(true)")
 		}
 	}
+}
+
+// erroringRunner returns a non-steered error outcome and delivers nothing —
+// models a run that SIGKILL/OOM/timeout-dies before replying.
+type erroringRunner struct{}
+
+func (erroringRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	return runedv1.RunOutcome{RunID: "run-err", Outcome: runedv1.OutcomeError, Error: "boom"}, nil
+}
+
+// silentRunner returns a clean non-steered outcome that records neither a
+// result nor a bot reply — the "silent turn" malfunction (a 0-result run).
+type silentRunner struct{}
+
+func (silentRunner) Run(_ context.Context, _ runedv1.RunRequest) (runedv1.RunOutcome, error) {
+	return runedv1.RunOutcome{RunID: "run-silent", Outcome: runedv1.OutcomeOK}, nil
+}
+
+// TestTyping_NonSteeredError_Clears proves a non-steered run that errors
+// without delivering a reply still clears typing at the dispatch epilogue —
+// the indicator dies with the turn, not at the 20-min backstop. maxRetry=-1
+// takes the final-error path (no reschedule).
+func TestTyping_NonSteeredError_Clears(t *testing.T) {
+	dl := &typingDeliverer{}
+	db, srv := newTypingRoutd(t, erroringRunner{}, dl, -1)
+	const jid = "slack:T/C/E1"
+	seedTypingMsg(t, db, srv, jid)
+
+	if _, err := srv.loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	assertTypingCleared(t, dl)
+}
+
+// TestTyping_NonSteeredSilent_Clears proves a clean run that delivers nothing
+// (a 0-result silent turn) clears typing too — the other non-delivery exit.
+func TestTyping_NonSteeredSilent_Clears(t *testing.T) {
+	dl := &typingDeliverer{}
+	db, srv := newTypingRoutd(t, silentRunner{}, dl, 0)
+	const jid = "slack:T/C/S1"
+	seedTypingMsg(t, db, srv, jid)
+
+	if _, err := srv.loop.processGroupMessages(jid); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+	assertTypingCleared(t, dl)
 }
