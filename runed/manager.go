@@ -22,19 +22,24 @@ const (
 )
 
 // Manager owns the execution plane's run lifecycle: per-folder
-// serialization (one live spawn per folder), the global concurrency cap +
-// waiting queue, the steer-into-running path, the circuit breaker, token
-// brokering, and the Runtime envelope. It is the body behind POST /v1/runs
-// (spec 5/P § The routd↔runed interface, § The queue + container model).
+// serialization (one live spawn per folder), the global concurrency cap,
+// the steer-into-running path, the circuit breaker, token brokering, and
+// the Runtime envelope. It is the body behind POST /v1/runs (spec 5/P §
+// The routd↔runed interface, § The queue + container model).
+//
+// Admission is a pure claim-or-reject decision off the DB — runed keeps NO
+// internal admission queue (that duplicated routd's DB-backed dispatch
+// queue). A caller that can't be admitted gets a retryable busy outcome;
+// routd re-feeds it on its own queue.
 //
 // State is DB-backed for restart recovery:
 //   - active spawns: spawns WHERE state IN ('queued','running')
 //   - failure counts: circuit_breaker table
 //   - activeCount: COUNT(*) on live spawns
 //
-// Only two pieces remain in-memory:
-//   - steerFns: the live steer callbacks (container-lifetime, non-persistable)
-//   - waiting: the FIFO admission queue (waiters reconnect on restart)
+// The only in-memory state is steerFns: the live steer callbacks
+// (container-lifetime, inherently non-persistable). The mutex guards just
+// the atomic count-and-claim of the admit path.
 type Manager struct {
 	db       *DB
 	runtime  Runtime
@@ -46,14 +51,6 @@ type Manager struct {
 
 	mu       sync.Mutex
 	steerFns map[string]func(batch string) bool // folder -> steer callback (runtime-wired)
-	waiting  []*waiter                          // FIFO admission queue (over cap or folder busy)
-}
-
-// waiter is one Run blocked on admission (folder busy or cap reached); it
-// is released (ch closed) when a slot frees AND its folder is idle.
-type waiter struct {
-	folder string
-	ch     chan struct{}
 }
 
 // ManagerConfig wires the Manager. Scopes is the ceiling for every
@@ -86,11 +83,15 @@ func NewManager(db *DB, runtime Runtime, broker Broker, cfg ManagerConfig) *Mana
 	}
 }
 
-// Run executes (or steers) one agent turn. Synchronous for the turn
-// boundary: it blocks until the run completes, returning the outcome +
-// session_id. If the folder already has a live spawn, it steers the batch
-// into it and returns immediately with steered:true (an ack, not a
-// turn-boundary outcome) — spec 5/P § Steer-into-running-container.
+// Run executes (or steers) one agent turn as a pure claim-or-reject
+// executor — routd owns all queueing (spec 5/P § Run state). Three exits:
+//   - admitted (idle folder, under cap): claim the slot, spawn, and block
+//     until the run completes, returning the turn-boundary outcome.
+//   - steered (folder busy, live container): write the batch in and return
+//     steered:true immediately (an ack, not a turn-boundary outcome).
+//   - busy (folder busy with a dead container, or global cap hit): return
+//     busy:true immediately. runed does NOT queue; routd re-feeds on its own
+//     DB-backed dispatch queue.
 func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunOutcome, error) {
 	folder := string(req.Folder)
 
@@ -101,81 +102,64 @@ func (m *Manager) Run(ctx context.Context, req runedv1.RunRequest) (runedv1.RunO
 		_ = m.db.ResetFailures(folder)
 	}
 
-	for {
-		// The admission decision and spawn-row creation must be atomic to
-		// prevent concurrent runs from all passing the cap check. We hold
-		// m.mu for the entire check-and-claim sequence.
-		m.mu.Lock()
+	// The admission decision and spawn-row creation are one atomic critical
+	// section: m.mu serializes check-and-claim so concurrent Runs can never
+	// both pass the cap or both spawn one folder (single-process runed, so
+	// the mutex IS the BEGIN IMMEDIATE claim).
+	m.mu.Lock()
 
-		// Check for a live spawn in the DB.
-		active, err := m.db.GetActiveSpawn(folder)
-		if err != nil {
-			m.mu.Unlock()
-			return runedv1.RunOutcome{}, fmt.Errorf("check active spawn: %w", err)
-		}
-
-		if active != nil {
-			// Folder busy: try to steer into the running container.
-			steer := m.steerFns[folder]
-			steered := steer != nil && steer(req.MessageBatch)
-			runID, sessionID := active.RunID, active.SessionID
-			if steered {
-				m.mu.Unlock()
-				_ = m.db.MarkSteered(runID)
-				return runedv1.RunOutcome{
-					RunID: runID, Outcome: runedv1.OutcomeOK,
-					SessionID: sessionID, Steered: true,
-				}, nil
-			}
-			// Steer failed (container already exited) or not yet wired: queue
-			// behind the live run, then retry the whole decision.
-			w := &waiter{folder: folder, ch: make(chan struct{})}
-			m.waiting = append(m.waiting, w)
-			m.mu.Unlock()
-			if err := waitFor(ctx, w.ch); err != nil {
-				m.dropWaiter(w)
-				return runedv1.RunOutcome{}, err
-			}
-			continue
-		}
-
-		// Check the global concurrency cap from DB.
-		activeCount, err := m.db.ActiveCount()
-		if err != nil {
-			m.mu.Unlock()
-			return runedv1.RunOutcome{}, fmt.Errorf("check active count: %w", err)
-		}
-		if activeCount >= m.maxRun {
-			// At the global cap: queue and retry once a slot frees.
-			w := &waiter{folder: folder, ch: make(chan struct{})}
-			m.waiting = append(m.waiting, w)
-			m.mu.Unlock()
-			if err := waitFor(ctx, w.ch); err != nil {
-				m.dropWaiter(w)
-				return runedv1.RunOutcome{}, err
-			}
-			continue
-		}
-
-		// Idle folder, under cap: claim the slot by creating the spawn row
-		// NOW (while holding the lock) so concurrent Runs see it immediately.
-		runID := "run_" + randHex(8)
-		sessionID := req.SessionID
-		if sessionID == "" {
-			sessionID = newUUID()
-		}
-		containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
-		if err := m.db.CreateSpawn(Spawn{
-			RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
-			SessionID: sessionID, State: "queued",
-		}); err != nil {
-			m.mu.Unlock()
-			return runedv1.RunOutcome{}, fmt.Errorf("create spawn: %w", err)
-		}
+	// Folder busy? Steer into the live container, else reject as busy.
+	active, err := m.db.GetActiveSpawn(folder)
+	if err != nil {
 		m.mu.Unlock()
-
-		return m.spawn(ctx, req, runID, sessionID, containerName), nil
+		return runedv1.RunOutcome{}, fmt.Errorf("check active spawn: %w", err)
 	}
+	if active != nil {
+		steer := m.steerFns[folder]
+		steered := steer != nil && steer(req.MessageBatch)
+		runID, sessionID := active.RunID, active.SessionID
+		m.mu.Unlock()
+		if steered {
+			_ = m.db.MarkSteered(runID)
+			return runedv1.RunOutcome{
+				RunID: runID, Outcome: runedv1.OutcomeOK,
+				SessionID: sessionID, Steered: true,
+			}, nil
+		}
+		// Steer failed (container already exited) or not yet wired: reject as
+		// busy. routd re-feeds next poll (no internal queue).
+		return runedv1.RunOutcome{Busy: true}, nil
+	}
+
+	// Global concurrency cap: reject as busy when full (routd re-feeds).
+	activeCount, err := m.db.ActiveCount()
+	if err != nil {
+		m.mu.Unlock()
+		return runedv1.RunOutcome{}, fmt.Errorf("check active count: %w", err)
+	}
+	if activeCount >= m.maxRun {
+		m.mu.Unlock()
+		return runedv1.RunOutcome{Busy: true}, nil
+	}
+
+	// Idle folder, under cap: claim the slot by creating the spawn row NOW
+	// (while holding the lock) so concurrent Runs see it immediately.
+	runID := "run_" + randHex(8)
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = newUUID()
+	}
+	containerName := fmt.Sprintf("arizuko-%s-%s-%d", m.instance, container.SanitizeFolder(folder), time.Now().UnixMilli())
+	if err := m.db.CreateSpawn(Spawn{
+		RunID: runID, Folder: folder, Topic: req.Topic, ContainerName: containerName,
+		SessionID: sessionID, State: "queued",
+	}); err != nil {
+		m.mu.Unlock()
+		return runedv1.RunOutcome{}, fmt.Errorf("create spawn: %w", err)
+	}
+	m.mu.Unlock()
+
+	return m.spawn(ctx, req, runID, sessionID, containerName), nil
 }
 
 // spawn runs the full execution-session envelope for one fresh spawn. The
@@ -272,9 +256,10 @@ func (m *Manager) spawn(ctx context.Context, req runedv1.RunRequest, runID, sess
 	return out
 }
 
-// endRun clears the steer callback, updates the breaker counter in the DB,
-// and drains an admission waiter. Returns true when this exit trips the breaker
-// (failure count reaches the threshold on this run).
+// endRun clears the steer callback and updates the breaker counter in the
+// DB. Returns true when this exit trips the breaker (failure count reaches
+// the threshold on this run). The slot frees implicitly (no running row);
+// there is no admission queue to drain — routd re-feeds next poll.
 func (m *Manager) endRun(folder, runID string, failed bool) bool {
 	// Update circuit breaker in DB.
 	var tripped bool
@@ -287,53 +272,11 @@ func (m *Manager) endRun(folder, runID string, failed bool) bool {
 		_ = m.db.ResetFailures(folder)
 	}
 
-	// Clear the steer callback and drain waiters.
+	// Clear the steer callback (the container is gone).
 	m.mu.Lock()
 	delete(m.steerFns, folder)
-	m.drainLocked()
 	m.mu.Unlock()
 	return tripped
-}
-
-// drainLocked releases FIFO waiters whose folder is now idle and that fit
-// under the cap. Caller holds m.mu. A released Run re-checks admission under
-// the lock (it may steer if the folder went busy again, or re-queue).
-func (m *Manager) drainLocked() {
-	activeCount, _ := m.db.ActiveCount()
-	kept := m.waiting[:0]
-	freed := map[string]bool{}
-	for _, w := range m.waiting {
-		folderActive, _ := m.db.ActiveSpawnForFolder(w.folder)
-		if activeCount < m.maxRun && folderActive == "" && !freed[w.folder] {
-			freed[w.folder] = true // one waiter per idle folder per drain pass
-			close(w.ch)
-			continue
-		}
-		kept = append(kept, w)
-	}
-	m.waiting = kept
-}
-
-// dropWaiter removes a cancelled waiter from the queue (its Run's ctx died).
-func (m *Manager) dropWaiter(w *waiter) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i, x := range m.waiting {
-		if x == w {
-			m.waiting = append(m.waiting[:i], m.waiting[i+1:]...)
-			return
-		}
-	}
-}
-
-// waitFor blocks until the waiter is released or ctx is cancelled.
-func waitFor(ctx context.Context, ch chan struct{}) error {
-	select {
-	case <-ch:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // SetSteer wires a folder's live-run steer callback (the IPC write +
@@ -350,10 +293,11 @@ func (m *Manager) SetSteer(folder, runID string, steer func(batch string) bool) 
 	m.steerFns[folder] = steer
 }
 
-// Kill stops a run's container (DELETE /v1/runs/{id}) and frees its queue
-// slot. Idempotent: killing an already-exited run is a no-op 200. A
-// deliberate kill records state=killed WITHOUT outcome=error and does NOT
-// count toward the breaker (it's operator intent, not a run failure).
+// Kill stops a run's container (DELETE /v1/runs/{id}) and frees its slot.
+// Idempotent: killing an already-exited run is a no-op 200. A deliberate
+// kill records state=killed WITHOUT outcome=error and does NOT count toward
+// the breaker (it's operator intent, not a run failure). The slot frees
+// implicitly once the row is terminal; routd re-feeds any pending batch.
 func (m *Manager) Kill(runID string) error {
 	sp, err := m.db.GetSpawn(runID)
 	if err != nil {
@@ -366,10 +310,9 @@ func (m *Manager) Kill(runID string) error {
 		// between GetSpawn and here keeps its terminal state (not 'killed').
 		_ = m.db.KillSpawn(runID)
 	}
-	// Clear steer callback and drain waiters (the DB row is already terminal).
+	// Clear the steer callback (the container is gone).
 	m.mu.Lock()
 	delete(m.steerFns, sp.Folder)
-	m.drainLocked()
 	m.mu.Unlock()
 	return nil
 }

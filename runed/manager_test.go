@@ -28,9 +28,9 @@ func newMgr(t *testing.T, rt Runtime, max int) (*DB, *Manager) {
 
 // TestSerializationNoConcurrentDoubleSpawn: many concurrent Run for ONE idle
 // folder never run two containers at once in the shared workspace — the
-// steer-check + live-run registration are one locked critical section
-// (spec 5/P § per-folder serialization, folder-exclusivity). Without steer
-// wired, the losers queue and run serially (never concurrently).
+// steer-check + spawn-row claim are one locked critical section (spec 5/P §
+// per-folder serialization, folder-exclusivity). Without steer wired, the
+// losers are rejected busy (no internal queue); at most one runs at a time.
 func TestSerializationNoConcurrentDoubleSpawn(t *testing.T) {
 	var live, peak int32
 	var mu sync.Mutex
@@ -134,8 +134,8 @@ func TestFreshRunSteerSeesResolvedSessionID(t *testing.T) {
 }
 
 // TestConcurrencyCap: with MaxConcurrent=2 and 3 distinct busy folders, at
-// most 2 containers run at once; the 3rd waits for a slot (spec 5/P §
-// MAX_CONCURRENT cap + waiting queue).
+// most 2 containers run at once; the 3rd is rejected busy (spec 5/P §
+// MAX_CONCURRENT cap — no wait, no internal queue).
 func TestConcurrencyCap(t *testing.T) {
 	var live, peak int32
 	release := make(chan struct{})

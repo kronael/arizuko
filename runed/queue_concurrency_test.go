@@ -2,6 +2,7 @@ package runed
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,17 +57,16 @@ func TestDistinctFoldersRunConcurrently(t *testing.T) {
 	}
 }
 
-// TestCapAdmitsQueuedRunWhenSlotFrees: with cap=1, a second folder's run is
-// queued behind the first and admitted the instant the first frees — the FIFO
-// admission drain releases it (spec 5/P § waiting queue). Asserts the queued
-// run actually runs (not dropped), and never overlaps the first.
-func TestCapAdmitsQueuedRunWhenSlotFrees(t *testing.T) {
-	var live, peak int32
-	var ran sync.Map
+// TestConcurrencyCapNoOverAdmit: with cap=K and N>K concurrent Runs on distinct
+// folders, exactly K are admitted and every other caller gets a retryable busy
+// outcome — never a block, never an over-admit. The atomic count-and-claim under
+// the lock is what holds the cap (spec 5/P § Run state — pure claim-or-reject,
+// no internal queue). This is the race-hard proof the queue removal is safe.
+func TestConcurrencyCapNoOverAdmit(t *testing.T) {
+	const cap, callers = 3, 12
+	var live, peak, admitted, busy int32
 	release := make(chan struct{})
-	first := make(chan struct{})
-	rt := FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
-		ran.Store(spec.Folder, true)
+	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
 		n := atomic.AddInt32(&live, 1)
 		for {
 			p := atomic.LoadInt32(&peak)
@@ -74,41 +74,93 @@ func TestCapAdmitsQueuedRunWhenSlotFrees(t *testing.T) {
 				break
 			}
 		}
-		if spec.Folder == "alice" {
-			close(first)
-			<-release // hold the only slot until released.
-		}
+		<-release // hold every admitted slot so all K are concurrently live.
 		atomic.AddInt32(&live, -1)
 		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
 	}}
-	_, mgr := newMgr(t, rt, 1)
+	_, mgr := newMgr(t, rt, cap)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "alice", MessageBatch: "m"})
-	}()
-	<-first // alice holds the only slot.
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out, _ := mgr.Run(context.Background(),
+				runedv1.RunRequest{Folder: types.Folder(fmt.Sprintf("f%d", i)), MessageBatch: "m"})
+			if out.Busy {
+				atomic.AddInt32(&busy, 1)
+			} else {
+				atomic.AddInt32(&admitted, 1)
+			}
+		}(i)
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "bob", MessageBatch: "m"})
-	}()
-	// give bob a window to (wrongly) start over the cap.
-	time.Sleep(40 * time.Millisecond)
-	if atomic.LoadInt32(&live) > 1 {
-		t.Fatalf("live=%d exceeded cap 1 (queued run started early)", atomic.LoadInt32(&live))
+	// Wait until the cap is saturated (all K admitted runs live), then give an
+	// over-cap admit a window to (wrongly) start before releasing.
+	deadline := time.After(2 * time.Second)
+	for atomic.LoadInt32(&live) < cap {
+		select {
+		case <-deadline:
+			t.Fatalf("cap never saturated: live=%d want %d", atomic.LoadInt32(&live), cap)
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	if l := atomic.LoadInt32(&live); l > cap {
+		t.Fatalf("live=%d exceeded cap %d (over-admit)", l, cap)
 	}
 	close(release)
 	wg.Wait()
 
-	if _, ok := ran.Load("bob"); !ok { // RunSpec.Folder is a plain string
-		t.Fatal("queued run (bob) never admitted after the slot freed")
+	if peak > cap {
+		t.Fatalf("peak=%d exceeded cap %d", peak, cap)
 	}
-	if peak > 1 {
-		t.Fatalf("peak=%d exceeded cap 1", peak)
+	if admitted != cap {
+		t.Fatalf("admitted=%d want exactly %d (the cap)", admitted, cap)
+	}
+	if busy != callers-cap {
+		t.Fatalf("busy=%d want %d (every non-admitted caller gets a busy reject)", busy, callers-cap)
+	}
+}
+
+// TestFolderBusySteerFailReturnsBusy: a second Run for a folder with a live
+// spawn but NO steer callback wired returns busy — not a block, not an error,
+// not a second spawn. Steer-fail is the retryable reject path (spec 5/P § Run
+// state — steer or busy, never enqueue).
+func TestFolderBusySteerFailReturnsBusy(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	var spawns int32
+	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
+		atomic.AddInt32(&spawns, 1)
+		close(started)
+		<-release
+		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
+	}}
+	_, mgr := newMgr(t, rt, 5)
+
+	go func() {
+		mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
+		close(done)
+	}()
+	<-started // demo has a live spawn; no steer callback wired.
+
+	out, err := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "second"})
+	if err != nil {
+		t.Fatalf("busy reject returned err=%v want nil (busy is not an error)", err)
+	}
+	if !out.Busy {
+		t.Fatalf("folder busy, steer absent → out=%+v want Busy=true", out)
+	}
+	if out.Steered {
+		t.Fatal("busy reject must not be a steer ack")
+	}
+	close(release)
+	<-done
+	if n := atomic.LoadInt32(&spawns); n != 1 {
+		t.Fatalf("spawns=%d want 1 (the busy caller must not spawn a second container)", n)
 	}
 }
 
@@ -179,17 +231,18 @@ func TestActiveSpawnsPersistAcrossRestart(t *testing.T) {
 	}
 }
 
-// TestKillFreesSlotForQueuedRun: killing a folder's live run frees its slot and
-// drains a waiter — the operator-kill path must not deadlock the queue. A run
-// queued behind a stuck folder is admitted once Kill releases the slot.
-func TestKillFreesSlotForQueuedRun(t *testing.T) {
-	started := make(chan struct{})
+// TestKillFreesSlotForNextRun: killing a folder's live run frees the only slot,
+// so a RESUBMITTED batch (routd re-feeds on its poll) is admitted where it was
+// busy before. With no internal queue, the free-and-readmit is caller-driven —
+// the operator kill must not strand the folder.
+func TestKillFreesSlotForNextRun(t *testing.T) {
 	hold := make(chan struct{})
+	firstStarted := make(chan struct{})
 	secondRan := make(chan struct{})
 	var which atomic.Int32
-	rt := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, spec RunSpec) RunResult {
+	rt := &killRecorder{FakeRuntime: FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
 		if which.Add(1) == 1 {
-			close(started)
+			close(firstStarted)
 			<-hold // first run hangs until killed.
 			return RunResult{Outcome: runedv1.OutcomeError, Error: "killed"}
 		}
@@ -199,68 +252,26 @@ func TestKillFreesSlotForQueuedRun(t *testing.T) {
 	_, mgr := newMgr(t, rt, 1)
 
 	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "demo", MessageBatch: "first"})
-	<-started
+	<-firstStarted
 	runID := mgr.ActiveRunID("demo")
 
-	// second run for a DIFFERENT folder queues behind the cap (cap=1).
-	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
-	time.Sleep(20 * time.Millisecond) // let it queue.
+	// At cap=1 a second folder is rejected busy — runed keeps no queue.
+	out, _ := mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
+	if !out.Busy {
+		t.Fatalf("at cap, second folder out=%+v want Busy=true (no internal queue)", out)
+	}
 
-	// Kill the first → frees the only slot → the queued second is admitted.
+	// Kill the first → frees the only slot → the resubmitted batch now runs.
 	if err := mgr.Kill(runID); err != nil {
 		t.Fatalf("kill: %v", err)
 	}
-	close(hold) // let the first run's goroutine unwind.
-
+	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "other", MessageBatch: "second"})
 	select {
 	case <-secondRan:
 	case <-time.After(2 * time.Second):
-		t.Fatal("queued run never admitted after Kill freed the slot (queue deadlock)")
+		t.Fatal("resubmitted run never admitted after Kill freed the slot")
 	}
-}
-
-// TestRunCancelledWhileQueuedDropsWaiter: a Run blocked in the admission queue
-// whose ctx is cancelled returns ctx.Err() and removes itself from the queue —
-// it must not leak a dead waiter that a later drain would (harmlessly but
-// wastefully) close, nor block the folder forever.
-func TestRunCancelledWhileQueuedDropsWaiter(t *testing.T) {
-	hold := make(chan struct{})
-	started := make(chan struct{})
-	rt := FakeRuntime{Fn: func(_ context.Context, _ RunSpec) RunResult {
-		close(started)
-		<-hold
-		return RunResult{Outcome: runedv1.OutcomeOK, NewSessionID: "s"}
-	}}
-	_, mgr := newMgr(t, rt, 1)
-
-	go mgr.Run(context.Background(), runedv1.RunRequest{Folder: "alice", MessageBatch: "m"})
-	<-started // alice holds the only slot.
-
-	ctx, cancel := context.WithCancel(context.Background())
-	errc := make(chan error, 1)
-	go func() {
-		_, err := mgr.Run(ctx, runedv1.RunRequest{Folder: "bob", MessageBatch: "m"})
-		errc <- err
-	}()
-	time.Sleep(20 * time.Millisecond) // bob is queued.
-	cancel()
-
-	select {
-	case err := <-errc:
-		if err == nil {
-			t.Fatal("cancelled queued Run returned nil err, want ctx.Canceled")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled queued Run never returned")
-	}
-	// the waiter was dropped: queue is empty.
-	mgr.mu.Lock()
-	n := len(mgr.waiting)
-	mgr.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("waiting queue len=%d after cancel, want 0 (dead waiter leaked)", n)
-	}
-	close(hold)
+	close(hold) // let the first run's goroutine unwind.
 }
 
 // TestSteerWhenNoLiveRunSpawns: a Run for an idle folder with no live spawn does

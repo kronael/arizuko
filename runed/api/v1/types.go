@@ -55,16 +55,24 @@ type RunRequest struct {
 // the run completes (the turn boundary). Frames arrive out-of-band during
 // the run via the /v1/turns/{turn_id}/* callbacks, not here.
 //
-// Outcome ∈ ok|error|silent. Steered=true is the discriminator for a
-// steer ack (the call returned immediately because the folder already had
-// a live spawn); routd then does NOT advance the cursor. BreakerOpen=true
-// rides only on the run that trips the circuit breaker.
+// Outcome ∈ ok|error|silent. Three orthogonal discriminators ride alongside,
+// each meaning "this is NOT a turn-boundary outcome — do not treat Outcome as
+// authoritative":
+//   - Steered=true: a steer ack (the folder already had a live spawn; the batch
+//     was written into it). routd does NOT advance the cursor.
+//   - Busy=true: runed did NOT admit the run (folder busy with a dead container,
+//     or the global cap is hit) and keeps no internal queue. It is neither an
+//     error nor a run — routd MUST NOT advance the cursor and MUST NOT count it
+//     toward the circuit breaker; the batch is re-fed on routd's next poll.
+//     RunID/Outcome/SessionID are empty on a busy reject.
+//   - BreakerOpen=true: rides only on the run that trips the circuit breaker.
 type RunOutcome struct {
 	RunID       string `json:"run_id"`
 	Outcome     string `json:"outcome"` // ok|error|silent
 	SessionID   string `json:"session_id"`
 	Error       string `json:"error"`
 	Steered     bool   `json:"steered"`
+	Busy        bool   `json:"busy"`
 	BreakerOpen bool   `json:"breaker_open"`
 }
 
