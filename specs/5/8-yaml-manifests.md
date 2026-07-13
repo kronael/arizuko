@@ -6,9 +6,10 @@ depends: specs/5/17-openapi-mcp.md, specs/9/2-data-model.md
 
 <!-- partial (2026-07-13): the engine + YAML format shipped, but the CLI
      (apply/plan/export/get) still opens the frozen pre-split messages.db,
-     not the split owner DBs — INERT on every production instance. Finalizing
-     = split-aware DB routing + a cross-DB atomicity decision, jointly with
-     5/16. See the § Caveat below + BUGS.md. -->
+     not the split owner DBs — INERT on every production instance. The
+     atomicity + config_version model is now DECIDED (per-owner-DB, below);
+     finalizing = repoint the CLI per-resource to its owner DB per 5/16's
+     owner-DB map. See the § Caveat below + BUGS.md. -->
 
 # specs/5/8 — YAML manifests: transport dump/import for cold-tier config
 
@@ -36,8 +37,9 @@ network rules, group registration. Tokens (`invites`, `route_tokens`) are
 imperative-only in v1.
 
 `arizuko export` writes a point-in-time dump of cold-tier tables to YAML;
-`arizuko apply file.yaml` restores the cold tier from a dump, rebuilding all
-config tables in one SQLite transaction. YAML changes only on `export`;
+`arizuko apply file.yaml` restores the cold tier from a dump, rebuilding
+config tables per owner DB (one tx per owner DB, not one global tx — see
+Atomicity model). YAML changes only on `export`;
 runtime MCP/REST row ops change the DB, not the YAML. A dump never claims to
 be live, so "drift" is a non-concept.
 
@@ -51,8 +53,8 @@ spec gives them a place to land later, not an answer.
   (`manifest/`; file names are informational — any file may hold any
   resource kinds, see Manifest directory layout). Point-in-time; not synced.
 - `arizuko apply <file>…` — **restore** the cold tier from a dump: read
-  manifest dir or file(s), validate, rebuild config tables in one SQLite
-  tx, report diff. **Rebuild scope:** per resource, DELETE+INSERT is scoped
+  manifest dir or file(s), validate, rebuild config tables per owner DB (one
+  tx each), report diff. **Rebuild scope:** per resource, DELETE+INSERT is scoped
   to the folders the manifest mentions (`DELETE … WHERE folder IN (<manifest
 scope>)`). A row's omission deletes it only within a mentioned scope;
   groups/scopes absent from the manifest are untouched. Instance-global
@@ -69,7 +71,8 @@ scope>)`). A row's omission deletes it only within a mentioned scope;
 **File names are informational only** — content, not name, determines what
 config a file holds. Any file may contain any resource kinds.
 `arizuko apply manifest/` reads all `*.yaml` files, merges resource lists by
-PK, and applies the union in one transaction. Files compose additively;
+PK, and applies the union, one tx per owner DB (see Atomicity model). Files
+compose additively;
 duplicate primary keys across files are a parse-time error. The apply tool
 never interprets file names; an operator may use one `everything.yaml` or
 split arbitrarily.
@@ -139,13 +142,13 @@ REST, MCP, and YAML are three transports over the **same row schema**,
 defined once in Go by `resreg.Resource` and reused by all three. Drift is
 structurally impossible — they share one handler.
 
-|             | REST                            | MCP                           | YAML                              |
-| ----------- | ------------------------------- | ----------------------------- | --------------------------------- |
-| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DROP + INSERT (rebuild per scope) |
-| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)          |
-| Row fields  | request body                    | tool args                     | row map                           |
-| Batching    | one row per call                | one row per call              | many rows, one tx                 |
-| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` manifest header |
+|             | REST                            | MCP                           | YAML                                |
+| ----------- | ------------------------------- | ----------------------------- | ----------------------------------- |
+| Verb        | HTTP method (POST/PATCH/DELETE) | Tool name (`acl.create`, `…`) | DROP + INSERT (rebuild per scope)   |
+| Identity    | URL path (`/groups/atlas/acl`)  | Tool args                     | YAML nesting (group key)            |
+| Row fields  | request body                    | tool args                     | row map                             |
+| Batching    | one row per call                | one row per call              | many rows, one tx                   |
+| CAS version | — (single-row, serialized)      | — (single-row, serialized)    | `config_version:` map, per owner DB |
 
 Only **row fields** are part of `resreg.Resource`. Verb, identity, batching,
 and version are transport envelopes — owned by the transport. The apply tool
@@ -294,60 +297,72 @@ Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
 [`P-runed.md`](P-runed.md), [`17-openapi-mcp.md`](17-openapi-mcp.md)
 § "One owner per table"):
 
-| Daemon | Owned resources                                                                                                                                    |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| routd  | groups, routes, web_routes, acl, acl_membership, secrets, network_rules (residual config + conversation tables; inherits gated's schema authority) |
-| timed  | scheduled_tasks                                                                                                                                    |
-| onbod  | onboarding_gates                                                                                                                                   |
-| authd  | — (signing keys / JWKs / sessions; no manifest-addressable config rows)                                                                            |
-| proxyd | proxyd_routes (operator-composed enforcement point; see [`7-proxyd-standalone.md`](7-proxyd-standalone.md))                                        |
-| runed  | — (execution runtime: spawns / session_log / mcp_tokens; all runtime tables, not config)                                                           |
-| webd   | — (reads `web_routes` from routd; doc is informational)                                                                                            |
-| dashd  | — (HTMX operator UI; CRUD lives in the owning daemons above)                                                                                       |
+| Daemon | Owned resources                                                                                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| routd  | groups, routes, web_routes, acl, acl_membership, secrets, network_rules, scheduled_tasks (residual config + conversation tables; inherits gated's schema authority) |
+| timed  | — (cron executor; reads `scheduled_tasks` from `routd.db`, owns no config rows)                                                                                     |
+| onbod  | onboarding_gates                                                                                                                                                    |
+| authd  | — (signing keys / JWKs / sessions; no manifest-addressable config rows)                                                                                             |
+| proxyd | proxyd_routes (operator-composed enforcement point; see [`7-proxyd-standalone.md`](7-proxyd-standalone.md))                                                         |
+| runed  | — (execution runtime: spawns / session_log / mcp_tokens; all runtime tables, not config)                                                                            |
+| webd   | — (reads `web_routes` from routd; doc is informational)                                                                                                             |
+| dashd  | — (HTMX operator UI; CRUD lives in the owning daemons above)                                                                                                        |
 
 Daemons with no owned resources still emit `/openapi.json` so the aggregator
 page (`/pub/arizuko/reference/openapi.html`) lists every daemon uniformly.
 
 ## Optimistic locking (`config_version`)
 
-`config_meta` is a single-row config-class table holding a monotonic
-integer `config_version`. **One bump per apply transaction**, not per row.
+`config_meta` is a single-row table **in each owner DB**
+([`5/16` §One owner + federation](16-mcp-rest-unification.md)): `routd.db`,
+`onbod.db`, and `proxyd.db` each carry their OWN monotonic
+`config_meta.version`. There is **no single instance-wide version** — the
+manifest header carries the SET (one entry per owner DB it touches), and
+`apply` CAS-checks each owner DB independently, aborting only the DB whose
+version drifted. **One bump per apply tx per owner DB**, not per row.
 
-**Every writer ADVANCES `config_version`; only YAML apply CHECKS it
-(CAS).** MCP/REST single-row mutations bump the counter in their tx so a
-later apply detects them — but they don't carry a version to compare
-against, because they are single-row, write-and-read in one call, serialized
-by `BEGIN IMMEDIATE`; there is no stale snapshot to defend. YAML apply IS the
-stale-snapshot pattern (export at T, edit for minutes/hours, apply at T+N
-after MCP/REST may have committed), so it is the one writer that CAS-checks
-the stamped version before writing and rejects on mismatch.
+**Every writer ADVANCES its owner DB's `config_version`; only YAML apply
+CHECKS it (CAS).** MCP/REST single-row mutations bump their owner DB's
+counter in their tx so a later apply detects them — but they don't carry a
+version to compare against, because they are single-row, write-and-read in
+one call, serialized by `BEGIN IMMEDIATE`; there is no stale snapshot to
+defend. YAML apply IS the stale-snapshot pattern (export at T, edit for
+minutes/hours, apply at T+N after MCP/REST may have committed), so it is the
+one writer that CAS-checks each stamped version before writing that owner DB
+and rejects on mismatch.
 
-**Export** stamps the current DB version into the manifest header
-(`config_version: 42`). **Apply** checks it before writing:
+**Export** stamps each touched owner DB's current version into the manifest
+header as a map (`config_version: {routd: 42, onbod: 7, proxyd: 3}`).
+**Apply** checks each entry before writing that DB:
 
-- DB version == manifest `config_version` → proceed; advance to N+1 on commit.
-- mismatch → reject: "config changed since export; re-export or use --force."
+- owner-DB version == manifest entry → proceed; advance that DB to N+1 on its commit.
+- mismatch → abort THAT owner DB (not the others): "routd config changed
+  since export; re-export or use --force." Owner DBs that still match apply.
 
-A manifest with no `config_version` is rejected in strict mode. `--force`
-skips the check and writes unconditionally (last-writer-wins; still advances
-the counter). Without CAS, two operators both exporting at v42 and both
-applying would silently clobber each other; the version forces a re-export
-that surfaces the conflict.
+A manifest missing a `config_version` entry for an owner DB it touches is
+rejected in strict mode. `--force` skips the check per DB (last-writer-wins;
+still advances the counter). Without CAS, two operators both exporting at
+routd=42 and both applying would silently clobber each other; the per-DB
+version forces the re-export that surfaces the conflict.
 
 ### CAS implementation
 
-**(1) Version table + bootstrap migration.**
+**(1) Version table + bootstrap migration, per owner DB.** Each owner
+daemon's migrations create its own `config_meta` and back-fill the version
+from ITS config tables (routd counts groups/acl/routes/…; onbod counts
+onboarding_gates/invites; proxyd counts proxyd_routes):
 
 ```sql
--- Singleton: id pinned to 1 by CHECK so there is exactly one row to CAS on.
+-- Singleton per owner DB: id pinned to 1 by CHECK so there is one row to CAS on.
 CREATE TABLE config_meta (
   id      INTEGER PRIMARY KEY CHECK(id = 1),
   version INTEGER NOT NULL DEFAULT 0
 );
--- Bootstrap: count existing config rows so v1 is non-zero on instances
--- with pre-existing state. First export then sees a real version;
--- without back-fill, every fresh-install operator would need --force
--- on first apply against a populated DB. Upsert keeps the single row.
+-- routd.db bootstrap: count routd-owned config rows so v1 is non-zero on
+-- instances with pre-existing state (onbod.db and proxyd.db each run the
+-- analogous COUNT over their own owned tables). Without back-fill, a
+-- fresh-install operator would need --force on first apply against a
+-- populated DB. Upsert keeps the single row.
 INSERT INTO config_meta (id, version)
   SELECT 1,
     (SELECT COUNT(*) FROM groups)            +
@@ -356,9 +371,7 @@ INSERT INTO config_meta (id, version)
     (SELECT COUNT(*) FROM routes)            +
     (SELECT COUNT(*) FROM web_routes)        +
     (SELECT COUNT(*) FROM scheduled_tasks)   +
-    (SELECT COUNT(*) FROM network_rules)    +
-    (SELECT COUNT(*) FROM proxyd_routes)     +
-    (SELECT COUNT(*) FROM onboarding_gates)
+    (SELECT COUNT(*) FROM network_rules)
   ON CONFLICT(id) DO UPDATE SET version = excluded.version;
 ```
 
@@ -368,30 +381,33 @@ Secret metadata (`(scope_kind, scope_id, key)`) rebuilds from YAML like other
 config; the encrypted blob is set imperatively and doesn't touch
 `config_version`.
 
-**(2) Bump once per writer tx, at the COMMIT site (not AFTER triggers).**
+**(2) Bump once per writer tx per owner DB, at the COMMIT site (not AFTER
+triggers).** One such tx runs per owner DB the apply touches:
 
 ```
-BEGIN IMMEDIATE;
+BEGIN IMMEDIATE;                          -- on <owner>.db
   SELECT version FROM config_meta WHERE id = 1;
-  -- mismatch (and not --force) → ROLLBACK; reject
-  DELETE FROM <config tables> WHERE folder IN (<manifest scope>);   -- secrets skipped (SkipApplyRebuild)
-  INSERT INTO <config tables> (...);
+  -- mismatch (and not --force) → ROLLBACK this DB; abort it, continue others
+  DELETE FROM <this DB's config tables> WHERE folder IN (<manifest scope>);   -- secrets skipped (SkipApplyRebuild)
+  INSERT INTO <this DB's config tables> (...);
   UPDATE config_meta SET version = version + 1 WHERE id = 1;   -- single bump
 COMMIT;
 ```
 
-MCP/REST single-row mutations bump the same way inside their tx. Per-row
-triggers are rejected: a bulk apply of N rows would advance by N, breaking
-equality CAS. The invariant is monotonicity, not consecutive integers —
-operators only compare equality.
+MCP/REST single-row mutations bump their owner DB the same way inside their
+tx. Per-row triggers are rejected: a bulk apply of N rows would advance by N,
+breaking equality CAS. The invariant is monotonicity per owner DB, not
+consecutive integers — operators only compare equality.
 
-**(3) One audit row per apply, not N** — summarizes actor, manifest digest,
-rows added/updated/deleted per resource, final `config_version`.
+**(3) One audit row per apply per owner DB** — summarizes actor, manifest
+digest, rows added/updated/deleted per resource, and that DB's final
+`config_version`, in the owner DB's own `audit_log`.
 
 **(4) `BEGIN IMMEDIATE`** acquires the RESERVED lock at tx start so
-concurrent applies / MCP mutations / apply-vs-MCP all serialize; WAL readers
-unaffected. Without it, two concurrent applies could both pass CAS at v42 and
-the second's DELETE+INSERT would wipe the first's writes.
+concurrent applies / MCP mutations against the SAME owner DB serialize; WAL
+readers unaffected. Cross-DB there is no shared lock or shared tx — each
+owner DB serializes independently. Without it, two concurrent applies could
+both pass CAS at v42 and the second's DELETE+INSERT would wipe the first's.
 
 ## New-group filesystem prep (post-restore)
 
@@ -560,12 +576,13 @@ chat_reply_state  pane_sessions
    — it caches connections, not config rows; the row that picked the URL is
    re-read per request.
 
-**Restore atomicity:** `BEGIN; DELETE scoped config rows; INSERT from YAML;
-COMMIT` (per-folder DELETE scoped to the folders the manifest mentions;
-instance-global resources rebuild wholesale; `secrets` skips DELETE+INSERT).
-All daemons see new config on their next DB read — no signals, no reload
-endpoints, no cache invalidation. WAL gives readers snapshot isolation
-during the tx; freed pages return to the freelist.
+**Restore atomicity:** per owner DB, `BEGIN IMMEDIATE; DELETE scoped config
+rows; INSERT from YAML; COMMIT` (per-folder DELETE scoped to the folders the
+manifest mentions; instance-global resources rebuild wholesale; `secrets`
+skips DELETE+INSERT) — one tx per owner DB, not one across DBs (see Atomicity
+model). All daemons see new config on their next DB read — no signals, no
+reload endpoints, no cache invalidation. WAL gives readers snapshot isolation
+during each tx; freed pages return to the freelist.
 
 **Operator-generated config** (onboarding groups, ad-hoc grants, dynamically
 issued route tokens) lives directly in config tables; `arizuko export`
@@ -575,10 +592,13 @@ snapshots it into YAML to promote into the static manifest.
 
 Built from `store/migrations/*.sql`; hot-tier tables excluded.
 
-Owning daemon is the post-split owner ([`E-routd.md`](E-routd.md),
-[`P-runed.md`](P-runed.md)); the legacy column names the pre-split source
-table in `gated`'s monolithic `messages.db` (the cutover copies it into the
-new owner's DB, drops the source).
+Owning daemon is the post-split owner — the daemon that migrates + serves
+the table (`timed` owns no DB; it READS `scheduled_tasks` from `routd.db`).
+The canonical per-DB grouping, plus `config_meta` now living per-owner-DB,
+is [`5/16`'s owner-DB map](16-mcp-rest-unification.md); this column mirrors
+it per resource. The legacy column names the pre-split source table in
+`gated`'s monolithic `messages.db` (the cutover copies it into the new
+owner's DB, drops the source).
 
 | Resource           | Apply mode  | PK (natural key)                                        | Owning daemon | Legacy source table (pre-split) |
 | ------------------ | ----------- | ------------------------------------------------------- | ------------- | ------------------------------- |
@@ -587,7 +607,7 @@ new owner's DB, drops the source).
 | `acl_membership`   | rebuild     | `(child, parent)`                                       | routd         | gated                           |
 | `routes`           | rebuild     | `(seq, match, target)`                                  | routd         | gated                           |
 | `web_routes`       | rebuild     | `path_prefix`                                           | routd         | gated                           |
-| `scheduled_tasks`  | rebuild     | `id`                                                    | timed         | gated                           |
+| `scheduled_tasks`  | rebuild     | `id`                                                    | routd         | gated                           |
 | `secrets`          | export-only | `(scope_kind, scope_id, key)`                           | routd         | gated                           |
 | `network_rules`    | rebuild     | `(folder, target)`                                      | routd         | gated                           |
 | `proxyd_routes`    | rebuild     | `path`                                                  | proxyd        | gated                           |
@@ -696,15 +716,42 @@ defer_foreign_keys=ON` at tx start (checks defer to COMMIT). No cycle in v1.
 
 ## Atomicity model
 
-**Fully atomic via scoped rebuild.** Apply is not an upsert loop — it is
-`BEGIN; DELETE scoped config rows; INSERT all rows; COMMIT` (per-folder
-DELETE scoped to the folders the manifest mentions; instance-global
-resources rebuild wholesale; `secrets` skips DELETE+INSERT). The whole
-manifest applies or nothing does; no per-row error accumulation, no partial
-state. On validation failure the tx is never opened (error returned before
-any mutation); on DB failure mid-insert it rolls back and the old config DB
-keeps serving. Idempotent: re-applying the same manifest produces identical
-state, safe to re-run after any failure.
+**The atomic unit is the resource, not the manifest.** Each cold-tier
+resource is owned by exactly one DB
+([`5/16` §One owner + federation](16-mcp-rest-unification.md)); `apply`
+fans out to the owner DBs its manifest touches and runs one
+`BEGIN IMMEDIATE … DELETE scoped config rows; INSERT rows; COMMIT` **per
+owner DB** (per-folder DELETE scoped to the folders the manifest mentions;
+instance-global resources rebuild wholesale; `secrets` skips DELETE+INSERT).
+Within one owner DB the rebuild is atomic — that DB's slice of the manifest
+applies or none of it does. There is **NO global all-or-nothing across DBs**:
+SQLite cannot open one tx across separate DB files, so a manifest spanning
+`routd.db` + `onbod.db` + `proxyd.db` commits each independently.
+
+A **partial** outcome (one owner DB committed, another failed) is recovered
+by **re-running the same `apply`** — the rebuild is declarative (scoped
+DELETE+INSERT keyed on PK), so a second run over the same manifest converges
+to the identical state: already-committed DBs re-apply to a no-op, the failed
+DB retries. `arizuko plan` previews the per-DB deltas first. The `apply`
+command stays ONE operator command; the multi-DB fan-out is internal.
+
+**Idempotence rests on three guardrails**, all satisfied today:
+
+- **No side-effecting apply hooks.** Apply writes rows, not live effects.
+  The per-resource hooks (`groups`/`acl`/`scheduled_tasks` `BeforeInsert`,
+  `acl_membership` `ValidateRow`, the `ColumnOverride` COALESCE/nil maps) are
+  pure normalization/validation — default-fill, JSON canonicalization, in-tx
+  cycle checks — not external actions; re-running one is harmless. (Filesystem
+  prep is the one declared post-commit step, itself idempotent via
+  `arizuko repair` — see New-group filesystem prep.)
+- **Self-contained manifest.** Each row carries its PK + all fields, so a
+  re-run rebuilds identical rows with no hidden state.
+- **Secrets are metadata-only** (`SkipApplyRebuild`): the encrypted blob is
+  never rebuilt, so re-running never wipes a rotated secret.
+
+On validation failure no tx is opened for any DB (error returned before any
+mutation). On a mid-insert DB failure, that DB rolls back and keeps serving
+its old config; other owner DBs are unaffected — re-run to converge.
 
 ## Tokens are not in v1 manifests
 
