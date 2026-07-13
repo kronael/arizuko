@@ -1,8 +1,14 @@
 ---
-status: shipped
+status: partial
 shipped: 2026-06-14
 depends: specs/5/45-openapi-mcp.md, specs/9/2-data-model.md
 ---
+
+<!-- partial (2026-07-13): the engine + YAML format shipped, but the CLI
+     (apply/plan/export/get) still opens the frozen pre-split messages.db,
+     not the split owner DBs — INERT on every production instance. Finalizing
+     = split-aware DB routing + a cross-DB atomicity decision, jointly with
+     5/44. See the § Caveat below + BUGS.md. -->
 
 # specs/5/36 — YAML manifests: transport dump/import for cold-tier config
 
