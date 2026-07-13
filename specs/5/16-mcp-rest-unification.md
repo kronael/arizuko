@@ -198,7 +198,71 @@ spawn side-effects — highest risk).
 
 **One owner + federation** (final) — fold each resource's table to its
 owner daemon, repoint non-owner reads to the owner's face, and retire
-`messages.db` + its `store/migrations` twin once no reader remains.
+`messages.db` + its `store/migrations` twin once no reader remains. The
+resource model this phase realizes is specified next.
+
+## One owner + federation
+
+This section is the **canonical model** for what a cold-tier resource is;
+[`5/8`](8-yaml-manifests.md) (YAML transport), [`5/17`](17-openapi-mcp.md)
+(two-face mechanism), and [`5/18`](18-onboarding-model.md) (onboarding flow)
+reference it rather than restating it.
+
+**One owner DB, one single-source declaration.** Each cold-tier resource is
+owned by exactly one DB, and its row-schema + action surface — the tagged
+`RowType` plus its real `Endpoints` — is declared **once** in
+`resreg/resources/<name>.go` with **no handler body**. That one declaration
+is imported by BOTH:
+
+- the standalone `arizuko apply`/`export`/`plan` CLI, which runs **without
+  routd** — an FS-mounted operator tool opening the owner DBs directly (the
+  split write-discipline already puts an FS-mounted CLI on the owner DBs); and
+- the owning daemon's mounted handler (routd for most, onbod for
+  `onboarding_gates`/`invites`, proxyd for `proxyd_routes`), which adds ONLY
+  the injected `Gate` + per-face `containFn` — never a second `RowType`,
+  never a second `Endpoints` list.
+
+This closes the **two-declaration drift**: today the CLI/OpenAPI declaration
+(`resreg/resources/*.go`) and the mounted handler (`routd/*_resource.go`)
+are separate and can diverge, so OpenAPI emits a _phantom fixed-CRUD
+convention_ instead of the resource's real `Endpoints`. Single-source
+`RowType`+`Endpoints` and all three consumers — the OpenAPI doc, the CLI
+manifest, and the mounted handler — read one truth; a divergence becomes a
+compile error, not a runtime surprise.
+
+### Owner-DB map
+
+Each owner daemon owns + migrates its own DB and the resources below.
+`config_meta` is **per-owner-DB** — each owner DB carries its own CAS
+version (`5/8`'s `config_version` section), replacing the single
+monolith-store row (`store/migrations/0067`).
+
+| Owner DB    | Owned tables                                                                                                                                             |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routd.db`  | `groups`, `acl`, `acl_membership`, `routes`, `web_routes`, `secrets`, `network_rules`, `route_tokens`, `scheduled_tasks`, `task_run_logs`, `config_meta` |
+| `onbod.db`  | `onboarding_gates`, `invites`, `config_meta`                                                                                                             |
+| `proxyd.db` | `proxyd_routes`, `config_meta`                                                                                                                           |
+
+`timed` owns **NO DB** — it READS `scheduled_tasks` from `routd.db`; routd
+is the owner (it migrates + serves the table), timed the reader. A resource
+is owned by the DB that migrates its table, never by whichever daemon reads
+it.
+
+### FK co-location invariant
+
+SQLite foreign keys cannot cross DB files. Three cross-table FKs are
+declared, all `ON DELETE CASCADE`:
+
+- `web_routes.folder → groups.folder` (migration 0068)
+- `route_tokens.owner_folder → groups.folder` (0069)
+- `task_run_logs.task_id → scheduled_tasks.id` (0011)
+
+All three sit inside `routd.db` — parent and child of every declared FK
+share one owner DB. This is a **rule that constrains any future owner
+assignment**: FK-linked resources MUST share an owner DB. An assignment that
+would split an FK across DB files is invalid — either drop the FK (the
+reference becomes a string, `5/8`'s FK-posture section) or keep the
+resources co-located.
 
 ## REST-face reconciliation (resolved — 2026-07-06)
 
