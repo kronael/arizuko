@@ -124,7 +124,15 @@ The `Resource` is the `resreg.Resource` above: its transport half is
 `Endpoints` + `MCPDoc` (the two faces) + the injected `Gate` (authz); its
 row-schema half (`RowType`, `Table`, `PKFields`, `Scope`, `Hooks`) is
 authoritative in [`8-yaml-manifests.md`](8-yaml-manifests.md) and drives
-SQL CRUD, YAML round-trip, and OpenAPI emission. `Execution.Tx` is the
+SQL CRUD, YAML round-trip, and OpenAPI emission. Single-sourcing that
+`RowType`+`Endpoints` in one `resreg/resources/<name>.go` imported by both
+the CLI and the mounted handler
+([`5/16` §One owner + federation](16-mcp-rest-unification.md)) is what makes
+the OpenAPI-doc-vs-handler "drift is structurally impossible" claim actually
+hold: without it the CLI-manifest declaration (`resreg/resources/*.go`) and
+the mounted handler (`routd/*_resource.go`) can diverge and OpenAPI emits a
+phantom fixed-CRUD convention instead of the real `Endpoints`.
+`Execution.Tx` is the
 adapter↔handler contract: the adapter opens the tx for a mutating action,
 the handler mutates, and the one `audit_log` row lands in that same tx
 (see [Audit contract](#audit-contract)); any handler error rolls it back.

@@ -181,6 +181,13 @@ routes as resreg resources (`5/16`), autoviv. The staging posture is
 route-table data plus documentation — no schema, no daemon, no new
 mode.
 
+The tables this spec manipulates — `groups`, `routes`, `onboarding_gates`,
+`invites` — ARE the cold-tier resources
+[`5/16`](16-mcp-rest-unification.md) models (one owner DB + PK + scope,
+idempotently replaceable) and [`5/8`](8-yaml-manifests.md) transports as
+YAML; identical resource names across all three specs. This spec drives
+them as onboarding flow, not a separate table set.
+
 **The one code gap** (`BUGS.md` 2026-07-09): the onboarding branch at
 `routd/loop.go:520` is never entered on a live telegram-group route
 miss even with `ONBOARDING_ENABLED=true` wired to routd and
