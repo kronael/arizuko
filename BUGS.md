@@ -20,6 +20,47 @@ prefix). Also spec 5/W §"Where this runs" still describes the old filtered
 lookup — internal spec inconsistency. Fix: align the four web pages + that
 spec section to the any-token contract (docs-only).
 
+## Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
+
+Swept the code for duplications the `5/16` one-owner + single-source model renders
+useless. **Mostly already fixed:** Endpoints / RowType / MCP metadata ARE single-
+sourced — every mounted handler imports `resreg/resources/<name>.go`'s
+`XEndpoints`/`XMCPArgs`/`XMCPDoc` (audited all 11: **0 inline re-declarations**,
+comments say "single source"). So the older `openapi_two_declarations` two-full-
+declarations drift is largely closed.
+
+**Residual duplication (retire under 5/16):** each cold-tier resource is
+instantiated as `resreg.Resource{}` **twice** — the registry entry
+(`resreg/resources/<name>.go` `resreg.Register(...)`, for OpenAPI + the standalone
+`arizuko apply`/`export` CLI, no handler) and the mounted handler
+(`<owner>/<name>_resource.go`, which adds Store/Handler/Gate). Both **restate
+`Name`** (the wire identity, per CLAUDE.md "Name IS wire identity") and some
+`Table`. Two sources for one identity string = a drift vector — exactly the class
+that let proxyd's live route resource drift to `Name:"routes"` while its catalog
+said `proxyd_routes` (fixed 2026-07-01). ~11 resources, Name-restated at:
+- routd: `acl_resource.go:54`, `groups_resource.go:58`, `network_rules_resource.go:67`,
+  `routes_resource.go:100`, `route_tokens_resource.go:78`, `scheduled_tasks_resource.go:89`,
+  `secrets_resource.go:56`, `web_routes_resource.go:50`
+- onbod: `gates_resource.go:49` (onboarding_gates), `invites_resource.go:40`
+- proxyd: `resource.go` (proxyd_routes)
+  (each with a registry twin in `resreg/resources/*.go`)
+
+**Fix (per 5/16 "one owner, single-source declaration"):** the mounted handler
+derives `Name`/`Table` from the single registry declaration (import the identity),
+never restates it — one source of `{Name, Table, PKFields, RowType, Endpoints}`,
+handler adds only `{Store, Handler, Gate/containFn}`. Cheap interim guard: a test
+asserting `mounted.Name == registry.Name` per resource catches drift until then.
+
+**Related duplications of the same concept, already logged** (distinct sites, retire
+together with the 5/8+5/16 finalization): duplicate `cost_log` tables (routd vs
+store — the no-duplication-rule violation, entry below); dashd direct-DB reads that
+bypass the owner (`dashd reads SQLite directly`); `arizuko apply` opening the frozen
+`messages.db` instead of owner DBs (5/8). All three "bypass or duplicate the
+one-owner model."
+
+- **Severity:** low (residual drift vector; the heavy duplications are already fixed/logged)
+- **Status:** OPEN, record-only — retire under 5/16 one-owner + single-source.
+
 ## Cost attribution is folder-only — per-chat lost, per-user auth-only, plus a duplicate cost_log (2026-07-13, OPEN)
 
 Question raised: is LLM cost attributed completely to individual chats + users? **No.**
