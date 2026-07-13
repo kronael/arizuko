@@ -827,7 +827,10 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
 - **Scope:** dashd/routes_admin.go:28, dashd/tasks_admin.go:21
 - **Affected:** multitenant: non-operator users can see other tenants' routes/task details
 - **Source:** bucket A refine review 2026-06-17
-- **Status:** open
+- **Status:** resolved d52b2c50 + b99138fb (2026-06-06) — stale entry, verified
+  2026-07-13: task detail gates on the task's owner via `visible()`
+  (tasks_admin.go), routes list filters each row by `visible(target folder)`
+  (routes_admin.go:65)
 - **Fix:** add `requireOperator` or `requireVisible(folder)` gate to those GET handlers
 
 ## dashd: adminDB() panics if routd.db open fails (2026-06-17, open)
@@ -840,7 +843,11 @@ caller who knows a task ID can read its full prompt and owner. Both list pages f
 - **Scope:** dashd/main.go:226-231, main.go:307
 - **Affected:** startup — routd.db missing/corrupt causes panic on first request
 - **Source:** bucket A refine review 2026-06-17
-- **Status:** open
+- **Status:** resolved a51989cc (2026-07-05) — stale entry, verified 2026-07-13:
+  audited all 92 `adminDB()` call sites; every one is nil-guarded directly or
+  sits behind a fail-closed gate (`requireVisible`/`requireAdmin` 503 on nil,
+  chat portal early-returns on empty folders). Startup keeps Warn+continue by
+  design (nil → degraded 503s, comment main.go:223)
 - **Fix:** make routd.db open failure fatal, or nil-check in adminDB() and return 503
 
 ## Activity page: no relative timestamps and no pagination (2026-06-16, open)
@@ -908,7 +915,9 @@ break JID namespace.
 - **Severity:** high
 - **Scope:** dashd/route_tokens.go:43,:131
 - **Source:** codex audit 2026-06-18
-- **Status:** partial — label validated against `[a-zA-Z0-9._-]+` (80bd29da); encodeJID/decodeJID collision still open
+- **Status:** resolved — label validated against `[a-zA-Z0-9._-]+` (80bd29da);
+  encodeJID collision fixed a51989cc, verified 2026-07-13: `encodeJID` =
+  `url.PathEscape` (reversible), `decodeJID` deleted (mux PathValue unescapes)
 - **Fix:** use `url.PathEscape`; validate label against `[a-zA-Z0-9._-]+`
 
 ## [SEC] chat: raw bearer tokens visible to read-scoped dashboard users (2026-06-18, open)
@@ -920,7 +929,10 @@ minting.
 - **Severity:** high
 - **Scope:** dashd/chat.go:152,:262
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved a51989cc (2026-07-05) — stale entry, verified 2026-07-13:
+  continue links render only for folders the caller admins (`callerAdmins` map
+  in the portal, `admin` gate on the group page; `folderSessionTokens` fetched
+  only when admin) — read-scoped viewers see rows without tokens
 - **Fix:** restrict session listing to admins, or hide the raw token from non-admin views
 
 ## [SEC] routd/runed: retry + kill endpoints missing CSRF protection (2026-06-18, open)
@@ -1000,7 +1012,11 @@ sort after row 500. `main.go:808`: activity feed fetches 1000 rows then filters 
 - **Severity:** medium
 - **Scope:** dashd/main.go:730,:808
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** resolved a51989cc (2026-07-05) — stale entry, verified 2026-07-13:
+  writeTaskRows pushes the owner filter into SQL (`ownerVisibleSQL`; glob grants
+  fall back to a 5000 over-fetch). Activity deliberately over-fetches 1000 for
+  non-operators (visibility needs Go-side `jidFolder` route resolution, not
+  SQL-expressible); residual: scoped rows older than the newest 1000 stay hidden
 - **Fix:** push visibility filter into SQL; or page until N visible rows found
 
 ## main: memory write/delete broken for nested group folders (2026-06-18, open)
@@ -1070,7 +1086,10 @@ without an early message produce nondeterministic continue links.
 - **Severity:** medium
 - **Scope:** dashd/chat.go:90,:361
 - **Source:** codex audit 2026-06-18
-- **Status:** open
+- **Status:** partial — LIMIT-before-filter half resolved a51989cc (2026-07-05,
+  verified 2026-07-13: `folder IN (...)` pushed into SQL before the LIMIT 200).
+  Still open: `folderSessionTokens` topic→token linkage by time proximity
+  (nondeterministic continue links) — needs persisted linkage, design change
 - **Fix:** push filter into SQL; persist topic-session linkage explicitly
 
 ## runed: dead session_id variable in run query (2026-06-18, open)
