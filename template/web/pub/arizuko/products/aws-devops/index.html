@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWS DevOps agent — arizuko</title>
+  <link rel="stylesheet" href="../../assets/hub.css">
+</head>
+<body>
+  <header class="docs-topbar">
+    <button class="docs-navtoggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <a class="docs-wordmark" href="../../">arizuko</a>
+  </header>
+  <div class="guide-layout">
+    <nav class="docs-nav" aria-label="Products">
+      <ul>
+        <li><a class="nav-section" href="../../concepts/">Concepts</a></li>
+        <li><a class="nav-section" href="../../reference/">Reference</a></li>
+        <li><a class="nav-section" href="../../howto/">How-to</a></li>
+        <li><a class="nav-section" href="../../components/">Components</a></li>
+        <li><a class="nav-section" href="../">Products</a>
+          <ul class="nav-children">
+            <li><a href="../">Start here</a></li>
+            <li><a href="../supermarket/">Supermarket price agent</a></li>
+            <li><a href="../trip/">Trip planner (May)</a></li>
+            <li><a href="../slack-team/">Slack team agent</a></li>
+            <li><a href="../discord-team/">Discord team agent</a></li>
+            <li><a href="../aws-devops/" aria-current="page">AWS DevOps agent (Argus)</a></li>
+            <li><a href="../reality/">Reality agent</a></li>
+            <li><a href="../company-brain/">Company brain</a></li>
+            <li><a href="../marble/">Taxonomy chat (Marble)</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="docs-content">
+      <p class="docs-crumb"><a href="../../">arizuko</a> &rsaquo; <a href="../">products</a> &rsaquo; AWS DevOps agent</p>
+      <h1>AWS DevOps agent — Argus</h1>
+
+      <p class="lede">
+        An SRE that lives in your team&rsquo;s chat, reads your runbooks,
+        and runs read-before-write against AWS. Each engineer acts with
+        their own keys &mdash; so CloudTrail names the human, not a
+        shared robot.
+      </p>
+
+      <h2>what you get</h2>
+      <ul>
+        <li>
+          <strong>Each engineer&rsquo;s own AWS keys.</strong> Alice&rsquo;s
+          <code>aws</code> calls run with Alice&rsquo;s credentials, Bob&rsquo;s
+          with Bob&rsquo;s. One agent, but the account sees the real person on
+          every call. A shared team role is the fallback, not the default.
+        </li>
+        <li>
+          <strong>Read before write.</strong> The agent defaults to
+          <code>describe</code> / <code>list</code> / <code>get</code>. A
+          mutating call &mdash; terminate, delete, stop, modify &mdash; stops
+          and shows you the exact command and its blast radius before it runs.
+        </li>
+        <li>
+          <strong>Runbook-grounded answers.</strong> It reads the runbooks and
+          the service map you put in <code>facts/</code>, cites the file and
+          line, and says &ldquo;I don&rsquo;t have that&rdquo; rather than
+          inventing a procedure.
+        </li>
+        <li>
+          <strong>Can&rsquo;t reach anything but AWS.</strong> The container runs
+          default-deny. It reaches <code>amazonaws.com</code> and whatever hosts
+          you allowlist &mdash; nothing else. An agent holding cloud keys that
+          physically cannot talk to a host you didn&rsquo;t approve can&rsquo;t
+          exfiltrate them.
+        </li>
+        <li>
+          <strong>Oncall in the channel you already watch.</strong> Alerts and
+          destructive-action confirmations land in Telegram; the team thread
+          runs in Slack or Discord. Same agent, same folder, whichever surface.
+        </li>
+        <li>
+          <strong>Per-identity audit, both sides.</strong> arizuko logs who
+          asked for what in its own <code>audit_log</code>; AWS logs the
+          matching API call to that engineer&rsquo;s IAM principal in
+          CloudTrail. Two records, one human.
+        </li>
+        <li>
+          <strong>Your server, no vendor plane.</strong> Conversation history,
+          runbooks, keys, and agent state live under
+          <code>/srv/data/arizuko_&lt;name&gt;/</code>. Nothing about your infra
+          transits a SaaS control plane; the only model call goes to Anthropic.
+        </li>
+      </ul>
+
+      <h2>whose keys am I running as</h2>
+      <p>
+        This is the whole idea, so it&rsquo;s worth walking through. When a
+        message triggers a turn, arizuko resolves the sender&rsquo;s own
+        user-scoped secrets and overlays them on the team&rsquo;s folder
+        secrets &mdash; the person&rsquo;s own keys win. Those keys become the
+        container&rsquo;s env for that one turn, and the container is thrown
+        away when the turn ends.
+      </p>
+      <pre><code>alice  @argus the stuck instance i-0abc won't drain, terminate it
+
+argus  Running as you (arn:aws:iam::…:user/alice). Here's the state first:
+         i-0abc  running  us-east-1a  asg web-prod  (2 healthy siblings)
+       This will terminate one prod instance; the ASG replaces it.
+       Confirm and I'll run:
+         aws ec2 terminate-instances --instance-ids i-0abc
+
+alice  go
+
+argus  Terminated i-0abc. ASG is launching a replacement.
+       Logged to diary. CloudTrail shows the call under user/alice.</code></pre>
+      <p>
+        Bob triggering the next turn gets a fresh container with Bob&rsquo;s
+        keys. There is no long-lived process holding anyone&rsquo;s
+        credentials, and in a shared incident channel each turn still runs as
+        whoever sent it &mdash; the container doesn&rsquo;t outlive the turn, so
+        one person&rsquo;s keys never bleed into another&rsquo;s call.
+      </p>
+
+      <h2>two layers gate the dangerous stuff</h2>
+      <ul>
+        <li>
+          <strong>The agent gates intent.</strong> Its <code>CLAUDE.md</code>
+          holds it to read-before-write and makes it state the command and wait
+          for your go before any mutation. The <code>bash</code> grant decides
+          whether it may shell out at all.
+        </li>
+        <li>
+          <strong>IAM gates the blast radius.</strong> The real cap is the IAM
+          policy on each engineer&rsquo;s keys &mdash; read-first actions wide,
+          <code>Terminate*</code> / <code>Delete*</code> narrow or denied, per
+          person. arizuko decides <em>who</em>; IAM decides <em>what that person
+          may do</em>. If a call comes back <code>AccessDenied</code>, that&rsquo;s
+          IAM refusing the human, and the agent reports it instead of retrying.
+        </li>
+      </ul>
+
+      <h2>who it&rsquo;s for</h2>
+      <ul>
+        <li>
+          <strong>A small platform/SRE team</strong> that wants an oncall
+          copilot in chat but won&rsquo;t hand a shared admin key to a bot.
+        </li>
+        <li>
+          <strong>Regulated or privacy-sensitive shops</strong> that can&rsquo;t
+          send infra state, telemetry, or credentials to a vendor cloud &mdash;
+          this runs on your host with default-deny egress.
+        </li>
+        <li>
+          <strong>Anyone who needs per-engineer attribution</strong> in
+          CloudTrail for change control, incident review, or audit.
+        </li>
+      </ul>
+
+      <h2>why this beats the usual AI-SRE tool</h2>
+      <p>
+        The market is full of AI SREs. Almost all of them share one shape that
+        this product doesn&rsquo;t: they run as a single service account and
+        live on the vendor&rsquo;s cloud. That difference is the pitch.
+      </p>
+      <ul>
+        <li>
+          <strong>Per-human cloud identity is near-uncontested.</strong> Tools
+          like Cleric, Resolve, Kubiya, Datadog Bits AI, incident.io, Firefly,
+          and Spacelift all execute cloud actions through one shared role or
+          token &mdash; so CloudTrail records the bot, not the engineer. Here,
+          each person&rsquo;s own keys drive their own calls
+          (<code>store/secrets.go</code> user-scope, resolved per caller in
+          <code>routd/dispatch.go</code>).
+        </li>
+        <li>
+          <strong>The one real counter-example is AWS Q &mdash; and it&rsquo;s
+          AWS-only.</strong> Q&rsquo;s CLI does inherit your own AWS profile, so
+          it attributes to you. But it&rsquo;s AWS-locked, runs on AWS&rsquo;s
+          managed plane, and lives in one terminal. This runs on your host,
+          spans your chat channels, and the same per-operator model works for
+          any keys you inject.
+        </li>
+        <li>
+          <strong>No forced egress.</strong> Even the &ldquo;in-VPC&rdquo; and
+          self-hosted-runner products ship prompts, telemetry, or state out to a
+          control plane and onward to an external model. This has no vendor
+          plane; egress is default-deny through
+          <a href="../../components/crackbox.html">crackbox</a>, allowlisted per
+          folder.
+        </li>
+        <li>
+          <strong>It executes, but bounded.</strong> Half the market only reads
+          and recommends (Datadog Bits, incident.io, PagerDuty Advance); the
+          half that acts does it with a shared credential. This acts &mdash;
+          under a grant-gated shell, a read-before-write persona, and
+          per-operator IAM.
+        </li>
+        <li>
+          <strong>Prod and staging are real walls.</strong> Each environment is
+          its own <a href="../../concepts/primitives.html">folder</a>: own keys,
+          own egress allowlist, own grants, own container. The agent in
+          <code>acme/staging</code> cannot see or touch
+          <code>acme/prod</code>.
+        </li>
+        <li>
+          <strong>Ephemeral by construction.</strong> Every turn is a fresh
+          <code>docker run --rm</code>; keys are injected at spawn and gone when
+          the container exits. No daemon sits on your cloud credentials between
+          incidents.
+        </li>
+        <li>
+          <strong>Not an add-on to something you already pay for.</strong> Most
+          of these ride on top of an existing observability or IaC
+          subscription and one or two channels. This is a folder shape you own
+          &mdash; read it, diff it, change it.
+        </li>
+      </ul>
+      <div class="callout">
+        <strong>Honest note:</strong> per-human cloud attribution across the
+        other tools is mostly <em>architecturally precluded</em> by the
+        shared-credential design, not proven absent &mdash; their docs simply
+        don&rsquo;t offer a per-engineer path. AWS Q is the exception, within
+        AWS. The claim here is &ldquo;any keys, self-hosted, in your chat,&rdquo;
+        not &ldquo;nobody else attributes to humans.&rdquo;
+      </div>
+
+      <h2>the AWS surface, concretely</h2>
+      <p>
+        There is no special AWS connector. The agent already has the toolchain
+        (<code>uv</code>, <code>bun</code>, <code>gh</code>) and reaches AWS the
+        way an engineer would &mdash; the CLI or the SDK, reading
+        <code>AWS_*</code> from its env:
+      </p>
+      <pre><code>uvx --from awscli aws sts get-caller-identity      # who am I running as
+uvx --from awscli aws ec2 describe-instances       # read-only, safe
+uv run --with boto3 python check_alarms.py         # scripted, same creds</code></pre>
+      <p>
+        AWS APIs need SigV4 request signing, which arizuko&rsquo;s declarative
+        REST connectors don&rsquo;t do &mdash; so AWS goes through the
+        in-container agent, not a connector. The reasoning is in the
+        <a href="https://github.com/kronael/arizuko/blob/main/specs/17/product-aws-devops.md">product spec</a>.
+      </p>
+
+      <h2>setup</h2>
+      <pre><code>arizuko create acme --product aws-devops
+cd /srv/data/arizuko_acme
+$EDITOR .env                                  # ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, WEB_HOST
+arizuko network acme allow main amazonaws.com # one entry covers every region
+arizuko secret acme set main AWS_ACCESS_KEY_ID --value AKIA…   # shared fallback
+arizuko run acme
+
+# then each engineer sets their own keys at /dash/me/secrets (or via
+# `arizuko user-secret`), and their calls run as them.</code></pre>
+      <p>
+        Full step-by-step &mdash; IAM policy shape, per-operator keys, egress,
+        verification &mdash; is in the
+        <a href="setup.html">operator setup guide</a>.
+      </p>
+
+      <h2>go deeper</h2>
+      <ul>
+        <li>
+          <a href="../../concepts/secrets.html">secrets</a> &mdash; folder vs
+          user scope, the BYOA overlay, encryption at rest
+        </li>
+        <li>
+          <a href="../../concepts/grants.html">grants</a> &mdash; how the
+          <code>bash</code> grant and action gating work
+        </li>
+        <li>
+          <a href="../../components/crackbox.html">crackbox</a> &mdash;
+          default-deny egress and the per-folder allowlist
+        </li>
+        <li>
+          <a href="../../concepts/primitives.html">primitives</a> &mdash; the
+          folder-as-environment model behind prod/staging isolation
+        </li>
+        <li>
+          <a href="../../security/">security model</a> &mdash; ephemeral
+          containers, tenant boundary, secret injection
+        </li>
+      </ul>
+
+      <nav class="docs-pager" aria-label="Pager">
+        <a rel="prev" href="../discord-team/">&larr; Discord team agent</a>
+        <a rel="next" href="setup.html">AWS DevOps setup &rarr;</a>
+      </nav>
+      <div class="docs-footer">
+        <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/arizuko/products/aws-devops/index.html">Edit this page</a>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
+      </div>
+    </main>
+
+  </div>
+  <button class="theme-toggle">&#127769;</button>
+  <script src="../../assets/hub.js"></script>
+</body>
+</html>

@@ -25,6 +25,7 @@
             <li><a href="trip/">Trip planner (May)</a></li>
             <li><a href="slack-team/">Slack team agent</a></li>
             <li><a href="discord-team/">Discord team agent</a></li>
+            <li><a href="aws-devops/">AWS DevOps agent (Argus)</a></li>
             <li><a href="reality/">Reality agent</a></li>
             <li><a href="company-brain/">Company brain</a></li>
             <li><a href="marble/">Taxonomy chat (Marble)</a></li>
@@ -84,6 +85,13 @@
         <p class="meta">channel: Discord &middot; shared workspace &middot; dashboard</p>
         <p>One agent per Discord guild: channel-scoped persona, per-member memory and grants, personal cloud storage, web interface, and usage dashboard. Use cases include support agents (KB-backed Q&amp;A with citations) and collaborative research (news ingestion, observation tracking, synthesis).</p>
         <p><a href="discord-team/">intro</a> &middot; <a href="discord-team/setup.html">setup</a></p>
+      </div>
+
+      <div class="tablecard">
+        <h3><a href="aws-devops/">AWS DevOps agent (Argus)</a></h3>
+        <p class="meta">channel: Telegram oncall &middot; Slack / Discord &middot; self-hosted</p>
+        <p>An SRE in your team&rsquo;s chat that reads your runbooks and drives AWS read-before-write. Each engineer acts with their own keys, so CloudTrail names the human, not a shared robot. Default-deny egress means the agent can&rsquo;t reach anything but the hosts you allowlist. Per-operator credentials are the differentiator most AI-SRE tools skip.</p>
+        <p><a href="aws-devops/">intro</a> &middot; <a href="aws-devops/setup.html">setup</a></p>
       </div>
 
       <div class="tablecard">

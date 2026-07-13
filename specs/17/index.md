@@ -10,20 +10,20 @@ out of the box.
 
 ## Infrastructure
 
-| Spec                                             | Status      | Hook                                                                                    |
-| ------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------- |
-| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                  |
-| [P-product-templates.md](P-product-templates.md) | draft       | Pointer stub → R-products (merged).                                                     |
-| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                |
-| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.           |
-| [4-hitl-firewall.md](4-hitl-firewall.md)         | draft       | pending_actions queue + /dash/review; holds MCP calls for operator review.              |
-| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                              |
-| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.               |
-| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.         |
-| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.        |
-| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.           |
-| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases. |
-| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.  |
+| Spec                                             | Status      | Hook                                                                                                                                         |
+| ------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [R-products.md](R-products.md)                   | draft       | Curated persona+skill templates; `--product` flag on `arizuko create`.                                                                       |
+| [P-product-templates.md](P-product-templates.md) | draft       | Pointer stub → R-products (merged).                                                                                                          |
+| [chat-web-app.md](chat-web-app.md)               | draft       | Web chat UI surface; ant link + dashboard companion app.                                                                                     |
+| [2-support-skill.md](2-support-skill.md)         | draft       | `/support` orchestrator: primary-source citation + multi-turn case threading.                                                                |
+| [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md) | moved       | Pulled into platform core (`5/19`) + collapsed per codex/fable: one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher. |
+| [5-authoring-product.md](5-authoring-product.md) | draft       | Authoring agent design reference (see product-creator.md).                                                                                   |
+| [6-web-routes.md](6-web-routes.md)               | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.                                                                    |
+| [7-ant-portability.md](7-ant-portability.md)     | draft       | Lockfile + `.arzpack` + fleet skill ops; export/import groups across instances.                                                              |
+| [1-git-channel.md](1-git-channel.md)             | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.                                                             |
+| [3-file-event-stream.md](3-file-event-stream.md) | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.                                                                |
+| [8-company-brain.md](8-company-brain.md)         | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases.                                                      |
+| [9-positioning.md](9-positioning.md)             | research    | Market positioning vs LangGraph/CrewAI/Dify/n8n/managed-cloud; arizuko's gaps + angle.                                                       |
 
 Platform/API surface lives in [specs/5/](../5/) — products consume the
 control API; the API design ships before the products that depend on it.
@@ -36,16 +36,17 @@ Each product ships as `ant/examples/<name>/` and installs via
 Developer capabilities are embedded in each product that needs them
 (oracle + bash grants, scoped per deployment) — not a separate product.
 
-| Spec                                                           | Name     | Brand      | Value prop                                         | Blocked by         |
-| -------------------------------------------------------------- | -------- | ---------- | -------------------------------------------------- | ------------------ |
-| [product-personal-assistant.md](product-personal-assistant.md) | personal | fiu        | Personal assistant with persistent memory          |                    |
-| [product-support.md](product-support.md)                       | support  | atlas      | KB-backed Q&A via ant link; escalates to human     |                    |
-| [product-trip.md](product-trip.md)                             | trip     | may        | Multi-step travel research → structured itinerary  |                    |
-| [product-strategy.md](product-strategy.md)                     | strategy | prometheus | Domain tracker; weekly synthesis → team briefing   |                    |
-| [product-pm.md](product-pm.md)                                 | pm       | sloth      | Team task board + weekly digest                    |                    |
-| [product-reality.md](product-reality.md)                       | reality  | rhias      | Ongoing life-context thread holder                 |                    |
-| [product-creator.md](product-creator.md)                       | creator  | inari      | Curation + draft pipeline; approve before publish  | HITL firewall      |
-| [product-socials.md](product-socials.md)                       | socials  | phosphene  | Multi-platform distribution; schedule + engagement | HITL + rate limits |
+| Spec                                                           | Name       | Brand      | Value prop                                                                 | Blocked by         |
+| -------------------------------------------------------------- | ---------- | ---------- | -------------------------------------------------------------------------- | ------------------ |
+| [product-personal-assistant.md](product-personal-assistant.md) | personal   | fiu        | Personal assistant with persistent memory                                  |                    |
+| [product-support.md](product-support.md)                       | support    | atlas      | KB-backed Q&A via ant link; escalates to human                             |                    |
+| [product-trip.md](product-trip.md)                             | trip       | may        | Multi-step travel research → structured itinerary                          |                    |
+| [product-strategy.md](product-strategy.md)                     | strategy   | prometheus | Domain tracker; weekly synthesis → team briefing                           |                    |
+| [product-pm.md](product-pm.md)                                 | pm         | sloth      | Team task board + weekly digest                                            |                    |
+| [product-reality.md](product-reality.md)                       | reality    | rhias      | Ongoing life-context thread holder                                         |                    |
+| [product-creator.md](product-creator.md)                       | creator    | inari      | Curation + draft pipeline; approve before publish                          | HITL firewall      |
+| [product-socials.md](product-socials.md)                       | socials    | phosphene  | Multi-platform distribution; schedule + engagement                         | HITL + rate limits |
+| [product-aws-devops.md](product-aws-devops.md)                 | aws-devops | argus      | AWS SRE agent; per-operator keys, read-before-write, CloudTrail-attributed |                    |
 
 ## Arizuko features required per product
 

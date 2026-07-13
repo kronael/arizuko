@@ -199,8 +199,8 @@ func instanceDir(name string) (string, error) {
 // silently dropped.
 func parseCreateFlags(args []string) (name, product string, err error) {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
-	fs.StringVar(&product, "product", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
-	fs.StringVar(&product, "p", "", "product template (creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
+	fs.StringVar(&product, "product", "", "product template (aws-devops|creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
+	fs.StringVar(&product, "p", "", "product template (aws-devops|creator|personal|pm|reality|slack-team|socials|strategy|support|trip)")
 	if err = flexParse(fs, args); err != nil {
 		return "", "", err
 	}
