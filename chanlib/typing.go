@@ -5,8 +5,13 @@ import (
 	"time"
 )
 
-// DefaultTypingMaxTTL caps runaway typing when the agent stalls.
-const DefaultTypingMaxTTL = 10 * time.Minute
+// DefaultTypingMaxTTL is the backstop that stops typing if the normal
+// terminator (routd's Typing(off) at turn end, turns.go) never arrives — a
+// crashed/stuck agent. It MUST exceed the longest a healthy turn can run
+// (RUNED_RUN_TIMEOUT, ~19.5m) or it fires first and the indicator vanishes
+// mid-turn on long work; 20m keeps typing alive to the end while still
+// bounding a truly hung turn.
+const DefaultTypingMaxTTL = 20 * time.Minute
 
 // TypingRefresher re-emits a "composing" indicator every refreshRate until
 // Set(jid, false), Stop, or maxTTL. send returning false in the loop cancels
