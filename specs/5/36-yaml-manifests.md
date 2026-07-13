@@ -154,7 +154,7 @@ same handler REST POST and MCP `create` call.
 
 ### The row-schema half of `resreg.Resource`
 
-`5/5`'s `Resource` carries the transport half (`{Name, Endpoints, MCPTools,
+`5/45`'s `Resource` carries the transport half (`{Name, Endpoints, MCPTools,
 Authz, Handler, Store}`). This spec is authoritative for the **row-schema
 half** the engine adds — `RowType`, `Table`, `PKFields`, `Scope`, `Hooks`,
 `SkipApplyRebuild`:

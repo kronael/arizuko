@@ -252,6 +252,6 @@ ride `audit_log`). `network_rules` stays agent-only — no REST twin to fold.
 
 ## Out of scope
 
-- The `5/5` mechanism itself (shipped).
+- The `5/45` mechanism itself (shipped).
 - Data-model sharpening (`9/2`) and git-as-truth (`9/3`) — the other two
   phase-8 actions, still phase 8; do not smuggle them in here.
