@@ -418,7 +418,7 @@ in-process `runner.Run` made those identical. **FIXED**: routd now out-waits run
 **STILL OPEN:**
 - **MED — per-turn MCP socket torn down on dispatchRun return** (`routd/dispatch.go:161`).
   Late reply from a still-running container is dropped. Subsumed by ctx-honoring.
-- **MED — MCP+REST uniformity** — descoped in 5-uniform-mcp-rest spec (commit 623b88a9).
+- **MED — MCP+REST uniformity** — descoped in the MCP+REST-uniformity spec (now `5/45`; commit 623b88a9).
   Real face-gaps: routd social actions MCP-only. `acl`
   is MCP read-only (list_acl) but REST full-CRUD; onbod `invites` MCP create-only + dual handlers
   (no MCP list/revoke). Designed single-faced (document, don't fix): network_rules/fork/escalate/
@@ -1688,7 +1688,6 @@ Surfaced by a whole-tree markdown link scan during the 5/ finalize; all
 predate this session's restructure (the 5/4-delete + 5/A→11/A move added
 zero broken links). Fix = repoint to the correct target:
 - `specs/5/36-yaml-manifests.md` → `4-data-ingestion-curation-eventing.md` and `2-data-model.md` — these are phase-7 specs (`../7/4-…`, `../7/2-…`) linked relatively as if same-dir.
-- `specs/5/5-uniform-mcp-rest.md` → `../11/11-crackbox-secrets.md` (×2) — no such file in specs/11 (renamed/removed); find the real secrets-broker spec (6/Y?).
 - `specs/8/index.md` → `5-yaml-manifests.md` (×2) — the yaml-manifests spec is `../5/36-yaml-manifests.md`.
 </details>
 

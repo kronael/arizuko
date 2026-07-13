@@ -534,7 +534,7 @@ func Init(db *sql.DB, instance string)
 
 - `specs/5/I-tool-call-logging.md` (canonical field set)
 - `specs/8/F-audit-stream.md` (audit_log table direction)
-- `specs/5/5-uniform-mcp-rest.md` (resreg.audit() surface)
+- `specs/5/45-openapi-mcp.md` (resreg audit contract)
 - `specs/11/19-cost-caps.md` (cost_log adjacency)
 - AWS CloudTrail: docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html
 - Kubernetes audit: kubernetes.io/docs/tasks/debug/debug-cluster/audit/

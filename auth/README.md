@@ -118,6 +118,6 @@ if !auth.HasScope(sub.Scope, "tasks", "write") { return 403 }
 
 - `ARCHITECTURE.md` (Auth Hardening)
 - `specs/4/9-acl-unified.md` — canonical ACL
-- `specs/5/5-uniform-mcp-rest.md` — full token contract; auth/ is the
+- `specs/5/45-openapi-mcp.md` — full token contract; auth/ is the
   single source of truth for the JWT shape every federated daemon
   consumes
