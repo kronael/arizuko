@@ -853,8 +853,11 @@ func seedSettings(
 	// routd's `sessions` table pins one transcript per chat and resumes it via
 	// `claude --resume`; Claude Code's default 30-day retention would prune that
 	// transcript out from under it → "No conversation found" → error_during_execution
-	// + silent context loss. Pin transcripts far past any session's lifetime.
-	settings["cleanupPeriodDays"] = 3650
+	// + silent context loss. Keep every transcript effectively forever: Claude Code
+	// has NO disable value (0 fails validation, min is 1 day), so a large number
+	// (~10000 years) is the only way to never prune. True permanence would need
+	// archival outside Claude Code (a SessionEnd hook) — not done here.
+	settings["cleanupPeriodDays"] = 3650000
 
 	servers, _ := settings["mcpServers"].(map[string]any)
 	if servers == nil {
