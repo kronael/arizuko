@@ -1,5 +1,5 @@
 ---
-status: partial
+status: shipped
 shipped: 2026-06-14
 depends:
   [
@@ -12,15 +12,15 @@ depends:
 
 # runed — the execution plane
 
-> **Live since 2026-06-14; `partial`.** runed is the sole container-spawner,
-> owns per-folder serialization / circuit-breaker / runTTL / steer, brokers
-> capability tokens, and records runs in `runed.db`. The DB-stateless
-> admission has largely landed: `manager.go` reads the `spawns` table for
-> exclusivity + the concurrency cap (`GetActiveSpawn`/`ActiveCount`) and the
-> `circuit_breaker` table (`0002`) persists failure counts across restarts.
-> The one piece still in-memory is the FIFO `waiting` queue (`manager.go`) —
-> the "drop the internal queue" goal below is the open gap that keeps this
-> spec `partial`.
+> **Shipped (2026-06-14; queue-drop 2026-07-13).** runed is the sole
+> container-spawner, owns per-folder serialization / circuit-breaker /
+> runTTL / steer, brokers capability tokens, and records runs in
+> `runed.db`. The DB-stateless admission is complete: `manager.go` reads the
+> `spawns` table for exclusivity + the concurrency cap
+> (`GetActiveSpawn`/`ActiveCount`) and the `circuit_breaker` table (`0002`)
+> persists failure counts across restarts. The internal FIFO `waiting` queue
+> is gone — runed is a pure claim-or-reject executor (§ Run state); the only
+> in-memory state is the container-lifetime steer callbacks.
 
 **Decided.** `runed` is the **execution plane** — the daemon that runs the
 agent container per turn. It owns the **container execution envelope**:
@@ -39,11 +39,9 @@ appends a message and never signs. The companion spec is
 _whether/where_ a batch runs, renders the prompt, hosts the socket;
 `runed` _runs_ the container.
 
-`status: partial` = the daemon ships and runs, but the § Run state design
-below is only mostly built — DB-backed admission has landed; the in-memory
-FIFO `waiting` queue has not yet been dropped. The wire-level
-`POST /v1/runs` + `/v1/turns/*` contract is PINNED identical with
-[`E-routd.md`](E-routd.md) § The routd↔runed interface.
+The wire-level `POST /v1/runs` + `/v1/turns/*` contract is PINNED identical
+with [`E-routd.md`](E-routd.md) § The routd↔runed interface — including the
+`busy` retryable-reject discriminator on the response (§ Run state).
 
 ## Boundaries — owns / brokers / never
 
@@ -90,14 +88,18 @@ BEGIN IMMEDIATE
        ROLLBACK → return busy to routd
 ```
 
-If the folder is busy or the cap is hit, the design target is for runed to
-return **busy** to `routd`, which already re-feeds the batch on its own
-queue, making `runed` a **pure claim-or-reject executor**. As built,
-`runed` still keeps an in-memory FIFO `waiting` queue (`manager.go`) that
-holds over-cap / busy-folder waiters and retries once a slot frees —
-dropping that queue (so routd owns all queueing) is the open § Run state
-gap. (Exception: the steer-into-running path below — a busy folder with a
-live container takes the new batch as a steer, not a reject.)
+If the folder is busy (with a dead container) or the cap is hit, runed
+returns **busy** to `routd` on the pinned `POST /v1/runs` response
+(`RunOutcome.busy=true`, `run_id`/`outcome` empty — the retryable-reject
+discriminator, a sibling of `steered`/`breaker_open`). `routd` re-feeds the
+batch on its own DB-backed dispatch queue: it does **not** advance the
+`agent_cursor` and does **not** count the reject toward the circuit breaker
+(busy ≠ error); the retry is bounded by routd's poll interval
+([`E-routd.md`](E-routd.md) § routd↔runed interface). `runed` keeps **no
+internal admission queue** — that duplicated routd's queue — making it a
+**pure claim-or-reject executor**; `routd` owns all queueing. (Exception:
+the steer-into-running path below — a busy folder with a live container
+takes the new batch as a steer, not a reject.)
 
 **Steer addresses the live container deterministically.** No stored
 closure: from the `spawns` row for the busy folder, runed derives the
@@ -113,13 +115,13 @@ clean teardown) and marks them `state='exited', outcome='error'`
 set reflects only live containers, so the atomic claim is correct from the
 first request.
 
-> **Implementation gap (open).** `manager.go` now reads `active` /
-> `activeCount` / `failures` from the DB (`GetActiveSpawn` / `ActiveCount` /
-> `GetFailures` over the `spawns` + `circuit_breaker` tables), so those are
-> no longer cached. The remaining in-memory piece is the FIFO `waiting`
-> queue; finishing the DB-stateless design (atomic spawns-table admission,
-> deterministic steer, boot reconciliation, drop the internal queue) is
-> tracked in bugs.md.
+> **Shipped.** `manager.go` implements this DB-stateless design: admission
+> reads `active` / `activeCount` / `failures` from the DB (`GetActiveSpawn` /
+> `ActiveCount` / `GetFailures` over the `spawns` + `circuit_breaker` tables)
+> under one mutex-guarded atomic claim, with deterministic steer and boot
+> reconciliation (`ExpireOrphans`). The internal FIFO `waiting` queue was
+> dropped 2026-07-13, replaced by the `busy` reject above — routd owns all
+> queueing.
 
 ## runed.db schema
 
@@ -440,9 +442,10 @@ depends only on `types/`; the runtime glue still reads `core`.
 
 ## Code pointers
 
-- `runed/manager.go` — the admission + lifecycle manager. **Currently
-  in-memory** (`active`/`failures`/`activeCount`/`waiting`); the DB-stateless
-  refactor (§ Run state) is open (bugs.md).
+- `runed/manager.go` — the admission + lifecycle manager. DB-stateless
+  (§ Run state): admission reads `spawns`/`circuit_breaker`, claims under one
+  mutex, and rejects busy when it can't admit. The only in-memory state is
+  the container-lifetime steer callbacks.
 - `runed/docker.go` — `dockerRuntime`: the per-turn Docker runner (mounts,
   egress, idle/soft/hard deadlines, steer); imports `core`.
 - `runed/runtimes.go` — `FakeRuntime` + the `Runtime` seam.

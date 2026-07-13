@@ -367,6 +367,20 @@ refine sweep. Sibling of the #14 monolith-fallback removal.
 `runed/manager.go` was keeping in-memory `active`/`failures`/`activeCount`/`waiting` maps.
 Now DB-stateless per `specs/5/P-runed.md`: spawns table + circuit_breaker table for failure
 count persistence. Restart recovery works — orphaned running rows marked killed on boot.
+(NB: this pass replaced `active`/`failures`/`activeCount` but left the `waiting` FIFO queue
+in-memory; that last piece was dropped 2026-07-13 — see the queue-drop FIXED entry below.)
+
+## FIXED 2026-07-13 — runed drop the internal admission queue
+
+`runed/manager.go` still held an in-memory FIFO `waiting []*waiter` — a SECOND queue
+duplicating routd's DB-backed dispatch queue (`spawns` + routd's poll loop). Over-cap /
+folder-busy callers blocked on channels, drained by `drainLocked` when a slot freed.
+Dropped: admission is now a pure atomic claim-or-reject off the `spawns` table under `m.mu`.
+Folder busy → steer (unchanged) else `busy`; at global cap → `busy`. Added the retryable
+`RunOutcome.busy` discriminator (pinned in 5/E + 5/P); routd re-feeds on busy without
+advancing the cursor or tripping the breaker. `waiting`/`waiter`/`drainLocked`/`dropWaiter`/
+`waitFor` and the retry loop are gone. Only container-lifetime steer callbacks remain
+in-memory (inherently non-persistable). Closes the P-runed "drop the internal queue" gap.
 
 ## OPEN — `spawn_logs` is an unused table (2026-06-10)
 
@@ -2805,8 +2819,7 @@ the first one to kill it.
 - **Source:** `runed/manager.go:37` (active map), `:111` (Run admit), `:364` (StopFolder); `routd/loop.go:387`
 - **Why (bug-class):** state-leak / double-execution — runed's admission+stop decisions must survive its own restart from durable state (`spawns`). Sibling of the existing "runed manager.go holds in-memory runtime state" entry, but the concrete failure here is the restart-blindness double-spawn + un-killable orphan, not just spec drift.
 - **Fix:** rebuild `active` from `spawns` rows (state='running') + `docker ps` reconciliation at `NewManager`/boot, OR consult the durable `spawns` table on every admit/stop instead of the map. (Subsumed by the existing in-memory-state refactor entry; this is its live-impact justification.)
-- **Status:** open
-- **Fix:**
+- **Status:** FIXED 2026-07-13 (commits dd87c87d/1404f620 + the queue-drop commit). The `active` map (manager.go:37) is gone: `Run`/`StopFolder` consult `spawns` (`GetActiveSpawn`/`ActiveCount`) on every admit/stop, `ExpireOrphans` reconciles stale rows at boot, and the last in-memory piece (`waiting`) is dropped. Admission survives a runed restart from durable state; the only in-memory state is container-lifetime steer callbacks.
 
 ### MEDIUM — recordTurnResult swallows PutMessage failure then marks turn done (2026-06-11, Group A)
 

@@ -903,6 +903,7 @@ runed's spec is written to match exactly.
 // 200 (sync, run complete)
 { "run_id": "run-…", "outcome": "ok"|"error"|"silent", "session_id": "uuid", "error": "",
   "steered": false,        // discriminator: false = turn-boundary outcome; true = steer ack (P-runed § steer)
+  "busy": false,           // discriminator: true = NOT admitted (folder busy / at cap), retry — run_id/outcome empty (P-runed § Run state)
   "breaker_open": false }  // true ONLY on the run that trips runed's circuit breaker (P-runed § queue)
 // 503 {"error":"queue_shutting_down"}
 ```
@@ -920,6 +921,17 @@ runed's spec is written to match exactly.
   record), `error` (run failed — advance past batch, mark rows errored,
   send failure notice), `silent` (ran, no deliverable output — logged, no
   error).
+- **`busy`**: runed did **not** admit the run — the folder is busy with a
+  dead container, or runed's global cap (`MAX_CONCURRENT_CONTAINERS`) is
+  hit — and runed keeps no internal queue (P-runed § Run state). This is a
+  **retryable reject, not a turn-boundary and not a failure**: routd does
+  **not** advance the `agent_cursor` (the batch is re-fed next poll), does
+  **not** count it toward the queue circuit breaker (busy ≠ error), and
+  leaves `turn_context` `running` so the re-dispatch is live. `run_id` /
+  `outcome` / `session_id` are empty. Because runed's cap is the same
+  `MAX_CONCURRENT_CONTAINERS` that also bounds routd's per-folder queue, a
+  busy reject is a backstop the poll re-feed clears within one
+  `POLL_INTERVAL`; it never trips the breaker or drops a batch.
 
 **Transport semantics (PINNED).**
 
