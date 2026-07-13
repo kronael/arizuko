@@ -28,7 +28,7 @@ are the platform thesis. Out of order they don't compose. Pre-ordered:
 1. **MCP+REST unification** — **pulled to active phase 5 as
    [`5/44-mcp-rest-unification.md`](../5/44-mcp-rest-unification.md)**
    (it's in flight now, not a future phase-8 item). Finish what
-   `specs/5/5-uniform-mcp-rest.md` started: one hand-rolled handler per
+   `specs/5/45-openapi-mcp.md` started: one hand-rolled handler per
    resource, both protocols, identical scopes + auth gate. Without this,
    the operator + agent surfaces drift and the "git as truth" reconcile
    loop has two masters to chase.

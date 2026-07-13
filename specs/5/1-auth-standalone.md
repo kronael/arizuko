@@ -260,8 +260,8 @@ claim so `auth/` stays domain-agnostic.
   drives verifier-side policy (e.g. a `downscoped` token must carry
   `parent_jti`).
 - `scope` is namespace-wildcard-capable (`tasks:*`) but **never** the
-  global `*:*` ([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
-  § Scope vocabulary). Match logic lives in `auth.HasScope`.
+  global `*:*` ([`45-openapi-mcp.md`](45-openapi-mcp.md)
+  § "Auth model"). Match logic lives in `auth.HasScope`.
 - `arz/folder` is the namespaced folder claim; `auth/` treats it as
   opaque and exposes it via `Identity.Extra["folder"]`. The arizuko
   helper in `arizuko/identity.go` reads it. Root/operator tokens omit it.

@@ -1,6 +1,5 @@
 ---
 status: shipped
-supersedes: 5/5-uniform-mcp-rest
 depends:
   [1-auth-standalone, 5/E-routd, 36-yaml-manifests, specs/4/9-acl-unified]
 ---
@@ -21,9 +20,8 @@ depends:
 > surface — operator REST defaults to scope-based `auth.Authorize` (no
 > tier); the agent socket injects a tier-aware `mcp:`+`db.Authorize`
 > gate. Hot-tier agent actions (`reply`, `send`, `inspect_*`) stay
-> MCP-only — no REST resource to mirror. Supersedes
-> [`5/5`](5-uniform-mcp-rest.md); [`5/44`](44-mcp-rest-unification.md) is
-> the rollout.
+> MCP-only — no REST resource to mirror. Absorbs the former `5/5`
+> reality-record; [`5/44`](44-mcp-rest-unification.md) is the rollout.
 
 **Mechanism (`shipped`); adoption tracked in `5/44`:** the mechanism ships — `deriveMCPTools`,
 `MCPNames`, `x-mcp-when`, the injected `Gate` seam (`resreg.invoke` now
@@ -94,6 +92,45 @@ OpenAPI 3.1 allows `x-*` extensions on any object; tooling that ignores
 gets neither an MCP tool nor an `x-mcp-when` annotation — strict on
 purpose (arizuko's "strict, not magical" rule; no silent fallback to the
 SDK-facing `summary`), the way to keep an operation REST-only.
+
+## Caller and Resource shape
+
+Both faces decode to one surface-agnostic `Caller`, and the handler runs
+in one surface-agnostic `Execution` — never touching `*http.Request` or
+`mcp.ToolRequest`:
+
+```go
+type Caller struct {
+    Sub    string             // "user:abc" | "agent:atlas/main" | "key:k_42"
+    Folder string             // from Identity.Extra["folder"]; auth/ stays folder-agnostic
+    Scope  []types.Scope      // capability list; scope-match, no tier
+    Claims map[string]string  // JWT claims for ACL row predicates
+}
+
+// Tx is non-nil only for a mutating action on a Store-backed resource;
+// forwarders and read-only paths see Tx == nil.
+type Execution struct {
+    Caller    Caller
+    Action    Action    // "list" | "get" | "create" | "update" | "delete"
+    Resource  string
+    Args      Args
+    TurnID    string    // X-Turn-Id (REST) or _meta.turn_id (MCP)
+    RequestID string    // X-Request-Id (REST) or _meta.request_id (MCP)
+    Surface   string    // "rest" | "mcp" — set by the adapter, not the caller
+    Tx        *sql.Tx
+}
+```
+
+The `Resource` is the `resreg.Resource` above: its transport half is
+`Endpoints` + `MCPDoc` (the two faces) + the injected `Gate` (authz); its
+row-schema half (`RowType`, `Table`, `PKFields`, `Scope`, `Hooks`) is
+authoritative in [`36-yaml-manifests.md`](36-yaml-manifests.md) and drives
+SQL CRUD, YAML round-trip, and OpenAPI emission. `Execution.Tx` is the
+adapter↔handler contract: the adapter opens the tx for a mutating action,
+the handler mutates, and the one `audit_log` row lands in that same tx
+(see [Audit contract](#audit-contract)); any handler error rolls it back.
+The caller resolver runs per call — never captured at registration — so a
+shared MCP socket can't confuse one agent's privileges for another's.
 
 ## Auth model — resreg holds no policy; each surface injects its gate
 

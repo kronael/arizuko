@@ -185,7 +185,7 @@ Ported from `web.go`/`oauth.go`/`routes.go` into `authd`, minting ES256.
 ### Login-time scope snapshot
 
 `authd` does not own grants — routd does
-([`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) § scope minter). At session
+([`45-openapi-mcp.md`](45-openapi-mcp.md) § "One owner per table"). At session
 issuance `authd` fetches the caller's scope over one HTTP call:
 
 ```

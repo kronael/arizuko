@@ -1,7 +1,6 @@
 ---
 status: partial
-depends:
-  [5/5-uniform-mcp-rest, 5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
+depends: [5/41-ext-mcp, 5/45-openapi-mcp, specs/4/9-acl-unified]
 moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 ---
 

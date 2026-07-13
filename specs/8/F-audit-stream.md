@@ -89,10 +89,9 @@ Handlers don't have to remember; they only run their work against
 `Execution.Tx`. Forwarder resources (`Resource.Store == nil`, e.g.
 `webd/routes_mcp.go`) skip the local row — the downstream daemon
 writes it. The full contract is in
-[`../5/5` Execution context](../5/5-uniform-mcp-rest.md).
-Per-mutating-tool list is the same set as
-[`../5/5-uniform-mcp-rest.md`](../5/5-uniform-mcp-rest.md) "Resource
-declarations to add" — every state-changing endpoint there.
+[`../5/45` Caller and Resource shape](../5/45-openapi-mcp.md#caller-and-resource-shape).
+The mutating set is every state-changing endpoint across the resreg
+resources ([`../5/45-openapi-mcp.md`](../5/45-openapi-mcp.md)).
 
 Read-only tools (`inspect_*`, `list_*`, `get_*`, REST GETs) do **not**
 write `audit_log` rows — slog only.

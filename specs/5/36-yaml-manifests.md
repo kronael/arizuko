@@ -1,7 +1,7 @@
 ---
 status: shipped
 shipped: 2026-06-14
-depends: specs/5/5-uniform-mcp-rest.md, specs/9/2-data-model.md
+depends: specs/5/45-openapi-mcp.md, specs/9/2-data-model.md
 ---
 
 # specs/5/36 — YAML manifests: transport dump/import for cold-tier config
@@ -285,8 +285,8 @@ For each `Resource` with `RowType != nil`:
 public** (schemas describe surface, not data) — mount BEFORE auth middleware.
 
 Per-daemon ownership (post-split owners per [`E-routd.md`](E-routd.md),
-[`P-runed.md`](P-runed.md), [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md)
-§ "Daemon ownership of `/v1/*`"):
+[`P-runed.md`](P-runed.md), [`45-openapi-mcp.md`](45-openapi-mcp.md)
+§ "One owner per table"):
 
 | Daemon | Owned resources                                                                                                                                    |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -451,7 +451,7 @@ groups:
 
 **Resource names map to `resreg.Resource.Name`**, the operator-facing
 contract per
-[`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md#caller-and-resource-shape)
+[`45-openapi-mcp.md`](45-openapi-mcp.md#caller-and-resource-shape)
 (`<resource>.<action>` vocabulary, no aliases, no internal table names).
 Backing tables may be renamed/split/merged without touching manifest files.
 
@@ -756,7 +756,7 @@ spec/status boundary `kubectl` draws.
 
 ## Cross-refs
 
-- [`5-uniform-mcp-rest.md`](5-uniform-mcp-rest.md) — resreg defines the
+- [`45-openapi-mcp.md`](45-openapi-mcp.md) — resreg defines the
   per-resource handler + REST + MCP surface the apply tool talks to.
 - [`../9/2-data-model.md`](../9/2-data-model.md) — cold/warm/hot tier
   boundary; this spec touches cold tier only.

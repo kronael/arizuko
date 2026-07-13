@@ -261,7 +261,7 @@ satisfies spec 5/A's "next message" contract.
   as the room-JID principal pattern.
 - **`specs/4/19`**: tier derivation stays in code; deny semantics
   live in the `effect='deny'` column.
-- **`specs/5/5`**: `ScopePred` calls `Authorize`; the
+- **`specs/5/45`**: `ScopePred` calls `Authorize`; the
   `<resource>:<verb>[:own_group]` scope shorthand mints `acl` rows.
 
 ## Bootstrap

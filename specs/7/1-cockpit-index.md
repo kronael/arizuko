@@ -43,7 +43,7 @@ Why strict, not hybrid: live process state (`runed` active runs,
 next-tick, `proxyd` denials, `crackbox` blocked egress) exists only in
 daemon memory — a DB snapshot can't see it, and two read paths to one
 consumer drift silently (CLAUDE.md "One renderer, many sinks").
-`specs/5/5` already establishes daemon ownership through `/v1`;
+`specs/5/45` already establishes daemon ownership through `/v1`;
 dashboards follow the same ownership line.
 
 Consequences:
@@ -208,7 +208,7 @@ beyond "use theme" — point back to this spec.
   writes.
 - `chanreg/health.go` — canonical adapter liveness semantics (`7/11`).
 - existing `GET /health` + `GET /openapi.json` on every daemon.
-- existing `/v1` handlers (`specs/5/5`).
+- existing `/v1` handlers (`specs/5/45`).
 
 ## Code pointers
 
