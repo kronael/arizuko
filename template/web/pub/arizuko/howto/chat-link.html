@@ -53,9 +53,9 @@
       </p>
 
       <div class="note">
-        <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code>
-        tokens; presenting a <code>hook:</code> webhook token there
-        returns 404. <code>issue_chat_link</code> always returns a
+        <code>/chat/&lt;token&gt;/</code> accepts any valid route
+        token &mdash; the JID kind is metadata, not a URL gate.
+        <code>issue_chat_link</code> always returns a
         <code>/chat/&lt;token&gt;/</code> URL.
       </div>
 
@@ -189,7 +189,7 @@ arizuko token issue acme chat --suffix sales
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/howto/chat-link.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
       </div>
     </main>
 

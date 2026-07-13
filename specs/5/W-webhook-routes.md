@@ -13,9 +13,9 @@ The legacy anonymous-token path coupled "token → drop a message into a
 group" to one client shape (browser widget) and one URL prefix.
 Webhook ingest wants the same primitive at a different surface. One
 token table, one handler, two URL prefixes (`/chat/<token>/` for
-`web:` tokens, `/hook/<token>` for `hook:` tokens). Each URL is
-bound to its JID prefix kind — single-purpose surfaces, shared
-mechanics.
+humans, `/hook/<token>` for machines). Either prefix accepts any
+valid token — kind is metadata, not a URL gate (see §"URL routing");
+shared mechanics.
 
 ## Three orthogonal axes
 
@@ -237,13 +237,13 @@ context, never a parameter. Token returned once.
 `9-acl-unified`, routd applies the ACL gate at issue, list, and
 revoke.
 
-`webd` reads `route_tokens` at the URL boundary:
+`webd` reads `route_tokens` at the URL boundary (lookup is by hash
+only — any kind at either URL, per §"URL routing"):
 
-- `/chat/<token>/` — looks up the row by hash + filters to `web:`
-  JIDs. GET serves the chat widget; POST appends a message and
-  streams the agent reply over SSE.
-- `/hook/<token>` — looks up the row by hash + filters to `hook:`
-  JIDs. POST appends one inbound and returns 204. GET → 405.
+- `/chat/<token>/` — GET serves the chat widget; POST appends a
+  message and streams the agent reply over SSE.
+- `/hook/<token>` — POST appends one inbound and returns 204.
+  GET → 405.
 
 No ACL gate at either surface — the bearer token IS the auth. webd
 enforces the per-token rate limit (in-memory bucket).
@@ -304,8 +304,9 @@ No backfill. Only live token (Atlas on marinade) gets reissued by hand.
 
 - `issue_webhook('github')` from `acme/eng` → POST `/hook/<token>`
   appends at `hook:acme/eng/github`.
-- Chat token (web:) at `/hook/<token>` → 404; hook token at
-  `/chat/<token>/` → 404 (each URL bound to its JID prefix kind).
+- Chat token (web:) at `/hook/<token>` and hook token at
+  `/chat/<token>/` both resolve (any valid token at either URL —
+  kind is metadata, per §"URL routing").
 - Revoke → next request 401, no grace.
 - Agent in folder A cannot revoke folder B's token (ACL scope).
 - Tier 1 at `acme` can mint for `acme/eng`; tier 2 at `acme` cannot.

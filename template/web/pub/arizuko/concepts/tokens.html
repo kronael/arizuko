@@ -69,7 +69,7 @@
 
     <h2>one table, two URLs</h2>
 
-    <p>All tokens live in the <code>route_tokens</code> table &mdash; the raw token is hashed to a lookup key, mapped to a JID, owned by the folder that minted it. Two URLs read that table, one per JID prefix: <code>web:</code> tokens answer at <code>/chat/&lt;token&gt;/</code>, <code>hook:</code> tokens at <code>/hook/&lt;token&gt;</code>. Both serve the same chat widget on GET and append a message on POST, streaming the reply over SSE to browsers and a plain response to everyone else. The binding is enforced at lookup: a <code>hook:</code> token at <code>/chat/&hellip;</code> returns 404, and vice-versa, so each surface stays single-purpose. Full column list, payload shapes, and the per-token MCP surface: <a href="../reference/tokens.html">reference / tokens</a>.</p>
+    <p>All tokens live in the <code>route_tokens</code> table &mdash; the raw token is hashed to a lookup key, mapped to a JID, owned by the folder that minted it. Two URLs read that table: <code>/chat/&lt;token&gt;/</code> serves the chat widget on GET and appends a message on POST, streaming the reply over SSE to browsers and a plain response to everyone else; <code>/hook/&lt;token&gt;</code> is POST-only &mdash; append the body, return 204, fire-and-forget. Either URL accepts any valid token: the JID kind (<code>web:</code> or <code>hook:</code>) is metadata that drives sender attribution and default output style, not a URL access gate. Each issuance verb picks its canonical URL &mdash; <code>issue_chat_link</code> returns <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> returns <code>/hook/&lt;token&gt;</code>. Full column list, payload shapes, and the per-token MCP surface: <a href="../reference/tokens.html">reference / tokens</a>.</p>
 
     <h2>what the JID encodes</h2>
 
@@ -125,7 +125,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
       </div>
     </main>
 

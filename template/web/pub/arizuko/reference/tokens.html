@@ -39,7 +39,7 @@
       <p class="docs-crumb"><a href="../">arizuko</a> &rsaquo; <a href="./">reference</a> &rsaquo; Route tokens</p>
 <h1>route tokens</h1>
 
-    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> (for <code>web:</code> JIDs) and <code>/hook/&lt;token&gt;</code> (for <code>hook:</code> JIDs) &mdash; each URL bound to its JID prefix kind, mechanics shared. SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
+    <p class="lede">Developer reference for the <code>route_tokens</code> primitive: schema, mint surface (MCP + REST), URL handlers at <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> &mdash; either URL accepts any valid token; the JID kind is metadata, mechanics shared. SSE events, rate limits. Spec: <a href="https://github.com/kronael/arizuko/blob/main/specs/5/W-webhook-routes.md"><code>specs/5/W-webhook-routes.md</code></a>.</p>
 
     <h2 id="schema">Schema</h2>
 
@@ -105,7 +105,7 @@ POST /v1/route_tokens/hook
   "url":   "https://&lt;host&gt;/hook/Yp3v...Q2",
   "jid":   "hook:acme/eng/github"
 }</code></pre>
-    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ. <code>url</code> is built from <code>WEB_HOST</code> plus the URL bound to the JID prefix kind &mdash; <code>/chat/&lt;token&gt;/</code> for <code>web:</code> JIDs, <code>/hook/&lt;token&gt;</code> for <code>hook:</code> JIDs. Each URL accepts only its bound prefix; the issuance verb picks the URL.</p>
+    <p>Token returned once. The <code>&lt;folder&gt;</code> segment of the JID is the destination folder (here <code>acme/eng</code>); for cross-folder mints the row's <code>owner_folder</code> may differ. <code>url</code> is built from <code>WEB_HOST</code> plus the issuance verb's canonical URL &mdash; <code>/chat/&lt;token&gt;/</code> for <code>issue_chat_link</code>, <code>/hook/&lt;token&gt;</code> for <code>issue_webhook</code>. Either URL accepts any valid token (<a href="#endpoint">below</a>).</p>
 
     <h2 id="link-context">Link context</h2>
 
@@ -122,19 +122,17 @@ Bug reports from the acme website. Triage and file; don't chat back.
       <li>No context (NULL) &mdash; no tag, behavior identical to a pre-context token.</li>
     </ul>
 
-    <h2 id="endpoint">/chat/&lt;token&gt;/ and /hook/&lt;token&gt; &mdash; each URL bound to its JID prefix kind</h2>
+    <h2 id="endpoint">/chat/&lt;token&gt;/ and /hook/&lt;token&gt; &mdash; any valid token at either URL</h2>
 
-    <p>The two URLs share handler internals &mdash; same widget, same POST path, same SSE &mdash; but the binding is enforced at token lookup. A <code>hook:</code> token at <code>/chat/&lt;token&gt;/</code> returns 404; a <code>web:</code> token at <code>/hook/&lt;token&gt;</code> returns 404.</p>
+    <p>The two URLs share handler internals &mdash; same lookup, same append path. Lookup does not filter on the token's JID kind: a <code>hook:</code> token works at <code>/chat/&lt;token&gt;/</code> and a <code>web:</code> token works at <code>/hook/&lt;token&gt;</code>. Kind is metadata &mdash; it drives sender attribution and default output style &mdash; not a URL access gate. Each issuance verb still returns its canonical URL: <code>issue_chat_link</code> &rarr; <code>/chat/&lt;token&gt;/</code>, <code>issue_webhook</code> &rarr; <code>/hook/&lt;token&gt;</code>.</p>
 
     <table>
-      <tr><th>Method</th><th>Path</th><th>Token JID</th><th>Purpose</th></tr>
-      <tr><td>GET</td><td><code>/chat/{token}/</code></td><td><code>web:</code></td><td>Chat widget (HTML).</td></tr>
-      <tr><td>POST</td><td><code>/chat/{token}/</code></td><td><code>web:</code></td><td>Append body as one inbound at the row's JID. Returns <code>turn_id</code> (browsers open SSE).</td></tr>
-      <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td><code>web:</code></td><td>Live SSE for the round.</td></tr>
-      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td><code>web:</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
-      <tr><td>GET</td><td><code>/hook/{token}</code></td><td><code>hook:</code></td><td>Same widget HTML as the <code>/chat/</code> surface.</td></tr>
-      <tr><td>POST</td><td><code>/hook/{token}</code></td><td><code>hook:</code></td><td>Append body verbatim as one inbound at the row's JID. Returns <code>turn_id</code>.</td></tr>
-      <tr><td>GET</td><td><code>/hook/{token}/{turn_id}/sse</code></td><td><code>hook:</code></td><td>Live SSE for the round.</td></tr>
+      <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/</code></td><td>Chat widget (HTML).</td></tr>
+      <tr><td>POST</td><td><code>/chat/{token}/</code></td><td>Append body as one inbound at the row's JID. Returns <code>turn_id</code> (browsers open SSE).</td></tr>
+      <tr><td>GET</td><td><code>/chat/{token}/{turn_id}/sse</code></td><td>Live SSE for the round.</td></tr>
+      <tr><td>GET, POST</td><td><code>/chat/{token}/mcp</code></td><td>Per-token MCP surface: <code>send_message</code>, <code>get_round</code>, <code>get_round_status</code>.</td></tr>
+      <tr><td>POST</td><td><code>/hook/{token}</code></td><td>Append body verbatim as one inbound at the row's JID. Fire-and-forget; returns 204.</td></tr>
     </table>
 
     <p>The token row's JID prefix drives sender attribution and default output style. Body shape, snapshot/status URLs, SSE events, and reconnect via <code>Last-Event-Id</code> are the same round-handle protocol used by every web reply &mdash; see <a href="../components/webd.html">components/webd</a>.</p>
@@ -156,11 +154,10 @@ content=...&amp;topic=...                  # form
     <pre><code>{
   "jid":     "hook:&lt;folder&gt;/&lt;source&gt;[/&lt;suffix&gt;]",
   "sender":  "&lt;source&gt;",
-  "body":    "&lt;raw POST body, verbatim&gt;",
-  "headers": { "x-github-event": "push", ... }
+  "content": "&lt;raw POST body, verbatim&gt;"
 }</code></pre>
 
-    <p><code>sender</code> is the <code>&lt;source&gt;</code> segment of the JID (the value the agent passed as <code>source_label</code> at mint time). <code>headers</code> carries the full request header set as a lowercase-keyed map for skill-side validation (e.g. <code>X-Hub-Signature</code> verification). Body is opaque to webd &mdash; whatever the source POSTed, verbatim, up to 1 MiB.</p>
+    <p><code>sender</code> is the <code>&lt;source&gt;</code> segment of the JID (the value the agent passed as <code>source_label</code> at mint time). Request headers are dropped at ingest &mdash; only the body is forwarded, so upstream HMAC headers (e.g. <code>X-Hub-Signature-256</code>) can't be verified downstream; the URL is the only secret. Body is opaque to webd &mdash; whatever the source POSTed, verbatim, up to 1 MiB.</p>
 
     <h2 id="rate-limits">Rate limits</h2>
 
@@ -201,7 +198,7 @@ arizuko token &lt;instance&gt; revoke &lt;jid&gt; [&lt;owner_folder&gt;]</code><
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/tokens.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
       </div>
     </main>
 

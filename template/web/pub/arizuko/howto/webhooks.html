@@ -49,9 +49,9 @@
       </p>
 
       <div class="note">
-        The webhook URL is <code>/hook/&lt;token&gt;</code>. It accepts
-        only <code>hook:</code> tokens; presenting a <code>web:</code>
-        chat token there returns 404. <code>issue_webhook</code> always
+        The webhook URL is <code>/hook/&lt;token&gt;</code>. Any valid
+        route token works there &mdash; the JID kind is metadata, not
+        a URL gate. <code>issue_webhook</code> always
         returns a <code>/hook/&lt;token&gt;</code> URL.
       </div>
 

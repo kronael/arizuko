@@ -349,7 +349,7 @@
     </div>
 
     <div class="tablecard">
-      <h3><code>route_tokens</code></h3><p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Each URL is bound to its JID prefix kind: <code>/chat/&lt;token&gt;/</code> accepts only <code>web:</code> tokens, <code>/hook/&lt;token&gt;</code> only <code>hook:</code> tokens. Mechanics shared at the handler; binding enforced at token lookup.</p>
+      <h3><code>route_tokens</code></h3><p>URL-bound credentials. One row per issued URL; the JID prefix drives sender attribution and default output style. Both <code>/chat/&lt;token&gt;/</code> and <code>/hook/&lt;token&gt;</code> accept any valid token &mdash; kind is metadata, not a URL access gate. Mechanics shared at the handler.</p>
       <table>
         <tr><th>column</th><th>type</th><th>null</th><th>meaning</th></tr>
         <tr><td><code>token_hash</code></td><td>BLOB PK</td><td>NOT NULL</td><td>sha256 of the raw token; raw token returned once at issuance</td></tr>
@@ -695,7 +695,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/reference/schema.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-07-12">2026-07-12</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-13">2026-07-13</time>
       </div>
     </main>
 

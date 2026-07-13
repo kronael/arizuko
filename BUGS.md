@@ -7,7 +7,7 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
-## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, OPEN, LOW)
+## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
 **Location**: `template/web/pub/arizuko/reference/tokens.html` §"/chat/ and /hook/ — each URL bound to its JID prefix kind" (+ echoes in `concepts/tokens.html`, `reference/schema.html`, both howto ledes)
 
@@ -19,6 +19,13 @@ route_token; kind is metadata, not a URL access gate", and
 prefix). Also spec 5/W §"Where this runs" still describes the old filtered
 lookup — internal spec inconsistency. Fix: align the four web pages + that
 spec section to the any-token contract (docs-only).
+
+- **Status:** fixed 2026-07-13 — all four pages + spec 5/W (lede, "Where this
+  runs", Tests) state the any-token contract. Same pass trued
+  `reference/tokens.html`'s endpoint table to the shipped handlers (no GET
+  `/hook`, no hook SSE row; POST `/hook` → 204) and removed its residual
+  headers-delivery claim (same drift the fixed howto/webhooks entry removed —
+  ingest forwards body only). `legacy/` snapshot pages left as-is.
 
 ## Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
 
