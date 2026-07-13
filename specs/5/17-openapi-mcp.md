@@ -19,7 +19,7 @@ depends: [1-auth-standalone, 5/E-routd, 8-yaml-manifests, specs/4/9-acl-unified]
 > surface — operator REST defaults to scope-based `auth.Authorize` (no
 > tier); the agent socket injects a tier-aware `mcp:`+`db.Authorize`
 > gate. Hot-tier agent actions (`reply`, `send`, `inspect_*`) stay
-> MCP-only — no REST resource to mirror. Absorbs the former `5/5`
+> MCP-only — no REST resource to mirror. Absorbs the retired `uniform-mcp-rest` spec's
 > reality-record; [`5/16`](16-mcp-rest-unification.md) is the rollout.
 
 **Mechanism (`shipped`); adoption tracked in `5/16`:** the mechanism ships — `deriveMCPTools`,
