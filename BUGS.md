@@ -27,6 +27,44 @@ spec section to the any-token contract (docs-only).
   headers-delivery claim (same drift the fixed howto/webhooks entry removed —
   ingest forwards body only). `legacy/` snapshot pages left as-is.
 
+## System-turn / broadcast delivery targets a folder-jid or prefix-less room → "no channel for jid" → the broadcast is silently lost (2026-07-13, OPEN)
+
+From the "chats stop responding" eval. System/auto turns (the auto-migrate
+release broadcast; some proactive turns) call `deliver.Send(jid, …)` with `jid`
+set to the **group folder** (`main`, `atlas/support`) or a **prefix-less/stale
+room** (`user/137865889`) instead of the group's actual routed **channel** jid.
+`chanDeliverer.resolve` (`routd/deliver.go:78`) maps a jid → adapter via
+`lookupSource` (the adapter that delivered the jid's newest inbound); a folder or
+a prefix-less room has no inbound source → nil channel → `no channel for jid …`
+and the message is dropped. Live: marinade `user/137865889` during
+`auto-migrate-atlas/martin` (release note never delivered); sloth `jid:main` on
+restart. **Impact:** the migration/announcement broadcast silently fails to reach
+users on affected groups; error-spam in logs (51 hits/2d). NOT a user chat dying
+(distinct from the stale-session fix). **Fix direction (record-only):** system-turn
+delivery should resolve the group's bound channel jid (the routes-table channel /
+newest routed inbound), not the folder; or skip+debug-log when a folder has no
+bound channel instead of ERROR-spamming a doomed `Send`. Needs the broadcast/send
+target-resolution audited — design, not a one-liner.
+
+- **Severity:** medium (announcements silently lost on some groups; log noise)
+- **Status:** OPEN, record-only.
+
+## rate_limit is the top failure signal (195/2d) — verify it's surfaced to the user, not swallowed (2026-07-13, OPEN, needs verification)
+
+`rate_limit` was the single largest signal in the stop-responding eval (195 hits
+in 2 days across instances). The stale-session-adjacent BUGS note records the
+session/weekly-limit case as *"SDK threw after result (ignored)"* — i.e.
+swallowed. IF the model-API rate-limit/throttle error is swallowed rather than
+delivered, the user's chat **silently stops** with no explanation during
+throttling (unavoidable externally, but the silence is fixable). **To verify:**
+trace `ant/src/index.ts` result handling for the rate-limit / "hit your … limit"
+subtype — is it delivered as a "rate limited, back shortly" chat message or
+dropped? If dropped, surface a terse user-facing notice (one delivery, not a
+retry loop). Distinct from the stale-session fix (that class is now closed).
+
+- **Severity:** medium (silent stop during throttling; most-frequent signal)
+- **Status:** OPEN — verify surfaced-vs-swallowed, then a small surface-the-notice fix.
+
 ## Resource identity (`Name`/`Table`) restated across the two `resreg.Resource` sites — residual drift the 5/16 single-source model retires (2026-07-13, sweep, record-only)
 
 Swept the code for duplications the `5/16` one-owner + single-source model renders
