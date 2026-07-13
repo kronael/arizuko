@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { submitTurn, submitStatus } from './mcp.js';
 import { loadAgentMcpServers } from './mcp-servers.js';
 import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from './backend/index.js';
@@ -9,6 +10,47 @@ import { Backend, Session, SessionConfig, selectBackend, renderMcpServers } from
 // (sess-<nano>, fork hex) are not, and `claude --resume` rejects them — so they
 // must be treated as "no session yet" (start fresh), not passed to --resume.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// transcriptPath is the on-disk SDK transcript for a Claude session id. Every
+// container mounts the group home at $HOME=/home/node, so Claude Code slugifies
+// the projects dir to a fixed "-home-node" (matches runner.go CopySession).
+export function transcriptPath(sessionId: string): string {
+  return path.join(HOME, '.claude', 'projects', '-home-node', `${sessionId}.jsonl`);
+}
+
+// resolveResumeSession maps a stored session id to what `--resume` should get,
+// returning undefined ("start fresh") when the id is not resumable:
+//  - a claude id that is not a UUID is an arizuko lineage placeholder
+//    (sess-<nano> / fork hex) — `claude --resume` rejects it;
+//  - a UUID whose transcript is absent on disk (never persisted, or pruned by
+//    Claude Code retention) — resuming it returns "No conversation found" →
+//    error_during_execution + silent context loss (BUGS: stale chat-bound
+//    session). Start fresh silently instead of burning a turn on the resume miss.
+// Non-claude backends carry their own id format — passed through untouched.
+export function resolveResumeSession(
+  backendName: string,
+  sessionId: string | undefined,
+  hasTranscript: (id: string) => boolean,
+): string | undefined {
+  if (backendName !== 'claude' || !sessionId) return sessionId;
+  if (!UUID_RE.test(sessionId)) {
+    log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
+    return undefined;
+  }
+  if (!hasTranscript(sessionId)) {
+    log(`session id ${sessionId} has no transcript on disk (pruned or never persisted) — starting fresh`);
+    return undefined;
+  }
+  return sessionId;
+}
+
+// isSessionError reports whether an SDK result subtype means the resume target
+// was unusable ("No conversation found"). Such a result is a retry signal, NEVER
+// a user-facing reply — deliverTurn is skipped for it (a resume miss is not a
+// user error). BUGS: stale chat-bound session.
+export function isSessionError(subtype: string | undefined): boolean {
+  return subtype === 'error_during_execution';
+}
 
 interface ContainerInput {
   prompt: string;
@@ -331,7 +373,7 @@ async function runQuery(
         const textResult = event.text ?? null;
         const models = event.models;
         log(`Result #${resultCount}: subtype=${subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}${models ? ` models=${Object.keys(models).join(',')}` : ''}`);
-        if (subtype === 'error_during_execution') {
+        if (isSessionError(subtype)) {
           log('Session error, will retry without session');
           sessionError = true;
         } else {
@@ -398,18 +440,14 @@ async function main(): Promise<void> {
     const backend = selectBackend(process.env.ARIZUKO_BACKEND, drainIpcInput);
     log(`Backend: ${backend.name()}`);
 
-    let sessionId = containerInput.sessionId;
-    // arizuko mints a lineage placeholder (core.NewSessionID → "sess-<nano>", or
-    // a hex id from a fork) for a topic that has no real Claude session yet — e.g.
-    // a freshly-forked Slack thread. Claude `--resume` requires a UUID, so resuming
-    // a placeholder errors (error_during_execution) and burns the first turn on the
-    // retry-fresh recovery (the atlas "sometimes fails"). A non-UUID id means "no
-    // resumable session" → start fresh directly. Claude-only: other backends have
-    // their own id format, so don't second-guess theirs.
-    if (backend.name() === 'claude' && sessionId && !UUID_RE.test(sessionId)) {
-      log(`session id ${sessionId} is not a resumable UUID (arizuko placeholder) — starting fresh`);
-      sessionId = undefined;
-    }
+    // Resolve the resume target: a lineage placeholder (non-UUID) or a UUID whose
+    // transcript is gone (pruned / never persisted) both start fresh silently,
+    // never surfacing error_during_execution as a delivered result.
+    let sessionId = resolveResumeSession(
+      backend.name(),
+      containerInput.sessionId,
+      id => fs.existsSync(transcriptPath(id)),
+    );
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
     try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
@@ -483,8 +521,21 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  const errorMessage = err instanceof Error ? err.message : String(err);
-  log(`Unhandled error: ${errorMessage}`);
-  process.exit(1);
-});
+// Run main only as the process entrypoint (`node dist/index.js`), so tests can
+// import the exported helpers without kicking off the stdin-reading runtime.
+function isEntrypoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) {
+  main().catch((err) => {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log(`Unhandled error: ${errorMessage}`);
+    process.exit(1);
+  });
+}
