@@ -1,7 +1,7 @@
 # arizuko
 
 <p align="center">
-  Shape an agent system in plain language — an LLM edits the files that are the system (persona, memory, skills, routing), compartmentalized daemons keep that shaping bounded to your permissions, and you own every change as files you diff and <code>git revert</code>. Self-hosted on your box; what you ship is products you own — a Slack team agent, a personal life agent, a company brain.
+  arizuko hosts many specialized agents on one platform — each a folder (persona, memory, skills, routing) you shape by talking to it: an LLM edits the files that are the agent, and compartmentalized daemons keep that shaping bounded to your permissions. Every change lands as plain files on your own box — diff them, tar the directory for a complete backup, put them under git if you want history. What you ship is products you own — a Slack team agent, an AWS SRE, a company brain.
 </p>
 
 <p align="center">
