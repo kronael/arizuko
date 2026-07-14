@@ -85,9 +85,11 @@ run" idea lives here.)
 
 ## What has to happen (minimal, ordered by ROI)
 
-1. **crackbox** — nothing to build; it ships. Sharpen the README pitch + a
-   one-command demo. (The arizuko _spawn-path_ KVM wiring is a platform task,
-   separate from the standalone tool.)
+1. **crackbox** — **fix the fail-open first** (`BUGS.md`, 2026-07-14):
+   fail-CLOSED on an empty per-id policy, surface (don't swallow) routd's
+   allowlist-resolve error, add a containment test (tight allowlist → 403 on a
+   non-listed host). A security proxy that fails open is not shippable. THEN
+   sharpen the README + demo. (Needs a focused crackbox audit; not a one-liner.)
 2. **obs** — write the standalone README + drop-in example (import,
    `defer obs.Setup(...)()`, the three env vars). **Zero code.**
 3. **router / grants** — introduce a thin seam so they stop pulling
