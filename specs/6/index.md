@@ -15,13 +15,14 @@ reimplementation loop — arizuko's self-learning, pointed outward.
 
 ## Specs
 
-| Spec                                                       | Status | Covers                                                                                                                                                          |
-| ---------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [1-adoption-interop.md](1-adoption-interop.md)             | draft  | interop-first strategy, campaign, the agentic reimplementation loop                                                                                             |
-| [2-target-matrix.md](2-target-matrix.md)                   | draft  | which hub systems to incorporate (mechanisms) vs beat (products)                                                                                                |
-| [3-graph-taxonomy-answer.md](3-graph-taxonomy-answer.md)   | draft  | ride the graph/taxonomy hype the non-intrusive way (folder = substrate)                                                                                         |
-| [4-harness-fleet-services.md](4-harness-fleet-services.md) | draft  | worked example: arizuko as the service layer above N Hermeses — wrap vs reimplement-in-Go, keys/security up one level, skills hub = interop/`kronael/tools` tap |
-| [5-components-toolbox.md](5-components-toolbox.md)         | draft  | arizuko as a toolbox: which components are usable separately (measured by import coupling), how to present them — crackbox + obs ship now, resreg → `mcpfw`     |
+| Spec                                                                 | Status | Covers                                                                                                                                                          |
+| -------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [1-adoption-interop.md](1-adoption-interop.md)                       | draft  | interop-first strategy, campaign, the agentic reimplementation loop                                                                                             |
+| [2-target-matrix.md](2-target-matrix.md)                             | draft  | which hub systems to incorporate (mechanisms) vs beat (products)                                                                                                |
+| [3-graph-taxonomy-answer.md](3-graph-taxonomy-answer.md)             | draft  | ride the graph/taxonomy hype the non-intrusive way (folder = substrate)                                                                                         |
+| [4-harness-fleet-services.md](4-harness-fleet-services.md)           | draft  | worked example: arizuko as the service layer above N Hermeses — wrap vs reimplement-in-Go, keys/security up one level, skills hub = interop/`kronael/tools` tap |
+| [5-components-toolbox.md](5-components-toolbox.md)                   | draft  | arizuko as a toolbox: which components are usable separately (measured by import coupling), how to present them — crackbox + obs ship now, resreg → `mcpfw`     |
+| [6-component-extraction-method.md](6-component-extraction-method.md) | draft  | the honest method behind 6/5: import-purity ≠ component; the three questions (contract / does-it-hold / stranger-vs-cruft); go deep on one, crackbox first      |
 
 ## Ties
 
