@@ -110,8 +110,15 @@ One concept: **a product is the hostable, shareable, syncable unit; a
 group is a blend of mixed-in products** plus its own state. A product
 carrying only skills is a capability mixin; one carrying persona + facts
 is an identity mixin; most carry a bit of each. `PRODUCT.md` (shipped)
-stays the product's own manifest. Anyone hosts a product on their
-GitHub; `ant/examples/<name>` are simply the bundled ones.
+stays the product's own manifest — the producer side stays specced in
+`5/21-products`. Anyone hosts a product on their GitHub;
+`ant/examples/<name>` are simply the bundled ones.
+
+Skills in a product, two distinct kinds (a change vs `17/R`, which had
+whitelist-only): the `skills = […]` list in `PRODUCT.md` selects STOCK
+skills (today informational — `seedSkills` seeds all; becomes real
+gating), while a bundled `skills/` directory carries the product's OWN
+skills — the managed payload the blend/update rules govern.
 
 Per group:
 

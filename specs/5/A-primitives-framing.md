@@ -533,7 +533,7 @@ What changed when this framing landed (the original to-do, kept for record):
 - **Products pages.** Each product opens by naming the recomposition —
   which folder contents + routing make it that product — and links to
   `concepts/primitives.html`. Keeps "a product is the same pipeline,
-  different folder" visible (`17/9`, `17/R-products`).
+  different folder" visible (`17/9`, `5/21-products`).
 - **README lead.** Product-first + the six-step trace + the four-layer
   table; shorten the current sprawl.
 - **Reference pages unchanged in shape** (`5/D` ownership rule):

@@ -25,7 +25,7 @@ general blob, on two axes:
   agent to the skills its one job needs (and gating the rest via ACL)
   removes the failure modes general agents have — wrong tool, wrong
   scope, confident nonsense outside its lane. The product catalog
-  ([P-product-templates](P-product-templates.md), [R-products](R-products.md))
+  ([P-product-templates](P-product-templates.md), [5/21-products](../5/21-products.md))
   is exactly this: curated `ant/examples/<name>/` folders — persona +
   skill whitelist + seed `facts/` — installed with one command
   (`arizuko create <inst> --product <name>`). Company-brain
@@ -133,7 +133,7 @@ The market is splitting into "GUI for business users" (Dify, n8n, Copilot Studio
 
 The product catalog is what makes this concrete for a buyer. IaC without
 modules is a blank file; arizuko ships modules — focused products
-([P-product-templates](P-product-templates.md), [R-products](R-products.md))
+([P-product-templates](P-product-templates.md), [5/21-products](../5/21-products.md))
 the operator installs and then owns and edits as code. The pitch is not
 "build your agent from primitives" (that's the engine); it's "take a
 focused agent that already does the job, and make it yours."

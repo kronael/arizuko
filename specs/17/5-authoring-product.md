@@ -4,7 +4,7 @@ status: draft
 
 # Authoring product
 
-A product (per [R-products](R-products.md)) for content authoring: the
+A product (per [5/21-products](../5/21-products.md)) for content authoring: the
 agent drafts posts and the operator approves before publishing. Ships at
 `ant/examples/author/`.
 

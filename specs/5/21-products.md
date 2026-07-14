@@ -1,12 +1,26 @@
 ---
 status: draft
+relates-to: [../5/20-ant-portability]
 ---
 
-# Products — curated agent templates
+# Products — curated agent templates (producer side)
 
 A product is a curated template for an ant (agent). It bundles a persona,
 skills, and seed files so an operator can spin up a configured agent with one
 command instead of building from scratch.
+
+> **Scope split (2026-07-14).** This spec is the PRODUCER side: what a
+> product contains, the `PRODUCT.md` format, the catalog, how to author
+> one. Composition, distribution, and updates moved to
+> [`5/20-ant-portability`](../5/20-ant-portability.md), which supersedes
+> this file's single-template narrative: a group holds an ORDERED MIX of
+> products (`products.toml` + `products.lock`), blended per payload kind
+> (persona: first provider wins; skills: last wins wholesale; CLAUDE.md:
+> appended; the rest union) and synced uv-style from hosted sources.
+> Two 5/20 deltas to this file's text: products MAY bundle their own
+> `skills/` directories (not only whitelist stock ones), and the `skills`
+> list in `PRODUCT.md` is slated to become real gating rather than
+> informational.
 
 ## A product is a recomposition, not new machinery
 
@@ -22,7 +36,7 @@ the operator works. Two consequences:
   is the model: a table mapping each promise on the public page to the
   primitive that already supports it. Every product spec carries one, so
   "what's free today vs what needs work" is provable, not asserted.
-- **"Focused" is the wedge, not a limitation** ([specs/7/9](9-positioning.md)).
+- **"Focused" is the wedge, not a limitation** ([specs/7/9](../17/9-positioning.md)).
   Constraining the agent to its job's skills (and gating the rest via the
   ACL — Authorization) removes the failure modes general agents have. A
   product is a focused recomposition you own and edit as files, not a
@@ -129,7 +143,7 @@ Products in `ant/examples/` (shipped):
 Public pages at `/pub/products/<name>/` when the web layer is running.
 
 **Company brain** is a positioning product, not a seeded template
-([specs/17/8-company-brain.md](8-company-brain.md)): arizuko is the action
+([specs/17/8-company-brain.md](../17/8-company-brain.md)): arizuko is the action
 layer (Turn + State + Routing) over a retrieval backend, the genuine
 integration gap. It ships as framing + a setup recipe, not an
 `ant/examples/` folder, until connector skills land.

@@ -44,7 +44,7 @@ steps inside the migration `.md`.
 - Group folder: `PERSONA.md`, `CLAUDE.md`, `facts/`
 - Tier 2/3: ro mounts over inherited files
 
-Products (`R-products.md`) deliver curated persona + skill bundles
+Products (`../5/21-products.md`) deliver curated persona + skill bundles
 per group, selected at creation.
 
 ## Voice, register, and surface — three orthogonal layers
