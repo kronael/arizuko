@@ -38,6 +38,25 @@ func TestDescribe_ModeAndTrigger(t *testing.T) {
 	}
 }
 
+// TestDescribe_Announce covers the #announce fragment: the route still
+// triggers normally (inbound-neutral) but is flagged as a release-note target
+// so the migrate skill opts it in.
+func TestDescribe_Announce(t *testing.T) {
+	views := Describe([]core.Route{
+		{ID: 1, Seq: 0, Match: "chat_jid=discord:G/C_random", Target: "corp/eng#announce"},
+		{ID: 2, Seq: 1, Match: "chat_jid=discord:G/C_dev", Target: "corp/eng"},
+	})
+
+	ann := find(views, 1)
+	if !ann.Announce || ann.Mode != "trigger" || !ann.FiresTurn {
+		t.Fatalf("#announce row must be an announce-flagged trigger: %+v", ann)
+	}
+	plain := find(views, 2)
+	if plain.Announce {
+		t.Fatalf("plain trigger must not be announce-flagged: %+v", plain)
+	}
+}
+
 // TestDescribe_ShadowDeadRows reproduces marinade's #search bug: a bare
 // trigger at seq 0 (matched by room=) swallows the intended mention trigger
 // and observe catch-all below it, so both are dead. Note room= and chat_jid=

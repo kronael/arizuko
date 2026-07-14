@@ -223,8 +223,14 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$self_dir/TEMPLATES.applied"
 
 ## e) Announce the release
 
-Announce ONCE to THIS group's own routes. **One short message. Run the
-script, send verbatim. No additions.**
+Announce ONCE to each channel THIS group has flagged as a release-announce
+target — routes whose target carries the `#announce` fragment (e.g.
+`chat_jid=discord:G1/C_random  target=corp/eng#announce`). **Announcing is
+opt-in: a group with no `#announce` route announces nowhere.** This keeps
+release notes out of every channel the bot touches — the operator tags one
+main channel per server (Slack/Discord `#random`, a Telegram group), and mutes
+by removing the fragment. **One short message. Run the script, send verbatim.
+No additions.**
 
 Format (three lines, blank between bullet and link):
 
@@ -250,13 +256,19 @@ The script prints `SKIP` (stop) or the exact message. Send verbatim via
 `send`. Plain text — no markdown bold, no blockquote, no extra bullets.
 The link on its own line so chat clients render it as a preview card.
 
-`inspect_routing` returns YOUR group's routes. Send one message per
-unique destination; skip web/slink/wildcard routes (no announcements):
+`inspect_routing` returns YOUR group's routes, each annotated with
+`announce: true` when its target carries `#announce`. Send one message per
+unique announce destination; skip everything else:
 
+- Consider ONLY routes with `.announce == true` — no announce route → send nothing.
+- Extract the destination JID from that route's `match` (`chat_jid=` or `room=`).
 - **Telegram** (`room=`): one message per unique JID
 - **Slack** (`chat_jid=slack:`): one message per workspace (team ID)
 - **Discord** (`chat_jid=discord:`): one message per server (guild ID)
 - **web:, slink:, wildcards (`*`)**: skip
+
+The per-server dedup is a safety net; the operator is expected to tag exactly
+one channel per server.
 
 ```bash
 MSG="<output of script above>"
@@ -266,12 +278,11 @@ mcpc connect "socat UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s
 trap 'mcpc @s close' EXIT
 
 mcpc @s tools-call inspect_routing | jq -r '
-  .routes[] | .match
+  .routes[] | select(.announce == true) | .match
+  | (splits(" ")) | select(startswith("chat_jid=") or startswith("room="))
   | if startswith("room=") then sub("^room=";"")
-    elif startswith("chat_jid=slack:") or startswith("chat_jid=discord:") then
-      sub("^chat_jid=";"")
-    else empty end
-  | select(contains("*") | not)
+    else sub("^chat_jid=";"") end
+  | select((contains("*") or startswith("web:") or startswith("slink:")) | not)
 ' \
   | awk '
     /^slack:/ { key="slack:"substr($0,8,index(substr($0,8),"/")-1) }

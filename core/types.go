@@ -91,14 +91,17 @@ type TopicLineage struct {
 	ObservedCursor string
 }
 
-// RouteTarget parses `folder`, `folder#observe`, or `folder#<topic>`
-// syntax on routes.target. "observe" is the only reserved fragment
-// — it sets Mode and means observe-only (no agent turn). Any other
-// fragment is a topic name pinned for the routed message.
+// RouteTarget parses `folder`, `folder#observe`, `folder#announce`, or
+// `folder#<topic>` syntax on routes.target. "observe" and "announce" are
+// the reserved fragments: observe sets Mode (observe-only, no agent turn);
+// announce is a no-op for inbound (the route still triggers normally) that
+// flags this channel as a release-announcement target for the migrate skill.
+// Any other fragment is a topic name pinned for the routed message.
 type RouteTarget struct {
-	Folder string
-	Topic  string // when non-empty, route pins this topic on the message
-	Mode   string // "" trigger, "observe" silent ingest
+	Folder   string
+	Topic    string // when non-empty, route pins this topic on the message
+	Mode     string // "" trigger, "observe" silent ingest
+	Announce bool   // #announce: release-note target; inbound-neutral (trigger)
 }
 
 func ParseRouteTarget(s string) RouteTarget {
@@ -108,9 +111,12 @@ func ParseRouteTarget(s string) RouteTarget {
 	}
 	frag := s[i+1:]
 	rt := RouteTarget{Folder: s[:i]}
-	if frag == "observe" {
+	switch frag {
+	case "observe":
 		rt.Mode = frag
-	} else {
+	case "announce":
+		rt.Announce = true
+	default:
 		rt.Topic = frag
 	}
 	return rt
@@ -120,6 +126,8 @@ func (rt RouteTarget) String() string {
 	switch {
 	case rt.Mode != "":
 		return rt.Folder + "#" + rt.Mode
+	case rt.Announce:
+		return rt.Folder + "#announce"
 	case rt.Topic != "":
 		return rt.Folder + "#" + rt.Topic
 	default:

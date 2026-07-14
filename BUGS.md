@@ -7,6 +7,47 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute (2026-07-14, OPEN, proposal)
+
+The `/migrate` skill step (e) (`ant/skills/migrate/SKILL.md:224-289`) is run
+per-group by each behind group's own agent. It sends the release line to EVERY
+non-web route of that group (skips only web/slink/wildcard), deduped only per
+telegram-JID / slack-team / discord-guild, guarded by a per-group
+`~/.announced-version`. Two symptoms:
+
+1. **Per-group dedup, shared destination.** N groups routing into the same
+   Discord server / Slack workspace / Telegram chat each announce once → the
+   server sees N copies, one per group, each in that group's first-`seq` route.
+2. **No opt-in / no main-channel / no mute.** All routes are targets; the
+   within-server dedup lands in an arbitrary (`seq`-first) channel, not a
+   designated #general/#random. Routes table (`store/migrations/0022`) has no
+   announce/mute column.
+
+Desired: announcements are opt-in per channel, default one main channel per
+server, explicitly mutable, and on discord/slack land only in the operator's
+chosen (#random) channel — each server sees it exactly once.
+
+**Fix direction (record-only, needs sign-off — redesign):** make announce
+opt-in. Candidate mechanism = an `#announce` fragment on the route target
+(mirrors the existing `#observe` fragment, `store/migrations/0054`); step (e)
+sends ONLY to `#announce`-tagged routes, deduped per server; no tag → no
+announce (mute = remove the tag). Operator tags exactly one channel per server
+→ naturally once-per-server even across groups. Alternative: a small resreg
+`announce_targets` resource (heavier; the "every management entity is a resreg
+resource" rule favors this if it grows beyond a flag). Related but opposite
+symptom to the "broadcast silently lost / no channel for jid" entry below —
+both need the announce target-resolution audited together.
+
+- **Severity:** low-medium (noise/duplicate pings, no data loss)
+- **Status:** IMPLEMENTED (code+skill, 2026-07-14), pending release plumbing +
+  deploy. Mechanism signed off = `#announce` route fragment. `ParseRouteTarget`
+  (`core/types.go`) reserves `announce` (inbound-neutral); `router.Describe`
+  annotates `announce`; migrate skill step (e) sends only to `#announce`
+  routes, deduped per server (web/slink/wildcard skipped). To reach live
+  agents: bump `MIGRATION_VERSION` + rebuild ant image + redeploy. Residual:
+  cross-group global dedup is still per-group — two groups tagging the same
+  server double-post (operator-controlled: tag one channel per server).
+
 ## S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14, open)
 
 The configuration contract says `SECRETS_KEY` is required, with no plaintext
