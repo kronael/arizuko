@@ -9,9 +9,6 @@ standalone, reusable across other agent workloads beyond arizuko.
 
 | Spec                                                     | Status     | Hook                                                                                   |
 | -------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------- |
-| [b-ant-standalone.md](b-ant-standalone.md)               | draft      | ant as standalone Claude Code distribution; `ant <folder>` CLI                         |
-| [c-ant-mcp-runtime.md](c-ant-mcp-runtime.md)             | draft      | Go runtime: MCP front (stream-progress), claude NDJSON driver                          |
-| [d-ant-image-cutover.md](d-ant-image-cutover.md)         | draft      | `ant:latest` ENTRYPOINT swap to Go binary; soak protocol                               |
 | [6-workflows.md](6-workflows.md)                         | draft      | workflowd — TOML flow engine over shared SQLite; agent-agnostic                        |
 | [8-self-eval-skill.md](8-self-eval-skill.md)             | superseded | Same-model `query()` self-eval; superseded by [specs/10/1](../10/1-self-eval-haiku.md) |
 | [1-multi-agent-commits.md](1-multi-agent-commits.md)     | draft      | Committer script for multi-agent git safety (openclaw pattern)                         |
@@ -19,6 +16,11 @@ standalone, reusable across other agent workloads beyond arizuko.
 | [3-template-distillation.md](3-template-distillation.md) | draft      | Harvest live-group wisdom back into `ant/examples/<product>/`.                         |
 
 ---
+
+> **Dropped:** the standalone-ant trio (`13-b/c/d`) moved to
+> [`specs/dropped/`](../dropped/) — the Go rewrite is superseded by `6/4`
+> (scoped reimplement-in-Go) and `6/5` (ant = interface/template; the runner
+> is crackbox/dockbox). The standalone ant already ships in TS (`ant/ant`).
 
 ## Queue (from comparative research)
 

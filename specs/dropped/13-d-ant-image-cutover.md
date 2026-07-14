@@ -1,5 +1,5 @@
 ---
-status: draft
+status: dropped
 ---
 
 # Ant image cutover — replace TS with Go binary

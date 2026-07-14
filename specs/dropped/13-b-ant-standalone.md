@@ -1,5 +1,5 @@
 ---
-status: draft
+status: dropped
 ---
 
 # Ant — agent-as-a-folder

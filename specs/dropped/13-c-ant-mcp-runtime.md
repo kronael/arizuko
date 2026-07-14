@@ -1,5 +1,5 @@
 ---
-status: draft
+status: dropped
 ---
 
 # Ant runtime — MCP front, NDJSON claude driver
