@@ -14,7 +14,24 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.58.0] — 2026-07-14
+
+> arizuko v0.58.0 — links that carry context, chats that stay answered
+>
+> Chat links and webhooks can carry per-link handling instructions, "Connect GitHub" wires your own creds, and agents stop dying or forgetting mid-chat.
+>
+> • Chat-link & webhook context — per-link instructions the inbound is handled with (`<link-context>`).
+> • Same link, your identity — post as yourself when logged in, anonymous when not.
+> • Connect GitHub in the dashboard — OAuth writes and refreshes your token; no pasted PATs.
+> • Chats stay answered — agents no longer error out or forget the thread after a quiet spell.
+> • New product: Argus, an AWS SRE agent — each engineer can act with their own AWS keys.
+> • Typing stays on through long turns; per-group data mounts and the operator dashboard hardened.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
 ### Added
+
+- **aws-devops product (Argus).** An AWS SRE agent in your team's chat: read-before-write discipline, per-operator AWS keys via the secrets table (a user's BYOA keys shadow the team's folder fallback for the turns they trigger — CloudTrail names the human), default-deny egress with one `amazonaws.com` allowlist entry. `ant/examples/aws-devops/` + web pages; spec `specs/17/product-aws-devops.md`.
 
 - **Route-token link context (`<link-context>`).** A chat link / webhook URL now composes three orthogonal axes: routing (the token — shipped), identity (optional JWT overlay: same link posts as your real `sub` when logged in, `anon:<ip-hash>` when not — shipped), and NEW: context — optional issuer-authored instructions on how to process that link's inbound. `issue_chat_link` / `issue_webhook` (+ REST, dashd form, `arizuko token issue --context`) take an optional `context`; webd snapshots it onto each arriving message (`messages.link_context`) and routd renders it into the agent prompt as a `<link-context>` tag. Omitted → NULL → behavior unchanged. Spec `specs/5/W` § link context. (`91061a4e`, `904033e6`, `e0c876d9`)
 - **Per-daemon `audit_log` in `routd.db`.** routd's own mutation paths (acl / secrets / tasks) now write tx-bound audit rows into `routd.db`'s own `audit_log` (migration `0016-audit-log.sql`) via `audit.EmitInTx`, and proxyd / webd / dashd write there through a sibling `routd.db` handle. Retires the frozen pre-split `messages.db` as a live audit sink; in-tx rollback fixed so an audit-insert failure rolls the mutation back. (`19b2c383`, `67496732`)
@@ -47,6 +64,17 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 - **GB1 silent-failure causes.** The silent-no-reply class rooted out: a turn that delivers nothing now logs ERROR, notifies the chat, and counts `arizuko_silent_turns_total` (`d65e73c2`); dispatch to an unregistered (ghost) group is refused with a chat notice instead of a config-less spawn (`c9979e78`); `DeleteGroup` cascades routes + engagement so no ghost targets remain — group delete is the hard invariant, cascade best-effort (`836d3f88`, `a4c4a68d`); `send_file` failure returns 422 and persists no row instead of a silent 200 that re-sent the document captionless and fileless (`d347a0dc`); golangci-lint errcheck+nilerr config + `make lint-strict` gate the swallow class statically (`3aa59fd3`).
 - **compose: `ONBOARDING_ENABLED` reaches routd.** routd detects the route miss that fires chat-initiated onboarding; without the flag in its scoped env file the greeting + admission queue never fired. (`4b4d868c`)
 - **PRODUCT.md manifests dropped the non-existent `facts` skill.** `facts/` is a directory written by find + recall-memories, not a skill; `create --product` no longer lists it. (`a96630c0`)
+- **Chats stay answered — no more dying or forgetting after a quiet spell.** routd resumes one Claude Code session per chat, but the CLI's 30-day transcript retention pruned it out from under a long-quiet chat → "No conversation found" → the turn errored and the thread's context was dropped. Now the resume is skipped when the transcript is gone (start fresh silently, the error is never surfaced), and transcripts are kept effectively forever (`cleanupPeriodDays` pinned, since Claude Code has no true disable). (`c1779c71`, `fda067b2`, `af9bf7fa`)
+- **Typing indicator stays on through long turns.** The refresher's 10-minute backstop fired before a healthy long turn (~19.5m run cap) could finish, so the indicator vanished mid-work; raised to 20m + a regression guard proving typing clears on every non-delivery exit. (`de902517`, `a4775ead`)
+- **Per-group host mounts actually work.** `MOUNT_ALLOWED_ROOTS` was never plumbed through `arizuko generate`, so per-group data mounts (e.g. backtest datasets) were silently denied platform-wide; now carried into runed's env and surviving regen. (`022c8757`)
+- **ipc `writeJSON` marshal-error swallow now logged.** A `json.Marshal` failure dropped the tool result and left the caller to time out with no trace; it now logs ERROR. (`7464e306`)
+
+### Changed
+
+- **runed is fully DB-stateless (spec 5/P).** Dropped the in-memory admission FIFO; over-cap / folder-busy returns a retryable `busy` reject that routd requeues off the `spawns` table — one queue, owned by routd, no over-admit. (`04111d6f`, `64354707`)
+- **Phase-5 specs renumbered + split-consistent.** `5/5` retired (folded into `5/17-openapi-mcp`), phase-5 numeric gaps closed (`5/30`–`5/46` → `5/3`–`5/18`); `5/8-yaml-manifests` + `5/16` made honest to the split (per-owner-DB apply + `config_version`, single-source resource model). Docs-only. (`f7af8457`, `39e7a941`, `5d94fa57`)
+- **Docs repositioned to the platform bet.** Landing rewritten to the `5/A` grand-message order with a new lead — many specialized agents, one self-hosted platform (isolation that keeps memory, hand-offs through the org tree, `@folder` chat pinning) — plus a codex honesty pass (absolutes → shipped truth: SQLite state named next to folder state, crackbox conditional, git as possibility). slack-team gains the departments showcase; README lede matches. (`0dc9a49b`, `42e065c6`, `4e163126`)
+- **Platform specs pulled into 5/: HITL + portability.** `17/4` → `5/19-hitl-firewall`, collapsed per codex+fable review (one `pending_actions` resreg resource, injected `CheckHold` at the MCP choke point, no dispatcher — the agent re-issues one-shot by args-hash); `17/7` → `5/20-ant-portability` (sharable products as the plugin system). Socials-daemon direction stubbed (`specs/17/A`). Specs-only. (`6e9b0fb0`, `da5590de`, `a21b68c1`)
 
 ---
 
