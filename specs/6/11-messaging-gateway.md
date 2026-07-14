@@ -13,7 +13,7 @@ status: draft
 Draft / future. Extraction starts when a second consumer appears or
 when `gated/` (and its successor `routd`) outgrows its current
 envelope — same trigger as
-[A-orthogonal-components.md](A-orthogonal-components.md) §
+[7-orthogonal-components.md](7-orthogonal-components.md) §
 _messaging-gateway_. Today the routing mechanism lives inside
 `gated`, tangled with arizuko domain; this spec defines what comes out
 when the cut is made.
@@ -103,7 +103,7 @@ ones. The consumer owns rule ordering; the gateway owns evaluation.
 ## Public surface
 
 Three contracts, per
-[A-orthogonal-components.md](A-orthogonal-components.md) §7. Exact
+[7-orthogonal-components.md](7-orthogonal-components.md) §7. Exact
 subcommand and field names are the component's business; the shapes
 below are indicative.
 
@@ -139,7 +139,7 @@ messaging-gateway route list
 
 ## Layout
 
-The [A §_Layout pattern_](A-orthogonal-components.md) skeleton:
+The [A §_Layout pattern_](7-orthogonal-components.md) skeleton:
 
 ```
 messaging-gateway/
@@ -157,7 +157,7 @@ messaging-gateway/
 
 ## Orthogonality acceptance
 
-Per [A §_Acceptance_](A-orthogonal-components.md):
+Per [A §_Acceptance_](7-orthogonal-components.md):
 
 - The mechanical grep returns empty:
 

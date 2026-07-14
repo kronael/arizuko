@@ -79,7 +79,7 @@ run" idea lives here.)
   adopters; per-tool pitch for the dev who just wants egress control or a
   two-face API and will never run the whole thing.
 - **Per-tool front door.** crackbox already has one (`crackbox proxy serve`,
-  specs `12/9`·`12/15`). obs needs a 2-paragraph standalone README + a drop-in
+  specs `6/8`·`6/10`). obs needs a 2-paragraph standalone README + a drop-in
   example. resreg→`mcpfw` needs the decouple _before_ it can be presented as
   standalone.
 
@@ -109,5 +109,5 @@ run" idea lives here.)
 ## Ties
 
 `6/1` (adoption strategy) · `6/4` (fleet services) · `5/A` (four-layer stack —
-Components is a layer) · `12/9` (crackbox standalone) · `5/17` (resreg two-face
+Components is a layer) · `6/8` (crackbox standalone) · `5/17` (resreg two-face
 → `mcpfw`) · `obs/` · `CLAUDE.md` (shippable siblings + import-graph rule).

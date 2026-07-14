@@ -89,7 +89,7 @@ sidecar/ whisper-cpp container; routd calls Whisper for inbound
 crackbox/ optional egress-isolation proxy + KVM sandbox library; pulled
         in when CRACKBOX_ADMIN_API set (see "Compose Containers" below).
         Wired to runed (the execution plane) only. Shippable separately;
-        specs/12/A-orthogonal-components.md
+        specs/6/7-orthogonal-components.md
 anteval/  agent-capability gate: a black-box prober that runs real tasks
         through the public surfaces (REST/HTTP/MCP + a callback sink) against
         a LIVE instance and grades observable effects, not prose. Zero
@@ -318,7 +318,7 @@ Durable rules the package layout obeys.
   `types`): imported, never run. Utility packages follow Go convention
   (`httputil/`, not `http_utils/`). One Go module
   (`github.com/kronael/arizuko`); sibling shippable components stay
-  inside it (`specs/12/A-orthogonal-components.md`).
+  inside it (`specs/6/7-orthogonal-components.md`).
 
 - **DAG library layering.** Libraries form a directed acyclic graph;
   downward imports only, no cycles, no library importing a daemon.
@@ -713,7 +713,7 @@ onbod auto-included when `ONBOARDING_ENABLED=true`. All Go daemons
 listen on :8080 internally except ttsd at :8880 — historical default
 that predates the invariant.
 
-`crackbox` (sibling component, see `specs/12/A-orthogonal-components.md`)
+`crackbox` (sibling component, see `specs/6/7-orthogonal-components.md`)
 is emitted when `CRACKBOX_ADMIN_API` is set. Per-folder agent networks
 are created at runtime by `runed`, which attaches crackbox to each via
 `docker network connect`; crackbox stays on the compose default bridge

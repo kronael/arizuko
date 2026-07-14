@@ -37,9 +37,9 @@ closes for every harness in the fleet.
 | Service                   | arizuko component                                                                     | Hermes gap it closes                                                                     | wrap mechanism                                                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Keys / secrets**        | SECRETS_KEY folder-scoped encryption + **host-boundary credential injection** (`8/Z`) | keys stored plaintext in `~/.hermes/.env`, `auth.json`, `mcp-tokens/*` (chmod 0600 only) | secret substituted at the host proxy; the harness runtime never sees the value. **This is the phase-6 lead item** (triple convergence, `6/2` §1) |
-| **Egress / network**      | **crackbox** per-folder default-deny allowlist + DNS filter (`12/9`)                  | one global SSRF blocklist; no per-tenant/per-skill egress                                | the harness's container dials crackbox; egress inherits down the folder tree                                                                     |
+| **Egress / network**      | **crackbox** per-folder default-deny allowlist + DNS filter (`6/8`)                   | one global SSRF blocklist; no per-tenant/per-skill egress                                | the harness's container dials crackbox; egress inherits down the folder tree                                                                     |
 | **Identity / authz**      | folder-containment + grant DSL `[!]action(param=glob)`                                | binary admin-vs-user over slash commands; single shared API bearer                       | injected authz Gate binds every action to the caller's folder (`5/17`)                                                                           |
-| **Tenant isolation**      | ephemeral per-group container / KVM (`crackbox pkg/host`, `12/9`)                     | one long-lived shared container per profile; users share its filesystem                  | a fresh container per turn per folder; nothing leaks between tenants                                                                             |
+| **Tenant isolation**      | ephemeral per-group container / KVM (`crackbox pkg/host`, `6/8`)                      | one long-lived shared container per profile; users share its filesystem                  | a fresh container per turn per folder; nothing leaks between tenants                                                                             |
 | **Cost / budget**         | per-tenant spend gate — `store/cost_log.go` (`SpendTodayFolder/User`)                 | per-session `/usage` only; no caps, no cross-tenant aggregation                          | every harness call logs (folder, user, cents); the gate caps the tenant                                                                          |
 | **Audit / observability** | `audit_log` + `obs/` (journald + OTLP, turn-scoped TraceIDs)                          | plaintext `gateway.log`; no metrics/tracing/structured audit                             | every turn lands on the tenant's audit trail                                                                                                     |
 | **Routing / web**         | routing DSL (`#observe`/`#announce`/topics) + `/pub` `/priv` + WebDAV                 | home-channel delivery resolver; no daemon-served web                                     | routes replace home-channel logic; the tenant gets a web presence                                                                                |
@@ -53,7 +53,7 @@ Not a fork of Hermes — a per-capability choice.
    Fastest; Hermes stays upstream and keeps its model breadth + skill ecosystem.
 2. **Reimplement in Go** — the agentic reimplementation loop (`6/1`). Port
    Hermes's _valuable orthogonal mechanisms_ into arizuko's native Go runed
-   harness rather than the whole process: the self-learning loop (`12/7`),
+   harness rather than the whole process: the self-learning loop (`6/14`),
    skill authoring-from-experience, cost-source provenance (from Hermes's
    `usage_pricing.CostStatus`/`CostSource`). Deeper, single-stack, no Python
    process. **"Rewrite it in Go" = this path, scoped to mechanisms.** Port the
@@ -72,7 +72,7 @@ wrap/enhance/hold pass over each primitive feeds `6/2` (incorporate vs beat).
   layer; arizuko curates a repo, it does not run a market.
 - **Model-agnosticism.** Hermes owns provider breadth (200+ models, live
   `/model` switch); arizuko is Claude-native by choice. Hold.
-- **The self-learning background thread.** Graft the mechanism (`12/7`) as a
+- **The self-learning background thread.** Graft the mechanism (`6/14`) as a
   post-turn hook writing to the group's persistent `~/.claude`; do not import
   Hermes's long-running review daemon (incompatible with ephemeral-per-turn).
 
@@ -108,13 +108,13 @@ Detail in `.refs/hermes-layers-service-recording-cost.md`. Summary:
   unmodified (run-as-is path).
 - Ship the secrets broker / host-boundary injection (`8/Z`) — the lead item.
 - Package **crackbox as the standalone egress+sandbox service** the fleet dials
-  (`12/9`) — the single highest-leverage move.
-- Scope the Go reimplementation: which mechanism first — self-learning (`12/7`)
+  (`6/8`) — the single highest-leverage move.
+- Scope the Go reimplementation: which mechanism first — self-learning (`6/14`)
   or cost provenance?
 
 ## Ties
 
 `6/1` (interop strategy) · `6/2` (target matrix — secrets is §1) · `6/3` ·
 `5/A` (positioning) · `5/17` (resreg two-face) · `8/Z` (host-boundary secrets) ·
-`12/9` (crackbox) · `12/7` (self-learning) · `7/11` (adapter contract) ·
+`6/8` (crackbox) · `6/14` (self-learning) · `7/11` (adapter contract) ·
 `store/cost_log.go` · `.refs/` (raw corpus).

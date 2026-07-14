@@ -206,6 +206,6 @@ the sandbox backends (`pkg/host` is empty), the MCP server mode
 
 ## Relation to other specs
 
-- [../12/12-crackbox-sandboxing.md](../12/12-crackbox-sandboxing.md) —
+- [../6/9-crackbox-sandboxing.md](../6/9-crackbox-sandboxing.md) —
   ant's `--sandbox=crackbox` backend depends on `crackbox/pkg/host`
   being stable

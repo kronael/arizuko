@@ -90,7 +90,7 @@ the lead item of phase 6.** centaur's iron-proxy (below) is the fourth witness.
 
 - **hermes** — `skills_guard.py` (932 LOC regex ladder: exfiltration, injection,
   destructive, persistence, supply-chain, secrets, invisible-unicode → safe/
-  caution/dangerous). Already tracked in memory + spec'd at `specs/12/8-skill-guard.md`.
+  caution/dangerous). Already tracked in memory + spec'd at `specs/6/15-skill-guard.md`.
   **Verify it is actually wired, not just cited.**
 
 ### 8. Lower-priority patterns (specify, don't depend on the source)
@@ -166,5 +166,5 @@ shared process.
 ## Ties
 
 `1-adoption-interop.md` (the strategy) · `USELESS.md` (the gaps this closes) ·
-`specs/8/Z-egred-mitm.md` · `specs/12/7-self-learning.md` (the loop) ·
-`specs/12/8-skill-guard.md` · the Agent Research Hub (source of truth).
+`specs/8/Z-egred-mitm.md` · `specs/6/14-self-learning.md` (the loop) ·
+`specs/6/15-skill-guard.md` · the Agent Research Hub (source of truth).

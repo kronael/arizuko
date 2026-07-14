@@ -9,7 +9,7 @@ do it with its own MCP tools, and asserts an **externally observable effect** â€
 an HTTP status, a callback the agent's artifact made, or a message visible via
 REST/MCP â€” never the agent's prose, never the instance's internal state. Zero
 arizuko-internal imports: a black-box client over the same surfaces a human or
-external tool uses (sibling component, `specs/12/A`).
+external tool uses (sibling component, `specs/6/7`).
 
 ## Run
 

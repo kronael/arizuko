@@ -10,7 +10,7 @@ aka: antbox
 > egred egress-proxy daemon shipped alongside it. Not a daemon
 > itself. Imported directly by `gated` via a Backend interface
 > (Docker today, crackbox/pkg/host/ next). Sandd extraction
-> ([10/c](c-sandd.md)) deferred.
+> ([10/c](13-sandd.md)) deferred.
 
 ## Status
 
@@ -184,7 +184,7 @@ v2.
 
 ## Out of scope for this spec
 
-- The pool of resident VMs (lives in [`sandd`](c-sandd.md))
+- The pool of resident VMs (lives in [`sandd`](13-sandd.md))
 - Crackbox-specific operator CLI beyond `crackbox run --kvm`
 - Cluster / multi-host VM placement
 - VM live-migration
@@ -196,7 +196,7 @@ v2.
 - `sandd` with `SAND_BACKEND=crackbox` spawns agents in VMs that
   reach `api.anthropic.com` but get 403 on anything else.
 - `pkg/host/` has zero arizuko-internal imports. Same orthogonality
-  test as [11/A](A-orthogonal-components.md).
+  test as [11/A](7-orthogonal-components.md).
 - External-egred mode: pre-run `egred` as a separate container; `pkg/host/`
   detects it via `EGRED_ADMIN` env and skips the auto-spawn.
 
@@ -211,9 +211,9 @@ downstream specs or deferred to later passes:
 - **MCP across VM boundary** — `gated.sock` is a unix socket on the
   host; the agent inside the VM must reach it over socat/TCP via
   virtio-vsock or 9p. Decision and implementation deferred to
-  [8/c — sandd](c-sandd.md) (phase 8).
+  [8/c — sandd](13-sandd.md) (phase 8).
 - **Resident-VM pool** — warm VMs across many agent runs, eviction
-  policy. Pool management lives in [`sandd`](c-sandd.md), not in
+  policy. Pool management lives in [`sandd`](13-sandd.md), not in
   `pkg/host/`. Deferred to phase 8.
 - **egred auto-spawn from `pkg/host/`** — the initial port treats
   `EgressProxy` as caller-provided; if empty, no proxy is configured.
@@ -223,9 +223,9 @@ downstream specs or deferred to later passes:
   Specified in [`5/13`](../5/13-ext-mcp.md); not yet implemented.
 - **`gated` Docker→KVM backend switch** — `gated` currently uses the
   Docker backend. Switching to `crackbox/pkg/host/` as its backend
-  is tracked under [8/c — sandd](c-sandd.md) (phase 8). Today's shipped
+  is tracked under [8/c — sandd](13-sandd.md) (phase 8). Today's shipped
   arizuko consumer (one shared egred per instance, per-spawn
   register/unregister with the resolved allowlist) is described in
-  [`9-crackbox-standalone`](9-crackbox-standalone.md) and
+  [`8-crackbox-standalone`](8-crackbox-standalone.md) and
   [`SECURITY.md`](../../SECURITY.md); the per-spawn execution path is
   [`specs/5/P-runed.md`](../5/P-runed.md).

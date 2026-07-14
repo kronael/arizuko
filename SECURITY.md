@@ -103,7 +103,7 @@ per-face predicate (`0d25b687`).
 | Secret injection    | Operator anchors (`ANTHROPIC_API_KEY`/`CLAUDE_CODE_OAUTH_TOKEN`) plus routd-resolved folder secrets reach container env; for a web-chat trigger the sender's user-scoped (BYOA) keys also resolve and override the folder keys for that spawn. Tool-call-time broker shipped (v0.57.0; `specs/5/13-ext-mcp.md`, `specs/5/14-credentials.md`). | `routd/dispatch.go` (`FolderSecretsForUser`), `container/runner.go` (`mergeSecrets`)              |
 | Onboarding rate cap | Per-gate daily limit from `onboarding_gates` table                                                                                                                                                                                                                                                                                            | `onbod/main.go` (`admitFromQueue`)                                                                |
 | Network egress      | Default-deny; per-folder allowlist enforced by forward proxy                                                                                                                                                                                                                                                                                  | `crackbox/`, `store/network.go`, `container/egress.go`                                            |
-| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                                                                                                                               | `crackbox/pkg/dns/`, `specs/12/15-crackbox-dns-filter.md`                                         |
+| DNS filter          | UDP/53 listener returns NXDOMAIN for non-allowlisted hostnames; REFUSED for ANY                                                                                                                                                                                                                                                               | `crackbox/pkg/dns/`, `specs/6/10-crackbox-dns-filter.md`                                          |
 
 Anything not in this table is not a security boundary. In particular:
 socket filesystem permissions alone do not separate containers, and
@@ -231,13 +231,13 @@ Caveats:
 - IPv6 is not redirected by the entrypoint script.
 
 **DNS filter** (`crackbox/pkg/dns/`,
-`specs/12/15-crackbox-dns-filter.md`). The crackbox-side UDP/53
+`specs/6/10-crackbox-dns-filter.md`). The crackbox-side UDP/53
 listener is shipped: runed allowlisted hostnames forward to the
 upstream resolver; denied hostnames return NXDOMAIN; `QTYPE=ANY`
 returns REFUSED; malformed/multi-question packets drop silently.
 **Pending:** arizuko-side wiring (passing `--dns <crackbox-ip>` from
 `container.Run` to `docker create`) under
-`specs/12/15-crackbox-dns-filter.md`; today agent containers still use
+`specs/6/10-crackbox-dns-filter.md`; today agent containers still use
 the default Docker resolver, so the DNS path is additive defense
 rather than the primary gate. The HTTP/CONNECT 403 in
 `crackbox/pkg/proxy/` remains the enforced path.

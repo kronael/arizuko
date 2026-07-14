@@ -11,7 +11,7 @@ status: draft
 ## Status
 
 Draft / future. No consumer wired yet. Cataloged in
-[A-orthogonal-components.md](A-orthogonal-components.md) §
+[7-orthogonal-components.md](7-orthogonal-components.md) §
 _mcp-firewall_; this spec expands that stub. The gated split shipped
 (`routd` + `runed` — see [`specs/5/E-routd.md`](../5/E-routd.md),
 [`P-runed.md`](../5/P-runed.md)); this lands when per-folder tool gating
@@ -38,7 +38,7 @@ _behind_ the firewall; the agent's MCP traffic flows
 agent → firewall → `mcpd`.
 
 This is a different layer from
-[8-skill-guard.md](8-skill-guard.md): skill-guard is a PreToolUse hook
+[15-skill-guard.md](15-skill-guard.md): skill-guard is a PreToolUse hook
 that scans the _content_ of agent-written skill files for threat
 patterns before they land on disk. mcp-firewall filters _JSON-RPC
 tool calls_ on the wire. Skill-guard answers "is this skill file
@@ -98,14 +98,14 @@ Deny-wins + default-deny (not first-match) because this _is_ a
 permission gate: the safe failure is "refuse", and a later broad
 `allow: *` must never silently re-open a tool an earlier rule denied.
 This is the opposite choice from
-[messaging-gateway](16-messaging-gateway.md)'s first-match route
+[messaging-gateway](11-messaging-gateway.md)'s first-match route
 table, and deliberately so — routing is positive selection, gating is
 negative authority.
 
 ## Public surface
 
 Three contracts, per
-[A-orthogonal-components.md](A-orthogonal-components.md) §7.
+[7-orthogonal-components.md](7-orthogonal-components.md) §7.
 
 **CLI** — primary surface, no arizuko process needed:
 
@@ -135,7 +135,7 @@ matching the transport the client uses.
 
 ## Layout
 
-The [A §_Layout pattern_](A-orthogonal-components.md) skeleton:
+The [A §_Layout pattern_](7-orthogonal-components.md) skeleton:
 
 ```
 mcp-firewall/
@@ -153,7 +153,7 @@ mcp-firewall/
 
 ## Orthogonality acceptance
 
-Per [A §_Acceptance_](A-orthogonal-components.md):
+Per [A §_Acceptance_](7-orthogonal-components.md):
 
 - The mechanical grep returns empty:
 
@@ -209,7 +209,7 @@ against a flat rule list and forward or refuse the JSON-RPC call_.
 - Tool-argument inspection or payload scanning (a denied tool is denied
   by name; argument-level policy is a separate concern, not this gate).
 - Skill-file content scanning — that is
-  [8-skill-guard.md](8-skill-guard.md)'s PreToolUse hook, a different
+  [15-skill-guard.md](15-skill-guard.md)'s PreToolUse hook, a different
   layer.
 - Auth of the admin API — arizuko's `proxyd` + `authd` front it when
   deployed inside arizuko; standalone, the admin endpoint trusts its

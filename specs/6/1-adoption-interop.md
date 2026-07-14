@@ -78,7 +78,7 @@ A scheduled loop (`timed` → a folder-agent), one system at a time:
 
 This reuses machinery that already exists: the Hub's monthly code-analysis
 protocol, worktree-isolated subagents, the migrate/broadcast delivery path. The
-loop is the same shape arizuko already runs on itself (`specs/12/7` self-learning);
+loop is the same shape arizuko already runs on itself (`specs/6/14` self-learning);
 here it points outward.
 
 ## Non-goals / honest risks
@@ -99,5 +99,5 @@ here it points outward.
 ## Ties
 
 `specs/5/A` (positioning) · `USELESS.md` (honest gaps this closes) · the Agent
-Research Hub (source of truth on targets) · `specs/12/7` self-learning (the loop,
+Research Hub (source of truth on targets) · `specs/6/14` self-learning (the loop,
 turned outward) · runtime pluralism in runed.

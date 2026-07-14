@@ -25,8 +25,8 @@ own?"
 ### egred — forward + transparent proxy with per-source allowlist
 
 (Egred is the proxy daemon shipped under the
-[crackbox component](../12/12-crackbox-sandboxing.md). The crackbox
-component also bundles a planned [`pkg/host/`](../12/12-crackbox-sandboxing.md)
+[crackbox component](../6/9-crackbox-sandboxing.md). The crackbox
+component also bundles a planned [`pkg/host/`](../6/9-crackbox-sandboxing.md)
 KVM library, evaluated separately under "container orchestration"
 below.)
 

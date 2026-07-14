@@ -205,7 +205,7 @@ unconditionally would WIDEN visibility (lower tiers seeing tools they
 never had), so agent-tool registration stays driven by the socket's rule
 filter (or a `visible(name)` predicate) — never by resreg policy. This is
 orthogonal to the injected authorization gate above and to the per-call
-firewall of [`12/17`](../12/17-mcp-firewall.md).
+firewall of [`6/12`](../6/12-mcp-firewall.md).
 
 ## One owner per table; in-process handler vs cross-daemon forwarder
 
@@ -305,7 +305,7 @@ High-rate side effect of normal operation → not.
   declarative YAML** you `export`/`apply` (config-as-data). A different
   front on the same tables; the row-level CRUD engine underneath both is
   shared plumbing, not a concept named here.
-- [`12/17-mcp-firewall.md`](../12/17-mcp-firewall.md) — per-call
+- [`6/12-mcp-firewall.md`](../6/12-mcp-firewall.md) — per-call
   allow/deny **filtering** between agent and MCP server. Gates the
   agent's MCP surface — both the hot-tier tools and the derived
   cold-tier ones; orthogonal to the injected authorization gate here and

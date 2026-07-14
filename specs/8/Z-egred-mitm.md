@@ -585,9 +585,9 @@ Rust binaries.
 - [`specs/5/13-ext-mcp.md`](../5/13-ext-mcp.md) — the preferred
   path for tool-mediated secrets. This spec is the safety net for what
   Y doesn't cover.
-- [`specs/12/12-crackbox-sandboxing.md`](../12/12-crackbox-sandboxing.md) —
+- [`specs/6/9-crackbox-sandboxing.md`](../6/9-crackbox-sandboxing.md) —
   arizuko's per-folder allowlist consumer + gated egress backend, which
   registers the per-source allowlist this spec extends.
-- [`specs/12/9-crackbox-standalone.md`](../12/9-crackbox-standalone.md) —
+- [`specs/6/8-crackbox-standalone.md`](../6/8-crackbox-standalone.md) —
   crackbox's standalone shape (admin API at `:3129`); MITM rides the
   same surface.

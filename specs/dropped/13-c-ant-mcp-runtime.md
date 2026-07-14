@@ -366,6 +366,6 @@ gated MCP socket, the gateway, and every consumer above stays.
 - [../12/](../12/) — `mcp-fw` / standalone hardening. The MCP server
   here is the same protocol; reuse any shared MCP client/server
   helpers if they land first.
-- [../12/12-crackbox-sandboxing.md](../12/12-crackbox-sandboxing.md) —
+- [../6/9-crackbox-sandboxing.md](../6/9-crackbox-sandboxing.md) —
   `--sandbox=crackbox` consumes this runtime's CLI surface; no
   protocol-level coupling.

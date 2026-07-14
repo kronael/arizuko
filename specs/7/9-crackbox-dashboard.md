@@ -31,7 +31,7 @@ workloads and their allowlists, and what got blocked.
   service → no `[[proxyd_route]]` entry → no hub tile (the route entry
   IS the registration, `7/1`).
 - **Planned, out of scope here**: the KVM host half (`pkg/host/`,
-  specs/12/12) — nothing to dashboard yet.
+  specs/6/9) — nothing to dashboard yet.
 - **Proposed by this spec**: everything under Pages, plus the
   `/v1/denials` read model and one proxyd route field.
 
