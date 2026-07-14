@@ -42,6 +42,8 @@
       <p class="lede">
         One agent in a Slack channel, with channel-scoped persona and thread
         context but per-teammate memory, grants, and a full web workspace.
+        Scale it up and it becomes a tree of them: each department shapes its
+        own agent, and the agents hand work along the tree.
       </p>
 
       <h2>what you get</h2>
@@ -122,6 +124,42 @@
           preserving local edits.
         </li>
       </ul>
+
+      <h2>departments: one workspace, many agents</h2>
+      <p>
+        The single-channel setup generalizes to a whole org without new
+        machinery. Folders nest &mdash; <code>acme/eng</code>,
+        <code>acme/sales</code>, <code>acme/support</code> &mdash; and each
+        Slack channel routes to its department&rsquo;s folder. Every
+        department then shapes its own agent: its own persona, its own
+        skills, its own knowledge, edited by the people who own that lane.
+        Eng tunes eng&rsquo;s agent; sales never notices.
+      </p>
+      <p>
+        The agents still reach each other &mdash; through the tree, not a
+        free-for-all. A department agent that gets a question outside its
+        lane escalates to the parent; the parent can delegate specialist
+        work down to another child. Both hops are permission-checked and
+        depth-capped, and the answer comes back in the chat where the
+        question was asked.
+      </p>
+      <pre><code>#sales &middot; routed to acme/sales
+
+  dana   @bot can we promise SSO for the Klein deal by Q3?
+  bot    Outside my lane &mdash; asking up the tree.
+         [sales escalates to acme; acme delegates to acme/eng]
+  bot    From eng: OIDC lands mid-Q3, SAML is still in review.
+         Safe to promise OIDC-based SSO; caveat SAML.
+</code></pre>
+      <p>
+        People move as freely as the work does: type <code>@eng</code> in
+        any chat and it now talks to the eng agent; type
+        <code>@sales</code> and you&rsquo;re back. Same thread surface,
+        different specialist. Isolation stays structural throughout &mdash;
+        each department&rsquo;s files, memory, and secrets live in its own
+        folder, and a compromised or misbehaving agent in one folder reaches
+        nothing in another.
+      </p>
 
       <h2>example: shared thread, user-scoped state</h2>
       <pre><code>#eng-support &middot; thread

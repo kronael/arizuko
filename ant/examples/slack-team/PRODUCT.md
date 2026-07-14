@@ -14,6 +14,12 @@ skills  = ["diary", "recall-memories", "users", "issues", "web", "dispatch", "re
 # 5. Invite the bot to a channel. mcpc add_route to scope per-channel
 #    behavior (mention-only triggers + observe catch-all). See setup.html
 #    step 9 + the autoviv concept.
+# 6. Departments (optional): register each department channel as its own
+#    sub-group (register_group folder=<world>/eng jid=<channel-jid>) —
+#    each department shapes its own agent (persona, skills, facts) in its
+#    own folder; agents hand work along the tree (escalate_group up,
+#    delegate_group down); users switch agents with a bare @eng / @sales.
+#    Isolation is per-folder: memory, secrets, egress never cross.
 
 [[env]]
 key      = "SLACK_BOT_TOKEN"
