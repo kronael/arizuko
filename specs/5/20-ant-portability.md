@@ -5,16 +5,26 @@ rewritten: 2026-07-14
 depends: [8-yaml-manifests]
 ---
 
-# specs/5/20 — portable agents: export/apply, pg_dump-style
+# specs/5/20 — portable agents: state transport + package manager
 
 How an agent (folder + its arizuko rows) moves between instances and how
-shared products are distributed. Rewritten 2026-07-14: a codex audit
-(`.ship/codex-portability.log`) found the prior draft built parallel
-machinery for four shipped contracts, and the user then set the model:
-**behave like `pg_dump` — one export/apply pair; flags decide meta-only
-vs with-data; the format follows the content.**
+shared products/skills are distributed. Rewritten 2026-07-14 (codex audit
+in `.ship/codex-portability.log`, then user direction): **two mechanisms,
+deliberately, because state and software are different concerns.**
 
-## The model
+1. **State transport — pg_dump-style.** `arizuko export/apply`; flags
+   decide meta-only vs with-data; format follows content. For backups
+   and instance-to-instance moves. No source resolution, no merging.
+2. **Packages — uv-style.** Products and skills are _packages_: a
+   per-group manifest + lockfile + sources, immutable installs,
+   clean-replace updates, migrations shipped inside the package. For
+   distribution and updates. No state inside.
+
+They meet only at one point: a backup naturally contains the manifest +
+lockfile, so a restored agent is reproducible — `pkg sync` reinstalls
+byte-identical packages from the lock.
+
+## Mechanism 1 — state transport (export/apply)
 
 `pg_dump` gives you the same tool for a schema-only dump and a full one;
 the flag chooses. arizuko's twin:
@@ -93,35 +103,81 @@ archive (or bare yml) fetched from a repo — publishable anywhere git
 reaches. No registry, no `claude-plugin:` scheme until a stable plugin
 API exists.
 
-## Incremental updates — templates + skills from a source
+## Mechanism 2 — skill packages (uv-style) + products as templates
 
-Full import is not the only flow: an installed third-party template or
-skill must be updatable in place. The shipped `/migrate` merge only
-covers stock content (`/opt/arizuko/ant/`); source-installed content
-would otherwise freeze at install (custom = never touched). The fix
-reuses the same machinery — no lockfile, no hashes:
+Naming, resolved: **a product is a template; a skill is a package**
+("plugin" is the ecosystem word for the same thing). The distinction is
+what updates:
 
-- **Provenance, not merge state.** `~/.claude/sources.toml` per group
-  maps a path prefix to `{source, rev}` — e.g. `skills/kb-search` →
-  `git+https://…@<sha>#kb-search`. Pure inventory; the merge base (the
-  bytes) stays in `.claude/.merge-base/` exactly like stock content.
-- **Install** (`arizuko skill add <inst> <folder> <source>`, or arriving
-  via a product import): copy files, snapshot them into `.merge-base/`,
-  record `{source, rev}`.
-- **Update** (`arizuko skill update <inst> [--folder …] [--dry-run]`):
-  for each sourced prefix, fetch source at its ref's current tip →
-  `theirs`; `.merge-base/` → `base`; live file → `ours`; the identical
-  3-way merge `/migrate` runs (operator edits survive; both-changed →
-  conflict markers, surfaced). On success refresh `.merge-base/` + `rev`.
-  Rollback is just `update` pinned to an older rev (`--to <ref>`).
-- **Templates the same way**: a product's PERSONA.md/CLAUDE.md installed
-  from a source get a `sources.toml` entry and update through the same
-  path. Stock skills are untouched by this — they keep the
-  `MIGRATION_VERSION` trigger; a prefix is owned by exactly one of
-  {stock, sourced, local} and the two update paths never overlap.
+- **Product = template, instantiated once.** Persona + seed facts +
+  skill list + `[[env]]` checklist (`PRODUCT.md`, shipped). At
+  `arizuko create --product <name-or-source>` its files are copied into
+  the group (`SetupGroup`) and from that moment they are the group's own
+  STATE — operator-owned (PERSONA.md is canonical operator truth), never
+  updated from upstream. New template versions benefit new groups.
+  Sources: bundled `ant/examples/<name>` or
+  `git+https://…#<subdir>` — anyone hosts products on their GitHub.
+- **Skill = package, managed and updatable.** The ONLY managed surface.
+  Precedent is shipped: the platform's own migrations live inside a
+  skill (`ant/skills/self/migrations/`).
 
-No fleet add/remove/rollback/remap verb zoo beyond this pair; `--groups`
-globbing can come later if operating many groups demands it.
+Per group:
+
+- **Manifest — `~/skills.toml`**: `[[skill]] name/source` entries,
+  human- or `skill add`-written.
+- **Lock — `~/skills.lock`**: resolved immutable rev + sha256 tree hash
+  - last-applied migration number per skill. `sync` installs exactly
+    this; the hash is the trust anchor, the URI a hint.
+- **Immutable installs.** Never edited in place; update = clean replace
+  at the new rev. No merge, hence no merge state — this is what makes
+  the lockfile legitimate where the old draft's failed. Customization
+  lives in the overlay arizuko already has: `~/CLAUDE.md`, `PERSONA.md`,
+  custom skills, `.disabled`. Deep changes = fork and repoint the
+  manifest; a forked skill stops tracking upstream, deliberately.
+- **Migrations ride the package.** `migrations/NNN-*.md`, the platform's
+  own convention; `skill update` replaces the tree, then enqueues a turn
+  where the agent executes files above the lock's mark, in order, and
+  the lock records the new mark. A skill may seed/transform ITS OWN data
+  this way (e.g. create `~/facts/<x>.md` if missing); identity files
+  stay template-seeded — deterministic copy beats agent-executed
+  seeding for persona-class files.
+- **Verbs**: `arizuko skill add <inst> <folder> <source>`,
+  `skill update [<name>] [--to <ref>] [--dry-run]` (rollback = older
+  `--to`), `skill sync`, `skill list`. Host CLI fetches; containers need
+  no egress for package management.
+
+**Extension surface — how much a package may modify arizuko: agent-space
+only.** A skill adds prompt capability + scripts that run inside the
+container as the agent, bounded by the same grants, egress allowlist,
+and mounts as any agent action. It may self-register an in-container MCP
+server (the shipped `loadAgentMcpServers` path, `ant/src/mcp-servers.ts`).
+It can NOT touch daemons, routes, grants, host `connectors.toml`, or
+platform settings keys — `seedSettings` rewrites those authoritatively
+every spawn (`container/runner.go:850`), so the boundary is enforced by
+construction. The platform is not package-modifiable; wiring stays
+operator-only.
+
+**Boundary with the shipped stock mechanism**: stock skills
+(`/opt/arizuko/ant/`) keep `MIGRATION_VERSION` + `.merge-base/` — the
+ONLY place 3-way merging exists. A path is owned by exactly one of
+{stock, package, local}; the mechanisms never overlap on a file.
+(Later, stock could itself become the platform package — a possibility,
+not v1.)
+
+**Merge moves to the harness (user-directed 2026-07-14, changes the
+shipped path).** Today the `/migrate` skill performs the whole 3-way
+walk agent-side. That inverts: the **harness** does the mechanical merge
+in deterministic code — a small, isolated Go lib run at seed/spawn time
+(where `seedSkills` already walks these files with `.merge-base` at
+hand): new-upstream → copy, only-ours → keep, both-changed → write
+conflict markers + record the file. The agent's `/migrate` shrinks to
+**conflict resolution only** — a turn triggered when conflicts exist,
+presented the marked files. Judgment stays with the agent; mechanics
+leave it. Constraint: the merge lib stays minimal and isolated (no
+growth into a package manager — packaging is the CLI's job above), so
+code owns the deterministic 90% without blowing up. Migration
+instruction files (`migrations/NNN-*.md`) remain agent-executed — they
+are instructions by design.
 
 ## Blockers (tracked in BUGS.md)
 
