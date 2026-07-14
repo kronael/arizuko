@@ -3,7 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>arizuko — shape AI agents in plain language, self-hosted, you own them</title>
+    <meta
+      name="description"
+      content="Self-hosted platform for many specialized agents. Each agent is a folder; you shape it in plain language; you own every change as files on your own server."
+    />
+    <title>arizuko — many specialized agents, one self-hosted platform</title>
     <link rel="stylesheet" href="assets/hub.css" />
     <style>
       .prose p {
@@ -18,23 +22,26 @@
       .prose pre {
         margin: 0.6em 0;
       }
+      .prose .grid {
+        margin: 0.8em 0;
+      }
       .lede {
         font-size: 1.05em;
         color: var(--fg);
         margin: 0.4em 0 1em;
       }
-      .deploy-table {
+      .layer-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 0.9em;
         margin: 0.8em 0;
       }
-      .deploy-table th, .deploy-table td {
+      .layer-table th, .layer-table td {
         text-align: left;
         padding: 0.4em 0.7em;
         border-bottom: 1px solid var(--border, #333);
       }
-      .deploy-table th {
+      .layer-table th {
         color: var(--dim, #888);
         font-weight: normal;
       }
@@ -44,66 +51,105 @@
     <div class="hub-container prose">
       <h1>arizuko</h1>
       <p class="lede">
-        Shape an agent system by talking to it. You say what you want; an LLM
-        edits the files that <em>are</em> the system &mdash; persona, memory,
-        skills, routing, even an operational fix. The conversation is the
-        console; there&rsquo;s no separate config screen.
+        arizuko hosts many specialized agents on one platform &mdash; each a
+        folder with its own persona, skills, and memory, each shaped by
+        talking to it. You say what you want; an LLM edits the files that
+        <em>are</em> the agent. The conversation is the console.
       </p>
       <p>
-        What keeps that safe is the daemon structure. Each part runs in its own
-        compartment &mdash; <code>routd</code> routes and authorizes,
-        <code>runed</code> runs the agent, <code>authd</code> issues identity and
-        tokens &mdash; behind hard walls: folder scoping, a permission gate on
-        every action, a fresh container per turn. So shaping by language stays inside the permissions you set; it
-        never becomes a black box you can&rsquo;t audit.
+        Small daemons keep that bounded: <code>routd</code> routes and
+        authorizes, <code>runed</code> runs each turn in a fresh container,
+        <code>authd</code> issues identity &mdash; hard walls around what
+        language can reshape. And every change lands as plain files on your
+        own server: diff them, tar the directory for a complete backup, put
+        them under git if you want history. Language shapes it; compartments
+        bound it; ownership makes it permanent.
       </p>
-      <p>
-        These are daemons: small programs that run in the background all the
-        time &mdash; the trailing &ldquo;d&rdquo; is the naming convention.
+      <p class="dim">
+        (Daemons: small programs that run in the background all the time
+        &mdash; the trailing &ldquo;d&rdquo; is the naming convention.)
       </p>
+      <pre><code># pick a product, make it yours
+arizuko create demo --product slack-team
+$EDITOR /srv/data/arizuko_demo/.env    # paste the tokens the checklist asks for
+arizuko run demo                       # compose up; @mention the bot in a channel</code></pre>
       <p>
-        And every change lands as files you own. The config is text you can
-        diff, review in a PR, and roll back with <code>git revert</code>, on
-        your own server. Language makes it easy to shape; the compartments keep
-        it bounded; ownership makes it permanent.
-      </p>
-      <p>
-        What you build this way is products you own &mdash; a Slack team agent,
-        a personal life agent, a company brain. Each is a folder of files:
-        persona, memory, skills, permissions. The same fixed pipeline runs all
-        of them; only the folder and the routing change. Not a chatbot you rent,
-        and not an opaque SaaS agent you tune through a text box.
+        <a href="howto/">Setup guide</a> &middot;
+        <a href="products/">all products</a> &middot;
+        <a href="https://github.com/kronael/arizuko">source on GitHub</a> (MIT).
       </p>
 
-      <h2>see it</h2>
+      <h2>start from a product</h2>
+      <p>
+        A product is a folder you install and then own: persona, skills,
+        routes, knowledge. Three of the eight in the catalog:
+      </p>
+      <div class="grid">
+        <div class="card">
+          <p class="card-title"><a href="products/slack-team/">Slack team agent</a></p>
+          <p class="card-meta">Slack &middot; shared workspace</p>
+          <p>
+            One agent per channel: channel-scoped persona, per-teammate
+            memory, email ingest, a usage dashboard.
+          </p>
+        </div>
+        <div class="card">
+          <p class="card-title"><a href="products/aws-devops/">AWS DevOps agent (Argus)</a></p>
+          <p class="card-meta">Telegram oncall &middot; Slack / Discord</p>
+          <p>
+            An SRE in your chat. Reads your runbooks, proposes before it
+            mutates &mdash; and each engineer acts with their own AWS keys,
+            so CloudTrail names the human, not a shared robot.
+          </p>
+        </div>
+        <div class="card">
+          <p class="card-title"><a href="products/reality/">Reality agent (Rhias)</a></p>
+          <p class="card-meta">Telegram &middot; single-user</p>
+          <p>
+            A personal agent that holds the threads of your life across
+            weeks: named situations, reflection on demand, a monthly sweep
+            over its own diary.
+          </p>
+        </div>
+      </div>
+      <p>
+        Five more &mdash; a public price bot, a trip planner, a company
+        brain &mdash; in <a href="products/">the catalog</a>. Each is the
+        same engine with different folder contents.
+      </p>
+
+      <h2>many agents, one platform</h2>
+      <p>
+        Those three aren&rsquo;t three installs. On one instance they&rsquo;re
+        three folders in one tree &mdash; and that&rsquo;s the actual bet: an
+        agent does its job well when it&rsquo;s specialized. A focused persona
+        with a tight set of skills holds intent; a do-everything assistant
+        drifts. The platform&rsquo;s work is making specialization cheap and
+        coexistence safe.
+      </p>
       <ul>
-        <li><a href="products/">example deployments</a> &mdash; a Slack team
-          agent, pre-seeded and running in minutes.</li>
-        <li><a href="howto/">setup guide</a> &mdash; install, create an
-          instance, connect a channel, send the first message.</li>
-        <li><a href="https://github.com/kronael/arizuko">source on GitHub</a>
-          &mdash; <code>github.com/kronael/arizuko</code>, MIT.</li>
+        <li><strong>Isolation that keeps memory.</strong> Each folder has its
+          own persona, memory, and secrets, and runs in fresh per-turn
+          containers behind default-deny egress. A support agent can face
+          strangers on a public channel and still remember its own history
+          &mdash; while reaching nothing that belongs to another folder.</li>
+        <li><strong>Agents talk through the org chart.</strong> Each
+          department shapes its own agent, and the agents hand work along the
+          tree: a parent delegates down, a child escalates up, a folder
+          watches another&rsquo;s channel where grants allow. The same
+          permission checks as everything else &mdash; not a free-for-all
+          mesh.</li>
+        <li><strong>People move freely.</strong> Type <code>@sales</code> and
+          your chat talks to the sales agent; type <code>@eng</code> and
+          you&rsquo;re back. Change your agent or group without changing the
+          app you chat in.</li>
       </ul>
 
-      <h2>what you&rsquo;d build</h2>
-      <ul>
-        <li><strong>A support agent with memory.</strong> It remembers every
-          customer it&rsquo;s talked to, answers from that history, and hands a
-          thread to your engineers when it can&rsquo;t solve it.</li>
-        <li><strong>An ops agent that catches alerts.</strong> Alerts and
-          email land in its inbox; it turns them into tracked tasks and
-          follows up on the ones that go quiet.</li>
-        <li><strong>An internal helper per team.</strong> Sales gets one
-          agent, support another, engineering a third &mdash; each with its
-          own notes and its own channels, none reading the others.</li>
-      </ul>
-
-      <h2>one shape under everything</h2>
+      <h2>trace one event</h2>
       <p>
-        It looks like a lot &mdash; channels, tasks, webhooks, secrets,
-        delegation. It isn&rsquo;t. Every one of those is the same six-step
-        pipeline with different folder contents. Trace one Slack mention top
-        to bottom:
+        The feature list looks like sprawl &mdash; channels, topics, tasks,
+        webhooks, secrets, delegation. Trace one event top to bottom and it
+        isn&rsquo;t: six steps, every time.
       </p>
       <pre><code>Slack @mention in #eng
   &rarr; Event          one inbox row
@@ -112,329 +158,135 @@
   &rarr; Authorization  may it read / send / delegate here?
   &rarr; Turn           one container run, then it exits
   &rarr; State          rows written, files edited
-  &rarr; reply in the thread</code></pre>
+  &rarr; reply in the Slack thread</code></pre>
       <p>
-        A scheduled task is the same pipeline &mdash; the event is a clock
-        tick. A webhook is the same pipeline &mdash; the event is a POST.
-        Nothing here is a special case, so the surface stays small: the parts
+        A scheduled task is the same six steps &mdash; the event is a clock
+        tick. A webhook is the same six steps &mdash; the event is a POST.
+        An email, a WebDAV file drop, a reaction: rows in the same inbox,
+        through the same pipeline. Nothing is a special case, so the parts
         don&rsquo;t multiply.
       </p>
-      <p>Those parts stack into what you run and what you ship:</p>
-      <table class="deploy-table">
+
+      <h2>the six primitives</h2>
+      <p>Each step is one primitive with one job:</p>
+      <ul>
+        <li><strong>Event</strong> &mdash; anything that happens becomes one
+          row in the inbox table. A chat message, a webhook POST, a tick.</li>
+        <li><strong>Routing</strong> &mdash; maps the event to the folder
+          that reacts. A route table, first match wins, with layered
+          overrides: direct address, engagement, sticky topics.</li>
+        <li><strong>Agent</strong> &mdash; a folder of files: persona,
+          skills, memory, permissions. The org chart is the folder tree
+          (<code>corp/eng/sre</code>).</li>
+        <li><strong>Authorization</strong> &mdash; one question: may this
+          principal do this action here?</li>
+        <li><strong>Turn</strong> &mdash; a fresh container runs the agent
+          once; every side effect is a permission-checked tool call; then
+          the container exits.</li>
+        <li><strong>State</strong> &mdash; two durable stores, by design:
+          the SQLite databases and the agent&rsquo;s folder on disk.</li>
+      </ul>
+      <p>
+        Identity is the coordinate system the six are addressed in &mdash;
+        folders, JIDs, tiers, scopes. The primitives aren&rsquo;t
+        independent; they&rsquo;re layered on purpose. The claim is smaller
+        and it holds: one job each, fixed pipeline, no special cases.
+        <a href="concepts/primitives.html">The six primitives, in full &rarr;</a>
+      </p>
+
+      <h2>the stack</h2>
+      <p>Those primitives stack into what you deploy and what you ship:</p>
+      <table class="layer-table">
         <tr><th>Layer</th><th>What it is</th><th>Examples</th></tr>
         <tr><td>Primitives</td><td>the concepts</td><td>Event, Routing, Agent, Authorization, Turn, State</td></tr>
         <tr><td>Components</td><td>Go packages</td><td><code>store</code>, <code>router</code>, <code>auth</code>, <code>runed</code></td></tr>
         <tr><td>Daemons</td><td>running processes</td><td><code>authd</code> + <code>routd</code> + <code>runed</code>; <code>webd</code>, <code>timed</code>, <code>slakd</code></td></tr>
-        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, reality agent, company brain</td></tr>
+        <tr><td>Products</td><td>agents you install</td><td>Slack team agent, Argus, company brain</td></tr>
       </table>
       <p>
         A product sits at the bottom: the same pipeline, a different folder.
-        That&rsquo;s why a support agent and a personal life agent run the same
-        code &mdash; the difference is what&rsquo;s in the folder, not the
-        machinery underneath.
-        <a href="concepts/primitives.html">See the six primitives &rarr;</a>
+        A support agent and a personal life agent run the same code &mdash;
+        the difference is what&rsquo;s in the folder, not the machinery
+        underneath.
       </p>
 
-      <h2>agents as data</h2>
+      <h2>you own the files</h2>
+      <p>An instance is one directory. Everything the system is lives in it:</p>
+      <pre><code>/srv/data/arizuko_demo/
+&#9500;&#9472;&#9472; .env                 tokens + config
+&#9500;&#9472;&#9472; store/               routd.db, runed.db, auth.db &mdash; SQLite WAL
+&#9500;&#9472;&#9472; groups/
+&#9474;   &#9492;&#9472;&#9472; main/            the agent
+&#9474;       &#9500;&#9472;&#9472; PERSONA.md   who it is
+&#9474;       &#9500;&#9472;&#9472; CLAUDE.md    how it operates
+&#9474;       &#9500;&#9472;&#9472; skills/      what it can do
+&#9474;       &#9500;&#9472;&#9472; facts/       what it has learned
+&#9474;       &#9500;&#9472;&#9472; diary/       what happened, dated
+&#9474;       &#9492;&#9472;&#9472; public_html/ what it publishes at /pub/main/
+&#9492;&#9472;&#9472; web/pub/             the public site &mdash; these docs included</code></pre>
       <p>
-        An agent is a folder of files the LLM loop reads. The persona is a
-        file. Memory lives on disk. Skills are directories. Config is a file
-        you can diff, review in a PR, and roll back with <code>git revert</code>.
-        The org chart is the folder tree.
-      </p>
-      <p>
-        Each folder is a wall: <code>corp/sales</code> doesn&rsquo;t see
-        <code>corp/eng/sre</code>&rsquo;s memory. Change the persona by editing
-        a file; the next session picks it up. Add a skill by dropping a
-        directory. You can read everything an agent knows, audit it, and
-        swap it out.
-      </p>
-      <p>
-        Agents need structure the same way people do &mdash; enough to know
-        what they can reach, what their job is, and who they answer to. Small
-        parts with one job each give them that: nothing hidden, parts that
-        fit together. A system a person can reason about is one an agent can
-        manage. That rule drives the whole design.
+        Change the persona by editing a file; the next turn picks it up.
+        One <code>tar</code> of the directory is a complete backup &mdash;
+        databases, memory, secrets, the site. Want history? It&rsquo;s
+        plain files: put <code>groups/</code> under git yourself and review
+        the agent&rsquo;s changes as commits (the agent image ships git and
+        a commit skill; the platform doesn&rsquo;t version the folder for
+        you). There&rsquo;s no export API, because there&rsquo;s nothing to
+        export from: you already have the files.
       </p>
 
-      <h2>why not a shared assistant?</h2>
+      <h2>honest constraints</h2>
       <ul>
-        <li><strong>One memory mixes everything</strong> &mdash; sales,
-          support, and ops history feed the same replies.</li>
-        <li><strong>Old threads steer new work</strong> &mdash; unrelated
-          context stays attached unless somebody clears it.</li>
-        <li><strong>Your system lives in Slack, email, and files</strong> &mdash;
-          one shared assistant sees one thread, not all of it.</li>
-        <li><strong>Failures are hard to inspect</strong> &mdash; there&rsquo;s
-          no file to diff, no route to trace, and no clean rollback.</li>
+        <li><strong>Linux + Docker + SQLite.</strong> One host. No
+          Kubernetes, no Postgres, no Redis &mdash; and none required.</li>
+        <li><strong>Self-hosted only.</strong> There&rsquo;s no managed
+          control plane. That&rsquo;s the feature, not an oversight.</li>
+        <li><strong>The split is the topology.</strong> A minimal deploy is
+          the three core daemons (<code>authd</code>, <code>routd</code>,
+          <code>runed</code>) plus one channel adapter; <code>dashd</code>,
+          <code>timed</code>, <code>onbod</code>, <code>crackbox</code> are
+          add-ons you attach as needed.</li>
+        <li><strong>Default-deny egress.</strong> With
+          <a href="components/crackbox.html"><code>crackbox</code></a>, an
+          agent reaches only the hosts you allowlist &mdash; a compromised
+          turn can&rsquo;t call home.</li>
+        <li><strong>MCP first, REST converging.</strong> Every platform
+          action is an MCP tool call. The matching REST endpoint arrives
+          resource by resource &mdash; the two faces are converging, not
+          finished.</li>
+        <li><strong>Sized for agent teams.</strong> Dozens of messages a
+          day per group, not consumer-scale traffic.</li>
       </ul>
-      <p>
-        arizuko gives each team its own agent, memory, channels, and policy
-        on your own host. Config is files. Rollback is <code>git revert</code>.
-      </p>
-
-      <h2>how it works</h2>
-      <p>
-        A folder is an agent: <code>PERSONA.md</code>, <code>skills/</code>,
-        memory files, and a row in the ACL (Access Control List &mdash; the
-        permission rows). When a message arrives, arizuko starts
-        a Docker container for that folder. The container connects to
-        <code>routd</code> over MCP (Model Context Protocol &mdash; the
-        standard channel an AI agent uses to call a tool) on a unix socket.
-        Every tool call goes through that socket; the host controls what the
-        agent can reach. Every platform operation is an MCP tool and a REST
-        endpoint &mdash; no separate agent API. All state is in SQLite WAL
-        (write-ahead logging &mdash; SQLite's durable-write mode); the
-        container is stateless.
-      </p>
-      <p>
-        The stack is for agent teams: dozens of messages a day, not
-        consumer-scale traffic. Go binaries, Docker Compose, SQLite WAL,
-        <code>proxyd</code> signing identity headers &mdash; no Auth0, no
-        Redis, no Vault.
-      </p>
-
-      <h2>organize</h2>
-      <ul>
-        <li>
-          <strong>Agents as folders.</strong>
-          <code>corp/sales</code>, <code>corp/eng/sre</code>,
-          <code>corp/support</code> &mdash; each a directory with a prompt
-          file, a memory file, and a skill set. Add a folder, get an agent.
-        </li>
-        <li>
-          <strong>Persona, skills, and memory.</strong> Each folder has a
-          <code>PERSONA.md</code> (voice and instructions), a
-          <code>skills/</code> set, and memory that accumulates across weeks.
-          An agent that helped close a deal in January remembers it in March.
-        </li>
-        <li>
-          <strong>Topics that fork.</strong> Spin a side-conversation off any
-          thread &mdash; the new topic starts with the parent conversation as
-          context. Parallel workstreams, no context loss.
-        </li>
-        <li>
-          <strong>Agents that create agents.</strong> A root agent can make a
-          child group on first contact, assign routes, and schedule tasks
-          &mdash; with the same MCP tools a human operator would invoke. Stand
-          up a per-customer support agent on first contact, no automation code
-          to write.
-        </li>
-      </ul>
-
-      <h2>ingest</h2>
-      <ul>
-        <li>
-          <strong>Files, chat, email, webhooks &mdash; one inbox.</strong>
-          Drop files via WebDAV, send a message in chat, email the
-          agent&rsquo;s address, or POST to a webhook. They all arrive as
-          messages in the same folder. No import wizard, no format conversion.
-        </li>
-        <li>
-          <strong>Agents write what they learn to <code>facts/</code>.</strong>
-          When an agent researches something mid-conversation, it saves the
-          findings to its own <code>facts/</code>. The next session, it already
-          knows. No admin step, no sync job.
-        </li>
-        <li>
-          <strong>Any system can post into a folder.</strong> Issue a webhook
-          token and pipe in alerts, tickets, or CRM events &mdash; they arrive
-          as messages and the agent decides what to keep.
-        </li>
-      </ul>
-
-      <h2>coordinate</h2>
-      <ul>
-        <li>
-          <strong>Agents talk to each other.</strong> Route a message from
-          support to eng, delegate work to a child, escalate to a parent.
-          <code>delegate_group</code>, <code>escalate_group</code>, and
-          <code>observe_group</code> are the same MCP tools a human operator
-          uses.
-        </li>
-        <li>
-          <strong>Schedule tasks.</strong> Cron-style tasks per folder &mdash;
-          daily summaries, weekly reports, autonomous background work &mdash;
-          each running with the folder&rsquo;s full memory and persona.
-          Set up by the agent itself or from the dashboard.
-        </li>
-        <li>
-          <strong>Webhooks as messages.</strong> POST to
-          <code>/hook/&lt;token&gt;</code> from any external system &mdash;
-          the payload lands as a message in any folder. Pair with a scheduled
-          curation agent: no custom integration code, just a prompt and a cron.
-        </li>
-        <li>
-          <strong>Acts on knowledge, doesn&rsquo;t just answer questions.</strong>
-          A curation agent reads your Slack intake, decides what matters, and
-          writes a daily brief. A support agent remembers every customer
-          interaction and escalates without being asked. That&rsquo;s not a
-          knowledge base &mdash; that&rsquo;s an agent with memory and a job.
-        </li>
-      </ul>
-
-      <h2>connect</h2>
-      <ul>
-        <li>
-          <strong>Channel-native adapters.</strong> Each adapter speaks the
-          platform&rsquo;s own API: Telegram bot API, Discord gateway, WhatsApp
-          web, IMAP/SMTP, Mastodon streaming, Bluesky AT Protocol. Not a
-          webhook relay &mdash; the adapter owns the connection and surfaces
-          events (threads, reactions, voice messages) that webhooks
-          can&rsquo;t express. Adapters also cover Slack (<code>slakd</code>,
-          AI assistant pane), Reddit (<code>reditd</code>), X/Twitter
-          (<code>twitd</code>), and LinkedIn (<code>linkd</code>).
-        </li>
-        <li>
-          <strong>Public chat and webhook surfaces.</strong> Issue a route
-          token and any folder gets a <code>/chat/&lt;token&gt;/</code> page
-          (SSE, works in a browser) and a <code>/hook/&lt;token&gt;</code>
-          endpoint (POST JSON, fires the agent). No extra config.
-        </li>
-        <li>
-          <strong>Everything meets in <code>routd.db</code>.</strong>
-          Routes match on <code>key=glob</code>. ACL is one row:
-          <code>(principal, action, scope, params)</code>. Siblings see each
-          other&rsquo;s observed messages unless the group is closed. Channels
-          speak HTTP. No hidden state elsewhere.
-        </li>
-      </ul>
-
-      <h2>operate</h2>
-      <ul>
-        <li>
-          <strong>MCP over a unix socket.</strong> Each agent connects to
-          <code>routd</code> over an MCP unix socket bridged into the container.
-          Tool calls go through that socket; the host controls what the agent
-          can reach. You can audit, revoke, or scope every side effect by the
-          folder&rsquo;s grant rules.
-        </li>
-        <li>
-          <strong>Operator dashboard.</strong> <code>/dash/</code> — routes
-          editor, task scheduler, per-group model selector (Opus&thinsp;/
-          Sonnet&thinsp;/&thinsp;Haiku), skill toggles, grants editor, invite
-          management, usage metrics, and secrets (AES-256-GCM encrypted at
-          rest). No editing <code>.env</code> by hand to rewire a route.
-        </li>
-        <li>
-          <strong>The agent runs in a box.</strong>
-          <a href="components/crackbox.html"><code>crackbox</code></a> is the
-          containment boundary for each agent run &mdash; its own container, a
-          network with no default route, egress only through a per-folder
-          hostname allowlist (HTTPS via CONNECT, DNS filtering). A compromised
-          agent reaches only what you explicitly permit.
-        </li>
-      </ul>
-
-      <h2>start small, grow into it</h2>
-      <p>
-        A minimal deploy is the three core daemons (<code>authd</code>,
-        <code>routd</code>, <code>runed</code>) and one channel adapter. Add
-        components as you need them &mdash; each is a standalone binary with its
-        own TOML block. There&rsquo;s no managed control plane; every piece is
-        replaceable.
-      </p>
-      <table class="deploy-table">
-        <tr><th>Setup</th><th>What runs</th><th>Best for</th></tr>
-        <tr>
-          <td>Minimal</td>
-          <td><code>authd</code>+<code>routd</code>+<code>runed</code> + one adapter</td>
-          <td>First deployment, one team</td>
-        </tr>
-        <tr>
-          <td>Standard</td>
-          <td>+ <code>dashd</code> + <code>timed</code></td>
-          <td>Ongoing ops, scheduled tasks</td>
-        </tr>
-        <tr>
-          <td>Multi-team</td>
-          <td>+ <code>onbod</code> + <code>crackbox</code></td>
-          <td>Isolated teams, egress control</td>
-        </tr>
-        <tr>
-          <td>Prebuilt recipe</td>
-          <td>Pre-seeded config</td>
-          <td><a href="products/slack-team/">slack-team</a>,
-            <a href="products/reality/">reality</a> &mdash; 5 minutes</td>
-        </tr>
-      </table>
-      <p>
-        One <code>tar</code> of <code>/srv/data/arizuko_&lt;name&gt;/</code>
-        backs up the entire instance: the daemon DBs (<code>routd.db</code>,
-        <code>runed.db</code>, <code>auth.db</code> &mdash; all WAL), group
-        folders, per-user memory, secrets, agent files.
-      </p>
-
-      <h2>show me</h2>
-      <pre><code># seed the instance directory
-arizuko create demo
-# /srv/data/arizuko_demo/ now has .env, store/, groups/, ipc/, web/pub/
-
-# pick adapters + tokens
-$EDITOR /srv/data/arizuko_demo/.env
-
-# register the first group's inbound JID
-arizuko group demo add tg:-123456789 main
-
-# render docker-compose.yml from .env + extras, then bring it up
-arizuko run demo
-# systemd unit: arizuko_demo (sudo systemctl status arizuko_demo)
-
-# talk to the default group from a browser
-arizuko token demo issue chat main   # prints a /chat/&lt;token&gt;/ URL
-
-# or from a script &mdash; same endpoint, JSON in / JSON out
-curl -X POST https://example.com/chat/&lt;token&gt;/ \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"hello"}'</code></pre>
 
       <h2>go deeper</h2>
       <ul>
-        <li><a href="products/">products</a> &mdash; ready-made setups:
-          Slack team agent, support bot, content pipeline, PM board, and more.</li>
-        <li><a href="components/">components</a> &mdash; one page per daemon:
-          <code>routd</code>, <code>runed</code>, <code>authd</code>,
-          <code>webd</code>, <code>proxyd</code>, <code>dashd</code>,
-          <code>onbod</code>, <code>timed</code>, plus the channel adapters.</li>
-        <li><a href="concepts/primitives.html">concepts</a> &mdash; start with
-          the <a href="concepts/primitives.html">six primitives</a> (the whole
-          system on one page), then a page each for routing, grants, auth,
-          topics, secrets, skills, tasks, and the rest.</li>
-        <li><a href="reference/">reference</a> &mdash; every configurable
-          surface, grep-verified against source:
+        <li><a href="concepts/">concepts</a> &mdash; the guided tour; start
+          with <a href="concepts/primitives.html">the six primitives</a>.</li>
+        <li><a href="products/">products</a> &mdash; all eight, an intro and
+          a setup page each.</li>
+        <li><a href="components/">components</a> &mdash; one page per
+          daemon: <code>routd</code>, <code>runed</code>, <code>authd</code>,
+          the channel adapters, and the rest.</li>
+        <li><a href="reference/">reference</a> &mdash;
           <a href="reference/env.html">env</a> &middot;
           <a href="reference/cli.html">CLI</a> &middot;
           <a href="reference/mcp.html">MCP tools</a> &middot;
           <a href="reference/schema.html">schema</a> &middot;
           <a href="reference/grants.html">grants</a> &middot;
           <a href="reference/jid.html">JID</a>.</li>
-        <li><a href="howto/">howto</a> &mdash; deployment guide, first
-          channel, first invite, verification.</li>
-        <li><a href="components/crackbox.html">crackbox</a> &mdash; the box the
-          agent runs in: own container, no default route, egress only through a
-          per-folder hostname allowlist (HTTPS via CONNECT, DNS filter).</li>
+        <li><a href="howto/">howto</a> &mdash; install, first channel,
+          first message.</li>
         <li><a href="changelog/">changelog</a> &mdash; what shipped, dated.</li>
-        <li>
-          <a href="legacy/">previous docs</a> &mdash; the prior docs site,
-          archived before this refresh.
-        </li>
-        <li>
-          Source:
-          <a href="https://github.com/kronael/arizuko">github.com/kronael/arizuko</a>
-          (MIT). Threat model in
+        <li>Threat model:
           <a href="https://github.com/kronael/arizuko/blob/main/SECURITY.md">SECURITY.md</a>;
-          routing rules in
-          <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.
-        </li>
+          routing rules:
+          <a href="https://github.com/kronael/arizuko/blob/main/ROUTING.md">ROUTING.md</a>.</li>
       </ul>
 
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
-        <a href="changelog/">v0.49.0</a> &middot; MIT &middot;
-        Go + SQLite (WAL) + Docker &middot; running on
-        <code>krons</code>, <code>marinade</code>, <code>sloth</code>.
-        &middot; <a href="/pub/krons/arizuko/">research &amp; strategy &rarr;</a>
+        MIT &middot; Go + SQLite (WAL) + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-05">2026-07-05</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
