@@ -9,6 +9,10 @@ status: draft
 > through a published surface — never by reaching into their
 > internals.
 
+_See also: `6/5` — which packages are candidates (the catalogue) — and
+`6/6` — how to extract one (the method). This spec is the principle both
+defer to._
+
 ## Problem
 
 arizuko keeps growing tools that are generic at the protocol level
@@ -144,7 +148,7 @@ boundary. Don't.
 
 One paragraph per component. The actual public surface, CLI,
 shipping plan, and footprint live in each component's own spec
-under `specs/12/`. This file is the pattern, not the plans.
+under `specs/6/`. This file is the pattern, not the plans.
 
 ### crackbox
 
@@ -179,16 +183,16 @@ behind the `ContainerRuntime` seam — see
 
 Generic message router. Owns the channel registry, normalized
 inbound/outbound types, route table, and outbound dispatch. Knows
-nothing about groups, grants, folders, agents, or sessions. No
-spec yet — extraction starts when a second consumer appears or
-when `gated/` outgrows its current envelope.
+nothing about groups, grants, folders, agents, or sessions. Spec:
+[`6/11`](11-messaging-gateway.md); extraction starts when a second
+consumer appears or when `gated/` outgrows its current envelope.
 
 ### mcp-firewall (future, new)
 
 Transparent MCP proxy that sits between an agent and its MCP
 servers and filters JSON-RPC tool calls by a ruleset. arizuko
 owns the per-folder tool policy (derived from grants); the
-firewall takes a flat rule list. No spec yet.
+firewall takes a flat rule list. Spec: [`6/12`](12-mcp-firewall.md).
 
 ## Boundaries and anti-patterns
 

@@ -67,6 +67,7 @@ that changing is the point, not a failure.
 
 ## Ties
 
-`6/5` (candidate catalogue) · `6/8` (crackbox) · `BUGS.md` (the
-fail-open finding) · `CLAUDE.md` (import-graph rule — the necessary
-filter, not the sufficient one).
+`6/7` (what a component _is_ — the principle) · `6/5` (candidate
+catalogue) · `6/8` (crackbox) · `BUGS.md` (the fail-open finding) ·
+`CLAUDE.md` (import-graph rule — the necessary filter, not the
+sufficient one).

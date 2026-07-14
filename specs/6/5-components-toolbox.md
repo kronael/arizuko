@@ -13,11 +13,12 @@ Two framings of one artifact, both true:
 2. **An agglomeration of tools** (decomposed) — independently-useful
    components. Use the whole platform, or **raid it for the one part you need.**
 
-Not a pivot. `CLAUDE.md` already declares crackbox/gateway/mcpfw "shippable
-sibling components … usable outside arizuko," and the four-layer stack
-(primitives → **components** → daemons → products, `5/A`) already names
-Components as a layer. This spec makes the toolbox real: _identify which pieces
-stand alone, and how to present them._
+Not a pivot. What an orthogonal shippable component _is_ — a sibling dir
+that builds/tests/ships/runs without arizuko, zero arizuko-internal imports,
+consumed only through a published surface — is defined in `6/7`; the
+four-layer stack (primitives → **components** → daemons → products, `5/A`)
+already names Components as a layer. This spec makes the toolbox real:
+_identify which pieces stand alone, and how to present them._
 
 **Why both.** The platform is a bet (multi-tenant control plane + adoption). The
 tools are useful **whether or not the bet lands.** Shipping tools de-risks the
@@ -108,6 +109,8 @@ run" idea lives here.)
 
 ## Ties
 
-`6/1` (adoption strategy) · `6/4` (fleet services) · `5/A` (four-layer stack —
-Components is a layer) · `6/8` (crackbox standalone) · `5/17` (resreg two-face
-→ `mcpfw`) · `obs/` · `CLAUDE.md` (shippable siblings + import-graph rule).
+`6/7` (what a component is — the pattern this catalogue applies) · `6/6`
+(the extraction method) · `6/1` (adoption strategy) · `6/4` (fleet services) ·
+`5/A` (four-layer stack — Components is a layer) · `6/8` (crackbox standalone) ·
+`5/17` (resreg two-face → `mcpfw`) · `obs/` · `CLAUDE.md` (shippable siblings +
+import-graph rule).
