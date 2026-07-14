@@ -1,29 +1,25 @@
 ---
-status: active
+status: dissolved
 ---
 
-# specs/11 — genericization + publishing components
+# specs/12 — dissolved into phase 6 (2026-07-14)
 
-The home for arizuko's orthogonal, publishable, standalone
-components and the sibling-component pattern they follow. Each
-component builds, tests, ships, and runs without arizuko; arizuko
-consumes it through a published surface (CLI / HTTP / `pkg/`),
-never by reaching into its internals. The phase also covers the
-security-hardening work that ships as such components (skill guard,
-self-learning, the crackbox sandbox/egress family).
+Phase 12 ("genericization + publishing components") was consolidated into
+**[phase 6](../6/)** so the component-extraction story lives in one place —
+alongside the toolbox framing (`6/5`) and the extraction method (`6/6`).
 
-| Spec                                                     | Status               | Hook                                                                                                                                                                                                                                                             |
-| -------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [A-orthogonal-components.md](A-orthogonal-components.md) | draft                | The orthogonality PATTERN: sibling shippable components (crackbox, gateway, mcp-firewall) each build/test/ship/run without arizuko; zero arizuko-internal imports; consumed via CLI / HTTP / `pkg/`. `16`/`17`/`18` instantiate it. Moved from `5/A` 2026-05-29. |
-| [7-self-learning.md](7-self-learning.md)                 | draft                | Pattern recognition → operator-gated proposals (skill, memory, persona)                                                                                                                                                                                          |
-| [8-skill-guard.md](8-skill-guard.md)                     | draft                | Threat-pattern PreToolUse hook on agent-written skills (hermes peel)                                                                                                                                                                                             |
-| [9-crackbox-standalone.md](9-crackbox-standalone.md)     | shipped              | egred — forward proxy with per-source allowlists (2026-04-29); arizuko's per-folder allowlist consumer                                                                                                                                                           |
-| [12-crackbox-sandboxing.md](12-crackbox-sandboxing.md)   | shipped (2026-05-01) | crackbox `pkg/host/` library for KVM/qemu sandboxing; gated Docker→KVM backend transition                                                                                                                                                                        |
-| [15-crackbox-dns-filter.md](15-crackbox-dns-filter.md)   | draft                | DNS NXDOMAIN filter on UDP/53; reuses `Registry`+`match.Host`; ANY refused                                                                                                                                                                                       |
-| [16-messaging-gateway.md](16-messaging-gateway.md)       | draft                | Generic message router over opaque ids; `routd` adds folder/grant domain on top                                                                                                                                                                                  |
-| [17-mcp-firewall.md](17-mcp-firewall.md)                 | draft                | Transparent MCP proxy; deny-wins tool-call filter on flat ruleset; `mcpd` sits behind                                                                                                                                                                            |
-| 18-openapi-mcp (moved)                                   | moved                | → [`5/17-openapi-mcp`](../5/17-openapi-mcp.md) — pulled to active phase 5 (the REST→MCP derivation for the unification program)                                                                                                                                  |
-| [c-sandd.md](c-sandd.md)                                 | draft                | Sandbox-spawn daemon; gated keeps spawn ownership for now                                                                                                                                                                                                        |
+| was     | now                                                            |
+| ------- | -------------------------------------------------------------- |
+| `12/A`  | [`6/7-orthogonal-components`](../6/7-orthogonal-components.md) |
+| `12/9`  | [`6/8-crackbox-standalone`](../6/8-crackbox-standalone.md)     |
+| `12/12` | [`6/9-crackbox-sandboxing`](../6/9-crackbox-sandboxing.md)     |
+| `12/15` | [`6/10-crackbox-dns-filter`](../6/10-crackbox-dns-filter.md)   |
+| `12/16` | [`6/11-messaging-gateway`](../6/11-messaging-gateway.md)       |
+| `12/17` | [`6/12-mcp-firewall`](../6/12-mcp-firewall.md)                 |
+| `12/c`  | [`6/13-sandd`](../6/13-sandd.md)                               |
+| `12/7`  | [`6/14-self-learning`](../6/14-self-learning.md)               |
+| `12/8`  | [`6/15-skill-guard`](../6/15-skill-guard.md)                   |
 
-The orthogonal-components pattern (the discipline this phase's
-components follow) is [`A-orthogonal-components.md`](A-orthogonal-components.md) above.
+`12/18-openapi-mcp` had already moved to [`5/17`](../5/17-openapi-mcp.md).
+
+This file is a tombstone: no new specs land in `12/`.
