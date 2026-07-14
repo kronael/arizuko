@@ -81,8 +81,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 
       <h2>start from a product</h2>
       <p>
-        A product is a folder you install and then own: persona, skills,
-        routes, knowledge. Three of the eight in the catalog:
+        A product is a specialized agent you install and then own: a folder
+        with persona, skills, routes, knowledge. Three of the eight in the
+        catalog:
       </p>
       <div class="grid">
         <div class="card">
@@ -216,13 +217,14 @@ arizuko run demo                       # compose up; @mention the bot in a chann
 &#9500;&#9472;&#9472; .env                 tokens + config
 &#9500;&#9472;&#9472; store/               routd.db, runed.db, auth.db &mdash; SQLite WAL
 &#9500;&#9472;&#9472; groups/
-&#9474;   &#9492;&#9472;&#9472; main/            the agent
-&#9474;       &#9500;&#9472;&#9472; PERSONA.md   who it is
-&#9474;       &#9500;&#9472;&#9472; CLAUDE.md    how it operates
-&#9474;       &#9500;&#9472;&#9472; skills/      what it can do
-&#9474;       &#9500;&#9472;&#9472; facts/       what it has learned
-&#9474;       &#9500;&#9472;&#9472; diary/       what happened, dated
-&#9474;       &#9492;&#9472;&#9472; public_html/ what it publishes at /pub/main/
+&#9474;   &#9500;&#9472;&#9472; main/            one agent
+&#9474;   &#9474;   &#9500;&#9472;&#9472; PERSONA.md   who it is
+&#9474;   &#9474;   &#9500;&#9472;&#9472; CLAUDE.md    how it operates
+&#9474;   &#9474;   &#9500;&#9472;&#9472; skills/      what it can do
+&#9474;   &#9474;   &#9500;&#9472;&#9472; facts/       what it has learned
+&#9474;   &#9474;   &#9500;&#9472;&#9472; diary/       what happened, dated
+&#9474;   &#9474;   &#9492;&#9472;&#9472; public_html/ what it publishes at /pub/main/
+&#9474;   &#9492;&#9472;&#9472; ops/             a second agent &mdash; same shape, its own memory
 &#9492;&#9472;&#9472; web/pub/             the public site &mdash; these docs included</code></pre>
       <p>
         Change the persona by editing a file; the next turn picks it up.
@@ -286,7 +288,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p class="dim" style="margin-top: 2em; font-size: 0.9em">
         MIT &middot; Go + SQLite (WAL) + Docker.
       </p>
-      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-05">2026-07-05</time></p>
+      <p class="docs-footer">updated <time class="docs-updated" datetime="2026-07-14">2026-07-14</time></p>
     </div>
     <button class="theme-toggle">&#127769;</button>
     <script src="assets/hub.js"></script>
