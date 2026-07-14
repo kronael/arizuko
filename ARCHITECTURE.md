@@ -241,13 +241,14 @@ Two management surfaces, one handler, an injected gate per surface:
   is used only for a cross-daemon resource (`proxyd_routes` — proxyd owns
   the table, webd serves the MCP face). Spec
   [`5/17`](specs/5/17-openapi-mcp.md); rollout
-  [`5/16`](specs/5/16-mcp-rest-unification.md). Migrated so far: all five
+  [`5/16`](specs/5/16-mcp-rest-unification.md). Migrated so far: all seven
   agent-MCP faces (`web_routes`, `acl`, `routes`, `scheduled_tasks`,
-  `network_rules`) ride one `resreg.Resource`; the REST second face is
-  folded onto the same handler for `web_routes`, `acl`, `routes`, and
-  `scheduled_tasks` (`network_rules` is agent-only, no REST twin).
-  `onboarding_gates`, `groups`, and `route_tokens`, plus one-owner +
-  federation, are still pending.
+  `network_rules`, `route_tokens`, `groups`) ride one `resreg.Resource`;
+  the REST second face is folded onto the same handler for `web_routes`,
+  `acl`, `routes`, `scheduled_tasks`, and `secrets` (routd), plus onbod's
+  `/v1/invites` and `/v1/gates` (`network_rules` is agent-only, no REST
+  twin). Still pending: the `route_tokens` REST fold (still hand-rolled),
+  the `groups` REST twin, and one-owner + federation.
 - **Hot tier** — agent runtime actions (`reply`, `send`, `like`, `delete`,
   `engage`, `inspect_*`). **MCP-only by design** in `ipc/ipc.go`; no REST
   twin — an operator doesn't `reply` to a chat.
