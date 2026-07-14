@@ -146,16 +146,23 @@ Per group:
   `--to`), `skill sync`, `skill list`. Host CLI fetches; containers need
   no egress for package management.
 
-**Extension surface — how much a package may modify arizuko: agent-space
-only.** A skill adds prompt capability + scripts that run inside the
-container as the agent, bounded by the same grants, egress allowlist,
-and mounts as any agent action. It may self-register an in-container MCP
-server (the shipped `loadAgentMcpServers` path, `ant/src/mcp-servers.ts`).
-It can NOT touch daemons, routes, grants, host `connectors.toml`, or
-platform settings keys — `seedSettings` rewrites those authoritatively
-every spawn (`container/runner.go:850`), so the boundary is enforced by
-construction. The platform is not package-modifiable; wiring stays
-operator-only.
+**Extension surface — what a product/package may carry, tiered by
+trust.** Products carry much more than skills; each layer has an owner
+and a boundary:
+
+| Tier                    | What                                                                                                                                                                                                                                                                                                      | When / who                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| **A — template seed**   | PERSONA.md, CLAUDE.md, `facts/`, `tasks.toml`, `[[env]]` checklist, **`[[mcp_server]]` entries** (written into the group's `settings.json` `mcpServers` at create — `seedSettings` preserves them; servers run in-container, egress-bounded), group-scoped seed rows (own-folder routes, scheduled tasks) | Once, at `create --product`; then group state |
+| **B — skill package**   | SKILL.md + scripts — **including bundled binaries** (they execute in-container under the same grants/egress/mounts as any agent action; prefer runtime fetch via `uvx`/`bun` for arch-independence), own `migrations/`                                                                                    | Updatable via lock                            |
+| **C — image extension** | a `Dockerfile.ant` (`FROM arizuko-ant` + system deps, e.g. aws-cli) the product declares; the operator **explicitly builds** it and the group runs it via a per-group `container_config.Image` override (NEW small mechanism — GroupConfig carries only `Mounts` today, `core/types.go:59`)               | Operator-built, never automatic               |
+| **Never**               | daemons, cross-folder grants, host `connectors.toml`, platform settings keys (`seedSettings` rewrites those every spawn, `container/runner.go:850`)                                                                                                                                                       | —                                             |
+
+The safety shape of Tier C matters: a custom image changes what software
+exists INSIDE the sandbox — mounts, egress, and grants are set by the
+platform per spawn regardless of image, so isolation properties are
+image-independent. The trust decision is supply-chain (what you build),
+made once, explicitly, by the operator. Agent-space stays the only
+package-reachable surface; the platform is never package-modifiable.
 
 **Boundary with the shipped stock mechanism**: stock skills
 (`/opt/arizuko/ant/`) keep `MIGRATION_VERSION` + `.merge-base/` — the
