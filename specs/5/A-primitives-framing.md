@@ -89,6 +89,37 @@ Compartmentalized daemons make the molding safe; ownership makes it
 permanent. (This is the evolved lead — primitives and ownership are the
 two halves it rests on, not competing angles.)
 
+## The platform bet — many specialized agents, one host
+
+(Added 2026-07-14, user-locked.) The deeper thing arizuko is: **hosting
+many specialized agents on one platform.** The bet is that agents must
+be specialized to share intent well — a focused persona + tight skills
+holds a job the way a general blob can't (`../17/9`) — and the platform's
+work is making specialization cheap and coexistence safe:
+
+- **Context isolation that keeps memory.** Each agent is a folder with
+  its own persona/skills/memory, run in per-turn ephemeral containers
+  behind default-deny egress. That lets a specialized agent stand in a
+  one-off deployment, a support channel, or a hostile environment
+  (unknown users, public chat — tier 3+ is send-only) while keeping its
+  own persistent memory and leaking nothing cross-folder.
+- **Cross-talk through the org tree, not a mesh.** Departments shape
+  their own agents; the agents talk via `delegate_group` (parent→child,
+  `ipc/ipc.go:1828`), `escalate_group` (child→parent, `ipc/ipc.go:1779`),
+  and `observe_group` subscriptions (`5/F`) — depth-capped, structurally
+  authorized to the subtree (`auth.AuthzTarget`). Say "through the org
+  chart," never "any agent can message any agent."
+- **Users move freely across agents.** A chat repoints at another
+  group's agent with sticky `@group` (`routd/steer.go:39`) — change your
+  agent or group, keep the conversation surface.
+
+Docs implication: this is the hero story ("one platform, many
+specialized agents — your departments each shape their own, isolation is
+structural, and they still talk"); ownership and language-shaping are
+the two halves under it. A product example must show it — reuse an
+existing multi-folder product (slack-team is the fit) rather than
+inventing a new one.
+
 The primitives are invariant across topologies. The former monolith
 (`gated`, now removed) and the split (`authd` + `routd` + `runed`, specs
 `5/E`/`5/P`, the only topology) reorganised the _daemons_; the primitives
