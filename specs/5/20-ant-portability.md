@@ -93,6 +93,36 @@ archive (or bare yml) fetched from a repo — publishable anywhere git
 reaches. No registry, no `claude-plugin:` scheme until a stable plugin
 API exists.
 
+## Incremental updates — templates + skills from a source
+
+Full import is not the only flow: an installed third-party template or
+skill must be updatable in place. The shipped `/migrate` merge only
+covers stock content (`/opt/arizuko/ant/`); source-installed content
+would otherwise freeze at install (custom = never touched). The fix
+reuses the same machinery — no lockfile, no hashes:
+
+- **Provenance, not merge state.** `~/.claude/sources.toml` per group
+  maps a path prefix to `{source, rev}` — e.g. `skills/kb-search` →
+  `git+https://…@<sha>#kb-search`. Pure inventory; the merge base (the
+  bytes) stays in `.claude/.merge-base/` exactly like stock content.
+- **Install** (`arizuko skill add <inst> <folder> <source>`, or arriving
+  via a product import): copy files, snapshot them into `.merge-base/`,
+  record `{source, rev}`.
+- **Update** (`arizuko skill update <inst> [--folder …] [--dry-run]`):
+  for each sourced prefix, fetch source at its ref's current tip →
+  `theirs`; `.merge-base/` → `base`; live file → `ours`; the identical
+  3-way merge `/migrate` runs (operator edits survive; both-changed →
+  conflict markers, surfaced). On success refresh `.merge-base/` + `rev`.
+  Rollback is just `update` pinned to an older rev (`--to <ref>`).
+- **Templates the same way**: a product's PERSONA.md/CLAUDE.md installed
+  from a source get a `sources.toml` entry and update through the same
+  path. Stock skills are untouched by this — they keep the
+  `MIGRATION_VERSION` trigger; a prefix is owned by exactly one of
+  {stock, sourced, local} and the two update paths never overlap.
+
+No fleet add/remove/rollback/remap verb zoo beyond this pair; `--groups`
+globbing can come later if operating many groups demands it.
+
 ## Blockers (tracked in BUGS.md)
 
 - 5/8 CLI still opens frozen `messages.db` — owner-DB repoint required.
