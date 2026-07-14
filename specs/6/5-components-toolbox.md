@@ -30,20 +30,28 @@ A component is standalone-ready only if it does not import arizuko-internal
 packages (the import-graph rule, `CLAUDE.md`). Internal-dep counts measured
 2026-07-14 (`grep` over each package's imports):
 
-| Component                                   | internal deps                     | readiness                             | what it is / who wants it alone                                                                                                                                                                          |
-| ------------------------------------------- | --------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **crackbox**                                | 0                                 | **ships now**                         | egress proxy (per-source allowlist + DNS filter) + KVM sandbox (`crackbox run --kvm`). Anyone running untrusted code or agents and needing default-deny egress.                                          |
-| **dockbox** _(concept)_                     | in `container/` (11)              | candidate — heavy decouple            | "how you run a container with an agent": `docker run` + mounts + skill-seed + MCP socket. The **Docker sibling to crackbox's KVM**. Today coupled in `container/`; a clean `dockbox` is a decouple task. |
-| **obs**                                     | 0                                 | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.                                                   |
-| **router**                                  | 1 (`core`)                        | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                                                                    |
-| **grants**                                  | 2 (`core`,`store`)                | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                                                                |
-| **resreg**                                  | 4 (`audit`,`auth`,`core`,`store`) | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                                                                    |
-| store, auth, chanlib, chanreg, ipc, compose | 3–11                              | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                                                          |
+| Component                                   | internal deps                     | readiness                             | what it is / who wants it alone                                                                                                                                                                               |
+| ------------------------------------------- | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **crackbox**                                | 0                                 | ⚠ egress **fails open** (BUGS, HIGH)  | egress proxy + KVM sandbox — but per-folder default-deny is **not enforced today** (routd swallows the allowlist-resolve error → nil list → fail-open). Fixing that is the real "ship it" gate, not a README. |
+| **dockbox** _(concept)_                     | in `container/` (11)              | candidate — heavy decouple            | "how you run a container with an agent": `docker run` + mounts + skill-seed + MCP socket. The **Docker sibling to crackbox's KVM**. Today coupled in `container/`; a clean `dockbox` is a decouple task.      |
+| **obs**                                     | 0                                 | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.                                                        |
+| **router**                                  | 1 (`core`)                        | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                                                                         |
+| **grants**                                  | 2 (`core`,`store`)                | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                                                                     |
+| **resreg**                                  | 4 (`audit`,`auth`,`core`,`store`) | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                                                                         |
+| store, auth, chanlib, chanreg, ipc, compose | 3–11                              | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                                                               |
 
-Honest read: **two ship today (crackbox, obs), two are a small decouple (router,
-grants), one is the `mcpfw` roadmap (resreg), one names a concern worth a clean
-extraction later (dockbox).** Everything else stays internal. `core` and `theme`
-are also 0-dep but have little standalone value alone (types; CSS).
+Honest read: **`obs` is the only piece that plausibly ships as-is.** `crackbox`
+looked like the sure thing (0 deps, production proxy) — but its per-folder egress
+is currently **fail-open**, an OPEN HIGH bug (`BUGS.md`, 2026-07-14). router/grants
+are a small decouple; resreg is the `mcpfw` roadmap; dockbox names a concern worth
+a clean extraction later. `core`/`theme` are 0-dep but low-value alone.
+
+**Caveat — readiness here is a hypothesis, not a verdict.** Import-purity (0
+internal deps) means a package _compiles_ alone; it does NOT mean it _works_
+alone, has a clean documented contract, or that its guarantee holds. crackbox is
+the counterexample: 0 deps **and** broken. Deciding _what_ each component
+actually is, and _how_ to extract it cleanly, is real per-component design +
+hardening work — this table is where that starts, not its result.
 
 **ant is not in this table — on purpose.** ant is not a shippable component; it
 is (a) the **interface** into arizuko (`ant <folder> [prompt]`, the `ant/ant`
