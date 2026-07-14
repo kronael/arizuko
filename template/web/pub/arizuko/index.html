@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Self-hosted platform for many specialized agents. Each agent is a folder; you shape it in plain language; you own every change as files on your own server."
+      content="Self-hosted platform for many specialized agents. Each agent is a folder you shape in plain language; the whole instance — agent folders plus SQLite — lives in one directory on your server."
     />
     <title>arizuko — many specialized agents, one self-hosted platform</title>
     <link rel="stylesheet" href="assets/hub.css" />
@@ -60,10 +60,10 @@
         Small daemons keep that bounded: <code>routd</code> routes and
         authorizes, <code>runed</code> runs each turn in a fresh container,
         <code>authd</code> issues identity &mdash; hard walls around what
-        language can reshape. And every change lands as plain files on your
-        own server: diff them, tar the directory for a complete backup, put
-        them under git if you want history. Language shapes it; compartments
-        bound it; ownership makes it permanent.
+        language can reshape. Agent content lands as plain files; routes,
+        grants, and secrets are rows in SQLite right next to them &mdash; one
+        directory on your server holds both. You change an agent in chat,
+        then read the diff on disk.
       </p>
       <p class="dim">
         (Daemons: small programs that run in the background all the time
@@ -99,8 +99,8 @@ arizuko run demo                       # compose up; @mention the bot in a chann
           <p class="card-meta">Telegram oncall &middot; Slack / Discord</p>
           <p>
             An SRE in your chat. Reads your runbooks, proposes before it
-            mutates &mdash; and each engineer acts with their own AWS keys,
-            so CloudTrail names the human, not a shared robot.
+            mutates &mdash; and each engineer can act with their own AWS
+            keys, so CloudTrail names the human, not a shared robot.
           </p>
         </div>
         <div class="card">
@@ -122,35 +122,37 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <h2>many agents, one platform</h2>
       <p>
         Those three aren&rsquo;t three installs. On one instance they&rsquo;re
-        three folders in one tree &mdash; and that&rsquo;s the actual bet: an
-        agent does its job well when it&rsquo;s specialized. A focused persona
-        with a tight set of skills holds intent; a do-everything assistant
+        three folders in one tree &mdash; and that&rsquo;s the bet: an agent
+        does its job well when it&rsquo;s specialized. A focused persona with
+        a tight set of skills holds intent; a do-everything assistant
         drifts. The platform&rsquo;s work is making specialization cheap and
         coexistence safe.
       </p>
       <ul>
         <li><strong>Isolation that keeps memory.</strong> Each folder has its
           own persona, memory, and secrets, and runs in fresh per-turn
-          containers behind default-deny egress. A support agent can face
-          strangers on a public channel and still remember its own history
-          &mdash; while reaching nothing that belongs to another folder.</li>
-        <li><strong>Agents talk through the org chart.</strong> Each
-          department shapes its own agent, and the agents hand work along the
-          tree: a parent delegates down, a child escalates up, a folder
-          watches another&rsquo;s channel where grants allow. The same
-          permission checks as everything else &mdash; not a free-for-all
-          mesh.</li>
-        <li><strong>People move freely.</strong> Type <code>@sales</code> and
-          your chat talks to the sales agent; type <code>@eng</code> and
-          you&rsquo;re back. Change your agent or group without changing the
-          app you chat in.</li>
+          containers; with <a href="components/crackbox.html">crackbox</a>
+          enabled, outbound traffic is allowlist-only. A support agent can
+          face strangers on a public channel and still remember its own
+          history &mdash; another folder&rsquo;s home is never mounted into
+          its container.</li>
+        <li><strong>Agents hand work along the tree.</strong> Each
+          department shapes its own agent. An agent delegates down to a
+          child, escalates up to its parent, and can subscribe to another
+          folder&rsquo;s inbound where grants allow. Every link is explicit
+          and permission-checked &mdash; not a free-for-all mesh.</li>
+        <li><strong>People move between agents.</strong> Send
+          <code>@acme/sales</code> on its own and the chat is pinned to the
+          sales agent &mdash; for everyone in it; a bare <code>@</code> takes
+          it back. Change agents without changing the app you chat in.</li>
       </ul>
 
       <h2>trace one event</h2>
       <p>
         The feature list looks like sprawl &mdash; channels, topics, tasks,
         webhooks, secrets, delegation. Trace one event top to bottom and it
-        isn&rsquo;t: six steps, every time.
+        isn&rsquo;t: when an event fires a turn, it&rsquo;s these six steps,
+        every time.
       </p>
       <pre><code>Slack @mention in #eng
   &rarr; Event          one inbox row
@@ -164,8 +166,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         A scheduled task is the same six steps &mdash; the event is a clock
         tick. A webhook is the same six steps &mdash; the event is a POST.
         An email, a WebDAV file drop, a reaction: rows in the same inbox,
-        through the same pipeline. Nothing is a special case, so the parts
-        don&rsquo;t multiply.
+        through the same pipeline. (Some events stop earlier on purpose
+        &mdash; an observe route files the message and ends there.) Nothing
+        is a special case, so the parts don&rsquo;t multiply.
       </p>
 
       <h2>the six primitives</h2>
@@ -182,8 +185,9 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><strong>Authorization</strong> &mdash; one question: may this
           principal do this action here?</li>
         <li><strong>Turn</strong> &mdash; a fresh container runs the agent
-          once; every side effect is a permission-checked tool call; then
-          the container exits.</li>
+          once; platform actions are permission-checked tool calls, and file
+          and network reach is bounded by mounts and egress; then the
+          container exits.</li>
         <li><strong>State</strong> &mdash; two durable stores, by design:
           the SQLite databases and the agent&rsquo;s folder on disk.</li>
       </ul>
@@ -229,12 +233,13 @@ arizuko run demo                       # compose up; @mention the bot in a chann
       <p>
         Change the persona by editing a file; the next turn picks it up.
         One <code>tar</code> of the directory is a complete backup &mdash;
-        databases, memory, secrets, the site. Want history? It&rsquo;s
-        plain files: put <code>groups/</code> under git yourself and review
-        the agent&rsquo;s changes as commits (the agent image ships git and
-        a commit skill; the platform doesn&rsquo;t version the folder for
-        you). There&rsquo;s no export API, because there&rsquo;s nothing to
-        export from: you already have the files.
+        databases, memory, secrets, the site (stop the instance first for a
+        clean copy). Want history? It&rsquo;s plain files: put
+        <code>groups/</code> under git yourself and review the
+        agent&rsquo;s changes as commits (the agent image ships git and a
+        commit skill; the platform doesn&rsquo;t version the folder for
+        you). The files need no export step &mdash; they&rsquo;re already
+        yours, on your disk.
       </p>
 
       <h2>honest constraints</h2>
@@ -251,7 +256,7 @@ arizuko run demo                       # compose up; @mention the bot in a chann
         <li><strong>Default-deny egress.</strong> With
           <a href="components/crackbox.html"><code>crackbox</code></a>, an
           agent reaches only the hosts you allowlist &mdash; a compromised
-          turn can&rsquo;t call home.</li>
+          turn can only call hosts you already approved.</li>
         <li><strong>MCP first, REST converging.</strong> Every platform
           action is an MCP tool call. The matching REST endpoint arrives
           resource by resource &mdash; the two faces are converging, not

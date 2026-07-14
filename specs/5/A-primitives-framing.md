@@ -67,7 +67,9 @@ _recomposition_ of those primitives, never new machinery.
 The payoff is products. You don't assemble agent demos from low-level
 wiring; you ship **ownable agents as real products** — a Slack team
 agent, a personal reality agent, a company brain — each a folder of
-files you can diff, review, fork, and `git revert` on your own host.
+files you can diff, review, and fork on your own host (put it under git
+for revertable history; the platform doesn't commit for you — see
+BUGS.md 2026-07-14, make-it-true tracked in `9/3`).
 The same fixed pipeline serves all of them; only the folder contents
 and the routing differ. Ownership is what makes deep customization
 possible — the thing you need at this stage of AI, against opaque SaaS
@@ -84,7 +86,8 @@ with hard boundaries —
 folder scoping, the authz gate, ephemeral per-turn containers — so
 LLM-driven shaping stays bounded to what the grants allow. You reshape a
 system in natural language without it becoming a black box you can't
-audit: every change lands as files you diff and `git revert`.
+audit: agent content lands as files you diff; routes, grants, and
+secrets land as SQLite rows in the same instance directory.
 Compartmentalized daemons make the molding safe; ownership makes it
 permanent. (This is the evolved lead — primitives and ownership are the
 two halves it rests on, not competing angles.)
@@ -98,20 +101,25 @@ holds a job the way a general blob can't (`../17/9`) — and the platform's
 work is making specialization cheap and coexistence safe:
 
 - **Context isolation that keeps memory.** Each agent is a folder with
-  its own persona/skills/memory, run in per-turn ephemeral containers
-  behind default-deny egress. That lets a specialized agent stand in a
-  one-off deployment, a support channel, or a hostile environment
-  (unknown users, public chat — tier 3+ is send-only) while keeping its
-  own persistent memory and leaking nothing cross-folder.
-- **Cross-talk through the org tree, not a mesh.** Departments shape
-  their own agents; the agents talk via `delegate_group` (parent→child,
-  `ipc/ipc.go:1828`), `escalate_group` (child→parent, `ipc/ipc.go:1779`),
-  and `observe_group` subscriptions (`5/F`) — depth-capped, structurally
-  authorized to the subtree (`auth.AuthzTarget`). Say "through the org
-  chart," never "any agent can message any agent."
-- **Users move freely across agents.** A chat repoints at another
-  group's agent with sticky `@group` (`routd/steer.go:39`) — change your
-  agent or group, keep the conversation surface.
+  its own persona/skills/memory, run in per-turn ephemeral containers;
+  with crackbox enabled, egress is allowlist-only. That lets a
+  specialized agent stand in a one-off deployment, a support channel, or
+  a hostile environment (unknown users, public chat — tier 3+ is
+  send-only) while keeping its own persistent memory; another folder's
+  home is never mounted into its container (shared world dirs and extra
+  mounts are explicit operator choices).
+- **Hand-offs through the org tree, not a mesh.** Departments shape
+  their own agents; work moves via `delegate_group` (parent→child,
+  `ipc/ipc.go:1828`), `escalate_group` (child→immediate parent,
+  `ipc/ipc.go:1779`) — both depth-capped at 1 — and, separately,
+  `observe_group` read-only subscriptions (`5/F`), each structurally
+  authorized (`auth.AuthzTarget`; tier 0/1 wider than tier 2). Three
+  distinct mechanisms — name them; never "any agent can message any
+  agent."
+- **Users move between agents.** A standalone exact `@<folder>` message
+  pins the WHOLE chat to that group's agent; bare `@` restores default
+  routing (`routd/steer.go:39`) — change agents, keep the conversation
+  surface.
 
 Docs implication: this is the hero story ("one platform, many
 specialized agents — your departments each shape their own, isolation is
@@ -333,12 +341,12 @@ of concepts stacks, cleanly, into the things you deploy and ship. This
 is the spine of the grand message — primitives become packages become
 processes become products.
 
-| Layer          | What it is                      | Examples                                                                           |
-| -------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
-| **Primitives** | invariant concepts              | Event, Routing, Agent, Authorization, Turn, State (+ Identity)                     |
-| **Components** | Go packages that implement them | `store`, `chanlib`, `router`, `groupfolder`, `auth`, `grants`, `ipc`, `runed`      |
-| **Daemons**    | deployable processes            | `gated` (monolith) or `authd`+`routd`+`runed` (split); `webd`, `timed`, `slakd`, … |
-| **Products**   | installable agents              | Slack team agent, reality agent, company brain                                     |
+| Layer          | What it is                      | Examples                                                                        |
+| -------------- | ------------------------------- | ------------------------------------------------------------------------------- |
+| **Primitives** | invariant concepts              | Event, Routing, Agent, Authorization, Turn, State (+ Identity)                  |
+| **Components** | Go packages that implement them | `store`, `chanlib`, `router`, `groupfolder`, `auth`, `grants`, `ipc`, `runed`   |
+| **Daemons**    | deployable processes            | `authd`+`routd`+`runed` (the split, only topology); `webd`, `timed`, `slakd`, … |
+| **Products**   | installable agents              | Slack team agent, reality agent, company brain                                  |
 
 Per-primitive, the mapping is direct (each primitive has a home
 package, bundled into the monolith today and into a split daemon as the
@@ -448,9 +456,9 @@ thing instead (a table, a row, a file, a folder).
 **The layer above the model.** Models get better; agent harnesses get
 better; neither is the race arizuko runs. The gap is the layer above
 them — managing users, context, and organization across many agents,
-over time. We haven't seen that built as composable primitives you own
-rather than one system you rent. That is the Unix bet: small orthogonal
-pieces you wire together, not a platform. Call it a web-native Linux —
+over time. The bet is that layer wants to be composable primitives you
+own rather than one system you rent — the Unix bet: small pieces you
+wire together, not a managed control plane. Call it a web-native Linux —
 primitives for identity (the folder/JID), storage (the folder tree),
 routing (the route table), and publishing (`~/public_html` → `/pub`, no
 deploy step) that outlive the model you run this week. Swap the agent
