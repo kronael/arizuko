@@ -15,14 +15,15 @@ deliberately, because state and software are different concerns.**
 1. **State transport — pg_dump-style.** `arizuko export/apply`; flags
    decide meta-only vs with-data; format follows content. For backups
    and instance-to-instance moves. No source resolution, no merging.
-2. **Packages — uv-style.** Products and skills are _packages_: a
-   per-group manifest + lockfile + sources, immutable installs,
-   clean-replace updates, migrations shipped inside the package. For
-   distribution and updates. No state inside.
+2. **Products — uv-style composable mixins.** The product is the one
+   hostable, shareable, syncable unit; a group blends a LIST of them
+   (manifest + lockfile + sources, immutable installs, clean-replace
+   updates, migrations inside). For distribution and updates. No state
+   inside.
 
 They meet only at one point: a backup naturally contains the manifest +
-lockfile, so a restored agent is reproducible — `pkg sync` reinstalls
-byte-identical packages from the lock.
+lockfile, so a restored agent is reproducible — `product sync`
+reinstalls byte-identical products from the lock.
 
 ## Mechanism 1 — state transport (export/apply)
 
@@ -103,48 +104,60 @@ archive (or bare yml) fetched from a repo — publishable anywhere git
 reaches. No registry, no `claude-plugin:` scheme until a stable plugin
 API exists.
 
-## Mechanism 2 — skill packages (uv-style) + products as templates
+## Mechanism 2 — products as composable mixins (uv-style)
 
-Naming, resolved: **a product is a template; a skill is a package**
-("plugin" is the ecosystem word for the same thing). The distinction is
-what updates:
-
-- **Product = template, instantiated once.** Persona + seed facts +
-  skill list + `[[env]]` checklist (`PRODUCT.md`, shipped). At
-  `arizuko create --product <name-or-source>` its files are copied into
-  the group (`SetupGroup`) and from that moment they are the group's own
-  STATE — operator-owned (PERSONA.md is canonical operator truth), never
-  updated from upstream. New template versions benefit new groups.
-  Sources: bundled `ant/examples/<name>` or
-  `git+https://…#<subdir>` — anyone hosts products on their GitHub.
-- **Skill = package, managed and updatable.** The ONLY managed surface.
-  Precedent is shipped: the platform's own migrations live inside a
-  skill (`ant/skills/self/migrations/`).
+One concept: **a product is the hostable, shareable, syncable unit; a
+group is a blend of mixed-in products** plus its own state. A product
+carrying only skills is a capability mixin; one carrying persona + facts
+is an identity mixin; most carry a bit of each. `PRODUCT.md` (shipped)
+stays the product's own manifest. Anyone hosts a product on their
+GitHub; `ant/examples/<name>` are simply the bundled ones.
 
 Per group:
 
-- **Manifest — `~/skills.toml`**: `[[skill]] name/source` entries,
-  human- or `skill add`-written.
-- **Lock — `~/skills.lock`**: resolved immutable rev + sha256 tree hash
-  - last-applied migration number per skill. `sync` installs exactly
-    this; the hash is the trust anchor, the URI a hint.
-- **Immutable installs.** Never edited in place; update = clean replace
-  at the new rev. No merge, hence no merge state — this is what makes
-  the lockfile legitimate where the old draft's failed. Customization
-  lives in the overlay arizuko already has: `~/CLAUDE.md`, `PERSONA.md`,
-  custom skills, `.disabled`. Deep changes = fork and repoint the
-  manifest; a forked skill stops tracking upstream, deliberately.
-- **Migrations ride the package.** `migrations/NNN-*.md`, the platform's
-  own convention; `skill update` replaces the tree, then enqueues a turn
-  where the agent executes files above the lock's mark, in order, and
-  the lock records the new mark. A skill may seed/transform ITS OWN data
-  this way (e.g. create `~/facts/<x>.md` if missing); identity files
-  stay template-seeded — deterministic copy beats agent-executed
-  seeding for persona-class files.
-- **Verbs**: `arizuko skill add <inst> <folder> <source>`,
-  `skill update [<name>] [--to <ref>] [--dry-run]` (rollback = older
-  `--to`), `skill sync`, `skill list`. Host CLI fetches; containers need
-  no egress for package management.
+- **Manifest — `~/products.toml`**: the mix, ordered.
+
+  ```toml
+  [[product]]
+  source = "git+https://github.com/arizuko/products#support"   # identity mixin
+
+  [[product]]
+  source = "git+https://github.com/acme/aws-tools"             # capability mixin
+
+  [[product]]
+  source = "file:///opt/local/tufte"
+  ```
+
+- **Lock — `~/products.lock`**: per product the resolved immutable rev +
+  sha256 tree hash + last-applied migration number. `sync` installs
+  exactly this; the hash is the trust anchor, the URI a hint.
+
+**Blend rules — how products combine, per payload kind:**
+
+| Payload                      | Blend                                                         | On upstream update                                                   |
+| ---------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `skills/`                    | union by skill name; collision = refuse (rename in your fork) | **managed**: clean replace at new rev (immutable installs, no merge) |
+| `PERSONA.md`                 | at most ONE product in the mix provides it; second = refuse   | seed-once: group state after create, never touched                   |
+| `CLAUDE.md`                  | appended as marked sections, manifest order                   | seed-once                                                            |
+| `facts/`, `tasks.toml`       | union; filename collision = refuse                            | seed-once                                                            |
+| `settings.json` `mcpServers` | map union; name collision = refuse                            | managed (entry replaced)                                             |
+| `[[env]]` checklist          | union                                                         | informational                                                        |
+| `Dockerfile.ant` (Tier C)    | at most one in the mix                                        | operator rebuilds explicitly                                         |
+| `migrations/NNN-*.md`        | per product                                                   | executed above the lock's mark on update                             |
+
+The seed/managed distinction is per KIND, inside the product: skills and
+mcpServers entries stay upstream-managed (that's what `sync`/`update`
+touch); identity and knowledge seed once and become the group's own
+state. Customization: overlay (`~/CLAUDE.md`, `.disabled`, custom
+skills) or fork-and-repoint — a forked product stops tracking upstream,
+deliberately. Never edit managed files in place; there is no merge and
+therefore no merge state (what makes the lockfile legitimate).
+
+- **Verbs**: `arizuko product add <inst> <folder> <source>`,
+  `product update [<name>] [--to <ref>] [--dry-run]` (rollback = older
+  `--to`), `product sync`, `product list`. Host CLI fetches; containers
+  need no egress for product management. `arizuko create --product X`
+  = create the group with `products.toml` listing X.
 
 **Extension surface — what a product/package may carry, tiered by
 trust.** Products carry much more than skills; each layer has an owner
