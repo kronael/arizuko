@@ -7,6 +7,44 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
+
+A contained-folder test (`libtest`, egress set to pypi-only) proved the
+per-folder egress allowlist is **not enforced**. crackbox's own logs:
+`{"msg":"allow connect","id":"libtest","host":"example.com"}` (also
+`webhook.site`, `http-intake.logs.us5.datadoghq.com`) — every one ABSENT from
+`libtest`'s resolved allowlist (`arizuko network resolve libtest` returned only
+`anthropic.com`/`api.anthropic.com`/`pypi.org`/`files.pythonhosted.org`). The
+"default-deny per-folder allowlist" guarantee in `SECURITY.md` + `ant/CLAUDE.md`
+("a host not on your allowlist is refused at CONNECT → 403 on every path") does
+NOT hold: a tightly-scoped folder reaches arbitrary hosts.
+
+Practical exposure is masked on marinade today (every live folder is `atlas/*`
+with `*` egress by config), but the ENFORCEMENT PATH is broken — you cannot
+restrict a folder even by setting a tight allowlist. This blocks any
+egress-contained deployment — e.g. the in-container librarian with private data
+(Surface B works end-to-end, but its data cannot be egress-contained → "must not
+leak" fails at the network layer).
+
+Root cause (needs a focused crackbox audit): routd resolves the tight list
+(`routd/dispatch.go:493` `allowlist, _ := l.db.ResolveAllowlist(folder)` — the
+error is SWALLOWED, and the comment at `:491` says "nil allowlist on error") and
+passes it (`:527 EgressAllowlist`) to the spawn; the proxy decision is
+`id, ok := p.allow.Allow(src, host)` (`crackbox/pkg/proxy/proxy.go:65`) which
+returned `ok=true` for `example.com` under the CORRECT `id=libtest`. So either
+the resolved list isn't applied per-container-IP in crackbox (fail-open when the
+per-id policy is missing/empty), or a permissive default exists. The
+`_`-swallowed `ResolveAllowlist` error → nil allowlist → fail-open is the prime
+suspect.
+
+**Fix direction (record-only, needs sign-off — security redesign):** crackbox
+must fail-CLOSED (deny all) for a container whose per-id allowlist is
+missing/empty; routd must surface (not swallow) a `ResolveAllowlist` error
+rather than spawn with a nil allowlist. Add a containment test: a folder with a
+tight allowlist gets 403 on a non-listed host (the exact test that just failed).
+This is the structural half of the "librarian must not leak" guarantee (with
+`secretscan` for reply-content leaks).
+
 ## Release announcement is over-delivered: every group blasts all its routes, once per server-per-group — no opt-in, no main-channel, no mute (2026-07-14, OPEN, proposal)
 
 The `/migrate` skill step (e) (`ant/skills/migrate/SKILL.md:224-289`) is run
