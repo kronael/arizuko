@@ -1371,3 +1371,21 @@ next proxyd restart activates it).
 - **Source:** anteval webhook-in live run 2026-07-11; proxyd request log `status:302 path:/hook/...`
 - **Status:** open (row inserted on krons, awaits proxyd restart; re-seed/upsert path undesigned)
 - **Fix:**
+
+## Positioning claims "diff, fork, git revert" but nothing versions agent folders (2026-07-14, open)
+
+specs/5/A (grand message, shipped) + specs/17/9 sell ownership as "files you diff,
+fork, and `git revert` on your own host". Verified: the platform has NO `git init`
+at group creation (onbod/container/cmd grep clean), no auto-commit; live homes show
+.git in only 4/8 krons groups + marinade/atlas, and those repos have ZERO commits
+(rhias: empty master, 86 dirty files) — agent/operator-initiated shells. So `git
+revert` mostly has nothing to revert to. The true claims: plain files, tar = full
+backup, git POSSIBLE (ant image ships git + commit skill).
+
+- **Severity:** low (positioning honesty, no runtime impact)
+- **Scope:** specs/5/A + 17/9 wording; landing/README ownership sections; the gap itself
+- **Fix options:** (a) soften wording to possibility framing (landing sub already
+  instructed, 2026-07-14); (b) make it TRUE: `git init` + initial commit at group
+  create + a commit hook on /migrate + diary writes — small, but that IS
+  specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
+- **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
