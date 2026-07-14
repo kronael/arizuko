@@ -1413,3 +1413,20 @@ backup, git POSSIBLE (ant image ships git + commit skill).
   create + a commit hook on /migrate + diary writes — small, but that IS
   specs/9/3-git-as-truth scope creep; decide there, not ad hoc.
 - **Status:** open — wording fix in flight; the make-it-true decision belongs to 9/3
+
+## Two hub.js in template — release stamps the one pages don't load (2026-07-14, open)
+
+`template/web/pub/assets/hub.js` and `template/web/pub/arizuko/assets/hub.js` are
+byte-identical twins except `ARIZUKO_VERSION`. The docs pages reference relative
+`assets/hub.js` → the `arizuko/assets/` copy; the release runbook (root CLAUDE.md
+"Tagging" step 3) bumps only the top-level copy. Live footer showed v0.51.0 for
+seven releases (v0.51→v0.58) until caught at the v0.58.0 deploy. Same twin risk
+for hub.css.
+
+- **Severity:** low (cosmetic version stamp; but a textbook two-paths drift)
+- **Scope:** template/web asset layout + release runbook
+- **Fix options:** (a) collapse to ONE file (arizuko/assets is the loaded one;
+  decide whether the top-level assets/ serves any non-arizuko hub page before
+  deleting); (b) release script bumps both (band-aid, applied 2026-07-14 in
+  CLAUDE.md wording).
+- **Status:** open — versions synced at v0.58.0; collapse decision pending
