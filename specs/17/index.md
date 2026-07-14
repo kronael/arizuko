@@ -19,7 +19,7 @@ out of the box.
 | [→ 5/19-hitl-firewall](../5/19-hitl-firewall.md)     | moved       | Pulled into platform core (`5/19`) + collapsed per codex/fable: one `pending_actions` resreg resource + injected `CheckHold`, no dispatcher. |
 | [5-authoring-product.md](5-authoring-product.md)     | draft       | Authoring agent design reference (see product-creator.md).                                                                                   |
 | [6-web-routes.md](6-web-routes.md)                   | draft       | Agent-controlled web routing: set_web_route MCP tools + direct DB lookup.                                                                    |
-| [→ 5/20-ant-portability](../5/20-ant-portability.md) | moved       | Pulled into platform core (5/20): the sharable-products/plugin spec — lockfile, `.arzpack`, source URIs, fleet skill ops.                    |
+| [→ 5/20-ant-portability](../5/20-ant-portability.md) | moved       | Pulled into platform core (5/20), rewritten pg_dump-style: one export/apply, meta-only YAML or `--files` tar.gz; no lockfile/arzpack.        |
 | [1-git-channel.md](1-git-channel.md)                 | draft       | `gitd` adapter — repos as channels, PR/issue/commit as messages, repo=workspace.                                                             |
 | [3-file-event-stream.md](3-file-event-stream.md)     | draft       | `filewd` inotify watcher in agent container → MCP `file_event` → SSE + audit.                                                                |
 | [8-company-brain.md](8-company-brain.md)             | not planned | Positioning: arizuko as the action layer (not retrieval) for "company brain" use cases.                                                      |
