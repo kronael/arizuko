@@ -30,19 +30,30 @@ A component is standalone-ready only if it does not import arizuko-internal
 packages (the import-graph rule, `CLAUDE.md`). Internal-dep counts measured
 2026-07-14 (`grep` over each package's imports):
 
-| Component                                              | internal deps                     | readiness                             | what it is / who wants it alone                                                                                                                                 |
-| ------------------------------------------------------ | --------------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **crackbox**                                           | 0                                 | **ships now**                         | egress proxy (per-source allowlist + DNS filter) + KVM sandbox (`crackbox run --kvm`). Anyone running untrusted code or agents and needing default-deny egress. |
-| **obs**                                                | 0                                 | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.          |
-| **router**                                             | 1 (`core`)                        | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                           |
-| **grants**                                             | 2 (`core`,`store`)                | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                       |
-| **resreg**                                             | 4 (`audit`,`auth`,`core`,`store`) | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                           |
-| store, auth, chanlib, chanreg, container, ipc, compose | 3–11                              | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                 |
+| Component                                   | internal deps                     | readiness                             | what it is / who wants it alone                                                                                                                                                                          |
+| ------------------------------------------- | --------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **crackbox**                                | 0                                 | **ships now**                         | egress proxy (per-source allowlist + DNS filter) + KVM sandbox (`crackbox run --kvm`). Anyone running untrusted code or agents and needing default-deny egress.                                          |
+| **dockbox** _(concept)_                     | in `container/` (11)              | candidate — heavy decouple            | "how you run a container with an agent": `docker run` + mounts + skill-seed + MCP socket. The **Docker sibling to crackbox's KVM**. Today coupled in `container/`; a clean `dockbox` is a decouple task. |
+| **obs**                                     | 0                                 | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.                                                   |
+| **router**                                  | 1 (`core`)                        | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                                                                    |
+| **grants**                                  | 2 (`core`,`store`)                | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                                                                |
+| **resreg**                                  | 4 (`audit`,`auth`,`core`,`store`) | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                                                                    |
+| store, auth, chanlib, chanreg, ipc, compose | 3–11                              | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                                                          |
 
 Honest read: **two ship today (crackbox, obs), two are a small decouple (router,
-grants), one is the `mcpfw` roadmap (resreg).** Everything else stays internal.
-`core` and `theme` are also 0-dep but have little standalone value alone (types;
-CSS).
+grants), one is the `mcpfw` roadmap (resreg), one names a concern worth a clean
+extraction later (dockbox).** Everything else stays internal. `core` and `theme`
+are also 0-dep but have little standalone value alone (types; CSS).
+
+**ant is not in this table — on purpose.** ant is not a shippable component; it
+is (a) the **interface** into arizuko (`ant <folder> [prompt]`, the `ant/ant`
+launcher over the `arizuko-ant` image) and (b) a **composition template** — the
+worked example of how the pieces fit for someone building their own. What's
+extractable _under_ ant is the runner (**dockbox**/crackbox), not ant itself.
+The standalone ant already exists (in TS); there is nothing to "extract" — there
+is a thing to _point people at as the reference_. (This is the salvaged kernel
+of the dropped `13/b`; the Go rewrite is gone, the "agent-as-a-folder + how it's
+run" idea lives here.)
 
 ## How to present them
 
