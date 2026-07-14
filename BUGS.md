@@ -7,6 +7,21 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## S2 — Missing SECRETS_KEY permits plaintext secret writes despite the required-key contract (2026-07-14, open)
+
+The configuration contract says `SECRETS_KEY` is required, with no plaintext
+mode or `AUTH_SECRET` fallback, but routd only warns when the keyring is empty.
+`store.Store.storeValue` then returns the plaintext unchanged, so REST/CLI
+secret writes can persist readable values while the service remains healthy.
+This also makes imports unsafe to proceed before validating the target key.
+
+- **Severity:** high
+- **Scope:** secrets encryption precondition / routd startup
+- **Affected:** instances started without `SECRETS_KEY`
+- **Source:** core/config.go:136-146 (required-key contract); routd/cmd/routd/main.go:61-69 (warn-and-continue); store/secrets.go:72-78 (plaintext fallback)
+- **Status:** open
+- **Fix:**
+
 ## Web docs claim URL↔kind binding on route tokens; shipped code accepts any token at either URL (2026-07-12, fixed, LOW)
 
 **Location**: `template/web/pub/arizuko/reference/tokens.html` §"/chat/ and /hook/ — each URL bound to its JID prefix kind" (+ echoes in `concepts/tokens.html`, `reference/schema.html`, both howto ledes)
@@ -1196,10 +1211,19 @@ is a no-op against production config. `config_meta` is entangled with this — i
 routd.db until the CLI is repointed at the owner DBs (a per-resource DB routing problem, since
 resources now span routd.db + onbod.db). Deferred out of the messages.db-retirement slice.
 
+The same CLI also contradicts 5/8's token exclusion: `resreg.Export` scans every
+registered `RowType`, while `resreg/resources/invites.go` registers the raw invite
+`Token` and does not set `SkipApplyRebuild`. Therefore today's frozen-DB export can
+emit invite bearer tokens, and a naive owner-DB repoint would emit the live tokens.
+The 5/8 finalization must exclude imperative token resources from export/apply,
+not merely route them to the correct owner DB. `route_tokens` already skips apply
+but is still exported as non-secret metadata; decide separately whether that
+metadata belongs in a dump.
+
 - **Severity:** medium
 - **Scope:** cmd/arizuko resreg apply/plan/export/get, config_meta ownership
 - **Affected:** all instances (YAML-manifest config management dead post-split)
-- **Source:** cmd/arizuko/apply.go:45,94,128,204 (store.Open messages.db); store/migrations/0067-config-meta.sql
+- **Source:** cmd/arizuko/apply.go:45,94,128,204 (store.Open messages.db); resreg/engine.go:627-645 (exports every RowType); resreg/resources/invites.go:14-21,36-43 (raw token registered); store/migrations/0067-config-meta.sql
 - **Status:** open
 
 ## dashd reads messages/chats/cost_log/task_run_logs from frozen messages.db (2026-07-01, open)
