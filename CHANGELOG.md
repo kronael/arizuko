@@ -14,6 +14,14 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.60.2] — 2026-07-15
+
+> arizuko v0.60.2 — replies stop getting stuck after a release
+
+### Fixed
+
+- **System-turn delivery no longer trips the circuit breaker (`routd`).** A `/migrate` (or other system/auto) turn delivers its prose to a bare folder jid that has no channel; the resulting "no channel for jid" error was retried and tripped the per-folder circuit breaker, which then **blocked real replies for that folder** — mass-triggered on every `MIGRATION_VERSION` bump (v177 fired `/migrate` for ~150 groups × 3 instances). `deliverRow` now skips a bare-folder jid (marks it terminal, debug-logs) instead of the doomed Send. (`5f7a2f3a`)
+
 ## [v0.60.1] — 2026-07-15
 
 > arizuko v0.60.1 — reactions first, leaner runbook
