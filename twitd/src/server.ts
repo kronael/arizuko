@@ -126,7 +126,11 @@ export function startServer(
         const s = requireScraper(res, scraper, isConnected);
         if (!s) return;
         await act(res, async () => {
-          await v.send(s, body.chat_jid, body.content);
+          if (body.reply_to) {
+            await v.reply(s, body.reply_to, body.content);
+          } else {
+            await v.send(s, body.chat_jid, body.content);
+          }
         });
         return;
       }
