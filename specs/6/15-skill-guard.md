@@ -27,7 +27,7 @@ into a skill that runs next session. No equivalent check exists.
 Deliberately NOT in scope: memory/USER.md tools (Claude Code reads
 CLAUDE.md already), `skill_manage` MCP (Write/Edit suffice), post-turn
 review thread (doesn't fit ephemeral-container model — see
-[11/8-self-eval-skill.md](../13/8-self-eval-skill.md) instead), AST
+[13/8-self-eval-skill.md](../13/8-self-eval-skill.md) instead), AST
 scanning, trust tiers, learning loops (see
 [14-self-learning.md](14-self-learning.md) — different concern).
 

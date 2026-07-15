@@ -129,10 +129,9 @@ the crackbox listener. It does **not** automatically defend:
   client's resolver returns an address, so the name is the unit of
   enforcement. The HTTP path remains the second gate; DNS is
   additive defense-in-depth.
-- **Spec 10/11 secrets**: the tool-level broker model runs in `gated`
-  on the host and never touches egress; the DNS filter and the broker
-  share no data path. Cross-ref:
-  [`5/13`](../5/13-ext-mcp.md).
+- **Secrets broker** ([`5/13`](../5/13-ext-mcp.md)): the tool-level
+  broker runs host-side, never touches egress; the DNS filter and the
+  broker share no data path.
 
 ## Container-side wiring
 
@@ -255,14 +254,13 @@ allows all. No new wildcard syntax.
 - [`9-crackbox-sandboxing.md`](9-crackbox-sandboxing.md) — the
   arizuko egress consumer + gated backend. Discovering the per-folder
   crackbox IP and adding `--dns` is follow-up work owned there.
-- [`7/../5/13-ext-mcp.md`](../5/13-ext-mcp.md) — tool-level
-  broker. Independent of egress; DNS filter and broker do not share
-  state.
+- [`5/13`](../5/13-ext-mcp.md) — tool-level broker. Independent of
+  egress; DNS filter and broker do not share state.
 
 ## Acceptance
 
 Crackbox-local only. Arizuko-side resolver pointing is asserted by
-9/10 once it lands.
+`6/9` once it lands.
 
 - `go test ./crackbox/pkg/dns/...` green; covers:
   - allowlisted A and AAAA → forwarded to a fake upstream;
@@ -290,7 +288,7 @@ Pass 2 (after oracle, structural rework):
 
 - **Scope**: split arizuko consumer plumbing out. Made
   `--dns <crackbox-ip>` for arizuko an explicit follow-up under
-  9/10 instead of "one-line". The crackbox container's IP on each
+  `6/9` instead of "one-line". The crackbox container's IP on each
   per-folder network is not known to `container/egress.go` today.
 - **ANY**: changed from "forward verbatim" to **REFUSED**.
   Removes amplification surface; zero loss for normal traffic.
@@ -314,7 +312,7 @@ Pass 2 (after oracle, structural rework):
 Pass 3 (after oracle, one-polish):
 
 - Acceptance scoped purely crackbox-local; arizuko resolver wiring
-  acceptance left to 9/10.
+  acceptance left to `6/9`.
 - Renamed crackbox CLI flag to `--dns-listen` / `--dns-upstream` so
   it doesn't collide with Docker's `--dns`.
 - Pointer-compressed QNAMEs explicitly rejected (real resolvers

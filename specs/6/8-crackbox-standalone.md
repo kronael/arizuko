@@ -84,15 +84,15 @@ primitives. It does not contain a special-case proxy.
 
 ## Where egred fits in the bigger picture
 
-| Component                | Role                                                              |
-| ------------------------ | ----------------------------------------------------------------- |
-| `egred`                  | The proxy daemon. This spec.                                      |
-| `crackbox/pkg/proxy/`    | Library used by `egred` and `crackbox proxy serve`.               |
-| `crackbox/pkg/host/`     | Library for VM sandboxing (see [10/a](9-crackbox-sandboxing.md)). |
-| `crackbox/cmd/crackbox/` | Umbrella CLI: `proxy serve`, `run`, `state`, `host`.              |
-| `crackbox/cmd/egred/`    | Standalone proxy binary, just the proxy.                          |
-| [`sandd`](13-sandd.md)   | arizuko-internal daemon that uses the docker or                   |
-|                          | crackbox-host backend; wire-format independent of egred.          |
+| Component                | Role                                                               |
+| ------------------------ | ------------------------------------------------------------------ |
+| `egred`                  | The proxy daemon. This spec.                                       |
+| `crackbox/pkg/proxy/`    | Library used by `egred` and `crackbox proxy serve`.                |
+| `crackbox/pkg/host/`     | Library for VM sandboxing (see [`6/9`](9-crackbox-sandboxing.md)). |
+| `crackbox/cmd/crackbox/` | Umbrella CLI: `proxy serve`, `run`, `state`, `host`.               |
+| `crackbox/cmd/egred/`    | Standalone proxy binary, just the proxy.                           |
+| [`sandd`](13-sandd.md)   | arizuko-internal daemon that uses the docker or                    |
+|                          | crackbox-host backend; wire-format independent of egred.           |
 
 The naming distinction matters once VM sandboxing lands:
 **crackbox = library + bundled binaries (the umbrella component);
@@ -168,7 +168,7 @@ Listed for visibility, deferred:
 
 - Secret handling (now spec [`5/13`](../5/13-ext-mcp.md), tool-level
   broker — no proxy involvement).
-- KVM/qemu sandbox host (now lives in [10/a](9-crackbox-sandboxing.md))
+- KVM/qemu sandbox host (now lives in [`6/9`](9-crackbox-sandboxing.md))
 - MCP tools (`request_network`, `list_network_rules`).
 - Traffic logs and audit.
 - Response scanning.
