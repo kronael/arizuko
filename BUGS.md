@@ -7,6 +7,150 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
+
+`slakd.Send` correctly wraps its known permanent `chat.postMessage` failures
+with `chanlib.ErrInvalidRequest`, but the shared `/send` handler maps every
+`BotHandler.Send` error to HTTP 502 instead of using the existing
+`writeBotResult` classifier. A deleted/archived channel, missing membership, or
+failed root fallback is therefore enqueued/retried as a transient delivery.
+Even after repairing that boundary, `slackSendClientErrors` omits documented
+permanent failures such as `cannot_reply_to_message`,
+`restricted_action_non_threadable_channel`,
+`restricted_action_read_only_channel`, and
+`restricted_action_thread_locked`, so those still take the 502 path.
+
+- **Severity:** high
+- **Scope:** Slack outbound error classification
+- **Affected:** Slack text sends and thread replies
+- **Source:** slakd/bot.go:927-937,1183-1205; chanlib/handler.go:328-340,450-480
+- **Status:** open
+- **Fix:**
+
+## D4 — Routd's in-memory 502 outbox is discarded and duplicates the durable retry owner (2026-07-15, proposed)
+
+Every transient adapter failure appends an `outMsg` while still returning the
+error. Normal turn delivery separately leaves a pending DB row that routd
+retries every 30 seconds, so repeated 502s can append up to 1000 copies of one
+message. Production never drains them: adapter heartbeat registration creates
+a new `HTTPChannel`, `setLive` overwrites the old queued object, then drains the
+new empty object. MCP `send`/`reply` has no pending DB row on failure, so its
+supposed queued retry is simply lost. A naive drain fix is unsafe too: successful
+drains discard the returned platform ID and cannot mark the DB row sent, causing
+the durable loop to send it again. There is no infinite loop (24-hour DB cutoff,
+1000-item queue, five drain attempts), but there is a bounded retry storm plus
+loss.
+
+- **Severity:** high
+- **Scope:** routd adapter delivery / retry ownership
+- **Affected:** all outbound text adapters, especially MCP sends and 502 responses
+- **Source:** chanreg/httpchan.go:146-154,507-534,553-560; routd/deliver.go:58-64; routd/channels.go:114-117; routd/loop.go:348-377
+- **Status:** proposed
+- **Fix:**
+
+## D5 — Stable delivery key is dropped before adapters, so ambiguous Slack success can double-post (2026-07-15, open)
+
+Routd supplies a stable outbound row ID and `HTTPChannel` serializes it as
+`turn_id`, but `chanlib.SendRequest` has no matching field; JSON decoding drops
+it before `slakd.Send`. Slack then calls the generic retry helper for the
+non-idempotent `chat.postMessage`. If Slack accepts a post but its response is
+lost, or returns an error after partial success, the helper and the pending-row
+retry can create another platform message. This directly contradicts routd's
+claim that the adapter deduplicates redispatch by stable message ID. File
+delivery loses the same contract even earlier: `chanDeliverer.Document` accepts
+an idempotency key but drops it before `HTTPChannel.SendFile`, whose multipart
+request carries no stable key.
+
+- **Severity:** high
+- **Scope:** outbound idempotency contract
+- **Affected:** Slack text immediately; all retried text/file adapters lack the promised key
+- **Source:** routd/turns.go:297-309,337; routd/loop.go:354-375; routd/deliver.go:123-132; chanreg/httpchan.go:183-221; chanlib/handler.go:17-27,328-345; chanlib/retry.go:22-27; slakd/bot.go:891-942,1441-1457
+- **Status:** open
+- **Fix:**
+
+## A2 — Release guard advances before announcement delivery, making partial failure permanent (2026-07-15, open)
+
+The migrate skill writes `~/.announced-version` before inspecting routes or
+sending any destination. A transient route-read failure, authorization error,
+adapter 502, or partial multi-destination fanout therefore marks the entire
+release announced; the next `/migrate` prints `SKIP` and never retries the
+missing destination. The shell loop also has no per-destination success state.
+
+- **Severity:** medium
+- **Scope:** v0.59 release announcement delivery
+- **Affected:** every group with one or more `#announce` routes
+- **Source:** ant/skills/migrate/SKILL.md:243-252,259-299
+- **Status:** open
+- **Fix:**
+
+## A3 — Announcement target discovery reads an unscoped, truncated route table (2026-07-15, open)
+
+`inspect_routing` asks `ListRoutes(folder,isRoot)` but routd's production
+closure ignores both arguments, swallows the DB error, and returns the whole
+instance table. The inspect handler then truncates to the first 50 rows before
+annotating them. A group's own `#announce` route after global row 50 is
+invisible; unrelated groups' routes can be attempted instead, and a DB failure
+looks like a successful empty route list. Combined with the prewritten release
+guard, all three cases permanently suppress or misdirect the announcement.
+
+- **Severity:** medium
+- **Scope:** inspect_routing / announcement target selection
+- **Affected:** multi-group instances, especially those with more than 50 routes
+- **Source:** routd/mcp.go:407-412; ipc/inspect.go:12-45; ant/skills/migrate/SKILL.md:259-295
+- **Status:** open
+- **Fix:**
+
+## R2 — Reserving `#announce` silently steals an existing route topic (2026-07-15, proposed)
+
+Before v0.59, every fragment other than `#observe` was a valid pinned topic, so
+`folder#announce` meant topic `announce`. The new parser silently reinterprets
+that same persisted value as announcement metadata and clears `Topic`; inbound
+messages now run in the root topic. No migration detects or rewrites existing
+collisions. Parser-produced values otherwise round-trip correctly, and the
+`Mode > Announce > Topic` `String` precedence is safe because parsing never sets
+more than one field.
+
+- **Severity:** medium
+- **Scope:** route-target backward compatibility
+- **Affected:** any pre-v0.59 route whose pinned topic is literally `announce`
+- **Source:** core/types.go:94-135; routd/loop.go:630-646
+- **Status:** proposed
+- **Fix:**
+
+## M3 — MCP send, reply, and send_file hide the platform ID their backends return (2026-07-15, open)
+
+All three handlers receive and persist the created platform ID but return plain
+`ok`; `post`, `send_voice`, `forward`, `quote`, and `repost` return JSON IDs.
+This contradicts the agent self-doc that says `reply` returns `messageId` and
+prevents immediate explicit edit/delete/branch targeting without an extra
+message inspection. The stronger claim that sequential reply chaining is
+impossible is false: `recordOutbound` updates `SetLastReply`, and the next
+`reply` without `replyToId` reads that value, so root→child→grandchild works
+implicitly on adapters that return IDs.
+
+- **Severity:** medium
+- **Scope:** MCP messaging result contract
+- **Affected:** send, reply, send_file on all adapters
+- **Source:** ipc/ipc.go:607-680,1016-1123; ant/skills/self/mcp.md:5-13
+- **Status:** open
+- **Fix:**
+
+## X2 — X tweet replies are wired to an unreachable adapter endpoint (2026-07-15, open)
+
+Routd implements every `reply` through `Deliverer.Send`, which always calls the
+adapter `/send` endpoint with `reply_to`. The X adapter accepts that field but
+ignores it: `/send` always invokes the DM-only verb and rejects tweet JIDs.
+Its working tweet-reply implementation is mounted separately at `/reply`, an
+endpoint no production routd/chanreg call uses. An agent replying to
+`twitter:tweet/<id>` therefore gets a 502 and posts nothing.
+
+- **Severity:** high
+- **Scope:** twitd outbound reply contract
+- **Affected:** X/Twitter tweet replies and reply chains
+- **Source:** routd/mcp.go:47-52,226-248; chanreg/httpchan.go:183-209; twitd/src/server.ts:7-20,123-147; twitd/src/verbs.ts:52-84
+- **Status:** open
+- **Fix:**
+
 ## Egress allowlist NOT enforced — crackbox allows non-allowlisted hosts (2026-07-14, OPEN, HIGH — security)
 
 A contained-folder test (`libtest`, egress set to pypi-only) proved the
@@ -139,6 +283,15 @@ delivery should resolve the group's bound channel jid (the routes-table channel 
 newest routed inbound), not the folder; or skip+debug-log when a folder has no
 bound channel instead of ERROR-spamming a doomed `Send`. Needs the broadcast/send
 target-resolution audited — design, not a one-liner.
+
+**v0.59 confirmation:** the new opt-in path still has this exact prefix-loss.
+Normal CLI-created routes use `room=` plus `core.JidRoom(jid)`, so the migrate
+script strips `room=` and passes values such as `T/channel/C` or `group/42` to
+`send`. Adapter ownership requires the original `slack:`/`telegram:`/`discord:`
+prefix, and routd returns `no channel for jid`. A normal `room=` route tagged
+`#announce` therefore cannot announce. Source: `cmd/arizuko/main.go:403-425`,
+`ant/skills/migrate/SKILL.md:280-295`, `chanreg/chanreg.go:41-47`,
+`routd/deliver.go:112-120`.
 
 - **Severity:** medium (announcements silently lost on some groups; log noise)
 - **Status:** OPEN, record-only.
