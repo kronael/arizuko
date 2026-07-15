@@ -140,6 +140,23 @@ func TestHandlerSendError(t *testing.T) {
 	}
 }
 
+// TestHandlerSendInvalidRequest asserts that when bot.Send returns
+// ErrInvalidRequest (a permanent caller error, e.g. thread_not_found), the
+// /send handler responds 400, not 502 — routd must not retry a request the
+// platform will never accept.
+func TestHandlerSendInvalidRequest(t *testing.T) {
+	bot := &mockBot{sendErr: fmt.Errorf("%w: thread_not_found", ErrInvalidRequest)}
+	h := mux(bot)
+	body, _ := json.Marshal(map[string]string{"chat_jid": "test:1", "content": "hi"})
+	req := httptest.NewRequest("POST", "/send", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
 func TestHandlerSendFile(t *testing.T) {
 	bot := &mockBot{fileID: "file-1"}
 	h := mux(bot)

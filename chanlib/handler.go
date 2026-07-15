@@ -334,15 +334,7 @@ func handleSend(bot BotHandler) http.HandlerFunc {
 			return
 		}
 		id, err := bot.Send(req)
-		if err != nil {
-			WriteErr(w, 502, err.Error())
-			return
-		}
-		resp := map[string]any{"ok": true}
-		if id != "" {
-			resp["id"] = id
-		}
-		WriteJSON(w, resp)
+		writeBotResult(w, id, err)
 	}
 }
 
