@@ -14,6 +14,29 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.59.0] — 2026-07-15
+
+> arizuko v0.59.0 — announcements you opt into, replies that land
+>
+> Release notes stop broadcasting to every channel, and Slack thread replies no longer vanish.
+>
+> • Opt-in release announcements — tag one channel per server with `#announce`; every other channel stays quiet.
+> • Slack thread replies land — a reply into a thread Slack can't find now posts at channel root instead of failing silently.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Opt-in release announcements (`#announce` route fragment).** The auto-migrate release note is no longer blasted to every channel a group routes to. A route target tagged `folder#announce` (mirroring `#observe`) marks that channel as the group's announcement target; the migrate skill posts the release line ONLY to `#announce` routes, deduped per server (one per Slack workspace / Discord guild / Telegram chat). No `#announce` route → the group announces nowhere; mute by dropping the fragment. `core.ParseRouteTarget` reserves `announce` (inbound-neutral — the route still triggers normally); `router.Describe` surfaces it. (`65af0458`)
+
+### Fixed
+
+- **Slack threaded replies no longer vanish (`slakd`).** A reply into a Slack thread whose parent Slack can't find (`thread_not_found` / `message_not_found`) was returned as a bare error → routd read it as a retryable 502 → retried, then dropped the reply, while top-level sends landed. slakd now logs the Slack error on every `chat.postMessage` failure (it was silently discarded), classifies those thread errors as permanent, and retries the send once at channel root so the reply lands. (`94338af2`) marinade 2026-07-15.
+
+### Changed
+
+- **Dead Go-ant skeleton removed; component specs consolidated.** The unwired Go standalone-ant stub (`ant/cmd/ant`, `ant/pkg/{agent,runtime,host}`) is gone — the standalone ant already ships in TS. The former phase-12 "components" specs were consolidated into phase 6 (`6/7`–`6/15`), with the component-extraction story (toolbox, method, the `servekit` web/service concept) written up there. (`0eeca67b`)
+
 ## [v0.58.0] — 2026-07-14
 
 > arizuko v0.58.0 — links that carry context, chats that stay answered
