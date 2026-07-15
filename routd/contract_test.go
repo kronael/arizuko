@@ -343,6 +343,31 @@ func (d *fakeDeliverer) Document(_, _, _, _, _, _, _ string) (string, error) {
 func (d *fakeDeliverer) SendVoice(_, _, _, _ string) (string, error) {
 	return d.platformID, nil
 }
+
+// TestDeliverRow_SkipsBareFolderJid: a system/auto turn (e.g. /migrate) delivers
+// its prose to a bare folder jid (no `platform:` prefix, no channel). deliverRow
+// must SKIP the send — mark the row terminal, no retry — instead of ERROR-spamming
+// a doomed Send that trips the per-folder breaker en masse on a MIGRATION_VERSION
+// bump and blocks real replies for that folder. A real channel jid still delivers.
+func TestDeliverRow_SkipsBareFolderJid(t *testing.T) {
+	dl := &fakeDeliverer{platformID: "pid-1"}
+	srv := &Server{deliver: dl}
+
+	row := &core.Message{ID: "out-1", Status: core.MessageStatusPending}
+	srv.deliverRow(TurnContext{Folder: "atlas"}, "atlas", row, "", "")
+	if row.Status != core.MessageStatusSent {
+		t.Fatalf("bare-folder jid: want Status=sent (skipped), got %q", row.Status)
+	}
+	if dl.sends != 0 {
+		t.Fatalf("bare-folder jid must NOT call Send, got %d", dl.sends)
+	}
+
+	row2 := &core.Message{ID: "out-2", Status: core.MessageStatusPending}
+	srv.deliverRow(TurnContext{Folder: "atlas"}, "slack:T/C/1", row2, "", "")
+	if dl.sends != 1 || row2.Status != core.MessageStatusSent {
+		t.Fatalf("channel jid: want 1 Send + sent, got sends=%d status=%q", dl.sends, row2.Status)
+	}
+}
 func (d *fakeDeliverer) Post(_, _ string, _ []string) (string, error)       { return d.platformID, nil }
 func (d *fakeDeliverer) Forward(_, _, _ string) (string, error)             { return d.platformID, nil }
 func (d *fakeDeliverer) Quote(_, _, _ string) (string, error)               { return d.platformID, nil }

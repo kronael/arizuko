@@ -291,6 +291,16 @@ func (s *Server) deliverRow(tc TurnContext, jid string, row *core.Message, threa
 		row.Status = core.MessageStatusSent
 		return
 	}
+	// A bare-folder jid (no `platform:` prefix) has no channel to deliver to —
+	// a system/auto turn (e.g. /migrate) or a mis-targeted delegation whose prose
+	// is not a user reply. Mark terminal (no poll-loop retry) and skip: an
+	// ERROR-spammed doomed Send tripped the per-folder breaker en masse on every
+	// MIGRATION_VERSION bump, blocking real replies for that folder.
+	if !strings.Contains(jid, ":") {
+		row.Status = core.MessageStatusSent
+		slog.Debug("skip deliver: no channel for folder jid", "jid", jid, "folder", tc.Folder)
+		return
+	}
 	if s.deliver == nil {
 		return
 	}
