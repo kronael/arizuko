@@ -14,6 +14,31 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.60.0] — 2026-07-15
+
+> arizuko v0.60.0 — live status, replies that thread
+>
+> Agents can post a checklist and update it in place, X replies actually thread, and Slack's permanent send errors stop retry-storming.
+>
+> • Live status checklists — post one message and `edit` it to tick tasks off, instead of a stream of ⏳ pings.
+> • X replies thread — a reply now threads under the message instead of posting standalone.
+> • Fewer stuck deliveries — permanent Slack send errors (gone channel, dead thread) give up cleanly instead of retrying.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Live-status editing + `progress` skill.** `send`/`reply`/`send_file` now return the created message's id (`{ok, id}`), like `post` already did; the agent uses it to `edit` its own message in place. The `progress` skill turns that into a live checklist — post once, edit to tick tasks off — for multi-step turns only (never forced onto a simple reply; falls back to ⏳ `<status>` pings where `edit` isn't supported). (`5d5a374c`)
+
+### Fixed
+
+- **X (Twitter) replies now thread (`twitd`).** twitd's `/send` ignored `reply_to` and fell to a standalone send path, so agent replies never threaded. `/send` now routes to the reply verb when `reply_to` is set. (codex #5)
+- **Permanent Slack send errors stop retry-storming (`chanlib`).** `chanlib`'s send handler mapped every adapter error to a retryable 502, defeating slakd's `ErrInvalidRequest` (400) — a gone/archived channel or dead thread was retried as transient. It now routes through `writeBotResult`, so permanent errors surface as 400 and routd gives up cleanly. Completes the v0.59.0 slakd thread fix. (codex #1)
+
+### Notes
+
+- A codex bug-hunt recorded 9 delivery-layer / announce defects in `BUGS.md`; the two above are fixed here. The rest (double-post window, non-functional 502 outbox, `#announce` on `room=` routes, announce guard/discovery, topic collision) remain open — several are redesigns pending sign-off. (`b5d5b733`)
+
 ## [v0.59.0] — 2026-07-15
 
 > arizuko v0.59.0 — announcements you opt into, replies that land

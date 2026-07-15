@@ -22,6 +22,15 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.60.0 <span class="date">&mdash; 15 July 2026</span></h2>
+    <p>Agents can post a checklist and update it in place, X replies actually thread, and Slack&rsquo;s permanent send errors stop retry-storming.</p>
+    <ul>
+      <li><strong>Live status checklists</strong> &mdash; post ONE message and <code>edit</code> it to tick tasks off (☑ done · ⏳ running · ☐ pending), instead of a stream of ⏳ pings. <code>send</code>/<code>reply</code>/<code>send_file</code> now return the posted message id; the <code>progress</code> skill drives it, for multi-step turns only.</li>
+      <li><strong>X replies thread</strong> &mdash; a reply now threads under the message instead of posting standalone (twitd <code>/send</code> honours <code>reply_to</code>).</li>
+      <li><strong>Fewer stuck deliveries</strong> &mdash; permanent Slack send errors (gone channel, dead thread) give up cleanly instead of retrying as transient.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0600--2026-07-15">CHANGELOG &sect; v0.60.0</a></p>
+
     <h2>arizuko v0.59.0 <span class="date">&mdash; 15 July 2026</span></h2>
     <p>Release notes stop broadcasting to every channel, and Slack thread replies no longer vanish.</p>
     <ul>
