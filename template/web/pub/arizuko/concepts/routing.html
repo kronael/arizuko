@@ -97,12 +97,13 @@
     <p>The agent edits the table through the MCP tools <code>add_route</code>, <code>delete_route</code>, <code>list_routes</code>, <code>set_routes</code>. The operator dashboard (<code>dashd</code>) shows the same table in a browser, and an operator REST token can call <code>/v1/routes</code> directly &mdash; same handler underneath, so agent and REST caller always see the same rows. Changes take effect on the next inbound message &mdash; no restart.</p>
 
     <h2 id="modes">modes and topic pinning</h2>
-    <p>A <code>target</code> may end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message lands in the folder. <code>#observe</code> is the one reserved tail &mdash; it sets a mode. Every other tail is a <a href="../concepts/topics.html">topic name</a> pinned for the routed message.</p>
+    <p>A <code>target</code> may end with <code>#...</code>. That tail tells <code>routd</code> what to do <em>after</em> the message lands in the folder. Two tails are reserved &mdash; <code>#observe</code> and <code>#announce</code>. Every other tail is a <a href="../concepts/topics.html">topic name</a> pinned for the routed message.</p>
     <table>
       <thead><tr><th>target</th><th>effect</th></tr></thead>
       <tbody>
         <tr><td><code>folder</code></td><td>store under <code>folder</code> and fire a turn on main (default)</td></tr>
         <tr><td><code>folder#observe</code></td><td>store under <code>folder</code>, do not fire a turn. The agent still sees the message in history when a later turn runs and has full folder ACL. Exception: engagement overrides all route targets — if the <code>(chat, topic)</code> is engaged, <code>routd</code> ignores this mode and fires a turn anyway. See <a href="../concepts/engagement.html">engagement</a>.</td></tr>
+        <tr><td><code>folder#announce</code></td><td>fire a turn normally &mdash; the tail is inbound-neutral &mdash; and mark this channel as the group&rsquo;s release-note target. On a version bump the migrate skill posts the changelog line only to <code>#announce</code> channels, one per server (Slack workspace / Discord guild / Telegram chat). No <code>#announce</code> route anywhere &rarr; the group announces nowhere. Drop the tail to mute.</td></tr>
         <tr><td><code>folder#deploy</code></td><td>store under <code>folder</code> with topic <code>#deploy</code> and fire a turn there. Useful for piping a webhook source into a dedicated topic without operator @-prefixes.</td></tr>
       </tbody>
     </table>
@@ -123,7 +124,7 @@
       </nav>
       <div class="docs-footer">
         <a href="https://github.com/kronael/arizuko/edit/main/template/web/pub/concepts/routing.html">Edit this page</a>
-        &middot; updated <time class="docs-updated" datetime="2026-06-15">2026-06-15</time>
+        &middot; updated <time class="docs-updated" datetime="2026-07-06">2026-07-06</time>
       </div>
     </main>
 

@@ -22,6 +22,25 @@
 
     <p>What shipped, dated, terse. Reverse chronological. The chat broadcast for each release lives at the top of every block; the bullets below expand it for operators.</p>
 
+    <h2>arizuko v0.59.0 <span class="date">&mdash; 15 July 2026</span></h2>
+    <p>Release notes stop broadcasting to every channel, and Slack thread replies no longer vanish.</p>
+    <ul>
+      <li><strong>Opt-in release announcements</strong> &mdash; tag one channel per server with <code>#announce</code> on its route target; the version-bump note posts only there, deduped per server. Untagged channels stay quiet; drop the tail to mute. See <a href="../concepts/routing.html#modes">routing &sect; modes</a>.</li>
+      <li><strong>Slack thread replies land</strong> &mdash; a reply into a thread Slack can&rsquo;t find now posts at the channel root instead of failing silently; the Slack error is logged.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0590--2026-07-15">CHANGELOG &sect; v0.59.0</a></p>
+
+    <h2>arizuko v0.58.0 <span class="date">&mdash; 14 July 2026</span></h2>
+    <p>Chat links and webhooks can carry per-link handling instructions, &ldquo;Connect GitHub&rdquo; wires your own credentials, and agents stop dying or forgetting mid-chat.</p>
+    <ul>
+      <li><strong>Chat-link &amp; webhook context</strong> &mdash; a link or webhook can carry issuer-authored instructions for how its inbound is handled (<code>&lt;link-context&gt;</code>).</li>
+      <li><strong>Same link, your identity</strong> &mdash; post as yourself when logged in, anonymous when not.</li>
+      <li><strong>Connect GitHub in the dashboard</strong> &mdash; OAuth writes and refreshes your token; no pasted PATs.</li>
+      <li><strong>Chats stay answered</strong> &mdash; agents no longer error out or forget the thread after a quiet spell.</li>
+      <li><strong>New product: Argus</strong> &mdash; an AWS SRE agent; each engineer acts with their own AWS keys.</li>
+    </ul>
+    <p class="full">Full notes: <a href="https://github.com/kronael/arizuko/blob/main/CHANGELOG.md#v0580--2026-07-14">CHANGELOG &sect; v0.58.0</a></p>
+
     <h2>arizuko v0.57.0 <span class="date">&mdash; 1 July 2026</span></h2>
     <p>Model API keys move into their own dashboard section, agents see only the tools they&rsquo;re granted, and arizuko can call REST APIs like DNS providers directly &mdash; with the token brokered so it never enters the container.</p>
     <ul>
