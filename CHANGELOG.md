@@ -14,6 +14,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.60.1] — 2026-07-15
+
+> arizuko v0.60.1 — reactions first, leaner runbook
+>
+> Agents lead with a reaction when a clear one fits, and never leave you hanging when you expect a reply.
+>
+> • Reaction-first — a clear 👍/✅/👀 beats a limp text "ok"; a reaction is the floor when a reply is expected (silence on an addressed message is a bug).
+> • Leaner agent runbook — the in-container guidance is 50% denser (no behavior lost), so agents attend to it better and cost less per turn.
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **Reactions are floor-first (`ant/CLAUDE.md`).** A reaction is now the minimum when a reply is expected — silence on an addressed message is a contract break — and agents prefer a clear reaction (👍 ack, ✅ done, 👀 seen) over a text "ok"/"done", using words only when the emoji would be ambiguous or a question needs them. (`0a2a9ba3`)
+- **Agent runbook compacted 718→359 lines.** The per-turn `ant/CLAUDE.md` is 50% denser with zero behavior loss (verified by an opus coverage report + anchor check) — better attention, lower per-turn cost. (`0a2a9ba3`)
+
 ## [v0.60.0] — 2026-07-15
 
 > arizuko v0.60.0 — live status, replies that thread
