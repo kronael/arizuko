@@ -31,15 +31,16 @@ A component is standalone-ready only if it does not import arizuko-internal
 packages (the import-graph rule, `CLAUDE.md`). Internal-dep counts measured
 2026-07-14 (`grep` over each package's imports):
 
-| Component                                   | internal deps                     | readiness                             | what it is / who wants it alone                                                                                                                                                                               |
-| ------------------------------------------- | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **crackbox**                                | 0                                 | ⚠ egress **fails open** (BUGS, HIGH)  | egress proxy + KVM sandbox — but per-folder default-deny is **not enforced today** (routd swallows the allowlist-resolve error → nil list → fail-open). Fixing that is the real "ship it" gate, not a README. |
-| **dockbox** _(concept)_                     | in `container/` (11)              | candidate — heavy decouple            | "how you run a container with an agent": `docker run` + mounts + skill-seed + MCP socket. The **Docker sibling to crackbox's KVM**. Today coupled in `container/`; a clean `dockbox` is a decouple task.      |
-| **obs**                                     | 0                                 | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.                                                        |
-| **router**                                  | 1 (`core`)                        | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                                                                         |
-| **grants**                                  | 2 (`core`,`store`)                | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                                                                     |
-| **resreg**                                  | 4 (`audit`,`auth`,`core`,`store`) | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                                                                         |
-| store, auth, chanlib, chanreg, ipc, compose | 3–11                              | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                                                               |
+| Component                                   | internal deps                               | readiness                             | what it is / who wants it alone                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------- | ------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **crackbox**                                | 0                                           | ⚠ egress **fails open** (BUGS, HIGH)  | egress proxy + KVM sandbox — but per-folder default-deny is **not enforced today** (routd swallows the allowlist-resolve error → nil list → fail-open). Fixing that is the real "ship it" gate, not a README.                                                                                                                                                                                   |
+| **dockbox** _(concept)_                     | in `container/` (11)                        | candidate — heavy decouple            | "how you run a container with an agent": `docker run` + mounts + skill-seed + MCP socket. The **Docker sibling to crackbox's KVM**. Today coupled in `container/`; a clean `dockbox` is a decouple task.                                                                                                                                                                                        |
+| **servekit** _(concept)_                    | proxyd 8 · webd 8 · dashd 13 · vited/davd 0 | candidate — heavy decouple            | "connect an agent to the web + run/observe/control it as a service": auth-gated reverse proxy (`proxyd`) + token chat/SSE/webhooks/`/me` portal (`webd`) + static `/pub` `/priv` (`vited`) + operator console (`dashd`) + WebDAV workspace (`davd`). Deeply arizuko-domain today (folder identity, `routd.db` reads, `groups/` FS); a decouple/naming candidate like dockbox, not a standalone. |
+| **obs**                                     | 0                                           | **ships now**                         | opt-in tri-substrate observability — `audit_log` + journald + OTLP with turn-scoped TraceIDs — for any Go daemon. `defer obs.Setup(name, instance)()`.                                                                                                                                                                                                                                          |
+| **router**                                  | 1 (`core`)                                  | near — lift `core` types              | routing-table DSL (match→target, `#observe`/`#announce`/topics, shadow detection). Anyone routing events to handlers.                                                                                                                                                                                                                                                                           |
+| **grants**                                  | 2 (`core`,`store`)                          | near — needs a store seam             | capability-auth DSL `[!]action(param=glob)` + folder-containment. Anyone needing per-actor scoped grants.                                                                                                                                                                                                                                                                                       |
+| **resreg**                                  | 4 (`audit`,`auth`,`core`,`store`)           | **roadmap = `mcpfw`**                 | one handler → REST + MCP + OpenAPI + YAML + injected Gate. The two-face API engine (`5/17`). Needs a substrate interface to decouple.                                                                                                                                                                                                                                                           |
+| store, auth, chanlib, chanreg, ipc, compose | 3–11                                        | platform-internal — **don't extract** | these _are_ the platform; lifting them out is a category error.                                                                                                                                                                                                                                                                                                                                 |
 
 Honest read: **`obs` is the only piece that plausibly ships as-is.** `crackbox`
 looked like the sure thing (0 deps, production proxy) — but its per-folder egress
@@ -63,6 +64,48 @@ The standalone ant already exists (in TS); there is nothing to "extract" — the
 is a thing to _point people at as the reference_. (This is the salvaged kernel
 of the dropped `13/b`; the Go rewrite is gone, the "agent-as-a-folder + how it's
 run" idea lives here.)
+
+## The web-and-service stack — `servekit` (working name, tentative)
+
+The operator's fifth candidate: "connect your agent to the web and give a good,
+organized way to run and manage it as a service." arizuko already ships this —
+as a _stack of daemons_, not one package: `proxyd` (auth-gated reverse proxy,
+per-world vhosts, runtime route table), `webd` (the `web` channel — SSE hub,
+token-scoped `/chat/<token>/` + `/hook/<token>`, the authed `/me` portal and
+`/mcp` bridge), `vited` (`/pub` `/priv` static origin), `dashd` (the operator
+HTMX console — routes, secrets, grants, tasks, audit), and `davd` (WebDAV
+workspace over upstream `dufs`). Together: give an agent a web presence, then
+run/observe/control it as a service.
+
+Run the three questions (`6/6`) honestly, and the readiness is the same shape as
+dockbox, not obs:
+
+- **Contract** — "put an agent on the web and manage it as a running service:
+  public site + token chat + webhooks + file access, plus an operator console
+  for routes/secrets/grants/tasks/audit."
+- **Does it hold standalone?** No. `proxyd` stamps folder/JID identity, `webd`
+  registers as the arizuko `web` channel and reads `routd.db`, `dashd` is ~39
+  arizuko-specific routes over `routd.db`/`messages.db` + the `groups/` FS. Only
+  `vited` (generic Vite static) and `davd` (upstream `dufs` + a healthcheck
+  wrapper) are near-generic. Internal deps: proxyd 8, webd 8, dashd 13.
+- **Stranger vs cruft** — a stranger gets the _shape_ (auth-gated reverse proxy
+  with per-path tiers, a URL-token web chat + SSE, webhook ingest, a WebDAV
+  browser, an operator console). The arizuko-shaped cruft is the bulk:
+  folder-as-identity, JID routing, the `routd.db`/`groups/` layout, and the
+  resreg two-face + grant/tier gate.
+
+So `servekit` is **platform-internal / coupled today** — a decouple-and-name
+candidate like `dockbox`, **not** a shipped standalone. The name is tentative
+(alternatives floated: `agentweb`, `webbox`); pick one only if the decouple work
+is actually scheduled.
+
+**Rebrand angle (proposal — recorded, not adopted).** The operator floated this
+component as a possible _headline identity for arizuko itself_: "connect your
+agent to the web and run it as a managed service." Captured here as a candidate
+positioning line for the operator to decide — **not** a change to the `5/A`
+grand-message framing (primitives → components → daemons → products, ownership +
+language-shaping as the two halves). Non-committal by design; a rebrand needs
+sign-off, and this component is a decouple candidate, not shipped.
 
 ## How to present them
 
@@ -112,5 +155,6 @@ run" idea lives here.)
 `6/7` (what a component is — the pattern this catalogue applies) · `6/6`
 (the extraction method) · `6/1` (adoption strategy) · `6/4` (fleet services) ·
 `5/A` (four-layer stack — Components is a layer) · `6/8` (crackbox standalone) ·
-`5/17` (resreg two-face → `mcpfw`) · `obs/` · `CLAUDE.md` (shippable siblings +
-import-graph rule).
+`5/17` (resreg two-face → `mcpfw`) · `obs/` · `proxyd`/`webd`/`vited`/`dashd`/`davd`
+READMEs (the `servekit` stack) · `CLAUDE.md` (shippable siblings + import-graph
+rule).
