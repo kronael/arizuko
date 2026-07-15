@@ -42,6 +42,10 @@ type slackMock struct {
 
 	// rate-limit one path on first hit, then succeed.
 	rateLimitOnce map[string]bool
+
+	// when set, chat.postMessage carrying a thread_ts returns thread_not_found
+	// (the marinade thread-reply failure); posts without thread_ts still succeed.
+	threadGone bool
 }
 
 func newSlackMock() *slackMock {
@@ -106,6 +110,10 @@ func newSlackMock() *slackMock {
 			cap[k] = r.PostForm.Get(k)
 		}
 		m.posted = append(m.posted, cap)
+		if m.threadGone && cap["thread_ts"] != "" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "thread_not_found"})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"ok": true, "ts": "1700000099.000200",
 		})
@@ -1444,5 +1452,44 @@ func writeFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSendThreadGoneFallsBackToRoot reproduces the marinade 2026-07-15 outage:
+// a threaded reply whose parent Slack can't find (thread_not_found) must NOT
+// become a retryable 502 that drops the reply — it retries once at channel root
+// so the reply still lands.
+func TestSendThreadGoneFallsBackToRoot(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.srv.Close()
+	mock.threadGone = true
+
+	cfg := config{Name: "slack", BotToken: "xoxb-test", CacheTTL: time.Minute}
+	b, err := newBotWithBase(cfg, mock.srv.URL+"/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.botUserID.Store("Ubot")
+	b.teamID.Store("T012")
+
+	ts, err := b.Send(chanlib.SendRequest{
+		ChatJID:  "slack:T012/channel/CNORM",
+		ThreadID: "1700000000.000100",
+		Content:  "reply into a dead thread",
+	})
+	if err != nil {
+		t.Fatalf("Send: want root-fallback success, got error: %v", err)
+	}
+	if ts != "1700000099.000200" {
+		t.Fatalf("ts = %q, want the root-post ts (reply landed at root)", ts)
+	}
+	if len(mock.posted) != 2 {
+		t.Fatalf("posted %d times, want 2 (thread attempt + root retry)", len(mock.posted))
+	}
+	if mock.posted[0]["thread_ts"] == "" {
+		t.Errorf("first attempt must carry thread_ts")
+	}
+	if mock.posted[1]["thread_ts"] != "" {
+		t.Errorf("root retry must drop thread_ts, got %q", mock.posted[1]["thread_ts"])
 	}
 }
