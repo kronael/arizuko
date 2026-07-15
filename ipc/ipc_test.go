@@ -714,8 +714,9 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	defer stop()
 
-	// reply returns plain "ok" text (not JSON), so callTool's payload
-	// unmarshal can't be used — invoke over the socket directly.
+	// reply now returns JSON {ok, id} (the posted message id — the agent needs
+	// it to `edit` a live-status message or reply-chain a thread). Invoke over
+	// the socket directly and assert on the raw response.
 	c, err := net.Dial("unix", sock)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -737,6 +738,9 @@ func TestServeMCP_Reply_ThreadsViaActiveTopic(t *testing.T) {
 	}
 	if strings.Contains(string(resp), "\"isError\":true") {
 		t.Fatalf("reply returned error: %s", resp)
+	}
+	if !strings.Contains(string(resp), "new-id") {
+		t.Fatalf("reply result must echo the posted message id (for edit/thread), got: %s", resp)
 	}
 	if lastReplyTopic != wantTopic {
 		t.Fatalf("GetLastReplyID topic = %q, want %q (empty topic = the bug)", lastReplyTopic, wantTopic)

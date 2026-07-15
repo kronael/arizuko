@@ -1013,7 +1013,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			})
 	}
 
-	registerRaw("send", "A fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that — a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use `reply`, which threads. Not for threaded replies (`reply`) or file delivery (`send_file` — its caption replaces this call).",
+	registerRaw("send", "A fresh top-level message that is NOT a reply to the current conversation. Use ONLY when you explicitly need that — a proactive/unprompted notification, or a message to a different chat. For responding to the user (the normal case) use `reply`, which threads. Not for threaded replies (`reply`) or file delivery (`send_file` — its caption replaces this call). Returns the sent message's `id` — use it with `edit` to update this message in place (a live status/checklist).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1041,7 +1041,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolOK()
 		})
 
-	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply.",
+	registerRaw("reply", "THE DEFAULT way to respond — use this for virtually every answer to the user. Delivers your message into the thread of the conversation you're answering: on Slack/Discord it lands in a thread off the triggering message (started for you if one doesn't exist yet), keeping the channel clean. Omit replyToId to thread to the current conversation automatically, or pass it to target a specific earlier message. Only reach for `send` when you deliberately need a fresh top-level message in a channel that is NOT a reply. Returns the posted message's `id` — pass it to `edit` to update this message in place (a live status/checklist), or as the next `replyToId` to build a thread.",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("text", mcp.Required()),
@@ -1074,7 +1074,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 				return toolErr(err.Error())
 			}
 			recordOutbound(gated, db, jid, text, platformID, folder)
-			return toolOK()
+			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
 	registerRaw("send_file", "Deliver a file from the group workspace (~/) to a chat. Works on every platform whose channel registered the tool — don't second-guess by platform name (telegram, discord, whatsapp all supported). Use when the user asked for a file (image, doc, CSV, audio) or when output would exceed a chat-reasonable length. `caption` IS the accompanying message — never follow with `send`. Not for inline text the user can read in-chat.",
@@ -1165,7 +1165,7 @@ func buildMCPServer(gated GatedFns, db StoreFns, folder string, rules []string, 
 			return toolJSON(map[string]any{"ok": true, "id": platformID})
 		})
 
-	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Tier 0-2 only.",
+	registerRaw("post", "Create a new top-level post on a platform (mastodon toot, bluesky post, discord channel message, reddit submission). Use for broadcast/announcement content that isn't replying to anyone. Not for replies (`reply`), direct messages (`send`), or file delivery (`send_file`). Tier 0-2 only. Returns the new post's `id` (for `edit`, `delete`, or as `replyToId` to chain a thread).",
 		[]mcp.ToolOption{
 			mcp.WithString("chatJid", mcp.Required()),
 			mcp.WithString("content", mcp.Required()),

@@ -225,6 +225,12 @@ IS the diff) — emit NO status and NO final text. For tasks that
 chat-emit a status — close with a one-line confirmation, even if
 just "done.". Status without conclusion is a contract break.
 
+For a genuinely multi-step turn, prefer ONE live checklist you post
+once and `edit` in place (the `send`/`reply`/`post` tools return the
+message `id`; pass it to `edit`) over a stream of `<status>` pings —
+see the `progress` skill. Only for real multi-step work; never force a
+checklist onto a simple reply.
+
 # Persona
 
 Your group may carry a `~/PERSONA.md` file that defines who you are —
