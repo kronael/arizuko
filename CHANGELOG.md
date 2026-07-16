@@ -16,19 +16,30 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [v0.61.0] — 2026-07-16
 
-> arizuko v0.61.0 — agents show their work, live
+> arizuko v0.61.0 — agents show their work live; operator commands fixed
 >
-> Multi-step turns report progress by themselves now: plan with a task list and the agent posts ONE ⏳ checklist that ticks off in place — no more status spam, and no relying on the agent to remember to narrate.
+> Multi-step turns report progress by themselves now — one live ⏳ checklist that ticks off in place. And operator slash commands (`/root`) that were silently ignored over Slack/Telegram/etc. now work.
 >
 > • Live tasklist status — one message, edited as tasks move pending → running → done
 > • Harness-driven — progress comes from the agent's own task list, not a skill it might skip
-> • Falls back to plain ⏳ notices where messages can't be edited (email, WhatsApp, Reddit)
+> • Operator commands fixed — `/root` (and sticky-nav / delegation) over a channel adapter raced past the steering layer and ran as plain text; now intercepted correctly
+> • Route-token minting is operator-only — creating a public endpoint stays a `/root` action
 >
 > Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
 
 ### Added
 
-- **Live tasklist status (spec 5/24).** A `TodoWrite` PostToolUse hook in the ant harness (`ant/src/todo-status.ts`) renders the agent's task list into one `⏳` checklist (`☑`/`⏳`/`☐`); `routd`'s `submit_status` now **edits that single message in place** per turn (per-turn live-status id) instead of streaming a new `⏳` per call, falling back to a fresh send on adapters that can't edit. Progress moves from an LLM-invoked skill (unreliable) to deterministic harness bookkeeping over the agent's own todo list. The `progress` skill collapses to a pointer; `<status>` blocks stay as the floor for planless turns.
+- **Live tasklist status (spec 5/24).** A `TodoWrite` PostToolUse hook in the ant harness (`ant/src/todo-status.ts`) renders the agent's task list into one `⏳` checklist (`☑`/`⏳`/`☐`); `routd`'s `submit_status` now **edits that single message in place** per turn (last-persisted `verb='status'` row) instead of streaming a new `⏳` per call, falling back to a fresh send on adapters that can't edit. Progress moves from an LLM-invoked skill (unreliable) to deterministic harness bookkeeping over the agent's own todo list. The `progress` skill collapses to a pointer; `<status>` blocks stay as the floor for planless turns.
+
+### Fixed
+
+- **Live status swallowed the agent's reply (`routd`).** Interim `⏳` rows are `is_bot_message=1`, so `TurnHasBotReply` counted them and `recordTurnResult` skipped delivering the real answer on any multi-step turn — the user got only the checklist. Status rows now carry `verb='status'` and are excluded; the live id derives from the persisted row (the per-turn in-memory map is gone). (codex-caught pre-deploy)
+- **Operator slash commands ignored over channel adapters (`routd`).** Steering (`/root`, sticky-nav, `@child` delegation) ran only in the `pollOnce` backstop, but adapter ingest enqueues straight into the queue worker — so a Slack `/root …` reached the agent as plain unelevated text (marinade atlas, 2026-07-16: an operator `/root mint` never elevated; the agent had no mint tool and fell back to the broken `mcpc` path). Steer now runs at the top of `processGroupMessages`, the one path both ingest and the backstop converge to. (`caf38bfb`)
+- **`/root` elevated tool visibility but not authorization (`routd`).** An elevated turn swapped the socket's grant rules to the tier-0 `*` set, but the second gate half (`db.Authorize`) still used the folder's static tier, so every root-only tool 403'd even under `/root`. `turnAuthorize` now elevates both gate halves together. (`7533391a`)
+
+### Changed
+
+- **Route-token minting is operator-only.** `issue_chat_link`/`issue_webhook` create a public unauthenticated endpoint and are granted only at tier 0 (operator `/root`) — removed from tier 1/2; `list_tokens`/`revoke_token` stay at tier ≤2 (own-folder scoped). (`grants/grants.go`)
 
 ## [v0.60.2] — 2026-07-15
 
