@@ -294,7 +294,7 @@ abstract so one could be added, but arizuko ships claude + codex.
 - [../dropped/13-c-ant-mcp-runtime.md](../dropped/13-c-ant-mcp-runtime.md)
   (dropped) — the once-planned Go runtime rewrite. The `Backend` seam
   this spec defines is language-agnostic; if a Go harness ever lands it
-  is the scoped reimplement path in `6/4`, not that spec.
+  is the scoped reimplement path in `6/1`, not that spec.
 - [../dropped/13-b-ant-standalone.md](../dropped/13-b-ant-standalone.md)
   (dropped) — folder shape; this spec adds an optional `backend:` hint
   (deferred).

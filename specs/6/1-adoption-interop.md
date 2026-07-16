@@ -78,8 +78,41 @@ A scheduled loop (`timed` → a folder-agent), one system at a time:
 
 This reuses machinery that already exists: the Hub's monthly code-analysis
 protocol, worktree-isolated subagents, the migrate/broadcast delivery path. The
-loop is the same shape arizuko already runs on itself (`specs/6/14` self-learning);
+loop is the same shape arizuko already runs on itself (`specs/5/22` self-learning);
 here it points outward.
+
+## What the wrap provides — services one level up
+
+Wrapping a harness is worth it only if arizuko supplies what the harness lacks.
+Each row is a gap a bare harness has (Hermes is the worked example) that the
+folder coordinate closes for _every_ harness in the fleet:
+
+| Service          | arizuko mechanism                                          | harness gap it closes                              |
+| ---------------- | ---------------------------------------------------------- | -------------------------------------------------- |
+| Keys / secrets   | folder-scoped encryption + host-boundary injection (`8/Z`) | keys plaintext in the runtime; never host-injected |
+| Egress           | per-agent default-deny allowlist + DNS filter (`6/8`)      | one global blocklist; no per-tenant egress         |
+| Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)     | admin-vs-user binary; one shared bearer            |
+| Tenant isolation | ephemeral per-turn container per folder                    | one shared long-lived container; users share FS    |
+| Cost / budget    | per-tenant spend gate (`store/cost_log.go`)                | per-session usage only; no caps                    |
+| Audit / obs      | `audit_log` + `obs` (journald + OTLP)                      | plaintext logs; no structured audit                |
+| Routing / web    | route table + `/pub` `/priv` + WebDAV                      | home-channel delivery only; no served web          |
+
+Two ways to wrap, per capability: **run-as-is** (the harness runs inside a folder
+via runed's swappable runtime) or **reimplement-in-Go** (port a _mechanism_, not
+the whole process, into the native runed harness — "rewrite in Go" scoped to one
+mechanism). The seven services above are the moat; never trade them for a
+harness's model/skill breadth.
+
+## Demand classes, not just systems
+
+The loop also answers a _demand class_ (knowledge graphs, RAG, "codebase maps") —
+a category of want every vendor restates as a reason to buy heavy machinery. The
+discipline: strip to the primitive need, try the folder primitives first (tree +
+files + `jq`/`grep`/FTS5, no new always-on subsystem), and escalate to a mounted
+capability (RO `/mnt` or an MCP tool) only on proof the primitives can't. Same
+interop-at-the-boundary rule, pointed at demands instead of systems (marble is the
+reference output: a 1,590-topic prerequisite graph answered by `jq` over three
+bundled JSON files, no graph DB).
 
 ## Non-goals / honest risks
 
@@ -99,5 +132,5 @@ here it points outward.
 ## Ties
 
 `specs/5/A` (positioning) · `USELESS.md` (honest gaps this closes) · the Agent
-Research Hub (source of truth on targets) · `specs/6/14` self-learning (the loop,
+Research Hub (source of truth on targets) · `specs/5/22` self-learning (the loop,
 turned outward) · runtime pluralism in runed.

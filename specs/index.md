@@ -42,22 +42,22 @@ combination is the platform thesis arizuko ships toward.
 
 ## Phase table
 
-| Phase      | Description                                                                                                  | Status    |
-| ---------- | ------------------------------------------------------------------------------------------------------------ | --------- |
-| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                            | shipped   |
-| [2/](2/)   | social channels — events, actions, twitter                                                                   | shipped   |
-| [3/](3/)   | permissions, cleanup, gaps                                                                                   | shipped   |
-| [4/](4/)   | dashboards, memory, web layer — core architecture                                                            | shipped   |
-| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                | active    |
-| [6/](6/)   | adoption & interop + components — wrap-the-harness, the toolbox, crackbox/gateway/mcp-fw (absorbed phase 12) | drafting  |
-| [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                                                        | active    |
-| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                 | active    |
-| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                               | drafting  |
-| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                  | active    |
-| [11/](11/) | operator tools — branding, usage limits                                                                      | active    |
-| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/7`–`6/15`)_                                           | dissolved |
-| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                            | planned   |
-| [14/](14/) | future features — pinned, CLI, dynamic channels                                                              | planned   |
-| [15/](15/) | later — committed direction, not scheduled                                                                   | planned   |
-| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                     | drafting  |
-| [17/](17/) | products — persona templates, publishing surface                                                             | active    |
+| Phase      | Description                                                                                                   | Status    |
+| ---------- | ------------------------------------------------------------------------------------------------------------- | --------- |
+| [1/](1/)   | core gateway — routing, channels, auth, scheduler                                                             | shipped   |
+| [2/](2/)   | social channels — events, actions, twitter                                                                    | shipped   |
+| [3/](3/)   | permissions, cleanup, gaps                                                                                    | shipped   |
+| [4/](4/)   | dashboards, memory, web layer — core architecture                                                             | shipped   |
+| [5/](5/)   | platform core — surfaces, identity, routing, tenancy, runtime                                                 | active    |
+| [6/](6/)   | adoption & interop + components — wrap-the-harness, the toolbox, crackbox/gateway/mcp-fw (absorbed phase 12)  | drafting  |
+| [7/](7/)   | operator cockpit — per-daemon dashboards + global hub                                                         | active    |
+| [8/](8/)   | enterprise hardening — encryption, audit, SSO, secret broker                                                  | active    |
+| [9/](9/)   | platform program — data model, git-as-truth (MCP+REST unification → 5/16·5/17)                                | drafting  |
+| [10/](10/) | self-healing — Aeon mechanism incorporation                                                                   | active    |
+| [11/](11/) | operator tools — branding, usage limits                                                                       | active    |
+| [12/](12/) | _dissolved 2026-07-14 → consolidated into [6/](6/) (`6/7`–`6/13`); self-learning/skill-guard → `5/22`·`5/23`_ | dissolved |
+| [13/](13/) | standalone + reusable — ant, workflows, self-eval                                                             | planned   |
+| [14/](14/) | future features — pinned, CLI, dynamic channels                                                               | planned   |
+| [15/](15/) | later — committed direction, not scheduled                                                                    | planned   |
+| [16/](16/) | multiplayer — shared sessions, durable streams, presence                                                      | drafting  |
+| [17/](17/) | products — persona templates, publishing surface                                                              | active    |

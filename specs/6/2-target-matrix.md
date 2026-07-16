@@ -1,8 +1,14 @@
 ---
-status: draft
+status: reference
 ---
 
 # Target matrix — who to incorporate, who to beat
+
+> **Reference, not a design spec (2026-07-16).** This is living
+> competitive intel over the Agent Research Hub — the incorporate/beat
+> reading of each tracked system. It informs `6/1`'s adoption strategy
+> but specs no arizuko behaviour of its own; keep it current as the Hub
+> moves, don't treat it as an implementation queue.
 
 Two questions per system in the Agent Research Hub
 (`krons.fiu.wtf/pub/krons/agents/`), and only two:
@@ -90,7 +96,7 @@ the lead item of phase 6.** centaur's iron-proxy (below) is the fourth witness.
 
 - **hermes** — `skills_guard.py` (932 LOC regex ladder: exfiltration, injection,
   destructive, persistence, supply-chain, secrets, invisible-unicode → safe/
-  caution/dangerous). Already tracked in memory + spec'd at `specs/6/15-skill-guard.md`.
+  caution/dangerous). Already tracked in memory + spec'd at `specs/5/23-skill-guard.md`.
   **Verify it is actually wired, not just cited.**
 
 ### 8. Lower-priority patterns (specify, don't depend on the source)
@@ -145,12 +151,12 @@ shared process.
 - **axoniq** — JVM/commercial event-sourcing for regulators; arizuko has `audit_log`.
 - **graphify** — codebase→graph dev tooling; headline metric self-debunked
   on-page. Not adopted — the graph/taxonomy demand it rides is answered
-  non-intrusively in `3-graph-taxonomy-answer.md`.
+  non-intrusively via the demand-class mode in `6/1`.
 - **smolagents** — code-as-tool dev framework; no tenancy story.
 - **milady** — consumer desktop "AI OS"; process-level default isolation.
 - **activegraph / contextlattice** — infra for problems arizuko doesn't have
   (graph-native state; single-node context freshness). activegraph's graph
-  demand: see `3-graph-taxonomy-answer.md`, not a replatform.
+  demand: see the demand-class mode in `6/1`, not a replatform.
 
 ## Sequencing
 
@@ -166,5 +172,5 @@ shared process.
 ## Ties
 
 `1-adoption-interop.md` (the strategy) · `USELESS.md` (the gaps this closes) ·
-`specs/8/Z-egred-mitm.md` · `specs/6/14-self-learning.md` (the loop) ·
-`specs/6/15-skill-guard.md` · the Agent Research Hub (source of truth).
+`specs/8/Z-egred-mitm.md` · `specs/5/22-self-learning.md` (the loop) ·
+`specs/5/23-skill-guard.md` · the Agent Research Hub (source of truth).

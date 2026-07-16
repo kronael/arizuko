@@ -64,7 +64,7 @@ increments).
 
 Unblockers: threshold tuning (10 may be too rare for DM workloads —
 consider signal-driven: fire when tool-calls ≥3), race with skill-guard
-([../6/15-skill-guard.md](../6/15-skill-guard.md)) composes naturally
+([../5/23-skill-guard.md](../5/23-skill-guard.md)) composes naturally
 (Write fails, counter still advances).
 
 Phase 2: split memory/skill counters, per-group tunable interval,

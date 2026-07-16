@@ -9,9 +9,9 @@ status: draft
 > through a published surface — never by reaching into their
 > internals.
 
-_See also: `6/5` — which packages are candidates (the catalogue) — and
-`6/6` — how to extract one (the method). This spec is the principle both
-defer to._
+_See also: `6/16` — which parts are candidates (the package + daemon
+catalogue), the three-question extraction method, and the counterpart
+landscape. This spec is the principle that catalogue applies._
 
 ## Problem
 

@@ -6,7 +6,8 @@ status: dissolved
 
 Phase 12 ("genericization + publishing components") was consolidated into
 **[phase 6](../6/)** so the component-extraction story lives in one place —
-alongside the toolbox framing (`6/5`) and the extraction method (`6/6`).
+alongside the component pattern (`6/7`) and the standalone/counterpart
+matrix (`6/16`).
 
 | was     | now                                                            |
 | ------- | -------------------------------------------------------------- |
@@ -17,8 +18,8 @@ alongside the toolbox framing (`6/5`) and the extraction method (`6/6`).
 | `12/16` | [`6/11-messaging-gateway`](../6/11-messaging-gateway.md)       |
 | `12/17` | [`6/12-mcp-firewall`](../6/12-mcp-firewall.md)                 |
 | `12/c`  | [`6/13-sandd`](../6/13-sandd.md)                               |
-| `12/7`  | [`6/14-self-learning`](../6/14-self-learning.md)               |
-| `12/8`  | [`6/15-skill-guard`](../6/15-skill-guard.md)                   |
+| `12/7`  | [`5/22-self-learning`](../5/22-self-learning.md)               |
+| `12/8`  | [`5/23-skill-guard`](../5/23-skill-guard.md)                   |
 
 `12/18-openapi-mcp` had already moved to [`5/17`](../5/17-openapi-mcp.md).
 
