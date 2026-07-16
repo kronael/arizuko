@@ -14,6 +14,16 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.61.1] — 2026-07-16
+
+> arizuko v0.61.1 — Slack @-mentions actually ping now
+>
+> When an agent writes `@name` on Slack, it now becomes a real mention that pings the person, instead of dead grey text.
+
+### Fixed
+
+- **Slack `@name` was dead text (`slakd`).** The agent writes `@ondra` (the form it's taught on inbound), but `chat.postMessage` renders plain `@name` as unlinked text — a real ping needs `<@USERID>`. `toMrkdwn` now rewrites a resolvable `@name` → `<@ID>` via a name→id index (learned from inbound traffic, refreshed from `users.list` on a miss); code spans and `@channel`/`@here`/`@everyone` pass through untouched. (`98168f64`)
+
 ## [v0.61.0] — 2026-07-16
 
 > arizuko v0.61.0 — agents show their work live; operator commands fixed
