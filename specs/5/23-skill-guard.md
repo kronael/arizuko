@@ -29,7 +29,7 @@ CLAUDE.md already), `skill_manage` MCP (Write/Edit suffice), post-turn
 review thread (doesn't fit ephemeral-container model — see
 [13/8-self-eval-skill.md](../13/8-self-eval-skill.md) instead), AST
 scanning, trust tiers, learning loops (see
-[14-self-learning.md](14-self-learning.md) — different concern).
+[22-self-learning.md](22-self-learning.md) — different concern).
 
 Files: new `ant/src/skillguard.ts` + test, register in
 `options.hooks.PreToolUse`, migration note, MIGRATION_VERSION bump.

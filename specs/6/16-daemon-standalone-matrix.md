@@ -6,18 +6,17 @@ status: draft
 
 The consolidated "ship in parts" spec: which pieces stand alone, on which
 of two axes, measured against the market. Absorbs the former package
-catalogue and extraction method; `6/7` remains the definitional pattern
-this applies.
+catalogue, the extraction method, and the orthogonal-component pattern.
 
 ## Two standalone axes (do not conflate)
 
 A part can be "standalone" in two different senses; keep them apart.
 
-1. **Import-orthogonal component** (`6/7`) — a sibling dir, zero
-   arizuko-internal imports, consumed only via CLI / HTTP / `pkg/`. The
+1. **Import-orthogonal component** — a sibling dir, zero arizuko-internal
+   imports, consumed only via CLI / HTTP / `pkg/` (the contract below). The
    _toolbox_ test: raid the repo for one part. Passers today: `crackbox`,
-   `obs`; roadmap: `gateway` (←messaging, `6/11`), `mcpfw` (MCP firewall,
-   `6/12`), `sandd` (`6/13`), and `resreg` as a standalone two-face lib.
+   `obs`; roadmap: `mcpfw` (MCP firewall, `6/12`) and `resreg` as a
+   standalone two-face lib.
 2. **Config-driven droppable daemon** — keeps arizuko imports, but runs
    generic against any stack because its behaviour is TOML/env, not
    hardcoded. The _service_ test: drop it in front of your backends.
@@ -42,6 +41,21 @@ For each candidate:
 3. **Stranger vs cruft** — the minimal surface a stranger imports/runs,
    minus every folder/JID/`routd.db` assumption baked in. That delta is
    the extraction work.
+
+### The component contract — arizuko owns domain, the component owns mechanism
+
+An import-orthogonal component is a sibling dir with its own build, its own
+`README` (the public surface), and its own state, importing zero
+arizuko-internal packages — consumed only through its CLI, HTTP API, or
+`pkg/`. The line that keeps it orthogonal: **arizuko owns _domain_ — what
+an id means, folder hierarchy, grants, when to spawn; the component owns
+_mechanism_ — a flat per-id ruleset, matching a request against it, opening
+sockets.** So a component takes strings (`id`, `host`, `tool`) and returns
+strings — never a `Folder`/`Grant`/`Tier`, never arizuko's `.env` or DB.
+The mechanical test is one grep for `github.com/…/arizuko/(store|core|auth|
+router|grants|ipc|…)` under the component dir → empty. `ant/` is the mirror:
+TS in arizuko's repo, own build + Dockerfile, consumed as an image over a
+stdin/stdout protocol, zero Go imports.
 
 ## The matrix
 
@@ -77,7 +91,8 @@ spec and are the credible "drop in front of your stack" story.
 
 ### Import-orthogonal components (the toolbox proper)
 
-Sibling dirs / libs consumed with no arizuko process. The `6/7` pattern.
+Sibling dirs / libs consumed with no arizuko process (the component
+contract, above).
 
 | Component          | Contract                                           | Surface        | Gate                                                       |
 | ------------------ | -------------------------------------------------- | -------------- | ---------------------------------------------------------- |
@@ -131,8 +146,8 @@ run-an-agent-in-a-container concern for a later clean extraction.
 - **"Every daemon standalone" is false by design.** 5 core daemons are the
   platform; 10 adapters + `timed`/`ttsd` are coupled bridges. The
   standalone story is **4 config-driven daemons + 2 components**, not 21.
-- **Two shelves, not one list.** The import-orthogonal toolbox (`6/7`:
-  `obs`/`crackbox` — a stranger _imports_) and the droppable service
+- **Two shelves, not one list.** The import-orthogonal toolbox
+  (`obs`/`crackbox` — a stranger _imports_) and the droppable service
   (`5/1`/`5/7`: `authd`/`proxyd` — a stranger _deploys_) are different
   products. Import-count misranks them: `vited`/`davd` are 0-dep but thin;
   `authd`/`proxyd` carry imports yet are the real standalone daemons.
@@ -250,8 +265,8 @@ external carries the folder binding.
 Ship on two shelves, not one list:
 
 1. **Components (import)** — `obs` (ready), `crackbox` (needs the
-   fail-closed fix first), then `gateway`/`mcpfw`/`sandd` as the decouples
-   land (ROI order).
+   fail-closed fix first), then `mcpfw` (`6/12`) and the `resreg` two-face
+   lib as the decouples land (ROI order).
 2. **Daemons (deploy)** — `authd` + `proxyd` as the "auth gateway you
    drop in front of any stack" pair; `vited`/`davd` fold in as generic
    static/WebDAV origins. `5/1` + `5/7` are the specs; the gate is
@@ -263,8 +278,7 @@ the extraction layer, Daemons is where the platform lives.
 
 ## Ties
 
-`6/7` (what an import-orthogonal component is — the pattern this applies) ·
 `6/1` (adoption / wrap-the-harness) · `5/1` (`authd` standalone) · `5/7`
-(`proxyd` standalone) · `6/8` (`crackbox`) · `6/12` (`mcpfw` firewall) ·
-`5/17` (`resreg` two-face) · `5/A` (four-layer stack) · `BUGS.md`
-(crackbox fail-open — the ship gate).
+(`proxyd` standalone) · `6/8` (`crackbox` egress) · `6/9` (`crackbox` KVM) ·
+`6/10` (`crackbox` DNS) · `6/12` (`mcpfw` firewall) · `5/17` (`resreg`
+two-face) · `5/A` (four-layer stack) · `BUGS.md` (crackbox fail-open).

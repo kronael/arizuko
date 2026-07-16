@@ -171,8 +171,8 @@ connectors (the Slack-200-tools case) already defer correctly.
 **No-MCP-server case:** for an external service that publishes a REST
 API but no MCP server, auto-generate deferred MCP tools from its
 OpenAPI spec — `openapi2mcp` (Go library) + a curation/scope-annotation
-layer. Belongs in the future `mcpfw` orthogonal component (see
-[`../6/7-orthogonal-components.md`](../6/7-orthogonal-components.md)).
+layer. Belongs in a future orthogonal component (see the component contract in
+[`../6/16-daemon-standalone-matrix.md`](../6/16-daemon-standalone-matrix.md)).
 Research: `.ship/research-openapi-mcp.md`. For services that DO ship an
 MCP server (most), mount it via `ipc/connector.go` — built.
 

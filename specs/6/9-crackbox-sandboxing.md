@@ -4,120 +4,102 @@ date: 2026-05-01
 aka: antbox
 ---
 
-# Crackbox — sandboxing library + bundled egred proxy
+# Crackbox — sandboxing library + egress proxy
 
-> Crackbox is a Go library for KVM/qemu sandbox lifecycle, plus the
-> egred egress-proxy daemon shipped alongside it. Not a daemon
-> itself. Imported directly by `gated` via a Backend interface
-> (Docker today, crackbox/pkg/host/ next). Sandd extraction
-> ([`6/13`](13-sandd.md)) deferred.
+> Crackbox is a Go library for KVM/qemu sandbox lifecycle
+> (`crackbox/pkg/host/`), shipped alongside the egress-proxy daemon
+> ([`6/8`](8-crackbox-standalone.md)). It is a library, not a daemon.
+> The KVM backend is **not wired into runed yet** — `runed` still
+> spawns via Docker.
 
 ## Status
 
-`Shipped` (2026-05-01). `crackbox/pkg/host/` is in the monorepo with
-public API `(*Host).Spawn/Exec/Stop/List`, system-state-backed `List()`
-via disk scan + `detectState()`, InstanceID namespacing, and SSH-based
-`Exec`. The initial port is mechanical: prototype code + import-path
-renames + public wrapper. See "Deferred from initial port" below for
-what was intentionally left out.
-
-The original prototype at `/home/onvos/app/crackbox/` already
-implements KVM isolation + per-VM egress proxy + secrets injection.
-Reuse the prototype's VM-spawn code; do not rewrite.
+`Shipped` (2026-05-01) as a library. `crackbox/pkg/host/` has the
+public API `New(instanceID, dataDir)` + `(*Host).Spawn/Exec/Stop/List`,
+system-state-backed `List()` (disk scan + `detectState()`), InstanceID
+namespacing, and SSH-based `Exec`. No arizuko daemon imports it yet
+(see "Wiring gap").
 
 ## Architecture
 
+`runed` owns container spawn behind the `Runtime` interface — the
+ContainerRuntime seam (`runed/runtime.go`, spec [`5/P`](../5/P-runed.md)).
+Production wraps `container.DockerRunner`. KVM would land as one more
+backend behind that same seam, importing `crackbox/pkg/host/`:
+
 ```
-gated (keeps spawn ownership; sandd deferred per 6/13)
-  ├── backend: docker  → docker run                            [today]
-  └── backend: crackbox → import crackbox/pkg/host/            [next]
-                          ├── spawn KVM VM
-                          ├── manage privileges (/dev/kvm, CAP_NET_ADMIN)
-                          ├── attach to per-VM network
-                          └── ensure egred is running
-                                ├── start one if not present
-                                └── OR use external one (env hint)
+runed.Runtime (runed/runtime.go)
+  ├── DockerRunner   → docker run                 [today]
+  └── (KVM backend)  → import crackbox/pkg/host/  [not wired yet]
+                       ├── spawn KVM VM
+                       ├── manage privileges (/dev/kvm, CAP_NET_ADMIN)
+                       ├── attach to per-VM network
+                       └── register with the egress proxy
 ```
 
-Crackbox is **a library**, not a daemon. The `egred` daemon ships in
-the same component (`crackbox/cmd/egred/`) but is its own process,
-runnable standalone or auto-managed by the library. `gated` imports
-`crackbox/pkg/host/` and `crackbox/pkg/client/` directly — no
-intermediate daemon.
+Crackbox is **a library**. The egress proxy ships as
+`crackbox proxy serve` ([`6/8`](8-crackbox-standalone.md)), its own
+process. A consumer imports `crackbox/pkg/host/` and
+`crackbox/pkg/client/` directly — no intermediate daemon.
 
 ## Components in the crackbox repo
 
 ```
 crackbox/
-  cmd/
-    crackbox/main.go    — CLI: `crackbox run --kvm`, `crackbox state`
-                           (one-shot user-facing entrypoint)
-    egred/main.go       — proxy daemon binary
-                           (long-running, deployable standalone)
+  cmd/crackbox/main.go   — the single CLI: `proxy serve`, `run`, `state`
   pkg/
-    host/               — VM-spawn library (NEW; the focus of this spec)
-                          imported by sandd, by `crackbox run --kvm`,
-                          by anything else that wants a KVM sandbox
-    proxy/              — egred internals; imported by cmd/egred/
-    match/              — Host(allowlist, host) bool
-    admin/              — egred admin API server
-    client/             — HTTP client for egred admin API
-    config/             — TOML loader
-    run/                — `crackbox run` orchestration (network +
-                          spawn-and-wait)
+    host/                — VM-spawn library (the focus of this spec)
+    proxy/               — egress-proxy internals
+    match/               — Host(allowlist, host) bool
+    admin/               — proxy admin API server
+    client/              — HTTP client for the admin API
+    config/              — TOML loader
+    dns/                 — DNS filter ([`6/10`](10-crackbox-dns-filter.md))
+    run/                 — `crackbox run` orchestration (network + spawn-and-wait)
 ```
 
-`pkg/host/` is the new addition. Public surface:
+`pkg/host/` public surface (`crackbox/pkg/host/host.go`):
 
 ```go
 package host
 
 type VMConfig struct {
-    Image       string
-    Memory      string  // "2G"
+    Image       string   // path to base qcow2; empty = default
+    Memory      string   // e.g. "2G"
     CPUs        int
-    Mounts      []Mount  // host:guest, ro/rw
-    Network     string  // existing network or empty for new
-    EgressProxy string  // empty = ensure local egred; URL = use external
-    AllowList   []string
+    Mounts      []Mount  // virtio-fs mounts
+    EgressProxy string   // proxy admin URL; empty = no proxy
+    AllowList   []string // pushed to the proxy on Spawn
 }
 
 type Handle struct{ ID string; IP string }
 
-func Spawn(VMConfig) (Handle, error)        // boot VM, register with egred
-func Exec(h Handle, cmd []string, stdin io.Reader) (exitCode int, stdout, stderr []byte, error)
-func Stop(h Handle) error                    // shutdown VM, unregister
-func List() []Handle                         // all running VMs on this host
+func New(instanceID, dataDir string) (*Host, error)
+func (h *Host) Spawn(cfg VMConfig) (Handle, error)                              // boot VM, register with proxy
+func (h *Host) Exec(h Handle, cmd []string, stdin io.Reader) (int, []byte, []byte, error)
+func (h *Host) Stop(h Handle) error                                            // shutdown VM, unregister
+func (h *Host) List() ([]Handle, error)                                        // running VMs in this namespace
 ```
 
 The library holds **no in-RAM index of VMs**. Source of truth is the
-system: per-VM metadata files on disk (`<datadir>/vms/<id>/meta.yaml`)
-plus live process/network state (pidfile, qemu PID, tap interface,
-DHCP lease). `List()` scans the metadata dir and runs `detectState()`
-on each entry — every caller, in every process, sees the same set.
-Pool management (warm VMs across many spawns, eviction policy) lives
-in `sandd`, not here.
+system: per-VM metadata files on disk plus live process/network state.
+`List()` scans the metadata dir and runs `detectState()` on each entry —
+every caller, in every process, sees the same set. A warm-VM pool is
+not implemented.
 
-## Egred lifecycle (managed by the library)
+## Egress-proxy registration
 
-When `host.Spawn` is called:
+`Spawn` reads the `EgressProxy` field:
 
-1. Check the `EgressProxy` field:
-   - Empty → look for a local egred at the conventional address
-     (`http://127.0.0.1:3129` or via `EGRED_ADMIN` env). If one is up,
-     use it. Otherwise spawn one (in-process subprocess or
-     `cmd/egred/` binary), wait for `/health`, use it.
-   - Non-empty → use that URL; never spawn one. (Operator pre-runs
-     egred at deployment scale.)
-2. POST `/v1/register {ip, id, allowlist}` to the egred admin API.
-3. Boot VM with `HTTPS_PROXY=http://<egred-host>:3128`.
+- Empty → no proxy is configured (the VM gets no allowlist gate).
+- Non-empty → health-check that admin URL, then POST
+  `/v1/register {ip, id, allowlist}`. `Stop` POSTs `/v1/unregister`
+  (best-effort).
 
-`Stop` reverses: POST `/v1/unregister`, shut VM down, and (if this
-process spawned the local egred) tear it down too.
-
-The "external egred" mode is for arizuko-style deployments where one
-egred container is shared across hundreds of agent spawns — paying the
-egred boot cost once is materially cheaper than per-spawn.
+There is no auto-spawn of a local proxy from `pkg/host/`; the caller
+supplies a running proxy URL. The shared-proxy deployment (one
+`crackbox proxy serve` across many spawns) is described in
+[`6/8`](8-crackbox-standalone.md).
 
 ## Privileges
 
@@ -127,105 +109,28 @@ Caller must have:
 - `CAP_NET_ADMIN` for tap/bridge setup
 - writable scratch dir for VM disk overlays
 
-`sandd` is the user-facing privilege boundary; this library doesn't
-acquire privileges itself, just expects to run with what it needs.
+The library acquires no privileges itself; it expects to run with what
+it needs. The consumer daemon (runed, once the KVM backend is wired) is
+the user-facing privilege boundary.
 
-## Reuse from origin prototype — do not rewrite
+## Wiring gap
 
-The prototype at `/home/onvos/app/crackbox/` is **the source of truth**
-for the sandbox half. It works. The point of this spec is to bring
-it into the arizuko monorepo as `crackbox/pkg/host/` with minimal
-adaptation, not to redesign or rewrite. Files to port:
-
-- `internal/vm/launch.go` — qemu-system-x86_64 invocation, virtio-net
-  setup, virtio-fs mount plumbing
-- `internal/vm/network.go` — bridge + tap + iptables NAT
-- `internal/vm/proxy.go` — already ported into `crackbox/pkg/proxy/`
-  during the v0.31.0 egred extraction
-- `internal/vm/secrets.go` — secrets injection at proxy (planned for
-  [`5/13`](../5/13-ext-mcp.md))
-
-The acceptance test for the port: same Go code, new package paths.
-Diff against the prototype should be ~import-path renames + small
-glue for the `pkg/host/` public API (`Spawn` / `Exec` / `Stop` /
-`List`). If the diff grows beyond mechanical changes, stop and
-revisit — we're rewriting instead of reusing.
-
-Concrete delta the port DOES need:
-
-- New `pkg/host/host.go` with the public API; everything else is
-  unexported under `pkg/host/internal/...` matching the prototype's
-  layout.
-- Egred lifecycle hook (auto-spawn or external-detect) — the
-  prototype doesn't have this in its current shape because it
-  bundled its proxy inline; we now have a standalone `egred`
-  binary, so the hook decides which to use.
-
-Resolve the unblockers below in the port pass; do not wait for a
-v2.
-
-## Unblockers
-
-- **Cold-start latency.** ~30s qemu boot is too slow for interactive
-  chat. Resident VM per group is the pattern (one VM lives across
-  many agent runs; `Exec()` runs the agent process inside). Pool
-  management is in `sandd`, not here, but the library must support
-  `Spawn` returning a handle that subsequent `Exec`s can target.
-- **Multi-instance namespace.** When two arizuko instances share a
-  host, their VMs must not collide on bridge names, IP ranges, or
-  shared egred. Library accepts an `InstanceID` for namespacing.
-- **MCP across VM boundary.** `gated.sock` is a unix socket on the
-  host; agent inside VM needs to reach it. socat TCP bridge over
-  virtio-vsock or 9p (decision in implementation; spec accepts
-  either).
-- **Image management.** Base VM image stored on host; per-VM overlay
-  via qcow2. `pkg/host/` provides `EnsureImage(url) string` to
-  download + cache.
-
-## Out of scope for this spec
-
-- The pool of resident VMs (lives in [`sandd`](13-sandd.md))
-- Crackbox-specific operator CLI beyond `crackbox run --kvm`
-- Cluster / multi-host VM placement
-- VM live-migration
+`crackbox/pkg/host/` is shipped and tested but **no arizuko daemon
+imports it** — `grep -rn crackbox/pkg/host runed/` is empty. Today's
+arizuko egress path is Docker-only: one shared `crackbox proxy serve`
+per instance, with per-spawn register/unregister of the routd-resolved
+allowlist (`runed/docker.go`, spec [`5/P`](../5/P-runed.md),
+[`SECURITY.md`](../../SECURITY.md)). Landing KVM means adding a
+`Runtime` backend that calls `pkg/host/`; image management
+(`EnsureImage`), the resident-VM pool, and MCP-over-vsock into the VM
+are unbuilt.
 
 ## Acceptance
 
-- `crackbox run --kvm --allow github.com -- curl https://github.com`
-  works on a host with `/dev/kvm`. The CLI uses `pkg/host/` directly.
-- `sandd` with `SAND_BACKEND=crackbox` spawns agents in VMs that
-  reach `api.anthropic.com` but get 403 on anything else.
-- `pkg/host/` has zero arizuko-internal imports. Same orthogonality
-  test as [`6/7`](7-orthogonal-components.md).
-- External-egred mode: pre-run `egred` as a separate container; `pkg/host/`
-  detects it via `EGRED_ADMIN` env and skips the auto-spawn.
-
-## Deferred from initial port
-
-Items explicitly out of scope for the 2026-05-01 port; tracked in
-downstream specs or deferred to later passes:
-
-- **`EnsureImage(url)`** — image download and cache. The initial port
-  requires the caller to pass a pre-existing qcow2 path. Image
-  management (fetch, verify, cache) is deferred; no spec yet.
-- **MCP across VM boundary** — `gated.sock` is a unix socket on the
-  host; the agent inside the VM must reach it over socat/TCP via
-  virtio-vsock or 9p. Decision and implementation deferred to
-  [sandd](13-sandd.md).
-- **Resident-VM pool** — warm VMs across many agent runs, eviction
-  policy. Pool management lives in [`sandd`](13-sandd.md), not in
-  `pkg/host/`. Deferred to `6/13`.
-- **egred auto-spawn from `pkg/host/`** — the initial port treats
-  `EgressProxy` as caller-provided; if empty, no proxy is configured.
-  Auto-spawn of a local egred subprocess is deferred to `pkg/run/`
-  orchestration (separate follow-up).
-- **Secrets injection** — runtime secret delivery via egred at egress.
-  Specified in [`5/13`](../5/13-ext-mcp.md); not yet implemented.
-- **`gated` Docker→KVM backend switch** — `gated` currently uses the
-  Docker backend. Switching to `crackbox/pkg/host/` as its backend
-  is tracked under [sandd](13-sandd.md). Today's shipped
-  arizuko consumer (one shared egred per instance, per-spawn
-  register/unregister with the resolved allowlist) is described in
-  [`8-crackbox-standalone`](8-crackbox-standalone.md) and
-  [`SECURITY.md`](../../SECURITY.md); the per-spawn execution path is
-  [`specs/5/P-runed.md`](../5/P-runed.md).
+- `make -C crackbox build && make -C crackbox test` passes on a host
+  with no arizuko process and no arizuko data directory.
+- `pkg/host/` has zero arizuko-internal imports (component test, per
+  [`6/16`](16-daemon-standalone-matrix.md)).
+- External-proxy mode: pre-run `crackbox proxy serve`; a `pkg/host/`
+  spawn with a non-empty `EgressProxy` registers on Spawn and
+  unregisters on Stop against it.

@@ -10,35 +10,32 @@ status: draft
 
 ## Status
 
-Draft / future. No consumer wired yet. Cataloged in
-[7-orthogonal-components.md](7-orthogonal-components.md) §
-_mcp-firewall_; this spec expands that stub. The gated split shipped
-(`routd` + `runed` — see [`specs/5/E-routd.md`](../5/E-routd.md),
-[`P-runed.md`](../5/P-runed.md)); this lands when per-folder tool gating
-needs a home that isn't tangled with grants.
+Draft / future. No consumer wired yet. The component contract is in
+[16-daemon-standalone-matrix.md](16-daemon-standalone-matrix.md). This
+lands when agents connect to **third-party MCP servers** whose tools
+arizuko's own `Gate` does not cover (see Problem).
 
 ## Problem
 
-arizuko needs per-folder tool gating for in-container agents: a folder
-granted only `messages:read` must not be able to call a tool that
-sends. The natural place to enforce this is between the agent's MCP
-client and the MCP server(s) it talks to — intercept every
-`tools/call`, check it, pass or refuse. But the _mechanism_ (parse
-JSON-RPC over the existing transport, match a tool name against a rule
-list, forward or refuse) is generic; the _domain_ (what a folder is,
-which grant produces which tools) is arizuko's. Today, building this
-inside arizuko would braid the MCP-proxying mechanism through the grant
-layer.
+arizuko already gates its OWN tools: the injected `Gate` authorizes every
+`tools/call` and filters `tools/list` for arizuko's resreg/ipc surface
+(`5/17`). That path needs no second proxy — a firewall in front of it would
+duplicate the security path (`db.Authorize`).
 
-Split it: mcp-firewall is the generic **component** that filters by a
-flat ruleset. arizuko's grant layer derives the flat allowed-tool list
-per (folder, agent) and pushes it. The firewall never learns what a
-folder or grant is. arizuko's `mcpd` host (from the gated split) sits
-_behind_ the firewall; the agent's MCP traffic flows
-agent → firewall → `mcpd`.
+The unmet need is **third-party MCP servers**. When a folder-agent connects
+to an external MCP server (a vendor tool, a community server), those tools
+never pass through arizuko's `Gate` — the agent talks to the upstream
+directly, and nothing checks which of the upstream's tools it may call.
+mcp-firewall is the generic component on THAT wire: intercept every
+`tools/call` to an untrusted upstream, match the tool name against a flat
+allow/deny ruleset, pass or refuse. The _mechanism_ (parse JSON-RPC, match
+a tool name, forward or refuse) is generic; the _domain_ (which folder may
+use which upstream tool) is arizuko's — the grant layer derives the flat
+allowed-tool list per (folder, agent) and pushes it. The firewall never
+learns what a folder or grant is.
 
 This is a different layer from
-[15-skill-guard.md](15-skill-guard.md): skill-guard is a PreToolUse hook
+[../5/23-skill-guard.md](../5/23-skill-guard.md): skill-guard is a PreToolUse hook
 that scans the _content_ of agent-written skill files for threat
 patterns before they land on disk. mcp-firewall filters _JSON-RPC
 tool calls_ on the wire. Skill-guard answers "is this skill file
@@ -97,15 +94,13 @@ tool-name strings. **Deny-wins, default-deny:**
 Deny-wins + default-deny (not first-match) because this _is_ a
 permission gate: the safe failure is "refuse", and a later broad
 `allow: *` must never silently re-open a tool an earlier rule denied.
-This is the opposite choice from
-[messaging-gateway](11-messaging-gateway.md)'s first-match route
-table, and deliberately so — routing is positive selection, gating is
-negative authority.
+This is the opposite choice from `routd`'s first-match route table, and
+deliberately so — routing is positive selection, gating is negative
+authority.
 
 ## Public surface
 
-Three contracts, per
-[7-orthogonal-components.md](7-orthogonal-components.md) §7.
+Three contracts (the component contract, `6/16`):
 
 **CLI** — primary surface, no arizuko process needed:
 
@@ -135,7 +130,7 @@ matching the transport the client uses.
 
 ## Layout
 
-The [A §_Layout pattern_](7-orthogonal-components.md) skeleton:
+The standard component skeleton (`6/16`):
 
 ```
 mcp-firewall/
@@ -153,7 +148,7 @@ mcp-firewall/
 
 ## Orthogonality acceptance
 
-Per [A §_Acceptance_](7-orthogonal-components.md):
+Per the component contract's mechanical test (`6/16`):
 
 - The mechanical grep returns empty:
 
@@ -209,7 +204,7 @@ against a flat rule list and forward or refuse the JSON-RPC call_.
 - Tool-argument inspection or payload scanning (a denied tool is denied
   by name; argument-level policy is a separate concern, not this gate).
 - Skill-file content scanning — that is
-  [15-skill-guard.md](15-skill-guard.md)'s PreToolUse hook, a different
+  [../5/23-skill-guard.md](../5/23-skill-guard.md)'s PreToolUse hook, a different
   layer.
 - Auth of the admin API — arizuko's `proxyd` + `authd` front it when
   deployed inside arizuko; standalone, the admin endpoint trusts its

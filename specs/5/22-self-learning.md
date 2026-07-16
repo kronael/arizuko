@@ -17,7 +17,7 @@ mechanical, operator owns truth," so this is a deliberate, gated
 softening of that line, not a drift.
 
 Threat-pattern scanning of agent-written skills is a separate concern
-and lives in [15-skill-guard.md](15-skill-guard.md). The two specs
+and lives in [23-skill-guard.md](23-skill-guard.md). The two specs
 share no implementation surface: learning produces files for review,
 the guard inspects bytes at write time.
 
@@ -214,7 +214,7 @@ trigger cadence isn't. Inferred-not-verified.
 ## Out of scope
 
 - **Pre-tool-call threat scanning** — see
-  [15-skill-guard.md](15-skill-guard.md). Different concern,
+  [23-skill-guard.md](23-skill-guard.md). Different concern,
   different surface (`PreToolUse` hook on `Write`/`Edit`), different
   lifecycle (per-call, not per-pattern).
 - **Auto-skill-acceptance** — never. Skills carry token cost in

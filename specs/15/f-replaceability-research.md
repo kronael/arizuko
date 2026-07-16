@@ -45,7 +45,7 @@ Alternatives to evaluate (with concrete checklists):
 - **mitmproxy** in `--mode transparent` or `--mode regular`. Has SNI
   inspection, request inspection, scriptable via Python. Heavier
   than crackbox; designed for inspection more than gating. Worth it
-  if we ever want spec 6/11 (placeholder injection). Cost: a
+  if we ever want placeholder/credential injection (`8/Z`). Cost: a
   ~30-line Python addon, no Go code.
 - **envoy** with an HTTP filter chain. Industrial-strength. Big
   config surface. Probably overkill for a per-folder allowlist
