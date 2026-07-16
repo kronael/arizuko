@@ -35,6 +35,19 @@ func (l *Loop) processGroupMessages(chatJID string) (bool, error) {
 		return false, nil
 	}
 	folder := r.Folder
+	// Steering layer (sticky-nav / slash commands / @child delegation) consumes
+	// the latest message BEFORE it reaches a turn. It MUST run here, on the one
+	// path every trigger converges to: adapter ingest enqueues straight into this
+	// worker (server.go handleInbound), so when steering lived only in the
+	// pollOnce backstop it raced the queue and lost — a Slack "/root mint …"
+	// reached the agent as plain unelevated text and the elevation never fired
+	// (marinade atlas, 2026-07-16). A consumed message advances the cursor and
+	// never spawns; cmdRoot re-injects its arg, which the next worker pass runs
+	// elevated.
+	if l.steer(chatJID, last, folder) {
+		l.advance(chatJID, last)
+		return true, nil
+	}
 	// Strip bot rows from the trigger batch (don't feed the agent its own
 	// output) but keep them in the rendered context.
 	var trigger []core.Message

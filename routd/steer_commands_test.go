@@ -278,6 +278,44 @@ func TestCmdRootElevates(t *testing.T) {
 	}
 }
 
+// TestWorkerSteersRootCommand: the queue worker path (processGroupMessages) —
+// what adapter ingest enqueues into directly (server.go handleInbound) —
+// intercepts /root itself. Before the fix steering lived only in the pollOnce
+// backstop, so an ingest-enqueued "/root …" raced past it and ran as a plain
+// UNELEVATED turn with the literal /root text (marinade atlas, 2026-07-16).
+// The consumed command spawns no run; the re-injected instruction runs
+// elevated on the next worker pass.
+func TestWorkerSteersRootCommand(t *testing.T) {
+	db, loop, rr := recLoop(t)
+	dl := &recDeliverer{}
+	loop.deliver = dl
+	_ = db.PutGroup(core.Group{Folder: "demo"})
+	_ = db.AddMembership("u", "role:operator", "test")
+	_ = db.PutMessage(core.Message{ID: "m1", ChatJID: "web:demo", Sender: "u",
+		Content: "/root mint the token", Timestamp: time.Now().UTC()})
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process /root: %v", err)
+	}
+	if len(rr.runs) != 0 {
+		t.Fatalf("raw /root reached a turn unsteered: %+v", rr.runs)
+	}
+	msgs, _ := db.MessagesSince("web:demo", db.GetAgentCursor("web:demo"))
+	if len(msgs) != 1 || msgs[0].Content != "mint the token" {
+		t.Fatalf("re-injected batch=%+v want one row with the /root arg", msgs)
+	}
+	if _, ok := loop.pendingElevation.Load(msgs[0].ID); !ok {
+		t.Fatal("re-injected message not registered for elevation")
+	}
+
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process injected: %v", err)
+	}
+	if len(rr.runs) != 1 || !rr.runs[0].elevated {
+		t.Fatalf("injected instruction runs=%+v want exactly one ELEVATED run", rr.runs)
+	}
+}
+
 // TestCmdInviteFederation: /invite is operator-gated (`**`), enforces the arg
 // shape, then reports the onbod federation gap (routd cannot mint invites).
 func TestCmdInviteFederation(t *testing.T) {

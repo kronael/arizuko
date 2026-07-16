@@ -274,7 +274,9 @@ func TestBackslashNewDispatches(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: `\new`, Timestamp: time.Now().UTC()})
 
-	l.pollOnce()
+	if _, err := l.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
 	if db.SessionID("demo", "") != "" {
 		t.Fatal(`\new did not clear session`)
 	}

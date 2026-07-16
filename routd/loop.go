@@ -510,13 +510,9 @@ func (l *Loop) pollOnce() {
 			l.routeMiss(chatJID, chatMsgs, r)
 			continue
 		}
-		// Steering layer (sticky-nav / slash / @child delegation) consumes the
-		// latest message BEFORE enqueue; a consumed message advances the cursor
-		// and never reaches a turn.
-		if l.steer(chatJID, last, r.Folder) {
-			l.advance(chatJID, last)
-			continue
-		}
+		// Steering (sticky-nav / slash / @child delegation) happens in
+		// processGroupMessages — the one path both this backstop and adapter
+		// ingest converge to — so a command can't race past it.
 		l.Enqueue(chatJID)
 	}
 }

@@ -15,6 +15,7 @@ import (
 // turnRec is one dispatched run captured by recRunner.
 type turnRec struct {
 	turnID, folder, topic, batch, trigger, model string
+	elevated                                     bool
 }
 
 // recRunner records every POST /v1/runs and returns a clean ok outcome. Used
@@ -26,6 +27,7 @@ func (r *recRunner) Run(_ context.Context, req runedv1.RunRequest) (runedv1.RunO
 	r.runs = append(r.runs, turnRec{
 		turnID: req.TurnID, folder: string(req.Folder), topic: req.Topic,
 		batch: req.MessageBatch, trigger: req.TriggerSender, model: req.Model,
+		elevated: req.Elevated,
 	})
 	return runedv1.RunOutcome{RunID: "r", Outcome: runedv1.OutcomeOK, SessionID: "s"}, nil
 }
@@ -166,7 +168,11 @@ func TestStickyNavConsumed(t *testing.T) {
 	now := time.Now().UTC()
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "tg:1", Sender: "u", Content: "@child", Timestamp: now, Verb: "message"})
 
-	loop.pollOnce()
+	// steering runs in the queue worker (processGroupMessages) — the one path
+	// both adapter ingest and the pollOnce backstop converge to.
+	if _, err := loop.processGroupMessages("tg:1"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
 	if g, _ := db.StickyState("tg:1"); g != "child" {
 		t.Fatalf("sticky_group=%q want child", g)
 	}
@@ -191,7 +197,9 @@ func TestSlashNewClearsSession(t *testing.T) {
 	_ = db.PutSession("demo", "", "sess-X")
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u", Content: "/new", Timestamp: time.Now().UTC()})
 
-	loop.pollOnce()
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
 	if db.SessionID("demo", "") != "" {
 		t.Fatal("/new did not clear session")
 	}
@@ -211,7 +219,9 @@ func TestChildDelegation(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "slack:T/C/X", Sender: "u",
 		Content: "@eng please ship it", Timestamp: time.Now().UTC(), Verb: "message"})
 
-	loop.pollOnce()
+	if _, err := loop.processGroupMessages("slack:T/C/X"); err != nil {
+		t.Fatalf("process: %v", err)
+	}
 	// the delegation row landed on the child folder JID with the return address.
 	msgs, _ := db.MessagesSince("root/eng", "")
 	if len(msgs) != 1 {
@@ -424,7 +434,10 @@ func TestSlashNewReinjectsFollowup(t *testing.T) {
 	_ = db.PutMessage(core.Message{ID: "a", ChatJID: "web:demo", Sender: "u",
 		Content: "/new look into X", Timestamp: time.Now().UTC()})
 
-	loop.pollOnce() // consumes /new: clears session, reinjects followup, advances past /new
+	// the worker pass consumes /new: clears session, reinjects followup, advances past /new
+	if _, err := loop.processGroupMessages("web:demo"); err != nil {
+		t.Fatalf("process /new: %v", err)
+	}
 	if db.SessionID("demo", "") != "" {
 		t.Fatal("/new did not clear session")
 	}
