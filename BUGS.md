@@ -56,6 +56,18 @@ shallow-enough folder. Fix (proposal, needs sign-off — auth-model change):
 thread `elevated` into the structural-gate identity (an explicit
 `auth.Identity{Tier: 0}`) at the same ServeTurnMCP seam the grant halves use.
 
+## M4 — `vited` runs the Vite DEV server in production (2026-07-16, open)
+
+Every instance's `vited` container runs `vite --config /etc/vite.config.js --host
+0.0.0.0` — the **dev server** (file-watch + HMR + on-the-fly transform), not a
+static serve. Steady ~1-core cost per instance (krons `vited` measured 12.7% CPU,
+2:17 CPU-time; a contributor to the "server busy from vites" the operator flagged
+2026-07-16, alongside the deploy-churn load spike that self-cleared). `/pub` +
+`/priv` are static file trees — they do not need HMR or a transform pipeline in
+prod. Fix (needs design/sign-off — a runtime change to the `vited` image/entry):
+serve the static tree with `vite preview` or a plain static file server, keeping
+`vite dev` only for a dev profile. Verify `/pub/*` still 200s after the switch.
+
 ## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
 
 `slakd.Send` correctly wraps its known permanent `chat.postMessage` failures
