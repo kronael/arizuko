@@ -39,7 +39,9 @@ read-only view of the unified public web tree:
 
 ## Route tokens
 
-Agents mint chat links and webhook URLs on demand:
+Chat links and webhook URLs are minted during an elevated `/root` turn only
+(a token is a public unauthenticated endpoint); outside `/root` the mint
+tools are absent by grant — ask the operator to `/root` the request:
 
 ```
 issue_chat_link(context?)     → {jid, token}   # token returned once, store in workspace
