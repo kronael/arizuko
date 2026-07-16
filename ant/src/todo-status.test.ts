@@ -51,3 +51,11 @@ test('hook ignores non-TodoWrite tools and an empty turn id', async () => {
   );
   expect(sent).toHaveLength(0);
 });
+
+test('hook ignores a single-item list (not multi-step)', async () => {
+  const sent: unknown[] = [];
+  await createTodoStatusHook('turn-1', async p => { sent.push(p); })(
+    todoInput([{ content: 'only one', status: 'in_progress' }]), 't', {} as never,
+  );
+  expect(sent).toHaveLength(0);
+});

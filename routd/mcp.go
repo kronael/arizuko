@@ -2,6 +2,7 @@ package routd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -327,42 +328,22 @@ func (s *Server) mcpSubmitStatus(turnID, text string) error {
 		return nil
 	}
 	jid := returnTarget(tc, tc.ChatJID)
-	// Edit the turn's live ⏳ message in place if one already landed; only send a
-	// fresh notice on the first status of the turn or when the adapter can't edit
-	// (email/WhatsApp/Reddit → ErrUnsupported) (spec 5/24).
-	if id := s.liveStatusID(turnID); id != "" && s.deliver != nil {
-		if err := s.deliver.Edit(jid, id, "⏳ "+text); err == nil {
+	// Edit the turn's live ⏳ message in place if one already landed — its id is the
+	// last persisted verb=status row (no in-memory map). Only SEND a fresh notice on
+	// the first status of the turn or when the adapter can't edit (email/WhatsApp/
+	// Reddit → ErrUnsupported). A real edit failure (401/500/timeout) surfaces — it
+	// is never silently re-posted as a duplicate (spec 5/24).
+	if id := s.db.LastStatusPlatformID(turnID); id != "" && s.deliver != nil {
+		err := s.deliver.Edit(jid, id, "⏳ "+text)
+		if err == nil {
 			return nil
 		}
+		if !errors.Is(err, chanlib.ErrUnsupported) {
+			return err
+		}
 	}
-	if pid := s.deliverStatus(tc, jid, text); pid != "" {
-		s.setLiveStatusID(turnID, pid)
-	}
+	s.deliverStatus(tc, jid, text)
 	return nil
-}
-
-// liveStatusID / setLiveStatusID / clearLiveStatus track the per-turn ⏳ status
-// message id so submit_status edits one message in place (spec 5/24). The map is
-// shared across turns → its own mutex, separate from lockTurn.
-func (s *Server) liveStatusID(turnID string) string {
-	s.liveStatusMu.Lock()
-	defer s.liveStatusMu.Unlock()
-	return s.liveStatus[turnID]
-}
-
-func (s *Server) setLiveStatusID(turnID, id string) {
-	s.liveStatusMu.Lock()
-	defer s.liveStatusMu.Unlock()
-	if s.liveStatus == nil {
-		s.liveStatus = map[string]string{}
-	}
-	s.liveStatus[turnID] = id
-}
-
-func (s *Server) clearLiveStatus(turnID string) {
-	s.liveStatusMu.Lock()
-	defer s.liveStatusMu.Unlock()
-	delete(s.liveStatus, turnID)
 }
 
 // fetchPlatformHistory backs the fetch_history MCP tool: proxy to the adapter

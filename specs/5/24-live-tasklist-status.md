@@ -42,14 +42,17 @@ orthogonal changes turn that structured list into a live status message:
    tool input the agent already writes.
 
 2. **routd — `submit_status` edits one message per turn** instead of
-   posting a new one each call. `mcpSubmitStatus` keeps a per-turn live
-   status message id (`Server.statusMsgID map[turnID]string`, mutex-
-   guarded, cleared on turn close). First status of a turn sends the
-   `⏳ …` message and records `row.PlatformID`; subsequent statuses
-   `deliver.Edit(jid, id, "⏳ "+text)`. Edit-unsupported adapters
-   (email/WhatsApp/Reddit return `ErrUnsupported`) fall back to a fresh
-   send. This improves the existing `<status>` path too — one live
-   message, not a stream.
+   posting a new one each call. Interim rows carry `verb="status"` and are
+   **excluded from `TurnHasBotReply`** — a status must never count as the
+   agent's reply, or `recordTurnResult` skips delivering the real answer
+   (the reply-swallow regression codex caught pre-deploy; `db.go`). The
+   live message id is the **last persisted `verb="status"` row's
+   `platform_id`** (`DB.LastStatusPlatformID`) — no in-memory map, nothing
+   to leak or clean up. First status sends the `⏳ …` message; subsequent
+   statuses `deliver.Edit`. Only `ErrUnsupported` (email/WhatsApp/Reddit)
+   falls back to a fresh send; a real edit failure (401/500/timeout)
+   surfaces, never a silent duplicate. Improves the existing `<status>`
+   path too — one live message, not a stream.
 
 Both paths feed the same `submitStatus` sink → the same edited message.
 `<status>` blocks still work for turns without a task list (the floor);
@@ -63,9 +66,9 @@ the hook covers multi-step turns automatically.
   paragraph.
 - The 90 s `nudgeProgress` self-nudge stays as the floor for planless
   long turns; it is no longer the primary progress path.
-- Edit-in-place is best-effort: a routd restart mid-turn loses the
-  in-memory id and the next status sends fresh (acceptable — status is
-  ephemeral, the turn result is delivered separately via `submit_turn`).
+- Edit-in-place survives a routd restart: the id lives in the persisted
+  `verb="status"` row, not memory. A truly un-editable adapter still
+  streams (the `ErrUnsupported` fallback).
 
 ## Code pointers
 
@@ -73,9 +76,11 @@ the hook covers multi-step turns automatically.
 - `ant/src/backend/claude.ts` — register the hook (`matcher: 'TodoWrite'`);
   `SessionConfig.turnID` plumb.
 - `ant/src/index.ts` — pass `turnID` into `buildSessionConfig`.
-- `routd/mcp.go` `mcpSubmitStatus` — edit-or-send by per-turn id.
-- `routd/turns.go` `deliverStatus` — return the delivered `PlatformID`;
-  clear the per-turn id on turn close (`recordTurnResult`/`callbackClosed`).
+- `routd/mcp.go` `mcpSubmitStatus` — edit the last `verb="status"` row or
+  send; `ErrUnsupported`-only fallback.
+- `routd/turns.go` `deliverStatus` — stamp `verb="status"` on the row.
+- `routd/db.go` `TurnHasBotReply` (excludes `verb="status"`),
+  `LastStatusPlatformID` (the live id, from the persisted row).
 
 ## Tier
 

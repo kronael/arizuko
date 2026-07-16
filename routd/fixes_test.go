@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/core"
 	apiv1 "github.com/kronael/arizuko/routd/api/v1"
 	runedv1 "github.com/kronael/arizuko/runed/api/v1"
@@ -16,7 +17,7 @@ import (
 type recDeliverer struct {
 	sends    []sentMsg
 	edits    []sentEdit
-	failEdit bool
+	editErr  error
 	docs     []sentMsg
 	voices   []sentVoice
 	reacts   int
@@ -59,10 +60,7 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 func (d *recDeliverer) React(_, _, _ string) error      { d.reacts++; return nil }
 func (d *recDeliverer) Edit(jid, platformID, content string) error {
 	d.edits = append(d.edits, sentEdit{jid, platformID, content})
-	if d.failEdit {
-		return errSend
-	}
-	return nil
+	return d.editErr
 }
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
@@ -214,7 +212,7 @@ func TestSubmitStatusFallsBackToSendWhenEditUnsupported(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	dl := &recDeliverer{failEdit: true}
+	dl := &recDeliverer{editErr: chanlib.ErrUnsupported}
 	srv := NewServer(db, nil, dl, nil, 0, "")
 	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
 
@@ -229,6 +227,59 @@ func TestSubmitStatusFallsBackToSendWhenEditUnsupported(t *testing.T) {
 	}
 	if len(dl.sends) != 2 {
 		t.Fatalf("edit-unsupported should fall back to a fresh send: sends=%+v", dl.sends)
+	}
+}
+
+// TestSubmitStatusHardEditErrorSurfaces: a real edit failure (401/500/timeout,
+// not ErrUnsupported) is returned, NOT silently re-posted as a duplicate.
+func TestSubmitStatusHardEditErrorSurfaces(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{editErr: errSend}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+
+	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("t1", "b"); err == nil {
+		t.Fatal("hard edit error should surface, not fall through to a duplicate send")
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("hard edit error re-posted a duplicate: sends=%+v", dl.sends)
+	}
+}
+
+// TestStatusRowDoesNotSuppressReply is the critical guard (spec 5/24): a verb=
+// status ⏳ row must NOT count as the agent's reply, or recordTurnResult skips
+// delivering the real answer (every multi-step turn since the auto-TodoWrite
+// status would lose its prose). A genuine reply row still counts.
+func TestStatusRowDoesNotSuppressReply(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+
+	if err := srv.mcpSubmitStatus("t1", "working"); err != nil {
+		t.Fatal(err)
+	}
+	if db.TurnHasBotReply("t1") {
+		t.Fatal("a ⏳ status row counted as the reply — the agent's answer would be swallowed")
+	}
+	// A genuine reply row DOES count.
+	_ = db.PutMessage(core.Message{
+		ID: "r1", ChatJID: "slack:T/C/U", Sender: "demo", Content: "the answer",
+		BotMsg: true, FromMe: true, Verb: "reply", TurnID: "t1", Status: core.MessageStatusSent,
+	})
+	if !db.TurnHasBotReply("t1") {
+		t.Fatal("a real reply row must count as the bot reply")
 	}
 }
 

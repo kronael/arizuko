@@ -274,14 +274,15 @@ func (s *Server) deliverTurn(tc TurnContext, jid string, row *core.Message, thre
 // build an out-of-band row, deliver it, persist it. Always threaded so it
 // appears alongside the final reply. Shared by appendAndDeliver's status loop
 // and the mid-turn submit_status MCP path so the two can't drift.
-// deliverStatus sends one "⏳ …" interim notice and returns its platform
-// message id (empty if the send failed / had no channel), so submit_status can
-// edit that same message on the next status (spec 5/24).
-func (s *Server) deliverStatus(tc TurnContext, jid, text string) string {
+// deliverStatus sends one "⏳ …" interim notice, stamped verb="status" so it is
+// excluded from TurnHasBotReply (a status must never suppress the agent's real
+// reply) AND is the row submit_status reads back to edit in place on the next
+// status (spec 5/24).
+func (s *Server) deliverStatus(tc TurnContext, jid, text string) {
 	row := s.outboundRow(tc, jid, "⏳ "+text, "")
+	row.Verb = "status"
 	s.deliverTurn(tc, jid, &row, true)
 	_ = s.db.PutMessage(row)
-	return row.PlatformID
 }
 
 // deliverRow attempts the platform send and stamps platform_id+sent on success.
@@ -703,7 +704,6 @@ func (s *Server) recordTurnResult(turnID string, req apiv1.TurnResult) (bool, er
 			obs.RecordModelTokens(model, tc.Folder, "out", c.Output)
 		}
 		_ = s.db.SetTurnState(turnID, "done")
-		s.clearLiveStatus(turnID) // drop the per-turn ⏳ status id (spec 5/24)
 		if s.loop != nil {
 			s.loop.publishRoundDone(strings.TrimPrefix(tc.ChatJID, "web:"), turnID)
 		}

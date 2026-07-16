@@ -983,11 +983,25 @@ func (d *DB) RecordTurnResult(folder, turnID, sessionID, status string) (bool, e
 // this turn via the reply/send tools. recordTurnResult consults it before
 // delivering the submit_turn prose result so an explicit reply is not
 // double-sent (the result-delivery is the fallback for turns that produced
-// prose but called no reply tool).
+// prose but called no reply tool). Interim verb="status" (⏳) rows are excluded:
+// an auto-status must NEVER count as the reply, or the agent's real answer is
+// swallowed (spec 5/24).
 func (d *DB) TurnHasBotReply(turnID string) bool {
 	var n int
-	d.db.QueryRow("SELECT 1 FROM messages WHERE turn_id=? AND is_bot_message=1 LIMIT 1", turnID).Scan(&n)
+	d.db.QueryRow("SELECT 1 FROM messages WHERE turn_id=? AND is_bot_message=1 AND verb!='status' LIMIT 1", turnID).Scan(&n)
 	return n == 1
+}
+
+// LastStatusPlatformID returns the platform id of the most recent delivered
+// verb="status" (⏳) row for the turn, or "" if none landed yet. submit_status
+// edits that message in place instead of streaming a new notice (spec 5/24).
+func (d *DB) LastStatusPlatformID(turnID string) string {
+	var pid string
+	d.db.QueryRow(
+		"SELECT platform_id FROM messages WHERE turn_id=? AND verb='status' AND platform_id!='' ORDER BY rowid DESC LIMIT 1",
+		turnID,
+	).Scan(&pid)
+	return pid
 }
 
 // TurnResultRecorded reports whether submit_turn already recorded an outcome for
