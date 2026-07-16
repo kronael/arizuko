@@ -278,6 +278,7 @@ function buildSessionConfig(
   sessionId: string | undefined,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  turnID: string,
   resumeAt?: string,
 ): SessionConfig {
   const extraDirs: string[] = [];
@@ -304,6 +305,7 @@ function buildSessionConfig(
       ? renderMcpServers(agentMcpServers, sdkEnv)
       : agentMcpServers,
     assistantName: containerInput.assistantName,
+    turnID,
   };
 }
 
@@ -316,7 +318,7 @@ async function runQuery(
   turnID: string,
   resumeAt?: string,
 ): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; sessionError: boolean }> {
-  const cfg = buildSessionConfig(backend, prompt, sessionId, containerInput, sdkEnv, resumeAt);
+  const cfg = buildSessionConfig(backend, prompt, sessionId, containerInput, sdkEnv, turnID, resumeAt);
   const session: Session = await backend.spawn(cfg);
 
   let ipcPolling = true;

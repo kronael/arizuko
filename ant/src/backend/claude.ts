@@ -15,6 +15,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { injectMcpEnv } from '../mcp-servers.js';
 import { createToolLogPreHook, createToolLogPostHook } from '../tool-log.js';
+import { createTodoStatusHook } from '../todo-status.js';
 import { Backend, Caps, Event, Session, SessionConfig } from './types.js';
 import type { ModelUsage } from '../mcp.js';
 
@@ -307,7 +308,11 @@ class ClaudeSession implements Session {
               { matcher: 'Bash', hooks: [createSanitizeBashHook()] },
               { hooks: [createToolLogPreHook()] },
             ],
-            PostToolUse: [{ hooks: [createIpcDrainHook(this.drain), createToolLogPostHook()] }],
+            PostToolUse: [
+              { hooks: [createIpcDrainHook(this.drain), createToolLogPostHook()] },
+              // TodoWrite → one live-edited ⏳ checklist per turn (spec 5/24).
+              { matcher: 'TodoWrite', hooks: [createTodoStatusHook(cfg.turnID ?? '')] },
+            ],
           },
         },
       })) {

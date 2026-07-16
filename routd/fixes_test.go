@@ -15,6 +15,8 @@ import (
 // recDeliverer records every egress call and optionally fails Send.
 type recDeliverer struct {
 	sends    []sentMsg
+	edits    []sentEdit
+	failEdit bool
 	docs     []sentMsg
 	voices   []sentVoice
 	reacts   int
@@ -40,6 +42,10 @@ type sentVoice struct {
 	jid, audioPath, caption, threadID string
 }
 
+type sentEdit struct {
+	jid, platformID, content string
+}
+
 func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem string) (string, error) {
 	d.sends = append(d.sends, sentMsg{jid, text, replyTo, threadID, threadRoot, idem})
 	if d.failSend {
@@ -51,7 +57,13 @@ func (d *recDeliverer) Send(jid, text, replyTo, threadID, threadRoot, idem strin
 	return d.pid, nil
 }
 func (d *recDeliverer) React(_, _, _ string) error      { d.reacts++; return nil }
-func (d *recDeliverer) Edit(_, _, _ string) error       { return nil }
+func (d *recDeliverer) Edit(jid, platformID, content string) error {
+	d.edits = append(d.edits, sentEdit{jid, platformID, content})
+	if d.failEdit {
+		return errSend
+	}
+	return nil
+}
 func (d *recDeliverer) Delete(_, _ string) error        { return nil }
 func (d *recDeliverer) Pin(_, _ string) error           { return nil }
 func (d *recDeliverer) Unpin(_, _ string, _ bool) error { return nil }
@@ -162,6 +174,61 @@ func TestSubmitStatusDeliversInterimWithoutEndingTurn(t *testing.T) {
 	}
 	if len(dl.sends) != 1 {
 		t.Fatalf("status delivered after run returned: %+v", dl.sends)
+	}
+}
+
+// TestSubmitStatusEditsLiveMessageInPlace is spec 5/24: the first status of a
+// turn sends one "⏳ …" message; each later status EDITS that same message
+// instead of appending a new notice — a live checklist that updates in place.
+func TestSubmitStatusEditsLiveMessageInPlace(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+
+	for _, s := range []string{"step 1", "step 2", "step 3"} {
+		if err := srv.mcpSubmitStatus("t1", s); err != nil {
+			t.Fatalf("submit_status %q: %v", s, err)
+		}
+	}
+	if len(dl.sends) != 1 {
+		t.Fatalf("later statuses appended new messages, want one send + edits: sends=%+v", dl.sends)
+	}
+	if len(dl.edits) != 2 || dl.edits[1].content != "⏳ step 3" {
+		t.Fatalf("live edits wrong: %+v", dl.edits)
+	}
+	if dl.edits[0].platformID != "pid-"+dl.sends[0].idem {
+		t.Fatalf("edit did not target the first status message: edit=%q send=pid-%q", dl.edits[0].platformID, dl.sends[0].idem)
+	}
+}
+
+// TestSubmitStatusFallsBackToSendWhenEditUnsupported: adapters that can't edit
+// (email/WhatsApp/Reddit → ErrUnsupported) get a fresh ⏳ notice instead.
+func TestSubmitStatusFallsBackToSendWhenEditUnsupported(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dl := &recDeliverer{failEdit: true}
+	srv := NewServer(db, nil, dl, nil, 0, "")
+	db.PutTurnContext("t1", "demo", "", "slack:T/C/U", "u1", "")
+
+	if err := srv.mcpSubmitStatus("t1", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.mcpSubmitStatus("t1", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if len(dl.edits) != 1 {
+		t.Fatalf("expected one (failed) edit attempt, got %+v", dl.edits)
+	}
+	if len(dl.sends) != 2 {
+		t.Fatalf("edit-unsupported should fall back to a fresh send: sends=%+v", dl.sends)
 	}
 }
 

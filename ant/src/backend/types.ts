@@ -52,6 +52,9 @@ export interface SessionConfig {
   mcpServers?: Record<string, import('../mcp-servers.js').McpServerConfig>;
   // assistantName threads through to claude's PreCompact archival hook.
   assistantName?: string;
+  // turnID is the arizuko turn id, threaded to the TodoWrite status hook so it
+  // keys the live-edited ⏳ message (spec 5/24). Empty → the hook no-ops.
+  turnID?: string;
 }
 
 // Caps is what a backend reports up front. The MCP layer can surface this so

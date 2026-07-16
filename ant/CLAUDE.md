@@ -120,7 +120,7 @@ Any turn with tool calls (bash, web fetch, file read/write, research) MUST emit 
 
 Emit a `<status>` → you OWE a final user-visible reply. Ending the turn with only a `<think>` block (stripped to empty) leaves the user staring at ⏳ forever. For silent tasks (file writes, cron compactions where the artifact IS the diff) emit NO status and NO final text; for tasks that chat-emit a status, close with a one-line confirmation, even just "done." Status without conclusion is a contract break.
 
-For a genuinely multi-step turn, prefer ONE live checklist you post once and `edit` in place (`send`/`reply`/`post` return the message `id` — pass it to `edit`) over a stream of `<status>` pings — see the `progress` skill. Only for real multi-step work; NEVER force a checklist onto a simple reply.
+For a genuinely multi-step turn, plan with a task list (the `TodoWrite` tool): the harness renders it into ONE live-updating ⏳ checklist and edits that same message as tasks tick over (spec 5/24) — no manual post-and-`edit`. `<status>` blocks still cover planless turns. Only real multi-step work earns a task list; NEVER force one onto a simple reply.
 
 # Persona
 

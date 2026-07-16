@@ -1,50 +1,32 @@
 ---
 name: progress
 description: >
-  Live status checklist for multi-step work — post ONE message and `edit`
-  it in place to tick tasks off, instead of a stream of ⏳ status pings.
-  USE only when a turn genuinely has several steps or will take a while
-  (a deploy, a multi-file change, research-then-write). NOT for simple or
-  one-shot replies — a checklist there is noise.
+  Live progress for a multi-step turn. The harness does this automatically:
+  plan with a task list (TodoWrite) and it renders ONE ⏳ checklist that edits
+  in place as tasks tick over. USE only when a turn genuinely has several steps
+  or will take a while. NOT for one-shot replies.
 ---
 
 # Live progress checklist
 
-When a turn is genuinely multi-step, show the user ONE message that updates
-in place, not a stream of separate status pings.
+For a genuinely multi-step turn, **plan with a task list (the `TodoWrite`
+tool)**. The harness renders your list into ONE `⏳` checklist and edits
+that same message as each task moves `pending → in_progress → completed`
+(spec 5/24) — nothing to post or `edit` by hand:
 
-## When — and when NOT
+```
+☑ build
+⏳ deploy
+☐ verify
+```
 
-- USE only when you are already tracking the work as steps (several of them,
-  or a slow turn). **Never force a checklist onto a one-line answer** — that
-  is noise. Simple reply → just reply.
-- Three real milestones beat ten micro-updates. Don't announce trivial steps.
+You don't call `send`/`edit` for this — writing the task list IS the
+update. Keep the list to real milestones (three beats ten micro-steps);
+never force a task list onto a one-line answer.
 
-## The pattern
+## Planless turns and unsupported platforms
 
-1. Post the checklist ONCE and **capture the returned id**:
-
-   `send` (or `reply`) with the list —
-   ```
-   ☐ build
-   ☐ deploy
-   ☐ verify
-   ```
-   The tool returns `{"ok":true,"id":"<platform_id>"}`. Hold onto that `id`.
-
-2. As each step finishes, `edit` the SAME message (`targetId` = that `id`):
-   ```
-   ☑ build
-   ⏳ deploy
-   ☐ verify
-   ```
-   ☑ done · ⏳ running now · ☐ pending.
-
-3. Final edit collapses to the outcome — the checklist becomes the answer
-   (or a one-line "done" if a separate reply carries the substance).
-
-## Platform reality
-
-`edit` works on Slack, Telegram, Discord, Mastodon, Bluesky. Where it is not
-supported (email, WhatsApp, Reddit) `edit` returns unsupported — fall back to
-the normal `<status>` ⏳ pings for that turn. Never retry a rejected `edit`.
+- A quick turn with no task list still reports via `<status>…</status>`
+  blocks (ant/CLAUDE.md § Status updates) — the floor.
+- On platforms without message editing (email, WhatsApp, Reddit) the
+  harness falls back to separate `⏳` notices automatically. Nothing to do.

@@ -14,6 +14,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.61.0] — 2026-07-16
+
+> arizuko v0.61.0 — agents show their work, live
+>
+> Multi-step turns report progress by themselves now: plan with a task list and the agent posts ONE ⏳ checklist that ticks off in place — no more status spam, and no relying on the agent to remember to narrate.
+>
+> • Live tasklist status — one message, edited as tasks move pending → running → done
+> • Harness-driven — progress comes from the agent's own task list, not a skill it might skip
+> • Falls back to plain ⏳ notices where messages can't be edited (email, WhatsApp, Reddit)
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Added
+
+- **Live tasklist status (spec 5/24).** A `TodoWrite` PostToolUse hook in the ant harness (`ant/src/todo-status.ts`) renders the agent's task list into one `⏳` checklist (`☑`/`⏳`/`☐`); `routd`'s `submit_status` now **edits that single message in place** per turn (per-turn live-status id) instead of streaming a new `⏳` per call, falling back to a fresh send on adapters that can't edit. Progress moves from an LLM-invoked skill (unreliable) to deterministic harness bookkeeping over the agent's own todo list. The `progress` skill collapses to a pointer; `<status>` blocks stay as the floor for planless turns.
+
 ## [v0.60.2] — 2026-07-15
 
 > arizuko v0.60.2 — replies stop getting stuck after a release

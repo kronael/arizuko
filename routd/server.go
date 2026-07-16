@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kronael/arizuko/audit"
@@ -136,6 +137,13 @@ type Server struct {
 	reg          *chanreg.Registry
 	onRegister   func(name string, ch *chanreg.HTTPChannel)
 	onDeregister func(name string)
+
+	// liveStatus holds the platform message id of a turn's ⏳ status message
+	// so submit_status EDITS one message in place rather than streaming a new
+	// notice per call (spec 5/24). Keyed by turn_id; cleared on turn close.
+	// Best-effort: lost on restart → the next status sends fresh.
+	liveStatusMu sync.Mutex
+	liveStatus   map[string]string
 }
 
 // NewServer wires the HTTP server. loop may be nil for pure REST tests.
@@ -143,7 +151,7 @@ func NewServer(db *DB, loop *Loop, deliver Deliverer, verify Verifier, engagemen
 	if engagementTTL == 0 {
 		engagementTTL = 30 * time.Minute
 	}
-	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost}
+	return &Server{db: db, loop: loop, deliver: deliver, verify: verify, engagementT: engagementTTL, webHost: webHost, liveStatus: map[string]string{}}
 }
 
 // SetDirs supplies the group + web roots the in-process MCP file-path tools
