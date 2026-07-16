@@ -165,6 +165,11 @@ var tier1FixedActions = []string{
 	"set_group_open", "set_observe_window",
 	"reset_session", "fork_topic",
 	"inject_message", "invite_create",
+	// Route-token management (5/16): the mint handler authorizes tier ≤2
+	// (authorizeRouteTokenMint), but visibility was never granted, so the tools
+	// were invisible in tools/list and a tier-1 agent could not mint a chat link
+	// (marinade atlas, 2026-07-16). Grant must match the handler's tier cap.
+	"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token",
 }
 
 func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []string {
@@ -187,6 +192,9 @@ func DeriveRules(s RouteSource, folder string, tier int, worldFolder string) []s
 		// only); its former tier≤2 hard gate in ipc is now this grant so the facade
 		// browser + agent socket share one visibility source.
 		r = append(r, "refresh_groups")
+		// Route-token management, self-scoped (authorizeRouteTokenMint tier 2 =
+		// self only) — same grant-matches-handler fix as tier 1.
+		r = append(r, "issue_chat_link", "issue_webhook", "list_tokens", "revoke_token")
 		return append(r, "share_mount(readonly=true)")
 	default:
 		return []string{"reply", "send_file", "like", "edit"}

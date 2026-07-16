@@ -7,6 +7,28 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
+
+The documented ad-hoc MCP-call form for agents — `mcpc connect "socat
+UNIX-CONNECT:$ARIZUKO_MCP_SOCKET -" @s` (`ant/skills/self/mcp.md:128`,
+`ant/skills/mcp/SKILL.md:24`, `ant/skills/migrate/SKILL.md:277`) — fails on the
+in-container `mcpc` 0.3.0 with `Failed to connect to MCP server: Proxy response
+(502) !== 200 when HTTP Tunneling`. The socket is healthy (routd logs `"mcp
+server listening"`, `srw-rw---- /run/ipc/gated.sock`); it's mcpc's HTTP-tunnel
+wrapper regressing on the socat form, NOT routd. Known since a June diary note.
+
+Impact: an agent that must reach a NON-native MCP tool via mcpc gets a hard 502
+and (marinade atlas, 2026-07-16) narrated it to a user as a routd outage +
+falsely tied it to an unrelated transient Slack-send 502. The grant-visibility
+fix (`grants/grants.go` — route-token tools now native at tier ≤2) removes the
+need for mcpc for that tool class, dropping urgency; any genuinely-non-native
+tool still hits this.
+
+Fix (deferred, operator): pin/patch in-container `mcpc` to a version whose
+`connect "socat …"` form works, OR switch the documented form + the three
+skills to a working direct-`UNIX-CONNECT` form — verify against a live socket
+before touching the skill docs.
+
 ## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
 
 `slakd.Send` correctly wraps its known permanent `chat.postMessage` failures

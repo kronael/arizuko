@@ -257,6 +257,23 @@ func TestDeriveRules_Tier1_RoomOnlyRoute(t *testing.T) {
 	}
 }
 
+// TestDeriveRules_RouteTokenTools guards the grant-matches-handler fix
+// (2026-07-16): the route-token mint handler authorizes tier ≤2
+// (authorizeRouteTokenMint), so tools/list must expose the four tools at tier 1
+// AND 2 — else a folder agent can't mint a chat link (marinade atlas).
+func TestDeriveRules_RouteTokenTools(t *testing.T) {
+	s := openTestStore(t)
+	addRouteRoomOnly(t, s, "-1003805633088", "world/sub")
+	for _, tier := range []int{1, 2} {
+		rules := DeriveRules(s, "world/sub", tier, "world")
+		for _, tool := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
+			if len(MatchingRules(rules, tool)) == 0 {
+				t.Errorf("tier-%d: %s not visible (agent can't mint/manage route tokens)", tier, tool)
+			}
+		}
+	}
+}
+
 func TestDeriveRules_Tier2_RoomOnlyRoute(t *testing.T) {
 	s := openTestStore(t)
 	addRouteRoomOnly(t, s, "-1003805633088", "world/sub")
