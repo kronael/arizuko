@@ -153,10 +153,10 @@ func (s *Server) webRoutesHandler(ctx context.Context, x resreg.Execution) (any,
 // on the agent socket, with the tier-aware Gate + MatchingRules visibility for
 // this folder's grant rules injected. Only rules the socket already carries can
 // widen visibility, so a denied tier still sees nothing new.
-func (s *Server) webRoutesPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) webRoutesPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	res := s.webRoutesResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return s.toolGrant(rules, callerSub, folder, webRoutesMCPNames[x.Action])
+		return toolGrant(rules, authorize, callerSub, folder, webRoutesMCPNames[x.Action])
 	}
 	return func(srv *mcpserver.MCPServer) {
 		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))

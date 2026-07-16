@@ -30,7 +30,7 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild(folder, callerSub, rules)
+	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.db.Authorize)
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {
@@ -231,7 +231,7 @@ func TestGroupsMCP_AuditRowLands(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild("world/team", "folder:world/team", deriveFolderGrants(db, "world/team"))
+	pb := srv.groupsPostBuild("world/team", "folder:world/team", deriveFolderGrants(db, "world/team"), srv.db.Authorize)
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "world/team"}),
 		srv.buildStoreFns(turnMCP{folder: "world/team"}), "world/team", nil, 0, "folder:world/team", pb)
 	if err != nil {

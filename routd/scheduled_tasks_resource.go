@@ -262,7 +262,7 @@ func (s *Server) scheduledTasksHandler(ctx context.Context, x resreg.Execution, 
 // + db.Authorize); the per-task/target structural cap lives in the handler (see
 // header). Only rules the socket already carries can widen visibility, so a
 // denied tier still sees nothing new.
-func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	// Agent face: the task tier cap on the resolved owner (tier 0 any, tier 1 own
 	// world, tier 2 own folder, tier 3 none) — auth.Resolve over the socket folder.
 	// Exactly the deleted ipc bodies' + inspect_tasks' authzStructural.
@@ -275,7 +275,7 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []strin
 	}
 	res := s.scheduledTasksResource(contain)
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return s.toolGrant(rules, callerSub, folder, tasksMCPNames[x.Action])
+		return toolGrant(rules, authorize, callerSub, folder, tasksMCPNames[x.Action])
 	}
 	return func(srv *mcpserver.MCPServer) {
 		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))

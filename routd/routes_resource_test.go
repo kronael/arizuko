@@ -42,7 +42,7 @@ func serveRoutesMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.routesPostBuild(folder, callerSub, rules)
+	pb := srv.routesPostBuild(folder, callerSub, rules, srv.db.Authorize)
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {

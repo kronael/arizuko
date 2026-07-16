@@ -169,10 +169,10 @@ func (s *Server) routeTokensHandler(ctx context.Context, x resreg.Execution) (an
 // grant rules injected. The Gate does the TOOL grant (CheckAction + db.Authorize);
 // the mint tier cap + owner-scoped revoke live in the handler (see header). Only rules
 // the socket already carries can widen visibility, so a denied tier still sees nothing.
-func (s *Server) routeTokensPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) routeTokensPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	res := s.routeTokensResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return s.toolGrant(rules, callerSub, folder, routeTokensMCPNames[x.Action])
+		return toolGrant(rules, authorize, callerSub, folder, routeTokensMCPNames[x.Action])
 	}
 	return func(srv *mcpserver.MCPServer) {
 		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))

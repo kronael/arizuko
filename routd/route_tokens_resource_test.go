@@ -5,9 +5,10 @@ package routd
 // mechanism through the ServeMCP postBuild seam instead of hand-rolled ipc bodies.
 // Each test drives the REAL unix socket end-to-end so the seam + injected Gate +
 // Visible predicate + the handler's mint tier cap + owner-scoped revoke are all
-// exercised. Tier note: these tools are granted only at tier 0 (DeriveRules tier-0
-// = ["*"]); tiers 1+ don't get them by default, so the happy paths use a tier-0
-// (top-level) folder and pass its REAL derived rules.
+// exercised. Tier note: minting (issue_chat_link/issue_webhook) is tier 0 only
+// (DeriveRules tier-0 = ["*"] — the operator /root elevation); self-service
+// list_tokens/revoke_token ride the tier-1/2 defaults. The happy paths grant the
+// mint tools via the acl overlay and pass the folder's REAL derived rules.
 
 import (
 	"encoding/json"
@@ -27,7 +28,7 @@ func serveRouteTokensMCP(t *testing.T, db *DB, folder, callerSub string, rules [
 	srv := NewServer(db, nil, nil, nil, 0, webHost)
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.routeTokensPostBuild(folder, callerSub, rules)
+	pb := srv.routeTokensPostBuild(folder, callerSub, rules, srv.db.Authorize)
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {
@@ -245,9 +246,9 @@ func TestRouteTokensMCP_MintTierCap(t *testing.T) {
 }
 
 // TestRouteTokensMCP_Visibility: the Visible predicate (MatchingRules) preserves
-// tools/list gating — a tier-0 folder (rules ["*"]) sees all four tools; a tier-1
-// folder (whose derived rules don't grant them) sees none, exactly as ipc's
-// registerRaw hid them before.
+// tools/list gating — a folder granted all four tools sees all four; an ungranted
+// tier-1 folder sees only the self-service pair its tier defaults carry (mint is
+// tier-0-only), exactly as ipc's registerRaw hid ungranted tools before.
 func TestRouteTokensMCP_Visibility(t *testing.T) {
 	db, err := OpenMem()
 	if err != nil {
@@ -265,10 +266,73 @@ func TestRouteTokensMCP_Visibility(t *testing.T) {
 		}
 	}
 	ungranted := listToolNames(t, serveRouteTokensMCP(t, db, "world/a", "folder:world/a", deriveFolderGrants(db, "world/a"), ""))
-	for _, name := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
+	for _, name := range []string{"issue_chat_link", "issue_webhook"} {
 		if ungranted[name] {
-			t.Fatalf("%s visible to a folder not granted it", name)
+			t.Fatalf("%s visible to an ungranted folder (minting is root-only)", name)
 		}
+	}
+	for _, name := range []string{"list_tokens", "revoke_token"} {
+		if !ungranted[name] {
+			t.Fatalf("%s hidden from a tier-1 folder (self-service default)", name)
+		}
+	}
+}
+
+// TestServeTurnMCP_ElevatedMintsChatLink drives the REAL per-turn socket the way
+// dispatch wires an operator /root turn (turnMCP.elevated): a tier-1 folder with
+// NO route-token grants mints a chat link in ONE native MCP call. Guards the
+// 2026-07-16 marinade regression: elevation swapped the socket's rules to `*` but
+// left toolGrant's row-ACL half on the folder's static tier, so issue_chat_link
+// 403'd even under /root and the agent fell back to the broken mcpc path.
+func TestServeTurnMCP_ElevatedMintsChatLink(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	srv := NewServer(db, nil, nil, nil, 0, "https://x.test")
+	ipcDir := t.TempDir()
+	stop, err := srv.ServeTurnMCP(turnMCP{folder: "hq", turnID: "t1", elevated: true}, ipcDir)
+	if err != nil {
+		t.Fatalf("ServeTurnMCP: %v", err)
+	}
+	t.Cleanup(stop)
+
+	sock := groupfolder.IpcSocket(ipcDir)
+	tok, jid, url := issueToken(t, sock, "issue_chat_link", nil)
+	if jid != "web:hq" || url != "https://x.test/chat/"+tok+"/" {
+		t.Fatalf("elevated mint: jid=%q url=%q", jid, url)
+	}
+	if j, owner, _, e := db.ResolveRouteToken(tok); e != nil || j != "web:hq" || owner != "hq" {
+		t.Fatalf("resolve minted token: jid=%q owner=%q err=%v", j, owner, e)
+	}
+}
+
+// TestServeTurnMCP_UnelevatedHidesMint is the control for the elevated test: the
+// same ungranted folder WITHOUT /root sees no mint tools at all (tier-0-only),
+// while the tier-1 self-service pair stays visible.
+func TestServeTurnMCP_UnelevatedHidesMint(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "hq"})
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	ipcDir := t.TempDir()
+	stop, err := srv.ServeTurnMCP(turnMCP{folder: "hq", turnID: "t1"}, ipcDir)
+	if err != nil {
+		t.Fatalf("ServeTurnMCP: %v", err)
+	}
+	t.Cleanup(stop)
+
+	names := listToolNames(t, groupfolder.IpcSocket(ipcDir))
+	if names["issue_chat_link"] || names["issue_webhook"] {
+		t.Fatalf("mint tools visible without elevation: %v", names)
+	}
+	if !names["list_tokens"] || !names["revoke_token"] {
+		t.Fatalf("self-service token tools missing at tier 1: %v", names)
 	}
 }
 

@@ -25,7 +25,7 @@ func serveACLMCP(t *testing.T, db *DB, folder, callerSub string, rules []string)
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	sock := groupfolder.IpcSocket(t.TempDir())
-	pb := srv.aclPostBuild(folder, callerSub, rules)
+	pb := srv.aclPostBuild(folder, callerSub, rules, srv.db.Authorize)
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {

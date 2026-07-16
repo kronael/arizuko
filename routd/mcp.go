@@ -492,8 +492,8 @@ func (s *Server) buildStoreFns(t turnMCP) ipc.StoreFns {
 			return s.db.ConnectorSecrets(folder, callerSub, required)
 		},
 		// Authorize is the per-call row-ACL check ServeMCP runs when callerSub is
-		// set. nil-safe.
-		Authorize: s.db.Authorize,
+		// set. nil-safe. Elevated (/root) turns allow-all — see turnAuthorize.
+		Authorize: s.turnAuthorize(t.elevated),
 	}
 }
 
@@ -533,11 +533,12 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	rules := deriveFolderGrants(s.db, t.folder)
 	if t.elevated {
 		// Operator /root: regain the tier-0 `*` grant set (grants.DeriveRules
-		// case 0). The socket's CheckAction half then permits every tool; the
-		// db.Authorize half still binds the caller's own grants. Same override as
-		// the shipped Grants in dispatchRun — one elevation, both sinks.
+		// case 0). Same override as the shipped Grants in dispatchRun — one
+		// elevation, both sinks. The row-ACL half elevates too (turnAuthorize):
+		// leaving it on the folder's static tier 403'd every root-only tool.
 		rules = []string{"*"}
 	}
+	authorize := s.turnAuthorize(t.elevated)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
 	// — never mkdirs — so create the parent here or net.Listen fails on a fresh
@@ -559,12 +560,12 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// spec 5/16: mount the agent's management tools via resreg (shared handler +
 	// tx/audit) with the agent's tier-aware Gate + visibility. One postBuild seam
 	// per migrated resource; ServeMCP applies them all.
-	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules)
+	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules, authorize)
 	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
-	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules)
-	routes := s.routesPostBuild(t.folder, callerSub, rules)
-	acl := s.aclPostBuild(t.folder, callerSub, rules)
-	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules)
-	groups := s.groupsPostBuild(t.folder, callerSub, rules)
+	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules, authorize)
+	routes := s.routesPostBuild(t.folder, callerSub, rules, authorize)
+	acl := s.aclPostBuild(t.folder, callerSub, rules, authorize)
+	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules, authorize)
+	groups := s.groupsPostBuild(t.folder, callerSub, rules, authorize)
 	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups)
 }

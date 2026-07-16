@@ -173,11 +173,11 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 // aclPostBuild mounts the acl tools on the agent socket with the tier-aware Gate
 // (CheckAction + db.Authorize(mcp:) + AuthorizeStructural scope-containment) and
 // the Visible predicate (MatchingRules + list_acl tier<=1).
-func (s *Server) aclPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := aclMCPNames[x.Action]
-		if err := s.toolGrant(rules, callerSub, folder, name); err != nil {
+		if err := toolGrant(rules, authorize, callerSub, folder, name); err != nil {
 			return err
 		}
 		// Scope-containment: the caller must have authority over the target it

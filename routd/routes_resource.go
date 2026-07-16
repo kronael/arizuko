@@ -264,7 +264,7 @@ func (s *Server) routesHandler(ctx context.Context, x resreg.Execution, contain 
 // db.Authorize); the containment + self-default caps live in the handler (see
 // header). Only rules the socket already carries can widen visibility, so a denied
 // tier still sees nothing new.
-func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) routesPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	// Agent face: the route tier cap on the arg/id-resolved target — tier 2+ denied,
 	// tier 1 confined to strict descendants, tier 0 unrestricted (auth.Resolve over
 	// the socket folder). Exactly the deleted ipc bodies' authzStructural.
@@ -277,7 +277,7 @@ func (s *Server) routesPostBuild(folder, callerSub string, rules []string) func(
 	}
 	res := s.routesResource(contain)
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
-		return s.toolGrant(rules, callerSub, folder, routesMCPNames[x.Action])
+		return toolGrant(rules, authorize, callerSub, folder, routesMCPNames[x.Action])
 	}
 	return func(srv *mcpserver.MCPServer) {
 		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))

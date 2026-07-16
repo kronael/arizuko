@@ -257,18 +257,30 @@ func TestDeriveRules_Tier1_RoomOnlyRoute(t *testing.T) {
 	}
 }
 
-// TestDeriveRules_RouteTokenTools guards the grant-matches-handler fix
-// (2026-07-16): the route-token mint handler authorizes tier ≤2
-// (authorizeRouteTokenMint), so tools/list must expose the four tools at tier 1
-// AND 2 — else a folder agent can't mint a chat link (marinade atlas).
+// TestDeriveRules_RouteTokenTools pins the route-token tier split (2026-07-16):
+// minting (issue_chat_link/issue_webhook) creates a PUBLIC unauthenticated
+// endpoint and is tier 0 only — the operator /root elevation, never a tenant
+// default. Self-service list/revoke stay at tier ≤2: their handlers scope to
+// owner_folder = the caller's folder, and revoking only shrinks public surface.
 func TestDeriveRules_RouteTokenTools(t *testing.T) {
 	s := openTestStore(t)
 	addRouteRoomOnly(t, s, "-1003805633088", "world/sub")
+	rules0 := DeriveRules(s, "", 0, "")
+	for _, tool := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
+		if len(MatchingRules(rules0, tool)) == 0 {
+			t.Errorf("tier-0: %s not visible (root must manage route tokens)", tool)
+		}
+	}
 	for _, tier := range []int{1, 2} {
 		rules := DeriveRules(s, "world/sub", tier, "world")
-		for _, tool := range []string{"issue_chat_link", "issue_webhook", "list_tokens", "revoke_token"} {
+		for _, tool := range []string{"issue_chat_link", "issue_webhook"} {
+			if len(MatchingRules(rules, tool)) != 0 {
+				t.Errorf("tier-%d: %s visible (minting a public endpoint is root-only)", tier, tool)
+			}
+		}
+		for _, tool := range []string{"list_tokens", "revoke_token"} {
 			if len(MatchingRules(rules, tool)) == 0 {
-				t.Errorf("tier-%d: %s not visible (agent can't mint/manage route tokens)", tier, tool)
+				t.Errorf("tier-%d: %s not visible (own-token self-service)", tier, tool)
 			}
 		}
 	}

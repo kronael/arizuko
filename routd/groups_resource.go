@@ -149,13 +149,13 @@ func (s *Server) emitGroupRegisterAudit(c resreg.Caller, childFolder, jid string
 // for BOTH tools — refresh_groups' former tier≤2 hard gate is now grant-derived (it is
 // added to the tier-1/2 rule sets in grants.DeriveRules) so the dashd tool browser,
 // which only has `rules` (no folder/tier), mirrors the socket exactly.
-func (s *Server) groupsPostBuild(folder, callerSub string, rules []string) func(*mcpserver.MCPServer) {
+func (s *Server) groupsPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
 	authz := func(_ resreg.Caller, a resreg.Action, args resreg.Args) (string, map[string]string, error) {
 		if a != groupsActionRegister {
 			return "", nil, nil // refresh_groups: no runtime authz (visibility-gated only)
 		}
 		name := "register_group"
-		if err := s.toolGrant(rules, callerSub, folder, name); err != nil {
+		if err := toolGrant(rules, authorize, callerSub, folder, name); err != nil {
 			return "", nil, err
 		}
 		// The prototype path derives the child folder (no arg target); the manual path
