@@ -16,7 +16,7 @@ import (
 )
 
 // slackMock spins up an httptest server that mimics the Slack Web API
-// surface we use: auth.test, users.info, conversations.info,
+// surface we use: auth.test, users.info, users.list, conversations.info,
 // chat.postMessage, chat.delete, chat.update, reactions.add,
 // files.getUploadURLExternal, files.completeUploadExternal.
 type slackMock struct {
@@ -42,6 +42,11 @@ type slackMock struct {
 
 	// rate-limit one path on first hit, then succeed.
 	rateLimitOnce map[string]bool
+
+	// users.list workspace directory (test seeds this) + hit counter
+	// (asserts the once-per-TTL sync guard).
+	members        []map[string]any
+	usersListCalls int
 
 	// when set, chat.postMessage carrying a thread_ts returns thread_not_found
 	// (the marinade thread-reply failure); posts without thread_ts still succeed.
@@ -78,6 +83,12 @@ func newSlackMock() *slackMock {
 				"profile":   map[string]any{"display_name": "alice"},
 			},
 		})
+	})
+	mux.HandleFunc("/api/users.list", func(w http.ResponseWriter, _ *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.usersListCalls++
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "members": m.members})
 	})
 	mux.HandleFunc("/api/conversations.info", func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
@@ -1491,5 +1502,108 @@ func TestSendThreadGoneFallsBackToRoot(t *testing.T) {
 	}
 	if mock.posted[1]["thread_ts"] != "" {
 		t.Errorf("root retry must drop thread_ts, got %q", mock.posted[1]["thread_ts"])
+	}
+}
+
+// The production bug (marinade 2026-07-16): the agent replies "@ondra" —
+// the exact form the inbound envelope + demangleMentions taught it — and
+// Slack renders it as dead text. An inbound message must teach the
+// name→id pair, and the next Send must emit a real <@ID> mention token.
+// Emails and reserved broadcast keywords stay verbatim, without burning a
+// users.list call.
+func TestOutbound_SendLinksLearnedMention(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	// Inbound from U99 → users.info resolves display name "alice" →
+	// mention index learns alice→U99.
+	body := []byte(`{
+	  "type": "event_callback",
+	  "team_id": "T012",
+	  "event": {
+	    "type": "message",
+	    "channel_type": "channel",
+	    "channel": "C0HJK",
+	    "user": "U99",
+	    "text": "what changed?",
+	    "ts": "1700003000.000100"
+	  }
+	}`)
+	b.handleEvent(body, httptest.NewRecorder())
+
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "slack:T012/channel/C0HJK",
+		Content: "thanks @alice, cc bob@mail.com @channel",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.posted) != 1 {
+		t.Fatalf("posted = %d", len(mock.posted))
+	}
+	if got, want := mock.posted[0]["text"], "thanks <@U99>, cc bob@mail.com @channel"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+	if mock.usersListCalls != 0 {
+		t.Errorf("users.list calls = %d, want 0 (learned + reserved need no sync)", mock.usersListCalls)
+	}
+}
+
+// A mention of a member who never spoke resolves via one users.list sync;
+// within the TTL further misses (unknown or deleted users) must not re-call.
+func TestOutbound_SendMentionUsersListFallback(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	mock.members = []map[string]any{
+		{"id": "U777", "name": "pavel", "profile": map[string]any{"display_name": "Pavel Novak"}},
+		{"id": "U888", "name": "gone", "deleted": true},
+	}
+	b, _ := setupBot(t, mock)
+
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "slack:T012/channel/C0HJK",
+		Content: "ping @pavel and @Pavel Novak, skip @gone and @nobody",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.posted) != 1 {
+		t.Fatalf("posted = %d", len(mock.posted))
+	}
+	want := "ping <@U777> and <@U777>, skip @gone and @nobody"
+	if got := mock.posted[0]["text"]; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+	if mock.usersListCalls != 1 {
+		t.Errorf("users.list calls = %d, want 1 (once-per-TTL guard)", mock.usersListCalls)
+	}
+}
+
+// A labeled inbound token <@U123|bob> teaches bob→U123 with zero API calls;
+// the agent echoing "@bob" then links without users.info or users.list.
+func TestOutbound_SendLinksLabelLearnedMention(t *testing.T) {
+	mock := newSlackMock()
+	defer mock.Close()
+	b, _ := setupBot(t, mock)
+
+	if got := b.demangleMentions("hi <@U123|bob>"); got != "hi @bob" {
+		t.Fatalf("demangle = %q", got)
+	}
+	if _, err := b.Send(chanlib.SendRequest{
+		ChatJID: "slack:T012/channel/C0HJK",
+		Content: "@bob can you check?",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if got, want := mock.posted[0]["text"], "<@U123> can you check?"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+	if mock.usersListCalls != 0 {
+		t.Errorf("users.list calls = %d, want 0", mock.usersListCalls)
 	}
 }

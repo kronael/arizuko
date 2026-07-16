@@ -22,6 +22,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/kronael/arizuko/chanlib"
 	"github.com/kronael/arizuko/store"
@@ -73,6 +75,15 @@ type bot struct {
 	paneOutMu      sync.Mutex
 	pendingPrompts map[string][]panePrompt
 	pendingTitle   map[string]string
+
+	// userIDs indexes lowercased names (display name, handle, real name, and
+	// the id itself) → Slack user ID for outbound mention linking. Learned
+	// from inbound traffic (userName, demangleMentions labels) and refreshed
+	// in bulk from users.list on an outbound miss (syncUsers).
+	userIDsMu  sync.Mutex
+	userIDs    map[string]string
+	userSyncMu sync.Mutex
+	userSyncAt time.Time
 }
 
 func (b *bot) isConnected() bool    { return b.connected.Load() }
@@ -134,6 +145,7 @@ func newBotWithBase(cfg config, base string) (*bot, error) {
 		chans:          newTTLCache(cfg.CacheTTL),
 		pendingPrompts: map[string][]panePrompt{},
 		pendingTitle:   map[string]string{},
+		userIDs:        map[string]string{},
 	}
 	b.lastInboundAt.Store(time.Now().Unix())
 	return b, nil
@@ -817,6 +829,8 @@ func (b *bot) userName(userID string) string {
 		return userID
 	}
 	b.users.put(userID, name)
+	b.learnUserID(name, userID)
+	b.learnUserID(userID, userID)
 	return name
 }
 
@@ -842,22 +856,228 @@ var (
 	mdLinkRe     = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
 )
 
-func toMrkdwn(s string) string {
+// toMrkdwn converts agent CommonMark to Slack mrkdwn. resolveMention, when
+// non-nil, additionally rewrites resolvable @name references into real
+// <@USERID> mention tokens (see linkMentions); code spans are exempt from
+// both passes.
+func toMrkdwn(s string, resolveMention func(string) (string, int)) string {
 	var b strings.Builder
 	last := 0
 	for _, loc := range mdCodeSpanRe.FindAllStringIndex(s, -1) {
-		b.WriteString(convertMrkdwn(s[last:loc[0]]))
+		b.WriteString(convertMrkdwn(s[last:loc[0]], resolveMention))
 		b.WriteString(s[loc[0]:loc[1]]) // code span verbatim
 		last = loc[1]
 	}
-	b.WriteString(convertMrkdwn(s[last:]))
+	b.WriteString(convertMrkdwn(s[last:], resolveMention))
 	return b.String()
 }
 
-func convertMrkdwn(s string) string {
+func convertMrkdwn(s string, resolveMention func(string) (string, int)) string {
 	s = mdBoldRe.ReplaceAllString(s, "*$1$2*")
 	s = mdLinkRe.ReplaceAllString(s, "<$2|$1>")
+	if resolveMention != nil {
+		s = linkMentions(s, resolveMention)
+	}
 	return s
+}
+
+// ===== outbound mention linking =====
+//
+// The agent writes "@ondra" — the same form demangleMentions taught it on the
+// inbound side — but chat.postMessage renders plain @name as dead text; a real
+// ping needs the <@USERID> token (marinade 2026-07-16). linkMentions closes
+// the loop: an @name that resolves against the mention index becomes <@ID>,
+// everything else stays byte-identical.
+
+// slackReservedMentions are Slack broadcast keywords; never indexed as user
+// names so "@channel" / "@here" / "@everyone" pass through verbatim.
+var slackReservedMentions = map[string]bool{"channel": true, "here": true, "everyone": true}
+
+// learnUserID indexes one name → user-id pair for outbound mention linking.
+func (b *bot) learnUserID(name, id string) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" || id == "" || slackReservedMentions[name] {
+		return
+	}
+	b.userIDsMu.Lock()
+	b.userIDs[name] = id
+	b.userIDsMu.Unlock()
+}
+
+// resolveMention resolves the text right after an '@' to (user id, matched
+// byte length), or ("", 0) when it isn't a known user reference. A miss
+// triggers one users.list refresh (rate-limited inside syncUsers) so members
+// who never spoke are still resolvable; reserved broadcast words never sync.
+func (b *bot) resolveMention(rest string) (string, int) {
+	for name := range slackReservedMentions {
+		if n, ok := foldPrefixLen(rest, name); ok && mentionBoundary(rest[n:]) {
+			return "", 0
+		}
+	}
+	if id, n := b.matchUserID(rest); id != "" {
+		return id, n
+	}
+	b.syncUsers()
+	return b.matchUserID(rest)
+}
+
+// matchUserID returns the user id whose indexed name is the longest
+// case-insensitive prefix of rest ending at a mention boundary.
+func (b *bot) matchUserID(rest string) (string, int) {
+	b.userIDsMu.Lock()
+	defer b.userIDsMu.Unlock()
+	bestID, bestN := "", 0
+	for name, id := range b.userIDs {
+		n, ok := foldPrefixLen(rest, name)
+		if !ok || n <= bestN || !mentionBoundary(rest[n:]) {
+			continue
+		}
+		bestID, bestN = id, n
+	}
+	return bestID, bestN
+}
+
+// syncUsers refreshes the mention index from users.list, at most once per
+// CacheTTL — the guard advances even on failure so a broken call can't turn
+// into a per-send API hammer. Needs the users:read scope users.info already
+// requires; the once-per-TTL cap keeps it far under Slack's Tier-2 limit.
+func (b *bot) syncUsers() {
+	b.userSyncMu.Lock()
+	defer b.userSyncMu.Unlock()
+	ttl := b.cfg.CacheTTL
+	if ttl <= 0 {
+		ttl = defaultCacheTTL
+	}
+	if time.Since(b.userSyncAt) < ttl {
+		return
+	}
+	b.userSyncAt = time.Now()
+	cursor := ""
+	for page := 0; page < 20; page++ { // 20×200 members; larger workspaces resync next TTL
+		form := url.Values{"limit": {"200"}}
+		if cursor != "" {
+			form.Set("cursor", cursor)
+		}
+		var resp struct {
+			OK      bool   `json:"ok"`
+			Error   string `json:"error"`
+			Members []struct {
+				ID      string `json:"id"`
+				Name    string `json:"name"`
+				Deleted bool   `json:"deleted"`
+				Profile struct {
+					DisplayName string `json:"display_name"`
+					RealName    string `json:"real_name"`
+				} `json:"profile"`
+			} `json:"members"`
+			ResponseMetadata struct {
+				NextCursor string `json:"next_cursor"`
+			} `json:"response_metadata"`
+		}
+		if err := b.postForm(context.Background(), "/users.list", form, &resp); err != nil {
+			slog.Warn("slack users.list failed", "err", err)
+			return
+		}
+		if !resp.OK {
+			slog.Warn("slack users.list non-ok", "err", resp.Error)
+			return
+		}
+		for _, u := range resp.Members {
+			if u.Deleted || u.ID == "" {
+				continue
+			}
+			b.learnUserID(u.ID, u.ID)
+			b.learnUserID(u.Name, u.ID)
+			b.learnUserID(u.Profile.DisplayName, u.ID)
+			b.learnUserID(u.Profile.RealName, u.ID)
+		}
+		cursor = resp.ResponseMetadata.NextCursor
+		if cursor == "" {
+			return
+		}
+	}
+}
+
+// linkMentions rewrites each resolvable @name into <@ID>. Guards: the '@'
+// must sit at a word start (an email's '@' follows a word rune), must not be
+// inside an existing <...> token (already-formed <@U…> mentions and <url|text>
+// links stay verbatim), and the name must resolve — unknown @words and
+// reserved broadcast keywords pass through untouched.
+func linkMentions(s string, resolve func(string) (string, int)) string {
+	if !strings.Contains(s, "@") {
+		return s
+	}
+	var out strings.Builder
+	prev := rune(0)
+	inToken := false
+	for i := 0; i < len(s); {
+		r, sz := utf8.DecodeRuneInString(s[i:])
+		switch r {
+		case '<':
+			inToken = true
+		case '>', '\n':
+			inToken = false
+		}
+		if r == '@' && !inToken && mentionStartOK(prev) {
+			if id, n := resolve(s[i+sz:]); id != "" {
+				out.WriteString("<@")
+				out.WriteString(id)
+				out.WriteString(">")
+				prev, _ = utf8.DecodeLastRuneInString(s[i+sz : i+sz+n])
+				i += sz + n
+				continue
+			}
+		}
+		out.WriteString(s[i : i+sz])
+		prev = r
+		i += sz
+	}
+	return out.String()
+}
+
+// mentionStartOK reports whether '@' after prev starts a mention: start of
+// text or after a non-word rune. A word rune before '@' is an email/infix
+// (a@b.com); '@'/'<' avoid double-@ and token noise.
+func mentionStartOK(prev rune) bool {
+	if prev == 0 {
+		return true
+	}
+	return !(prev == '<' || prev == '@' || isHandleRune(prev))
+}
+
+// foldPrefixLen reports whether name (already lowercase) is a
+// case-insensitive prefix of rest, and the matched byte length in rest.
+func foldPrefixLen(rest, name string) (int, bool) {
+	i := 0
+	for _, nameRune := range name {
+		r, sz := utf8.DecodeRuneInString(rest[i:])
+		if sz == 0 || unicode.ToLower(r) != nameRune {
+			return 0, false
+		}
+		i += sz
+	}
+	return i, true
+}
+
+// mentionBoundary reports whether a name match may end here: end of text,
+// before a non-handle rune, or before trailing './-' punctuation that doesn't
+// continue into a longer handle — "@ondra." links, "@ondra.smith" must not
+// link a bare "ondra".
+func mentionBoundary(after string) bool {
+	for len(after) > 0 {
+		r, sz := utf8.DecodeRuneInString(after)
+		if r == '.' || r == '-' {
+			after = after[sz:]
+			continue
+		}
+		return !isHandleRune(r)
+	}
+	return true
+}
+
+// isHandleRune reports runes that continue a Slack handle: letters, digits, '_'.
+func isHandleRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // demangleMentions rewrites raw Slack mention tokens to readable names before
@@ -877,6 +1097,9 @@ func (b *bot) demangleMentions(text string) string {
 			return "#" + label
 		}
 		if label != "" {
+			// kind is '@' here ('#' returned above); the label→id pair is a
+			// free mention-index entry (no users.info call).
+			b.learnUserID(label, id)
 			return "@" + label
 		}
 		if name := b.cfg.AssistantName; name != "" && id == b.BotUserID() {
@@ -895,7 +1118,7 @@ func (b *bot) Send(req chanlib.SendRequest) (string, error) {
 	}
 	body := url.Values{}
 	body.Set("channel", parts.ID)
-	body.Set("text", toMrkdwn(req.Content))
+	body.Set("text", toMrkdwn(req.Content, b.resolveMention))
 	// Thread on the existing thread (ThreadID) or root a new one on the
 	// trigger message (ThreadRoot). ReplyTo deliberately does NOT imply
 	// thread_ts: it is often a prior bot row, and rooting there buries the

@@ -329,7 +329,66 @@ func TestToMrkdwn(t *testing.T) {
 		{"no markup here", "no markup here"},
 	}
 	for _, c := range cases {
-		if got := toMrkdwn(c.in); got != c.want {
+		if got := toMrkdwn(c.in, nil); got != c.want {
+			t.Errorf("toMrkdwn(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// mentionBot builds a bot with a learned mention index and no Slack server —
+// tests drive matchUserID directly so no users.list sync fires.
+func mentionBot(t *testing.T) *bot {
+	t.Helper()
+	b, err := newBotWithBase(config{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.learnUserID("alice", "U1")
+	b.learnUserID("U1", "U1")
+	b.learnUserID("ondra", "U2")
+	b.learnUserID("Pavel Novak", "U3")
+	return b
+}
+
+// A user reference the agent writes as plain "@name" (the form
+// demangleMentions taught it inbound) must become a real <@ID> mention token
+// — plain @name in chat.postMessage is dead text and pings nobody.
+// Non-references stay byte-identical: emails, unknown @words, reserved
+// broadcast keywords, already-formed <@U…> tokens.
+func TestLinkMentions(t *testing.T) {
+	b := mentionBot(t)
+	cases := []struct{ name, in, want string }{
+		{"simple", "thanks @ondra!", "thanks <@U2>!"},
+		{"case insensitive + comma", "hi @Alice, hello", "hi <@U1>, hello"},
+		{"start of text", "@ondra ping", "<@U2> ping"},
+		{"trailing period", "ask @ondra.", "ask <@U2>."},
+		{"longer handle not split", "ask @ondra.smith please", "ask @ondra.smith please"},
+		{"multi-word display name", "cc @Pavel Novak today", "cc <@U3> today"},
+		{"raw user id", "ping @U1 directly", "ping <@U1> directly"},
+		{"email untouched", "mail ondra@example.com now", "mail ondra@example.com now"},
+		{"unknown word untouched", "the @backend team", "the @backend team"},
+		{"preformed token untouched", "already <@U777> formed", "already <@U777> formed"},
+		{"double at untouched", "weird @@ondra", "weird @@ondra"},
+		{"no at fast path", "nothing here", "nothing here"},
+	}
+	for _, c := range cases {
+		if got := linkMentions(c.in, b.matchUserID); got != c.want {
+			t.Errorf("%s: linkMentions(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+// The mention pass rides toMrkdwn's code-span split (one renderer): code
+// spans and link labels keep @names verbatim; prose around them still links.
+func TestToMrkdwn_Mentions(t *testing.T) {
+	b := mentionBot(t)
+	cases := []struct{ in, want string }{
+		{"**bold** then @ondra", "*bold* then <@U2>"},
+		{"run `kubectl @ondra` says @alice", "run `kubectl @ondra` says <@U1>"},
+		{"see [docs by @ondra](https://x.com/y)", "see <https://x.com/y|docs by @ondra>"},
+	}
+	for _, c := range cases {
+		if got := toMrkdwn(c.in, b.matchUserID); got != c.want {
 			t.Errorf("toMrkdwn(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
