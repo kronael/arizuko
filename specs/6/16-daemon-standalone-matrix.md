@@ -16,7 +16,8 @@ A part can be "standalone" in two different senses; keep them apart.
 1. **Import-orthogonal component** (`6/7`) — a sibling dir, zero
    arizuko-internal imports, consumed only via CLI / HTTP / `pkg/`. The
    _toolbox_ test: raid the repo for one part. Passers today: `crackbox`,
-   `obs`; roadmap: `mcpfw` (←`resreg`), `gateway` (←messaging), `sandd`.
+   `obs`; roadmap: `gateway` (←messaging, `6/11`), `mcpfw` (MCP firewall,
+   `6/12`), `sandd` (`6/13`), and `resreg` as a standalone two-face lib.
 2. **Config-driven droppable daemon** — keeps arizuko imports, but runs
    generic against any stack because its behaviour is TOML/env, not
    hardcoded. The _service_ test: drop it in front of your backends.
@@ -44,7 +45,7 @@ For each candidate:
 
 ## The matrix
 
-All 22 daemons on disk, grouped by verdict. **Surface** = how a
+All 21 daemons on disk, grouped by verdict. **Surface** = how a
 standalone consumer reaches it. **Gate** = the delta to standalone
 (empty = already there).
 
@@ -71,17 +72,17 @@ spec and are the credible "drop in front of your stack" story.
 | -------- | -------------------------------------------------------- | -------------- | ------------------------------------------------------------- |
 | `authd`  | OIDC login → mint/verify JWTs; sole signer + JWKs        | HTTP + JWKs    | `5/1` — split out as the token authority any daemon verifies  |
 | `proxyd` | Auth-gated reverse proxy, per-path tiers, runtime routes | Config + `/v1` | `5/7` steps 4–7: strip 4 folder refs, delegate all mint, docs |
-| `vited`  | Static `/pub` `/priv` origin (Vite)                      | HTTP           | 0 internal deps; near-generic already, needs only a README    |
+| `vited`  | Static `/pub` `/priv` origin (Vite)                      | HTTP           | 0 internal deps; near-generic (README exists)                 |
 | `davd`   | WebDAV workspace over upstream `dufs` + healthcheck      | HTTP (WebDAV)  | 0 internal deps; thin wrapper, near-generic                   |
 
 ### Import-orthogonal components (the toolbox proper)
 
 Sibling dirs / libs consumed with no arizuko process. The `6/7` pattern.
 
-| Component          | Contract                                           | Surface        | Gate                                                    |
-| ------------------ | -------------------------------------------------- | -------------- | ------------------------------------------------------- |
-| `crackbox`/`egred` | Default-deny egress per source id + KVM sandbox    | CLI + HTTP     | **egress fails OPEN** (BUGS HIGH) — the real ship gate  |
-| `obs`              | Opt-in `audit_log`+journald+OTLP for any Go daemon | `import` + env | **Ships now.** Needs only a standalone README + example |
+| Component          | Contract                                           | Surface        | Gate                                                       |
+| ------------------ | -------------------------------------------------- | -------------- | ---------------------------------------------------------- |
+| `crackbox`/`egred` | Default-deny egress per source id + KVM sandbox    | CLI + HTTP     | **egress fails OPEN** (BUGS HIGH) — the real ship gate     |
+| `obs`              | Opt-in `audit_log`+journald+OTLP for any Go daemon | `import` + env | **Ships now** — has a README; needs only a drop-in example |
 
 ### Channel + effect/event daemons (correct as daemons — not extraction candidates)
 
@@ -104,7 +105,7 @@ deployer's job?" — yes.
 ## Package axis — import coupling (component candidates)
 
 The daemon matrix asks "deploy alone?"; this asks "import alone?"
-Internal-dep counts (grep over each package's imports, 2026-07-14):
+Internal-dep counts (indicative — they drift; grep 2026-07-14):
 
 | Package                            | internal deps          | readiness                  | what it is                       |
 | ---------------------------------- | ---------------------- | -------------------------- | -------------------------------- |
@@ -112,7 +113,7 @@ Internal-dep counts (grep over each package's imports, 2026-07-14):
 | `obs`                              | 0                      | **ships now**              | tri-substrate observability      |
 | `router`                           | 1 (`core`)             | near — lift `core` types   | routing-table DSL                |
 | `grants`                           | 2                      | near — needs a store seam  | capability-auth DSL              |
-| `resreg`                           | 4                      | roadmap = `mcpfw`          | two-face API engine (`5/17`)     |
+| `resreg`                           | 4                      | roadmap = two-face lib     | two-face API engine (`5/17`)     |
 | `dockbox` _(concept)_              | in `container/` (11)   | heavy decouple             | Docker sibling to crackbox's KVM |
 | `servekit` _(concept)_             | proxyd/webd/dashd 8–13 | heavy decouple             | the web+service stack (below)    |
 | store, auth, chanlib, ipc, compose | 3–11                   | **don't extract**          | these _are_ the platform         |
@@ -127,30 +128,24 @@ run-an-agent-in-a-container concern for a later clean extraction.
 
 ## Reading the matrix — the honest takeaways
 
-- **"Every daemon standalone" is false by design.** 5 core daemons are
-  the platform (category error to extract), 10 adapters + `timed`/`ttsd`
-  are coupled bridges. The standalone story is \*\*4 config-driven daemons
-  - 2 components\*\*, not 22.
-- **The toolbox (`6/7`, zero-import) and the droppable-service (`5/1`,
-  `5/7`) stories are different products.** `obs`/`crackbox` are libraries
-  a stranger imports; `proxyd`/`authd` are daemons a stranger deploys.
-  Present them on different shelves.
-- **Import-purity ranks the wrong daemons.** `vited`/`davd` are 0-dep but
-  low-value thin wrappers; `authd`/`proxyd` carry imports yet are the real
-  standalone daemons. Coupling count is a filter, not the verdict.
+- **"Every daemon standalone" is false by design.** 5 core daemons are the
+  platform; 10 adapters + `timed`/`ttsd` are coupled bridges. The
+  standalone story is **4 config-driven daemons + 2 components**, not 21.
+- **Two shelves, not one list.** The import-orthogonal toolbox (`6/7`:
+  `obs`/`crackbox` — a stranger _imports_) and the droppable service
+  (`5/1`/`5/7`: `authd`/`proxyd` — a stranger _deploys_) are different
+  products. Import-count misranks them: `vited`/`davd` are 0-dep but thin;
+  `authd`/`proxyd` carry imports yet are the real standalone daemons.
+- **Adapter sprawl is correct granularity, not debt** — one daemon per
+  channel isolates its own failure; don't consolidate the fleet.
 - **One security gate blocks the only sure component.** `crackbox`'s
-  egress fails open (`BUGS.md` 2026-07-14) — the ship gate is the fix, not
-  a README.
-- **Adapter sprawl is correct granularity, not debt.** Most daemons are
-  channel adapters _because_ one-daemon-per-channel is the right unit —
-  the deployer adds channels à la carte and each isolates its own
-  failure. Don't consolidate the fleet; that coupling is the design.
+  egress fails open (`BUGS.md`) — the ship gate is the fix, not a README.
 
 ## Use-case clusters — resolidify by the deployer's job
 
 The verdict tiers above answer "can it stand alone?" The deployer asks a
 different question — "which parts do I run for _my_ job?" — and along that
-axis the 22 daemons collapse to **8 clusters**. The channel fleet is
+axis the 21 daemons collapse to **8 clusters**. The channel fleet is
 _one_ cluster, not ten decisions: that is why "most daemons are adapters"
 is a feature, not sprawl.
 
@@ -181,23 +176,23 @@ near-unique, and even it has an honest neighbor (OpenClaw). Everything
 else is commodity or a _differentiated bundle_ (the pieces are buyable;
 the integrated shape is not).
 
-| Part                | External category                        | Counterparts (nearest named)                            | Maturity          | Verdict                         |
-| ------------------- | ---------------------------------------- | ------------------------------------------------------- | ----------------- | ------------------------------- |
-| `routd`             | folder-as-agent org-tree router          | OpenClaw (flat, no tree); LangGraph/AutoGen (in-proc)   | EMERGING          | **DIFFERENTIATED (near-uniq)**  |
-| `crackbox`/`egred`  | per-agent default-deny egress            | Stripe **smokescreen** (generic); Safeguard, Pipelock   | MATURE / emerging | **DIFFERENTIATED**              |
-| `mcpfw` (←`resreg`) | MCP tool-call firewall                   | **Invariant Gateway**, **Docker MCP Gateway**           | EMERGING          | DIFFERENTIATED, not unique      |
-| resreg two-face     | REST+MCP+OpenAPI from one handler        | **FastAPI-MCP** (direct hit); Speakeasy/Stainless       | EMERGING          | DIFF — edge is _rigor_ not idea |
-| channel fleet       | agent-first omni-channel bridge          | Matterbridge, Matrix/mautrix, Chatwoot (all human/CX)   | MATURE / emerging | **DIFFERENTIATED**              |
-| `webd`              | agent web presence (widget+SSE+hook+MCP) | Svix, Mercure, mcp-proxy (per-piece, no bundle)         | EMERGING (bundle) | **DIFFERENTIATED**              |
-| `dashd`             | self-hosted agent-ops console            | Langfuse/Helicone (obs half); Agent 365/Bedrock (cloud) | EMERGING          | **DIFFERENTIATED**              |
-| `authd`             | OIDC/JWT issuer                          | Keycloak, Ory Hydra, Dex, Zitadel, Authentik            | MATURE            | COMMODITY                       |
-| `proxyd`            | auth-gated reverse proxy                 | oauth2-proxy, Pomerium, Ory Oathkeeper, Authelia        | MATURE            | COMMODITY (lightly diff)        |
-| `runed`             | ephemeral agent sandbox                  | E2B, Modal, Daytona, Cloudflare Sandbox, Fly Machines   | MATURE            | COMMODITY                       |
-| crackbox KVM lib    | microVM sandbox library                  | Firecracker, Kata, libkrun, gVisor                      | MATURE (dormant)  | COMMODITY                       |
-| `timed`             | cron → agent turn                        | Temporal, Inngest, Trigger.dev, Cloudflare Cron         | MATURE            | COMMODITY                       |
-| `onbod`             | multi-tenant onboarding                  | WorkOS, Clerk, Scalekit                                 | MATURE            | COMMODITY                       |
-| `ttsd`              | TTS proxy                                | ElevenLabs, OpenAI TTS, Cartesia, Piper                 | MATURE            | COMMODITY                       |
-| `obs`               | OTel + agent tracing                     | OTel/Collector, Langfuse, Helicone, OpenLLMetry         | MATURE            | COMMODITY                       |
+| Part               | External category                        | Counterparts (nearest named)                              | Maturity          | Verdict                         |
+| ------------------ | ---------------------------------------- | --------------------------------------------------------- | ----------------- | ------------------------------- |
+| `routd`            | folder-as-agent org-tree router          | OpenClaw (no org-tree/inbox); LangGraph/AutoGen (in-proc) | EMERGING          | **DIFFERENTIATED (near-uniq)**  |
+| `crackbox`/`egred` | per-agent default-deny egress            | Stripe **smokescreen** (generic); Safeguard, Pipelock     | MATURE / emerging | **DIFFERENTIATED**              |
+| `mcpfw` (`6/12`)   | MCP tool-call firewall                   | **Invariant Gateway**, **Docker MCP Gateway**             | EMERGING          | DIFFERENTIATED, not unique      |
+| resreg two-face    | REST+MCP+OpenAPI from one handler        | **FastAPI-MCP** (direct hit); Speakeasy/Stainless         | EMERGING          | DIFF — edge is _rigor_ not idea |
+| channel fleet      | agent-first omni-channel bridge          | Matterbridge, Matrix/mautrix, Chatwoot (all human/CX)     | MATURE / emerging | **DIFFERENTIATED**              |
+| `webd`             | agent web presence (widget+SSE+hook+MCP) | Svix, Mercure, mcp-proxy (per-piece, no bundle)           | EMERGING (bundle) | **DIFFERENTIATED**              |
+| `dashd`            | self-hosted agent-ops console            | Langfuse/Helicone (obs half); Agent 365/Bedrock (cloud)   | EMERGING          | **DIFFERENTIATED**              |
+| `authd`            | OIDC/JWT issuer                          | Keycloak, Ory Hydra, Dex, Zitadel, Authentik              | MATURE            | COMMODITY                       |
+| `proxyd`           | auth-gated reverse proxy                 | oauth2-proxy, Pomerium, Ory Oathkeeper, Authelia          | MATURE            | COMMODITY (lightly diff)        |
+| `runed`            | ephemeral agent sandbox                  | E2B, Modal, Daytona, Cloudflare Sandbox, Fly Machines     | MATURE            | COMMODITY                       |
+| crackbox KVM lib   | microVM sandbox library                  | Firecracker, Kata, libkrun, gVisor                        | MATURE (dormant)  | COMMODITY                       |
+| `timed`            | cron → agent turn                        | Temporal, Inngest, Trigger.dev, Cloudflare Cron           | MATURE            | COMMODITY                       |
+| `onbod`            | multi-tenant onboarding                  | WorkOS, Clerk, Scalekit                                   | MATURE            | COMMODITY                       |
+| `ttsd`             | TTS proxy                                | ElevenLabs, OpenAI TTS, Cartesia, Piper                   | MATURE            | COMMODITY                       |
+| `obs`              | OTel + agent tracing                     | OTel/Collector, Langfuse, Helicone, OpenLLMetry           | MATURE            | COMMODITY                       |
 
 ### Promote vs perfect — the strategy
 
@@ -209,9 +204,10 @@ top two.**
    per-turn ephemeral folder-mounted containers + per-agent default-deny
    egress + an MCP firewall + a multi-channel fleet — is what no named
    competitor packages together. `routd` + the org-tree/inbox/escalation
-   substrate is the one piece with no clean equivalent (OpenClaw is flat,
-   the frameworks are in-process DAGs). This IS the `5/A` hero story; the
-   sweep confirms it is honestly defensible.
+   substrate is the one piece with no clean equivalent (OpenClaw has
+   multiple agents but no arbitrary-depth org-tree + inbox + escalation
+   ladder; the frameworks are in-process DAGs). This IS the `5/A` hero
+   story; the sweep confirms it is honestly defensible.
 2. **Promote the differentiated bundles + new-market bets.** `crackbox`
    per-agent egress and `mcpfw` are early entrants in genuinely _unsettled_
    markets (agent egress, MCP security — both <18 months old) — promote as
@@ -228,16 +224,21 @@ top two.**
 
 Honest caveat for the docs: never claim a commodity part is novel
 (codex/CTO-audit rule, `5/A`). "We have an egress proxy" is true and weak;
-"per-agent default-deny egress bound to the agent's identity, self-hosted"
-is the differentiated claim. Name the composition, not the part.
+"per-agent folder-scoped egress bound to agent identity, self-hosted" is
+the differentiated claim — and even that ships qualified: `crackbox` is
+opt-in and default-deny is the _design_, currently fail-open (`BUGS.md`).
+Name the composition, not the part; and don't oversell the gate until it
+holds.
 
 ### Replace a native part with its counterpart?
 
 Only the commodities, and only **behind arizuko's seam** — never a raw
-drop-in. `runed` slots an external sandbox (E2B/Modal) behind its
-`ContainerRuntime` seam (`5/P`); `authd`, a thin sole-signer, can defer to
-Keycloak/Dex if it mints folder/tier claims + JWKs; `timed`/`ttsd`/`obs`
-are already thin proxies over swappable backends. The catch: _can_ ≠
+drop-in. `runed`'s `ContainerRuntime` seam (`5/P`, today Docker + Fake)
+could carry an external sandbox, but the folder-mount + MCP-socket contract
+makes E2B/Modal a real port, not a slot-in; `authd`, a thin sole-signer,
+can defer to Keycloak/Dex if it mints folder/tier claims + JWKs;
+`timed`/`ttsd`/`obs` are already thin proxies over swappable backends. The
+catch: _can_ ≠
 _should_ — swapping `authd` for Keycloak trades a small Go binary for a
 JVM + its own DB, against the plain-primitives / one-tar-backup ethos. The
 native parts stay minimal precisely so you never have to reach for the
@@ -248,9 +249,9 @@ external carries the folder binding.
 
 Ship on two shelves, not one list:
 
-1. **Components (import)** — `obs` (ready, needs README), `crackbox`
-   (needs the fail-closed fix first), then `mcpfw`/`gateway`/`sandd` as
-   the decouples land (ROI order).
+1. **Components (import)** — `obs` (ready), `crackbox` (needs the
+   fail-closed fix first), then `gateway`/`mcpfw`/`sandd` as the decouples
+   land (ROI order).
 2. **Daemons (deploy)** — `authd` + `proxyd` as the "auth gateway you
    drop in front of any stack" pair; `vited`/`davd` fold in as generic
    static/WebDAV origins. `5/1` + `5/7` are the specs; the gate is
@@ -264,6 +265,6 @@ the extraction layer, Daemons is where the platform lives.
 
 `6/7` (what an import-orthogonal component is — the pattern this applies) ·
 `6/1` (adoption / wrap-the-harness) · `5/1` (`authd` standalone) · `5/7`
-(`proxyd` standalone) · `6/8` (`crackbox`) · `5/17` (`resreg` two-face →
-`mcpfw`) · `5/A` (four-layer stack) · `BUGS.md` (crackbox fail-open — the
-ship gate).
+(`proxyd` standalone) · `6/8` (`crackbox`) · `6/12` (`mcpfw` firewall) ·
+`5/17` (`resreg` two-face) · `5/A` (four-layer stack) · `BUGS.md`
+(crackbox fail-open — the ship gate).

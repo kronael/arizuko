@@ -87,15 +87,15 @@ Wrapping a harness is worth it only if arizuko supplies what the harness lacks.
 Each row is a gap a bare harness has (Hermes is the worked example) that the
 folder coordinate closes for _every_ harness in the fleet:
 
-| Service          | arizuko mechanism                                          | harness gap it closes                              |
-| ---------------- | ---------------------------------------------------------- | -------------------------------------------------- |
-| Keys / secrets   | folder-scoped encryption + host-boundary injection (`8/Z`) | keys plaintext in the runtime; never host-injected |
-| Egress           | per-agent default-deny allowlist + DNS filter (`6/8`)      | one global blocklist; no per-tenant egress         |
-| Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)     | admin-vs-user binary; one shared bearer            |
-| Tenant isolation | ephemeral per-turn container per folder                    | one shared long-lived container; users share FS    |
-| Cost / budget    | per-tenant spend gate (`store/cost_log.go`)                | per-session usage only; no caps                    |
-| Audit / obs      | `audit_log` + `obs` (journald + OTLP)                      | plaintext logs; no structured audit                |
-| Routing / web    | route table + `/pub` `/priv` + WebDAV                      | home-channel delivery only; no served web          |
+| Service          | arizuko mechanism                                              | harness gap it closes                              |
+| ---------------- | -------------------------------------------------------------- | -------------------------------------------------- |
+| Keys / secrets   | folder-scoped encryption + host-boundary injection (`8/Z`)     | keys plaintext in the runtime; never host-injected |
+| Egress           | per-agent folder-scoped allowlist + DNS filter (`6/8`, opt-in) | one global blocklist; no per-tenant egress         |
+| Identity / authz | folder-containment + grant DSL, injected Gate (`5/17`)         | admin-vs-user binary; one shared bearer            |
+| Tenant isolation | ephemeral per-turn container per folder                        | one shared long-lived container; users share FS    |
+| Cost / budget    | per-tenant spend gate (`store/cost_log.go`)                    | per-session usage only; no caps                    |
+| Audit / obs      | `audit_log` + `obs` (journald + OTLP)                          | plaintext logs; no structured audit                |
+| Routing / web    | route table + `/pub` `/priv` + WebDAV                          | home-channel delivery only; no served web          |
 
 Two ways to wrap, per capability: **run-as-is** (the harness runs inside a folder
 via runed's swappable runtime) or **reimplement-in-Go** (port a _mechanism_, not
