@@ -19,15 +19,42 @@ wrapper regressing on the socat form, NOT routd. Known since a June diary note.
 
 Impact: an agent that must reach a NON-native MCP tool via mcpc gets a hard 502
 and (marinade atlas, 2026-07-16) narrated it to a user as a routd outage +
-falsely tied it to an unrelated transient Slack-send 502. The grant-visibility
-fix (`grants/grants.go` — route-token tools now native at tier ≤2) removes the
-need for mcpc for that tool class, dropping urgency; any genuinely-non-native
-tool still hits this.
+falsely tied it to an unrelated transient Slack-send 502. For the route-token
+class specifically mcpc is now never the answer: minting is root-only by grant
+(tier-0 `*` set), a genuine `/root` turn gets every socket tool natively
+(worker-side steering + elevated row-ACL gate, 2026-07-16), and list/revoke
+ride the tier-1/2 defaults — a non-elevated agent that can't see a mint tool
+lacks the grant, and mcpc wouldn't change that. Any genuinely-non-native tool
+still hits this.
 
 Fix (deferred, operator): pin/patch in-container `mcpc` to a version whose
 `connect "socat …"` form works, OR switch the documented form + the three
 skills to a working direct-`UNIX-CONNECT` form — verify against a live socket
 before touching the skill docs.
+
+## M2 — elevated (/root) turns still bound by static-tier STRUCTURAL gates (2026-07-16, open)
+
+The 2026-07-16 elevation fix widened both halves of the per-tool grant
+(`ServeTurnMCP` rules → `*`, `turnAuthorize` → allow-all), but the resource
+gates' STRUCTURAL checks still key on `auth.Resolve(folder)` — the folder's
+static tier, blind to `turnMCP.elevated`:
+
+- `routd/route_tokens_resource.go` `authorizeRouteTokenMint`: a /root turn in a
+  tier ≤2 folder mints for self+descendants (the incident case, works), but a
+  /root turn in a tier ≥3 folder cannot mint at all, and tier ≤2 cannot point a
+  token outside its own subtree even elevated.
+- `routd/acl_resource.go` / `routd/groups_resource.go` /
+  `routd/routes_resource.go` / `routd/scheduled_tasks_resource.go` /
+  `routd/network_rules_resource.go`: `auth.AuthorizeStructural(auth.Resolve(folder), …)`
+  containment (scope/task-owner/route-target/egress tier caps) evaluates the
+  static tier under /root too — e.g. `grant_acl scope=**` stays tier-0-denied
+  from an elevated tier-1 turn.
+
+Impact: /root is "unrestricted" per the tier model, but structural caps quietly
+keep the folder's shape. Workaround: run /root from a chat routed to a
+shallow-enough folder. Fix (proposal, needs sign-off — auth-model change):
+thread `elevated` into the structural-gate identity (an explicit
+`auth.Identity{Tier: 0}`) at the same ServeTurnMCP seam the grant halves use.
 
 ## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
 
