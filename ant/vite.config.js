@@ -88,6 +88,14 @@ function trailingSlash() {
 
 export default {
   appType: 'mpa',
+  // Vite's dep-optimization cache MUST live OUTSIDE the bind-mounted /web root.
+  // Its default (`<root>/node_modules/.vite` or `<root>/.vite`) sat inside /web,
+  // whose host uid ownership drifts to root across restarts/rebuilds — so vite
+  // (USER node) hit `EACCES: unlink .../.vite/deps/_metadata.json` when clearing
+  // it on a config change → crash-loop → /pub 502 (marinade + sloth, 2026-07-18,
+  // twice). A container-local cache is container-owned + ephemeral, so the whole
+  // failure class is gone by construction. (BUGS M4.)
+  cacheDir: '/home/node/.vite-cache',
   server: {
     allowedHosts: true,
     // Polling is required: agents in OTHER containers write web/pub via a bind

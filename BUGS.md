@@ -56,17 +56,21 @@ shallow-enough folder. Fix (proposal, needs sign-off — auth-model change):
 thread `elevated` into the structural-gate identity (an explicit
 `auth.Identity{Tier: 0}`) at the same ServeTurnMCP seam the grant halves use.
 
-## M4 — `vited` runs the Vite DEV server in production (2026-07-16, open)
+## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
-Every instance's `vited` container runs `vite --config /etc/vite.config.js --host
-0.0.0.0` — the **dev server** (file-watch + HMR + on-the-fly transform), not a
-static serve. Steady ~1-core cost per instance (krons `vited` measured 12.7% CPU,
-2:17 CPU-time; a contributor to the "server busy from vites" the operator flagged
-2026-07-16, alongside the deploy-churn load spike that self-cleared). `/pub` +
-`/priv` are static file trees — they do not need HMR or a transform pipeline in
-prod. Fix (needs design/sign-off — a runtime change to the `vited` image/entry):
-serve the static tree with `vite preview` or a plain static file server, keeping
-`vite dev` only for a dev profile. Verify `/pub/*` still 200s after the switch.
+**Crash class fixed (2026-07-18):** the dev server's dep-optimization cache
+defaulted into the bind-mounted `/web` root, where host uid ownership drifted to
+root and `vite` (USER node) hit `EACCES: unlink …/.vite/deps/_metadata.json` on a
+config change → crash-loop → `/pub` 502 (marinade + sloth, twice). Fixed by moving
+`cacheDir` out of the mount to a container-local path (`ant/vite.config.js`) — the
+cache is now container-owned + ephemeral, so it can't recur. Immediate incident
+patched by chowning the stale `/web/**/.vite` caches back to the container uid.
+
+**Residual (still open):** vited still runs `vite dev` (poll-watch + transform)
+rather than serving the static `/pub`+`/priv` tree — a steady ~1-core cost even
+with the scoped watcher. The clean end-state is a static serve (`vite preview` or
+a plain file server) keeping the pub-fallback/trailing-slash middleware; deferred,
+needs sign-off.
 
 ## S3 — Slack permanent send failures are forced through the retryable 502 path (2026-07-15, open)
 
