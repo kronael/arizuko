@@ -32,29 +32,31 @@ Fix (deferred, operator): pin/patch in-container `mcpc` to a version whose
 skills to a working direct-`UNIX-CONNECT` form — verify against a live socket
 before touching the skill docs.
 
-## M2 — elevated (/root) turns still bound by static-tier STRUCTURAL gates (2026-07-16, open)
+## M2 — elevated (/root) turns bound by static-tier STRUCTURAL gates (2026-07-16, fixed 2026-07-20 except route_tokens)
 
 The 2026-07-16 elevation fix widened both halves of the per-tool grant
 (`ServeTurnMCP` rules → `*`, `turnAuthorize` → allow-all), but the resource
-gates' STRUCTURAL checks still key on `auth.Resolve(folder)` — the folder's
-static tier, blind to `turnMCP.elevated`:
+gates' STRUCTURAL checks still keyed on `auth.Resolve(folder)` — the folder's
+static tier, blind to `turnMCP.elevated`. So `/root network_allow(...)` /
+`add_acl` / `register_group` from a tier-2 folder still 403'd "tier N cannot ..."
+(the rhias operator hit exactly this on `network_allow('rhias/content', …)`).
 
-- `routd/route_tokens_resource.go` `authorizeRouteTokenMint`: a /root turn in a
-  tier ≤2 folder mints for self+descendants (the incident case, works), but a
-  /root turn in a tier ≥3 folder cannot mint at all, and tier ≤2 cannot point a
-  token outside its own subtree even elevated.
-- `routd/acl_resource.go` / `routd/groups_resource.go` /
-  `routd/routes_resource.go` / `routd/scheduled_tasks_resource.go` /
-  `routd/network_rules_resource.go`: `auth.AuthorizeStructural(auth.Resolve(folder), …)`
-  containment (scope/task-owner/route-target/egress tier caps) evaluates the
-  static tier under /root too — e.g. `grant_acl scope=**` stays tier-0-denied
-  from an elevated tier-1 turn.
+**Fixed 2026-07-20 (commit d452d6ef, user sign-off):** `turnIdentity(folder,
+elevated)` (tier 0 under /root, else the folder's tier) is computed once in
+`ServeTurnMCP` and threaded into the five postBuild structural gates —
+`network_rules`, `acl`, `groups`, `routes`, `scheduled_tasks`. `network_rules`
+was doubly broken (the only postBuild that never took the elevated `authorize`
+either) — now routed through the shared `toolGrant`. Operator-gated: cmdRoot
+elevates only for `IsOperator(sender)`. Test:
+`TestNetworkRulesMCP_RootElevationManagesEgress`.
 
-Impact: /root is "unrestricted" per the tier model, but structural caps quietly
-keep the folder's shape. Workaround: run /root from a chat routed to a
-shallow-enough folder. Fix (proposal, needs sign-off — auth-model change):
-thread `elevated` into the structural-gate identity (an explicit
-`auth.Identity{Tier: 0}`) at the same ServeTurnMCP seam the grant halves use.
+**Residual (open):** `route_tokens` mint cap lives in the HANDLER
+(`authorizeRouteTokenMint(auth.Resolve(folder), …)` inside `routeTokensHandler`),
+not the postBuild Gate — the handler can't see `elevated` without the
+Caller/Execution carrying the effective identity. So under /root a tier ≤2 folder
+still can't point a token OUTSIDE its subtree, and tier ≥3 can't mint. Only
+cross-subtree mint degrades; own-folder /root mint works. Deferred — plumb the
+effective identity into `resreg.Execution` (a small resreg contract change).
 
 ## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
