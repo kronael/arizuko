@@ -173,7 +173,7 @@ func (s *Server) aclHandler(ctx context.Context, x resreg.Execution) (any, error
 // aclPostBuild mounts the acl tools on the agent socket with the tier-aware Gate
 // (CheckAction + db.Authorize(mcp:) + AuthorizeStructural scope-containment) and
 // the Visible predicate (MatchingRules + list_acl tier<=1).
-func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authorize authorizeFn) func(*mcpserver.MCPServer) {
+func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authorize authorizeFn, callerID auth.Identity) func(*mcpserver.MCPServer) {
 	res := s.aclResource()
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		name := aclMCPNames[x.Action]
@@ -182,6 +182,8 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 		}
 		// Scope-containment: the caller must have authority over the target it
 		// grants/revokes (add/remove) or lists. "**" requires tier-0 by design.
+		// callerID is tier 0 under /root (else the socket folder's tier) so an
+		// operator's /root add_acl from a tier-2 folder isn't capped by the folder.
 		var target string
 		switch x.Action {
 		case resreg.Action("add"), resreg.Action("remove"):
@@ -189,15 +191,16 @@ func (s *Server) aclPostBuild(folder, callerSub string, rules []string, authoriz
 		case resreg.ActionList:
 			target = argString(x.Args, "folder")
 		}
-		if err := auth.AuthorizeStructural(auth.Resolve(folder), name, auth.AuthzTarget{TargetFolder: target}); err != nil {
+		if err := auth.AuthorizeStructural(callerID, name, auth.AuthzTarget{TargetFolder: target}); err != nil {
 			return resreg.Errorf(http.StatusForbidden, "%v", err)
 		}
 		return nil
 	}
 	// list_acl is tier 0-1 only (mirrors the old `if identity.Tier <= 1`
-	// registration); other tools follow the socket's grant rules.
+	// registration); other tools follow the socket's grant rules. Uses callerID so
+	// /root (tier 0) sees list_acl even from a deep folder.
 	visible := func(name string) bool {
-		if name == "list_acl" && auth.Resolve(folder).Tier > 1 {
+		if name == "list_acl" && callerID.Tier > 1 {
 			return false
 		}
 		return len(grantslib.MatchingRules(rules, name)) > 0

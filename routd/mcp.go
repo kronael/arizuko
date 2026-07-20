@@ -539,6 +539,10 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 		rules = []string{"*"}
 	}
 	authorize := s.turnAuthorize(t.elevated)
+	// The structural gates (auth.AuthorizeStructural) run on a SEPARATE tier axis
+	// from authorize's row-ACL check; elevate it the same way so /root lifts both
+	// halves. tier 0 under /root, else the folder's static tier.
+	callerID := turnIdentity(t.folder, t.elevated)
 	// routd binds the socket BEFORE runed spawns the container, so the per-folder
 	// ipc dir may not exist yet. ServeMCP only os.Removes the stale sock + Listens
 	// — never mkdirs — so create the parent here or net.Listen fails on a fresh
@@ -561,11 +565,11 @@ func (s *Server) ServeTurnMCP(t turnMCP, ipcDir string) (func(), error) {
 	// tx/audit) with the agent's tier-aware Gate + visibility. One postBuild seam
 	// per migrated resource; ServeMCP applies them all.
 	webRoutes := s.webRoutesPostBuild(t.folder, callerSub, rules, authorize)
-	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules)
-	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules, authorize)
-	routes := s.routesPostBuild(t.folder, callerSub, rules, authorize)
-	acl := s.aclPostBuild(t.folder, callerSub, rules, authorize)
+	networkRules := s.networkRulesPostBuild(t.folder, callerSub, rules, authorize, callerID)
+	scheduledTasks := s.scheduledTasksPostBuild(t.folder, callerSub, rules, authorize, callerID)
+	routes := s.routesPostBuild(t.folder, callerSub, rules, authorize, callerID)
+	acl := s.aclPostBuild(t.folder, callerSub, rules, authorize, callerID)
 	routeTokens := s.routeTokensPostBuild(t.folder, callerSub, rules, authorize)
-	groups := s.groupsPostBuild(t.folder, callerSub, rules, authorize)
+	groups := s.groupsPostBuild(t.folder, callerSub, rules, authorize, callerID)
 	return ipc.ServeMCP(sockPath, s.buildGatedFns(t), s.buildStoreFns(t), t.folder, rules, expectedUID, callerSub, webRoutes, networkRules, scheduledTasks, routes, acl, routeTokens, groups)
 }

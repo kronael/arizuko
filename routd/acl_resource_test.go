@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -25,7 +26,7 @@ func serveACLMCP(t *testing.T, db *DB, folder, callerSub string, rules []string)
 	t.Helper()
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	sock := groupfolder.IpcSocket(t.TempDir())
-	pb := srv.aclPostBuild(folder, callerSub, rules, srv.db.Authorize)
+	pb := srv.aclPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {

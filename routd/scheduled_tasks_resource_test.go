@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -32,7 +33,7 @@ func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string, rules []strin
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.scheduledTasksPostBuild(folder, callerSub, rules, srv.db.Authorize)
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {

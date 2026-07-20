@@ -6,6 +6,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/kronael/arizuko/auth"
 	grantslib "github.com/kronael/arizuko/grants"
 	"github.com/kronael/arizuko/resreg"
 )
@@ -32,6 +33,22 @@ func (s *Server) turnAuthorize(elevated bool) authorizeFn {
 		return s.db.Authorize
 	}
 	return func(string, string, string, map[string]string) bool { return true }
+}
+
+// turnIdentity is the turn's EFFECTIVE structural identity for the agent-socket
+// gates' auth.AuthorizeStructural check: the socket folder's tier normally, tier 0
+// under an operator /root elevation (cmdRoot gates /root on IsOperator, so this is
+// reachable only by a verified operator). Without it a /root turn from a tier-2
+// folder still resolved to tier 2 in the STRUCTURAL gate — so network_allow/add_acl/
+// register_group 403'd "tier N cannot ..." even under /root, the mirror of the
+// row-ACL bug turnAuthorize fixed (auth.Resolve's own docstring names tier 0 the
+// /root elevation). One elevation, both gates.
+func turnIdentity(folder string, elevated bool) auth.Identity {
+	id := auth.Resolve(folder)
+	if elevated {
+		id.Tier = 0
+	}
+	return id
 }
 
 // toolGrant is the agent socket's tool-grant check: the tool must be permitted by

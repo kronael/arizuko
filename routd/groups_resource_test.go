@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kronael/arizuko/audit"
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -30,7 +31,7 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 	srv.SetDirs(groupsDir, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.db.Authorize)
+	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {
@@ -231,7 +232,7 @@ func TestGroupsMCP_AuditRowLands(t *testing.T) {
 
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.groupsPostBuild("world/team", "folder:world/team", deriveFolderGrants(db, "world/team"), srv.db.Authorize)
+	pb := srv.groupsPostBuild("world/team", "folder:world/team", deriveFolderGrants(db, "world/team"), srv.db.Authorize, auth.Resolve("world/team"))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: "world/team"}),
 		srv.buildStoreFns(turnMCP{folder: "world/team"}), "world/team", nil, 0, "folder:world/team", pb)
 	if err != nil {

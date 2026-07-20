@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kronael/arizuko/auth"
 	"github.com/kronael/arizuko/core"
 	"github.com/kronael/arizuko/groupfolder"
 	"github.com/kronael/arizuko/ipc"
@@ -46,7 +47,7 @@ func serveNetworkMCP(t *testing.T, db *DB, folder, callerSub string, rules []str
 	srv := NewServer(db, nil, nil, nil, 0, "")
 	ipcDir := t.TempDir()
 	sock := groupfolder.IpcSocket(ipcDir)
-	pb := srv.networkRulesPostBuild(folder, callerSub, rules)
+	pb := srv.networkRulesPostBuild(folder, callerSub, rules, srv.db.Authorize, auth.Resolve(folder))
 	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
 		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
 	if err != nil {
@@ -281,6 +282,65 @@ func TestNetworkRulesMCP_TierGateDeniesTier2(t *testing.T) {
 	}
 	if got, _ := db.ListNetworkRules("world/a/c"); len(got) != 0 {
 		t.Fatalf("denied tier-2 sibling allow still wrote a rule: %+v", got)
+	}
+}
+
+// serveNetworkMCPElevated stands up the agent socket as an operator /root turn
+// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true)) and a
+// tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact wiring
+// ServeTurnMCP hands the postBuild for an elevated turn.
+func serveNetworkMCPElevated(t *testing.T, db *DB, folder string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	ipcDir := t.TempDir()
+	sock := groupfolder.IpcSocket(ipcDir)
+	rules := []string{"*"}
+	callerSub := "folder:" + folder
+	pb := srv.networkRulesPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
+// TestNetworkRulesMCP_RootElevationManagesEgress: the counterpart to the tier-2
+// denial — an operator /root turn from a tier-2 folder CAN manage egress, for its
+// own folder AND any subtree target, because the structural gate sees tier 0 under
+// elevation (turnIdentity). This is the bug the rhias operator hit: /root
+// network_allow('rhias/content','krons.fiu.wtf') 403'd "tier 2 cannot manage
+// egress" because elevation reached the row-ACL gate (turnAuthorize) but not this
+// structural gate.
+func TestNetworkRulesMCP_RootElevationManagesEgress(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // tier 2 socket
+	sock := serveNetworkMCPElevated(t, db, "world/a/b")
+
+	// Own folder: allowed under /root.
+	if _, e := callToolText(t, sock, "network_allow", map[string]any{"host": "krons.fiu.wtf"}); e != "" {
+		t.Fatalf("/root network_allow (own folder) errored: %s", e)
+	}
+	if got, _ := db.ListNetworkRules("world/a/b"); len(got) != 1 || got[0].Target != "krons.fiu.wtf" {
+		t.Fatalf("rule not persisted: %+v", got)
+	}
+	// A subtree target: allowed under /root (tier 0 is unrestricted).
+	if _, e := callToolText(t, sock, "network_allow", map[string]any{
+		"folder": "world/a/b/c", "host": "example.com",
+	}); e != "" {
+		t.Fatalf("/root network_allow (subtree target) errored: %s", e)
+	}
+	if got, _ := db.ListNetworkRules("world/a/b/c"); len(got) != 1 || got[0].Target != "example.com" {
+		t.Fatalf("subtree rule not persisted: %+v", got)
 	}
 }
 
