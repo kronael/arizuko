@@ -14,6 +14,25 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.61.2] — 2026-07-21
+
+> arizuko v0.61.2 — `/root` works from any folder now
+>
+> Operators: `/root <cmd>` from a deep (tier-2+) folder no longer hits "tier N cannot …" — elevation now lifts the structural tier too, so egress / ACL / group / route / task management all work under `/root`.
+>
+> • `/root network_allow` / `add_acl` / `register_group` from a subtree folder now succeed instead of 403ing
+> • one elevation lifts BOTH gate halves (row-ACL + structural), not just one
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Fixed
+
+- **`/root` was still capped by the folder's static tier (`routd`).** Every agent-socket structural gate (`auth.AuthorizeStructural`) resolved the caller's tier from the SOCKET folder, blind to `/root` elevation — so an operator `/root network_allow('sub/folder', …)` (and `add_acl` / `register_group` / cross-folder `add_route` / `cancel_task`) from a tier-2 folder still 403'd "tier N cannot …". `turnIdentity` (tier 0 under `/root`, else the folder's tier) is now threaded into all five postBuild structural gates; `network_rules` also never received the elevated `authorize` (raw `s.db.Authorize` re-derived the static tier) — now routed through the shared `toolGrant`. Operator-gated via `IsOperator`. (`d452d6ef`, `a17ccf54`)
+
+### Changed
+
+- **`routd` agent-socket postBuilds: shared mount tail factored into `mountAgentResource`** — 6 of 7 near-identical `resreg.MCPTools(…)` tails collapsed to one helper (`acl` keeps its inline `list_acl` visibility override). Behavior-preserving; kills the duplication that let the elevation bug drift across gates. (`afe57cef`)
+
 ## [v0.61.1] — 2026-07-16
 
 > arizuko v0.61.1 — Slack @-mentions actually ping now
