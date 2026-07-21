@@ -45,6 +45,32 @@ func serveGroupsMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 	return sock
 }
 
+// serveGroupsMCPElevated stands up the agent socket as an operator /root turn
+// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
+// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
+// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+func serveGroupsMCPElevated(t *testing.T, db *DB, folder, groupsDir string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	srv.SetDirs(groupsDir, "")
+	ipcDir := t.TempDir()
+	sock := groupfolder.IpcSocket(ipcDir)
+	rules := []string{"*"}
+	callerSub := "folder:" + folder
+	pb := srv.groupsPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
 // TestGroupsMCP_RegisterCreatesChild: a tier-1 folder registers a direct child →
 // the group row lands, a room-matched default route lands, and the group dir is
 // git-inited (the s.registerGroup side-effects, preserved through the forwarder).
@@ -114,6 +140,38 @@ func TestGroupsMCP_RegisterOutsideSubtreeDenied(t *testing.T) {
 	if _, e := callToolText(t, sock, "register_group",
 		map[string]any{"jid": "telegram:902", "folder": "world/team/ok"}); e != "" {
 		t.Fatalf("direct-child register should succeed: %s", e)
+	}
+}
+
+// TestGroupsMCP_RootElevationRegistersAtTier2 is the elevated counterpart to
+// TestGroupsMCP_RegisterOutsideSubtreeDenied: a tier-2 folder cannot register_group
+// AT ALL over the plain agent socket (policy.go: id.Tier >= 2 denied), but an
+// operator /root turn from that SAME folder can — the Authz containment sees
+// tier 0 under elevation (turnIdentity), not the folder's static tier.
+// Regression guard for the class of bug d452d6ef fixed.
+func TestGroupsMCP_RootElevationRegistersAtTier2(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	// Tier is derived from the folder path alone (auth.Resolve), so world/a/b
+	// need not be a registered group; leaving it unregistered also keeps the
+	// handler's spawn cap out of play (it only fires when the caller's OWN
+	// folder is a registered parent — see TestGroupsMCP_SpawnCapFires), so this
+	// test isolates the elevation containment cleanly.
+	groupsDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(groupsDir, "world/a/b/child"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sock := serveGroupsMCPElevated(t, db, "world/a/b", groupsDir)
+
+	if _, e := callToolText(t, sock, "register_group",
+		map[string]any{"jid": "telegram:905", "folder": "world/a/b/child"}); e != "" {
+		t.Fatalf("/root register_group at tier 2 should be allowed: %s", e)
+	}
+	if !db.GroupExists("world/a/b/child") {
+		t.Fatal("/root register_group did not write the group row")
 	}
 }
 

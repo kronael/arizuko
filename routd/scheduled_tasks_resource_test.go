@@ -47,6 +47,31 @@ func serveTasksMCP(t *testing.T, db *DB, folder, callerSub string, rules []strin
 	return sock
 }
 
+// serveTasksMCPElevated stands up the agent socket as an operator /root turn
+// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
+// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
+// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+func serveTasksMCPElevated(t *testing.T, db *DB, folder string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	ipcDir := t.TempDir()
+	sock := groupfolder.IpcSocket(ipcDir)
+	rules := []string{"*"}
+	callerSub := "folder:" + folder
+	pb := srv.scheduledTasksPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
 // TestScheduledTasksMCP_ScheduleParsesCron: schedule_task folds in the three
 // `cron` forms (5-field cron / ms interval / RFC3339 one-shot) + rejects a bad
 // expr. A one-shot stores an EMPTY cron (so timed completes it after one firing);
@@ -244,6 +269,31 @@ func TestScheduledTasksMCP_CrossFolderTaskDenied(t *testing.T) {
 	}
 	if _, ok := db.GetTask("own"); ok {
 		t.Fatal("own task not cancelled")
+	}
+}
+
+// TestScheduledTasksMCP_RootElevationCancelsCrossFolder is the elevated
+// counterpart to TestScheduledTasksMCP_CrossFolderTaskDenied: a tier-2 folder
+// cannot cancel a sibling's task over the plain agent socket, but an operator
+// /root turn from that SAME folder can — the per-task structural cap sees
+// tier 0 under elevation (turnIdentity), not the folder's static tier.
+// Regression guard for the class of bug d452d6ef fixed.
+func TestScheduledTasksMCP_RootElevationCancelsCrossFolder(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "world/a/b"}) // tier 2, caller
+	_ = db.PutGroup(core.Group{Folder: "world/a/c"}) // tier 2, sibling
+	seedTask(t, db, "sibling", "world/a/c", "slack:sib", "theirs")
+	sock := serveTasksMCPElevated(t, db, "world/a/b")
+
+	if _, e := callToolOverSock(t, sock, "cancel_task", map[string]any{"taskId": "sibling"}); e != "" {
+		t.Fatalf("/root cancel of a sibling folder's task should be allowed: %s", e)
+	}
+	if _, ok := db.GetTask("sibling"); ok {
+		t.Fatal("/root cancel_task did not delete the sibling task")
 	}
 }
 

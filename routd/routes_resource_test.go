@@ -57,6 +57,31 @@ func serveRoutesMCP(t *testing.T, db *DB, folder, callerSub string, rules []stri
 	return sock
 }
 
+// serveRoutesMCPElevated stands up the agent socket as an operator /root turn
+// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
+// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
+// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+func serveRoutesMCPElevated(t *testing.T, db *DB, folder string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	ipcDir := t.TempDir()
+	sock := groupfolder.IpcSocket(ipcDir)
+	rules := []string{"*"}
+	callerSub := "folder:" + folder
+	pb := srv.routesPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
 // findRouteID returns the id of the (first) route with the given target, failing
 // the test if none exists.
 func findRouteID(t *testing.T, db *DB, target string) int64 {
@@ -222,6 +247,31 @@ func TestRoutesMCP_AddCrossFolderDenied(t *testing.T) {
 			t.Fatalf("denied add_route still wrote a cross-folder route: %+v", r)
 		}
 	}
+}
+
+// TestRoutesMCP_RootElevationAddsCrossFolder is the elevated counterpart to
+// TestRoutesMCP_AddCrossFolderDenied: a tier-1 folder cannot add_route to a
+// sibling over the plain agent socket, but an operator /root turn from that
+// SAME folder can — the structural gate sees tier 0 under elevation
+// (turnIdentity), not the folder's static tier. Regression guard for the class
+// of bug d452d6ef fixed.
+func TestRoutesMCP_RootElevationAddsCrossFolder(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, f := range []string{"world", "world/a", "world/b"} {
+		_ = db.PutGroup(core.Group{Folder: f})
+	}
+	sock := serveRoutesMCPElevated(t, db, "world/a")
+
+	if _, e := callToolOverSock(t, sock, "add_route", map[string]any{
+		"route": `{"seq":1,"match":"platform=slack","target":"world/b"}`,
+	}); e != "" {
+		t.Fatalf("/root add_route to a sibling folder should be allowed: %s", e)
+	}
+	_ = findRouteID(t, db, "world/b") // must be written
 }
 
 // TestRoutesMCP_DeleteCrossFolderDenied: THE tier-1 containment guard on delete —

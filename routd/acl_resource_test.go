@@ -40,6 +40,30 @@ func serveACLMCP(t *testing.T, db *DB, folder, callerSub string, rules []string)
 	return sock
 }
 
+// serveACLMCPElevated stands up the agent socket as an operator /root turn
+// would: the tier-0 `*` grant set, an allow-all row-ACL (turnAuthorize(true))
+// and a tier-0 EFFECTIVE identity (turnIdentity(folder, true)) — the exact
+// wiring ServeTurnMCP hands the postBuild for an elevated turn.
+func serveACLMCPElevated(t *testing.T, db *DB, folder string) string {
+	t.Helper()
+	srv := NewServer(db, nil, nil, nil, 0, "")
+	sock := groupfolder.IpcSocket(t.TempDir())
+	rules := []string{"*"}
+	callerSub := "folder:" + folder
+	pb := srv.aclPostBuild(folder, callerSub, rules, srv.turnAuthorize(true), turnIdentity(folder, true))
+	stop, err := ipc.ServeMCP(sock, srv.buildGatedFns(turnMCP{folder: folder}),
+		srv.buildStoreFns(turnMCP{folder: folder}), folder, rules, 0, callerSub, pb)
+	if err != nil {
+		t.Fatalf("ServeMCP: %v", err)
+	}
+	t.Cleanup(stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for !fileExists(sock) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return sock
+}
+
 func aclRowCount(t *testing.T, db *DB, scope string) int {
 	t.Helper()
 	n := 0
@@ -176,5 +200,31 @@ func TestACLMCP_ContainmentDenied(t *testing.T) {
 	}
 	if operatorMembershipExists(t, db, "google:x") {
 		t.Fatal("denied ** grant still wrote an operator membership edge")
+	}
+}
+
+// TestACLMCP_RootElevationGrantsOperatorRole is the elevated counterpart to
+// TestACLMCP_OperatorGrantDeniedViaAgent: a tier-1 folder cannot grant scope
+// "**" over the plain agent socket, but an operator /root turn from that SAME
+// folder can — the structural gate sees tier 0 under elevation (turnIdentity),
+// not the folder's static tier. Regression guard for the class of bug
+// d452d6ef fixed (elevation reaching the row-ACL half but not the structural
+// half of aclPostBuild's Gate).
+func TestACLMCP_RootElevationGrantsOperatorRole(t *testing.T) {
+	db, err := OpenMem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_ = db.PutGroup(core.Group{Folder: "root"}) // tier 1 socket
+	sock := serveACLMCPElevated(t, db, "root")
+
+	if _, e := callToolOverSock(t, sock, "add_acl", map[string]any{
+		"principal": "google:carol", "scope": "**",
+	}); e != "" {
+		t.Fatalf("/root add_acl ** should be allowed: %s", e)
+	}
+	if !operatorMembershipExists(t, db, "google:carol") {
+		t.Fatal("/root ** grant did not write an operator membership edge")
 	}
 }
