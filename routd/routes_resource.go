@@ -280,9 +280,7 @@ func (s *Server) routesPostBuild(folder, callerSub string, rules []string, autho
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		return toolGrant(rules, authorize, callerSub, folder, routesMCPNames[x.Action])
 	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // argInt64 reads a numeric arg from a resreg.Args map. MCP number args decode to

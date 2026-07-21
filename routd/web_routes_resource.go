@@ -158,9 +158,7 @@ func (s *Server) webRoutesPostBuild(folder, callerSub string, rules []string, au
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		return toolGrant(rules, authorize, callerSub, folder, webRoutesMCPNames[x.Action])
 	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // argString reads a string arg from a resreg.Args map (MCP args decode to

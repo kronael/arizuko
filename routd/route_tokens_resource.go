@@ -174,9 +174,7 @@ func (s *Server) routeTokensPostBuild(folder, callerSub string, rules []string, 
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		return toolGrant(rules, authorize, callerSub, folder, routeTokensMCPNames[x.Action])
 	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // authorizeRouteTokenMint is the mint tier cap the deleted ipc authorizeMint closure

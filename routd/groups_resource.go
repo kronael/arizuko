@@ -174,9 +174,7 @@ func (s *Server) groupsPostBuild(folder, callerSub string, rules []string, autho
 		return "", nil, nil
 	}
 	res := s.groupsResource(authz)
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // argBool reads a bool arg from a resreg.Args map (MCP bool args decode to a Go bool

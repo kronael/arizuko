@@ -174,9 +174,7 @@ func (s *Server) networkRulesPostBuild(folder, callerSub string, rules []string,
 		}
 		return nil
 	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // addNetworkRuleTx appends one egress allowlist row on tx (mirrors

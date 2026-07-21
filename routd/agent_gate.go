@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/kronael/arizuko/auth"
 	grantslib "github.com/kronael/arizuko/grants"
@@ -79,4 +80,14 @@ func agentCallerFor(callerSub, folder string) func(context.Context, mcp.CallTool
 // socket grant rule matches its name. acl overrides this with its own predicate.
 func agentVisible(rules []string) func(string) bool {
 	return func(name string) bool { return len(grantslib.MatchingRules(rules, name)) > 0 }
+}
+
+// mountAgentResource is the ServeMCP seam six of the seven postBuilds return
+// verbatim: mount res's tools on the agent socket with the socket's own Caller
+// + MatchingRules visibility. acl is the one exception (list_acl's extra
+// tier<=1 gate), which still builds its Visible predicate inline.
+func mountAgentResource(res resreg.Resource, callerSub, folder string, rules []string) func(*mcpserver.MCPServer) {
+	return func(srv *mcpserver.MCPServer) {
+		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
+	}
 }

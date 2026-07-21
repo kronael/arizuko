@@ -278,9 +278,7 @@ func (s *Server) scheduledTasksPostBuild(folder, callerSub string, rules []strin
 	res.Gate = func(x resreg.Execution, _ string, _ map[string]string) error {
 		return toolGrant(rules, authorize, callerSub, folder, tasksMCPNames[x.Action])
 	}
-	return func(srv *mcpserver.MCPServer) {
-		resreg.MCPTools(srv, res, agentCallerFor(callerSub, folder), agentVisible(rules))
-	}
+	return mountAgentResource(res, callerSub, folder, rules)
 }
 
 // parseTaskSchedule reads the `cron` arg into (next_run, stored-cron) exactly as
