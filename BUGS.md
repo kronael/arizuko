@@ -58,6 +58,19 @@ still can't point a token OUTSIDE its subtree, and tier ≥3 can't mint. Only
 cross-subtree mint degrades; own-folder /root mint works. Deferred — plumb the
 effective identity into `resreg.Execution` (a small resreg contract change).
 
+**Residual 2 (open, HIGH — wider blast radius, fable-found 2026-07-21):** the
+SAME elevation-blind pattern lives in the hand-rolled `ipc/ipc.go:831`
+`buildMCPServer` — `identity := auth.Resolve(folder)` derived once, blind to
+`t.elevated`, for every tool NOT yet migrated to resreg. Under `/root` from a
+tier-2+ folder these stay capped: `fork_topic` (own/descendant), the
+`inspect_messages`/JID-routing guards, `set_work`'s tier≤2 **registration** gate
+(the tool never even appears in `tools/list`), `get_web_presence`. Fix (proposal,
+needs sign-off): thread `t.elevated`/`callerID` into `ipc.ServeMCP` →
+`buildMCPServer` so `identity` is elevation-aware there too — a change to the
+`ipc` package's public signature + every caller/test, so bigger than route_tokens
+and out of the d452d6ef scope. This is the remaining half of the class; the
+resreg gates are done, the pre-resreg hand-rolled path is not.
+
 ## M4 — `vited` runs the Vite DEV server in production (2026-07-16, partly fixed 2026-07-18)
 
 **Crash class fixed (2026-07-18):** the dev server's dep-optimization cache
