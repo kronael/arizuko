@@ -6,8 +6,9 @@ when_to_use: editing .rs files or writing Rust code
 
 # Rust
 
-Requires the `software` skill's `code.md` for shared naming, style, and design
-rules. Below are Rust-specific additions.
+Requires `software/code.md` (naming, style, design) and
+`software/dynamic-analysis.md` (test-target checkers: Miri, `-Zsanitizer`, loom,
+cargo-fuzz, cargo-mutants, nextest). Below are Rust-specific additions.
 
 ## Imports
 - NEVER arbitrary `as` aliases to rename external types
@@ -69,7 +70,7 @@ rules. Below are Rust-specific additions.
 ## Threading
 - Pin OS threads to specific CPU cores via core_affinity
 - Document exact core assignments in CLAUDE.md
-- ALWAYS set panic handler: `std::panic::set_hook(Box::new(|_| std::process::exit(0)));`
+- Generic services: set a panic handler `std::panic::set_hook(Box::new(|_| std::process::exit(0)));`. NEVER where the project bans `process::exit` — graceful-shutdown-sensitive code (e.g. trading engines that must cancel orders first) must signal the shutdown path instead.
 
 ## CLI with Clap
 - ALWAYS derive API, never builder
@@ -170,3 +171,21 @@ tokio::spawn(fetch_and_process(client));
 
 ## Development Workflow
 - `cargo check` fastest for error checking (no codegen)
+- Faster debug **builds/tests** (not `check` — it does no codegen): cranelift
+  backend, nightly-only. Two ways:
+  - **Opt-in (project stays stable):** per-invocation
+    `cargo +nightly build -Zcodegen-backend --config
+    'profile.dev.codegen-backend="cranelift"'`. NEVER put that block in
+    `.cargo/config.toml` — stable cargo then hard-errors on EVERY build.
+  - **Default (project commits to nightly):** pin nightly in
+    `rust-toolchain.toml` (`components = ["rustc-codegen-cranelift-preview",
+    ...]` auto-installs it), then put `[unstable] codegen-backend = true` +
+    `[profile.dev] codegen-backend = "cranelift"` in `.cargo/config.toml`.
+    `cargo build` = cranelift, `cargo build --release` = LLVM (release profile
+    untouched). Pin a DATED nightly so a `rustup update` can't drift clippy/
+    cranelift and break CI.
+- **C+asm crates don't link under cranelift** (`aws-lc-rs`/`aws-lc-sys` +
+  their `rustls` dependents = undefined native symbols, any linker). Pin just
+  those to LLVM, cranelift does the rest:
+  `--config 'profile.dev.package.aws-lc-rs.codegen-backend="llvm"'` (repeat for
+  `aws-lc-sys`, `rustls`). ~7× faster rebuilds on codegen-heavy crates.

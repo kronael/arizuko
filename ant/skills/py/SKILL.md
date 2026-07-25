@@ -6,8 +6,9 @@ when_to_use: editing .py files, writing Python; dataclasses, type hints, enums, 
 
 # Python
 
-Requires the `software` skill's `code.md` for shared naming, style, and design
-rules. Below are Python-specific additions and deltas.
+Requires `software/code.md` (naming, style, design) and
+`software/dynamic-analysis.md` (test-target checkers: `-X dev -W error`,
+hypothesis, pytest-memray, TSan). Below are Python-specific additions and deltas.
 
 ## Verify before claiming
 - ANY syntax or type question: run `python3 -c "import ast; ast.parse(...)"`, `uv run pyright`, or `ruff check` — NEVER speculate or hedge.
@@ -26,11 +27,13 @@ rules. Below are Python-specific additions and deltas.
 - NEVER introduce `Protocol` or broad duck typing only for tests/fakes — ALWAYS type production code from production contracts
 - NEVER `Literal['a', 'b']` for domain values — ALWAYS use `enum.Enum` (or `str, Enum` for pydantic/TOML compat). `Literal` is only for narrowing external/library types you do not own.
 - Compare enum members with `is` / `is not`, not `==` / `!=` — enums are singletons; `is` makes the identity check explicit: `if status is GameStatus.LOST:` not `if status == GameStatus.LOST:`
+- Forward a pass-through `**kwargs` as plain `**kwargs: Any` to a callee that owns the real typed signature — NEVER add `TypedDict` + `Unpack` just to type a passthrough; the machinery costs more than the duplication it removes
 
 ## Naming
 - ALWAYS name functions and methods as verbs: `get_programs()`, `build_index()`, `compute_pnl()`
 - NEVER name a function as a noun: `program_lookup`, `symbol_map`, `client_index` — these read as data, not actions
 - Exception: boolean predicates — `is_funded()`, `has_positions()`, `can_advance()`
+- The verb MUST match the behavior — a `finish_task()` that cancels, or a `get_*()` that mutates, is a lie. Rename the moment name and behavior diverge.
 
 ## Properties and accessor overrides
 - NEVER use `@property`, `@x.setter`, or `__getattr__`/`__setattr__` overrides — they are code smell
@@ -84,6 +87,8 @@ rules. Below are Python-specific additions and deltas.
 - NEVER `sys.path` modification — ALWAYS set PYTHONPATH or install the package
 - NEVER `global` keyword except trivial scripts or signal handlers — ALWAYS pass state explicitly
 - NEVER multi-assign tuples: `a, b, c = x, y, z` — one per line
+- Emptiness by truthiness: `if not xs` / `if xs`, NEVER `len(xs) == 0` / `len(xs) > 0` (works for any `__len__`/`__bool__` type)
+- NEVER rewrite an expression into an equivalent form for its own sake (`Field(None)` → `Field(default=None)`, adding/removing a redundant `# noqa`) — keep diffs to real changes
 - For small fixed sequences used only by a `for` loop, prefer comma iteration: `for x in A, B:` not `for x in [A, B]` or `for x in (A, B)`
 
 ## Package Structure
@@ -94,7 +99,7 @@ rules. Below are Python-specific additions and deltas.
 - pre-commit: ruff format + lint, end-of-file-fixer, trailing-whitespace
 - `make check`: ruff lint + format check (canonical CQ target)
 - `make right`: pyright only (not in pre-commit)
-- ruff 0.15.17 `ruff-format` strips parens from `except (TypeError, ValueError):` → Py2 `except T, V:` (SyntaxError); guard with `except (TypeError, ValueError):  # fmt: skip`
+- `except T, V:` (no parens) is VALID on Python 3.14 (PEP 758), a SyntaxError only on <3.14. ruff 0.15.17 `ruff-format` strips the parens from `except (T, V):` — fine on 3.14; if the code must also run on <3.14, guard with `except (T, V):  # fmt: skip`
 
 ## Testing
 - ALWAYS `python -m pytest` not `pytest` directly (package discovery)
