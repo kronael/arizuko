@@ -27,7 +27,7 @@ const QUERY_TIMEOUT_MS = Number(process.env.ARIZUKO_QUERY_TIMEOUT_MS) || 15 * 60
 // Leaving model undefined lets the SDK pick its own default, which now resolves
 // to a 1M-context model → "Usage credits required for 1M context" on every turn.
 // A group may still override via cfg.model.
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5';
 const IPC_INPUT_DIR = '/run/ipc/input';
 
 interface SDKUserMessage {

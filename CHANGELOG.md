@@ -14,6 +14,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.61.3] — 2026-07-25
+
+> arizuko v0.61.3 — agents on Opus 5, refreshed skills
+>
+> Agents now default to Opus 5 (from Opus 4.8), and the vendored skill bundle is refreshed from kronael/tools.
+>
+> • default agent model → Opus 5 — per-group `ARIZUKO_MODEL` override still wins
+> • skills refreshed from kronael/tools — updated create/software/merge/py/rs/… + new create/cv, create/art/logo, software/testing, software/dynamic-analysis
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **Default agent model is now Opus 5** (`ant/src/backend/claude.ts` `DEFAULT_MODEL` `claude-opus-4-8` → `claude-opus-5`). A per-group `ARIZUKO_MODEL` env override still takes precedence.
+- **Vendored agent skills refreshed from kronael/tools** (v0.3.66) via `scripts/sync-ant-skills.sh`: updated `create`, `software` (+ new `testing`, `dynamic-analysis`, `strict-typing`), `merge`, `humanize`, `py`, `rs`, `scavenge`, `fable`, `opus`, `sonnet` and others; new `create/cv`, `create/art/logo`. Delivered to existing groups via migration 180.
+
 ## [v0.61.2] — 2026-07-21
 
 > arizuko v0.61.2 — `/root` works from any folder now
