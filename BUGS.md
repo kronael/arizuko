@@ -7,6 +7,47 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## T1 — stalled typing indicator on timed-out/errored turns (2026-07-26, open)
+
+Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"
+for ~20 min then goes silent with no reply. Recurring; the user recognises it as
+"the typing indication again".
+
+Root cause (config + missed clear, one concern — the turn-end typing-clear is
+unreliable and the backstop can't cover for it):
+- Container RunTTL = 20 min; in-container query timeout = RunTTL−30s = 19.5 min
+  (`runed/docker.go:147` `queryTimeoutMs`).
+- Typing backstop `chanlib/typing.go:14` `DefaultTypingMaxTTL = 20*time.Minute`
+  — **equal to RunTTL**, so it never fires before the run is already SIGKILLed.
+- Event-driven clear is skipped on the failing path: `dispatch.go:270` clears
+  typing only for `!out.Steered`. Follow-up messages that arrive mid-run get
+  **steered** into the live container and hand typing-clear to `submit_turn` —
+  which never fires when the turn hits the query-timeout wall and its
+  graceful-summary fallback itself errors (observed: `Query timeout reached` →
+  `Not logged in · Please run /login`, no `submit_turn`, no content). Typing
+  refreshes every 5s for the full 20 min, then stops only at the backstop ==
+  the container's own death.
+
+Evidence: 4 query-timeouts + 3 `container exited with error` in 12h; last real
+bot reply 10:03 while user msgs at 16:11/16:12/16:13 went unanswered under a
+live-but-doomed 19.5-min browser-automation turn.
+
+Fix (redesign — needs sign-off; routd turn-lifecycle + chanlib backstop):
+1. **Clear typing on every terminal turn outcome, including steered.** The
+   steered branch (`dispatch.go` `out.Steered`) marks the turn done but leaves
+   typing owned by a `submit_turn` that may never arrive. When a steered turn's
+   parent run ends without delivering the steered turn's reply, that turn's
+   typing must be cleared by the run-end reconcile, not orphaned.
+2. **Make the backstop a real safety net: strictly below RunTTL** (e.g. derive
+   it as a fraction of RunTTL, or plumb RunTTL into the refresher), so a stalled
+   turn stops "typing" well before the 20-min wall regardless of which clear
+   path was missed. A 20-min backstop equal to the 20-min run is not a backstop.
+3. **Secondary — fail loud:** the query-timeout graceful-summary path erroring
+   with "Not logged in" means the timeout fallback delivers nothing. That resume
+   call losing auth is its own bug; the user-facing timeout must still surface a
+   notice (dispatch.go:339 `runFailureNotice` covers the non-steered parent, but
+   confirm it fires for the steered-follow-up case).
+
 ## M1 — `mcpc` socat-connect form 502s since mcpc 0.3.0 (2026-07-16, open)
 
 The documented ad-hoc MCP-call form for agents — `mcpc connect "socat
