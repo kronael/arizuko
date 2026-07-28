@@ -25,6 +25,15 @@ They meet only at one point: a backup naturally contains the manifest +
 lockfile, so a restored agent is reproducible — `product sync`
 reinstalls byte-identical products from the lock.
 
+> **Reconciled with `5/28` (2026-07-28).** Mechanism 2's _single-unit_
+> lifecycle — how one product/package installs, updates, and removes — is now
+> canonical in [`5/28`](28-packages.md) as the **distributor-managed** model
+> (assets declared by identity; upgrade overwrites; the only "local" story is
+> the upstream channel; no three-way merge). This spec keeps **state transport**
+> (mechanism 1) and **composition** (how a group blends an ordered LIST of
+> products — the mixin precedence). Read the install/update/remove mechanics
+> from `5/28`; read the multi-product blend rules here.
+
 ## Mechanism 1 — state transport (export/apply)
 
 `pg_dump` gives you the same tool for a schema-only dump and a full one;

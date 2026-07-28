@@ -16,6 +16,27 @@ via `container/runner.go:seedSkills()`. External MCP servers are registered
 per-folder in `MCP.json` (spec `5/13`). There is no standard way to package
 and distribute skills, group templates, or integrated sidecars as a unit.
 
+## The packaging cluster — who owns what
+
+Packaging was split across five specs saying overlapping things. Canonical
+division (this reconciles them):
+
+| Concern                                                                                               | Spec                     |
+| ----------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Package manager** — install / update / remove of a software unit; the distributor-managed lifecycle | **this spec (5/28)**     |
+| Producer side — what a product/package _contains_ (`PRODUCT.md`, persona, skills)                     | `5/21`                   |
+| Composition — a group blends an ordered LIST of products (mixin precedence)                           | `5/20`                   |
+| State transport — moving a live agent's rows/data (`export`/`apply`, `pg_dump`-style)                 | `5/20` (mech. 1) + `5/8` |
+| Compose fragment — one asset _kind_ a package ships                                                   | `5/27`                   |
+| Prototype — a product instantiated at spawn (`5/29` Tier-3)                                           | `5/29`                   |
+| OCI distribution envelope — rejected alternative                                                      | `5/30` (superseded)      |
+
+The one-line rule: **5/28 is the lifecycle mechanism; 5/21 is the payload;
+5/20 is state + how many products compose; 5/27/5/29 are asset kinds.** State
+transport (5/20 mech. 1) and package distribution (here) stay separate concerns
+— they meet only when a backup carries the manifest so a restore reinstalls the
+same packages.
+
 ## Target shape
 
 ### Package manifest (package.yaml at repo root)

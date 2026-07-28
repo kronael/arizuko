@@ -107,9 +107,9 @@ contradicts this model. Proposed resolutions:
    package (`5/28`): the folder is the build context, the shipped artifact is the
    distributable unit, `arizuko packages install` unpacks it back to the
    filesystem. The "docker image" framing is specifically the OCI variant
-   (`5/28-oci-packages`, currently _superseded_ by the source-first
-   `5/28-packages`) — a prototype's build-once/ship-anywhere need may be the case
-   that reopens OCI. Only the resreg _binding_ (which prototype an agent uses,
+   (`5/30-oci-packages`, superseded by the source-first `5/28`) — a prototype's
+   build-once/ship-anywhere need may be the case that reopens OCI. Only the
+   resreg _binding_ (which prototype an agent uses,
    spawn params) is DB-backed for the uniform REST+MCP management surface.
 
 ## Still open
