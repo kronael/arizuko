@@ -33,11 +33,11 @@ work.
 ## Actors
 
 Every term is an existing primitive; none introduces new authz. In the
-collapsed hierarchy of [`6/18`](../6/18-worlds-guests-oauth.md) this spec is
+collapsed hierarchy of [`5/29`](29-worlds-guests-oauth.md) this spec is
 **Tier 1**: onboarding admits a user to a **world** (the top-level group), and
-promotion below gives a chat its own **agent** (a main group). `6/18` further
+promotion below gives a chat its own **agent** (a main group). `5/29` further
 models auto-onboarding as a **Tier-3 session** scripted by an onboarding
-prototype — a `6/18` delta, not current behavior: today the admission exchange
+prototype — a `5/29` delta, not current behavior: today the admission exchange
 is a canned onbod message (`promptUnprompted`), not an agent run.
 
 - **Bot** — a channel adapter identity: one adapter daemon + its
@@ -169,9 +169,9 @@ onboarding branch runs (`routd/loop.go:505`–`533`):
    then writes group + admin `acl` + `seq 0` routes in one tx
    (`createWorldTx`).
    Detail: `5/5`, `onbod/README.md`. Note this path CREATES a world per
-   admitted stranger, where `6/18` Tier 1 admits users INTO an existing
+   admitted stranger, where `5/29` Tier 1 admits users INTO an existing
    world (`world_invite`/`world_members`); the two shapes are unreconciled
-   (`6/18` open questions).
+   (`5/29` open questions).
 
 The paths compose per-platform: `ONBOARDING_PLATFORMS` allowlists which
 prefixes may onboard, and the route table decides where misses can
@@ -222,7 +222,7 @@ stay canonical for their mechanisms. Nothing is superseded:
 - `5/E` — route-miss → onboarding hook in the loop.
 - `4/9` — `interact`/`admin`/`**` vocabulary; operator emergence.
 - `5/5` — invites, gates, tenant self-service phases.
-- `6/18` — the World → Agent → Session collapse; admission here is its
+- `5/29` — the World → Agent → Session collapse; admission here is its
   Tier 1.
 - `ROUTING.md` — route-table syntax + the mention-only examples this
   generalizes to staging and sender gating.

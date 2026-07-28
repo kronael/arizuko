@@ -285,12 +285,51 @@ write paths) lives in [`5/14`](14-credentials.md).
 
 ---
 
+## Capability layer model (settled 2026-07-27)
+
+Skills and connectors are **operator-defined and global**. Groups USE the
+capability surface; they do not define it.
+
+- `ant/skills/` — global, seeded into every container at spawn. Operator
+  adds skills; users cannot. Changing skills = changing the capability
+  surface, which is an operator concern (security boundary).
+- `connectors.toml` / `mcp_connectors` resreg resource — global,
+  operator-defined. All MCP connectors live at the deployment layer.
+- **Per-group `MCP.json` is dropped.** Groups get access to connectors
+  via grant rows, not via per-folder MCP registration files. A group that
+  needs the `candles` connector gets a grant row `mcp:candles:*`; it does
+  not register its own MCP endpoint.
+- Single-user deployment: user IS the operator, adds skills/connectors
+  freely. No conflict — the security boundary only applies when users ≠
+  operator.
+
+This closes the trust gap where a group agent could register an arbitrary
+MCP server via its own `MCP.json` and route calls through it.
+
+## Handler shape 4 — HTTP upstream MCP (planned)
+
+Replaces stdio subprocess for connectors that ship as long-running HTTP
+services (sidecar MCP servers, hosted providers like `mcp.linear.app/mcp`):
+
+```toml
+[[mcp_connector]]
+name      = "candles"
+transport = "http"
+url       = "http://candles-mcp:8080"
+secrets   = ["BINANCE_API_KEY"]
+scope     = "per_session"
+```
+
+Same dispatch chain as shape 2: grants → inject secrets → proxy
+`tools/list` + `tools/call` over HTTP → audit. No subprocess spawn.
+`connectors.toml` → `mcp_connectors` resreg resource (routd.db) so
+agents can `list_mcp_connectors` and operators manage via dashd — tracked
+in `5/16` adoption list.
+
 ## Out of scope
 
 - OAuth token dance + refresh — `specs/5/15-surrogate-oauth.md` (writes
   access token into the `secrets` table the broker reads)
-- Hosted-remote MCP servers (e.g. `mcp.linear.app/mcp`) — need HTTP
-  upstream proxy mode, not stdio subprocess; design TBD
 - Per-tool secret-scope overrides (refuse folder fallback) — add
   `MCPTool.SecretScopes` if needed, not v1
 - HSM / KMS integration

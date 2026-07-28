@@ -1,12 +1,7 @@
 ---
 status: draft
 depends:
-  [
-    ../5/5-tenant-self-service,
-    ../5/18-onboarding-model,
-    ../5/S-jid-format,
-    ../5/15-surrogate-oauth,
-  ]
+  [5-tenant-self-service, 18-onboarding-model, S-jid-format, 15-surrogate-oauth]
 ---
 
 # worlds, agents, sessions — the collapsed hierarchy
@@ -105,12 +100,22 @@ contradicts this model. Proposed resolutions:
    resource, three apply-sites — group-create (was `5/21` product), invite
    subgroup-create (`5/5` `prototype/`), subagent-spawn (Tier 3). `5/21`'s
    product folds in as the group-create apply-site.
+6. **A prototype is filesystem-native but ships as an OCI image — docker-style.**
+   The prototype's content (persona + skills + tool grants) lives as files in the
+   folder: fast to read at spawn, editable in place, git-versionable (`9/3`
+   cold-tier-in-git). It is NOT abstracted into a DB blob. It **ships** as a
+   package (`5/28`): the folder is the build context, the shipped artifact is the
+   distributable unit, `arizuko packages install` unpacks it back to the
+   filesystem. The "docker image" framing is specifically the OCI variant
+   (`5/28-oci-packages`, currently _superseded_ by the source-first
+   `5/28-packages`) — a prototype's build-once/ship-anywhere need may be the case
+   that reopens OCI. Only the resreg _binding_ (which prototype an agent uses,
+   spawn params) is DB-backed for the uniform REST+MCP management surface.
 
 ## Still open
 
 - JID shape (`5/S`) for the three tiers — does `world/agent` suffice with
   sessions addressed by `run_id`, or does the session need a JID segment?
-- Prototype storage: a resreg resource per agent vs a file in the agent folder.
 - Delegated-use rule layer: reuse the grant DSL, or a predicate layer once
   cross-row/time conditions appear (guest consent windows, per-action scopes)?
 

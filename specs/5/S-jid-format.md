@@ -16,7 +16,7 @@ shipped: 2026-05-01
 > `JID.Path()` reference below as the wire contract those helpers enforce,
 > not as live Go types.
 
-> **Forward pointer.** [`6/18`](../6/18-worlds-guests-oauth.md) collapses
+> **Forward pointer.** [`5/29`](29-worlds-guests-oauth.md) collapses
 > tenancy to World → Agent → Session and leaves open how those address onto
 > this wire form: folders (`world/agent`) are route _targets_, not JIDs, so
 > the question is whether a session stays addressed by `run_id` or earns a

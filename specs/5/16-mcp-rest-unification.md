@@ -20,6 +20,10 @@ moved_from: specs/9/index.md §1 (was "phase 8 action 1"; pulled to phase 5)
 > tools (`df9ebad3` + `d5023c60`). Remaining: `route_tokens`' REST face is still
 > hand-rolled (`server.go handleToken*`) and `groups` has no `/v1/groups` REST
 > twin yet; then the one-owner + federation phase retires `messages.db`.
+> **2026-07-27:** `mcp_connectors` added to adoption list — migrate
+> `connectors.toml` static loader to a resreg resource (routd.db), adding
+> REST `/v1/mcp-connectors` + agent MCP face. Per-group `MCP.json` dropped;
+> connectors are global operator-defined resources, access via grants only.
 
 # specs/5/16 — MCP+REST unification (finish the adoption)
 

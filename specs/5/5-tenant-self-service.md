@@ -20,7 +20,7 @@ status: partial
 > topic ops) remain unbuilt; scope decision pending.
 
 > **Forward note (2026-07-28).** The arbitrary-depth org-chart below is
-> COLLAPSED by [`6/18`](../6/18-worlds-guests-oauth.md) to **World →
+> COLLAPSED by [`5/29`](29-worlds-guests-oauth.md) to **World →
 > Agent → Session**. Depth is no longer load-bearing: a **world** is the
 > top-level group (tenancy, users, vhost, grant root); an **agent** is a
 > main group inside it — a peer, exactly the depth-2 folder invite
@@ -46,8 +46,8 @@ arizuko encodes a working organization:
 | Real-org concept      | arizuko primitive                                     |
 | --------------------- | ----------------------------------------------------- |
 | Organization          | world (top-level group)                               |
-| Department / function | sub-group at depth 2 — an **agent** (`6/18` T2)       |
-| Team / role           | sub-group at depth 3+ — not load-bearing under `6/18` |
+| Department / function | sub-group at depth 2 — an **agent** (`5/29` T2)       |
+| Team / role           | sub-group at depth 3+ — not load-bearing under `5/29` |
 | Job description       | grant rule list                                       |
 | Mailroom / dispatcher | routes table (JID → folder)                           |
 | Reporting structure   | folder hierarchy                                      |
