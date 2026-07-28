@@ -1,0 +1,14 @@
+# ttsd — text-to-speech front end for kokoro. Adding this package auto-enables
+# TTS on runed (compose.Generate sets TTS_ENABLED/TTS_BASE_URL).
+services:
+  ttsd:
+    container_name: ${APP}_ttsd_${FLAVOR}
+    image: arizuko-ttsd:latest
+    entrypoint: ['ttsd']
+    env_file: ['../.env']
+    environment:
+      TTSD_ADDR: ':8880'
+      TTS_BACKEND_URL: 'http://kokoro:8880'
+      LOG_LEVEL: 'info'
+    depends_on: [kokoro]
+    restart: on-failure

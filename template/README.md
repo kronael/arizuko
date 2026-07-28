@@ -12,18 +12,21 @@ scaffold that `vited` serves in dev.
 ## Contents
 
 - `env.example` — default `.env` with every knob and a comment per var
-- `services/*.toml` — bundled adapter specs: `teled`, `discd`, `slakd`,
-  `mastd`, `bskyd`, `reditd`, `emaid`, `whapd`, `twitd`, `linkd`
+- `services/*.yml` — bundled adapter packages (partial compose files):
+  `teled`, `discd`, `slakd`, `mastd`, `bskyd`, `reditd`, `emaid`,
+  `whapd`, `twitd`, `linkd`, `ttsd`, `kokoro`. A package with inbound
+  web paths ships `<name>-routes.json` beside it (see `slakd`)
 - `web/` — Vite project (`pub/`, `priv/`, `secret/` path regions,
   `vite.config.ts`, `package.json`)
 
 ## Usage
 
 - `arizuko create <name>` seeds a new instance from `env.example`
-- Operator copies desired `services/*.toml` into `<dataDir>/services/`
-  before `arizuko run`
-- `compose.Generate` appends any `<dataDir>/services/*.toml` to the
-  generated compose file
+- `arizuko packages <instance> add <name>` copies a package into
+  `<dataDir>/services/` (`list` shows available vs enabled, `remove`
+  deletes it)
+- `compose.Generate` emits one `include:` per `<dataDir>/services/*.yml`;
+  docker loads the fragments
 
 ## Related docs
 

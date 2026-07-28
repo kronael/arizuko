@@ -1,0 +1,15 @@
+# linkd — LinkedIn adapter. OAuth credentials arrive via env/linkd.env.
+services:
+  linkd:
+    container_name: ${APP}_linkd_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['linkd']
+    env_file: ['../env/linkd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LINKEDIN_POLL_INTERVAL: '300s'
+      LINKEDIN_AUTO_PUBLISH: 'false'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://linkd:8080'
+    depends_on: [routd]
+    restart: on-failure

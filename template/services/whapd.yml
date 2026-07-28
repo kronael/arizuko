@@ -1,0 +1,17 @@
+# whapd — WhatsApp adapter (Node image). The auth dir persists the paired
+# session; deleting it forces a re-pair.
+services:
+  whapd:
+    container_name: ${APP}_whapd_${FLAVOR}
+    image: arizuko-whatsapp:latest
+    entrypoint: ['node', 'dist/main.js']
+    volumes:
+      - '${DATA_DIR}/store/whatsapp-auth:/srv/data/store/whatsapp-auth'
+    env_file: ['../env/whapd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://whapd:8080'
+      WHATSAPP_AUTH_DIR: '/srv/data/store/whatsapp-auth'
+    depends_on: [routd]
+    restart: on-failure

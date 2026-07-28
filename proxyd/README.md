@@ -20,19 +20,20 @@ headers with a service bearer (`service:proxyd`) verifiable by backends.
   (`specs/5/V-web-vhosts.md`).
 - Honor agent-registered web_routes (redirect/deny/auth gating on `/pub/*`).
 
-## Routes are TOML-declared
+## Routes are file-declared
 
-The route table is built from `[[proxyd_route]]` blocks in each
-service's `template/services/<name>.toml` plus a static core-route
-slice in `compose/compose.go` (`coreProxydRoutes` — dashd, webd, davd,
-onbod). `compose.go` collects survivors after `gated_by` env filtering,
+The route table is built from each package's
+`services/<name>-routes.json` plus a static core-route slice in
+`compose/compose.go` (`coreProxydRoutes` — dashd, webd, davd, onbod).
+`compose.go` collects survivors after `gated_by` env filtering,
 serializes to JSON, and injects as `PROXYD_ROUTES_JSON` on proxyd.
 proxyd reads the env at startup and dispatches via longest-prefix match.
 
 Sources of truth:
 
 - Core routes: `compose/compose.go` → `coreProxydRoutes`
-- Per-service routes: `template/services/*.toml` → `[[proxyd_route]]` blocks
+- Per-service routes: `template/services/<name>-routes.json` (copied into
+  the data dir by `arizuko packages add`)
 
 Bespoke handling for `/chat/`, `/hook/` (route-token resolver + anon DoS
 shield) and `/dav/` (group-scoped routing + davAllow write-block) lives

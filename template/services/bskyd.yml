@@ -1,0 +1,17 @@
+# bskyd — Bluesky adapter. bskyd reads BLUESKY_IDENTIFIER/BLUESKY_PASSWORD
+# (not the names in compose.daemonKeys), so they interpolate from .env here.
+services:
+  bskyd:
+    container_name: ${APP}_bskyd_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['bskyd']
+    env_file: ['../env/bskyd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      BLUESKY_IDENTIFIER: '${BLUESKY_IDENTIFIER}'
+      BLUESKY_PASSWORD: '${BLUESKY_PASSWORD}'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://bskyd:8080'
+      DATA_DIR: '/srv/app/home'
+    depends_on: [routd]
+    restart: on-failure

@@ -7,493 +7,549 @@ import (
 	"testing"
 )
 
-func TestGenerateMinimal(t *testing.T) {
+// seed writes a data dir with the given .env body and an empty services/.
+func seed(t *testing.T, env string) string {
+	t.Helper()
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("ASSISTANT_NAME=test\nAPI_PORT=8080\n"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
 
+func write(t *testing.T, dir, rel, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func read(t *testing.T, dir, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, rel))
+	if err != nil {
+		t.Fatalf("read %s: %v", rel, err)
+	}
+	return string(b)
+}
+
+func gen(t *testing.T, dir string) string {
+	t.Helper()
 	out, err := Generate(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "services:") {
-		t.Error("missing services header")
+	return out
+}
+
+// The split plane (authd/routd/runed) is the only topology: emitted in every
+// generate, carrying no profile, and gated appears nowhere.
+func TestGenerateBaseDaemons(t *testing.T) {
+	dir := seed(t, "ASSISTANT_NAME=test\nAPI_PORT=8080\n")
+	out := gen(t, dir)
+
+	if strings.Contains(out, "  gated:\n") || strings.Contains(out, "gated:8080") {
+		t.Error("gated must not appear (removed)")
 	}
-	// Split is the only topology: routd is the canonical router; gated is gone.
-	if !strings.Contains(out, "  routd:\n") {
-		t.Error("missing routd service (the canonical router)")
+	for _, svc := range []string{"authd", "routd", "runed"} {
+		blk := serviceBlock(out, svc)
+		if blk == "" {
+			t.Fatalf("missing service %q", svc)
+		}
+		if strings.Contains(blk, "profiles:") {
+			t.Errorf("%s must not be profile-gated (core plane)", svc)
+		}
+		if !strings.Contains(blk, "entrypoint: ['"+svc+"']") {
+			t.Errorf("%s missing entrypoint ['%s']", svc, svc)
+		}
+		if !strings.Contains(blk, "/health") {
+			t.Errorf("%s missing /health healthcheck", svc)
+		}
+		if !strings.Contains(blk, "user: '1000:1000'") {
+			t.Errorf("%s missing user 1000 — would create root-owned files in the data dir", svc)
+		}
 	}
-	if strings.Contains(out, "  gated:\n") {
-		t.Error("gated service must NOT be emitted (removed)")
-	}
-	if !strings.Contains(out, "arizuko:latest") {
-		t.Error("missing arizuko image")
-	}
-	if !strings.Contains(out, "user: '1000:1000'") {
-		t.Error("daemons missing user:1000 — will create root-owned files in shared data dir")
-	}
-	// runed spawns agent containers → group_add for docker.sock.
+	// runed is the only daemon wired to docker.sock (spawns agent containers).
 	runed := serviceBlock(out, "runed")
-	if !strings.Contains(runed, "group_add:") {
-		t.Error("runed missing group_add — docker.sock inaccessible as uid 1000")
+	if !strings.Contains(runed, "group_add:") || !strings.Contains(runed, "/var/run/docker.sock") {
+		t.Error("runed missing docker.sock wiring")
+	}
+	for _, svc := range []string{"routd", "authd"} {
+		if strings.Contains(serviceBlock(out, svc), "docker.sock") {
+			t.Errorf("%s must NOT mount docker.sock", svc)
+		}
+	}
+	// routd publishes API_PORT:8080 so the host CLI reaches /v1/channels.
+	if !strings.Contains(serviceBlock(out, "routd"), "'8080:8080'") {
+		t.Errorf("routd must publish API_PORT:8080; got:\n%s", serviceBlock(out, "routd"))
+	}
+	// authd resolves login/refresh scopes against routd's ACL owner.
+	if !strings.Contains(serviceBlock(out, "authd"), "GRANTS_URL: 'http://routd:8080'") {
+		t.Error("authd missing GRANTS_URL=http://routd:8080")
 	}
 }
 
-// TestAdapterPointsAtRoutd: the split is the only topology — adapters' ROUTER_URL
-// is re-pinned to routd, they depend_on routd, gated appears nowhere.
-func TestAdapterPointsAtRoutd(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"),
-		[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/teled.toml"), []byte(`
-image = "arizuko:latest"
+// Every optional daemon is ALWAYS emitted and carries a compose profile —
+// COMPOSE_PROFILES is the only gate. No Go conditional decides emission.
+func TestOptionalDaemonsCarryProfiles(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	out := gen(t, dir)
+
+	want := map[string]string{
+		"webd": "web", "proxyd": "web", "vited": "web", "dashd": "web",
+		"timed": "timed", "onbod": "onbod", "davd": "davd", "crackbox": "crackbox",
+	}
+	for svc, profile := range want {
+		blk := serviceBlock(out, svc)
+		if blk == "" {
+			t.Errorf("service %q must be emitted even when its profile is inactive", svc)
+			continue
+		}
+		if !strings.Contains(blk, "profiles: ['"+profile+"']") {
+			t.Errorf("%s must carry profiles: ['%s']; got:\n%s", svc, profile, blk)
+		}
+	}
+	// proxyd's depends_on may only point at services sharing its profile —
+	// docker rejects a depends_on into an inactive profile.
+	if !strings.Contains(serviceBlock(out, "proxyd"), "depends_on: [routd, dashd, webd]") {
+		t.Errorf("proxyd depends_on must be [routd, dashd, webd]; got:\n%s", serviceBlock(out, "proxyd"))
+	}
+}
+
+// COMPOSE_PROFILES is derived from the feature flags and written into the data
+// dir's .env, along with the identity vars the fragments interpolate.
+func TestManagedEnvBlock(t *testing.T) {
+	cases := []struct {
+		name     string
+		env      string
+		profiles string
+	}{
+		{"bare", "API_PORT=8080\n", "timed"},
+		{"web", "WEB_PORT=8095\n", "davd,timed,web"},
+		{"web no dav", "WEB_PORT=8095\nWEBDAV_ENABLED=false\n", "timed,web"},
+		{"onboarding", "WEB_PORT=8095\nONBOARDING_ENABLED=true\n", "davd,onbod,timed,web"},
+		{"egress", "CRACKBOX_ADMIN_API=http://crackbox:3129\n", "crackbox,timed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := seed(t, tc.env)
+			gen(t, dir)
+			got := read(t, dir, ".env")
+			if !strings.Contains(got, "COMPOSE_PROFILES="+tc.profiles+"\n") {
+				t.Errorf("want COMPOSE_PROFILES=%s; .env:\n%s", tc.profiles, got)
+			}
+			for _, want := range []string{"APP=", "FLAVOR=", "DATA_DIR=" + dir} {
+				if !strings.Contains(got, want) {
+					t.Errorf("managed block missing %q; .env:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// Regenerate rewrites the managed block in place: operator lines survive and
+// the block is not duplicated.
+func TestManagedEnvBlockIdempotent(t *testing.T) {
+	dir := seed(t, "ASSISTANT_NAME=test\nTELEGRAM_BOT_TOKEN=tok\n")
+	gen(t, dir)
+	gen(t, dir)
+	got := read(t, dir, ".env")
+	if n := strings.Count(got, managedBegin); n != 1 {
+		t.Errorf("managed block written %d times, want 1; .env:\n%s", n, got)
+	}
+	if !strings.Contains(got, "TELEGRAM_BOT_TOKEN=tok") || !strings.Contains(got, "ASSISTANT_NAME=test") {
+		t.Errorf("operator .env lines must survive regenerate; got:\n%s", got)
+	}
+	if st, err := os.Stat(filepath.Join(dir, ".env")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf(".env must stay 0600 (holds AUTH_SECRET); got %v %v", st.Mode().Perm(), err)
+	}
+}
+
+// Each services/<name>.yml is included verbatim by docker compose — sorted, one
+// include per fragment, and no `include:` key at all when there are none.
+func TestIncludeFragments(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	if out := gen(t, dir); strings.Contains(out, "include:") {
+		t.Errorf("no fragments → no include key; got:\n%s", out)
+	}
+	write(t, dir, "services/teled.yml", "services:\n  teled:\n    image: arizuko:latest\n")
+	write(t, dir, "services/discd.yml", "services:\n  discd:\n    image: arizuko:latest\n")
+	write(t, dir, "services/notes.txt", "ignored")
+	out := gen(t, dir)
+	if !strings.Contains(out, "include:\n  - ./services/discd.yml\n  - ./services/teled.yml\n") {
+		t.Errorf("fragments must be included in sorted order; got:\n%s", out)
+	}
+	if strings.Contains(out, "notes") {
+		t.Error("non-.yml files must be ignored")
+	}
+	// The fragment defines the service; compose must not also emit it inline.
+	if strings.Contains(out, "  teled:\n") {
+		t.Error("adapter service must come from the fragment, not an inline stanza")
+	}
+}
+
+func TestFragmentFilenameValidated(t *testing.T) {
+	dir := seed(t, "")
+	write(t, dir, "services/bad name.yml", "services: {}\n")
+	if _, err := Generate(dir); err == nil {
+		t.Error("expected error for invalid fragment filename")
+	}
+}
+
+func TestGenerateNoServicesDir(t *testing.T) {
+	if _, err := Generate(t.TempDir()); err == nil {
+		t.Error("expected error for missing services dir")
+	}
+}
+
+// A legacy data dir (services/*.toml) is converted in place so an instance
+// keeps running across the binary upgrade: fragment written, TOML gone,
+// stale gated ROUTER_URL re-pointed at routd.
+func TestLegacyTOMLConverted(t *testing.T) {
+	dir := seed(t, "ASSISTANT_NAME=test\nAPI_PORT=8080\nTELEGRAM_BOT_TOKEN=tok\n")
+	write(t, dir, "services/teled.toml", `image = "arizuko:latest"
 entrypoint = ["teled"]
+
 [environment]
 ROUTER_URL = "http://gated:8080"
 TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
-`), 0o644)
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
+CHANNEL_NAME = "telegram"
+DB_PATH = "${CONTAINER_DATA}/store/messages.db"
+`)
+	out := gen(t, dir)
+
+	if _, err := os.Stat(filepath.Join(dir, "services/teled.toml")); !os.IsNotExist(err) {
+		t.Error("converted .toml must be removed")
 	}
-	if strings.Contains(out, "  gated:\n") {
-		t.Error("gated service must NOT be emitted (removed)")
-	}
-	for _, svc := range []string{"  authd:\n", "  routd:\n", "  runed:\n"} {
-		if !strings.Contains(out, svc) {
-			t.Errorf("split service %q must be emitted", svc)
+	frag := read(t, dir, "services/teled.yml")
+	for _, want := range []string{
+		"  teled:\n",
+		"container_name: ${APP}_teled_${FLAVOR}",
+		"image: arizuko:latest",
+		`entrypoint: ["teled"]`,
+		"env_file: ['../env/teled.env']",
+		`ROUTER_URL: "http://routd:8080"`,
+		`TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"`,
+		`CHANNEL_NAME: "telegram"`,
+		`DB_PATH: "/srv/app/home/store/messages.db"`,
+		"depends_on: [routd]",
+		"restart: on-failure",
+	} {
+		if !strings.Contains(frag, want) {
+			t.Errorf("fragment missing %q; got:\n%s", want, frag)
 		}
 	}
-	if !strings.Contains(serviceBlock(out, "teled"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("adapter ROUTER_URL must re-point to routd; got:\n%s", serviceBlock(out, "teled"))
+	if strings.Contains(frag, "gated") {
+		t.Errorf("stale gated ROUTER_URL must be re-pointed; got:\n%s", frag)
 	}
-	if strings.Contains(out, "gated:8080") {
-		t.Errorf("no gated:8080 reference allowed; got:\n%s", out)
-	}
-	if !strings.Contains(serviceBlock(out, "teled"), "depends_on: [routd]") {
-		t.Errorf("adapter must depend on routd; got:\n%s", serviceBlock(out, "teled"))
+	if !strings.Contains(out, "  - ./services/teled.yml\n") {
+		t.Errorf("converted fragment must be included; got:\n%s", out)
 	}
 }
 
-// TestSplitScopesSecretsKey: in the split, routd OWNS secrets and runed injects
-// them into spawned containers, so both per-daemon env files must carry
-// SECRETS_KEY. Regression for the cutover where neither got it → routd warned
-// "SECRETS_KEY unset" and secret-backed turns failed.
-func TestSplitScopesSecretsKey(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nSECRETS_KEY=deadbeef\n"
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
+// Multi-account adapters (`<adapter>-<label>`, specs/5/R) keep the base
+// adapter's scoped env file and their own per-account overrides.
+func TestLegacyTOMLMultiAccount(t *testing.T) {
+	dir := seed(t, "TELEGRAM_BOT_TOKEN_RHIAS=rt\nAPI_PORT=8080\n")
+	write(t, dir, "services/teled-rhias.toml", `image = "arizuko:latest"
+entrypoint = ["teled"]
+
+[environment]
+ROUTER_URL = "http://gated:8080"
+TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN_RHIAS}"
+CHANNEL_NAME = "telegram-rhias"
+LISTEN_URL = "http://teled-rhias:8080"
+`)
+	gen(t, dir)
+	frag := read(t, dir, "services/teled-rhias.yml")
+	if !strings.Contains(frag, "env_file: ['../env/teled.env']") {
+		t.Errorf("multi-account fragment must reuse the base adapter env file; got:\n%s", frag)
 	}
-	for _, d := range []string{"routd", "runed"} {
-		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
-		if err != nil {
-			t.Fatalf("read env/%s.env: %v", d, err)
+	for _, want := range []string{
+		"container_name: ${APP}_teled-rhias_${FLAVOR}",
+		`TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN_RHIAS}"`,
+		`CHANNEL_NAME: "telegram-rhias"`,
+	} {
+		if !strings.Contains(frag, want) {
+			t.Errorf("fragment missing %q; got:\n%s", want, frag)
 		}
-		if !strings.Contains(string(b), "SECRETS_KEY=deadbeef") {
-			t.Errorf("env/%s.env must carry SECRETS_KEY; got:\n%s", d, b)
+	}
+	// The base adapter principal covers the account variant.
+	if !strings.Contains(read(t, dir, "env/teled.env"), "AUTHD_SERVICE_NAME=teled") {
+		t.Error("teled-rhias must wire the base teled service principal")
+	}
+}
+
+// A legacy [[proxyd_route]] block becomes the fragment's sibling routes file.
+func TestLegacyTOMLRoutesSidecar(t *testing.T) {
+	dir := seed(t, "WEB_PORT=8095\nSLACK_BOT_TOKEN=tok\n")
+	write(t, dir, "services/slakd.toml", `image = "arizuko:latest"
+entrypoint = ["slakd"]
+
+[[proxyd_route]]
+path = "/slack/"
+backend = "http://slakd:8080"
+auth = "public"
+gated_by = "SLACK_BOT_TOKEN"
+preserve_headers = ["X-Slack-Signature"]
+`)
+	out := gen(t, dir)
+	sidecar := read(t, dir, "services/slakd-routes.json")
+	if !strings.Contains(sidecar, `"path": "/slack/"`) || !strings.Contains(sidecar, `"gated_by": "SLACK_BOT_TOKEN"`) {
+		t.Errorf("routes sidecar missing the converted route; got:\n%s", sidecar)
+	}
+	if !strings.Contains(out, `\"path\":\"/slack/\"`) {
+		t.Errorf("converted route must reach PROXYD_ROUTES_JSON; got:\n%s", out)
+	}
+}
+
+func TestLegacyTOMLRejectsBadImage(t *testing.T) {
+	dir := seed(t, "")
+	write(t, dir, "services/evil.toml", "image = \"arizuko:latest\\n  privileged: true\"\n")
+	if _, err := Generate(dir); err == nil {
+		t.Error("expected error for image ref failing the image-ref regex")
+	}
+}
+
+// PROXYD_ROUTES_JSON is assembled in Go (one env var on proxyd): core routes
+// plus each fragment's sibling routes file, gated_by filtered.
+func TestProxydRoutesAssembled(t *testing.T) {
+	dir := seed(t, "WEB_PORT=8095\nAPI_PORT=8080\nSLACK_BOT_TOKEN=tok\n")
+	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
+	write(t, dir, "services/slakd-routes.json",
+		`[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`)
+	out := gen(t, dir)
+	proxyd := serviceBlock(out, "proxyd")
+	if !strings.Contains(proxyd, "PROXYD_ROUTES_JSON") {
+		t.Fatal("proxyd missing PROXYD_ROUTES_JSON")
+	}
+	for _, want := range []string{
+		`\"path\":\"/slack/\"`, `\"backend\":\"http://slakd:8080\"`, // per-service
+		`\"path\":\"/chat/\"`, `\"path\":\"/dash/\"`, // core
+		`\"path\":\"/dav/\"`, // WEBDAV_ENABLED defaults on
+	} {
+		if !strings.Contains(proxyd, want) {
+			t.Errorf("PROXYD_ROUTES_JSON missing %s; got:\n%s", want, proxyd)
+		}
+	}
+	// ONBOARDING_ENABLED unset → onbod routes dropped.
+	if strings.Contains(proxyd, `\"path\":\"/invite/\"`) {
+		t.Error("/invite/ route must be dropped when ONBOARDING_ENABLED is unset")
+	}
+}
+
+func TestProxydRoutesGating(t *testing.T) {
+	routesJSON := `[{"path":"/slack/","backend":"http://slakd:8080","auth":"public","gated_by":"SLACK_BOT_TOKEN"}]`
+	for _, tc := range []struct {
+		name, env string
+		want      bool
+	}{
+		{"gate unset", "WEB_PORT=8095\n", false},
+		{"gate set", "WEB_PORT=8095\nSLACK_BOT_TOKEN=tok\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := seed(t, tc.env)
+			write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
+			write(t, dir, "services/slakd-routes.json", routesJSON)
+			out := gen(t, dir)
+			if got := strings.Contains(out, `\"path\":\"/slack/\"`); got != tc.want {
+				t.Errorf("route present=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProxydRoutesOnboardingAndWebDAVGates(t *testing.T) {
+	on := gen(t, seed(t, "WEB_PORT=8095\nONBOARDING_ENABLED=true\n"))
+	if !strings.Contains(on, `\"path\":\"/invite/\"`) {
+		t.Error("/invite/ route missing when ONBOARDING_ENABLED=true")
+	}
+	off := gen(t, seed(t, "WEB_PORT=8095\nWEBDAV_ENABLED=false\n"))
+	if strings.Contains(off, `\"path\":\"/dav/\"`) {
+		t.Error("/dav/ route must be dropped when WEBDAV_ENABLED=false")
+	}
+}
+
+func TestProxydPortAliases(t *testing.T) {
+	out := gen(t, seed(t, "WEB_PORT=49165\nWEB_PORT_ALIASES=49177\n"))
+	proxyd := serviceBlock(out, "proxyd")
+	if !strings.Contains(proxyd, "'49165:8080'") || !strings.Contains(proxyd, "'49177:8080'") {
+		t.Errorf("proxyd must publish WEB_PORT + aliases; got:\n%s", proxyd)
+	}
+}
+
+// In the split, routd OWNS secrets and runed injects them into spawned
+// containers, so both env files carry SECRETS_KEY.
+func TestSplitScopesSecretsKey(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\nSECRETS_KEY=deadbeef\n")
+	gen(t, dir)
+	for _, d := range []string{"routd", "runed"} {
+		if !strings.Contains(read(t, dir, "env/"+d+".env"), "SECRETS_KEY=deadbeef") {
+			t.Errorf("env/%s.env must carry SECRETS_KEY", d)
 		}
 	}
 }
 
 // Surrogate OAuth creds (spec 5/15) reach BOTH consumers: dashd runs the
-// Connect-GitHub dance at /dash/me/connections; routd's broker refreshes
-// near-expiry tokens at call time. Without the passthrough the feature is
-// dead on every split deploy.
+// Connect-GitHub dance, routd's broker refreshes near-expiry tokens.
 func TestSurrogateKeysScopedToDashdAndRoutd(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	env := "ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n" +
-		"SURROGATE_GITHUB_CLIENT_ID=cid\nSURROGATE_GITHUB_CLIENT_SECRET=csec\n"
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(env), 0o644)
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
+	dir := seed(t, "SURROGATE_GITHUB_CLIENT_ID=cid\nSURROGATE_GITHUB_CLIENT_SECRET=csec\n")
+	gen(t, dir)
 	for _, d := range []string{"dashd", "routd"} {
-		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
-		if err != nil {
-			t.Fatalf("read env/%s.env: %v", d, err)
-		}
+		env := read(t, dir, "env/"+d+".env")
 		for _, kv := range []string{"SURROGATE_GITHUB_CLIENT_ID=cid", "SURROGATE_GITHUB_CLIENT_SECRET=csec"} {
-			if !strings.Contains(string(b), kv) {
-				t.Errorf("env/%s.env must carry %s; got:\n%s", d, kv, b)
+			if !strings.Contains(env, kv) {
+				t.Errorf("env/%s.env must carry %s", d, kv)
 			}
 		}
 	}
 }
 
-// A present channel adapter (slakd) is wired as a service principal: its env
-// file carries AUTHD_URL + AUTHD_SERVICE_KEY, and the authd seed registers
-// service:slakd=<key>. onbod (a fixed daemon) is always wired. This is the
-// compose half of the split's A1/A2 fix (spec 5/1).
-func TestServiceKeyWiredForAdaptersAndOnbod(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["slakd"]
+// A present channel adapter is wired as a service principal (spec 5/1); a
+// non-adapter package is not.
+func TestServiceKeyWiring(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\nONBOARDING_ENABLED=true\n")
+	write(t, dir, "services/slakd.yml", "services:\n  slakd:\n    image: arizuko:latest\n")
+	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	gen(t, dir)
 
-[environment]
-ROUTER_URL = "http://gated:8080"
-AUTH_SECRET = "${AUTH_SECRET}"
-`), 0o644)
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-
-	read := func(d string) string {
-		b, err := os.ReadFile(filepath.Join(dir, "env", d+".env"))
-		if err != nil {
-			t.Fatalf("read env/%s.env: %v", d, err)
+	slakd := read(t, dir, "env/slakd.env")
+	for _, want := range []string{"AUTHD_SERVICE_KEY=", "AUTHD_SERVICE_NAME=slakd", "AUTHD_URL="} {
+		if !strings.Contains(slakd, want) {
+			t.Errorf("env/slakd.env must carry %s; got:\n%s", want, slakd)
 		}
-		return string(b)
 	}
-
-	// slakd's env file carries its service identity: key + the exchange principal
-	// name (so chanlib exchanges as service:slakd regardless of CHANNEL_NAME).
-	slakd := read("slakd")
-	if !strings.Contains(slakd, "AUTHD_SERVICE_KEY=") {
-		t.Errorf("env/slakd.env must carry AUTHD_SERVICE_KEY; got:\n%s", slakd)
-	}
-	if !strings.Contains(slakd, "AUTHD_SERVICE_NAME=slakd") {
-		t.Errorf("env/slakd.env must carry AUTHD_SERVICE_NAME=slakd; got:\n%s", slakd)
-	}
-	if !strings.Contains(slakd, "AUTHD_URL=") {
-		t.Errorf("env/slakd.env must carry AUTHD_URL; got:\n%s", slakd)
-	}
-	// onbod (fixed daemon) is wired too.
-	if !strings.Contains(read("onbod"), "AUTHD_SERVICE_KEY=") {
-		t.Errorf("env/onbod.env must carry AUTHD_SERVICE_KEY")
-	}
-	// authd's seed (shared .env scope) registers the adapter + onbod principals.
-	authd := read("authd")
-	for _, want := range []string{"service:slakd=", "service:onbod=", "service:routd="} {
+	authd := read(t, dir, "env/authd.env")
+	for _, want := range []string{"service:slakd=", "service:onbod=", "service:routd=", "service:runed=", "service:timed="} {
 		if !strings.Contains(authd, want) {
-			t.Errorf("AUTHD_SERVICE_KEYS must register %q; env/authd.env:\n%s", want, authd)
+			t.Errorf("AUTHD_SERVICE_KEYS must register %q; got:\n%s", want, authd)
+		}
+	}
+	// ttsd never posts inbound — no message principal.
+	if strings.Contains(authd, "service:ttsd=") {
+		t.Errorf("ttsd must not be wired as a message principal; got:\n%s", authd)
+	}
+	// authd holds the list, never a bare key of its own peers.
+	if strings.Contains(authd, "\nAUTHD_SERVICE_KEY=") {
+		t.Errorf("authd env must not carry a bare AUTHD_SERVICE_KEY; got:\n%s", authd)
+	}
+}
+
+// AUTHD_URL reaches every consumer; each daemon's key is distinct and survives
+// a redeploy (otherwise in-flight tokens are invalidated on every restart).
+func TestServiceKeysDistinctAndStable(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\nWEB_PORT=8095\nONBOARDING_ENABLED=true\n")
+	gen(t, dir)
+	seen := map[string]string{}
+	for _, d := range []string{"routd", "runed", "timed", "proxyd", "webd", "onbod"} {
+		env := read(t, dir, "env/"+d+".env")
+		if !strings.Contains(env, "AUTHD_URL=http://authd:8080") {
+			t.Errorf("%s env missing AUTHD_URL", d)
+		}
+		key := readEnvFileKey(filepath.Join(dir, "env", d+".env"), "AUTHD_SERVICE_KEY")
+		if key == "" {
+			t.Fatalf("%s has no AUTHD_SERVICE_KEY", d)
+		}
+		if other, dup := seen[key]; dup {
+			t.Errorf("%s reuses %s's service key", d, other)
+		}
+		seen[key] = d
+	}
+	before := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
+	gen(t, dir)
+	if after := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY"); after != before {
+		t.Errorf("service key must persist across regenerate: %q -> %q", before, after)
+	}
+}
+
+// timed federates its fire loop over routd HTTP (no messages.db).
+func TestTimedWiring(t *testing.T) {
+	dir := seed(t, "AUTH_SECRET=s\nTZ=Europe/Prague\n")
+	out := gen(t, dir)
+	timed := serviceBlock(out, "timed")
+	if !strings.Contains(timed, `ROUTER_URL: "http://routd:8080"`) || !strings.Contains(timed, `TIMEZONE: "Europe/Prague"`) {
+		t.Errorf("timed wiring wrong; got:\n%s", timed)
+	}
+	if !strings.Contains(serviceBlock(out, "onbod"), `ROUTER_URL: "http://routd:8080"`) {
+		t.Error("onbod ROUTER_URL must be routd")
+	}
+	if !strings.Contains(serviceBlock(out, "webd"), `ROUTER_URL: "http://routd:8080"`) {
+		t.Error("webd ROUTER_URL must be routd")
+	}
+}
+
+// Egress isolation: crackbox is emitted (profile-gated) and gets its scoped env;
+// folder networks stay runtime-managed, never declared in compose.
+func TestEgressIsolation(t *testing.T) {
+	dir := seed(t, "CRACKBOX_ADMIN_API=http://crackbox:3129\n")
+	out := gen(t, dir)
+	if !strings.Contains(serviceBlock(out, "crackbox"), "image: crackbox:latest") {
+		t.Error("crackbox service missing")
+	}
+	if strings.Contains(out, "\nnetworks:\n") {
+		t.Error("compose must not declare networks — folder networks are runtime-managed")
+	}
+	runedEnv := read(t, dir, "env/runed.env")
+	if !strings.Contains(runedEnv, "CRACKBOX_ADMIN_API=http://crackbox:3129") {
+		t.Error("runed env missing CRACKBOX_ADMIN_API")
+	}
+	if !strings.Contains(runedEnv, "EGRESS_CRACKBOX=") || !strings.Contains(runedEnv, "EGRESS_NETWORK_PREFIX=") {
+		t.Errorf("runed env missing derived egress names; got:\n%s", runedEnv)
+	}
+	for _, svc := range []string{"routd", "authd"} {
+		env := read(t, dir, "env/"+svc+".env")
+		if strings.Contains(env, "CRACKBOX") || strings.Contains(env, "EGRESS") {
+			t.Errorf("%s env must NOT carry crackbox/egress vars", svc)
 		}
 	}
 }
 
-// A non-adapter service (ttsd) is NOT wired as a message principal — it never
-// posts inbound. Guards against over-broad principal granting.
-func TestServiceKeyNotWiredForNonAdapters(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["ttsd"]
-`), 0o644)
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
+// services/ttsd.yml present → TTS auto-enabled on runed; explicit .env wins.
+func TestTTSAutoEnable(t *testing.T) {
+	dir := seed(t, "API_PORT=8080\n")
+	write(t, dir, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	gen(t, dir)
+	runed := read(t, dir, "env/runed.env")
+	if !strings.Contains(runed, "TTS_ENABLED=true") || !strings.Contains(runed, "TTS_BASE_URL=http://ttsd:8880") {
+		t.Errorf("ttsd package must auto-enable TTS on runed; got:\n%s", runed)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "env", "authd.env"))
-	if err != nil {
-		t.Fatalf("read env/authd.env: %v", err)
+
+	off := seed(t, "API_PORT=8080\n")
+	gen(t, off)
+	if strings.Contains(read(t, off, "env/runed.env"), "TTS_ENABLED") {
+		t.Error("TTS must stay off without the ttsd package")
 	}
-	if strings.Contains(string(b), "service:ttsd=") {
-		t.Errorf("ttsd must not be wired as a message service principal; got:\n%s", b)
+
+	override := seed(t, "TTS_BASE_URL=https://api.openai.com\n")
+	write(t, override, "services/ttsd.yml", "services:\n  ttsd:\n    image: arizuko-ttsd:latest\n")
+	gen(t, override)
+	if !strings.Contains(read(t, override, "env/runed.env"), "TTS_BASE_URL=https://api.openai.com") {
+		t.Error("explicit TTS_BASE_URL must win over the auto default")
 	}
 }
 
-func TestGenerateWithChannel(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s3cr3t\nTELEGRAM_BOT_TOKEN=tok123\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/telegram.toml"), []byte(`
-image = "arizuko-telegram:latest"
-
-[environment]
-ROUTER_URL = "http://gated:8080"
-TELEGRAM_TOKEN = "${TELEGRAM_BOT_TOKEN}"
-AUTH_SECRET = "${AUTH_SECRET}"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
+// routd's checkMigrationVersion reads ant/skills/self/MIGRATION_VERSION from
+// APP_SRC_DIR — without the source mount /migrate is never enqueued.
+func TestAppSrcMountRoutdAndRuned(t *testing.T) {
+	out := gen(t, seed(t, "HOST_APP_DIR=/home/op/app/arizuko\n"))
+	for _, name := range []string{"routd", "runed"} {
+		s := serviceBlock(out, name)
+		if !strings.Contains(s, "- /home/op/app/arizuko:/srv/app/arizuko:ro\n") {
+			t.Errorf("%s missing read-only source mount, got:\n%s", name, s)
+		}
+		if !strings.Contains(s, `APP_SRC_DIR: "/srv/app/arizuko"`) {
+			t.Errorf("%s missing APP_SRC_DIR, got:\n%s", name, s)
+		}
 	}
-	if !strings.Contains(out, "telegram:") {
-		t.Error("missing telegram service")
-	}
-	if !strings.Contains(out, "arizuko-telegram:latest") {
-		t.Error("missing telegram image")
-	}
-	if !strings.Contains(out, "tok123") {
-		t.Error("TELEGRAM_BOT_TOKEN not interpolated")
-	}
-	if !strings.Contains(out, "s3cr3t") {
-		t.Error("AUTH_SECRET not interpolated")
-	}
-	if !strings.Contains(out, "depends_on: [routd]") {
-		t.Error("adapter should depend on routd (the canonical router)")
-	}
-	if !strings.Contains(out, `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("ROUTER_URL must be pinned to routd; got:\n%s", out)
-	}
-	if strings.Contains(out, "http://gated:8080") {
-		t.Errorf("no gated reference allowed (removed); got:\n%s", out)
-	}
-}
-
-func TestGenerateMultipleServices(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("API_PORT=9090\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/discord.toml"), []byte(`
-image = "arizuko-discord:latest"
-[environment]
-ROUTER_URL = "http://gated:8080"
-`), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/telegram.toml"), []byte(`
-image = "arizuko-telegram:latest"
-[environment]
-ROUTER_URL = "http://gated:8080"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	di := strings.Index(out, "discord:")
-	ti := strings.Index(out, "telegram:")
-	if di < 0 || ti < 0 {
-		t.Fatal("missing services")
-	}
-	if di > ti {
-		t.Error("services not sorted alphabetically")
-	}
-}
-
-func TestGenerateNoServicesDir(t *testing.T) {
-	dir := t.TempDir()
-	_, err := Generate(dir)
-	if err == nil {
-		t.Error("expected error for missing services dir")
-	}
-}
-
-func TestGenerateCustomDependsOn(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(""), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/whisper.toml"), []byte(`
-image = "whisper:latest"
-depends_on = ["gated", "telegram"]
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "depends_on: [gated, telegram]") {
-		t.Error("custom depends_on not rendered")
-	}
-}
-
-func TestGenerateWebServices(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAUTH_SECRET=sec\nAUTH_SECRET=jwt\nASSISTANT_NAME=bot\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "webd:") {
-		t.Error("missing webd service")
-	}
-	// Shared env flows via env_file; peer URLs default in code to
-	// http://<svc>:8080. routd carries its own scoped env file.
-	if !strings.Contains(out, "env_file:\n      - env/routd.env") {
-		t.Error("routd missing scoped env_file: env/routd.env")
-	}
-	if !strings.Contains(out, "'8095:8080'") {
-		t.Error("proxyd external mapping should be WEB_PORT:8080")
-	}
-	// proxyd depends on routd (the canonical router) + dashd + webd.
-	if !strings.Contains(out, "depends_on: [routd, dashd, webd]") {
-		t.Error("proxyd depends_on should be [routd, dashd, webd]")
-	}
-}
-
-func TestGenerateWithWebDAV(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEBDAV_ENABLED=true\nWEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "davd:") {
-		t.Error("missing davd service")
-	}
-	if !strings.Contains(out, "arizuko-davd") {
-		t.Error("davd should use arizuko-davd image (sigoden/dufs wrapped with healthcheck)")
-	}
-	if strings.Contains(out, "/data:ro") {
-		t.Error("davd /data mount should be read-write; proxyd davAllow is the write-block enforcement")
-	}
-	if !strings.Contains(out, ":/data\n") {
-		t.Error("davd should mount /data (read-write)")
-	}
-	if !strings.Contains(out, "depends_on") {
-		t.Error("davd missing depends_on")
-	}
-}
-
-func TestGenerateWebDAVDefaultOn(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "davd:") {
-		t.Error("davd service should be present by default (WEBDAV_ENABLED defaults to true)")
-	}
-	if !strings.Contains(out, `\"path\":\"/dav/\"`) {
-		t.Error("proxyd should receive /dav/ route in PROXYD_ROUTES_JSON by default")
-	}
-}
-
-func TestGenerateWebDAVDisabled(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEBDAV_ENABLED=false\nWEB_PORT=443\nAPI_PORT=8080\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, "davd:") {
-		t.Error("davd service should be absent when WEBDAV_ENABLED=false")
-	}
-	if strings.Contains(out, `\"path\":\"/dav/\"`) {
-		t.Error("proxyd should not receive /dav/ route when WEBDAV_ENABLED=false")
-	}
-}
-
-// TestGenerateProfiles pins the PROFILE → built-in services matrix from
-// specs/4/Y-minimal-setup.md. WEB_PORT is set so the web bundle (webd,
-// proxyd, vited) is eligible; the profile gates non-web built-ins.
-func TestGenerateProfiles(t *testing.T) {
-	cases := []struct {
-		profile string
-		wantIn  []string
-		wantOut []string
-	}{
-		// authd/routd/runed (the split plane) are emitted in EVERY profile; gated
-		// is gone. Profiles only gate the web/aux daemons.
-		{
-			profile: "minimal",
-			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n"},
-			wantOut: []string{"  gated:\n", "  webd:", "  proxyd:", "  vited:", "  timed:", "  dashd:"},
-		},
-		{
-			profile: "web",
-			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  webd:", "  proxyd:", "  vited:"},
-			wantOut: []string{"  gated:\n", "  timed:", "  dashd:", "  davd:", "  onbod:"},
-		},
-		{
-			profile: "standard",
-			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  timed:", "  webd:", "  proxyd:", "  vited:"},
-			wantOut: []string{"  gated:\n", "  dashd:", "  davd:", "  onbod:"},
-		},
-		{
-			profile: "full",
-			wantIn:  []string{"  authd:\n", "  routd:\n", "  runed:\n", "  timed:", "  webd:", "  proxyd:", "  vited:", "  dashd:", "  davd:"},
-			wantOut: []string{"  gated:\n", "  onbod:"}, // ONBOARDING_ENABLED unset
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.profile, func(t *testing.T) {
-			dir := t.TempDir()
-			os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-			os.WriteFile(filepath.Join(dir, ".env"), []byte(
-				"PROFILE="+tc.profile+"\nWEB_PORT=8095\nAPI_PORT=8080\n"), 0o644)
-			out, err := Generate(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range tc.wantIn {
-				if !strings.Contains(out, want) {
-					t.Errorf("PROFILE=%s: missing %q", tc.profile, want)
-				}
-			}
-			for _, dont := range tc.wantOut {
-				if strings.Contains(out, dont) {
-					t.Errorf("PROFILE=%s: unexpected %q", tc.profile, dont)
-				}
-			}
-		})
-	}
-}
-
-// TestGenerateMultiAccountAdapter verifies that <adapter>-<label>.toml
-// services share the base adapter's env_file (specs/5/R-multi-account.md).
-func TestGenerateMultiAccountAdapter(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"AUTH_SECRET=s\nTELEGRAM_BOT_TOKEN=tok\nAPI_PORT=8080\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/teled-work.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["teled"]
-[environment]
-ROUTER_URL = "http://gated:8080"
-LISTEN_URL = "http://teled-work:8080"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "  teled-work:\n") {
-		t.Fatal("missing teled-work service")
-	}
-	// teled-work must reuse env/teled.env so per-daemon secret scoping holds.
-	idx := strings.Index(out, "  teled-work:\n")
-	tail := out[idx:]
-	if !strings.Contains(tail[:200], "env/teled.env") {
-		t.Errorf("teled-work should reuse env/teled.env, got:\n%s", tail[:200])
-	}
-}
-
-// proxyd's depends_on must not reference dashd in profiles that don't emit
-// it (web, standard) — docker compose rejects "depends on undefined service".
-func TestProxydDependsOnDefinedServicesOnly(t *testing.T) {
-	for _, profile := range []string{"web", "standard"} {
-		t.Run(profile, func(t *testing.T) {
-			dir := t.TempDir()
-			os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-			os.WriteFile(filepath.Join(dir, ".env"), []byte(
-				"PROFILE="+profile+"\nWEB_PORT=8095\nAPI_PORT=8080\n"), 0o644)
-			out, err := Generate(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(out, "  dashd:\n") {
-				t.Fatalf("PROFILE=%s should not emit dashd", profile)
-			}
-			if !strings.Contains(out, "depends_on: [routd, webd]") {
-				t.Errorf("PROFILE=%s: proxyd depends_on must be [routd, webd] (omit dashd); got:\n%s", profile, out)
-			}
-		})
+	out = gen(t, seed(t, "API_PORT=8080\n"))
+	for _, name := range []string{"routd", "runed"} {
+		s := serviceBlock(out, name)
+		if strings.Contains(s, "/srv/app/arizuko:ro") || strings.Contains(s, "APP_SRC_DIR") {
+			t.Errorf("%s must have no source mount without HOST_APP_DIR, got:\n%s", name, s)
+		}
 	}
 }
 
@@ -518,533 +574,4 @@ func serviceBlock(out, name string) string {
 		}
 	}
 	return out[start:]
-}
-
-// TestSplitDaemonsEmitted: with CUTOVER_SPLIT=true the authd/routd/runed plane
-// is emitted and gated is not. Opt-in cutover; default stays the monolith.
-func TestSplitDaemonsEmitted(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, "  gated:\n") {
-		t.Error("gated service must NOT be emitted after the cutover")
-	}
-	for _, svc := range []string{"  authd:", "  routd:", "  runed:"} {
-		if !strings.Contains(out, svc) {
-			t.Errorf("missing service %q (split daemons are the canonical plane)", svc)
-		}
-	}
-	for _, svc := range []string{"authd", "routd", "runed"} {
-		if !strings.Contains(serviceBlock(out, svc), "entrypoint: ['"+svc+"']") {
-			t.Errorf("%s missing entrypoint ['%s']", svc, svc)
-		}
-		if !strings.Contains(serviceBlock(out, svc), "/health") {
-			t.Errorf("%s missing /health healthcheck", svc)
-		}
-	}
-	// routd publishes API_PORT:8080 to the host (replacing gated) so the host
-	// CLI (arizuko status/send) reaches /v1/channels.
-	if !strings.Contains(serviceBlock(out, "routd"), "'8080:8080'") {
-		t.Errorf("routd must publish API_PORT:8080 to the host; got:\n%s", serviceBlock(out, "routd"))
-	}
-	// authd resolves login/refresh scopes against routd's ACL owner — GRANTS_URL
-	// points at routd (completes the ACL federation; unset → empty-scope sessions).
-	if !strings.Contains(serviceBlock(out, "authd"), "GRANTS_URL: 'http://routd:8080'") {
-		t.Errorf("authd must get GRANTS_URL=http://routd:8080; got:\n%s", serviceBlock(out, "authd"))
-	}
-}
-
-// TestCutover_NoGatedDanglingAndRoutdIsRouter: with CUTOVER_SPLIT=true the full
-// split surface — no gated service block, no gated:8080 anywhere, every adapter
-// ROUTER_URL pinned to routd. The flip target per the split topology.
-func TestCutover_NoGatedDanglingAndRoutdIsRouter(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nAUTH_SECRET=j\n"+
-			"WEB_PORT=8095\nONBOARDING_ENABLED=true\nTELEGRAM_BOT_TOKEN=tok\n"), 0o644)
-	// An adapter TOML still carrying the gated-era ROUTER_URL — the renderer
-	// must re-point it on generate.
-	os.WriteFile(filepath.Join(dir, "services/teled.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["teled"]
-[environment]
-ROUTER_URL = "http://gated:8080"
-TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, "  gated:\n") {
-		t.Error("gated service block must NOT be emitted")
-	}
-	if strings.Contains(out, "gated:8080") {
-		t.Errorf("no dangling gated:8080 routing target allowed; got:\n%s", out)
-	}
-	if strings.Contains(out, "depends_on: [gated") || strings.Contains(out, " gated]") ||
-		strings.Contains(out, " gated,") {
-		t.Errorf("no depends_on may reference gated; got:\n%s", out)
-	}
-	// The adapter's stale gated ROUTER_URL was re-pointed to routd.
-	if !strings.Contains(serviceBlock(out, "teled"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("teled ROUTER_URL must be re-pointed to routd; got:\n%s", serviceBlock(out, "teled"))
-	}
-	// webd + onbod carry the routd ROUTER_URL injected by compose-gen.
-	if !strings.Contains(serviceBlock(out, "webd"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("webd ROUTER_URL must be routd; got:\n%s", serviceBlock(out, "webd"))
-	}
-	if !strings.Contains(serviceBlock(out, "onbod"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("onbod ROUTER_URL must be routd; got:\n%s", serviceBlock(out, "onbod"))
-	}
-}
-
-// TestSplitTopology_DockerCrackboxOnlyRuned: only runed gets the docker socket
-// + the spawn wiring (group_add). routd and authd are docker-free and
-// crackbox-free.
-func TestSplitTopology_DockerCrackboxOnlyRuned(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"+
-			"CRACKBOX_ADMIN_API=http://crackbox:3129\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runed := serviceBlock(out, "runed")
-	if !strings.Contains(runed, "/var/run/docker.sock") {
-		t.Error("runed must mount docker.sock to spawn agent containers")
-	}
-	if !strings.Contains(runed, "group_add:") {
-		t.Error("runed must group_add the docker gid")
-	}
-	// runed gets crackbox env via its scoped env file.
-	runedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
-	if !strings.Contains(string(runedEnv), "CRACKBOX_ADMIN_API=http://crackbox:3129") {
-		t.Errorf("runed env should carry CRACKBOX_ADMIN_API; got:\n%s", runedEnv)
-	}
-
-	for _, svc := range []string{"routd", "authd"} {
-		blk := serviceBlock(out, svc)
-		if strings.Contains(blk, "docker.sock") {
-			t.Errorf("%s must NOT mount docker.sock (only runed spawns containers)", svc)
-		}
-		if strings.Contains(blk, "group_add:") {
-			t.Errorf("%s must NOT group_add docker gid", svc)
-		}
-		env, _ := os.ReadFile(filepath.Join(dir, "env", svc+".env"))
-		if strings.Contains(string(env), "CRACKBOX") || strings.Contains(string(env), "EGRESS") {
-			t.Errorf("%s env must NOT carry crackbox/egress vars; got:\n%s", svc, env)
-		}
-	}
-}
-
-// TestSplitWiring_AuthdURL: AUTHD_URL is wired into every consumer
-// (routd, runed, proxyd, webd, onbod) — the in-network authd base URL.
-func TestSplitWiring_AuthdURL(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\nAUTH_SECRET=j\n"+
-			"WEB_PORT=8095\nONBOARDING_ENABLED=true\n"), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	for _, daemon := range []string{"routd", "runed", "proxyd", "webd", "onbod"} {
-		env, err := os.ReadFile(filepath.Join(dir, "env", daemon+".env"))
-		if err != nil {
-			t.Fatalf("read %s.env: %v", daemon, err)
-		}
-		if !strings.Contains(string(env), "AUTHD_URL=http://authd:8080") {
-			t.Errorf("%s env missing AUTHD_URL=http://authd:8080; got:\n%s", daemon, env)
-		}
-	}
-}
-
-// TestSplitWiring_ServiceKeys: routd/runed each get a distinct
-// AUTHD_SERVICE_KEY in their own env file, and authd's AUTHD_SERVICE_KEYS
-// carries BOTH as principal=secret pairs.
-func TestSplitWiring_ServiceKeys(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	routdKey := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
-	runedKey := readEnvFileKey(filepath.Join(dir, "env", "runed.env"), "AUTHD_SERVICE_KEY")
-	timedKey := readEnvFileKey(filepath.Join(dir, "env", "timed.env"), "AUTHD_SERVICE_KEY")
-	if routdKey == "" || runedKey == "" || timedKey == "" {
-		t.Fatalf("service key empty: routd=%q runed=%q timed=%q", routdKey, runedKey, timedKey)
-	}
-	if routdKey == runedKey || routdKey == timedKey || runedKey == timedKey {
-		t.Error("routd, runed and timed must get DISTINCT service keys")
-	}
-	authdEnv, _ := os.ReadFile(filepath.Join(dir, "env", "authd.env"))
-	keys := string(authdEnv)
-	if !strings.Contains(keys, "service:routd="+routdKey) {
-		t.Errorf("authd AUTHD_SERVICE_KEYS missing routd's key; got:\n%s", keys)
-	}
-	if !strings.Contains(keys, "service:runed="+runedKey) {
-		t.Errorf("authd AUTHD_SERVICE_KEYS missing runed's key; got:\n%s", keys)
-	}
-	if !strings.Contains(keys, "service:timed="+timedKey) {
-		t.Errorf("authd AUTHD_SERVICE_KEYS missing timed's key; got:\n%s", keys)
-	}
-	// authd must NOT receive routd/runed's per-daemon AUTHD_SERVICE_KEY value
-	// (it's not in authd's allow-list); the keys reach it only via the list.
-	if strings.Contains(keys, "\nAUTHD_SERVICE_KEY=") {
-		t.Errorf("authd env should not carry a bare AUTHD_SERVICE_KEY; got:\n%s", keys)
-	}
-}
-
-// TestTimedSplitWiring: in the split, timed's compose env pins ROUTER_URL to
-// routd (federate the fire loop) and its env file carries AUTHD_URL +
-// AUTHD_SERVICE_KEY (service-token boot-exchange). The monolith default leaves
-// ROUTER_URL UNSET so timed keeps its direct messages.db path.
-func TestTimedSplitWiring(t *testing.T) {
-	// Split: ROUTER_URL=routd in the timed service block + AUTHD_* in its env.
-	splitDir := t.TempDir()
-	os.MkdirAll(filepath.Join(splitDir, "services"), 0o755)
-	os.WriteFile(filepath.Join(splitDir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-	on, err := Generate(splitDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(serviceBlock(on, "timed"), `ROUTER_URL: "http://routd:8080"`) {
-		t.Errorf("split: timed ROUTER_URL must be routd; got:\n%s", serviceBlock(on, "timed"))
-	}
-	timedEnv, _ := os.ReadFile(filepath.Join(splitDir, "env", "timed.env"))
-	if !strings.Contains(string(timedEnv), "AUTHD_URL=http://authd:8080") {
-		t.Errorf("split: timed env missing AUTHD_URL; got:\n%s", timedEnv)
-	}
-	if readEnvFileKey(filepath.Join(splitDir, "env", "timed.env"), "AUTHD_SERVICE_KEY") == "" {
-		t.Errorf("split: timed env missing AUTHD_SERVICE_KEY; got:\n%s", timedEnv)
-	}
-
-}
-
-// TestSplitWiring_KeysStableAcrossRegen: a second Generate (redeploy) reuses
-// the persisted service keys instead of minting fresh ones — otherwise every
-// redeploy would invalidate routd/runed's authd identity.
-func TestSplitWiring_KeysStableAcrossRegen(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=test\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	k1 := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	k2 := readEnvFileKey(filepath.Join(dir, "env", "routd.env"), "AUTHD_SERVICE_KEY")
-	if k1 == "" || k1 != k2 {
-		t.Errorf("service key must persist across regenerate: %q -> %q", k1, k2)
-	}
-}
-
-func TestInterpolate(t *testing.T) {
-	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
-	got := interpolate("${FOO}-${BAZ}", env)
-	if got != "bar-qux" {
-		t.Errorf("got %q", got)
-	}
-}
-
-// TestProxydRoutes_AllAdaptersDeclared: every service with a [[proxyd_route]]
-// shows up in the generated PROXYD_ROUTES_JSON env var on proxyd.
-func TestProxydRoutes_AllAdaptersDeclared(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["slakd"]
-[environment]
-SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
-
-[[proxyd_route]]
-path = "/slack/"
-backend = "http://slakd:8080"
-auth = "public"
-gated_by = "SLACK_BOT_TOKEN"
-preserve_headers = ["X-Slack-Signature", "X-Slack-Request-Timestamp"]
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "PROXYD_ROUTES_JSON") {
-		t.Fatal("proxyd missing PROXYD_ROUTES_JSON env injection")
-	}
-	if !strings.Contains(out, `\"path\":\"/slack/\"`) {
-		t.Errorf("slack route not serialized into PROXYD_ROUTES_JSON; got:\n%s", out)
-	}
-	if !strings.Contains(out, `\"backend\":\"http://slakd:8080\"`) {
-		t.Errorf("slack backend missing in PROXYD_ROUTES_JSON")
-	}
-}
-
-func TestProxydRoutes_GatedBy_Skipped_When_Env_Unset(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["slakd"]
-[environment]
-SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
-
-[[proxyd_route]]
-path = "/slack/"
-backend = "http://slakd:8080"
-auth = "public"
-gated_by = "SLACK_BOT_TOKEN"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, `\"path\":\"/slack/\"`) {
-		t.Errorf("slack route should be skipped when SLACK_BOT_TOKEN unset; got:\n%s", out)
-	}
-}
-
-func TestProxydRoutes_GatedBy_Included_When_Env_Set(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nSLACK_BOT_TOKEN=tok\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/slakd.toml"), []byte(`
-image = "arizuko:latest"
-entrypoint = ["slakd"]
-[environment]
-SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
-
-[[proxyd_route]]
-path = "/slack/"
-backend = "http://slakd:8080"
-auth = "public"
-gated_by = "SLACK_BOT_TOKEN"
-`), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, `\"path\":\"/slack/\"`) {
-		t.Errorf("slack route should be present when SLACK_BOT_TOKEN set; got:\n%s", out)
-	}
-}
-
-// /invite/<token> accept links (emitted by invite_create) must reach onbod;
-// without this route a browser hitting /invite/TOKEN 302s to /pub/invite/TOKEN
-// and vited 404s.
-func TestProxydRoutes_InviteForwardedToOnbod(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\nONBOARDING_ENABLED=true\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, `\"path\":\"/invite/\"`) {
-		t.Errorf("/invite/ route missing when ONBOARDING_ENABLED=true; got:\n%s", out)
-	}
-}
-
-func TestProxydRoutes_InviteSkippedWhenOnboardingOff(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"WEB_PORT=8095\nAPI_PORT=8080\nAUTH_SECRET=s\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, `\"path\":\"/invite/\"`) {
-		t.Errorf("/invite/ route should be skipped when ONBOARDING_ENABLED unset; got:\n%s", out)
-	}
-}
-
-func TestGenerateEgressIsolation(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"EGRESS_ISOLATION=true\nCRACKBOX_ADMIN_API=http://crackbox:3129\nAPI_PORT=8080\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "  crackbox:\n") {
-		t.Error("crackbox service missing")
-	}
-	// No `agents` shared network — folder networks are runtime-managed by gated.
-	if strings.Contains(out, "\nnetworks:\n") {
-		t.Error("compose still declares networks block — folder networks should be runtime-managed, not compose")
-	}
-	if strings.Contains(out, "networks: [agents") || strings.Contains(out, "networks: [agents, default]") {
-		t.Error("crackbox should not attach to a static `agents` network")
-	}
-}
-
-func TestRouterEnvPassthrough(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"ASSISTANT_NAME=bot\nCONTAINER_IMAGE=agent:v2\nAPI_PORT=8080\n"), 0o644)
-
-	out, err := Generate(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Shared config flows via env_file — compose doesn't duplicate these
-	// keys in per-service environment blocks anymore. Asserting env_file
-	// is enough: docker-compose reads .env at container start.
-	if !strings.Contains(out, "env_file:\n      - env/routd.env") {
-		t.Error("routd missing scoped env_file: env/routd.env")
-	}
-	// routd is the router and publishes the host API port.
-	if !strings.Contains(serviceBlock(out, "routd"), "ports:") {
-		t.Error("routd should publish the host API port")
-	}
-}
-
-// services/ttsd.toml present → auto-enable TTS on the execution plane (runed,
-// the default). Operator opts in by dropping the TOML; no second flag flip.
-func TestGenerateTTSAutoEnabled(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("API_PORT=8080\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
-image = "arizuko-ttsd:latest"
-entrypoint = ["ttsd"]
-[environment]
-TTSD_ADDR = ":8880"
-TTS_BACKEND_URL = "http://kokoro:8880"
-`), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/kokoro.toml"), []byte(`
-image = "ghcr.io/remsky/kokoro-fastapi-cpu:latest"
-entrypoint = []
-`), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	runedEnv, err := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(runedEnv)
-	if !strings.Contains(s, "TTS_ENABLED=true") {
-		t.Errorf("expected TTS_ENABLED=true in runed env, got:\n%s", s)
-	}
-	if !strings.Contains(s, "TTS_BASE_URL=http://ttsd:8880") {
-		t.Errorf("expected TTS_BASE_URL=http://ttsd:8880 in runed env, got:\n%s", s)
-	}
-}
-
-// services/ttsd.toml absent → no TTS_* leak into runed env. Default stays off.
-func TestGenerateTTSOffByDefault(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("API_PORT=8080\n"), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	runedEnv, err := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(runedEnv), "TTS_ENABLED") {
-		t.Errorf("TTS_ENABLED should be absent when ttsd.toml missing, got:\n%s", string(runedEnv))
-	}
-}
-
-// Explicit TTS_BASE_URL in .env (e.g. external Kokoro / OpenAI cloud) wins
-// over the auto-inject default — operator override path.
-func TestGenerateTTSExplicitOverridesAuto(t *testing.T) {
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(
-		"API_PORT=8080\nTTS_BASE_URL=https://api.openai.com\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "services/ttsd.toml"), []byte(`
-image = "arizuko-ttsd:latest"
-entrypoint = ["ttsd"]
-`), 0o644)
-
-	if _, err := Generate(dir); err != nil {
-		t.Fatal(err)
-	}
-	runedEnv, _ := os.ReadFile(filepath.Join(dir, "env", "runed.env"))
-	s := string(runedEnv)
-	if !strings.Contains(s, "TTS_BASE_URL=https://api.openai.com") {
-		t.Errorf("explicit TTS_BASE_URL should win, got:\n%s", s)
-	}
-	if strings.Contains(s, "TTS_BASE_URL=http://ttsd:8880") {
-		t.Errorf("auto default should not appear when override set, got:\n%s", s)
-	}
-}
-
-// TestAppSrcMountRoutdAndRuned: routd's checkMigrationVersion reads
-// ant/skills/self/MIGRATION_VERSION from APP_SRC_DIR — without the source
-// mount it falls back to the host path (absent in-container), reads 0, and
-// /migrate is never enqueued. Both routd and runed get the :ro mount +
-// APP_SRC_DIR when HOST_APP_DIR is set, and neither when it's unset.
-func TestAppSrcMountRoutdAndRuned(t *testing.T) {
-	gen := func(envExtra string) string {
-		dir := t.TempDir()
-		os.MkdirAll(filepath.Join(dir, "services"), 0o755)
-		os.WriteFile(filepath.Join(dir, ".env"),
-			[]byte("ASSISTANT_NAME=test\nAPI_PORT=8080\n"+envExtra), 0o644)
-		out, err := Generate(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return out
-	}
-
-	out := gen("HOST_APP_DIR=/home/op/app/arizuko\n")
-	for _, name := range []string{"routd", "runed"} {
-		s := serviceBlock(out, name)
-		if !strings.Contains(s, "- /home/op/app/arizuko:/srv/app/arizuko:ro\n") {
-			t.Errorf("%s missing read-only source mount, got:\n%s", name, s)
-		}
-		if !strings.Contains(s, `APP_SRC_DIR: "/srv/app/arizuko"`) {
-			t.Errorf("%s missing APP_SRC_DIR, got:\n%s", name, s)
-		}
-	}
-
-	out = gen("")
-	for _, name := range []string{"routd", "runed"} {
-		s := serviceBlock(out, name)
-		if strings.Contains(s, "/srv/app/arizuko:ro") || strings.Contains(s, "APP_SRC_DIR") {
-			t.Errorf("%s must have no source mount without HOST_APP_DIR, got:\n%s", name, s)
-		}
-	}
 }

@@ -1,0 +1,15 @@
+# discd — Discord adapter. DISCORD_BOT_TOKEN arrives via env/discd.env;
+# DISCORD_USER_TOKEN is optional (user-account mode) and not scoped.
+services:
+  discd:
+    container_name: ${APP}_discd_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['discd']
+    env_file: ['../env/discd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      DISCORD_USER_TOKEN: '${DISCORD_USER_TOKEN}'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://discd:8080'
+    depends_on: [routd]
+    restart: on-failure

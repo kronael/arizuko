@@ -1,9 +1,0 @@
-image = "arizuko:latest"
-entrypoint = ["teled"]
-
-[environment]
-ROUTER_URL = "http://routd:8080"
-TELEGRAM_BOT_TOKEN = "${TELEGRAM_BOT_TOKEN}"
-ASSISTANT_NAME = "${ASSISTANT_NAME}"
-LISTEN_ADDR = ":8080"
-LISTEN_URL = "http://teled:8080"

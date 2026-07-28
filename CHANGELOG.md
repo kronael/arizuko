@@ -14,6 +14,41 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+## [v0.62.0] — 2026-07-28
+
+> arizuko v0.62.0 — native docker compose packaging
+>
+> Channel adapters are now plain docker compose files, so adding or removing one is a one-file drop with no code changes.
+>
+> • adapters ship as `template/services/<name>.yml` — docker `include`s them verbatim
+> • `arizuko packages list | add | remove` manages the adapter catalog
+> • optional daemons gated by `COMPOSE_PROFILES`, not a bespoke `PROFILE` var
+> • existing instances auto-convert their `services/*.toml` on next generate
+>
+> Full notes: github.com/kronael/arizuko/blob/main/CHANGELOG.md
+
+### Changed
+
+- **Compose packaging is native docker compose (spec `5/27`).** Adapters ship as
+  `template/services/<name>.yml` — partial compose files docker `include`s
+  verbatim — instead of a custom TOML mini-format parsed by `compose.go`. Optional
+  daemons (`web` tier, `timed`, `onbod`, `davd`, `crackbox`) are always emitted with
+  `profiles:` and started by `COMPOSE_PROFILES`, which `arizuko generate` derives
+  from the feature flags and writes into a `# --- compose-managed` block in the data
+  dir's `.env` (with `APP`/`FLAVOR`/`DATA_DIR`, which the fragments interpolate). The
+  `PROFILE=minimal|web|standard|full` var is gone; so are all Go emission
+  conditionals. Adapter secrets no longer land in `docker-compose.yml` — they arrive
+  via the scoped `env/<daemon>.env`.
+- **`arizuko packages <instance> list | add <name> | remove <name>`** — adds/removes
+  an adapter package (fragment + optional `<name>-routes.json`) from the bundled
+  catalog.
+- **Per-adapter proxyd routes move to `services/<name>-routes.json`.** Routes are
+  assembled into proxyd's single `PROXYD_ROUTES_JSON`, so they cannot live in the
+  fragment; `[[proxyd_route]]` TOML blocks are gone.
+- **Legacy data dirs convert themselves.** `arizuko generate` rewrites any
+  `services/*.toml` as `.yml` (plus a routes file), re-points stale
+  `ROUTER_URL=http://gated:8080` at routd, and deletes the TOML.
+
 ## [v0.61.3] — 2026-07-25
 
 > arizuko v0.61.3 — agents on Opus 5, refreshed skills

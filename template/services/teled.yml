@@ -1,0 +1,14 @@
+# teled — Telegram adapter. Secrets arrive via env/teled.env (scoped by
+# compose.daemonKeys); only non-scoped config lives here.
+services:
+  teled:
+    container_name: ${APP}_teled_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['teled']
+    env_file: ['../env/teled.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://teled:8080'
+    depends_on: [routd]
+    restart: on-failure

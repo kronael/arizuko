@@ -1,0 +1,17 @@
+# twitd — X/Twitter adapter (Bun image). Account credentials arrive via
+# env/twitd.env; the auth dir persists the logged-in session.
+services:
+  twitd:
+    container_name: ${APP}_twitd_${FLAVOR}
+    image: arizuko-twitter:latest
+    entrypoint: ['bun', 'dist/main.js']
+    volumes:
+      - '${DATA_DIR}/store/twitter-auth:/srv/data/store/twitter-auth'
+    env_file: ['../env/twitd.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://twitd:8080'
+      TWITTER_AUTH_DIR: '/srv/data/store/twitter-auth'
+    depends_on: [routd]
+    restart: on-failure

@@ -36,7 +36,7 @@ type productManifest struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|token|apply|plan|get|export> ...")
+		fmt.Println("usage: arizuko <run|create|group|gate|invite|identity|chat|status|pair|generate|packages|token|apply|plan|get|export> ...")
 		fmt.Println("  group    <instance> list | add | rm | grant | ungrant | grants | thread-replies <folder> <on|off|default>")
 		fmt.Println("  gate     <instance> list | add | rm | enable | disable")
 		fmt.Println("  invite   <instance> create <target_glob> [--max-uses|-n N] [--expires|-e DURATION]")
@@ -45,6 +45,7 @@ func main() {
 		fmt.Println("  identity <instance> list | link <sub> [--name|-n NAME] [--id|-i ID] | unlink <sub>")
 		fmt.Println("  network  <instance> allow <folder> <target> | deny <folder> <target> | list [<folder>]")
 		fmt.Println("  route    <instance> list | add <match> <target> [--seq|-s N] | rm <id>")
+		fmt.Println("  packages <instance> list | add <name> | remove <name>")
 		fmt.Println("  token    <instance> issue chat <folder> [<suffix>]")
 		fmt.Println("  token    <instance> issue webhook <folder> <label> [<suffix>]")
 		fmt.Println("  token    <instance> issue bearer <folder> --scope|-s s1,s2 [--ttl|-t 1h] [--sub SUB]")
@@ -77,6 +78,7 @@ func main() {
 		"pair":          cmdPair,
 		"network":       cmdNetwork,
 		"route":         cmdRoute,
+		"packages":      cmdPackages, // spec 5/27
 		"secret":        cmdSecret,
 		"user-secret":   cmdUserSecret,
 		"budget":        cmdBudget,

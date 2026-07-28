@@ -10,27 +10,23 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/BurntSushi/toml"
 	"github.com/joho/godotenv"
 
 	"github.com/kronael/arizuko/core"
 )
 
-// containerDataMount is the container-side path where HOST_DATA_DIR is mounted.
+// containerDataMount is the container-side path where the data dir is mounted.
 const containerDataMount = "/srv/app/home"
 
 // containerSrcMount is the container-side path where HOST_APP_DIR is mounted.
 const containerSrcMount = "/srv/app/arizuko"
 
-// routerURL is the in-network base URL of the canonical router. webd/onbod and
-// any adapter ROUTER_URL is pinned to this in the generated compose.
-func routerURL(env map[string]string) string {
-	return "http://routd:8080"
-}
+// routdURL is the in-network base URL of the canonical router. webd/onbod/timed
+// and every adapter fragment point their ROUTER_URL here.
+const routdURL = "http://routd:8080"
 
 // dockerGID returns the gid that owns /var/run/docker.sock, or 999 fallback.
-// runed must be in this group to spawn agent
-// containers as uid 1000.
+// runed must be in this group to spawn agent containers as uid 1000.
 func dockerGID() int {
 	var st syscall.Stat_t
 	if err := syscall.Stat("/var/run/docker.sock", &st); err == nil {
@@ -64,18 +60,13 @@ func readEnvFileKey(path, key string) string {
 	return ""
 }
 
-// imageRefRE constrains docker image references to alnum, dots, colons,
-// slashes, underscores, dashes, and @ (digest). No whitespace, no
-// newlines — prevents YAML injection through services/*.toml `image`.
-var imageRefRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$`)
-
 // identRE matches safe identifiers for container_name components, service
-// names, and entrypoint binary names.
+// names, and service fragment filenames.
 var identRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$`)
 
 // Per-daemon env scoping: each known daemon gets env/<daemon>.env containing
-// only the vars it needs. Unknown services (custom services/*.toml) fall back
-// to the shared .env. Secrets do not leak across daemons.
+// only the vars it needs. Unknown services (operator-supplied services/*.yml)
+// fall back to the shared .env. Secrets do not leak across daemons.
 //
 // commonKeys flow into every arizuko daemon env file.
 var commonKeys = []string{
@@ -223,20 +214,26 @@ var adapterDaemons = map[string]bool{
 	"bskyd": true, "reditd": true, "emaid": true, "twitd": true, "linkd": true,
 }
 
-// envFileFor returns the scoped env_file block for a daemon, falling back to
-// the shared .env for services not in daemonKeys. Multi-account services
-// named `<adapter>-<label>` (per specs/5/R-multi-account.md) share the base
-// adapter's env file so per-daemon scoping holds across accounts.
-func envFileFor(name string) string {
+// envFileName returns the env file a service reads, relative to the data dir.
+// Services outside daemonKeys fall back to the shared .env. Multi-account
+// services named `<adapter>-<label>` (per specs/5/R-multi-account.md) share the
+// base adapter's env file so per-daemon scoping holds across accounts.
+func envFileName(name string) string {
 	if _, ok := daemonKeys[name]; ok {
-		return fmt.Sprintf("    env_file:\n      - env/%s.env\n", name)
+		return "env/" + name + ".env"
 	}
 	if base, _, ok := strings.Cut(name, "-"); ok {
 		if _, ok := daemonKeys[base]; ok {
-			return fmt.Sprintf("    env_file:\n      - env/%s.env\n", base)
+			return "env/" + base + ".env"
 		}
 	}
-	return "    env_file:\n      - .env\n"
+	return ".env"
+}
+
+// envFileFor returns the scoped env_file block for a base daemon stanza in the
+// generated compose (paths relative to the data dir, where the compose lives).
+func envFileFor(name string) string {
+	return fmt.Sprintf("    env_file:\n      - %s\n", envFileName(name))
 }
 
 // writeEnvFiles emits env/<daemon>.env with only the keys each daemon needs.
@@ -275,34 +272,24 @@ const healthBlock = "    healthcheck:\n" +
 	"      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/health']\n" +
 	"      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n"
 
-type ServiceConfig struct {
-	Image        string            `toml:"image"`
-	Entrypoint   []string          `toml:"entrypoint"`
-	Restart      string            `toml:"restart"`
-	DependsOn    []string          `toml:"depends_on"`
-	Environment  map[string]string `toml:"environment"`
-	Ports        []string          `toml:"ports"`
-	Volumes      []string          `toml:"volumes"`
-	Command      []string          `toml:"command"`
-	ProxydRoutes []ProxydRoute     `toml:"proxyd_route"`
-}
-
-// ProxydRoute mirrors proxyd's Route shape. Each adapter TOML may declare
-// [[proxyd_route]] blocks; compose collects survivors (after gated_by env
-// evaluation) into PROXYD_ROUTES_JSON. JSON tags match proxyd/routes.go.
+// ProxydRoute mirrors proxyd's Route shape. Adapters declare theirs in a
+// sibling `services/<name>-routes.json` array; compose collects survivors
+// (after gated_by env evaluation) into PROXYD_ROUTES_JSON. JSON tags match
+// proxyd/routes.go.
 type ProxydRoute struct {
-	Path            string   `toml:"path" json:"path"`
-	Backend         string   `toml:"backend" json:"backend"`
-	Auth            string   `toml:"auth" json:"auth"`
-	GatedBy         string   `toml:"gated_by" json:"gated_by,omitempty"`
-	PreserveHeaders []string `toml:"preserve_headers" json:"preserve_headers,omitempty"`
-	StripPrefix     bool     `toml:"strip_prefix" json:"strip_prefix,omitempty"`
+	Path            string   `json:"path"`
+	Backend         string   `json:"backend"`
+	Auth            string   `json:"auth"`
+	GatedBy         string   `json:"gated_by,omitempty"`
+	PreserveHeaders []string `json:"preserve_headers,omitempty"`
+	StripPrefix     bool     `json:"strip_prefix,omitempty"`
 }
 
 // coreProxydRoutes are the always-emitted routes for core daemons rendered
 // directly by compose (dashd, webd, davd, onbod). Their backend URLs follow
-// the unified-port convention (DNS name + :8080). GatedBy maps to env vars
-// that toggle daemon emission so the route presence tracks the daemon.
+// the unified-port convention (DNS name + :8080). GatedBy maps to the env vars
+// that also decide the daemon's compose profile, so route presence tracks the
+// daemon.
 var coreProxydRoutes = []ProxydRoute{
 	// Federated cockpit: per-daemon /dash/<daemon>/ surfaces route to the
 	// owning daemon. Longest-prefix matching (proxyd/routes.go:MatchRoute)
@@ -345,48 +332,158 @@ func gatedByOn(env map[string]string, key string) bool {
 	return envOr(env, key, "") != ""
 }
 
-// collectProxydRoutes returns surviving routes after gated_by filtering.
-// Per spec (specs/5/7-proxyd-standalone.md "Field semantics"): a route whose
-// GatedBy env is unset or empty at compose-generate time is dropped. Core
-// routes come first (skipped under PROFILE=minimal, /dash/ skipped unless
-// full); per-service routes appended in service-name order.
-func collectProxydRoutes(services []svcWithCfg, env map[string]string, profile string) []ProxydRoute {
+// collectProxydRoutes returns surviving routes after gated_by filtering. Core
+// routes come first, then per-service routes in service-name order. A service
+// declares routes in `services/<name>-routes.json` (an array of ProxydRoute);
+// routes cannot live in the compose fragment because they are assembled into
+// ONE env var on proxyd. Per spec (specs/5/7-proxyd-standalone.md "Field
+// semantics") a route whose GatedBy env is unset or empty at generate time is
+// dropped.
+func collectProxydRoutes(servicesDir string, services []string, env map[string]string) ([]ProxydRoute, error) {
 	var out []ProxydRoute
-	if profile != "minimal" {
-		for _, r := range coreProxydRoutes {
-			if !gatedByOn(env, r.GatedBy) {
-				continue
-			}
-			if r.Path == "/dash/" && profile != "full" {
-				continue
-			}
+	for _, r := range coreProxydRoutes {
+		if gatedByOn(env, r.GatedBy) {
 			out = append(out, r)
 		}
 	}
-	for _, s := range services {
-		for _, r := range s.cfg.ProxydRoutes {
-			if !gatedByOn(env, r.GatedBy) {
-				continue
+	for _, name := range services {
+		b, err := os.ReadFile(filepath.Join(servicesDir, name+"-routes.json"))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s-routes.json: %w", name, err)
+		}
+		var routes []ProxydRoute
+		if err := json.Unmarshal(b, &routes); err != nil {
+			return nil, fmt.Errorf("parse %s-routes.json: %w", name, err)
+		}
+		for _, r := range routes {
+			if gatedByOn(env, r.GatedBy) {
+				out = append(out, r)
 			}
-			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
-type svcWithCfg struct {
-	name string
-	cfg  ServiceConfig
+// readFragments lists the compose service fragments in <dataDir>/services,
+// sorted by name. Each `<name>.yml` is included verbatim by docker compose.
+func readFragments(servicesDir string) ([]string, error) {
+	entries, err := os.ReadDir(servicesDir)
+	if err != nil {
+		return nil, fmt.Errorf("read services/: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".yml")
+		if !identRE.MatchString(name) {
+			return nil, fmt.Errorf("invalid service filename %q (allowed chars: [A-Za-z0-9_.-])", e.Name())
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
-// hasService reports whether services contains an entry named name.
-func hasService(services []svcWithCfg, name string) bool {
+// hasService reports whether the fragment set contains name.
+func hasService(services []string, name string) bool {
 	for _, s := range services {
-		if s.name == name {
+		if s == name {
 			return true
 		}
 	}
 	return false
+}
+
+// activeProfiles derives COMPOSE_PROFILES from the instance feature flags.
+// Every optional daemon carries `profiles: [<name>]` in the generated compose;
+// this list is the single gate that decides which of them docker brings up.
+func activeProfiles(env map[string]string) []string {
+	var p []string
+	if envOr(env, "WEB_PORT", "") != "" {
+		// webd/proxyd/vited/dashd share one profile: proxyd depends_on dashd +
+		// webd, and compose rejects a depends_on into an inactive profile.
+		p = append(p, "web")
+		if envOr(env, "WEBDAV_ENABLED", "true") == "true" {
+			p = append(p, "davd")
+		}
+	}
+	p = append(p, "timed")
+	if envOr(env, "ONBOARDING_ENABLED", "false") == "true" {
+		p = append(p, "onbod")
+	}
+	// CRACKBOX_ADMIN_API is the master switch for egress isolation.
+	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
+		p = append(p, "crackbox")
+	}
+	sort.Strings(p)
+	return p
+}
+
+const (
+	managedBegin = "# --- compose-managed (do not edit) ---"
+	managedEnd   = "# --- end compose-managed ---"
+)
+
+// writeManagedEnv rewrites the compose-managed block of <dataDir>/.env, leaving
+// operator lines untouched. Docker interpolates the service fragments with
+// these: APP/FLAVOR give every container its name, DATA_DIR the host mount,
+// COMPOSE_PROFILES which optional daemons run. Identity is configured here,
+// never derived inside a container (see root CLAUDE.md).
+func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
+	path := filepath.Join(dataDir, ".env")
+	prev, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var keep []string
+	inBlock := false
+	for _, line := range strings.Split(string(prev), "\n") {
+		switch {
+		case strings.HasPrefix(line, managedBegin):
+			inBlock = true
+		case strings.HasPrefix(line, managedEnd):
+			inBlock = false
+		case !inBlock:
+			keep = append(keep, line)
+		}
+	}
+	body := strings.TrimRight(strings.Join(keep, "\n"), "\n")
+	var b strings.Builder
+	if body != "" {
+		b.WriteString(body)
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "%s\nAPP=%s\nFLAVOR=%s\nDATA_DIR=%s\nCOMPOSE_PROFILES=%s\n%s\n",
+		managedBegin, app, flavor, dataDir, strings.Join(profiles, ","), managedEnd)
+	tmp, err := os.CreateTemp(dataDir, ".env.*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(b.String()); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	// .env holds AUTH_SECRET, SECRETS_KEY and operator tokens — never world-readable.
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 func Generate(dataDir string) (string, error) {
@@ -397,8 +494,6 @@ func Generate(dataDir string) (string, error) {
 	for k, v := range map[string]string{
 		"API_PORT":       fmt.Sprintf("%d", core.DefaultAPIPort),
 		"ASSISTANT_NAME": "arizuko",
-		"DATA_DIR":       dataDir,            // host path; used in extra service volume strings
-		"CONTAINER_DATA": containerDataMount, // container-internal data path for TOML templates
 	} {
 		if _, ok := env[k]; !ok {
 			env[k] = v
@@ -429,7 +524,7 @@ func Generate(dataDir string) (string, error) {
 		}
 	}
 	// CRACKBOX_ADMIN_API is the master switch for egress: when set, the
-	// crackbox service is emitted and runed gets the per-folder network
+	// crackbox profile is active and runed gets the per-folder network
 	// derivations it needs. No separate EGRESS_ISOLATION boolean.
 	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
 		if _, ok := env["EGRESS_NETWORK_PREFIX"]; !ok {
@@ -455,7 +550,7 @@ func Generate(dataDir string) (string, error) {
 	// the per-daemon env files so a redeploy keeps the same identity instead of
 	// invalidating in-flight tokens. AUTHD_URL is the authd in-network base URL
 	// every consumer (routd, runed, proxyd, webd, onbod) verifies/exchanges
-	// against. All additive: gated keeps its own wiring untouched.
+	// against.
 	perDaemon := map[string]map[string]string{}
 	_, pinned := env["AUTHD_SERVICE_KEYS"]
 	seedKeys := !pinned
@@ -480,8 +575,7 @@ func Generate(dataDir string) (string, error) {
 	wireServiceKey("routd")
 	wireServiceKey("runed")
 	// timed federates its fire loop over routd in the split (no messages.db);
-	// it needs a service:timed token like routd/runed. Monolith timed never
-	// reads its env file's AUTHD_* vars (no ROUTER_URL → direct-DB path).
+	// it needs a service:timed token like routd/runed.
 	wireServiceKey("timed")
 	// onbod posts the onboarding greeting to routd /v1/outbound with a
 	// service:onbod token (spec 5/1).
@@ -505,39 +599,21 @@ func Generate(dataDir string) (string, error) {
 	}
 
 	servicesDir := filepath.Join(dataDir, "services")
-
-	entries, err := os.ReadDir(servicesDir)
+	if err := convertLegacyTOML(servicesDir); err != nil {
+		return "", err
+	}
+	services, err := readFragments(servicesDir)
 	if err != nil {
-		return "", fmt.Errorf("read services/: %w", err)
+		return "", err
 	}
-
-	var services []svcWithCfg
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
-			continue
-		}
-		var cfg ServiceConfig
-		if _, err := toml.DecodeFile(filepath.Join(servicesDir, e.Name()), &cfg); err != nil {
-			return "", fmt.Errorf("parse %s: %w", e.Name(), err)
-		}
-		name := strings.TrimSuffix(e.Name(), ".toml")
-		if !identRE.MatchString(name) {
-			return "", fmt.Errorf("invalid service filename %q (allowed chars: [A-Za-z0-9_.-])", e.Name())
-		}
-		if !imageRefRE.MatchString(cfg.Image) {
-			return "", fmt.Errorf("service %q has invalid image %q (must match image-ref regex)", name, cfg.Image)
-		}
-		services = append(services, svcWithCfg{name, cfg})
-	}
-	sort.Slice(services, func(i, j int) bool { return services[i].name < services[j].name })
 
 	// Channel adapters present in services/ each get a service:<adapter> key so
 	// they exchange it for a messages:write JWT against routd (spec 5/1). Only
 	// the discovered message-posting adapters are wired — ttsd/davd/vited etc.
 	// never post inbound. Multi-account variants (`<adapter>-<label>`) reuse the
-	// base adapter's env file (envFileFor), so the base principal covers them.
-	for _, svc := range services {
-		base, _, _ := strings.Cut(svc.name, "-")
+	// base adapter's env file (envFileName), so the base principal covers them.
+	for _, name := range services {
+		base, _, _ := strings.Cut(name, "-")
 		if adapterDaemons[base] {
 			wireServiceKey(base)
 		}
@@ -546,8 +622,8 @@ func Generate(dataDir string) (string, error) {
 		env["AUTHD_SERVICE_KEYS"] = strings.Join(keyPairs, ",")
 	}
 
-	// services/ttsd.toml present → auto-enable TTS on the execution plane
-	// (runed). Operator opted in by dropping the TOML; no second env-var flip.
+	// services/ttsd.yml present → auto-enable TTS on the execution plane
+	// (runed). Operator opted in by adding the package; no second env-var flip.
 	// Explicit .env values still win (e.g. external Kokoro / OpenAI cloud
 	// override TTS_BASE_URL).
 	if hasService(services, "ttsd") {
@@ -560,48 +636,46 @@ func Generate(dataDir string) (string, error) {
 	}
 
 	// Per-daemon env files: non-fatal if it fails; log for triage.
-	// Written after services scan so service-triggered env (TTS_*) lands.
+	// Written after the services scan so service-triggered env (TTS_*) lands.
 	if werr := writeEnvFiles(dataDir, env, perDaemon); werr != nil {
 		fmt.Fprintf(os.Stderr, "compose: writeEnvFiles: %v\n", werr)
 	}
 
-	profile := envOr(env, "PROFILE", "full")
-	routes := collectProxydRoutes(services, env, profile)
+	routes, err := collectProxydRoutes(servicesDir, services, env)
+	if err != nil {
+		return "", err
+	}
+	// Fatal on failure: without the managed block every fragment interpolates to
+	// an empty container name and an empty host mount.
+	if err := writeManagedEnv(dataDir, app, flavor, activeProfiles(env)); err != nil {
+		return "", fmt.Errorf("write .env compose block: %w", err)
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "name: %s\n", project)
+	if len(services) > 0 {
+		b.WriteString("include:\n")
+		for _, name := range services {
+			fmt.Fprintf(&b, "  - ./services/%s.yml\n", name)
+		}
+	}
 	b.WriteString("services:\n")
 	// The split daemons (spec 5/E + 5/P) are the conversation/auth/execution
 	// plane — authd (auth.db) + routd (routd.db, the router every adapter/webd/
 	// proxyd talks to) + runed (runed.db, the ONLY daemon wired to docker.sock +
-	// crackbox + per-folder agent networks). This is the only topology.
-	b.WriteString(authdService(app, flavor, dataDir, env))
+	// crackbox + per-folder agent networks). This is the only topology, so they
+	// carry no profile. Everything below them is profile-gated.
+	b.WriteString(authdService(app, flavor, dataDir))
 	b.WriteString(routdService(app, flavor, dataDir, env))
 	b.WriteString(runedService(app, flavor, dataDir, env))
-	webPort := envOr(env, "WEB_PORT", "")
-	if webPort != "" && profile != "minimal" {
-		b.WriteString(webdService(app, flavor, dataDir, env))
-		b.WriteString(proxydService(app, flavor, dataDir, env, routes, profile))
-		b.WriteString(vitedService(app, flavor, dataDir, env))
-	}
-	if profile != "minimal" && profile != "web" {
-		b.WriteString(timedService(app, flavor, dataDir, env))
-		if profile == "full" {
-			b.WriteString(dashdService(app, flavor, dataDir, env))
-			if webPort != "" && envOr(env, "WEBDAV_ENABLED", "true") == "true" {
-				b.WriteString(davdService(app, flavor, dataDir, env))
-			}
-			if envOr(env, "ONBOARDING_ENABLED", "") == "true" {
-				b.WriteString(onbodService(app, flavor, dataDir, env))
-			}
-		}
-	}
-	for _, s := range services {
-		b.WriteString(renderService(app, flavor, s.name, s.cfg, env))
-	}
-	if envOr(env, "CRACKBOX_ADMIN_API", "") != "" {
-		b.WriteString(crackboxService(app, flavor, dataDir, env))
-	}
+	b.WriteString(webdService(app, flavor, dataDir))
+	b.WriteString(proxydService(app, flavor, dataDir, env, routes))
+	b.WriteString(vitedService(app, flavor, dataDir))
+	b.WriteString(dashdService(app, flavor, dataDir, env))
+	b.WriteString(timedService(app, flavor, dataDir, env))
+	b.WriteString(onbodService(app, flavor, dataDir))
+	b.WriteString(davdService(app, flavor, dataDir, env))
+	b.WriteString(crackboxService(app, flavor, dataDir))
 	return b.String(), nil
 }
 
@@ -609,11 +683,12 @@ func Generate(dataDir string) (string, error) {
 // here — folder networks are created at runtime by runed and crackbox is
 // attached to each via `docker network connect`. Crackbox stays on the
 // compose default bridge so it has outbound internet access.
-func crackboxService(app, flavor, dataDir string, env map[string]string) string {
+func crackboxService(app, flavor, dataDir string) string {
 	var b strings.Builder
 	b.WriteString("  crackbox:\n")
 	fmt.Fprintf(&b, "    container_name: %s_crackbox_%s\n", app, flavor)
 	b.WriteString("    image: crackbox:latest\n")
+	b.WriteString("    profiles: ['crackbox']\n")
 	b.WriteString("    command: ['proxy', 'serve']\n")
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(&b, "      - %s/crackbox:/data/crackbox\n", dataDir)
@@ -635,11 +710,11 @@ type svcDef struct {
 	flavor      string
 	entrypoint  string
 	dataDir     string
+	profile     string   // compose profile; "" = always up
 	volumes     []string // extra volume specs after the data-dir mount
 	ports       []string
 	environment map[string]string
 	dependsOn   string
-	env         map[string]string // instance env, for router-name resolution
 }
 
 // appSrcVolume returns the read-only HOST_APP_DIR→containerSrcMount volume
@@ -702,6 +777,11 @@ func writeSvc(def svcDef) string {
 	fmt.Fprintf(&b, "    container_name: %s_%s_%s\n", def.app, def.name, def.flavor)
 	b.WriteString("    image: arizuko:latest\n")
 	fmt.Fprintf(&b, "    entrypoint: ['%s']\n", def.entrypoint)
+	// Docker brings a profiled service up only when the profile is in
+	// COMPOSE_PROFILES (written to .env by writeManagedEnv) — the only gate.
+	if def.profile != "" {
+		fmt.Fprintf(&b, "    profiles: ['%s']\n", def.profile)
+	}
 	b.WriteString("    user: '1000:1000'\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s:%s\n", def.dataDir, containerDataMount)
 	for _, v := range def.volumes {
@@ -735,7 +815,7 @@ func writeSvc(def svcDef) string {
 // docker socket, NO crackbox. Serves JWKS to every verifier; reads its own
 // service keys + OAuth provider config from env/authd.env. No depends_on:
 // authd is the authority, nothing it relies on must come up first.
-func authdService(app, flavor, dataDir string, env map[string]string) string {
+func authdService(app, flavor, dataDir string) string {
 	var b strings.Builder
 	b.WriteString("  authd:\n")
 	fmt.Fprintf(&b, "    container_name: %s_authd_%s\n", app, flavor)
@@ -748,7 +828,7 @@ func authdService(app, flavor, dataDir string, env map[string]string) string {
 	fmt.Fprintf(&b, "      DATA_DIR: '%s'\n", containerDataMount)
 	// authd snapshots login/refresh scopes by calling routd's ACL owner
 	// (GET /v1/users/{sub}/scopes). Unset -> empty-scope sessions (spec 5/5).
-	b.WriteString("      GRANTS_URL: 'http://routd:8080'\n")
+	fmt.Fprintf(&b, "      GRANTS_URL: '%s'\n", routdURL)
 	b.WriteString(healthBlock)
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
@@ -757,8 +837,8 @@ func authdService(app, flavor, dataDir string, env map[string]string) string {
 // routdService emits the conversation-state daemon — the canonical router.
 // routd.db + adapters (/v1/send) + calls runed; verifies via authd JWKS. NO
 // crackbox, NO docker socket. Depends on authd (verifier keyset) + runed (run
-// dispatch). Publishes API_PORT:8080 to the host (replacing gated): the host
-// CLI reaches the router's /v1/channels here (arizuko status/send).
+// dispatch). Publishes API_PORT:8080 to the host: the host CLI reaches the
+// router's /v1/channels here (arizuko status/send).
 func routdService(app, flavor, dataDir string, env map[string]string) string {
 	apiPort := envOr(env, "API_PORT", fmt.Sprintf("%d", core.DefaultAPIPort))
 	def := svcDef{
@@ -769,7 +849,6 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 		dataDir:    dataDir,
 		ports:      []string{fmt.Sprintf("%s:%d", apiPort, core.DefaultAPIPort)},
 		dependsOn:  "authd, runed",
-		env:        env,
 	}
 	// routd reads ant/skills/self/MIGRATION_VERSION via checkMigrationVersion
 	// to enqueue /migrate; without this mount it sees the host path and the
@@ -781,10 +860,10 @@ func routdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-// runedService emits the execution plane — the ONLY new daemon wired to the
-// docker socket + crackbox + the per-folder agent networks. It mirrors gated's
-// spawn wiring (uid 1000, group_add into docker gid, docker.sock mount, the
-// read-only HOST_APP_DIR source mount). Depends on authd (broker downscope).
+// runedService emits the execution plane — the ONLY daemon wired to the docker
+// socket + crackbox + the per-folder agent networks (uid 1000, group_add into
+// docker gid, docker.sock mount, the read-only HOST_APP_DIR source mount).
+// Depends on authd (broker downscope).
 func runedService(app, flavor, dataDir string, env map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  runed:\n")
@@ -816,42 +895,40 @@ func runedService(app, flavor, dataDir string, env map[string]string) string {
 
 func timedService(app, flavor, dataDir string, env map[string]string) string {
 	// TIMEZONE is the only compose-side transform; timed reads this name while
-	// the rest of the world uses TZ.
-	environment := map[string]string{"TIMEZONE": envOr(env, "TZ", "UTC")}
-	// timed federates its fire loop over routd HTTP (no messages.db). AUTHD_URL +
-	// AUTHD_SERVICE_KEY arrive via env/timed.env.
-	environment["ROUTER_URL"] = routerURL(env)
+	// the rest of the world uses TZ. timed federates its fire loop over routd
+	// HTTP (no messages.db); AUTHD_URL + AUTHD_SERVICE_KEY arrive via env/timed.env.
 	return writeSvc(svcDef{
-		name:        "timed",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "timed",
-		dataDir:     dataDir,
-		environment: environment,
-		env:         env,
+		name:       "timed",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "timed",
+		dataDir:    dataDir,
+		profile:    "timed",
+		environment: map[string]string{
+			"TIMEZONE":   envOr(env, "TZ", "UTC"),
+			"ROUTER_URL": routdURL,
+		},
 	})
 }
 
-func onbodService(app, flavor, dataDir string, env map[string]string) string {
-	// Force ONBOARDING_ENABLED=true inside the container regardless of how the
-	// flag is expressed in .env (gate for daemon inclusion was already decided by
-	// Generate's caller). ROUTER_URL pinned to the canonical router so onbod's
-	// outbound greeting reaches it.
-	environment := map[string]string{
-		"ONBOARDING_ENABLED": "true",
-		"ROUTER_URL":         routerURL(env),
-	}
-	// onbod OWNS onboarding/invites/onboarding_gates in onbod.db (spec 5/5).
-	// ONBOD_DB_PATH points it there. Container-internal, so .env can't know it.
-	environment["ONBOD_DB_PATH"] = containerDataMount + "/store/onbod.db"
+func onbodService(app, flavor, dataDir string) string {
+	// ONBOARDING_ENABLED is forced true inside the container: the onbod profile
+	// is what decides whether onbod runs at all. ROUTER_URL is pinned to the
+	// canonical router so onbod's outbound greeting reaches it. onbod OWNS
+	// onboarding/invites/onboarding_gates in onbod.db (spec 5/5) — ONBOD_DB_PATH
+	// is container-internal, so .env can't know it.
 	return writeSvc(svcDef{
-		name:        "onbod",
-		app:         app,
-		flavor:      flavor,
-		entrypoint:  "onbod",
-		dataDir:     dataDir,
-		environment: environment,
-		env:         env,
+		name:       "onbod",
+		app:        app,
+		flavor:     flavor,
+		entrypoint: "onbod",
+		dataDir:    dataDir,
+		profile:    "onbod",
+		environment: map[string]string{
+			"ONBOARDING_ENABLED": "true",
+			"ROUTER_URL":         routdURL,
+			"ONBOD_DB_PATH":      containerDataMount + "/store/onbod.db",
+		},
 	})
 }
 
@@ -862,6 +939,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 		flavor:     flavor,
 		entrypoint: "dashd",
 		dataDir:    dataDir,
+		profile:    "web",
 		// DB_PATH is container-internal; .env can't know it.
 		// DASH_PORT override pins internal listen to :8080 (healthcheck target)
 		// even when .env sets DASH_PORT for host-side publish.
@@ -869,7 +947,6 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 			"DB_PATH":   containerDataMount + "/store/messages.db",
 			"DASH_PORT": fmt.Sprintf("%d", core.DefaultAPIPort),
 		},
-		env: env,
 	}
 	if dashPort := envOr(env, "DASH_PORT", ""); dashPort != "" {
 		def.ports = []string{dashPort + ":8080"}
@@ -877,7 +954,7 @@ func dashdService(app, flavor, dataDir string, env map[string]string) string {
 	return writeSvc(def)
 }
 
-func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute, profile string) string {
+func proxydService(app, flavor, dataDir string, env map[string]string, routes []ProxydRoute) string {
 	webPort := envOr(env, "WEB_PORT", "8095")
 	environment := map[string]string{}
 	if b, err := json.Marshal(routes); err == nil {
@@ -892,23 +969,18 @@ func proxydService(app, flavor, dataDir string, env map[string]string, routes []
 			}
 		}
 	}
-	// dashd is full-profile only; depending on it in web/standard profiles
-	// yields "depends on undefined service dashd" — a fatal compose error.
-	router := "routd"
-	deps := router + ", webd"
-	if profile == "full" {
-		deps = router + ", dashd, webd"
-	}
+	// dashd + webd share proxyd's `web` profile: compose rejects a depends_on
+	// that points into a profile which isn't active.
 	return writeSvc(svcDef{
 		name:        "proxyd",
 		app:         app,
 		flavor:      flavor,
 		entrypoint:  "proxyd",
 		dataDir:     dataDir,
+		profile:     "web",
 		ports:       ports,
 		environment: environment,
-		dependsOn:   deps,
-		env:         env,
+		dependsOn:   "routd, dashd, webd",
 	})
 }
 
@@ -919,6 +991,7 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	// arizuko-davd is sigoden/dufs wrapped in alpine — same binary,
 	// adds wget for the healthcheck (dufs is distroless).
 	b.WriteString("    image: arizuko-davd:latest\n")
+	b.WriteString("    profiles: ['davd']\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/groups:/data\n", dataDir)
 	if davPort := envOr(env, "DAV_PORT", ""); davPort != "" {
 		b.WriteString("    ports:\n")
@@ -929,28 +1002,27 @@ func davdService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("    healthcheck:\n")
 	b.WriteString("      test: ['CMD', 'wget', '-qO-', '--tries=1', '--timeout=3', 'http://127.0.0.1:8080/']\n")
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n")
-	fmt.Fprintf(&b, "    depends_on: [%s]\n", "routd")
+	b.WriteString("    depends_on: [routd]\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
 }
 
-func webdService(app, flavor, dataDir string, env map[string]string) string {
+func webdService(app, flavor, dataDir string) string {
 	// webd registers as a channel + posts inbound to the router. Pin ROUTER_URL
-	// explicitly to the canonical router so webd never falls back to a code
-	// default that disagrees with the selected plane.
+	// explicitly so webd never falls back to a code default.
 	return writeSvc(svcDef{
 		name: "webd", app: app, flavor: flavor,
-		entrypoint: "webd", dataDir: dataDir,
-		environment: map[string]string{"ROUTER_URL": routerURL(env)},
-		env:         env,
+		entrypoint: "webd", dataDir: dataDir, profile: "web",
+		environment: map[string]string{"ROUTER_URL": routdURL},
 	})
 }
 
-func vitedService(app, flavor, dataDir string, env map[string]string) string {
+func vitedService(app, flavor, dataDir string) string {
 	var b strings.Builder
 	b.WriteString("  vited:\n")
 	fmt.Fprintf(&b, "    container_name: %s_vited_%s\n", app, flavor)
 	b.WriteString("    image: arizuko-vite:latest\n")
+	b.WriteString("    profiles: ['web']\n")
 	fmt.Fprintf(&b, "    volumes:\n      - %s/web:/web\n", dataDir)
 	// vite dev server has no /health; probe /@vite/client (always 200 in dev).
 	b.WriteString("    healthcheck:\n")
@@ -958,64 +1030,6 @@ func vitedService(app, flavor, dataDir string, env map[string]string) string {
 	b.WriteString("      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 15s\n")
 	b.WriteString("    restart: on-failure\n")
 	return b.String()
-}
-
-func renderService(app, flavor, name string, cfg ServiceConfig, env map[string]string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "  %s:\n", name)
-	fmt.Fprintf(&b, "    container_name: %s_%s_%s\n", app, name, flavor)
-	fmt.Fprintf(&b, "    image: %s\n", cfg.Image)
-	if len(cfg.Entrypoint) > 0 {
-		fmt.Fprintf(&b, "    entrypoint: %s\n", yamlList(cfg.Entrypoint))
-	}
-	if len(cfg.Command) > 0 {
-		fmt.Fprintf(&b, "    command: %s\n", yamlList(cfg.Command))
-	}
-	if len(cfg.Volumes) > 0 {
-		b.WriteString("    volumes:\n")
-		for _, v := range cfg.Volumes {
-			fmt.Fprintf(&b, "      - %s\n", interpolate(v, env))
-		}
-	}
-	if len(cfg.Ports) > 0 {
-		b.WriteString("    ports:\n")
-		for _, p := range cfg.Ports {
-			fmt.Fprintf(&b, "      - '%s'\n", p)
-		}
-	}
-	b.WriteString(envFileFor(name))
-	if len(cfg.Environment) > 0 {
-		b.WriteString("    environment:\n")
-		interped := make(map[string]string, len(cfg.Environment))
-		for k, v := range cfg.Environment {
-			interped[k] = interpolate(v, env)
-		}
-		// Force-pin any declared ROUTER_URL to the canonical router (routd) so an
-		// adapter TOML carrying a stale value re-points on regenerate without
-		// re-seeding services/. Narrow: only ROUTER_URL, only when present.
-		if _, ok := interped["ROUTER_URL"]; ok {
-			interped["ROUTER_URL"] = routerURL(env)
-		}
-		writeEnv(&b, interped)
-	}
-	deps := cfg.DependsOn
-	if len(deps) == 0 {
-		deps = []string{"routd"}
-	}
-	fmt.Fprintf(&b, "    depends_on: [%s]\n", strings.Join(deps, ", "))
-	restart := cfg.Restart
-	if restart == "" {
-		restart = "on-failure"
-	}
-	fmt.Fprintf(&b, "    restart: %s\n", restart)
-	return b.String()
-}
-
-func interpolate(s string, env map[string]string) string {
-	for k, v := range env {
-		s = strings.ReplaceAll(s, "${"+k+"}", v)
-	}
-	return s
 }
 
 func envOr(env map[string]string, key, fallback string) string {
@@ -1026,12 +1040,4 @@ func envOr(env map[string]string, key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func yamlList(items []string) string {
-	quoted := make([]string, len(items))
-	for i, s := range items {
-		quoted[i] = yamlQuote(s)
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
 }

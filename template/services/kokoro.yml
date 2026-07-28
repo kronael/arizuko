@@ -1,0 +1,8 @@
+# kokoro — upstream TTS model server behind ttsd. Third-party image.
+services:
+  kokoro:
+    container_name: ${APP}_kokoro_${FLAVOR}
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    env_file: ['../.env']
+    depends_on: [routd]
+    restart: on-failure

@@ -13,7 +13,8 @@ beyond `docker` for `run` and `pair`).
 - Binary: `cmd/arizuko/main.go` → `./arizuko`
 - Commands:
   - `arizuko create <name> [--product <product>]` — seed data dir from `template/env.example`; `--product` copies skills and facts from `ant/examples/<product>/` and prints the env checklist
-  - `arizuko generate <instance>` — write `docker-compose.yml`
+  - `arizuko generate <instance>` — write `docker-compose.yml` + the compose-managed `.env` block
+  - `arizuko packages <inst> list | add <name> | remove <name>` — adapter packages (`services/<name>.yml` + optional `<name>-routes.json`) from the bundled catalog
   - `arizuko run <instance>` — generate + `docker compose up`
   - `arizuko status <instance>` — show compose services + channels
   - `arizuko pair <instance> <svc>` — `docker compose run --rm`
@@ -46,6 +47,7 @@ beyond `docker` for `run` and `pair`).
 - `apply.go` — `apply`/`plan`/`get`/`export` (YAML manifests, spec 5/8)
 - `budget.go` — `budget` spend caps
 - `network.go` — `network` egress rules
+- `packages.go` — `packages` adapter package catalog (spec 5/27)
 - `secret.go` — `secret` + `user-secret`
 - `send.go` — `send` message injection
 - `token.go` — `token` route-token management

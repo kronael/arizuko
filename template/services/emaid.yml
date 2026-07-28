@@ -1,0 +1,13 @@
+# emaid — IMAP/SMTP adapter. Mailbox credentials arrive via env/emaid.env.
+services:
+  emaid:
+    container_name: ${APP}_emaid_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['emaid']
+    env_file: ['../env/emaid.env']
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+      LISTEN_ADDR: ':8080'
+      LISTEN_URL: 'http://emaid:8080'
+    depends_on: [routd]
+    restart: on-failure

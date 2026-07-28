@@ -177,7 +177,7 @@ Routes are declared in two source-of-truth places and merged into the
 serialized table proxyd loads at startup:
 
 ```
-template/services/<adapter>.toml [[proxyd_route]] ─┐
+services/<adapter>-routes.json ────────────────────┐
                                                    ├─► compose.collectProxydRoutes
 compose.coreProxydRoutes (dashd/webd/davd/onbod) ──┘             │
                                                                   ▼
@@ -676,45 +676,56 @@ flag) is settled.
 
 `compose.Generate(dataDir)` builds `docker-compose.yml` from:
 
-1. **Built-in** — emitted per `.env` profile and feature flags:
-   `authd`+`routd`+`runed` (always — the three planes),
-   `webd`+`proxyd`+`vited` (WEB_PORT set, profile != minimal),
-   `timed` (profile != minimal/web),
-   `dashd` (profile=full), `davd` (profile=full, WEBDAV_ENABLED=true),
-   `onbod` (profile=full, ONBOARDING_ENABLED=true)
-2. **Extra** — `<dataDir>/services/*.toml` appended
+1. **Built-in** — every core stanza is ALWAYS emitted; `profiles:` decides
+   what docker starts. `authd`+`routd`+`runed` carry no profile (the three
+   planes, always up); `webd`+`proxyd`+`vited`+`dashd` are `web`, then
+   `timed`, `onbod`, `davd`, `crackbox`.
+2. **Extra** — one `include: ./services/<name>.yml` per package fragment in
+   `<dataDir>/services/`; docker loads them, compose.go never parses them.
 
-Adapters reach the router at `ROUTER_URL=http://routd:8080` (pinned by
-`compose.routerURL`). `runed` is the only built-in service granted the
-docker socket; `authd` exposes JWKS for offline verification by the rest.
+`COMPOSE_PROFILES` in the data dir's `.env` is the single gate. Generate
+derives it from the feature flags (`WEB_PORT`, `WEBDAV_ENABLED`,
+`ONBOARDING_ENABLED`, `CRACKBOX_ADMIN_API`) and rewrites it, with
+`APP`/`FLAVOR`/`DATA_DIR`, inside a `# --- compose-managed` block that leaves
+operator lines untouched. Fragments interpolate those three for their
+container name and host mount — identity is configured, never derived.
+
+Adapters reach the router at `ROUTER_URL=http://routd:8080`. `runed` is the
+only built-in service granted the docker socket; `authd` exposes JWKS for
+offline verification by the rest.
 
 Bundled catalog at `template/services/` (ships in image, Ansible extracts to
-`/srv/app/arizuko/template/services/`): `teled.toml`, `whapd.toml`,
-`discd.toml`, `slakd.toml`, `bskyd.toml`, `mastd.toml`, `reditd.toml`, `linkd.toml`.
+`/srv/app/arizuko/template/services/`): `teled.yml`, `whapd.yml`, `discd.yml`,
+`slakd.yml` (+ `slakd-routes.json`), `bskyd.yml`, `mastd.yml`, `reditd.yml`,
+`linkd.yml`, `emaid.yml`, `twitd.yml`, `ttsd.yml`, `kokoro.yml`.
 
-TOML format:
+Fragment format — a plain partial compose file:
 
-```toml
-image = "arizuko:latest"
-entrypoint = ["teled"]
-depends_on = ["routd"]
-volumes = ["${DATA_DIR}/..."]
-
-[environment]
-ROUTER_URL = "http://routd:8080"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
+```yaml
+services:
+  teled:
+    container_name: ${APP}_teled_${FLAVOR}
+    image: arizuko:latest
+    entrypoint: ['teled']
+    env_file: ['../env/teled.env'] # relative to services/
+    environment:
+      ROUTER_URL: 'http://routd:8080'
+    depends_on: [routd]
+    restart: on-failure
 ```
 
 Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
-Operator copies desired TOMLs into `/srv/data/arizuko_<flavor>/services/`
-before start; Ansible via `arizuko_instances[].extra_services`.
+`arizuko packages <instance> add <name>` copies a fragment (plus its
+`<name>-routes.json`, if any) into `/srv/data/arizuko_<flavor>/services/`;
+Ansible via `arizuko_instances[].extra_services`. A data dir still holding
+pre-5/27 `services/*.toml` is converted in place on the next
+`arizuko generate` (`compose/legacy.go`).
 
-onbod auto-included when `ONBOARDING_ENABLED=true`. All Go daemons
-listen on :8080 internally except ttsd at :8880 — historical default
-that predates the invariant.
+All Go daemons listen on :8080 internally except ttsd at :8880 —
+historical default that predates the invariant.
 
 `crackbox` (sibling component, see `specs/6/7-orthogonal-components.md`)
-is emitted when `CRACKBOX_ADMIN_API` is set. Per-folder agent networks
+runs when `CRACKBOX_ADMIN_API` is set (its compose profile). Per-folder agent networks
 are created at runtime by `runed`, which attaches crackbox to each via
 `docker network connect`; crackbox stays on the compose default bridge
 for outbound internet access. `runed` spawns agent containers on the

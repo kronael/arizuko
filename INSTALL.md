@@ -176,20 +176,17 @@ Add credentials for your chosen adapter(s):
 
 ## Enable adapter
 
-Copy the service TOML for your chosen adapter into the instance's `services/` directory:
+Add the package for your chosen adapter to the instance:
 
 ```bash
-# Telegram example
-cp template/services/teled.toml /srv/data/arizuko_<name>/services/
-
-# Discord example
-cp template/services/discd.toml /srv/data/arizuko_<name>/services/
-
-# Slack example
-cp template/services/slakd.toml /srv/data/arizuko_<name>/services/
+./arizuko packages <name> list           # available vs enabled
+./arizuko packages <name> add teled      # Telegram
+./arizuko packages <name> add discd      # Discord
+./arizuko packages <name> add slakd      # Slack
 ```
 
-Without this step, no adapter will start. Each adapter needs its TOML in `services/`.
+Without this step, no adapter will start. Each adapter needs its package in
+`services/`.
 
 ## Register first group
 
@@ -293,7 +290,7 @@ git clone https://github.com/kronael/arizuko && cd arizuko
 make build && sudo make images
 ./arizuko create mybot
 # Edit /srv/data/arizuko_mybot/.env (set TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, ASSISTANT_NAME)
-cp template/services/teled.toml /srv/data/arizuko_mybot/services/
+./arizuko packages mybot add teled
 ./arizuko group mybot add telegram:group/123456789 main
 ./arizuko run mybot
 ```

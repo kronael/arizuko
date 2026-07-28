@@ -265,12 +265,13 @@ issues the prior one couldn't see.
 - Business features (gates, grants, onboarding) are DB-backed with CLI +
   chat command for management. Infra (ports, timeouts, images, paths) stays
   as env vars in `.env`.
-- **Adding a channel adapter**: ship a `template/services/<daemon>.toml`
-  with the daemon's compose env + a `[[proxyd_route]]` block. No edit to
-  `proxyd/main.go` or `compose/compose.go`. Spec:
-  `specs/5/7-proxyd-standalone.md`.
+- **Adding a channel adapter**: ship a `template/services/<daemon>.yml`
+  (a partial compose file — docker `include`s it verbatim) + a
+  `<daemon>-routes.json` if it needs inbound web paths. No edit to
+  `proxyd/main.go` or `compose/compose.go`. Specs:
+  `specs/5/7-proxyd-standalone.md`, `specs/5/27-compose-native-packaging.md`.
 - **Daemon HTTP port: `:8080` inside the container, always.** Every
-  daemon's `LISTEN_ADDR` code-default is `:8080`; every service TOML
+  daemon's `LISTEN_ADDR` code-default is `:8080`; every package fragment
   in `template/services/` declares `LISTEN_ADDR=:8080` explicitly
   (set in both places so neither drifts). Docker network namespacing
   makes per-container `:8080` collision-free. Multi-daemon local-dev

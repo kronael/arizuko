@@ -223,39 +223,29 @@ After step 6 it's deployable as a standalone component.
 ## Per-daemon route declarations (v1 ship target)
 
 The "Target shape" `[[route]]` table above is the **eventual** proxyd
-config. The Phase-1 ship is narrower: routes live in each adapter's
-`template/services/<name>.toml` as `[[proxyd_route]]` blocks; the
-compose generator extracts them at boot. **One renderer, many sinks**:
-each daemon owns its own routing entry next to its env, and proxyd's
-table is derived, never hand-edited.
+config. The shipped form is narrower: routes live beside each adapter's
+compose fragment as `template/services/<name>-routes.json`; the compose
+generator collects them at generate time. **One renderer, many sinks**:
+each daemon owns its own routing entry next to its package, and proxyd's
+table is derived, never hand-edited. Routes stay out of the fragment
+because proxyd takes ONE `PROXYD_ROUTES_JSON` env var — a single
+assembled table, not per-service YAML (spec `5/27`).
 
 ### Schema
 
-```toml
-# template/services/slakd.toml
-
-image = "arizuko:latest"
-entrypoint = ["slakd"]
-
-[environment]
-ROUTER_URL = "http://routd:8080"
-SLACK_BOT_TOKEN = "${SLACK_BOT_TOKEN}"
-SLACK_SIGNING_SECRET = "${SLACK_SIGNING_SECRET}"
-LISTEN_ADDR = ":8080"
-CHANNEL_SECRET = "${CHANNEL_SECRET}"
-
-[[proxyd_route]]
-path = "/slack/"                            # leading slash; trailing
-                                            # slash = longest-prefix
-                                            # match; bare path = exact
-backend = "http://slakd:8080"               # full URL; DNS name + :8080
-auth = "public"                              # "public" | "user" | "operator"
-gated_by = "SLACK_BOT_TOKEN"                 # optional; drop route if env unset
-preserve_headers = [                         # optional; verbatim-pass these
-  "X-Slack-Signature",
-  "X-Slack-Request-Timestamp",
+```json
+// template/services/slakd-routes.json
+[
+  {
+    "path": "/slack/", // trailing slash = longest-prefix match;
+    // bare path = exact
+    "backend": "http://slakd:8080", // full URL; DNS name + :8080
+    "auth": "public", // "public" | "user" | "operator"
+    "gated_by": "SLACK_BOT_TOKEN", // optional; drop route if env unset
+    "preserve_headers": ["X-Slack-Signature", "X-Slack-Request-Timestamp"],
+    "strip_prefix": false // optional; default false
+  }
 ]
-strip_prefix = false                         # optional; default false
 ```
 
 ### Field semantics

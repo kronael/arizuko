@@ -14,23 +14,23 @@ extension points. See
 
 ## Extension points
 
-| Point         | Location                        | Extensible by  | Mechanism                                     |
-| ------------- | ------------------------------- | -------------- | --------------------------------------------- |
-| Channels      | external containers             | Developer      | HTTP protocol (latest: `slakd/`)              |
-| Proxyd routes | `template/services/<name>.toml` | Daemon author  | `[[proxyd_route]]` block, no Go edits         |
-| Slink         | `webd/slink*.go`                | External agent | Chat UI + MCP transport at `/slink/<token>`   |
-| Slink SDK     | `webd/assets/arizuko-client.js` | Page author    | Embedded JS served at `/assets/`              |
-| Actions       | MCP tools                       | Agent/Plugin   | Registry + MCP                                |
-| Autocalls     | `routd/prompt.go`               | Router dev     | Registry slice                                |
-| Routing rules | `router/`                       | Agent          | MCP tools; `target=<folder>[#mode]` fragment  |
-| Mounts        | `container/`                    | Agent          | Container config                              |
-| Skills        | `ant/skills/`                   | Agent          | File-based                                    |
-| Tasks         | `timed/`                        | Agent          | IPC actions                                   |
-| Diary         | `diary/`                        | Agent          | File-based                                    |
-| Network rules | `store/network.go`              | Operator       | CLI + DB rows                                 |
-| Web routes    | `store/web_routes.go`           | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
-| Public pages  | `template/web/pub/`             | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
-| Output styles | `ant/output-styles/`            | Channel author | `<channel>-<surface>.md`; picked per-session  |
+| Point         | Location                               | Extensible by  | Mechanism                                     |
+| ------------- | -------------------------------------- | -------------- | --------------------------------------------- |
+| Channels      | external containers                    | Developer      | HTTP protocol (latest: `slakd/`)              |
+| Proxyd routes | `template/services/<name>-routes.json` | Daemon author  | JSON route array, no Go edits                 |
+| Slink         | `webd/slink*.go`                       | External agent | Chat UI + MCP transport at `/slink/<token>`   |
+| Slink SDK     | `webd/assets/arizuko-client.js`        | Page author    | Embedded JS served at `/assets/`              |
+| Actions       | MCP tools                              | Agent/Plugin   | Registry + MCP                                |
+| Autocalls     | `routd/prompt.go`                      | Router dev     | Registry slice                                |
+| Routing rules | `router/`                              | Agent          | MCP tools; `target=<folder>[#mode]` fragment  |
+| Mounts        | `container/`                           | Agent          | Container config                              |
+| Skills        | `ant/skills/`                          | Agent          | File-based                                    |
+| Tasks         | `timed/`                               | Agent          | IPC actions                                   |
+| Diary         | `diary/`                               | Agent          | File-based                                    |
+| Network rules | `store/network.go`                     | Operator       | CLI + DB rows                                 |
+| Web routes    | `store/web_routes.go`                  | Agent          | MCP tools (`set_web_route` / `del_web_route`) |
+| Public pages  | `template/web/pub/`                    | Operator       | Plain HTML, copied into `<data-dir>/web/pub/` |
+| Output styles | `ant/output-styles/`                   | Channel author | `<channel>-<surface>.md`; picked per-session  |
 
 ## Adding an output-style file
 
@@ -177,9 +177,10 @@ via-`reactions.add`). Steps:
 
 1. Create `<name>d/` with `main.go` wiring `chanlib.Run`, a `bot.go`
    for platform I/O, and a JID parser/formatter.
-2. Add `template/services/<name>d.toml` with `[environment]` block.
-   If you need inbound webhooks via proxyd, add a `[[proxyd_route]]`
-   block (see below) — no `compose.go` edits.
+2. Add `template/services/<name>d.yml` — a partial compose file
+   defining one service. If you need inbound webhooks via proxyd, add
+   `template/services/<name>d-routes.json` (see below) — no
+   `compose.go` edits.
 3. Implement only the verbs the platform supports natively; return
    `chanlib.Unsupported(tool, platform, hint)` for the rest.
 4. Spec under `specs/2/<letter>-<name>.md`; per-platform native
@@ -187,32 +188,48 @@ via-`reactions.add`). Steps:
 
 Generic HTTP webhook ingest is the same path: any caller can POST
 `/v1/messages` with the channel-protocol envelope; route inbound
-webhooks through proxyd via a `[[proxyd_route]]` block on the
-receiving daemon's TOML. No separate "webhook adapter" abstraction.
+webhooks through proxyd via the receiving daemon's routes file. No
+separate "webhook adapter" abstraction.
 
 ## Adding a proxyd route
 
-`proxyd`'s route table is built from `[[proxyd_route]]` blocks
-collected at compose-generate time, plus a static core-route slice in
-`compose/compose.go` (`coreProxydRoutes`, for dashd/webd/davd/onbod).
-Adding a new inbound web path = one TOML block, no Go edits:
+`proxyd`'s route table is built from each package's
+`services/<name>-routes.json`, collected at compose-generate time, plus
+a static core-route slice in `compose/compose.go` (`coreProxydRoutes`,
+for dashd/webd/davd/onbod). Routes cannot live in the compose fragment
+— they are assembled into ONE env var on proxyd. Adding a new inbound
+web path = one JSON file, no Go edits:
 
-```toml
-# template/services/<name>d.toml
-[[proxyd_route]]
-path = "/<prefix>/"                   # trailing / = longest-prefix
-backend = "http://<name>d:8080"
-auth = "public"                       # "public" | "user" | "operator"
-gated_by = "<ENV_VAR>"                # route omitted if env unset
-preserve_headers = ["X-Webhook-Sig"]  # optional verbatim-pass list
+```json
+[
+  {
+    "path": "/<prefix>/",
+    "backend": "http://<name>d:8080",
+    "auth": "public",
+    "gated_by": "<ENV_VAR>",
+    "preserve_headers": ["X-Webhook-Sig"]
+  }
+]
 ```
 
+`path` with a trailing `/` matches longest-prefix; `auth` is
+`public` | `user` | `operator`; `gated_by` drops the route when that
+env var is unset; `preserve_headers` passes listed headers verbatim.
 `compose.go` evaluates `gated_by` against the operator's `.env`, drops
 disabled routes, and emits the survivors as `PROXYD_ROUTES_JSON` on
 proxyd. Reference: `specs/5/7-proxyd-standalone.md`,
-`template/services/slakd.toml`.
+`template/services/slakd-routes.json`.
 
 ## Adding an MCP connector
+
+**Connector scope (2026-07-27):** Connectors are **global and operator-defined**.
+All `[[mcp_connector]]` blocks register at the deployment level — there is no
+per-group `MCP.json`. Groups get access to connectors via grant rows
+(`mcp:<connector>:*`), not by registering their own MCP endpoints. The
+`connectors.toml` loader is the current mechanism; migration to a
+`mcp_connectors` resreg resource (routd.db, REST + agent MCP face) is tracked
+in `specs/5/16`. HTTP upstream connectors (`transport = "http"`, shape 4 in
+`specs/5/13`) are planned for long-running sidecar MCP servers.
 
 Third-party MCP servers (github-mcp, linear-mcp, gdrive-mcp…) plug
 in via `<data_dir>/connectors.toml`. Each `[[mcp_connector]]` block
@@ -360,6 +377,14 @@ Three scopes, no inheritance:
 - `ant/skills/` — global, baked into image, read-only
 - `groups/<folder>/.claude/skills/` — per-group, persistent
 - `.claude/skills/` — per-session, seeded from global on first spawn
+
+**Operator boundary (2026-07-27):** Skills define the capability surface.
+In multi-tenant deployments, users cannot add or modify skills — only the
+operator can. A user changing skills = expanding their own capability surface,
+which bypasses the grants model. Single-user deployments: the user IS the
+operator. Per-group skills (`groups/<folder>/.claude/skills/`) are
+operator-seeded via `arizuko apply` or `arizuko packages install`; agents
+can read and use them but cannot create new skill directories.
 
 Canonical definitions at `/opt/arizuko/ant/skills/` (ro mount) for
 `/migrate` diffing. `MIGRATION_VERSION` integer + `/migrate` skill
