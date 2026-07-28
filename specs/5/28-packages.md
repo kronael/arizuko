@@ -63,58 +63,88 @@ arizuko packages install github.com/kronael/sloth[@v1.0.0]
   8. print: "needs restart if compose changed"
 ```
 
-## Declarative apply / reconcile model
+## Install lifecycle — a receipt, not a reconciler
 
-The install-flow steps above are imperative shorthand; the real contract is a
-**reconciler over resreg resources**. `apply`, `export`, and `remove` are one
-engine run in three directions — never a per-package script.
+> **A declarative reconciler was drafted here and demolished** (codex, 2026-07-28;
+> full critique `.ship/critique-cto-20260728.md`). It proposed one engine running
+> `apply`/`export`/`remove` in three directions over resreg rows, with
+> `provenance = ownership`. Nine fatal flaws — kept as the record of why this
+> shape is wrong:
+>
+> - **Provenance was a missing schema.** A `proxyd_routes` row carries nothing
+>   saying a package installed it; "the package's to delete" had no basis.
+> - **Manifest-as-authoritative contradicts `5/8`** (SQLite is truth; YAML is
+>   dump/restore). "delete extra" then either erases operator edits or can't.
+> - **state→typed-verbs is not reversible** — a row can't reveal whether it came
+>   from a verb, REST, a migration, or an agent; export can't reconstruct it.
+> - **Export ≠ "reproduce a world"** — secrets, tokens, sessions, history are
+>   excluded (`5/20`); generic registry export leaks bearer tokens (invites).
+> - **The agent-session hatch annihilates determinism** — no plan, no
+>   idempotence, no rollback; sandboxing stops host escape, not authorized
+>   exfiltration or repeated side effects.
+> - **"negated manifest" is gibberish** (inverse of `env.set`? of minted tokens?
+>   of `seed_group` with accumulated history?).
+> - Verb names didn't match resreg (`route`≠`proxyd_routes`, `grant`≠`acl`); the
+>   shipped YAML engine does raw `DELETE+INSERT`, bypassing the canonical handler
+>   / gate / audit.
 
-- **apply** = manifest → state. Diff desired vs actual; create missing, update
-  drifted, delete extra. Idempotent: re-apply is a no-op.
-- **export** = state → manifest. Walk the resreg resources a world/agent owns,
-  serialize their rows back into `arizuko.yaml` + the folder files. One generic
-  exporter over the resreg registry — a new resource is exportable for free
-  (`5/17` one-handler discipline). This is `5/20` portability.
-- **remove** = apply a negated manifest. The reconciler deletes the rows it
-  owns. No separate uninstall path.
+The survivable model: install is a **deterministic phased plan through the owner
+REST APIs, recorded in a per-install receipt.** No universal reconciler.
 
-### `arizuko.yaml` — the apply manifest
+### Phased install
 
-A fixed vocabulary of typed verbs, each targeting one resreg resource. NOT a
-script — data the reconciler diffs:
+Ordered phases, each idempotent, with health gates — not an unordered verb list:
 
-```yaml
-apply:
-  - route.add: { path: /slack/, backend: http://slakd:8080, auth: public }
-    when: SLACK_BOT_TOKEN # declared predicate — skip if unset
-  - grant.add: { subject: '@ops', action: 'reply', target: 'eng/*' }
-  - seed_group: { folder: sloth, prototype: ./prototype/ }
-  - env.set: { TTS_ENABLED: 'true' }
-```
+1. **preflight** — resolve source to an immutable revision + content hash; check
+   `requires:` env; detect name/route/port collisions; refuse if a dependency is
+   absent.
+2. **files** — skills, group seed, compose fragment, `.env` keys (atomic writes).
+3. **restart/health** — bring up any new sidecar; wait healthy before routing to it.
+4. **resources** — create routes/grants/etc. by calling the **owner REST API**
+   (`POST /v1/routes`, `/v1/acl`, …) so each goes through its real handler, gate,
+   validation, and audit (`5/17`). NOT raw DB writes.
 
-`when:` is the only conditional — a predicate on env/state, evaluated by the
-engine (generalises today's `gated_by`). There is no `if`/loop/expression.
+Partial failure resumes from a durable operation journal (roll-forward), not a
+fake global rollback — filesystem/compose/restart side effects can't be
+transactionally undone (`5/8`).
 
-### The "ifs"
+### The install receipt (this is the provenance)
 
-Three tiers, none imperative in the package:
+Each install writes an immutable receipt: package identity (source revision +
+content hash), the file hashes it wrote, the resource primary keys it created,
+and the last-applied payload hash per resource. **The receipt is the ownership
+record the reconciler pretended to derive.**
 
-1. **Idempotent reconcile** absorbs `if-not-exists`/`if-changed` — the engine's
-   diff, not the package's code.
-2. **`when:` predicates** express real conditions as data.
-3. **Genuine branching logic** (compute-a-decision) escalates to an **agent
-   session**: the package ships a setup **prototype** (`5/29` Tier-3), the agent
-   runs it with MCP tools — sandboxed (crackbox), grant-gated, audited. Declarative
-   covers the mechanical majority; the agent covers the conditional remainder.
+- **remove** consults the receipt: delete only assets whose current hash still
+  matches what the receipt recorded; on drift, **stop and report the exact
+  conflict** (never silently overwrite or orphan). Refuse if another package's
+  receipt depends on this one.
+- **upgrade** (v1→v2) diffs the new plan against the receipt: three-way (base =
+  last-applied, ours = live, theirs = new) so an operator's field edit and a
+  package's field change don't clobber each other.
 
-### Resolves `5/27` C2 (package-route lifecycle)
+### Resolves `5/27` C2 correctly
 
-Because `remove` reconciles through the engine that **owns** `proxyd_routes`,
-`packages remove slakd` deletes the route row — not just the regenerated
-`PROXYD_ROUTES_JSON` blob proxyd ignores when its table is non-empty. Provenance
-is the reconciler's ownership: a package-installed row is the package's to
-delete; an operator-edited row diffs as drift and is left alone. No ownership
-drift, no dangling route.
+`packages remove slakd` reads slakd's receipt, finds the `proxyd_routes` PK it
+created with payload-hash H, and `DELETE /v1/routes/<pk>` **iff** the row still
+hashes H. Operator-edited → drift-stop. The route lifecycle is owned by the
+receipt + the proxyd REST handler, not a generic engine guessing ownership.
+
+### Conditionals and logic
+
+- **`requires:` / collision checks** are preflight predicates (typed, not a
+  grammar). A route whose `requires` env is unset is simply not installed.
+- **Real branching logic** is an explicit, **opt-in** agent setup action — NOT
+  part of the declarative install, and carrying **no** idempotence/rollback/
+  ownership guarantees. It runs a `5/29` setup prototype under crackbox + grants
+  - audit, and the operator invokes it knowingly. Keeping it outside the install
+    contract is the point.
+
+### Now in scope (were "document in README")
+
+Cross-package dependencies need real handling: versioned dependency declarations,
+collision detection, reverse-dependency refusal on remove, and reference
+semantics for a shared instance-global sidecar (one install, refcounted).
 
 ## Discovery and interconnection
 
@@ -130,7 +160,8 @@ MCP (sidecar provides tool endpoints). No new protocol — MCP is the interface.
 
 Multi-env support (skill with `requires: {dev: [VAR], prod: [OTHER_VAR]}`).
 Package registry or central catalog (GitHub topic search is discovery).
-Package dependencies (skill A requires skill B — just document in README).
+(Package dependencies moved IN scope — see "Install lifecycle" above; codex
+2026-07-28 ruled README-only dependencies unserious.)
 
 ## What deletes
 

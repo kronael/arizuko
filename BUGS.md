@@ -36,8 +36,13 @@ operator-edited row.
 - **Scope:** compose packages / proxyd route ownership
 - **Affected:** packages with `*-routes.json`, currently slakd
 - **Source:** compose/compose.go:342-367,644; proxyd/main.go:233-277
-- **Status:** proposed
-- **Fix:**
+- **Status:** proposed — resolution designed in `specs/5/28-packages.md`
+- **Fix:** NOT a reconciler (that model was drafted + demolished by codex
+  2026-07-28, `.ship/critique-cto-20260728.md`). Resolution: an **install
+  receipt** records the `proxyd_routes` PK + payload hash a package created;
+  `packages remove` calls `DELETE /v1/routes/<pk>` iff the row still matches the
+  recorded hash, else drift-stops. Provenance = the receipt, not table
+  ownership. Needs sign-off + the receipt schema before implementation.
 
 ## C3 — legacy conversion overwrites native package files (2026-07-28, open)
 
