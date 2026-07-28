@@ -76,19 +76,43 @@ the world's onboarding prototype.
   consent + revocation, audited. Reuse the grant DSL for the rule layer; a
   distinct predicate layer only if cross-row/time conditions demand it.
 
-## Open questions
+## Design resolutions (proposed — pending sign-off)
 
-- World as a first-class table vs the current "top-level group" convention
-  (`5/5` uses the latter; collapse may warrant promoting it). Today a
-  top-level group is BOTH the tenancy boundary and a main group with a
-  persona — Tier 1 and Tier 2 in one folder.
-- Tier 1 admission has two shapes that don't compose: `world_invite` admits a
-  user INTO a world, while chat-initiated onboarding CREATES a world per
-  admitted stranger (`5/18` path 2, `onbod.createWorldTx` writes group +
-  admin `acl` + routes). Which is the tier's contract?
+The alignment pass (2026-07-28) surfaced five points where the shipped system
+contradicts this model. Proposed resolutions:
+
+1. **World creation stays operator/CLI-only; there is no `world_create` agent
+   tool.** `world_invite` admits a user INTO an existing world. Chat-initiated
+   onboarding (`onbod.createWorldTx`) is an operator-plane provisioning act, not
+   an agent capability — consistent with the `5/9` eval that an agent must
+   refuse to provision a world. Resolves the two-admission-contract conflict.
+2. **World becomes a thin first-class entity; agents are its children.** A
+   `worlds` row owns the roster, vhost (`5/V`), secrets root, and grant root;
+   Tier-2 agents are children. The top-level group stops doubling as an agent.
+   Migration: each existing top-level group becomes a World + one implicit
+   `root` Agent child.
+3. **Auto-onboarding-as-session is a phase-2 BUILD, not a rename.** ⚠️ **Gates
+   on sign-off.** v1 keeps the canned onbod greeting (`promptUnprompted`); the
+   session driven by a world onboarding-prototype is a follow-on (it introduces
+   a new agent-run path).
+4. **The depth-≥3 grant rung maps onto the Session/subagent tier.** ⚠️ **Gates
+   on sign-off — load-bearing.** Subagent grants become an explicit
+   _session-scoped downscope_ of the agent's grants, NOT `grants.DeriveRules`
+   depth derivation. World + Agent keep their tier defaults; the narrow
+   depth-3+ rung (`reply`/`send_file`/`like`/`edit`) becomes the subagent
+   default. Changes `grants.DeriveRules` semantics.
+5. **`product` and `prototype` unify under one name: "prototype".** One resreg
+   resource, three apply-sites — group-create (was `5/21` product), invite
+   subgroup-create (`5/5` `prototype/`), subagent-spawn (Tier 3). `5/21`'s
+   product folds in as the group-create apply-site.
+
+## Still open
+
 - JID shape (`5/S`) for the three tiers — does `world/agent` suffice with
   sessions addressed by `run_id`, or does the session need a JID segment?
 - Prototype storage: a resreg resource per agent vs a file in the agent folder.
+- Delegated-use rule layer: reuse the grant DSL, or a predicate layer once
+  cross-row/time conditions appear (guest consent windows, per-action scopes)?
 
 ## Ties
 
