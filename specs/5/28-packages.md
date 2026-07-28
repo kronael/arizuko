@@ -136,9 +136,9 @@ receipt + the proxyd REST handler, not a generic engine guessing ownership.
   grammar). A route whose `requires` env is unset is simply not installed.
 - **Real branching logic** is an explicit, **opt-in** agent setup action — NOT
   part of the declarative install, and carrying **no** idempotence/rollback/
-  ownership guarantees. It runs a `5/29` setup prototype under crackbox + grants
-  - audit, and the operator invokes it knowingly. Keeping it outside the install
-    contract is the point.
+  ownership guarantees. It runs a `5/29` setup prototype (sandboxed by crackbox,
+  grant-gated, audited), invoked knowingly by the operator. Keeping it outside
+  the install contract is the point.
 
 ### Now in scope (were "document in README")
 
