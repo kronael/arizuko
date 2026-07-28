@@ -22,6 +22,14 @@ command instead of building from scratch.
 > list in `PRODUCT.md` is slated to become real gating rather than
 > informational.
 
+> **Product vs prototype (`6/18`).** A product instantiates at **group
+> creation** — it seeds an agent, [`6/18`](../6/18-worlds-guests-oauth.md)
+> Tier 2. `6/18`'s **prototype** is the same shape (persona + skills + tool
+> grants) instantiated at **spawn time** inside a session (Tier 3), and
+> `5/5`'s `groups/<world>/prototype/` seed folder is a third instantiation
+> point (invite subgroup-create). Plausibly one concept under three names;
+> flagged, not merged — see `6/18` open questions.
+
 ## A product is a recomposition, not new machinery
 
 A product introduces no new code path. It is the same fixed reaction

@@ -5,7 +5,7 @@ depends:
     ../5/5-tenant-self-service,
     ../5/18-onboarding-model,
     ../5/S-jid-format,
-    ../5/43-surrogate-oauth,
+    ../5/15-surrogate-oauth,
   ]
 ---
 
@@ -54,6 +54,11 @@ spawns**, **auto-onboarding**, and **prototyping**. The agent holds a
 spawns subagents from it within the session. Subagents inherit a downscoped
 slice of the agent's grants; nothing a subagent gets exceeds the parent.
 
+The prototype is distinct from two shipped things already carrying the name:
+`5/5`'s `groups/<world>/prototype/` seed folder (copied once on invite
+subgroup-create) and `5/21`'s product (a curated template seeded at group
+creation). Same shape, three instantiation points.
+
 MCP tools (hot-tier, agent-facing): `spawn` (from a prototype), `prototype_set`
 / `prototype_get`, plus the existing session/subagent surface. Auto-onboarding
 is a session that runs when a new user/chat first appears (`5/18`), scripted by
@@ -64,7 +69,7 @@ the world's onboarding prototype.
 - **Guest** — a world user invited by another; not an operator. Admitted at
   Tier 1, granted into specific agents at Tier 2.
 - **Account linking** — a guest links a platform account via that platform's
-  OAuth (surrogate-OAuth, `5/43`). Credentials are per-guest, world/agent-scoped
+  OAuth (surrogate-OAuth, `5/15`). Credentials are per-guest, world/agent-scoped
   secrets; never shared across guests.
 - **Delegated use** — within a session the agent may act **as** a guest with
   their linked creds, gated by explicit rules: which actions, which agents,
@@ -74,7 +79,13 @@ the world's onboarding prototype.
 ## Open questions
 
 - World as a first-class table vs the current "top-level group" convention
-  (`5/5` uses the latter; collapse may warrant promoting it).
+  (`5/5` uses the latter; collapse may warrant promoting it). Today a
+  top-level group is BOTH the tenancy boundary and a main group with a
+  persona — Tier 1 and Tier 2 in one folder.
+- Tier 1 admission has two shapes that don't compose: `world_invite` admits a
+  user INTO a world, while chat-initiated onboarding CREATES a world per
+  admitted stranger (`5/18` path 2, `onbod.createWorldTx` writes group +
+  admin `acl` + routes). Which is the tier's contract?
 - JID shape (`5/S`) for the three tiers — does `world/agent` suffice with
   sessions addressed by `run_id`, or does the session need a JID segment?
 - Prototype storage: a resreg resource per agent vs a file in the agent folder.
@@ -82,5 +93,6 @@ the world's onboarding prototype.
 ## Ties
 
 `5/5` tenancy (org-chart → this collapse) · `5/18` onboarding · `5/S` JID ·
-`5/43` surrogate OAuth · `5/17` REST+MCP one-handler · `4/9` grants ·
-`5/P` runed sessions/spawns.
+`5/15` surrogate OAuth · `5/17` REST+MCP one-handler · `4/9` grants ·
+`5/P` runed sessions/spawns · `5/21` products (the Tier-2 twin of the
+Tier-3 prototype).

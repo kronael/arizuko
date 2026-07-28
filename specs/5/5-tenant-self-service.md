@@ -19,6 +19,16 @@ status: partial
 > E/F/G (structural dashd UI, topic kinds + workflow verbs, cross-group
 > topic ops) remain unbuilt; scope decision pending.
 
+> **Forward note (2026-07-28).** The arbitrary-depth org-chart below is
+> COLLAPSED by [`6/18`](../6/18-worlds-guests-oauth.md) to **World →
+> Agent → Session**. Depth is no longer load-bearing: a **world** is the
+> top-level group (tenancy, users, vhost, grant root); an **agent** is a
+> main group inside it — a peer, exactly the depth-2 folder invite
+> subgroup-create already produces. Anything that used to be a depth-3+
+> team is either another agent or a subagent spawned inside a session.
+> Read the depth rows below as the shipped folder model, not as the
+> tenancy design.
+
 ## Vocabulary
 
 A **group** is a folder identified by a path. Depth determines default
@@ -33,21 +43,21 @@ question / discussion / incident).
 
 arizuko encodes a working organization:
 
-| Real-org concept      | arizuko primitive             |
-| --------------------- | ----------------------------- |
-| Organization          | world (top-level group)       |
-| Department / function | sub-group at depth 2          |
-| Team / role           | sub-group at depth 3+         |
-| Job description       | grant rule list               |
-| Mailroom / dispatcher | routes table (JID → folder)   |
-| Reporting structure   | folder hierarchy              |
-| Chain of command      | escalate / delegate verbs     |
-| Hiring                | invite + grant                |
-| Off-boarding          | revoke grant                  |
-| Org-wide tools        | world (tier 1) secrets        |
-| Team-specific tools   | sub-group secrets             |
-| Personal tools        | user-scope secrets (1:1 only) |
-| Ticket / case         | topic                         |
+| Real-org concept      | arizuko primitive                                     |
+| --------------------- | ----------------------------------------------------- |
+| Organization          | world (top-level group)                               |
+| Department / function | sub-group at depth 2 — an **agent** (`6/18` T2)       |
+| Team / role           | sub-group at depth 3+ — not load-bearing under `6/18` |
+| Job description       | grant rule list                                       |
+| Mailroom / dispatcher | routes table (JID → folder)                           |
+| Reporting structure   | folder hierarchy                                      |
+| Chain of command      | escalate / delegate verbs                             |
+| Hiring                | invite + grant                                        |
+| Off-boarding          | revoke grant                                          |
+| Org-wide tools        | world (tier 1) secrets                                |
+| Team-specific tools   | sub-group secrets                                     |
+| Personal tools        | user-scope secrets (1:1 only)                         |
+| Ticket / case         | topic                                                 |
 
 This isn't metaphor — every element 1:1-maps to standard org concepts.
 
