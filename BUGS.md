@@ -51,10 +51,10 @@ destination rather than choose one source implicitly.
 - **Scope:** compose legacy migration
 - **Affected:** pre-v0.62 data dirs with mixed TOML/YAML package state
 - **Source:** compose/legacy.go:73-89
-- **Status:** fixed 2026-07-28
-- **Fix:** convert now `os.Stat`s the destination and errors if `<name>.yml` (or
-  `<name>-routes.json` when the TOML has routes) already exists — no silent
-  overwrite; the operator deletes the stale source to resolve.
+- **Status:** resolved 2026-07-28 — legacy converter deleted
+- **Fix:** `compose/legacy.go` removed entirely once every live data dir was on
+  `.yml` (krons/marinade/sloth converted, `.toml.bak` kept). `.yml` is now the
+  only package format, so the overwrite hazard no longer exists.
 
 ## C4 — compose migration accepts unsupported Compose v2 versions (2026-07-28, open)
 
@@ -67,11 +67,10 @@ new model; the old binary no longer has its adapter inputs for rollback.
 - **Scope:** compose compatibility / upgrade preflight
 - **Affected:** hosts running Docker Compose v2.0-v2.19
 - **Source:** compose/compose.go:601-603,656-660; INSTALL.md:20-21
-- **Status:** fixed 2026-07-28
-- **Fix:** convert backs the TOML up as `<name>.toml.bak` instead of deleting, so
-  an incompatible (Compose <2.20) host can roll back; INSTALL.md now states the
-  2.20+ requirement. (A live docker-version preflight can't run in the `generate`
-  container — no docker CLI there — so reversibility is the guarantee.)
+- **Status:** resolved 2026-07-28 — legacy converter deleted
+- **Fix:** no `generate` ever converts+deletes now (converter removed); INSTALL.md
+  states the Compose 2.20+ requirement (`include:`). The destructive-migration
+  race is gone with the converter.
 
 ## C5 — `packages add ttsd` installs no Kokoro dependency (2026-07-28, open)
 

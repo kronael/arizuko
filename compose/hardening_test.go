@@ -50,42 +50,6 @@ func TestManagedEnvPreservesTailAfterBlock(t *testing.T) {
 	}
 }
 
-// C3: convertLegacyTOML refuses to overwrite a native .yml sitting next to the
-// .toml (a mixed/partial-migration state) rather than choosing a source.
-func TestLegacyConvertRefusesExistingYML(t *testing.T) {
-	sd := filepath.Join(t.TempDir(), "services")
-	if err := os.MkdirAll(sd, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, filepath.Join(sd, "teled.toml"), "image = \"arizuko:latest\"\nentrypoint = [\"teled\"]\n")
-	mustWrite(t, filepath.Join(sd, "teled.yml"), "services:\n  teled:\n    image: arizuko:latest\n")
-	if err := convertLegacyTOML(sd); err == nil {
-		t.Fatal("expected error when .toml and .yml coexist, got nil")
-	}
-}
-
-// C4: convertLegacyTOML backs the .toml up rather than deleting it, so an
-// incompatible host can roll back the conversion.
-func TestLegacyConvertBacksUpTOML(t *testing.T) {
-	sd := filepath.Join(t.TempDir(), "services")
-	if err := os.MkdirAll(sd, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, filepath.Join(sd, "teled.toml"), "image = \"arizuko:latest\"\nentrypoint = [\"teled\"]\n")
-	if err := convertLegacyTOML(sd); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(sd, "teled.toml.bak")); err != nil {
-		t.Fatal("expected teled.toml.bak backup")
-	}
-	if _, err := os.Stat(filepath.Join(sd, "teled.toml")); !os.IsNotExist(err) {
-		t.Fatal("original .toml should be renamed away")
-	}
-	if _, err := os.Stat(filepath.Join(sd, "teled.yml")); err != nil {
-		t.Fatal("expected teled.yml")
-	}
-}
-
 // C8: a route sidecar with a misspelled field must error, not emit a
 // behaviorally wrong route.
 func TestProxydRoutesRejectUnknownField(t *testing.T) {

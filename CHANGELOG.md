@@ -14,6 +14,22 @@ arizuko is a fork of [nanoclaw](https://github.com/nicholasgasior/nanoclaw)
 
 ## [Unreleased]
 
+### Changed
+
+- **`.yml` is the only package format — the legacy `.toml` converter is gone.**
+  Once every live data dir was migrated (krons/marinade/sloth, `.toml.bak` kept),
+  `compose/legacy.go` was deleted. `arizuko generate` reads `services/*.yml` only.
+
+### Fixed
+
+- **Compose packaging hardening (codex audit C1, C3–C8).** Package names are
+  validated before any path join (no `remove ../x` traversal); `packages add`
+  reads sources then writes atomically and warns on unsatisfied `depends_on`;
+  `writeManagedEnv` fails loud on a malformed managed marker instead of erasing
+  the `.env` tail; route sidecars decode strictly (unknown field errors) and
+  gained `redirect_to`. See `BUGS.md`. (C2, the package-route ↔ proxyd-DB
+  lifecycle, remains a proposal pending design sign-off.)
+
 ## [v0.62.0] — 2026-07-28
 
 > arizuko v0.62.0 — native docker compose packaging

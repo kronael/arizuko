@@ -626,9 +626,6 @@ func Generate(dataDir string) (string, error) {
 	}
 
 	servicesDir := filepath.Join(dataDir, "services")
-	if err := convertLegacyTOML(servicesDir); err != nil {
-		return "", err
-	}
 	services, err := readFragments(servicesDir)
 	if err != nil {
 		return "", err

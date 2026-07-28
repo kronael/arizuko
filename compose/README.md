@@ -58,9 +58,9 @@ slice with each package's routes file at generate time.
 
 ## Files
 
-- `compose.go`
-- `legacy.go` — one-shot `services/*.toml` → `.yml` conversion for data
-  dirs seeded before spec 5/27; delete once none remain
+- `compose.go` — reads `services/*.yml` fragments; `.yml` is the only
+  package format (the pre-5/27 `.toml` converter was removed once every
+  live data dir was on `.yml`).
 
 ## Scoped env keys
 

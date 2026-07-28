@@ -717,9 +717,8 @@ services:
 Container naming: `<app>_<service>_<flavor>` (e.g. `arizuko_teled_krons`).
 `arizuko packages <instance> add <name>` copies a fragment (plus its
 `<name>-routes.json`, if any) into `/srv/data/arizuko_<flavor>/services/`;
-Ansible via `arizuko_instances[].extra_services`. A data dir still holding
-pre-5/27 `services/*.toml` is converted in place on the next
-`arizuko generate` (`compose/legacy.go`).
+Ansible via `arizuko_instances[].extra_services`. `.yml` is the only
+package format; a fragment is a partial compose file docker `include`s.
 
 All Go daemons listen on :8080 internally except ttsd at :8880 —
 historical default that predates the invariant.
