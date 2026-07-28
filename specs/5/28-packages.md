@@ -108,27 +108,43 @@ Partial failure resumes from a durable operation journal (roll-forward), not a
 fake global rollback — filesystem/compose/restart side effects can't be
 transactionally undone (`5/8`).
 
+### Exclusive ownership — no merge, ever
+
+Every managed resource (route, grant, group, seeded file) has **exactly one
+owner, recorded at create time**: a package (its receipt) or `local` (the
+operator). The two sets are disjoint. There is **no three-way merge** — a
+resource is never simultaneously operator-edited and package-managed, so the
+conflict that would require merging cannot arise.
+
+- **Operators never edit a package-owned resource in place.** To change a
+  package's route you either **fork the package** or **`detach`** the resource,
+  which transfers it to `local` and drops it from the receipt — the package
+  stops managing it.
+- **Install collision:** if a package would create a resource a `local` (or
+  another package) already owns — same route path, grant key, group folder —
+  **refuse loudly**. Never overwrite, never merge.
+
 ### The install receipt (this is the provenance)
 
 Each install writes an immutable receipt: package identity (source revision +
-content hash), the file hashes it wrote, the resource primary keys it created,
-and the last-applied payload hash per resource. **The receipt is the ownership
-record the reconciler pretended to derive.**
+content hash), the file hashes it wrote, and the resource primary keys it owns.
+**The receipt is the ownership record the reconciler pretended to derive.**
 
-- **remove** consults the receipt: delete only assets whose current hash still
-  matches what the receipt recorded; on drift, **stop and report the exact
-  conflict** (never silently overwrite or orphan). Refuse if another package's
-  receipt depends on this one.
-- **upgrade** (v1→v2) diffs the new plan against the receipt: three-way (base =
-  last-applied, ours = live, theirs = new) so an operator's field edit and a
-  package's field change don't clobber each other.
+- **remove** deletes exactly the package's owned set (the PKs + files in the
+  receipt). A `detach`ed resource is gone from the receipt, so it is skipped and
+  survives as `local`. Refuse if another package's receipt depends on this one.
+- **upgrade** (v1→v2) replaces the package's owned set wholesale — the package
+  owns those rows outright, so it may add/change/delete within its set freely.
+  No base-vs-live diff, because live == what the package last wrote (operators
+  can't have edited it without detaching first).
 
 ### Resolves `5/27` C2 correctly
 
 `packages remove slakd` reads slakd's receipt, finds the `proxyd_routes` PK it
-created with payload-hash H, and `DELETE /v1/routes/<pk>` **iff** the row still
-hashes H. Operator-edited → drift-stop. The route lifecycle is owned by the
-receipt + the proxyd REST handler, not a generic engine guessing ownership.
+owns, and `DELETE /v1/routes/<pk>`. No hash check, no drift branch: the operator
+could not have edited that row in place (they'd have had to `detach` it, which
+removes it from the receipt). Ownership is exclusive and recorded — not a
+generic engine guessing it.
 
 ### Conditionals and logic
 

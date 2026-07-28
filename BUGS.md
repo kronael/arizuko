@@ -38,11 +38,13 @@ operator-edited row.
 - **Source:** compose/compose.go:342-367,644; proxyd/main.go:233-277
 - **Status:** proposed — resolution designed in `specs/5/28-packages.md`
 - **Fix:** NOT a reconciler (that model was drafted + demolished by codex
-  2026-07-28, `.ship/critique-cto-20260728.md`). Resolution: an **install
-  receipt** records the `proxyd_routes` PK + payload hash a package created;
-  `packages remove` calls `DELETE /v1/routes/<pk>` iff the row still matches the
-  recorded hash, else drift-stops. Provenance = the receipt, not table
-  ownership. Needs sign-off + the receipt schema before implementation.
+  2026-07-28, `.ship/critique-cto-20260728.md`). Resolution: **exclusive
+  ownership + an install receipt.** A resource is package-owned or `local`, never
+  both (no three-way merge). The receipt records the `proxyd_routes` PK a package
+  owns; `packages remove` calls `DELETE /v1/routes/<pk>` for its set — no hash
+  check, since an operator can't have edited a package-owned row without
+  `detach`ing it (which drops it from the receipt). Needs sign-off + the receipt
+  schema before implementation.
 
 ## C3 — legacy conversion overwrites native package files (2026-07-28, open)
 
