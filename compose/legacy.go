@@ -70,24 +70,50 @@ func convertLegacyTOML(servicesDir string) error {
 		if !imageRefRE.MatchString(cfg.Image) {
 			return fmt.Errorf("service %q has invalid image %q (must match image-ref regex)", name, cfg.Image)
 		}
-		if err := os.WriteFile(filepath.Join(servicesDir, name+".yml"), []byte(renderFragment(name, cfg)), 0o644); err != nil {
+		// A native fragment already sitting next to the legacy TOML is a mixed
+		// state (partial migration, or a `packages add` after seeding). Refuse to
+		// silently overwrite the operator's `.yml`/`.json`; the operator resolves
+		// which source wins by deleting the stale one.
+		ymlPath := filepath.Join(servicesDir, name+".yml")
+		if _, err := os.Stat(ymlPath); err == nil {
+			return fmt.Errorf("both %s.toml and %s.yml exist — refusing to overwrite; delete one to resolve", name, name)
+		}
+		routesPath := filepath.Join(servicesDir, name+"-routes.json")
+		if len(cfg.ProxydRoutes) > 0 {
+			if _, err := os.Stat(routesPath); err == nil {
+				return fmt.Errorf("both %s.toml (with routes) and %s-routes.json exist — refusing to overwrite; delete one to resolve", name, name)
+			}
+		}
+		if err := os.WriteFile(ymlPath, []byte(renderFragment(name, cfg)), 0o644); err != nil {
 			return fmt.Errorf("write %s.yml: %w", name, err)
 		}
 		if len(cfg.ProxydRoutes) > 0 {
 			routes := make([]ProxydRoute, len(cfg.ProxydRoutes))
 			for i, r := range cfg.ProxydRoutes {
-				routes[i] = ProxydRoute(r)
+				// legacy TOML routes predate redirect_to; copy the shared fields.
+				routes[i] = ProxydRoute{
+					Path:            r.Path,
+					Backend:         r.Backend,
+					Auth:            r.Auth,
+					GatedBy:         r.GatedBy,
+					PreserveHeaders: r.PreserveHeaders,
+					StripPrefix:     r.StripPrefix,
+				}
 			}
 			b, err := json.MarshalIndent(routes, "", "  ")
 			if err != nil {
 				return fmt.Errorf("encode %s routes: %w", name, err)
 			}
-			if err := os.WriteFile(filepath.Join(servicesDir, name+"-routes.json"), append(b, '\n'), 0o644); err != nil {
+			if err := os.WriteFile(routesPath, append(b, '\n'), 0o644); err != nil {
 				return fmt.Errorf("write %s-routes.json: %w", name, err)
 			}
 		}
-		if err := os.Remove(tomlPath); err != nil {
-			return fmt.Errorf("remove %s: %w", e.Name(), err)
+		// Back up rather than delete: the generated compose uses top-level
+		// `include`, which needs Docker Compose 2.20+. On an older host compose
+		// rejects the new model AFTER conversion — keeping `<name>.toml.bak` lets
+		// the operator restore the pre-v0.62 inputs and downgrade the binary.
+		if err := os.Rename(tomlPath, tomlPath+".bak"); err != nil {
+			return fmt.Errorf("back up %s: %w", e.Name(), err)
 		}
 	}
 	return nil

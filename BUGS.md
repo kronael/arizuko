@@ -7,6 +7,135 @@
 > Redesigns (new contract, changed cross-daemon control flow, auth-model or
 > schema changes) stay recorded as proposals and ship only after user sign-off.
 
+## C1 — package names can traverse outside `services/` (2026-07-28, open)
+
+`arizuko packages <instance> add|remove <name>` joins the unvalidated name
+directly into filesystem paths. `remove ../docker-compose` resolves to the
+instance's `docker-compose.yml`; deeper traversal can delete any accessible
+`.yml` file. The generator validates discovered filenames, but the mutating CLI
+does not apply the same boundary.
+
+- **Severity:** high
+- **Scope:** compose package CLI path containment
+- **Affected:** `arizuko packages add|remove`
+- **Source:** cmd/arizuko/packages.go:72-92
+- **Status:** fixed 2026-07-28
+- **Fix:** `mustPkgName` validates `<name>` against `pkgNameRE` (identRE shape:
+  no leading `.`, no `/`) in both `add` and `remove` before any path join.
+
+## C2 — package routes never update an existing proxyd route table (2026-07-28, proposed)
+
+Package sidecars only change generated `PROXYD_ROUTES_JSON`, but proxyd reads
+that value only when `proxyd_routes` is empty. Adding Slack to an existing
+instance therefore does not install `/slack/`; removing it leaves the persisted
+public route pointing at a missing service. Fixing this needs one authoritative
+package-route lifecycle with provenance so removal cannot erase an
+operator-edited row.
+
+- **Severity:** high
+- **Scope:** compose packages / proxyd route ownership
+- **Affected:** packages with `*-routes.json`, currently slakd
+- **Source:** compose/compose.go:342-367,644; proxyd/main.go:233-277
+- **Status:** proposed
+- **Fix:**
+
+## C3 — legacy conversion overwrites native package files (2026-07-28, open)
+
+When `<name>.toml` coexists with `<name>.yml` or
+`<name>-routes.json`, conversion silently overwrites the native/operator-edited
+file before deleting the TOML. This can happen after a partial/manual migration
+or after `packages add`; the conversion should fail on a non-identical
+destination rather than choose one source implicitly.
+
+- **Severity:** high
+- **Scope:** compose legacy migration
+- **Affected:** pre-v0.62 data dirs with mixed TOML/YAML package state
+- **Source:** compose/legacy.go:73-89
+- **Status:** fixed 2026-07-28
+- **Fix:** convert now `os.Stat`s the destination and errors if `<name>.yml` (or
+  `<name>-routes.json` when the TOML has routes) already exists — no silent
+  overwrite; the operator deletes the stale source to resolve.
+
+## C4 — compose migration accepts unsupported Compose v2 versions (2026-07-28, open)
+
+The generated file uses top-level `include`, which requires Docker Compose
+2.20+, while INSTALL.md accepts any Compose v2. On an older qualifying host,
+generation first converts and deletes legacy TOMLs, then Compose rejects the
+new model; the old binary no longer has its adapter inputs for rollback.
+
+- **Severity:** high
+- **Scope:** compose compatibility / upgrade preflight
+- **Affected:** hosts running Docker Compose v2.0-v2.19
+- **Source:** compose/compose.go:601-603,656-660; INSTALL.md:20-21
+- **Status:** fixed 2026-07-28
+- **Fix:** convert backs the TOML up as `<name>.toml.bak` instead of deleting, so
+  an incompatible (Compose <2.20) host can roll back; INSTALL.md now states the
+  2.20+ requirement. (A live docker-version preflight can't run in the `generate`
+  container — no docker CLI there — so reversibility is the guarantee.)
+
+## C5 — `packages add ttsd` installs no Kokoro dependency (2026-07-28, open)
+
+The CLI copies only the named fragment, but `ttsd.yml` has a required
+`depends_on: [kokoro]` and Kokoro is a separate package. Adding ttsd alone—or
+removing Kokoro while ttsd remains—makes the whole Compose model invalid.
+
+- **Severity:** high
+- **Scope:** compose package dependencies
+- **Affected:** ttsd / kokoro
+- **Source:** cmd/arizuko/packages.go:70-83; template/services/ttsd.yml:11-13
+- **Status:** fixed 2026-07-28
+- **Fix:** `add` parses the fragment's `depends_on` and warns for any dep that is
+  neither a base daemon nor an enabled package (e.g. `ttsd` → `kokoro`).
+
+## C6 — malformed compose-managed marker can erase `.env` tail (2026-07-28, open)
+
+`writeManagedEnv` treats any prefix match as a marker and never checks marker
+balance. An unmatched begin marker causes every following operator line,
+including tokens and feature flags, to be omitted from the atomic replacement.
+Complete blocks, CRLF, and missing trailing newlines are otherwise idempotent.
+
+- **Severity:** medium
+- **Scope:** compose-managed `.env` rewrite
+- **Affected:** data dirs with malformed or partially edited managed markers
+- **Source:** compose/compose.go:443-454
+- **Status:** fixed 2026-07-28
+- **Fix:** `writeManagedEnv` now finds a single well-formed `[begin,end]` block and
+  fails loud on any malformed marker (begin without end, duplicate, end-first)
+  instead of dropping every following line — operator secrets can't be erased.
+
+## C7 — package add can overwrite or partially install a package (2026-07-28, open)
+
+`packages add` writes the live YAML directly before reading/writing its optional
+route sidecar. Re-adding truncates an operator-customized fragment; a sidecar
+read/write failure leaves the fragment enabled despite the command reporting
+failure. Package input should be validated and staged before any destination is
+replaced.
+
+- **Severity:** medium
+- **Scope:** compose package CLI atomicity
+- **Affected:** `arizuko packages add`
+- **Source:** cmd/arizuko/packages.go:70-83,100-105
+- **Status:** fixed 2026-07-28
+- **Fix:** `add` reads every source (fragment + optional routes) BEFORE writing any
+  destination, and each write goes through `writeFileAtomic` (temp + rename) — no
+  half-written fragment on a routes read/write error.
+
+## C8 — route sidecars silently discard unknown fields (2026-07-28, open)
+
+Package route JSON is decoded with permissive `json.Unmarshal`, so a misspelled
+optional field such as `strip_prefx` is ignored and a valid-looking but
+behaviorally wrong route is emitted. The compose route type also drifts from
+proxyd's route shape by omitting `redirect_to`.
+
+- **Severity:** medium
+- **Scope:** compose package route schema
+- **Affected:** custom package `*-routes.json` files
+- **Source:** compose/compose.go:279-286,357-359
+- **Status:** fixed 2026-07-28
+- **Fix:** route sidecars decode with `DisallowUnknownFields` (a misspelled
+  `strip_prefx` now errors), and `ProxydRoute` gained `redirect_to` to match
+  proxyd's route shape.
+
 ## T1 — stalled typing indicator on timed-out/errored turns (2026-07-26, open)
 
 Symptom (krons, telegram:user/1112184352, 2026-07-26): the agent shows "typing…"

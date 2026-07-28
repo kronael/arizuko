@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -283,6 +284,7 @@ type ProxydRoute struct {
 	GatedBy         string   `json:"gated_by,omitempty"`
 	PreserveHeaders []string `json:"preserve_headers,omitempty"`
 	StripPrefix     bool     `json:"strip_prefix,omitempty"`
+	RedirectTo      string   `json:"redirect_to,omitempty"`
 }
 
 // coreProxydRoutes are the always-emitted routes for core daemons rendered
@@ -354,8 +356,12 @@ func collectProxydRoutes(servicesDir string, services []string, env map[string]s
 		if err != nil {
 			return nil, fmt.Errorf("read %s-routes.json: %w", name, err)
 		}
+		// Strict decode: a misspelled optional field (`strip_prefx`) must error,
+		// not silently emit a valid-looking but behaviorally wrong route.
 		var routes []ProxydRoute
-		if err := json.Unmarshal(b, &routes); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&routes); err != nil {
 			return nil, fmt.Errorf("parse %s-routes.json: %w", name, err)
 		}
 		for _, r := range routes {
@@ -440,17 +446,38 @@ func writeManagedEnv(dataDir, app, flavor string, profiles []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	var keep []string
-	inBlock := false
-	for _, line := range strings.Split(string(prev), "\n") {
+	// Strip only a single well-formed [begin, end] block. A malformed marker
+	// (a begin with no end, duplicate markers, or end-before-begin) is
+	// corruption — fail loud rather than silently drop every operator line after
+	// it (which would erase AUTH_SECRET/SECRETS_KEY/tokens).
+	lines := strings.Split(string(prev), "\n")
+	begin, end := -1, -1
+	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, managedBegin):
-			inBlock = true
+			if begin != -1 {
+				return fmt.Errorf(".env has multiple %q markers — resolve manually", managedBegin)
+			}
+			begin = i
 		case strings.HasPrefix(line, managedEnd):
-			inBlock = false
-		case !inBlock:
-			keep = append(keep, line)
+			if begin == -1 {
+				return fmt.Errorf(".env has %q with no preceding begin — resolve manually", managedEnd)
+			}
+			if end != -1 {
+				return fmt.Errorf(".env has multiple %q markers — resolve manually", managedEnd)
+			}
+			end = i
 		}
+	}
+	if begin != -1 && end == -1 {
+		return fmt.Errorf(".env has %q with no matching end — refusing to rewrite; resolve manually", managedBegin)
+	}
+	var keep []string
+	if begin != -1 {
+		keep = append(keep, lines[:begin]...)
+		keep = append(keep, lines[end+1:]...)
+	} else {
+		keep = lines
 	}
 	body := strings.TrimRight(strings.Join(keep, "\n"), "\n")
 	var b strings.Builder

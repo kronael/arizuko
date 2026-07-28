@@ -17,8 +17,9 @@ go version    # need 1.25+; missing or <1.25 = blocker
 # 3. Docker daemon running
 docker info >/dev/null 2>&1 && echo "docker ok" || echo "docker MISSING"
 
-# 4. Docker Compose v2
-docker compose version   # need v2+; "command not found" = blocker
+# 4. Docker Compose v2.20+
+docker compose version   # need v2.20+ (generated compose uses top-level `include:`);
+                         # "command not found" = blocker, < 2.20 = upgrade first
 
 # 5. Docker socket access (for arizuko run)
 # User must either be in docker group OR run with sudo
