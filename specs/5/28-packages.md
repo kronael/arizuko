@@ -63,7 +63,7 @@ arizuko packages install github.com/kronael/sloth[@v1.0.0]
   8. print: "needs restart if compose changed"
 ```
 
-## Install lifecycle — a receipt, not a reconciler
+## Install lifecycle — distributor-managed
 
 > **A declarative reconciler was drafted here and demolished** (codex, 2026-07-28;
 > full critique `.ship/critique-cto-20260728.md`). It proposed one engine running
@@ -89,7 +89,9 @@ arizuko packages install github.com/kronael/sloth[@v1.0.0]
 >   / gate / audit.
 
 The survivable model: install is a **deterministic phased plan through the owner
-REST APIs, recorded in a per-install receipt.** No universal reconciler.
+REST APIs**, with the package (the distributor) authoritative. No universal
+reconciler, no per-row provenance schema — a package owns exactly the identities
+its manifest declares.
 
 ### Phased install
 
@@ -108,43 +110,56 @@ Partial failure resumes from a durable operation journal (roll-forward), not a
 fake global rollback — filesystem/compose/restart side effects can't be
 transactionally undone (`5/8`).
 
-### Exclusive ownership — no merge, ever
+### Distributor-managed — the package is authoritative
 
-Every managed resource (route, grant, group, seeded file) has **exactly one
-owner, recorded at create time**: a package (its receipt) or `local` (the
-operator). The two sets are disjoint. There is **no three-way merge** — a
-resource is never simultaneously operator-edited and package-managed, so the
-conflict that would require merging cannot arise.
+A package **declares its assets by identity**: skills, routes (by path), grants
+(by key), a group folder, seeded files. Install and upgrade **write those,
+overwriting whatever is there** — the distributor's version wins. No `owner`
+column, no precedence rules, no three-way merge, no fork/detach verbs. The
+manifest names what the package owns; there is nothing else to track.
 
-- **Operators never edit a package-owned resource in place.** To change a
-  package's route you either **fork the package** or **`detach`** the resource,
-  which transfers it to `local` and drops it from the receipt — the package
-  stops managing it.
-- **Install collision:** if a package would create a resource a `local` (or
-  another package) already owns — same route path, grant key, group folder —
-  **refuse loudly**. Never overwrite, never merge.
+- **A package owns exactly the identities its manifest declares.** Anything at an
+  identity **no** package declares is operator-local and never touched — your own
+  route at a different path is safe by construction.
+- **remove** deletes the manifest's identities — `DELETE /v1/routes/<path>`, drop
+  the skills/files — through the owner REST handler (`5/17`). Refuse if another
+  package declares a dependency on this one.
+- **upgrade** writes the new manifest over the old and deletes assets the old
+  declared that the new drops. Overwrite, never merge.
 
-### The install receipt (this is the provenance)
+### The upstream channel — the only "local" story
 
-Each install writes an immutable receipt: package identity (source revision +
-content hash), the file hashes it wrote, and the resource primary keys it owns.
-**The receipt is the ownership record the reconciler pretended to derive.**
+An agent or operator may change a package asset in place; it works until the next
+upgrade **overwrites** it. Local edits are **provisional by design**. The durable
+path is a clear channel telling the distributor which change to incorporate: the
+agent submits the diff + rationale via the existing `issues` / `gh-issue` MCP,
+and the distributor folds it into the next release — where it ships back as a
+package asset.
 
-- **remove** deletes exactly the package's owned set (the PKs + files in the
-  receipt). A `detach`ed resource is gone from the receipt, so it is skipped and
-  survives as `local`. Refuse if another package's receipt depends on this one.
-- **upgrade** (v1→v2) replaces the package's owned set wholesale — the package
-  owns those rows outright, so it may add/change/delete within its set freely.
-  No base-vs-live diff, because live == what the package last wrote (operators
-  can't have edited it without detaching first).
+```
+local edit → next upgrade overwrites it → but the agent filed it upstream
+     ↑                                                        ↓
+     └──────  next release ships it as a package asset  ←─────┘
+```
 
-### Resolves `5/27` C2 correctly
+Local is the R&D edge; upstream is the durable form — `6/`'s agentic-
+reimplementation loop. "Keep it local forever" = fork the package (run your own
+distributor). Nothing an agent cares about is silently lost: an overwrite worth
+keeping was already proposed upstream.
 
-`packages remove slakd` reads slakd's receipt, finds the `proxyd_routes` PK it
-owns, and `DELETE /v1/routes/<pk>`. No hash check, no drift branch: the operator
-could not have edited that row in place (they'd have had to `detach` it, which
-removes it from the receipt). Ownership is exclusive and recorded — not a
-generic engine guessing it.
+### Skills use the same model
+
+Skills are distributor-managed too — a skill upgrade **overwrites** the local
+copy, **retiring the `/migrate` 3-way merge** (`~/.claude/.merge-base/`
+inline-merge). A local skill tweak worth keeping goes upstream as an issue, not
+into an inline merge. Skills stop being a special case.
+
+### Resolves `5/27` C2
+
+`packages remove slakd` reads slakd's manifest, sees it declares `/slack/`, and
+`DELETE /v1/routes` for that path through proxyd's REST handler — so the live
+`proxyd_routes` table updates (not a regenerated JSON blob proxyd ignores). The
+manifest names what to remove; no ownership guessing.
 
 ### Conditionals and logic
 
