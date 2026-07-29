@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -53,6 +54,71 @@ func packageTemplates(dataDir string) string {
 func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
+}
+
+// isGitURL reports whether src is a remote git source rather than a local dir.
+func isGitURL(src string) bool {
+	return strings.HasPrefix(src, "git+") || strings.HasPrefix(src, "git@") ||
+		strings.HasPrefix(src, "github.com/") || strings.Contains(src, "://")
+}
+
+// fetchSource resolves a package source to a local directory + a revision. A
+// local path is used as-is (revision "local"); a git URL is shallow-cloned to a
+// temp dir and its HEAD commit recorded. cleanup removes any temp clone (noop
+// for a local path). Recursive removal is of arizuko's OWN temp dir only.
+func fetchSource(src string) (dir, revision string, cleanup func()) {
+	if !isGitURL(src) {
+		return strings.TrimRight(src, "/"), "local", func() {}
+	}
+	url := strings.TrimPrefix(src, "git+")
+	if strings.HasPrefix(url, "github.com/") {
+		url = "https://" + url
+	}
+	tmp, err := os.MkdirTemp("", "arizuko-pkg-")
+	if err != nil {
+		die("Failed: temp dir: %v", err)
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	if out, err := exec.Command("git", "clone", "--depth", "1", url, tmp).CombinedOutput(); err != nil {
+		cleanup()
+		die("Failed: git clone %s: %v\n%s", url, err, out)
+	}
+	rev, err := exec.Command("git", "-C", tmp, "rev-parse", "HEAD").Output()
+	if err != nil {
+		cleanup()
+		die("Failed: git rev-parse %s: %v", url, err)
+	}
+	return tmp, strings.TrimSpace(string(rev)), cleanup
+}
+
+// packageName derives the package name from its source — the last path segment
+// (git URL or local dir), minus a trailing `.git`.
+func packageName(origin string) string {
+	s := strings.TrimSuffix(strings.TrimRight(strings.TrimPrefix(origin, "git+"), "/"), ".git")
+	return filepath.Base(s)
+}
+
+// readFragmentAssets returns the compose-fragment asset filenames in dir
+// (`*.yml` + `<name>-routes.json`) and their content hashes.
+func readFragmentAssets(dir string) (files []string, hashes map[string]string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		die("Failed: read source %s: %v", dir, err)
+	}
+	hashes = map[string]string{}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, "-routes.json")) {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			die("Failed: read %s: %v", n, err)
+		}
+		files = append(files, n)
+		hashes["file:"+n] = sha256hex(b)
+	}
+	return files, hashes
 }
 
 // sha256hex returns the hex sha256 of b — the per-asset content hash the
@@ -173,37 +239,23 @@ func cmdPackages(args []string) {
 		// and writes the record; git source resolution, skills, and row assets
 		// (proxyd_routes / acl via REST) are P1b/P2.
 		need(args, 3, usage)
-		src := strings.TrimRight(args[2], "/")
-		name := filepath.Base(src)
+		origin := args[2]
+		name := packageName(origin)
 		mustPkgName(name)
-		entries, err := os.ReadDir(src)
-		if err != nil {
-			die("Failed: read source %s: %v", src, err)
-		}
-		var fragments []string
-		hashes := map[string]string{}
-		for _, e := range entries {
-			n := e.Name()
-			if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, "-routes.json")) {
-				continue
-			}
-			b, err := os.ReadFile(filepath.Join(src, n))
-			if err != nil {
-				die("Failed: read %s: %v", n, err)
-			}
-			hashes["file:"+n] = sha256hex(b)
-			// Stage all reads before any write (whole-or-nothing); collect here,
-			// write below only once every asset read cleanly.
-			fragments = append(fragments, n)
-		}
-		if len(fragments) == 0 {
-			die("Failed: no compose fragment (*.yml) in source %s", src)
+		dir, revision, cleanup := fetchSource(origin)
+		defer cleanup()
+		files, hashes := readFragmentAssets(dir)
+		if len(files) == 0 {
+			die("Failed: no compose fragment (*.yml) in source %s", origin)
 		}
 		if err := os.MkdirAll(svcDir, 0o755); err != nil {
 			die("Failed: mkdir services: %v", err)
 		}
-		for _, n := range fragments {
-			b, _ := os.ReadFile(filepath.Join(src, n))
+		for _, n := range files {
+			b, err := os.ReadFile(filepath.Join(dir, n))
+			if err != nil {
+				die("Failed: read %s: %v", n, err)
+			}
 			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
 				die("Failed: install %s: %v", n, err)
 			}
@@ -212,15 +264,15 @@ func cmdPackages(args []string) {
 		defer rdb.Close()
 		if err := rdb.PutInstalledPackage(routd.InstalledPackage{
 			Name:        name,
-			Source:      src,
-			Revision:    "local",
-			Manifest:    map[string][]string{"compose_fragment": fragments},
+			Source:      origin,
+			Revision:    revision,
+			Manifest:    map[string][]string{"compose_fragment": files},
 			AssetHashes: hashes,
 			InstalledAt: time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
 			die("Failed: record install of %s: %v", name, err)
 		}
-		fmt.Printf("installed %s (%d file(s)) — run `arizuko generate %s` to apply\n", name, len(fragments), args[0])
+		fmt.Printf("installed %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n", name, revision, len(files), args[0])
 	case "upgrade":
 		// P3 (spec 5/28): re-install a package's assets from its recorded source,
 		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
@@ -243,26 +295,20 @@ func cmdPackages(args []string) {
 				"  delete the file(s) then upgrade; keep-mine: file the diff upstream + fork.",
 				name, strings.Join(dirty, ", "))
 		}
-		entries, err := os.ReadDir(rec.Source)
-		if err != nil {
-			die("Failed: read source %s: %v", rec.Source, err)
+		dir, revision, cleanup := fetchSource(rec.Source)
+		defer cleanup()
+		newFiles, newHashes := readFragmentAssets(dir)
+		if len(newFiles) == 0 {
+			die("Failed: no compose fragment in source %s", rec.Source)
 		}
-		newHashes := map[string]string{}
-		var newFiles []string
-		for _, e := range entries {
-			n := e.Name()
-			if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, "-routes.json")) {
-				continue
-			}
-			b, err := os.ReadFile(filepath.Join(rec.Source, n))
+		for _, n := range newFiles {
+			b, err := os.ReadFile(filepath.Join(dir, n))
 			if err != nil {
 				die("Failed: read %s: %v", n, err)
 			}
 			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
 				die("Failed: upgrade %s: %v", n, err)
 			}
-			newHashes["file:"+n] = sha256hex(b)
-			newFiles = append(newFiles, n)
 		}
 		// Delete assets the old record owned that the new source dropped.
 		for k := range rec.AssetHashes {
@@ -273,13 +319,14 @@ func cmdPackages(args []string) {
 				_ = os.Remove(filepath.Join(svcDir, fn))
 			}
 		}
+		rec.Revision = revision
 		rec.Manifest = map[string][]string{"compose_fragment": newFiles}
 		rec.AssetHashes = newHashes
 		rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
 		if err := rdb.PutInstalledPackage(rec); err != nil {
 			die("Failed: record upgrade: %v", err)
 		}
-		fmt.Printf("upgraded %s (%d file(s)) — run `arizuko generate %s` to apply\n", name, len(newFiles), args[0])
+		fmt.Printf("upgraded %s@%s (%d file(s)) — run `arizuko generate %s` to apply\n", name, revision, len(newFiles), args[0])
 	case "remove":
 		need(args, 3, usage)
 		name := args[2]

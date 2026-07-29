@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,5 +174,56 @@ func TestPackagesUpgradeClean(t *testing.T) {
 	rec, ok, _ := rdb.InstalledPackage("up")
 	if !ok || rec.AssetHashes["file:up.yml"] != sha256hex(b) {
 		t.Fatalf("record hash not updated on upgrade: %+v", rec)
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "add", "."},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// TestPackagesInstallGit is P1b (spec 5/28): install from a git source resolves
+// an immutable revision (not "local") and records it, cloning via file:// URL.
+func TestPackagesInstallGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_g")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(base, "gitpkg")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "gitpkg.yml"),
+		[]byte("services:\n  gitpkg:\n    image: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, repo)
+
+	cmdPackages([]string{"g", "install", "file://" + repo})
+
+	if _, err := os.Stat(filepath.Join(dataDir, "services", "gitpkg.yml")); err != nil {
+		t.Fatalf("git package fragment not installed: %v", err)
+	}
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb.Close()
+	rec, ok, _ := rdb.InstalledPackage("gitpkg")
+	if !ok || rec.Revision == "local" || len(rec.Revision) < 7 || rec.Source != "file://"+repo {
+		t.Fatalf("git revision/source not recorded: %+v", rec)
 	}
 }
