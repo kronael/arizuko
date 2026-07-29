@@ -4,24 +4,22 @@ status: partial
 
 # specs/5/28 — arizuko packages
 
-> **Implementation status (2026-07-29).** The package-manager lifecycle is fully
-> implemented + tested for the compose-fragment + proxyd-route asset kinds —
-> install / upgrade / remove, git or local source, record-backed, dirty-safe,
-> routes hot-applied to the live table. ~18 tests green.
+> **Implementation status (2026-07-29).** The package manager is implemented +
+> tested end-to-end — install / upgrade / remove, git or local source,
+> record-backed, dirty-safe — across **all four package-install asset kinds**:
+> compose-fragment, proxyd-route (hot-applied live), grant/acl, and skills.
+> ~22 tests green. (Group-seed is create-time `5/21`, not a package asset.)
 >
 > - **P0** installed-package record — `routd/packages_store.go`, migration `0020`. (`7f41a63d`)
-> - **P1** `packages install <source>` + record-driven `remove`. (`c53ab0d2`)
-> - **P3** `packages upgrade` with **dirty-detection** (refuses to overwrite a
->   locally edited asset). (`c0557df8`)
-> - **P1b** git source resolution — clone + record the resolved revision. (`83b7d009`)
-> - **P2** hot-apply routes to the live `proxyd_routes` table (proxyd reads it per
->   request → no restart) — **fixes `5/27` C2**; remove deletes them. (`911a5ca2`)
-> - **P4** remove withdraws the route BEFORE the fragment (no teardown window);
->   bring-up health-gating is compose's (`healthcheck`+`depends_on`) — the CLI
->   can't reach docker-internal backends.
+> - **P1** install + record-driven remove (`c53ab0d2`) · **P1b** git source (`83b7d009`)
+> - **P3** upgrade with dirty-detection (refuses to overwrite a local edit). (`c0557df8`)
+> - **P2** hot-apply routes to live `proxyd_routes` — **fixes `5/27` C2**. (`911a5ca2`)
+> - **P4** remove withdraws routes before fragments (no teardown window). (`4b15913e`)
+> - **grant** asset (`4f2e77b2`) · **skills** asset + seedSkills layer (`55eef35b`)
 >
-> Deferred to a release DoD: skills + acl + group-seed asset kinds, repo/web
-> docs, dashd surface, migration broadcast. Plan: `.ship/plan-packages.md`.
+> Remaining for `status: shipped`: repo/web docs (partly done — EXTENDING +
+> CHANGELOG), a `dashd` surface for installed packages, and the migration /
+> release tag. Plan: `.ship/plan-packages.md`.
 
 Source-first package manager: a package is a **git source** (GitHub URL,
 resolved to an immutable revision) that ships a **manifest** plus any subset of
@@ -57,13 +55,17 @@ One manifest, and it is the **shipped `PRODUCT.md`** (`5/21`) — NOT a second
 `package.yaml`. A package declares any SUBSET of asset kinds (no
 `skill|agent|sidecar` type enum — presence of an asset is the behaviour):
 
-| Asset kind       | What it is                                            | Owner handler                         |
-| ---------------- | ----------------------------------------------------- | ------------------------------------- |
-| skills           | `SKILL.md` dirs → `ant/skills/<name>/`                | `seedSkills` + `/migrate` 3-way merge |
-| compose fragment | `services/<name>.yml` (+ `<name>-routes.json`)        | `5/27` (a file)                       |
-| proxyd route     | a `proxyd_routes` row, keyed by path                  | `/v1/proxyd_routes`                   |
-| grant            | an `acl` row, keyed by key                            | `/v1/acl`                             |
-| group seed       | a folder template, **seeded once** → then local state | `SetupGroup`                          |
+| Asset kind       | What it is                                                    | Owner handler                                     |
+| ---------------- | ------------------------------------------------------------- | ------------------------------------------------- |
+| skills           | `skills/<name>/` → `<datadir>/skills/`, layered by seedSkills | `seedSkills` (+ `/migrate` 3-way merge for stock) |
+| compose fragment | `<name>.yml` (+ `<name>-routes.json`)                         | `5/27` (a file)                                   |
+| proxyd route     | a `proxyd_routes` row, keyed by path                          | `store.PutProxydRoute` (live)                     |
+| grant            | an `acl` row, keyed by identity                               | `store.PutACLRow`                                 |
+
+A **group seed is NOT a package-install asset** — a package installs
+instance-wide, but seeding a group is inherently create-a-specific-group. That is
+`arizuko create --product` / a `5/21` product applied at group creation, not
+here.
 
 `requires:` (env vars) is a preflight **warning**, never a gate.
 
