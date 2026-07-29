@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kronael/arizuko/routd"
@@ -114,5 +115,63 @@ func TestPackagesInstallRemove(t *testing.T) {
 	defer rdb2.Close()
 	if _, ok, _ := rdb2.InstalledPackage("teledpkg"); ok {
 		t.Fatal("record not removed")
+	}
+}
+
+// TestDirtyAssets is P3's safety core (spec 5/28): a recorded asset whose
+// on-disk content still matches its install hash is clean; an operator edit
+// makes it dirty, so upgrade will refuse to overwrite it.
+func TestDirtyAssets(t *testing.T) {
+	svc := t.TempDir()
+	if err := os.WriteFile(filepath.Join(svc, "a.yml"), []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := routd.InstalledPackage{AssetHashes: map[string]string{"file:a.yml": sha256hex([]byte("v1"))}}
+	if d := dirtyAssets(svc, rec); len(d) != 0 {
+		t.Fatalf("clean asset flagged dirty: %v", d)
+	}
+	if err := os.WriteFile(filepath.Join(svc, "a.yml"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if d := dirtyAssets(svc, rec); len(d) != 1 || d[0] != "a.yml" {
+		t.Fatalf("edited asset not flagged dirty: %v", d)
+	}
+}
+
+// TestPackagesUpgradeClean: an unedited install upgrades to the source's new
+// revision and the record hash updates.
+func TestPackagesUpgradeClean(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("ARIZUKO_DATA_DIR", base)
+	dataDir := filepath.Join(base, "arizuko_u")
+	if err := os.MkdirAll(filepath.Join(dataDir, "store"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(base, "up")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "up.yml"), []byte("services:\n  up:\n    image: v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"u", "install", src})
+
+	if err := os.WriteFile(filepath.Join(src, "up.yml"), []byte("services:\n  up:\n    image: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmdPackages([]string{"u", "upgrade", "up"})
+
+	b, err := os.ReadFile(filepath.Join(dataDir, "services", "up.yml"))
+	if err != nil || !strings.Contains(string(b), "v2") {
+		t.Fatalf("upgrade did not apply new version: %s (err %v)", b, err)
+	}
+	rdb, err := routd.Open(filepath.Join(dataDir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rdb.Close()
+	rec, ok, _ := rdb.InstalledPackage("up")
+	if !ok || rec.AssetHashes["file:up.yml"] != sha256hex(b) {
+		t.Fatalf("record hash not updated on upgrade: %+v", rec)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -73,6 +74,29 @@ func mustOpenRoutd(dataDir string) *routd.DB {
 	return rdb
 }
 
+// dirtyAssets returns the record's file assets whose current on-disk content no
+// longer matches the install hash — the locally edited ones an upgrade must
+// refuse to overwrite (spec 5/28: no blind overwrite). A missing file is not
+// dirty (upgrade recreates it). Result is sorted for a stable message.
+func dirtyAssets(svcDir string, rec routd.InstalledPackage) []string {
+	var dirty []string
+	for k, recorded := range rec.AssetHashes {
+		fn, isFile := strings.CutPrefix(k, "file:")
+		if !isFile {
+			continue
+		}
+		cur, err := os.ReadFile(filepath.Join(svcDir, fn))
+		if err != nil {
+			continue
+		}
+		if sha256hex(cur) != recorded {
+			dirty = append(dirty, fn)
+		}
+	}
+	sort.Strings(dirty)
+	return dirty
+}
+
 // listFragments returns the `<name>.yml` service fragments in dir.
 func listFragments(dir string) []string {
 	entries, _ := os.ReadDir(dir)
@@ -90,7 +114,7 @@ func listFragments(dir string) []string {
 // bundled catalog into <dataDir>/services/. `arizuko generate` includes every
 // fragment it finds there.
 func cmdPackages(args []string) {
-	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | remove <name>"
+	usage := "arizuko packages <instance> list | add <name> | install <source-dir> | upgrade <name> | remove <name>"
 	need(args, 2, usage)
 	dataDir := mustInstanceDir(args[0])
 	tmplDir := packageTemplates(dataDir)
@@ -197,6 +221,65 @@ func cmdPackages(args []string) {
 			die("Failed: record install of %s: %v", name, err)
 		}
 		fmt.Printf("installed %s (%d file(s)) — run `arizuko generate %s` to apply\n", name, len(fragments), args[0])
+	case "upgrade":
+		// P3 (spec 5/28): re-install a package's assets from its recorded source,
+		// but REFUSE to overwrite a locally edited (dirty) asset — emit which and
+		// stop, rather than clobber the operator's change.
+		need(args, 3, usage)
+		name := args[2]
+		mustPkgName(name)
+		rdb := mustOpenRoutd(dataDir)
+		defer rdb.Close()
+		rec, ok, err := rdb.InstalledPackage(name)
+		if err != nil {
+			die("Failed: read record: %v", err)
+		}
+		if !ok {
+			die("Failed: %s is not installed", name)
+		}
+		if dirty := dirtyAssets(svcDir, rec); len(dirty) > 0 {
+			die("Failed: %s has locally edited asset(s): %s\n"+
+				"  upgrade refuses to overwrite them (spec 5/28). Resolve first — take-theirs:\n"+
+				"  delete the file(s) then upgrade; keep-mine: file the diff upstream + fork.",
+				name, strings.Join(dirty, ", "))
+		}
+		entries, err := os.ReadDir(rec.Source)
+		if err != nil {
+			die("Failed: read source %s: %v", rec.Source, err)
+		}
+		newHashes := map[string]string{}
+		var newFiles []string
+		for _, e := range entries {
+			n := e.Name()
+			if e.IsDir() || !(strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, "-routes.json")) {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(rec.Source, n))
+			if err != nil {
+				die("Failed: read %s: %v", n, err)
+			}
+			if err := writeFileAtomic(filepath.Join(svcDir, n), b); err != nil {
+				die("Failed: upgrade %s: %v", n, err)
+			}
+			newHashes["file:"+n] = sha256hex(b)
+			newFiles = append(newFiles, n)
+		}
+		// Delete assets the old record owned that the new source dropped.
+		for k := range rec.AssetHashes {
+			if _, present := newHashes[k]; present {
+				continue
+			}
+			if fn, isFile := strings.CutPrefix(k, "file:"); isFile {
+				_ = os.Remove(filepath.Join(svcDir, fn))
+			}
+		}
+		rec.Manifest = map[string][]string{"compose_fragment": newFiles}
+		rec.AssetHashes = newHashes
+		rec.InstalledAt = time.Now().UTC().Format(time.RFC3339)
+		if err := rdb.PutInstalledPackage(rec); err != nil {
+			die("Failed: record upgrade: %v", err)
+		}
+		fmt.Printf("upgraded %s (%d file(s)) — run `arizuko generate %s` to apply\n", name, len(newFiles), args[0])
 	case "remove":
 		need(args, 3, usage)
 		name := args[2]
